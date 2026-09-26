@@ -204,9 +204,16 @@ prompt. For `init` the preflight also runs FIRST, and a declined or failed
 install ABORTS before any write (the message names the manual command, notes
 the installed binary, and gives the rerun). The Homebrew bootstrap prompts
 for an admin password, so a run with no terminal prints its instructions
-instead of attempting it, and the server's own installer route refuses it by
-name. A prompt-less refusal with no supported installer falls back to the
-plain refusal, byte-identical to before (CI never gets asked); a refusal
-taken with nobody to ask at all (no TTY, no `--yes`) adds one line naming
-that remedy. `service install` takes no `--yes`, so its offer keeps the
+instead of attempting it; MacPorts flags the same property (it
+self-escalates, no parent sudo in its argv), and both the preflight and the
+server's own installer route gate on that FLAG, not a label string, so a
+display rename cannot re-admit either to a caller with no terminal. The refusal's own two
+lines (the need, and the manual command with the escape hatch) are the
+2026-09-03 text everywhere, and `service install` prints exactly those and
+nothing more, byte-stable since; what GREW is only on `init`/`configure`,
+and by exactly ONE remedy line, never two (review 2026-09-26): a no-TTY
+no-`--yes` run gets the decline notice naming how to get the offer back
+(where some installer exists to honor the promise; CI never gets asked and
+gets neither), every other case gets the rerun note naming the installed
+binary. `service install` takes no `--yes`, so its offer keeps the
 2026-09-03 TTY-only rule unchanged.

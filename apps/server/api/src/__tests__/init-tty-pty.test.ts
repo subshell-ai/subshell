@@ -25,7 +25,8 @@ import { join } from "node:path";
  *   (`setsid` + `TIOCSCTTY`), so `/dev/tty` resolves even when the test itself
  *   runs from a tmux pane or from a headless CI runner;
  * - the driver types Enter at the master every 0.4 s: an interview taking
- *   defaults, on the attached fd, is what "the swap works" means here.
+ *   defaults, on the attached fd, is what "the attachment works" means here
+ *   (the fd-0 SWAP is the rejected design; this proves the shipped fd path).
  *
  * python3 is the pty allocator (the repo has no pty dependency; the task
  * ruling sanctioned exactly this shape for this ONE scenario). A host without
@@ -116,8 +117,8 @@ log.close()
 sys.exit(os.waitstatus_to_exitcode(status) if status is not None else 124)
 `;
 
-describe("init under a real pty: the fd-0 swap reaches clack (spec 2026-09-26)", () => {
-  test("piped stdin + terminal stdout: init attaches /dev/tty and runs the interview", async () => {
+describe("init under a real pty: the swapped interview is answered through the fd readers (spec 2026-09-26)", () => {
+  test("piped stdin + terminal stdout: init attaches /dev/tty and completes the interview on that fd", async () => {
     if (!Bun.which("python3")) {
       console.warn("init-tty-pty: python3 not found on this host, scenario skipped");
       return;
@@ -134,7 +135,9 @@ describe("init under a real pty: the fd-0 swap reaches clack (spec 2026-09-26)",
     // cache) off the developer's real home. The flags pin port and base URL
     // so the assertions hold no matter what a local .env carries; the HOST,
     // TRUSTED_ORIGINS and DATABASE_PATH questions still run for real, which
-    // is the point: clack must PROMPT on the swapped tty.
+    // is the point: the fd-based readers must PROMPT on the attached tty and
+    // carry a full interview (clack deliberately does NOT run on swapped
+    // runs — that design was measured to strand; see tty-input.ts).
     const proc = Bun.spawn(
       [
         "python3",
@@ -173,8 +176,9 @@ describe("init under a real pty: the fd-0 swap reaches clack (spec 2026-09-26)",
       `driver exit ${code}\n--- driver stderr ---\n${stderr.slice(0, 2000)}\n--- screen ---\n${screen.slice(0, 4000)}`;
 
     expect(code, context()).toBe(0);
-    // The proof, stated twice: a clack PROMPT rendered on the tty screen,
-    // and NOT the silent-default path a failed swap would have taken.
+    // The proof, stated twice: a question rendered by the fd-based reader on
+    // the attached tty, and NOT the silent-default path a terminal-less run
+    // would have taken.
     expect(screen, context()).toContain("Bind address");
     expect(screen, context()).not.toContain("not interactive");
     // And the answers crossed the other way: ENTER took the defaults and

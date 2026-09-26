@@ -96,22 +96,21 @@ export function refuseTmuxInstall(deps: TmuxInstallDeps): { installer: TmuxInsta
     };
   }
   // The 2026-09-26 ladder widened the CLI's offer, and this guard is the
-  // reason the widening is CLI-shaped and not route-shaped. Two new entries
-  // would HANG or MISBEHAVE here exactly where the sudo rule already refuses:
-  // the Homebrew bootstrap prompts its admin password on the child's own
-  // stdin (ignored here → the password can never be typed), and MacPorts
-  // `port install` needs root (its portsudoers entry is a per-machine grant
-  // the route cannot assume). The route runs only what needs neither: brew.
+  // reason the widening is CLI-shaped and not route-shaped. Both new entries
+  // would HANG or MISBEHAVE here exactly where the sudo rule already refuses,
+  // and they are gated by ONE structural property (review 2026-09-26 Minor
+  // 6): `needsTerminal` is true for the Homebrew bootstrap (its child prompts
+  // its admin password on stdin — ignored here, so it could never be typed)
+  // AND for MacPorts (no parent sudo in argv; `port` self-escalates through
+  // per-machine portsudoers, a grant this route cannot assume). Reading the
+  // flag rather than a display string means a label rename cannot re-admit
+  // either to a caller that has no terminal — the table tests assert the
+  // flag on both rows. The route runs only what needs neither: brew.
   if (installer.needsTerminal === true) {
     return {
       message:
-        "Installing Homebrew prompts for an admin password, and the server has no terminal to answer one. Install Homebrew yourself (https://brew.sh), then tmux, and re-check.",
-    };
-  }
-  if (installer.label === "MacPorts") {
-    return {
-      message:
-        "Installing tmux here needs MacPorts with admin privileges, and the server has no terminal to answer a password prompt. Run sudo port install tmux yourself and re-check.",
+        `Installing tmux here needs an admin password this server has no terminal to answer (${installer.label}). ` +
+        `Run \`${installer.manual}\` yourself and re-check.`,
     };
   }
   return { installer };

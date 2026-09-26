@@ -151,6 +151,18 @@ describe("dispatchCli — --verbose (2026-09-26)", () => {
     expect(err.join("\n")).toContain("--verbose");
   });
 
+  // The documented interpretation (review 2026-09-26 Minor, finally pinned):
+  // `--verbose` is logging, orthogonal to the act, so `--rollback` takes it —
+  // and the rollback refusal line says so, for the flags it DOES refuse.
+  test("--rollback accepts --verbose, and the conflict message lists it", () => {
+    const err: string[] = [];
+    const opts = parseUpdateFlags(["--rollback", "--verbose"], (l) => err.push(l));
+    expect(err).toEqual([]);
+    expect(opts).toEqual({ rollback: true, verbose: true });
+    expect(parseUpdateFlags(["--rollback", "--from", "x", "--verbose"], (l) => err.push(l))).toBeNull();
+    expect(err.join("\n")).toMatch(/takes only --yes, --force, --json and --verbose/);
+  });
+
   // SUBSHELL_VERBOSE=1 is the ENV spelling of the same affordance (operator
   // follow-up 2026-09-26): identical for-process console-only semantics. The
   // seams pin is `deps.env`, so no test touches this process's environment.
@@ -1355,7 +1367,9 @@ describe("parseUpdateFlags", () => {
     for (const extra of [["--check"], ["--to", "0.7.0"], ["--from", "/x"], ["--no-restart"]]) {
       const { errs, error } = collect();
       expect(parseUpdateFlags(["--rollback", ...extra], error)).toBeNull();
-      expect(errs.join("")).toMatch(/only --yes, --force and --json/);
+      // The list gained `--verbose` (review 2026-09-26): logging is
+      // orthogonal to the act, so rollback takes it too.
+      expect(errs.join("")).toMatch(/only --yes, --force, --json and --verbose/);
     }
     const { error } = collect();
     expect(parseUpdateFlags(["--rollback", "--yes", "--force", "--json"], error)).toEqual({

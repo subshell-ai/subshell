@@ -765,7 +765,7 @@ export function parseUpdateFlags(rest: string[], error: (line: string) => void):
   if (opts.rollback === true) {
     const conflicting = (["check", "to", "from", "noRestart"] as const).filter((k) => opts[k] !== undefined);
     if (conflicting.length > 0) {
-      error("subshell-server: --rollback takes only --yes, --force and --json");
+      error("subshell-server: --rollback takes only --yes, --force, --json and --verbose");
       return null;
     }
   }

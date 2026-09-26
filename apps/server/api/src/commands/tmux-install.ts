@@ -36,6 +36,20 @@
  */
 export const HOMEBREW_INSTALL_URL = "https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh";
 
+/**
+ * The bootstrap's argv, built over a URL so the SHAPE is executable under
+ * test (the stub server in `__tests__/tmux-install.test.ts` proves it against
+ * a shebang-first script). The pipe form is not cosmetic: the reviewer
+ * measured the natural-looking `bash -c "$(curl …)"` WITHOUT the outer
+ * double quotes word-splitting the command substitution's result and execing
+ * its first field — for any real installer script the `#!/bin/bash` line, so
+ * exit 127 before anything installed. `curl … | bash` has no substitution to
+ * split; the shebang arrives as a comment on bash's stdin. (The quoted-human
+ * form would also work but re-introduces the quoting puzzle this way
+ * cannot.)
+ */
+export const bootstrapArgv = (url: string): readonly string[] => ["/bin/bash", "-c", `curl -fsSL ${url} | bash`];
+
 /** The install command for tmux on one host, plus the label the prompt shows. */
 export interface TmuxInstaller {
   /** Full argv, e.g. `["brew","install","tmux"]` — run without a shell. */
@@ -49,11 +63,15 @@ export interface TmuxInstaller {
    */
   manual: string;
   /**
-   * True when the child prompts for an admin password ITSELF (the Homebrew
-   * bootstrap). The preflight treats this as "needs a terminal": it will not
-   * run without one, because `--yes` cannot type a password. brew/apt/dnf
-   * leave it false (or the parent's own `sudo` handles it on the terminal,
-   * which the preflight's TTY gate already covers).
+   * True when no run without a terminal can answer this installer's password,
+   * whichever way the password gets asked: the Homebrew bootstrap's child
+   * prompts for one ITSELF, and MacPorts `port install` self-escalates through
+   * portsudoers (its argv carries NO parent sudo — that is why this flag, not
+   * `argv[0] === "sudo"`, is what marks it). Both are refused everywhere no
+   * password could ever be typed: the preflight's terminal gate and the
+   * server's terminal-less route alike. brew/apt/dnf leave it false (apt/dnf
+   * embed sudo in argv, which the sudo gates refuse on the route and the TTY
+   * gate covers on the CLI).
    */
   needsTerminal?: boolean;
 }
@@ -70,24 +88,41 @@ export interface TmuxInstaller {
 export function chooseTmuxInstaller(io: {
   platform: NodeJS.Platform;
   which: (name: string) => string | null;
+  /**
+   * Overrides the bootstrap's install-script URL (test: a localhost stub).
+   * Production never passes it — the compiled-in constant is the only real
+   * value, which is what keeps "the URL is read from a constant, never argv"
+   * true of every shipped run.
+   */
+  bootstrapUrl?: string;
 }): TmuxInstaller | null {
   if (io.platform === "darwin") {
     if (io.which("brew")) {
       return { argv: ["brew", "install", "tmux"], label: "brew", manual: "brew install tmux" };
     }
     if (io.which("port")) {
-      // MacPorts installs tmux at /opt/local/bin/tmux; `port` needs sudo for
-      // an install, so the parent runs it through sudo over the inherited
-      // terminal like the Linux rows. The service units bake /opt/local/bin.
-      return { argv: ["port", "install", "tmux"], label: "MacPorts", manual: "sudo port install tmux" };
+      // MacPorts installs tmux at /opt/local/bin/tmux. `port` does NOT run
+      // under a parent sudo (unlike the Linux rows, which embed it): it
+      // self-escalates via portsudoers, prompting for a password when none is
+      // cached — so it is flagged `needsTerminal`, the structural property the
+      // preflight and the server route both gate on (review 2026-09-26: a
+      // label rename must not re-admit it to a terminal-less caller). The
+      // service units bake /opt/local/bin via the PATH pass-through as always.
+      return {
+        argv: ["port", "install", "tmux"],
+        label: "MacPorts",
+        manual: "sudo port install tmux",
+        needsTerminal: true,
+      };
     }
     // Neither manager: Homebrew's OWN documented one-liner, on Homebrew's own
     // infra (NOT our installer hosting — see the module header). The prompt
     // names it and the admin password is the child's to ask for.
+    const url = io.bootstrapUrl ?? HOMEBREW_INSTALL_URL;
     return {
-      argv: ["/bin/bash", "-c", `$(curl -fsSL ${HOMEBREW_INSTALL_URL})`],
+      argv: bootstrapArgv(url),
       label: "Homebrew",
-      manual: `install Homebrew (${HOMEBREW_INSTALL_URL}), then brew install tmux`,
+      manual: `install Homebrew (${url}), then brew install tmux`,
       needsTerminal: true,
     };
   }

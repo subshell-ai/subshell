@@ -43,22 +43,36 @@ needs: it says tmux is what runs panes, it prints the declined manager's own
 manual command (`brew install tmux`, `sudo port install tmux`, or the
 Homebrew URL), and it notes the binary is already installed at
 `~/.local/bin/subshell-server` so the rerun after tmux exists is the whole
-fix. A run with nobody to ask takes the same abort, loudly. `service
-install`'s refusal is shared and unchanged: it still points at its own
-`--yes`-less remedy line.
+fix. EXACTLY ONE remedy line follows those two, never both (review
+2026-09-26): a run with nobody to ask gets the decline notice ("re-run init
+in a terminal (or with --yes) to install it", where an installer exists to
+honor the promise) and nothing else; every other case gets the rerun note
+naming the installed binary and the rerun. `service install` prints ONLY the
+original two lines, byte-stable since 2026-09-03: it sets no commandName and
+no decline notice, and the docs promise its refusal as the un-grown one.
 
 **The macOS ladder is three-way (2026-09-26)**: `brew` installs tmux,
 otherwise MacPorts (`port`) does, and with neither an offer to install
-Homebrew itself runs `/bin/bash -c "$(curl -fsSL <official installer URL>)"`.
-That bootstrap is Homebrew's own documented installer on their
-infrastructure, not a revival of the retired installer hosting here, and the
-comment in `commands/tmux-install.ts` says so because the URL looks like it.
-It prompts for an admin password, which decides where it may run: a `--yes`
-run only when a terminal exists to answer it, and with no terminal at all it
-is NEVER attempted: the command prints the URL and instructions instead. The
-server's own `POST /api/setup/tmux/install` route refuses the bootstrap and
-the MacPorts row by name (it has no terminal by construction, same doctrine
-as its `sudo` refusal), so the widened ladder reaches the CLI only, and a
+Homebrew itself runs `/bin/bash -c "curl -fsSL <official installer URL> |
+bash"`. The PIPE form is load-bearing (review Critical, measured): the
+natural-looking unquoted substitution shape word-splits the fetched script
+and execs its first field, which for any real installer is the shebang line,
+so it dies 127 before installing anything; `__tests__/tmux-install.test.ts`
+EXECUTES the shipped shape against a localhost stub serving a shebang-first
+script (marker must land) and canaries the rejected shape (must fail),
+because a string pin could never see a bug like that. That bootstrap is
+Homebrew's own documented installer on their infrastructure, not a revival
+of the retired installer hosting here, and the comment in
+`commands/tmux-install.ts` says so because the URL looks like it. It prompts
+for an admin password, which decides where it may run: a `--yes` run only
+when a terminal exists to answer it, and with no terminal at all it is NEVER
+attempted: the command prints the URL and instructions instead. MacPorts
+carries the same `needsTerminal` flag (it self-escalates through
+portsudoers, no parent sudo in its argv), and BOTH terminal-less gates read
+the FLAG rather than a label string: the preflight refuses either with no
+terminal, and the server's `POST /api/setup/tmux/install` route (which has
+no terminal by construction, same doctrine as its `sudo` refusal) runs only
+what needs neither: brew. So the widened ladder reaches the CLI only, and a
 Mac with MacPorts installed keeps working: `service.ts` bakes the installing
 shell's PATH into the unit/plist unchanged, so `/opt/local/bin` rides the
 same rail `/opt/homebrew/bin` always did (pinned in

@@ -12,7 +12,7 @@ import {
   OWNED_KEYS,
   validateValue,
 } from "./config-values.js";
-import { chooseTmuxInstaller, HOMEBREW_INSTALL_URL, runTmuxInstall, spawnInherit } from "./tmux-install.js";
+import { chooseTmuxInstaller, runTmuxInstall, spawnInherit } from "./tmux-install.js";
 
 /**
  * `subshell-server configure` — (re)write `<configDir>/config.env` from the
@@ -315,9 +315,9 @@ export function tmuxPreflight(deps: TmuxPreflightDeps): boolean {
       offer.commandName !== undefined)
       ? chooseTmuxInstaller({ platform, which: deps.which })
       : null;
-  // The Homebrew bootstrap answers its OWN admin password, so it may only
-  // run where a terminal can receive it (direct TTY or an attached one).
-  // No terminal ⇒ never spawn it: print the instructions instead.
+  // Either needsTerminal row (Homebrew bootstrap, MacPorts self-escalation)
+  // may only run where a terminal can receive its password (direct TTY or an
+  // attached one). No terminal ⇒ never spawn it: print the instructions.
   const bootstrapBlocked = installer?.needsTerminal === true && offer?.terminal === false;
   if (offer && installer && !bootstrapBlocked && (offer.interactive || offer.autoAccept === true)) {
     let run: boolean;
@@ -362,14 +362,24 @@ export function tmuxPreflight(deps: TmuxPreflightDeps): boolean {
   // A declined/failed install ABORTS the command (2026-09-26 ruling). Say how
   // to come back: the manager-specific manual command is above; this names
   // the rerun. service install sets neither, keeping its old two-line refusal.
+  // The message is generic over BOTH needsTerminal rows (review 2026-09-26):
+  // the Homebrew bootstrap and MacPorts alike are refused here by the same
+  // structural property, so it names the manager and its manual command.
   if (bootstrapBlocked && installer) {
     deps.error(
-      "Installing Homebrew itself prompts for an admin password, which needs a terminal this run has none of; " +
-        `install it yourself (${HOMEBREW_INSTALL_URL}) and rerun.`,
+      `Installing tmux via ${installer.label} prompts for an admin password, which needs a terminal this run ` +
+        `has none of; do it yourself (${installer.manual}) and rerun.`,
     );
   }
-  if (offer?.commandName) deps.error(offer.rerunNote ?? "");
-  if (offer?.declineNotice && installer) deps.error(offer.declineNotice);
+  // EXACTLY ONE remedy line (review 2026-09-26 Important 2): where a decline
+  // notice actually prints (a run that could have been asked, and an
+  // installer exists to honor the promise), it IS the remedy, and the rerun
+  // note stays silent. Every other commandName case — an interactive decline,
+  // a failed child, a host whose only installer needs a terminal — rides the
+  // rerun note, which carries the abort semantics and the installed path.
+  const declineRode = offer?.declineNotice !== undefined && installer !== null;
+  if (offer?.commandName && !declineRode) deps.error(offer.rerunNote ?? "");
+  if (declineRode && offer?.declineNotice) deps.error(offer.declineNotice);
   return false;
 }
 

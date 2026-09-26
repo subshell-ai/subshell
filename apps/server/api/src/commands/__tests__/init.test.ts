@@ -147,6 +147,10 @@ describe("runInit — tmux preflight", () => {
     expect(err.join("\n")).toMatch(/tmux not found/i);
     expect(err.join("\n")).toContain("tmux not installed; re-run init in a terminal (or with --yes) to install it");
     expect(err.join("\n")).toContain("SUBSHELL_SERVER_SKIP_TMUX_CHECK=1");
+    // Review 2026-09-26 Important 2: EXACTLY ONE remedy line. The decline
+    // notice names the route back to the offer; the rerun note (which would
+    // also fire here, since `init` sets one) must not stack behind it.
+    expect(err.join("\n")).not.toMatch(/Once tmux is present, rerun/);
   });
 
   /**

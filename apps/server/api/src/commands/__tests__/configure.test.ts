@@ -548,6 +548,27 @@ describe("runConfigure — macOS manager ladder (2026-09-26 addendum)", () => {
     expect(spawned).toEqual([["port", "install", "tmux"]]);
   });
 
+  // Review 2026-09-26 Minor 6, CLI half: `needsTerminal` covers the port row
+  // too, because MacPorts self-escalates (its argv carries no parent sudo —
+  // portsudoers), so a terminal-less run has exactly the same nowhere to
+  // answer a password. Asserted through behavior, not a label string.
+  test("a --yes run with NO terminal does not spawn `port install` either", async () => {
+    const spawned: (readonly string[])[] = [];
+    const { deps, err } = makeDeps({
+      isTTY: false,
+      platform: "darwin",
+      which: (n) => (n === "port" ? "/opt/local/bin/port" : null),
+      spawnInstall: (argv) => {
+        spawned.push(argv);
+        return 0;
+      },
+    });
+    expect(await runConfigure({ yes: true }, deps)).toBe(1);
+    expect(spawned).toEqual([]); // a portsudoers password has no stdin to be typed on
+    expect(err.join("\n")).toMatch(/port install tmux/i); // the manual line names it
+    expect(err.join("\n")).toMatch(/MacPorts/i); // and the blocked line names the manager it refuses
+  });
+
   test("no brew, no port: --yes RUNS the Homebrew bootstrap through the seam (the old silent null is gone)", async () => {
     let installed = false;
     const spawned: (readonly string[])[] = [];
@@ -565,7 +586,10 @@ describe("runConfigure — macOS manager ladder (2026-09-26 addendum)", () => {
     });
     expect(await runConfigure({ yes: true }, deps)).toBe(0);
     expect(prompts).toEqual([]); // --yes IS the answer; nobody is asked
-    expect(spawned).toEqual([["/bin/bash", "-c", `$(curl -fsSL ${HOMEBREW_INSTALL_URL})`]]);
+    // The PIPE form (review Critical 1): the old `$(curl …)`-unquoted argv
+    // word-split the script and execed its shebang line (exit 127, measured;
+    // canary-pinned in tmux-install.test.ts).
+    expect(spawned).toEqual([["/bin/bash", "-c", `curl -fsSL ${HOMEBREW_INSTALL_URL} | bash`]]);
   });
 
   test("the bootstrap is the one thing NEVER attempted with no terminal: URL instructions, nothing spawned", async () => {
