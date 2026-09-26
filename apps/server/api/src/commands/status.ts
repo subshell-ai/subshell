@@ -6,20 +6,13 @@ import { DEFAULT_DATABASE_PATH, lingerVerdict, NODE_TARGETS } from "@internal/su
 import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { baseUrlProblem, originProblem } from "@/commands/config-values.js";
 import { resolveConfig } from "@/config-env.js";
-import {
-  DATABASE_PATH,
-  DEFAULT_TRUSTED_ORIGINS,
-  NODE_ARTIFACTS_DIR,
-  SUBSHELL_PLUGIN_REGISTRY_URL,
-  SUBSHELL_SERVER_DATA_DIR,
-} from "@/constants.js";
+import { DEFAULT_TRUSTED_ORIGINS, NODE_ARTIFACTS_DIR, SUBSHELL_PLUGIN_REGISTRY_URL } from "@/constants.js";
 import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { type ServiceState, SYSTEMD_UNIT_NAME, serviceArtifactPath } from "@/service.js";
-import { backupsDir, listBackups } from "@/services/db-backup.js";
+import { listBackups } from "@/services/db-backup.js";
 import { resolveInstalledBinary } from "@/services/installed-binary.js";
 import { type McpResolveIo, probeMcpLaunch } from "@/services/mcp-resolve.js";
-import { subshellLogDir } from "@/services/nodes/subshell-paths.js";
-import { serverLogPath } from "@/utils/log-file.js";
+import { serverPaths } from "@/services/server-paths.js";
 import { SERVER_VERSION } from "@/version.js";
 
 /**
@@ -432,17 +425,12 @@ export function collectStatus(deps: StatusDeps): StatusView {
   return {
     version: SERVER_VERSION,
     configEnv: { path: cfg.path, exists: cfg.exists },
+    // The five-path data block comes from the SAME assembly the CLI's
+    // reset/uninstall delete against (`services/server-paths.ts`) — one
+    // source, because this view is the promise those verbs keep. `binary`
+    // stays here: the ladder takes this command's injected deps.
     paths: {
-      dataDir: SUBSHELL_SERVER_DATA_DIR,
-      database: DATABASE_PATH,
-      logsDir: subshellLogDir(),
-      nodeArtifacts: NODE_ARTIFACTS_DIR,
-      // The server's OWN log — one 200 KB file, replaced when full. It lives
-      // inside dataDir, so a reset that deletes the data directory covers it.
-      serverLog: serverLogPath(),
-      // Also inside dataDir, deliberately: the desktop reset's five paths then
-      // already cover the most sensitive file this app writes.
-      backups: backupsDir(),
+      ...serverPaths(),
       binary: installed.kind === "compiled" ? installed.path : null,
     },
     settings: {

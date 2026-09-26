@@ -87,6 +87,22 @@ pub struct UpdateItem(MenuItem<Wry>);
 /// The tray's "Check for Updates…" id.
 const UPDATE_ID: &str = "tray:update";
 
+/// The tray's "Reset…" id, and the screen it arms (issue #232).
+///
+/// The door a wrong-machine install needs and every other surface withheld:
+/// the dashboard's Reset card is gated on an admin session (impossible before
+/// the account exists) and the assistant rail is gated on `onboarded` (false
+/// mid-first-run). The tray is the one surface that stands on a machine at ANY
+/// journey stage, so the press arms `reset` through [`reset::arm_and_raise`]
+/// exactly as the dashboard deep link does — and `applyScreen` opens that
+/// dialog over a first-run screen unconditionally. A fresh machine with nothing
+/// to undo still gets the dialog's honest refusal (it deletes only what
+/// `status --json` names); there is no enabled-flag state to guard.
+const RESET_ID: &str = "tray:reset";
+const RESET_LABEL: &str = "Reset…";
+/// The word the dispatch passes; pinned to survive [`reset::parse_screen`].
+const RESET_SCREEN: &str = "reset";
+
 /// The screen the tray's OpenScreen press routes to (spec 2026-09-17 § 5.2;
 /// the ONE update screen since spec 2026-09-18 § 8).
 ///
@@ -216,6 +232,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     );
     let update = MenuItem::with_id(app, UPDATE_ID, update_label(seed.as_deref()), true, None::<&str>)?;
     app.manage(UpdateItem(update.clone()));
+    // The danger door, beside the danger it leads to (issue #232). Enabled
+    // always, like every other item here: the delete it stages is all-or-nothing
+    // and refuses on an unreadable machine, so there is no state where pressing
+    // it could do harm the person did not type a hostname to agree to.
+    let reset = MenuItem::with_id(app, RESET_ID, RESET_LABEL, true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -237,6 +258,9 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &text_size,
             &PredefinedMenuItem::separator(app)?,
             &keep,
+            &PredefinedMenuItem::separator(app)?,
+            // The assistant's danger act, directly above Quit.
+            &reset,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::quit(app, None)?,
         ],
@@ -348,6 +372,12 @@ fn on_menu(app: &AppHandle, id: &str) {
             let _ = crate::reset::arm_and_raise(app, Some(UPDATE_SCREEN.into()));
         }
         "tray:keep" => set_close_to_tray(app),
+        // The reset door (issue #232): arms a fresh delete plan and raises the
+        // assistant with its dialog, mid-first-run included. No consent is
+        // implied by the press — the dialog still asks for the machine name.
+        RESET_ID => {
+            let _ = crate::reset::arm_and_raise(app, Some(RESET_SCREEN.into()));
+        }
         // The TEXT SIZE items are deliberately absent. A menu event in Tauri
         // is global — the app-level handler in `lib.rs` sees this menu's items
         // too — so an id handled in both places steps the ladder TWICE per
@@ -467,7 +497,7 @@ mod tests {
         assert!(OPEN_HOME_ID.starts_with("tray:"));
         assert!(SERVER_APP_ID.starts_with("tray:"));
         assert_ne!(OPEN_HOME_ID, SERVER_APP_ID);
-        for other in [BROWSER_ID, UPDATE_ID, "tray:keep", crate::zoom::IN_ID] {
+        for other in [BROWSER_ID, UPDATE_ID, "tray:keep", RESET_ID, crate::zoom::IN_ID] {
             assert_ne!(SERVER_APP_ID, other);
         }
         // "Open Server App" arms a STANDING screen: the word must survive
@@ -480,5 +510,31 @@ mod tests {
         // The open door, by contrast, is wordless — `None` parses to `Home`, the
         // "decide from the probe" case, because it calls `open_home` directly.
         assert_eq!(crate::reset::parse_screen(None), crate::reset::Screen::Home);
+    }
+
+    /// The Reset door (issue #232): the label reads as the danger act, the id
+    /// collides with nothing that dispatches, and the word the press passes
+    /// survives `parse_screen` to `Reset` — the same three claims the other
+    /// doors pin, because the failure mode is identical: a rename walks the
+    /// press past the dialog and onto the Home bounce.
+    #[test]
+    fn the_reset_door_is_named_distinct_and_reaches_the_dialog() {
+        assert_eq!(RESET_LABEL, "Reset…");
+        assert!(RESET_ID.starts_with("tray:"));
+        for other in [
+            OPEN_HOME_ID,
+            SERVER_APP_ID,
+            BROWSER_ID,
+            UPDATE_ID,
+            "tray:keep",
+            crate::zoom::IN_ID,
+        ] {
+            assert_ne!(RESET_ID, other);
+        }
+        assert_eq!(
+            crate::reset::parse_screen(Some(RESET_SCREEN.to_string())),
+            crate::reset::Screen::Reset,
+            "the tray's word must survive `parse_screen`, not fall back to Home"
+        );
     }
 }

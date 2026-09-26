@@ -73,6 +73,30 @@ describe("the host's boot gate", () => {
     expect(fake.callsTo("desktop_open_main")).toHaveLength(0);
   });
 
+  it("opens the reset dialog over a machine mid-first-run (issue #232)", async () => {
+    // The tray's Reset press reaches this path on a machine that has NEVER
+    // been onboarded — the exact case every in-app door refused. The dialog
+    // is armed by the same `desktop_arm_reset` the dashboard card uses; what
+    // this pins is that no journey-stage gate stands between the request and
+    // the confirmation, because the wrong-machine install is the case the
+    // door exists for.
+    fake = installFakeIpc({
+      probe: makeProbe({ onboarded: false, next: "init", tmux: "/usr/bin/tmux" }),
+      handlers: {
+        desktop_pending_screen: () => "reset",
+        desktop_arm_reset: () => true,
+        desktop_open_main: () => undefined,
+      },
+    });
+    render(<Host />);
+
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Reset this server" })).toBeTruthy());
+    expect(fake.callsTo("desktop_open_main")).toHaveLength(0);
+    // The first-run journey underneath is untouched: no rail, no standing
+    // screen; the dialog simply sits on top of whatever the machine owes.
+    expect(routeOf()).toBe("welcome");
+  });
+
   it("routes the handoff and opens the dashboard once the pull answers with nothing", async () => {
     fake = installFakeIpc({
       probe: makeProbe({ next: "ready", onboarded: true }),

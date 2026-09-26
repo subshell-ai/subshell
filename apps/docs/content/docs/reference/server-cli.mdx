@@ -10,13 +10,16 @@ description: "Every verb of the control plane binary (run, init, configure, stat
 | Command | What it does |
 | --- | --- |
 | (none) | Run the server (the boot path) |
-| `version` | Print the version and exit |
+| `help` | Print the usage text and exit (`--help`, `-h`) |
+| `version` | Print the version and exit (`--version`, `-v`) |
 | `license` | Print the copyright and licence and exit |
 | `status` | Print the resolved config view and exit (`--json` for machine output) |
 | `init` | First run: config home, auth secret, config.env, and the service |
 | `configure` | (Re)write config.env; interactive unless `--yes` |
 | `update` | Install a newer server over this one (`--check` to look only) |
 | `backup` | Snapshot the database now (`--json` for machine output) |
+| `reset` | Stop the server and delete its data and settings, keeping the binary (typed-name consent) |
+| `uninstall` | Reset plus the installed binary (same consent) |
 | `service` | Drive the background process: install, uninstall, enable, disable, status, start, stop, restart |
 | `mcp` | Serve the stdio MCP server a subshell pane's harness spawns |
 | `report` | Report a pane's state (run by harness hooks) |
@@ -31,13 +34,19 @@ subshell-server: the Subshell control plane
 
 usage:
   subshell-server                run the server (boot path: no subcommand)
-  subshell-server version        print the version and exit
+  subshell-server help           print this usage and exit (also --help and -h)
+  subshell-server version        print the version and exit (also --version and -v)
   subshell-server license        print the copyright and licence and exit
   subshell-server status         print the resolved config view and exit (--json for machine output)
   subshell-server init           first run: config home + auth secret + config.env + the service
   subshell-server configure      (re)write config.env; interactive unless --yes
   subshell-server update         install a newer server over this one (--check to look only)
   subshell-server backup         snapshot the database now (--json for machine output)
+  subshell-server reset          stop the server and delete its data and settings, keeping the binary;
+                                 the machine's NAME must be typed (--confirm <name> when headless)
+  subshell-server uninstall      stop the server, remove the service and the installed binary, and ASK
+                                 whether the data and settings go too (default: keep them); the same
+                                 typed-name consent; --yes is refused for both
   subshell-server service install    background the server (systemd user unit / launchd agent);
                                      --no-autostart to run it now but not at login
   subshell-server service uninstall  stop it and remove the service definition
@@ -73,6 +82,13 @@ update flags:         --check                  report what is available and stop
                       --no-restart             swap the binary; the caller restarts
                       --rollback               undo the last update (binary + database)
 
+reset/uninstall flags: --confirm <machine-name>  the machine's name, for a run with no TTY to
+                      type it into; without it (and without a terminal) both verbs refuse and
+                      change nothing. --reset-data answers uninstall's data question yes without
+                      a terminal; without it a headless uninstall KEEPS the data and settings.
+                      On `reset` the flag is refused: a reset always clears the data. --yes is
+                      REFUSED on both: it cannot stand in for the name.
+
 verbose:              --verbose after a verb (init/configure/update, and every service
                       verb) raises this run's CONSOLE logging to debug level, HTTP request
                       lines included. Leading the command it boots the server the same
@@ -88,7 +104,7 @@ Value flags also accept the `--flag=value` form, so a URL containing `=` still w
 
 ## The boot path and exit codes
 
-The boot path is the no-subcommand form. A service unit or `launchd` job that names the binary with no subcommand (or with only a leading flag) boots the server. This is a pinned contract: never teach a bare invocation a new meaning. Every other word is a subcommand, and an unknown word is refused with the usage text above and exit 1.
+The boot path is the no-subcommand form. A service unit or `launchd` job that names the binary with no subcommand (or with only a leading flag) boots the server. This is a pinned contract: never teach a bare invocation a new meaning. Two leading flags are answered BEFORE that rule, because booting is the wrong reply to a question: `--help`/`-h` print the usage text and exit 0, and `--version`/`-v` print the version line; the same answers come from the words `help` and `version`. Every other word is a subcommand, and an unknown word is refused with the usage text above and exit 1.
 
 Exit codes: `status` and `service status` always exit 0 when the flags were valid, because they are views and a script should not have to tell "not running" from "the call failed". One refusal can reach these views from outside the flags: an ambient `SUBSHELL_VERBOSE` asked together with `--json` exits 1, because debug lines would corrupt the document. `report` always exits 0 whatever happens, because harness hooks run it and their stderr lands in your session. `mcp` runs until its pane's client disconnects, and `pane-log` runs until the pane's output stream closes and then exits 0. Every other verb exits 0 on success and 1 on any refusal or failure, including usage errors, unlike the node CLI, which uses exit 2 for those.
 
@@ -142,6 +158,14 @@ Flags:
 
 `backup` takes a single-file snapshot of the database now (`VACUUM INTO`), in the same directory and under the same retention as the ones `update` takes automatically: five by default (`SUBSHELL_DB_BACKUPS_KEEP`; `0` keeps everything). `--json` prints the path, the size, and how many are kept. Exit 1 names the reason, the ordinary one being a configured server that has never booted and so has no database yet.
 
+## reset and uninstall
+
+The two destructive verbs, twin to the desktop assistant's Reset chain. `reset` stops the service, waits for its port to go quiet, closes the pane servers, removes the service definition, and deletes exactly the paths `status --json` names (config home last); the installed binary is kept, so `init` can set the machine up again. `uninstall` stops the service, closes the pane servers, removes the definition and the binary the resolution ladder named (plus any `.previous` a prior update left). It asks, separately, whether the data and settings go too. That question defaults to keeping them: removing the program and wiping the machine are two decisions, and the prompt says what a reset does before you answer. A headless uninstall keeps the bytes unless `--reset-data` says otherwise; a source checkout has no installed binary, so uninstall says so and leaves the checkout alone.
+
+Neither is reachable over the network: there is no route for them. Consent is the machine's NAME, typed at the prompt and compared on the machine, so `--yes` (which answers every other question) is refused outright. For a run with no terminal, pass the name on the command line with `--confirm <machine-name>`; that is the same fact, just not typed at a keyboard. Without a terminal and without `--confirm`, both refuse and change nothing.
+
+Once the name matches, the verbs clear and do not refuse mid-run: a service that will not stop, a server started by hand that keeps answering its port, a pane server that survives, or a binary that resists unlinking is each reported by name and the exit code says the run finished with failures, but the rest of the machine is still cleared. A reset means it all goes; only the pre-consent plan guards (unsafe paths, a data dir that contains the binary a reset promises to keep) refuse outright, before anything is touched.
+
 ## service: the background process
 
 One definition, two shapes: a systemd user unit on Linux (`~/.config/systemd/user/subshell-server.service`) and a launchd agent on macOS (`~/Library/LaunchAgents/dev.subshell.server.plist`).
@@ -171,7 +195,7 @@ The `report` verbs are how harness hooks report a pane's state: `report attentio
 
 ## version
 
-`version` prints `subshell-server <version>`, a machine contract, matched exactly by the release pipeline.
+`version` prints `subshell-server <version>`, a machine contract, matched exactly by the release pipeline. `--version` and `-v` are answered from the command slot with the same line, for the same reason `help` is: the release pipeline calls the word, and the flag spellings are only ever a person asking.
 
 ## license
 
