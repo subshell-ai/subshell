@@ -16,7 +16,7 @@ The control plane (`subshell-server`, with the web UI embedded in it) and the no
 | macOS, Apple silicon (`darwin-arm64`) | ✓ | ✓ |
 | macOS, Intel (`darwin-x64`) | ✓ | ✓ |
 
-No Bun or Node is needed on a host running these; they carry their runtime. The Intel binary is cross-built, and its release smoke runs under Rosetta, so an x86_64 Mac enrolls, runs the control plane, and self-updates like any other host.
+No Bun or Node is needed on a host running these; they carry their runtime. The Intel binaries build and release-smoke on hosted Intel runners, so an x86_64 Mac enrolls, runs the control plane, and self-updates like any other host.
 
 ### The Linux floor
 
@@ -31,7 +31,7 @@ The two GUIs, Subshell Server (installs and manages a control plane on this mach
 | Subshell Server | signed, notarized disk image | signed, notarized disk image | `.deb` (Ubuntu 24.04+ / Debian 13+) |
 | Subshell Client | signed, notarized disk image | signed, notarized disk image | `.deb` (same floor) |
 
-The Intel images are cross-built by the same cut: `tauri build --target x86_64-apple-darwin` on the Apple Silicon runner. arm64 Linux is the one host with no GUI build, because there is no arm64 Linux runner to build or test one on. Both apps need the same glibc floor on Linux. Each app bundles the CLI binary it manages, so a desktop install needs no downloads on first run.
+The Intel images are built by the same cut, on hosted Intel runners, where the bundle smoke checks the signing, the staple, and the bundled CLI binary on matching hardware. arm64 Linux is the one host with no GUI build, because there is no arm64 Linux runner to build or test one on. Both apps need the same glibc floor on Linux. Each app bundles the CLI binary it manages, so a desktop install needs no downloads on first run.
 
 [Install the Control Plane](/get-started/install-server) covers which artifact to reach for. On the website, the Mac download button carries a chip menu: a browser cannot tell the two chips apart, so it asks rather than guesses.
 

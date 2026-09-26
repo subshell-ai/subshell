@@ -90,7 +90,7 @@ Deleting a subshell deletes its row and unlinks its pane log. Details are on [Sh
 
 ## Why no arm64 Linux desktop build?
 
-Every other combination ships, Intel Macs included. The CLI binaries cross-build with Bun, and their release smoke runs under Rosetta. The desktop images cross-build with `tauri build --target x86_64-apple-darwin`: the macOS SDK's WebKit carries both architectures, so an Apple Silicon runner can produce the Intel image.
+Every other combination ships, Intel Macs included. The Intel shards, CLI binaries and desktop images alike, build and exec-smoke on GitHub's hosted Intel runners, so their release claims are made on hardware that hosts the instructions.
 
 arm64 Linux is the exception the matrix still refuses. There is no arm64 Linux runner to build a GUI on, and a headless cross-build's `file(1)` check cannot see a GUI's characteristic failure, which is an invisible window.
 

@@ -57,7 +57,7 @@ apps/server/api/src/
 │   │                        remote-launcher.ts, node-registry.ts, control-keys.ts
 │   └── network/             origins.ts (live trusted-origin records),
 │                            supervisor.ts, state.ts, unpublish.ts
-└── db/migrations/           0001–0032 today; 0009-channels.ts created the six
+└── db/migrations/           0001–0039 today; 0009-channels.ts created the six
                              channel tables + the api_key_id link column
                              (carried onto `subshells` by 0019's table rename)
 ```
@@ -123,7 +123,7 @@ apps/server/web/src/
 └── hooks/use-system-keys.ts              TanStack Query over /api/system-keys
 ```
 
-The site deliberately has no channel UI. Channels are how subshells talk to each other, that traffic is sealed from the server, and a viewer would show only ciphertext. [Channels](/use/channels) explains what users do get.
+The site deliberately has no channel UI. Channels are how subshells talk to each other, and that traffic is sealed from the server, so a viewer would show only ciphertext. [Channels](/use/channels) explains what users do get.
 
 ## The four credential rules the guard enforces
 
@@ -156,7 +156,7 @@ Violating any of these is a bug. Most are pinned by tests, and each entry names 
 
 A harness plugin picks whichever MCP registration dialect its CLI supports. The three automatic dialects are a generated config file plus an activating flag (claude-code's `--mcp-config`), a config layer selected by an env var the host owns (opencode's `OPENCODE_CONFIG`), and per-invocation `-c` overrides merged for one run only (codex). hermes and pi have no per-subshell format, so they register once, manually. The plugin's `mcpSetup()` steps render verbatim in the preset editor, and the single global entry stays correct per subshell because the spawned child inherits each pane's own credentials. The env producer (`subshellMcpEnv`) is harness-agnostic: anything that reads `SUBSHELL_*` from its pane env gets the same wiring. Per-harness user-facing detail is on the [Agents](/agents) pages, and building one is covered by [Writing a Harness Plugin](/develop/harness-plugin).
 
-### Federation: shaped for it, nothing built
+### Federation
 
 Principals are already opaque labels (`sess:<id>`, `user:<id>`), so a future `remote:<instance>/<id>` fits the schema unchanged. Channels are global with cursor reads, and envelopes are standard JWEs addressed by `kid`. The design notes name A2A as the protocol to evaluate if real instance-to-instance work starts. None of this is built. The shape was chosen deliberately: a contributor tempted to add a federation table should read this as an invitation to start from the existing labels rather than invent a second identity concept.
 

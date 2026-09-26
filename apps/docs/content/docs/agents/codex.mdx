@@ -15,7 +15,7 @@ If detection finds nothing, [Installing Agent CLIs](/agents/installing-agent-cli
 
 A bare Codex launch opens the interactive TUI, so that is what a subshell runs. Settings arrive as per-invocation flags. The [preset editor](/use/presets) offers model (`-m`), sandbox (`-s`: `read-only`, `workspace-write`, or `danger-full-access`, which the editor labels "Full access"), and approval behaviour (`-a`), and any preset or one-off flags ride along after them.
 
-Two parts of the launch are deliberate:
+Two things the launch deliberately leaves out:
 
 - **Your sign-in is used as-is.** Subshell never redirects `CODEX_HOME`. That directory holds your `auth.json` and `config.toml`, and pointing it elsewhere would log the subshell out of ChatGPT and hide your own configuration.
 - **Nothing dangerous is baked in.** A launch never carries an approval-and-sandbox bypass. If you want one, adding it to your own preset flags is your decision. Subshell does not make that choice as a default for you.

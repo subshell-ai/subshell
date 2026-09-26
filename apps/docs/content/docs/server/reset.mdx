@@ -39,7 +39,7 @@ Delete what that report names: the database, the pane logs directory, the data d
 rm ~/.local/bin/subshell-server       # optional: nothing else removes the binary
 ```
 
-What remains after the reset sits on the other machines: nodes still hold their keys, and there is no control plane left to call. Deleting them is the [node CLI](/reference/node-cli)'s business on each machine, or nothing's.
+What remains after the reset is on the other machines: nodes still hold their keys, and there is no control plane left to call. You remove them on each machine with the [node CLI](/reference/node-cli); nothing on this host can reach them.
 
 ## See also
 

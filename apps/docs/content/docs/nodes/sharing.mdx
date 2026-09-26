@@ -3,7 +3,7 @@ title: Sharing a Node
 description: Share your machine's launch surface with another user and see what each grant level confers.
 ---
 
-Sharing a node extends your machine's command surface to somebody else's workloads. A share does not open a folder or a view; it opens launch. What a grantee launches runs on your hardware, under the OS user your node runs as, with all the reach that implies. As the owner, you see grantees' work as a bare count: what they launch stays private to them unless they share it back. Admins resolve to edit on every subshell, and the machine's own OS users see every pane. These consequences are the reason this page exists.
+Sharing a node extends your machine's command surface to somebody else's workloads. A share does not open a folder or a view; it opens launch. What a grantee launches runs on your hardware, under the OS user your node runs as, with all the reach that implies. As the owner, you see grantees' work as a bare count: what they launch stays private to them unless they share it back. Admins resolve to edit on every subshell, and the machine's own OS users see every pane. This page lists what each grant confers, what stays yours, and what neither the owner nor the grantee controls.
 
 ## The one asymmetry to know
 
@@ -21,7 +21,7 @@ These stay yours no matter what you grant:
 - Sharing itself: re-granting and revoking happens only from your node's page.
 - Renaming the node.
 - Deleting it, which revokes its key.
-- Stop and uninstall of the node: an edit grantee may interrupt a machine you were shared, but making it unreachable until someone acts at the machine itself is a different act.
+- Stop and uninstall of the node: an edit grantee may interrupt a machine you shared with them, but making it unreachable until someone acts at the machine itself is a different act.
 - Repointing it at a different control plane.
 - Maintenance and the directory allowlist.
 
@@ -33,7 +33,7 @@ From the node's page, open the sharing dialog and grant view or edit to specific
 
 ## The control-plane host's row
 
-The control plane's own machine (the row named **Server**) starts out shared to Everyone at edit. That seeded default makes a fresh instance usable by everyone it admits, so the row is visible and launchable by default. Removing that share is how an admin narrows the plane's host to themselves, and the removal sticks: boot seeding never re-adds a share an admin deliberately removed. Once removed, the narrowing applies to admins too, because the admin boost confers management and never launch. An admin who removed the share meets a "you may not launch on this node" refusal, and remedies it with a share, from the row they can still see.
+The control plane's own machine (the row named **Server**) starts out shared to Everyone at edit. That seeded default makes a fresh instance usable by everyone it admits, so the row is visible and launchable by default. Removing that share is how an admin narrows the plane's host to themselves, and the removal sticks: boot seeding never re-adds a share an admin deliberately removed. Once removed, the narrowing applies to admins too, because the admin boost confers management and never launch. An admin who removed the share is refused when launching there: the refusal names the node and says no one is granted launch access on it. The remedy is a share, granted from the row they can still see.
 
 ## What the grantee cannot see
 

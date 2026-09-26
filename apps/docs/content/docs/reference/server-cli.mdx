@@ -1,6 +1,6 @@
 ---
 title: subshell-server CLI
-description: Every verb of the control plane binary (run, init, configure, status, update, backup, service, mcp, report), with the flags each one accepts and the exit code each one answers with.
+description: Every verb of the control plane binary (run, init, configure, status, update, backup, service, mcp, report, pane-log), with the flags each one accepts and the exit code each one answers with.
 ---
 
 `subshell-server` is the control plane's single binary: run without a subcommand it boots the server, and run with one it is a management tool. This page mirrors the binary's own usage text: the flags below are exactly the flags it parses, and anything else is a usage error.
@@ -29,8 +29,11 @@ usage:
   subshell-server service stop       stop it (the definition stays installed)
   subshell-server service restart    restart it (--force to override the live-pane refusal)
   subshell-server mcp                serve the pane-spawned stdio MCP server (spawned by harnesses)
-  subshell-server report attention turn_complete|needs_attention
+  subshell-server report attention turn_complete|needs_attention|resumed
   subshell-server report session     report a pane's state (run by harness hooks, not by hand)
+  subshell-server pane-log --file <path>
+                                     append stdin to a pane log, flushing each
+                                     read (run by tmux's own pipe-pane, not by hand)
 
 init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path> --yes
                       --trusted-origins <origin,origin>   other addresses browsers will
@@ -54,7 +57,7 @@ Value flags also accept the `--flag=value` form, so a URL containing `=` still w
 
 The boot path is the no-subcommand form. A service unit or `launchd` job that names the binary with no subcommand (or with only a leading flag) boots the server. This is a pinned contract: never teach a bare invocation a new meaning. Every other word is a subcommand, and an unknown word is refused with the usage text above and exit 1.
 
-Exit codes: `status` and `service status` always exit 0 when the flags were valid, because they are views and a script should not have to tell "not running" from "the call failed". `report` always exits 0 whatever happens, because harness hooks run it and their stderr lands in your session. `mcp` runs until its pane's client disconnects. Every other verb exits 0 on success and 1 on any refusal or failure, including usage errors, unlike the node CLI, which uses exit 2 for those.
+Exit codes: `status` and `service status` always exit 0 when the flags were valid, because they are views and a script should not have to tell "not running" from "the call failed". `report` always exits 0 whatever happens, because harness hooks run it and their stderr lands in your session. `mcp` runs until its pane's client disconnects, and `pane-log` runs until the pane's output stream closes and then exits 0. Every other verb exits 0 on success and 1 on any refusal or failure, including usage errors, unlike the node CLI, which uses exit 2 for those.
 
 ## init: first run
 
@@ -114,9 +117,9 @@ One definition, two shapes: a systemd user unit on Linux (`~/.config/systemd/use
 
 Each local subshell's tmux server is a child of the service, so an old definition without `KillMode=process` (systemd) or `AbandonProcessGroup=true` (launchd) means a stop or restart kills every running pane. New installs write the sparing directive, and `service status` tells you which kind you have.
 
-## mcp and report: internal verbs
+## mcp, report, and pane-log: internal verbs
 
-`mcp` serves the stdio MCP server that a subshell pane's harness spawns ([The subshell mcp Server](/automation/mcp-server)). It is the one long-running command. A server-only host resolves its MCP entrypoint through its own binary, which is why this subcommand exists on both products. `report attention <kind>` and `report session` are how harness hooks report a pane's state. Both are built from the pane's environment by the control plane, not typed by humans.
+`mcp` serves the stdio MCP server that a subshell pane's harness spawns ([The subshell mcp Server](/automation/mcp-server)). It is the one long-running command. A server-only host resolves its MCP entrypoint through its own binary, which is why this subcommand exists on both products. The `report` verbs are how harness hooks report a pane's state: `report attention <kind>` (`turn_complete`, `needs_attention`, or `resumed`, the signal that takes "waiting for you" back off) and `report session`. `report exit <status>`, the report tmux's own pane-died hook runs, is answered here too by the same shared reporter, though the usage text above names only the verbs the harness manifests emit. `pane-log --file <path>` is the capture child tmux's pipe-pane runs for a pane on this host: it appends its stdin to the pane log, flushing every read, and blocks until the pane's stream closes. A missing or relative `--file` is refused with exit 1. None of these are typed by humans: the report bodies and the log path are built from the pane's environment by the control plane.
 
 ## version and license
 

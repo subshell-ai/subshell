@@ -3,7 +3,7 @@ title: Mobile and Tablet
 description: Use Subshell on a phone or tablet with the adaptive web UI, Add to Home Screen, or the native companion app.
 ---
 
-Subshell answers from any device, the same instance you watch at the desk. On a phone or tablet you have three ways in, in the order most people use them: the same web UI, adapted to the screen; Add to Home Screen, which makes it a standalone app with notifications; and the native companion, which is a builder's project rather than a store download.
+The same instance you use at your desk is available from any device. On a phone or tablet you have three ways in, in the order most people use them: the same web UI, adapted to the screen; Add to Home Screen, which makes it a standalone app with notifications; and the native companion, which is a builder's project rather than a store download.
 
 ## The adapted web UI
 
@@ -19,7 +19,7 @@ If you use Subshell on a phone or tablet, we recommend this install. In the side
 | --- | --- |
 | iPhone / iPad | Open the address in **Safari** (Chrome and Firefox on iOS can't install it) → Share → **Add to Home Screen** → Add |
 | Android | Open the address in Chrome → ⋮ → **Add to Home screen** → Install app |
-| Desktop browser | Chrome/Edge: the install icon in the address bar; Firefox and Safari on macOS offer no install, so use a bookmark or pin the tab |
+| Desktop browser | Chrome or Edge: the install icon at the right of the address bar, or ⋮ → Cast, save and share → **Install page as app**; Safari on macOS: **File → Add to Dock**; Firefox offers no install, so use a bookmark or pin the tab |
 
 The installed app opens fullscreen under its own icon. On Apple devices it is also how notifications arrive: iOS and iPadOS deliver web push only to an installed web app, never to a browser tab. Desktop and Android browsers can push to a plain tab; there, the install is about the fullscreen shell.
 
@@ -29,7 +29,7 @@ Notifications need a secure (https) address. Plain `http://192.168.x.x:3080` sti
 
 There is also a real React Native app in the repository, built with Expo. In plain terms, today that means it is a from-source project. The release pipeline publishes the server, the node CLI, and the two desktop apps; nothing mobile ships through it. The app's own docs say push cannot even be end-to-end tested without your own EAS project and Firebase credentials. If you are evaluating Subshell on a phone, the Home Screen app above is the supported path.
 
-What the companion adds, when built, is OS-level presence: push delivered with no browser in the chain, an app-icon badge, lock-screen actions, and a session credential kept in the Keychain (optionally gated behind Face ID) rather than in browser storage. It authenticates as the same kind of user your browser does: you type your server's address and sign in. It shows the subshell list, the launch form, and a live xterm pane, with the same "who else is watching" device strip as the web. It is not a second web app, and the app's docs forbid it from becoming one; it exists for those OS-level capabilities, no more.
+What the companion adds, when built, is OS-level presence: push delivered with no browser in the chain, an app-icon badge, lock-screen actions, and a session credential kept in the Keychain (optionally gated behind Face ID) rather than in browser storage. It authenticates as the same kind of user your browser does: you type your server's address and sign in. It shows the subshell list, the launch form, and a live xterm pane, with the same "who else is watching" device strip as the web. It is not a second web app, and the app's docs forbid it from becoming one; it exists for those OS-level capabilities.
 
 ## See also
 

@@ -49,7 +49,7 @@ The installer is admin work on the control-plane host, not fleet provisioning. I
 For a [node](/nodes), installing an agent CLI means installing it on that machine. The plane's installer runs on its own host and nothing else. Use the same commands above over SSH, package the CLIs into your node images, or have whoever owns that machine do it the way they prefer. Then press **Re-check** on the node's Harnesses card (owner or edit access) and its rows update to what the machine has. Detection answers per machine, and the picker keeps offering each agent only where its binary was found.
 
 > [!note] Not the same as installing plugins
-> This installs the **CLI the plugin drives**, not a plugin. Plugins themselves are installed at Settings → Plugins and decide what Subshell can launch at all; see [The Plugin Registry](/agents/plugin-registry).
+> This installs the CLI the plugin drives, not a plugin. Plugins themselves are installed at Settings → Plugins and decide what Subshell can launch at all; see [The Plugin Registry](/agents/plugin-registry).
 
 ## See also
 

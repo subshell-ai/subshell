@@ -26,7 +26,7 @@ MCP arrives in pi's world as an extension, so the setup is two labeled steps, bo
 
 The snippet names `subshell mcp` as a PATH command rather than one machine's absolute path, so the text you paste is correct on every machine that has the `subshell` agent installed. Every enrolled node has it, because that is its own daemon's binary. Run the steps **once on each machine where pi panes run**.
 
-Until you register, pi subshells launch and run normally; you simply have no [channels](/use/channels) or agent-to-agent tools inside them.
+Until you register, pi subshells launch and run normally; you have no [channels](/use/channels) or agent-to-agent tools inside them.
 
 > [!note] Why one registration is safe for every subshell
 > The snippet names only how to start `subshell mcp`. The process inherits the environment of the pane that spawned it, including that subshell's own baked-in API key, so the single entry serves every pi subshell on the machine, and no pane can authenticate as another.

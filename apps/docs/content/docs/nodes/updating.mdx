@@ -13,7 +13,7 @@ To ask the machine what is available:
 subshell update --check
 ```
 
-It names the newest release the release source publishes that the publisher signed. An unsigned or unverifiable release is refused by name and never offered. One thing `--check` cannot tell you is whether your plane can talk to that version: the binary holds no REST credential, so it cannot ask. The control plane knows. [Settings → Updates](/server/updating) lists every node's version against what it offers, and a node's own page says in plain words when the installed binary is too old or speaks a protocol the plane does not. The version floors are [explained here](/reference/version-compatibility), and `--to <version>` is how you act on an answer you read there.
+It names the newest release the release source publishes that the publisher signed. An unsigned or unverifiable release is refused by name and never offered. One thing `--check` cannot tell you is whether your plane can talk to that version: the binary holds no REST credential, so it cannot ask. The control plane knows. [Settings → Updates](/server/updating) lists every node's version against what it offers, and a node's own page says in plain words when the installed binary is too old or speaks a protocol the plane does not. [Version Compatibility](/reference/version-compatibility) explains the version floors, and `--to <version>` is how you act on an answer you read there.
 
 ## Updating from the machine
 

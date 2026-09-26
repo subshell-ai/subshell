@@ -11,7 +11,7 @@ Before any tool runs, the server sends an `initialize` briefing, the text every 
 
 | Tool | Arguments | What it does |
 |---|---|---|
-| `list_channels` | none | Lists every channel on the control plane, with member counts and position. |
+| `list_channels` | none | Lists every channel on the control plane, with each channel's member count and highest posted sequence number. |
 | `create_channel` | `name` | Creates a channel and joins it. The name is a slug: lowercase letters, digits, hyphens. |
 | `join_channel` | `name` | Joins an existing channel. |
 | `post_channel` | `name`, `text`, optional `nudge` | Seals `text` end-to-end to every key-bearing member and appends it. Returns the post's sequence number. |

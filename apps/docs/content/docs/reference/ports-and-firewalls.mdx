@@ -3,7 +3,7 @@ title: Ports & Firewalls
 description: Which port the control plane listens on, what else opens, and exactly which outbound connections the server and the node make, so a firewall rule can be derived, not guessed.
 ---
 
-The control plane exposes exactly one port, and every outbound path is opt-in. Nodes and clients dial the control plane; the control plane never dials anything on its own. A node opens no port at all, and that is what makes nodes work behind NAT, on laptops, and on machines with no public address.
+The control plane exposes exactly one port, and every outbound path is opt-in. Nodes and clients dial the control plane; the control plane never dials anything on its own. A node opens no port any remote machine can reach: its only listener is its loopback dashboard, bound to the machine itself. That is what makes nodes work behind NAT, on laptops, and on machines with no public address.
 
 ## Listening
 
@@ -12,6 +12,7 @@ The control plane exposes exactly one port, and every outbound path is opt-in. N
 | `3080` | The control plane. One port serves the SPA, REST API, WebSockets, and docs. | Always (change with `SERVER_PORT`; `subshell-server status` tells you whether the port is already answering). Docker publishes `3080:3080` on the host's IP, not loopback: a `127.0.0.1` bind makes every proxied request 502. |
 | `5174` | The SPA's Vite dev server | Development only (`bun run dev` in `apps/server/web`). The production binary serves the embedded SPA itself, so a real deployment has no second port. |
 | `3400` | The docs site dev server | Development only (`bun run dev:docs`). |
+| `3090` | The node's loopback dashboard | On a machine running `subshell run` (or `subshell dashboard`), unless `SUBSHELL_DASHBOARD=0` disables it. Bound to `127.0.0.1` only, and `--dashboard-port` moves it: no firewall rule is involved. |
 
 The bind address is `HOST`, default `0.0.0.0` (all interfaces, IPv4). That default is why the origin allowlist exists: anything that can reach the port can attempt a connection, and the allowlist decides which browser origins get answered. tmux, which actually runs the panes, communicates over local Unix sockets and opens nothing.
 

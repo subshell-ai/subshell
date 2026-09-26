@@ -11,10 +11,10 @@ Four product components version independently of each other and share [one relea
 
 | Component | Tag prefix | What a release carries |
 |---|---|---|
-| Control plane | `cli-server-vX.Y.Z` | `subshell-server-cli-<triple>`: one binary each for `linux-x64`, `linux-arm64`, `darwin-arm64`, each with the web UI embedded |
-| Node CLI | `cli-node-vX.Y.Z` | `subshell-node-cli-<triple>`: the same three platforms |
-| Subshell Server (desktop) | `desktop-server-vX.Y.Z` | A signed, notarized `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` and a `subshell-server-desktop_<version>_amd64.deb` |
-| Subshell Client (desktop) | `desktop-client-vX.Y.Z` | The matching `Subshell-Client-Desktop-…` image and `subshell-client-desktop_…_deb` |
+| Control plane | `cli-server-vX.Y.Z` | `subshell-server-cli-<triple>`: one binary each for `linux-x64`, `linux-arm64`, `darwin-arm64`, and `darwin-x64`, each with the web UI embedded |
+| Node CLI | `cli-node-vX.Y.Z` | `subshell-node-cli-<triple>`: the same four platforms |
+| Subshell Server (desktop) | `desktop-server-vX.Y.Z` | Signed, notarized `Subshell-Server-Desktop-<version>-darwin-arm64.dmg` and `…-darwin-x64.dmg` images, and a `subshell-server-desktop_<version>_amd64.deb` |
+| Subshell Client (desktop) | `desktop-client-vX.Y.Z` | The matching `Subshell-Client-Desktop-…` images and `subshell-client-desktop_…_deb` |
 
 The documentation site rides the same machinery on its own `docs-vX.Y.Z` tag, which drives the deploy rather than a product artifact.
 
@@ -50,7 +50,7 @@ All of it reads the same release list. The source is one setting, `SUBSHELL_RELE
 
 - The control plane answers `subshell-server update --check` from the release list and installs over the running one on request, always taking a database snapshot first. When the update cannot run, it refuses by name and tells you to pass `--from <file>` instead. See [Updating the Server](/server/updating).
 - A node updates the same way: `subshell update [--check]` on the machine, or the update action on its node page from the browser. See [Updating a Node](/nodes/updating).
-- The desktop apps check GitHub's release list for their own component when they launch. When a newer release exists, the tray item changes from `Check for Updates…` to `Update available: Subshell Server <version>`, or the matching `Update available: Subshell Client <version>`. What they download is verified against a signing key baked into the app before it replaces itself. A release host that is compromised or lying cannot make the app install a build it did not sign.
+- The desktop apps check GitHub's release list for their own component at launch, at most once a day. When a newer release exists, the tray item changes from `Check for Updates…` to `Update available: Subshell Server <version>`, or the matching `Update available: Subshell Client <version>`. What they download is verified against a signing key baked into the app before it replaces itself. A release host that is compromised or lying cannot make the app install a build it did not sign.
 
 ## See also
 

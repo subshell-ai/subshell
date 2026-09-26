@@ -21,7 +21,7 @@ A network plugin describes; the host executes. A plugin builds an argument vecto
 - The command must be an absolute path the plugin resolved with the host's own binary lookup. A bare name is refused, because nobody could then say which binary ran.
 - Anything the run member or the supervisor is handed whose first word is `sudo`, `doas` or `pkexec` is refused outright. The manifest's install command runs through a shell and is guarded at load instead, as described below.
 - The child gets a fixed allowlist of environment variables, so neither the auth secret nor the database path rides along.
-- stdin starts closed so a prompt cannot hang the run, output is capped at 64 KiB, and the clock is real: 30 seconds by default, extendable to ten minutes for a package manager that needs it.
+- stdin starts closed so a prompt cannot hang the run, captured output is capped at 64 KiB per stream, and the clock is real: 30 seconds by default, extendable to ten minutes for a package manager that needs it.
 
 This is what keeps the properties the installers already had (admin-only, bounded, environment-allowlisted, audited) true of a plugin's code too. A plugin's commands are exactly as trusted as its install was, and installing one is the same trust decision as installing the CLI it drives: plugin code runs in the control plane's process, with that process's privileges and no sandbox. See [Security model](/about/security-model).
 
@@ -52,7 +52,7 @@ Disabling, uninstalling or leaving a network forgets that plugin's contribution,
 
 A join credential is transient: an auth key or setup key is passed to the vendor CLI once, consumed by the join, and stored nowhere. Subshell keeps nothing after it.
 
-A credential that has to survive restarts (the Cloudflare tunnel token) goes to a store that is write-only: plugins can set, check and delete a secret, never read one back. A plugin that could read a credential could put it in a command line, a log line, or a link that renders in your browser. Files are readable only by the server's user, and the value reaches a child process only through the host: an environment variable or a file path the host hands over. Two consequences to know: a stolen data directory is a stolen tunnel, and the database backup does not cover these secrets, so a restored instance asks for the token again. Every settings form states that at the field.
+A credential that has to survive restarts (the Cloudflare tunnel token) goes to a store that is write-only: plugins can set, check and delete a secret, never read one back. A plugin that could read a credential could put it in a command line, a log line, or a link that renders in your browser. Files are readable only by the server's user, and the value reaches a child process only through the host: an environment variable or a file path the host supplies. Two consequences to know: a stolen data directory is a stolen tunnel, and the database backup does not cover these secrets, so a restored instance asks for the token again. Every settings form states that at the field.
 
 ## Who may act, and what is recorded
 
