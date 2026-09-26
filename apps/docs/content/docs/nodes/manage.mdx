@@ -1,0 +1,109 @@
+---
+title: Manage a node
+description: Restart, service controls, logs, config, and maintenance mode for an enrolled node, from the browser.
+---
+
+Manage an enrolled node from its page in the browser: drive its service, read its log, flip its debug logging, point it at a different control plane, or take it out of service with maintenance mode.
+
+Most nodes are headless: a machine in a closet, a box on your tailnet, or a cloud instance you only ever SSH into, or never. The node's page in the browser is the remaining place to ask about the machine. These acts do not share one permission, so this page names the gate on each verb rather than letting you assume one.
+
+Everything below is about enrolled nodes. The control plane's own machine (the row named **Server**) refuses every one of these controls: it is the same host as the plane, and its service is managed from [Service and autostart](/server/service) instead. None of these controls reaches a node whose owner account has been disabled, either. The machine is disconnected the moment the account is disabled and refused when it dials again until the account is re-enabled, so until then it simply shows offline ([Users and roles](/server/users)).
+
+## The service controls
+
+The **Service** card reports what the machine's service manager says, and it offers five verbs: start, stop, restart, install, and uninstall the background node. All of them are browser acts over a cookie session; an API key, even a powerful one, is refused here. Each verb sends a signed command that the node carries out against its own service manager. The command rides the node's own socket, and since protocol 14 that socket is encrypted end to end at the application layer, so TLS in front of the server is not required for this leg.
+
+| Verb | Who may use it |
+|---|---|
+| start, install | owner or an edit grantee |
+| restart | owner or an edit grantee |
+| stop, uninstall | owner only |
+
+The split is structural, not a nicety. Every command reaches the node over the node's own socket, so stop and uninstall end the very connection that would carry their undo: from a browser, a stopped node cannot be started again, and an uninstalled service cannot be reinstalled. Only someone with a shell on that machine can fix it, with `subshell service install`. That is why these two verbs sit with the owner: an edit grantee is trusted to interrupt a machine they were shared, not to make it unreachable.
+
+`restart` briefly takes every subshell running on the node offline, the owner's and other grantees' included. The plane already runs arbitrary work on the node, so this adds no new reach, only new availability to think about.
+
+The node refuses a verb whenever the request cannot mean what it says: the node is offline, it is not running under a service manager at all, nothing is installed, its binary is too old, or, for restart, the service definition would close the live panes rather than leave them running, unless you explicitly pass `force`. Refusals are answered as reasons, not error codes.
+
+The **Runtime** card on the node's page (how the node is supervised, and where its config, log, and binary live) appears only for an online node viewed by the owner or an edit grantee. A view grantee may launch on the machine, but that does not make its paths their business.
+
+## Reading the log
+
+**Logs** serves a slice of the node's own log file. The file is bounded and self-replacing, and the node writes it precisely so a browser can read a headless machine's output. The gate is owner or edit, the same as the service card. The log records launches and their failures, command refusals, and connection problems. It never records pane content, and never command arguments, which is what keeps a log read from becoming a credential read: a launch's arguments carry the subshell's bearer token.
+
+## Debug logging
+
+**Debug logging** on a node is a switch on the same page, gated at owner or edit. It is not owner-only because it is reversible and narrow: it changes what the machine writes to its own bounded file, and the same call turns it back. There is one refusal. If the operator set `SUBSHELL_DEBUG_LOGGING` in the node's environment, the environment wins, and the page refuses to write a setting the next boot would mask. It currently reveals little, because the node's debug vocabulary is still thin; the mechanism exists ahead of the lines.
+
+## How long pane logs live
+
+Every pane's transcript (everything typed at that terminal, pasted tokens included) is streamed to a log file under the node's own data dir. The plane commands its deletion when you delete a subshell, but a node that was offline for that delete keeps the transcript on its own disk. So the node ages transcripts out itself: a pass at boot and an hourly pass after it delete the logs of subshells that are no longer running. A running pane's log is never swept, because it is what a browser replays from. A liveness probe that cannot answer counts the pane as running, because a sweep deletes.
+
+The retention window belongs to the machine the files sit on, so the control plane has no toggle for it. The node's own loopback dashboard does. Run the agent on the machine, open `http://127.0.0.1:3090`, and edit **Pane log retention** under Settings. A save writes the same `config.json` fields a hand-edit would, and the next hourly sweep uses them, so no restart is involved. There are two limits:
+
+- A node that booted with `0` days and `0` hours scheduled no sweep at all, so leaving keep-forever does take a restart.
+- A variable set in the node's environment wins over every write, so the page shows that variable and refuses to change the field it forces, exactly as the debug-logging switch does.
+
+Below the dashboard, the same two settings can be written by hand or by the environment:
+
+| Setting | Default | Effect |
+|---|---|---|
+| `SUBSHELL_LOG_RETENTION_DAYS` / `logRetentionDays` in `config.json` | `1` | Days a non-running log survives. |
+| `SUBSHELL_LOG_RETENTION_HOURS` / `logRetentionHours` in `config.json` | `0` | The hours half: a log goes once older than `days × 24h + hours`. |
+
+`0` days and `0` hours together keep everything forever. The one-day default is deliberately shorter than the server's own 30-day window, because typed transcripts should not accrete on a node.
+
+## Repointing at a different control plane
+
+The **Control plane** card on the node's page lets the owner replace the address the node dials. It is the browser twin of running `subshell configure --server <url>` on the machine, and it deserves care.
+
+- It keeps the machine's identity: the same node id, the same key, the same pinned signing key, and the same encryption link (its own keypair and the plane's pinned public half). It spends no setup key and mints no second row. The new plane must already hold the key the node pins, or every command it sends fails verification. In practice it only works between two names for one plane.
+- The node dials the newly named host carrying this plane's node key. Repointing discloses that credential to whatever address was typed, so treat it as naming a host you trust, not as editing a URL.
+- Loopback addresses are refused outright: a headless machine has no operator standing at it to notice it dialing itself. The change takes effect when the node restarts, because choosing when is the operator's act, not the page's.
+- The change is audited, naming the new value. The plane never knew the old one: which address a node dials lives in that machine's own config.
+
+Contrast with [re-enrolling from the desktop app](/nodes/desktop-node): enrolling overwrites the config, mints a second node row, and discards the old key. Repointing does none of that.
+
+## Maintenance mode
+
+Maintenance is a flag on a node that says: stay enrolled, keep answering every command, and take no new subshells. It answers a different question than shares do. Shares answer who may launch here; maintenance answers whether anyone may. You flip it when you want the machine back for yourself, for an upgrade, a reboot, or a misbehaving agent CLI, without unenrolling anything or editing anybody's grants.
+
+Every node has one, including the control plane host's own row.
+
+### What turning it on does
+
+- New subshell launches on the node are refused for everyone, the owner and every grantee included.
+- Every subshell running there is terminated, whoever owns them. This is the effect to weigh before you turn it on. Any node share lets its grantee launch private work on your machine, so maintenance stops work you cannot enumerate and may not own. Before you throw the switch, the node's page tells you how many subshells will stop: the count, and nothing about whose they are. The people who own them learn by push.
+- Everything else keeps working: the node answers service controls, log reads, re-checks, config, and updates exactly as before. The row stays visible to everyone who could see it.
+
+Turning it off puts the node back in service for the same audience as before. Maintenance is a window, not a change to anyone's grants.
+
+### The two switches
+
+**The page.** The node's page carries the switch. It is owner-only (admin on the control-plane host's row), the same gate as deleting the node or re-sharing it, because what maintenance does is bigger than an `edit` grantee's business. On the wire it is `PUT /api/nodes/:id/maintenance`, and every flip is audited.
+
+**The machine.** Someone with a shell on the node decides locally too:
+
+```bash
+subshell maintenance on    # lists what is running; --yes confirms the stop
+subshell maintenance off
+subshell maintenance status
+```
+
+`on` names the running subshells it is about to terminate and refuses to terminate them without `--yes`.
+
+### Which end's change wins
+
+The flag is one state with two copies, and either end can overrule the other. The newer change wins, and a tie goes to the control plane. So a plane can close a window an operator opened at the keyboard. And because the machine stamps its own decisions, a compromised machine can always present a winning stamp and clear the flag.
+
+That is acceptable because the flag was never a containment control. Whoever can send the frame that clears it holds the node's key, and whoever holds that key is the machine's local OS user, who already owns every pane, every file, and every bearer token there. Maintenance is a routing preference, not a quarantine. It keeps answering every command precisely so the operator can keep maintaining the machine. To actually contain a suspect machine, use the acts that are out of a node key's reach from an authenticated browser: delete the node, rotate or disable its key, or clear its shares.
+
+On the machine, the flag lives in its own small file, and the node reads it fail-closed: if the mirror is unreadable, the node refuses launches rather than assuming "off". That is the inverse of the [allowlist](/nodes/directory-allowlist), and the same reasoning read from the other side. "Refuse" is the safe answer for a switch that stops work, and "allow" is the safe answer for a restriction nobody set.
+
+## Other pages
+
+- [Update a node](/nodes/updating): the other act that restarts the node.
+- [Share a node](/nodes/sharing): the other axis, who may launch here.
+- [Notifications](/use/notifications): how affected subshell owners hear about a maintenance stop.
+- [Logs and debugging](/server/logs): the same posture, for the plane's own log.
+- [The threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#6-nodes): every verb's permission, refusal, and audit event, and the maintenance overrule accounting.

@@ -1,0 +1,57 @@
+---
+title: Node and launch errors
+description: "The three launch refusals, a node that never comes online, and an installed program the daemon cannot find."
+---
+
+Fix the failures around nodes and launching: a refusal that names its cause, a node that never comes online, and a program the daemon cannot see.
+
+## A launch refuses: offline, unreachable, or in maintenance
+
+**Symptom.** The launch form prints one of three lines, and each sends you somewhere different:
+
+- `That node is offline. Start its subshell or pick another node.`: the machine's `subshell` daemon is not connected right now.
+- `The node did not answer. Try again shortly.`: the plane sent the command and got nothing back.
+- `That node is in maintenance. Pick another node, or end maintenance from its node page.`: the machine is healthy and answering everything except launches.
+
+**Cause and fix.** An offline node is not a crashed subshell: check the node, not the pane. Open the node's page. Its status line says whether it is online, and **Re-check** asks it right now. On the machine itself, `subshell status` answers `ONLINE` from the local daemon lock, or `OFFLINE (no local subshell running` with the commands that fix it. If someone turned maintenance on, the switch is on the node page. If the daemon is simply down, [Manage a node](/nodes/manage) has the start, restart, and service path.
+
+## The node never comes online
+
+**Symptom.** Enrollment finishes, the row exists, and it stays offline forever. Or the install printed a warning you scrolled past:
+
+```
+subshell: WARNING: SERVER is a loopback address; a remote node
+    must dial this machine's VPN/LAN address instead (Nodes page).
+```
+
+**Cause.** The address the node dials is baked into the script at render time and used forever. A command built from a loopback base URL sends a remote machine dialing itself, connected to nothing. The Add-node dialog's address dropdown is the guard against this: its rows come from the addresses the instance is known at, and the row you pick is the address the node gets. A loopback-only instance, with no LAN derivation and no joined network, has only that one row to offer.
+
+**Fix.**
+
+1. Before copying the command, pick an address the new machine can actually reach, usually your VPN or tailnet address, in the dialog's **Select Subshell server address** dropdown. The choice rides to the server as the command's `server=` argument, and only addresses the instance already trusts are accepted.
+2. To fix it for every future install, set `APP_BASE_URL` itself.
+3. Either way, mint a fresh key and rerun: the old key is single-use.
+
+To diagnose an already-enrolled node, run `subshell status --probe` on the machine. It dials the stored address and names it. Read its own warning first: the probe opens a live node socket and the control plane keeps the newest connection, so it kicks any daemon running elsewhere for that node. Only probe when no other copy is running. And if you started the daemon by hand with `subshell run`, it died with your SSH session. That verb is foreground on purpose; install the background service instead ([Add a node](/nodes/add-a-node) covers both).
+
+## "program not found" for an agent you installed
+
+**Symptom.** The harness card or launch picker says `program not found` even though you can run `claude` in your own terminal.
+
+**Cause.** Detection answers per machine, and it answers for the machine you picked. The most common version of this is not a bug: the CLI is installed on the control-plane host, but you are looking at a node's card, or the other way round. The plane's in-page installer only ever installs on the control-plane host. A node gets its CLIs over SSH or from your images ([Install an agent CLI](/agents/install-a-cli)).
+
+**Fix.** Press **Re-check** on that machine's card after installing. Rows update on page load, and Re-check asks now. If it still refuses on the right machine, the binary sits where detection cannot see it. The lookup tries an explicit `CLAUDE_PATH`-style override, then the service's `PATH`, then well-known install locations, then version-manager layouts (nvm, fnm, volta, asdf, mise, n) by glob, then the login shell's `PATH` as a last resort. A pinned-but-wrong override is reported distinctly and is a one-edit fix. Moving the binary onto a standard `PATH`, or setting that override, ends it.
+
+## It works in your terminal but not as a service
+
+**Symptom.** tmux or an agent CLI is found in your shell, yet the background `subshell` daemon reports "not found" and launches fail.
+
+**Cause.** Service managers start units with a stock `PATH`. On macOS that misses Homebrew's `/opt/homebrew/bin`; on Linux it misses whatever your profile adds. Subshell bakes the installing shell's `PATH` into the unit when it installs the service, which is why the daemon can be blind to a binary that appeared (or moved) after that install.
+
+**Fix.** Install the service again from a shell that finds everything (`subshell service install` re-bakes the current `PATH`) and restart it. For the control-plane host itself, the same trap exists for `tmux`, and `subshell-server status` prints exactly which tmux the server resolves, or the line `NOT FOUND: install tmux (apt install tmux / brew install tmux)`. The agent-install path in the browser adds the login shell's `PATH` deliberately, so an install run from the page lands where detection looks.
+
+## Other pages
+
+- [Pane and terminal issues](/help/panes) when the missing program is tmux
+- [Install and update errors](/help/install-updates) when the install one-liner itself refused
+- [Add a node](/nodes/add-a-node): enrollment end to end, including its own "if it does not come online" list

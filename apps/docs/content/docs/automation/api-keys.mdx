@@ -1,0 +1,65 @@
+---
+title: API keys
+description: "The two machine credentials: a subshell's own token, and the system key you mint for your own tooling."
+---
+
+Two kinds of bearer credential reach the API, and this page covers what each one can do, how it is minted and revoked, and the practices a system key depends on.
+
+Both are spelled the same way on the wire (`Authorization: Bearer subshell_…`), and they serve different purposes: one is a pane talking to the control plane as itself, and the other is a key you mint for your own tooling. Knowing which one you hold answers most questions about what it can do.
+
+## A subshell's own token
+
+When you launch a subshell, the server mints a token for it. You never see this token, and it appears nowhere you manage: the API keys page lists only your own keys, never these. Its properties:
+
+- Scoped by a permission map: `channels` and `subshells`, each `read` or `write`. This is a fixed ceiling, not whatever the owner can do.
+- A 7-day lifetime that self-extends while the subshell's MCP child is running, so a long-lived agent is not cut off mid-task.
+- It dies with the subshell row. Terminating or deleting the subshell revokes its token instantly. Restarting one, automatically or by hand, rotates the key in place. The row, not the key, is the lifecycle truth: a valid-looking key whose subshell is gone is refused.
+- It impersonates its owner narrowly. On per-subshell routes a machine token runs with the admin boost and sharing grants switched off: a pane can act only on its own owner's subshells, never a foreign one and never one merely shared with its owner. The self-report endpoints (attention signals, harness session identity) accept only a subshell's own key acting on its own row. The token can also mint a WebSocket terminal-attach token, but only for its own subshell: a pane can drive its own terminal, never another's.
+
+> [!warning] The token is visible on the pane's machine
+> The token rides in the pane's tmux start command, so it is visible to any local user on the machine that runs the pane. Whoever owns that machine effectively holds its panes' credentials. This exposure is accepted in the threat model.
+
+## A system key
+
+A **system key** is the long-lived, full-access credential you mint for LAN tooling, scripts, and anything that is not a human at a browser: a nightly script that opens a subshell for the repo's CI state, a home-automation hook that pings the [REST API](/automation/rest-api), or a laptop CLI you wrote yourself. You put it in an `Authorization: Bearer subshell_…` header, and it authenticates until you revoke it.
+
+An admin creates keys under **Settings → API keys** (cookie session only, admins only). Their properties:
+
+- Owned by the `system` service account, with no permission ceiling: every holder is effectively an operator.
+- The plaintext is shown exactly once, at creation. Only a hash is stored, so a lost key cannot be read back. The recovery is to mint a new key and delete the old one, which is also how you rotate one.
+- It drives terminals too. A system key can mint a WebSocket attach token for any subshell on the instance. Each mint names one pane, lives 30 seconds, and is refused anywhere else. Within that bound your script can type into a live agent session on any machine the instance runs. Containment is that binding, not a refusal to mint. A pane's own token can mint the same token only for itself.
+- Disabling a key is instant revocation: a disabled key authenticates nowhere, immediately. Deleting removes the row.
+- Each key carries a name for identification and a short non-secret preview in listings.
+
+The pane's own token, by contrast, carries a scoped ceiling and dies when its subshell dies, but that credential belongs to a pane, not to you. When you mint a key you take the long-lived, unscoped end of that trade, because the API cannot narrow it for you: there are no per-key scopes to set, no read-only flag, and no path allowlist.
+
+## The rule that bounds both kinds
+
+Machine credentials can never manage the instance. Every admin surface refuses a bearer credential with 403 the moment the guard sees a key instead of a browser session, even one whose owner is an admin. The refused surfaces are `/api/users`, `/api/auth-providers`, `/api/system-keys`, the `/api/settings` writes, `/api/plugins` (the writes; the plugin listing is open to any authenticated caller), `/api/network`, `/api/audit`, the `/api/admin/*` group, and the subshell-sharing routes. Your script gets no admin actions, no key minting, and no user changes, even though the key belongs to the whole instance. Bearer actors also read "not an admin" in every response that gates the admin navigation. The blast radius of a leaked system key is everything the API does; it is not the instance itself.
+
+## The two reads every credential gets
+
+Everything is locked down except two deliberate, instance-wide reads. Any valid credential can make them, including a system key and including a running pane's token, so you should know they exist before you assume a leaked key reads nothing:
+
+- **The user roster.** `GET /api/users` returns every account's email, display name, role, and disabled state. It is instance-wide by design: it is what lets the sharing picker name people, and requiring an admin session there would break that for ordinary users.
+- **The address list.** `GET /api/settings/public` (its `trustedOrigins` field) carries every origin a browser may sign in from: your `APP_BASE_URL`, your extra `TRUSTED_ORIGINS`, and the addresses of any [network plugins](/server/network-plugins) you are running, such as your tailnet name or your LAN name. It exists so the "Subshell for Mobile" dialog can hand your phone a working address, one the control plane actually answers on, instead of the loopback address it found you on.
+
+The rationale is the trusted-network posture: every signed-in user is someone you admitted. Neither response carries a credential or grants access, and every address it names still demands its own sign-in. Both widen visibility, not access. The cost, stated plainly: a leaked key enumerates who is on your instance and where else it answers, without guessing. That is a widening, not a hole; the full accounting is in [security.md §3](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#3-authorization).
+
+## Practices the mechanism cannot enforce
+
+Because a system key holds no ceiling to fall back on, we recommend scoping it by practice rather than mechanism: mint one per purpose, and keep the key you would reach for at 3 a.m. somewhere safer than a CI variable. In full:
+
+- **One key per purpose.** Name keys so the list answers "what breaks if I disable this?" at a glance: `deploy-bot`, `nightly-report`, `home-lab`, not `main`. When one leaks, you disable one thing.
+- **The plaintext exists for exactly one screen.** You see it once at creation and it is never retrievable; only a hash survives. If it is lost, mint a replacement; there is no reset.
+- **Revocation is immediate.** Disabling a key takes effect on its next request, not at the next restart or token expiry; deletion removes it outright. There is no grace window, which also means an accidental disable is instantly visible as failures in whatever used the key.
+- **Rotation is mint, move, disable.** No bulk export exists to help you: with hashes at rest, nobody can hand you the live keys, you or an attacker. Keep a mapping of which consumers use which key id so you can drain one when replacing it, and keep any emergency or ops key in a vault rather than in CI where every log can see it.
+- **A key is not a session.** It authenticates as the `system` service user, not as you. A subshell your script creates is owned by that account, not by you, and it is not yours in the way one you launched from the browser is. That separation is useful, but it means using a system key for everything quietly moves your work out of your own view.
+
+## Other pages
+
+- [REST API](/automation/rest-api): what an authenticated caller can drive and how errors are shaped
+- [The MCP server](/automation/mcp) and [MCP tools](/reference/mcp-tools): what a pane does with its own token
+- [Users and roles](/server/users): the `system` account that owns your keys, and why it is untouchable
+- [Security model](/concepts/security-model): the posture these keys are sized for
+- [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#2-identity-and-credentials): the credential table, the forgery defense, and the accepted `ps` exposure

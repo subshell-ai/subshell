@@ -1,0 +1,64 @@
+---
+title: Install on macOS
+description: "Install Subshell Server on a Mac, start it as a background service, and open its setup page."
+---
+
+Install Subshell Server on an Apple silicon or Intel Mac, start it as a background service, and open its setup page in a browser.
+
+## Before you start
+
+- A Mac, Apple silicon (`darwin-arm64`) or Intel (`darwin-x64`). Both are published server targets.
+- A browser on that Mac.
+- tmux, or a way to install it. `init` checks for tmux before it writes anything and refuses when it is missing; an interactive run can install it on the spot with Homebrew.
+
+## Install and start the server
+
+1. Open a terminal on the Mac that will run the server and run the install script:
+
+   ```bash
+   curl -fsSL https://subshell.sh/install-server.sh | bash
+   ```
+
+   The script detects your platform, finds your platform's binary from the newest `cli-server` release, and checks the download against the release's published `.sha256` digest before it runs anything. It installs the binary to `~/.local/bin/subshell-server` and starts `subshell-server init`.
+
+2. `init` asks for the port, address, base URL, extra trusted origins, and database path. Each question has a default, so you can press Enter through them.
+
+3. Answer the last question, which decides how the server runs:
+
+   ```
+   Run Subshell Server in the background and start it at login?
+   ```
+
+   Choose **Yes**. On macOS this registers a launchd agent, with no sudo. `--yes` and non-interactive runs take Yes automatically.
+
+4. When `init` finishes, it prints the address to open:
+
+   ```
+   Open http://localhost:3080/setup in a browser to create the admin account.
+   ```
+
+## Open the setup page
+
+Open that address in a browser and create the first account. That first account is the administrator.
+
+> [!warning] Do this before others can reach the machine
+> The setup page is public until the first account exists, so you can create one. On a shared network, anyone who opens the page before you creates the administrator account instead.
+
+With the account created, continue to [Your first subshell](/get-started/first-subshell). Its wizard confirms tmux for the browser flow, and on a Mac its **Install tmux** screen can run the Homebrew install because that command needs no password.
+
+## Or use the desktop app
+
+If you would rather have a window than a terminal, the **Subshell Server** app is the GUI route to the same server. It ships the server binary inside it, so nothing is downloaded on first run, and it is a signed, notarized `.dmg` for Apple silicon and Intel Macs, macOS 13 or later. Its setup assistant installs tmux when it is missing, starts the server on one press, and opens the dashboard in the same window. [Install with the desktop app](/server/desktop-app) covers it screen by screen.
+
+## Notes
+
+- The binary is self-contained: the web UI is embedded, so the Mac needs no Bun, no checkout, and no separate frontend to serve.
+- `init` stores its settings in `~/.config/subshell-server/config.env` and generates the sign-in secret once. A second run keeps the existing secret.
+- Every question `init` asks has an environment-variable spelling for unattended runs; [Install by hand](/server/headless) lists them. The database path is the exception: it keeps its default unless you run `init --db-path` yourself.
+- To reach the server from another machine, browse to an address that machine can reach and that the instance trusts. [Networking and addresses](/server/networking) explains which addresses a browser can sign in from.
+- If something looks wrong, run `subshell-server status` first. It reports the active settings, whether tmux and the port are up, and whether the admin account exists, and it does this without starting anything.
+- A machine outside the published targets (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`) is refused by name, never silently mis-resolved.
+
+## Other install methods
+
+[Install on Linux](/get-started/install-linux) · the [desktop setup app](/server/desktop-app) · [Docker](/server/docker)

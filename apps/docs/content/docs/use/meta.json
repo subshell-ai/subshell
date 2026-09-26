@@ -1,4 +1,4 @@
 {
   "title": "Use Subshell",
-  "pages": ["subshells", "workspaces-panes", "sharing", "notifications", "presets", "channels", "devices"]
+  "pages": ["index", "subshells", "workspaces", "presets", "sharing", "notifications", "channels", "devices"]
 }

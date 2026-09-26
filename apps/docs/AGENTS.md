@@ -4,8 +4,8 @@ This is the public documentation site: a Fumadocs 16 / Next.js app that builds
 to a **static export** and ships at docs.subshell.sh. Pages are MDX files under
 `content/docs/`, and the sidebar is the file tree (`meta.json` per folder).
 The human-facing twin, the contributor walkthrough, is
-`content/docs/develop/contribute-to-these-docs.mdx`; this file is the agent-
-facing contract. Where they disagree, this one is more current.
+`content/docs/develop/write-docs.mdx`; this file is the agent-facing contract.
+Where they disagree, this one is more current.
 
 ## Finishing a stub page
 
@@ -27,6 +27,13 @@ files the content migrates from. Finishing one means all four steps:
 
 Keep the `title` and `description` frontmatter (both required; a description
 containing ": " must be quoted; it is YAML).
+
+## Voice
+
+`STYLE.md` (next to this file) governs prose: the one-sentence opener,
+sentence discipline, the banned-tell list, and the calibration pairs. It is
+binding on humans and agents alike, and the re-imagine audit was run against
+it.
 
 ## Vocabulary and voice
 
@@ -56,10 +63,10 @@ containing ": " must be quoted; it is YAML).
   parse error.
 - **Frontmatter is YAML**: quote values containing ": ".
 - **Internal links are root-relative** (`[Nodes](/nodes)`) and must point at
-  **existing pages**. Groups `use`, `automation`, `develop`, `reference` and
-  `help` have NO index page: `/use` 404s while `/nodes` resolves. A link to
-  an existing stub page is fine (every stub IS a page); a link to a
-  nonexistent path is not. The content test now enforces this.
+  **existing pages**. `get-started`, `use`, `agents`, `nodes`, `server`,
+  `concepts` and `help` have index pages (the bare path resolves);
+  `automation`, `reference` and `develop` do NOT - never link their bare
+  section path. The content test enforces resolution.
 
 ## Structure rules (the test enforces all of these)
 

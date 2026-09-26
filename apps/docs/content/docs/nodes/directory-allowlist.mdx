@@ -1,38 +1,41 @@
 ---
-title: Directory Allowlist
-description: "Restrict which folders subshells may be created on a node: empty means unrestricted."
+title: Restrict directories
+description: "Restrict which folders subshells may be created on a node; an empty list means unrestricted."
 ---
 
-An allowlist is a node owner's list of the directories where subshells may be **created** on that machine. Launches inside one of the listed directories, or anywhere beneath it, are permitted; launches outside the set are refused. It is the one control that bounds what a [share](/nodes/sharing) actually confers: a share grants launch, and the allowlist decides where a launch can land.
+Restrict the directories where subshells may be created on a node.
 
-> [!important] Empty means unrestricted, never "deny everything"
-> A node with no rules accepts launches anywhere, exactly as it did before this feature existed. **Clearing the list returns a node to unrestricted**; it does not lock the machine down. Read the list as "these extra limits", not as "the only allowed set, where none listed is none allowed": the semantics invert nothing on an empty list, and an operator who expects deny-all will watch their node go quiet for reasons the UI does not name.
+An allowlist is a node owner's list of the directories where subshells may be created on that machine. Launches inside one of the listed directories, or anywhere beneath it, are permitted; launches outside the set are refused. It is the one control that bounds what a [share](/nodes/sharing) actually confers: a share grants launch, and the allowlist decides where a launch can land.
 
-## Who can edit it, and why that is the owner
+> [!important] An empty list means unrestricted, never deny-all
+> A node with no rules accepts launches anywhere, exactly as it did before this feature existed. Clearing the list returns a node to unrestricted; it does not lock the machine down. Read the list as "these extra limits", not as "the only allowed set, where none listed is none allowed". The semantics of an empty list are the opposite of deny-all, so an operator who clears the list expecting launches to stop will instead see every launch continue to be accepted.
 
-Only the node's **owner** edits the allowlist (an admin, for the control-plane host's row). This is deliberately **not** included in the `edit` grant, and the reason is circular if you let it be: any node share, `view` included, already lets its grantee launch on the machine, so an `edit` grantee who could widen the list to `/` would face no restriction at all. Widening the rules has to sit with whoever can revoke them.
+## Who can edit the allowlist
 
-The rules are **read-visible to everyone who can see the node**, grantees included. A refusal is unexplainable without them, and they name directories, not contents. You edit them on the node's page, under **Config**; every change is audited.
+Only the node's owner edits the allowlist (an admin, for the control-plane host's row). It is deliberately not included in the `edit` grant. Any node share, `view` included, already lets its grantee launch on the machine, so an `edit` grantee who could widen the list to `/` would face no restriction at all. Widening the rules sits with whoever can revoke them.
 
-## How it is enforced twice
+The rules are read-visible to everyone who can see the node, grantees included. A refusal is unexplainable without them, and they name directories, not contents. You edit them in the **Allowed directories** card on the node's page, and every change is audited.
 
-Signing proves *who* sent a launch, never *whether* the directory is permitted. So the check happens in two places that do not trust each other's copy:
+## How the rules are enforced in two places
 
-- **The control plane** checks the launch's working directory (fully resolved, not as typed) on **create and on restart**. (A restart spawns a fresh pane, so it is a launch wearing an old row's clothes. Panes already running are untouched by a rule change.)
-- **The node itself** refuses every `launch` whose directory fails the check against **its own persisted copy** of the list (`allowed-dirs.json` in its data directory). A list carried inside each command would be worthless against a compromised control plane, which is the exact assumption this second check exists for.
+Signing proves who sent a launch, not whether the directory is permitted. So the check happens in two places that do not trust each other's copy:
 
-Two honest edges follow from the doubling:
+- The control plane checks the launch's working directory, fully resolved and not as typed, on create and on restart. A restart spawns a fresh pane, so it is checked as a launch under an existing row. Panes already running are untouched by a rule change.
+- The node itself refuses every `launch` whose directory fails the check against its own persisted copy of the list (`allowed-dirs.json` in its data directory). A list carried inside each command would be worthless against a compromised control plane, and that is the exact assumption this second check exists for.
 
-- **A stale window.** Change the rules while the node is offline and it keeps enforcing its previous set until it reconnects, when the plane pushes the current one. During that window the control plane's own check holds; the window only matters to a caller who could already command the plane directly.
-- **A corrupt file fails open.** A node whose copy it cannot read behaves as unrestricted until the plane repairs it. That is a deliberate inversion of maintenance's fail-closed rule, and the reason is direction: this list is a restriction its owner opted into, so a disk hiccup should not brick every launch on the machine. The control plane still enforces its own copy meanwhile.
+Two consequences follow from the two checks.
 
-## Browsing is not the boundary
+**A stale window.** If you change the rules while the node is offline, it keeps enforcing its previous set until it reconnects, when the plane pushes the current one. During that window the control plane's own check holds. The window only matters to a caller who could already command the plane directly.
 
-The folder picker a grantee uses is **filtered** to the allowed directories, and unfiltered for the owner, who browses precisely in order to choose what to permit. That filter is a courtesy, never the gate: the launch refusals are. Do not read "I can browse it" as "I can launch there" for anyone, or the reverse.
+**A corrupt file fails open.** A node that cannot read its own copy behaves as unrestricted until the plane repairs it. That is a deliberate inversion of maintenance's fail-closed rule, and the reason is direction. This list is a restriction its owner opted into, so a disk hiccup should not block every launch on the machine. The control plane still enforces its own copy meanwhile.
 
-## See also
+## The folder picker is not the gate
 
-- [Sharing a Node](/nodes/sharing): the grant that makes this bound worth setting.
-- [Maintenance Mode](/nodes/maintenance): the wider switch: nothing launches anywhere.
-- [Files and Paths](/reference/files-and-paths): where a node keeps its state, including its copy of the rules.
+The folder picker a grantee uses is filtered to the allowed directories, and unfiltered for the owner, who browses precisely in order to choose what to permit. That filter is a courtesy, never the gate: the launch refusals are the gate. Do not read "I can browse it" as "I can launch there" for anyone, or the reverse.
+
+## Other pages
+
+- [Share a node](/nodes/sharing): the grant that makes this bound worth setting.
+- [Manage a node](/nodes/manage): the maintenance switch, where nothing launches anywhere.
+- [Files and paths](/reference/files-and-paths): where a node keeps its state, including its copy of the rules.
 - [The threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#6-nodes): the semantics, the gate, and the double enforcement.

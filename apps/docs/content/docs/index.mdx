@@ -1,25 +1,29 @@
 ---
 title: Home
-description: "Subshell runs your interactive coding agents in tmux panes on machines you own: launch, watch, and steer them from any device."
+description: "Subshell runs coding agents in live terminal panes on your own machines, driven from any browser."
 ---
 
-Subshell is a web application for creating, viewing, and managing interactive **agent subshells**: real CLI coding agents (Claude Code, OpenCode, Codex, Hermes, pi) running in tmux-backed terminal panes on machines you own. Start an agent from the browser and walk away: the next device you open (laptop, tablet, phone) shows the same live pane you can type into, and a push reaches you when a decision is needed. The panes survive your laptop closing, no one else's cloud sits between you and your agents, and the server is one binary you host yourself.
+Subshell runs real CLI coding agents (Claude Code, OpenCode, Codex, Hermes, pi) in live terminal panes on machines you own. You start an agent from the browser, close the tab, and the pane keeps working; open any other device and you are back at the same session, typing. When the agent needs a decision, Subshell sends you a push. The whole thing is one binary you host yourself.
 
 ## Start here
 
 | If you want to… | Go to |
 |---|---|
-| install and run your first subshell (headless, desktop app, or Docker) | [Get Started](/get-started) |
+| install the server and run your first subshell | [Get started](/get-started) |
+| work with subshells day to day: launch, restart, share, organize | [Use Subshell](/use) |
 | see which agent CLIs Subshell can drive and how each plugs in | [Agents](/agents) |
 | run agents on more than one machine | [Nodes](/nodes) |
-| understand what the trusted-network posture defends, and what it does not | [Security Model](/about/security-model) |
+| operate the instance: users, networking, backups, updates | [Run the server](/server) |
+| understand what Subshell is and how a launch works | [Concepts](/concepts) |
+| look up exact flags, paths, ports, and defaults | [subshell-server CLI](/reference/server-cli) or [subshell CLI](/reference/node-cli) |
+| fix a failure the software actually printed | [Troubleshooting](/help) |
 
-## Three words first
+## Three words
 
-Subshell uses three words with exactly one meaning each, and all of these docs follow them:
+Subshell uses three words with exactly one meaning each, and every page here follows them:
 
-- A **server** is a *control plane*: the API, its database, and the web UI it serves. It is not a machine that runs agents.
-- A **node** is a *machine that runs agents*: any host enrolled to execute panes on the control plane's behalf.
-- A **client** is *a person's interface* to a control plane: the web UI, the desktop app, the mobile app.
+- A **server** is the control plane: the API, its database, and the web UI it serves. It is not a machine that runs agents.
+- A **node** is a machine that runs agents: any host enrolled to execute panes for the control plane.
+- A **client** is a person's interface to a control plane: the web UI, the desktop app, the mobile app.
 
-One machine can be all three at once (it's normal for the server host to run its own agents), and the docs say so every time. [What is Subshell](/about) explains the concepts; the [Quickstart](/get-started) is one page.
+One machine can hold all three roles at once; the server host running its own agents is the normal case. [What Subshell is](/concepts) explains the ideas behind the product, and the [Security model](/concepts/security-model) states plainly what the trusted-network posture defends and what it does not.

@@ -1,15 +1,17 @@
 ---
 title: Support
-description: "Where help lives: the GitHub issue tracker, what makes a report actionable, which logs to attach, and what this project is honest about not offering."
+description: "Where help lives: the GitHub issue tracker, what makes a report actionable, which logs to attach, and what this project does not offer."
 ---
 
-Subshell's support contract is its issue tracker. The project is public, young, and self-hosted by the people who run it, and that is stated plainly below rather than hidden behind a contact form. What *is* true is that a good report gets answered, and a report with the right facts in it gets answered faster.
+Subshell's support channel is its GitHub issue tracker.
 
 ## Where to ask
 
-Bugs and feature requests are [GitHub issues on the repository](https://github.com/subshell-ai/subshell/issues), including issues about these docs. Before filing, skim [Troubleshooting](/help/troubleshooting): its entries are the failures that already have names, and if yours is there, the diagnosis is written. It is also worth checking [Security Model](/about/security-model) first when your report would say "it doesn't do X": several things Subshell deliberately does not do (2FA as a second factor, TLS enforcement, rate limiting beyond sign-in) are posture decisions stated in [the threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md), not oversights. A finding that contradicts the docs is different: that *is* a bug, and it is worth an issue either way.
+Bugs and feature requests are [GitHub issues on the repository](https://github.com/subshell-ai/subshell/issues), including issues about these docs. Before filing, skim [Troubleshooting](/help): its entries are the failures that already have names, and if yours is there, the diagnosis is written.
 
-The repository ships no `SECURITY.md` yet, so the issue tracker is the only channel it declares. If you have a finding you cannot discuss publicly, say as little as possible in the report body and wait for a maintainer response rather than detailing the exploit in the open, and know that a coordinated-disclosure policy is something this project has not published, so ask for a private channel explicitly.
+When your report would say "it doesn't do X", check the [Security model](/concepts/security-model) first. Several things Subshell deliberately does not do (2FA as a second factor, TLS enforcement, rate limiting beyond sign-in) are posture decisions stated in [the threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md), not oversights. A report that contradicts the docs is different: that is a bug, and it is worth an issue either way.
+
+The repository ships no `SECURITY.md` yet, so the issue tracker is the only channel it declares. If you have a finding you cannot discuss publicly, say as little as possible in the report body and wait for a maintainer response rather than detailing the exploit in the open. A coordinated-disclosure policy is something this project has not published, so ask for a private channel explicitly.
 
 ## Run `status` before you write anything
 
@@ -19,35 +21,37 @@ On the control-plane host:
 subshell-server status
 ```
 
-Paste its output into your report. It is the first diagnostic for a reason: it prints the version, where `config.env` lives, every setting `configure` owns with the layer its value came from, `tmux` as either a resolved absolute path or `NOT FOUND`, the MCP entrypoint, how many node artifacts are published out of three, whether an admin account exists yet, whether the configured port is listening, and what the service definition says, with the auth secret masked, which is why it is safe to paste. A node machine answers the same kind of question with `subshell status`, which reads the daemon's local lock and prints `ONLINE (local daemon pid …)` or `OFFLINE` with the commands that fix it. Do not pass `--probe` casually when reporting: the probe opens a live socket and kicks any other daemon running for that node.
+Paste its output into your report. It is the first diagnostic for a reason. It prints the version, where `config.env` lives, every setting `configure` owns with the layer its value came from, `tmux` as either a resolved absolute path or `NOT FOUND`, the MCP entrypoint, how many node artifacts are published out of four, whether an admin account exists yet, whether the configured port is listening, and what the service definition says. The auth secret is masked, which is why the output is safe to paste.
+
+A node machine answers the same kind of question with `subshell status`, which reads the daemon's local lock and prints `ONLINE (local daemon pid …)` or `OFFLINE` with the commands that fix it. Do not pass `--probe` casually when reporting: the probe opens a live socket and kicks any other daemon running for that node.
 
 ## What to include
 
 | Include | Why |
 |---|---|
 | Which component, and its version | Four components version independently; both CLIs answer `version`, and the desktop apps show theirs in their About surface |
-| Your OS and architecture | The glibc floor and the Apple-silicon-only rule explain more refusals than bugs do |
+| Your OS and architecture | The glibc floor and the closed target list (no arm64 Linux desktop build) explain more refusals than bugs do |
 | How it runs: systemd/launchd service, desktop app, container, or a terminal | Supervision changes what restart, logs, and update can even do |
-| The message you saw, **verbatim** | The copy is deliberate; paraphrases hide which refusal fired |
+| The message you saw, word for word | The copy is deliberate; paraphrases hide which refusal fired |
 | What you did immediately before it | Most origin and offline failures reproduce in three steps |
 | The `status` output above | Names the layer a bad value came from |
 
 ## Logs worth attaching, and one that needs care
 
-- **The server's own log**: `<data dir>/logs/server.log`: JSON lines, capped at 200 KB and replaced when full, so it holds the recent past, not history. A tail is usually enough; [Logs & Debugging](/server/logs-debug) covers it, including reading the tail from the Logs page.
-- **A node's log**: `~/.config/subshell/logs/agent.log`: same bounded shape. It holds launches, refusals and connection errors. It never holds pane content.
-- **Pane transcripts need thought.** A subshell's log on disk holds the pane's screen, which includes what you **typed**, pasted tokens included. It is the most sensitive thing Subshell writes. Attach one only when the bug is *about* that pane's content, deliberately, and scrub credentials from any excerpt before pasting it anywhere.
-- With **debug logging** briefly on, request paths land in the server log, and a path can carry a secret (an install URL contains its setup key). Turn it off when done and skim what you are attaching.
+- The server's own log, `<data dir>/logs/server.log`, is JSON lines, capped at 200 KB and replaced when full, so it holds the recent past, not history. A tail is usually enough. [Logs and debugging](/server/logs) covers it, including reading the tail from the Logs page.
+- A node's log, `~/.config/subshell/logs/agent.log`, has the same bounded shape. It holds launches, refusals, and connection errors, and it never holds pane content.
+- Pane transcripts need thought. A subshell's log on disk holds the pane's screen, which includes what you typed, pasted tokens included. It is the most sensitive thing Subshell writes. Attach one only when the bug is about that pane's content, deliberately, and scrub credentials from any excerpt before pasting it anywhere.
+- With debug logging briefly on, request paths land in the server log, and a path can carry a secret (an install URL contains its setup key). Turn it off when done and skim what you are attaching.
 
-## What this is, and what it isn't
+## What this is, and what it is not
 
-There is no paid support tier, no SLA, no 24/7 queue: the issue tracker is the whole offer, and these docs, the [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md), and the code are what an answer cites. The one commercial channel the project does state is licensing, not support: the control plane is AGPL-3.0-only, and for organizations whose policies forbid AGPL, non-AGPL commercial licenses are available from the copyright holder (the [README's license section](https://github.com/subshell-ai/subshell#license) names the contact).
+There is no paid support tier, no SLA, and no 24/7 queue. The issue tracker is the whole offer, and these docs, the [threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md), and the code are what an answer cites. The one commercial channel the project does state is licensing, not support. The control plane is AGPL-3.0-only, and for organizations whose policies forbid AGPL, non-AGPL commercial licenses are available from the copyright holder (the [README's license section](https://github.com/subshell-ai/subshell#license) names the contact).
 
-Want to fix the bug yourself? [Contributing to Subshell](/develop/contribute-to-subshell) is the door, every page of these docs carries an edit link, and contributions ask for a one-time [Contributor License Agreement](https://github.com/subshell-ai/subshell/blob/main/CLA.md): you keep copyright; the grant is what keeps the dual licensing possible.
+You can also fix the bug yourself. [Contribute to Subshell](/develop/contribute) is the door, and every page of these docs carries an edit link. Contributions ask for a one-time [Contributor License Agreement](https://github.com/subshell-ai/subshell/blob/main/CLA.md): you keep copyright, and the grant is what keeps the dual licensing possible.
 
-## See also
+## Other pages
 
-- [Troubleshooting](/help/troubleshooting): named failures with named fixes
-- [Logs & Debugging](/server/logs-debug): what each log holds and how big it gets
-- [Security Model](/about/security-model): "by design" versus "broken"
-- [Contributing to Subshell](/develop/contribute-to-subshell): the contribution walkthrough
+- [Troubleshooting](/help): named failures with named fixes
+- [Logs and debugging](/server/logs): what each log holds and how big it gets
+- [Security model](/concepts/security-model): "by design" versus "broken"
+- [Contribute to Subshell](/develop/contribute): the contribution walkthrough

@@ -1,9 +1,11 @@
 ---
-title: Updating the Server
-description: Moving the control plane to a new version (from the page, the CLI, or the desktop app), and how a bad one rolls itself back.
+title: Update the server
+description: "Moving the control plane to a new version from the page, the CLI, or the desktop app, and how a bad one rolls itself back."
 ---
 
-The control plane updates by replacing its own binary and letting the **new binary finish the job at its first boot**, or undo it. Every path (the dashboard page, the CLI, the Subshell Server desktop app) drives the same transaction, so the behavior you read here is the behavior you get wherever you pressed the button.
+Move the control plane to a newer version and see how the update finishes or undoes itself.
+
+Every path (the dashboard page, the CLI, the Subshell Server desktop app) drives the same transaction, so the behavior you read here is the behavior you get wherever you pressed the button.
 
 ## Check first
 
@@ -11,56 +13,58 @@ The control plane updates by replacing its own binary and letting the **new bina
 subshell-server update --check
 ```
 
-prints what is installed, what the release source publishes, and whether a newer release exists (`--json` gives the same as one line). The dashboard shows the same answer, and its **Re-check** button is the same read with the fifteen-minute cache dropped, which is why it is a button and not a standing poll.
+This prints what is installed, what the release source publishes, and whether a newer release exists (`--json` gives the same as one line). The dashboard shows the same answer, and its **Re-check** button is the same read with the fifteen-minute cache dropped, which is why it is a button and not a standing poll.
 
 ## The transaction
 
 Whoever performs the swap does five things, and then the story moves to the next boot:
 
-1. **Back up the database.** Always, before anything changes. This is not a courtesy: migrations are forward-only, and an old binary *cannot boot a newer database at all*: the migrator refuses a schema carrying migration names it has never seen. So a rollback is always a **pair**: the old binary *and* the snapshot from before the swap. One without the other is not a revert.
-2. **Replace the binary**, with two renames in one directory: the running file moves aside as `.previous`, the new one takes its place. Both are recorded, together with the backup path, in a small marker file written *immediately before* the swap.
+1. **Back up the database.** Always, before anything changes. This is not a courtesy: migrations are forward-only, and an old binary cannot boot a newer database at all. The migrator refuses a schema carrying migration names it has never seen. A rollback is therefore always a pair: the old binary and the snapshot from before the swap. One without the other is not a revert.
+2. **Replace the binary.** A small marker file is written first, recording the versions, the binary paths, and the backup path. Then the running binary is kept as `<binary>.previous`, a second name for the same file in the same directory, and one rename lands the new binary on the live path. The live path is never left empty during the swap.
 3. **Restart.** The service manager respawns what its definition names, which is now the new file.
 4. **The new binary boots and reads the marker.** If the migrations pass, the update is complete: it is audited, and the marker and `.previous` are deleted.
-5. **If the migrations fail, it reverts:** the snapshot is restored, `.previous` is renamed back, the failure is recorded, and the process exits non-zero, so the service manager, dutifully respawning what is now the *old* binary against the *restored* database, brings back the instance you had.
+5. **If the migrations fail, it reverts:** the snapshot is restored, `.previous` is renamed back, the failure is recorded, and the process exits non-zero. The service manager, respawning what is now the old binary against the restored database, brings back the instance you had.
 
-A failed update is therefore self-healing on any host supervised by systemd, launchd, or Subshell Server, the same mechanism the CLI, the page and the desktop app share, because none of them can see the future boot, but the booting binary can see the past update.
+A failed update is therefore self-healing on any host supervised by systemd, launchd, or Subshell Server. The CLI, the page, and the desktop app share the mechanism because none of them can see the future boot, while the booting binary can see the past update.
 
 ## Which file gets replaced
 
-Never one picked by convention. The updater writes **the file the service definition names** (the systemd unit's `ExecStart`, or the launchd job's program), falling back to the binary this process *is*, and refusing outright if neither answer exists. Writing `~/.local/bin/subshell-server` on a host whose unit points elsewhere is an update that reports success and changes nothing, and that lie is what the refusal exists to prevent. Before a downloaded binary replaces anything, it is made executable and asked to identify itself: `<binary> version` must answer with the version being installed. A binary that cannot say what it is does not get installed.
+Never one picked by convention. The updater writes the file the service definition names (the systemd unit's `ExecStart`, or the launchd job's program), falling back to the binary this process is, and refusing outright if neither answer exists. Writing `~/.local/bin/subshell-server` on a host whose unit points elsewhere is an update that reports success and changes nothing, and that is exactly what the refusal prevents. Before a downloaded binary replaces anything, it is made executable and asked to identify itself: `<binary> version` must answer with the version being installed. A binary that cannot say what it is does not get installed.
 
 ## From the CLI
 
 ```bash
 subshell-server update                 # newest published release
 subshell-server update --to 1.9.0      # name a published version
-subshell-server update --from ./file   # a local binary — the air-gapped path
+subshell-server update --from ./file   # a local binary: the air-gapped path
 ```
 
-The whole verb is ten steps and nine of them are refusals: a checkout-run server, an unwritable directory, an empty release source, a downgrade (without `--force`), an already-open transaction, a restart that would take live tmux panes down with it (also `--force`-able, same bar as `service restart`). Flags: `--check`, `--to`, `--from`, `--force`, `--yes`, `--json`, `--no-restart`, and `--rollback` to put the previous binary and database back by hand. `--rollback` is also the escape hatch when a transaction is stuck half-open.
+The whole verb is ten steps, and nine of them are refusals: a checkout-run server, an unwritable directory, an empty release source, a downgrade (without `--force`), an already-open transaction, and a restart that would take live tmux panes down with it (also `--force`-able, same bar as `service restart`). Flags: `--check`, `--to`, `--from`, `--force`, `--yes`, `--json`, `--no-restart`, and `--rollback` to put the previous binary and database back by hand. `--rollback` is also the escape hatch when a transaction is stuck half-open.
 
 ## From the dashboard
 
 **Settings → Updates** shows what this instance runs, what it could run, and one press per thing that changes it: the server, each enrolled node, and the desktop apps' own rows, all in one Components table. The Server row drives `POST /api/admin/server/update`:
 
-- **Cookie-admin only**: a bearer credential, even a system key, is refused. Administration is a human act.
-- **The URL comes from the release index, never from the request.** You can select among published releases; you cannot name an arbitrary address to download from. And because only the *newest* release of a component is indexed, asking for anything else is answered by naming what *is* available.
-- **No downgrade from the page.** The CLI has `--force` for that because a CLI operator has read the consequences; a button does not.
-- **Audited twice**: once when you press it, with you as the actor, and once at the completing boot with *no* actor, the binary answering for itself. A download that dies mid-flight still leaves the first half.
-- It answers *202 and a job*, because the last thing the job does is exit the process serving the request. The page watches the phases and then waits for the server to come back, and there is a refusal for exactly the host this fails on: with no service manager to respawn the process, the swap would leave an old server running beside a new file, so the route says no rather than exit into nothing.
+- Cookie-admin only: a bearer credential, even a system key, is refused. Administration is a human act.
+- The URL comes from the release index, never from the request. You can select among published releases; you cannot name an arbitrary address to download from. And because the index names only the newest release of each component, asking for anything else is answered by naming what is available.
+- No downgrade from the page. The CLI has `--force` for that because a CLI operator has read the consequences; a button does not.
+- Audited twice: once when you press it, with you as the actor, and once at the completing boot with no human actor: the row records the new binary's boot, not a person. A download that dies mid-flight still leaves the first half.
+- It answers 202 and a job, because the last thing the job does is exit the process serving the request. The page watches the phases and then waits for the server to come back. And there is a refusal for exactly the host this fails on: with no service manager to respawn the process, the swap would leave an old server running beside a new file, so the route says no rather than exit into nothing.
 
 ## What the trust actually is, and the air gap
 
-The plane **downloads and executes code from the release source**, but it no longer has to *believe* it. Every release carries `release-manifest.json` and a detached minisign signature over its exact bytes (`release-manifest.json.sig`), made with the publisher keypair, the same one the desktop apps' updater uses, so one key guards all four components. Every update path verifies that signature against a **public key compiled into the product**, and the digest your bytes are compared against comes from that signed manifest's `assets` map, never from the `.sha256` sidecar the release host serves beside the file. So the checks prove authorship now: a hostile or compromised release source can withhold updates or replay any release the publisher ever signed (that residual is real and named), but it can no longer put code on your machine merely by being the host that served it. Authenticity is the publisher's key; TLS is only delivery. A release with no manifest, no signature, or one that does not verify is refused by name and never offered, which is why a plane pointed at an unsigned release set honestly shows no updates. The desktop apps used to be the stronger case (the only one that was); the CLI paths have caught up, on the same key.
+The plane downloads and executes code from the release source, but it no longer has to believe it. Every release carries `release-manifest.json` and a detached minisign signature over its exact bytes (`release-manifest.json.sig`), made with the publisher keypair, the same one the desktop apps' updater uses, so one key guards all four components. Every update path verifies that signature against a public key compiled into the product, and the digest your bytes are compared against comes from that signed manifest's `assets` map, never from the `.sha256` sidecar the release host serves beside the file.
 
-Two accounted exceptions. The install one-liners still verify against the sidecar (the machine they are building holds no key yet), and that stays sound because the server's lazy artifact fetch refuses to *cache* bytes whose manifest does not verify: the file a script digests was signed before it was ever served, unless the operator published it into the downloads directory by hand. Those artifacts sit outside the signed feed and remain digest-verified only, placed there by this machine's own operator. And `--from <file>` stays signature-free, because you named the file; the check there is that it identifies itself, as it always was.
+So the checks prove authorship: a hostile or compromised release source can withhold updates or replay any release the publisher ever signed (that residual is real and named), but it can no longer put code on your machine merely by being the host that served it. Authenticity is the publisher's key; TLS is only delivery. A release with no manifest, no signature, or one that does not verify is refused by name and never offered, which is why a plane pointed at an unsigned release set honestly shows no updates. The desktop apps used to be the only paths that verified the publisher's signature; the CLI paths now use the same key.
 
-The whole network side is one variable: an empty `SUBSHELL_RELEASE_URL` (the air-gapped setting) makes every update path **refuse by name**, each one telling you to use `--from <file>` or a hand install instead of failing quietly. Backups, which have no network in them, are unaffected.
+Two accounted exceptions. The install one-liners still verify against the sidecar, because the machine they are building holds no key yet. That stays sound because the server's lazy artifact fetch refuses to cache bytes whose manifest does not verify: the file a script digests was signed before it was ever served, unless the operator published it into the downloads directory by hand. Those hand-placed artifacts sit outside the signed feed and remain digest-verified only, placed there by this machine's own operator. And `--from <file>` stays signature-free, because you named the file; the check there is that it identifies itself, as it always was.
+
+The whole network side is one variable: an empty `SUBSHELL_RELEASE_URL` (the air-gapped setting) makes every update path refuse by name, each one telling you to use `--from <file>` or a hand install instead of failing quietly. Backups, which have no network in them, are unaffected.
 
 ## See also
 
 - [Backups](/server/backups): the snapshot every upgrade takes, and how to take one by hand
-- [Updating a Node](/nodes/updating): the same transaction shape on the machines that run agents
+- [Update a node](/nodes/updating): the same transaction shape on the machines that run agents
 - [subshell-server CLI](/reference/server-cli): the full `update` usage block
-- [Service & Autostart](/server/service): the service definition whose file the updater replaces
+- [Service and autostart](/server/service): the service definition whose file the updater replaces
 - [The full threat model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md#1112-updates): the complete accounting for what updating costs

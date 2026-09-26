@@ -1,0 +1,29 @@
+---
+title: Pane and terminal issues
+description: "The refusals a missing tmux causes, and a live terminal that renders wrong on attach."
+---
+
+Fix the problems with the pane layer itself: the refusals that come from a missing tmux, and a live terminal that glitches on attach.
+
+## tmux is missing
+
+**Symptom.** One of these, depending on where you hit it:
+
+- Enrollment or `subshell setup` refuses before your single-use key is spent: `tmux not found; install it and retry (escape hatch: SUBSHELL_CLIENT_SKIP_TMUX_CHECK=1)`. On macOS the message carries an install hint and reads `tmux not found (on macOS: brew install tmux); install it and retry (escape hatch: SUBSHELL_CLIENT_SKIP_TMUX_CHECK=1)`. The escape hatch is for tests, not a deployment plan.
+- The install script warns `subshell: tmux is not installed; a node needs it to run subshells.`, with the right command per platform.
+- The setup checklist on the control-plane host shows **Install tmux**: `Nothing can launch on this machine: every subshell runs inside a tmux pane, and the server found no tmux.`
+
+**Cause and fix.** Every pane is a tmux session, on every machine that runs one; there is no mode without it. Install it with your package manager (`brew install tmux`, `sudo apt-get install tmux`), or press the install button where you are an admin. The first-run wizard and the control-plane host's node row offer it, and the Subshell Server desktop app's assistant does the same with its own elevation prompt. The browser button can only run package managers it can drive without a password prompt (in practice, Homebrew on macOS), and it prints the command to run yourself wherever it cannot. The version floor is tmux 3.2 or newer; 3.6 adds the crashed-pane exit code ([Supported platforms](/concepts/platforms)).
+
+## Terminal attach glitches
+
+**Symptom.** The live terminal renders garbage, stale scrollback, or a mis-sized grid on attach, sometimes.
+
+**Cause.** A pane's grid is shared: every viewer's columns and rows compete for it, sized to the smallest visible viewer, and a repaint landing mid-attach is the usual suspect. Who else is attached is visible in the viewers line; [Devices](/use/devices) explains what that line means.
+
+**Fix for a reproducible bug.** On the control-plane host, set `SUBSHELL_ATTACH_DEBUG=1` in the server's environment and restart it. Each attach then dumps what the pane held and exactly what the client was sent, under `/tmp/subshell-attach-debug/`. It is off by default because those dumps are real terminal output, with potential secrets on screen. Attach them deliberately, remove the variable when done, and send the dumps with your [Support](/help/support) report naming the pane, the viewers, and the tmux version.
+
+## Other pages
+
+- [Node and launch errors](/help/nodes) when the program the daemon cannot find is an agent CLI
+- [Logs and debugging](/server/logs) for the server log behind a refusal

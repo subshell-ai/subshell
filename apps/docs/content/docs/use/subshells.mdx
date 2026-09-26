@@ -1,26 +1,31 @@
 ---
-title: Subshells
-description: What a subshell is, how to launch one, and how attach, detach, restart and terminate behave.
+title: Launch and manage subshells
+description: "Start a subshell, attach to its pane from any device, and how status, restart, close and terminate behave."
 ---
 
-A subshell is a real CLI agent (Claude Code, opencode, Codex, Hermes, Pi, or a plain terminal) running in a tmux pane on a machine you have enrolled. It lives on that machine, not in your browser: launch one, close the tab, and the process keeps working. Open it again from any device and you are back at the same live session. This page is the whole life of one: launching, attaching, restarting, and the difference between the two ways it can end.
+Launch a subshell, attach to its live pane from any device, and see how its status, restarts, and endings work.
 
-## Launching one
+A subshell is a real CLI agent (Claude Code, OpenCode, Codex, Hermes, pi, or a plain terminal) running in a tmux pane on a machine you have enrolled. The process lives on that machine, not in your browser, so it keeps working after you close the tab, and opening the subshell again from any device returns you to the same live session.
 
-From the new-subshell form you choose an **agent** and a **folder**. That is all a launch requires. Everything else is optional:
+## Before you start
 
-- a **preset**: saved launch settings for that agent (see [Presets](/use/presets)),
-- a **machine**: which node runs it; the pickers default sensibly, and the row disappears entirely when the control plane is the only machine you may launch on (a lone agent node keeps the choice visible),
-- a **name**: an unnamed subshell gets a date/time label,
-- a **starting prompt**: typed into the pane once the agent has drawn its first screen; the launch response tells you honestly whether it landed.
+- The agent's plugin must be installed and enabled in the control plane, and the agent's CLI installed on the machine you launch to.
+- The folder must exist and pass that node's [directory allowlist](/nodes/directory-allowlist), if it has one.
 
-The agent must be installed and enabled on the machine you launch to, and the folder must exist and pass that node's [directory allowlist](/nodes/directory-allowlist), if it has one.
+## Launch a subshell
 
-Names deserve one paragraph of their own: while a name is unlocked a subshell adopts the title its pane carries; even a placeholder name gets replaced, and agents like Claude Code rename themselves after the current task, which you see. Renaming it yourself locks the name permanently, yours from then on.
+The new-subshell form asks for an **agent** and a **folder**; those two are all a launch requires. Two further choices are optional:
 
-## Attaching and detaching
+- a **preset**: saved launch settings for that agent ([Presets](/use/presets)),
+- a **machine**: which node runs it. The picker defaults sensibly, and the row disappears when the control plane is the only machine you may launch on. A lone agent node keeps the choice visible.
 
-Opening a subshell connects your terminal view to the pane: recent output is replayed first, then the live stream follows, and your keystrokes go through verbatim. Navigating away or closing the window simply detaches; the pane does not notice. Attach from another device as often as you like; several can watch the same pane at once, and [Devices](/use/devices) explains what happens to the pane's size when they do.
+The form asks for no name. A new subshell is listed under its agent's name until its pane carries a title. While the name is unlocked it then adopts whatever title the pane carries, and agents such as Claude Code rename their pane after the current task, so you see the name change. Choosing **Edit title** in the subshell's ⋯ menu locks the name permanently: it is yours from then on.
+
+A starting prompt is not a field on the browser form. The REST API and the MCP `create_subshell` tool accept one: it is typed into the pane once the agent has drawn its first screen, and the launch response reports whether it was delivered.
+
+## Attach and detach
+
+Opening a subshell connects your terminal view to its pane. Recent output is replayed first, then the live stream follows, and your keystrokes reach the pane verbatim. Navigating away or closing the window detaches the view; the pane keeps running unchanged. You can attach from any device as often as you like, and several devices can watch the same pane at once. [Devices](/use/devices) explains what several viewers mean for the pane's size.
 
 ## What the status means
 
@@ -30,34 +35,36 @@ Every list and card shows one of six states:
 |---|---|
 | working | running, with output in the last minute |
 | idle | running and quiet |
-| waiting for you | the agent said it stopped and needs you; see [Notifications](/use/notifications) |
-| exited | the pane's process is gone; the subshell is still here and restartable |
+| waiting for you | the agent reported that it stopped and needs you; see [Notifications](/use/notifications) |
+| exited | the pane's process is gone; the subshell is still listed and can be restarted |
 | node unreachable | the machine that owns this pane has no connection to the server |
 | ended | retired with the terminate action; still restartable |
 
-**node unreachable outranks all of it on purpose.** Absence of a connection is not absence of a process: the node may be down while its panes keep running, and while the node is unreachable nobody knows what they are doing. So a subshell on a quiet machine says "node unreachable" and never "crashed". When the node reconnects the plane re-probes it, surviving panes answer, and the books are corrected.
+**node unreachable** outranks the other states, by design. A missing connection is not a missing process: the node may be down while its panes keep running, and while the node is unreachable nobody can know what those panes are doing. So a subshell on a quiet machine reports "node unreachable" and never "crashed". When the node reconnects, the control plane re-probes it, surviving panes answer, and the displayed state is corrected.
 
-## Restarting
+## Restart
 
-Restart runs the same subshell again **in place**: same id, same name, same place in every workspace. The pane is killed and relaunched in the same folder with the same settings; its credentials rotate (the old process's key dies with it and the new pane is launched with a fresh one), and when the agent's conversation transcript survived, the restart resumes that conversation rather than starting a new one. A restart always supersedes the auto-restart ladder (see below), so you can intervene at any point and get an immediate start.
+Restart runs the same subshell again in place: same id, same name, and the same position in every workspace. The pane is killed and relaunched in the same folder with the same settings, and its credentials rotate: the old process's key dies with it, and the new pane is launched with a fresh one. If the agent's conversation transcript survived, the restart resumes that conversation instead of starting a new one. A restart always supersedes the auto-restart ladder described below, so you can intervene at any point and get an immediate start.
 
-Auto-restart is not a property of a subshell you set by hand; it is inherited from the [preset](/use/presets) the subshell was launched with. When a pane dies on such a row, the server brings it back on a rising delay (30 seconds, doubling, capped at 8 minutes between tries) and gives up after five consecutive failed attempts; a subshell that will never come back has its credential revoked rather than left alive. An offline or [under-maintenance](/nodes/maintenance) node defers the restart instead of failing it: the pane revives on schedule once the machine returns.
+Auto-restart is not set on a subshell directly; it is inherited from the [preset](/use/presets) the subshell was launched with. When a pane dies on such a subshell, the server brings it back on a rising delay: 30 seconds, doubling, capped at 8 minutes between tries. It gives up after five consecutive failed attempts, and a subshell that will never come back has its credential revoked rather than left alive. A node that is offline or in maintenance (see [Manage a node](/nodes/manage)) defers the restart instead of failing it: the pane revives on schedule once the machine returns.
 
-## How it ends: terminate and Close
+## Close and terminate
 
 The two endings are different acts, and only one is offered to people:
 
-- **Close** (the subshell's ⋯ menu, or a maximized pane's Close button) stops the process, removes the subshell, and deletes its stored transcript immediately. It asks for confirmation because nothing survives it.
-- **Terminate** stops the process and keeps the subshell (the row, its name, its history) as an `ended` entry you can restart. It is the verb agents use through the MCP tools; the human UI folded it into Close, because stopping-without-deleting has no everyday use case for a person.
+- **Close** (the subshell's ⋯ menu, or the Close button on a maximized pane) stops the process, removes the subshell, and deletes its stored transcript immediately. It asks for confirmation because nothing survives it.
+- **Terminate** stops the process and keeps the subshell: the row, its name, and its history remain as an `ended` entry you can restart. It is the verb agents use through the MCP tools. The human UI folded it into Close, because stopping without deleting has no everyday use case for a person.
 
-Either way, a dead process's credential is revoked immediately; a running one's is never revoked by your browser closing.
+Either way, a dead process's credential is revoked immediately. A running one's is never revoked by your browser closing.
+
+## Notes
 
 > [!note] Where transcripts live
-> Every pane is streamed to a log file on its own machine: that file is what makes replay-after-attach work, and it holds everything that was typed, including pasted tokens. Logs of subshells that are no longer running are removed after a retention window (30 days by default on the control-plane host; on a node its own sweep runs with a 1-day default); closing one removes its log on the spot.
+> Every pane is streamed to a log file on its own machine: that file is what makes replay-after-attach work, and it holds everything that was typed, including pasted tokens. Logs of subshells that are no longer running are removed after a retention window. On the control-plane host the default is 30 days; a node's own sweep defaults to 1 day. Closing a subshell removes its log immediately.
 
-## See also
+## Other pages
 
-- [First subshell](/get-started/first-subshell): launching one end to end
-- [Workspaces & Panes](/use/workspaces-panes): several subshells side by side
-- [Sharing](/use/sharing): who else can see or drive it
+- [Your first subshell](/get-started/first-subshell): launching one end to end
+- [Workspaces and panes](/use/workspaces): several subshells side by side
+- [Share a subshell](/use/sharing): who else can see or drive it
 - [Notifications](/use/notifications): being told when it waits for you

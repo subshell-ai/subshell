@@ -1,4 +1,4 @@
 {
   "title": "Agents",
-  "pages": ["index", "claude-code", "codex", "hermes", "opencode", "pi", "terminal", "installing-agent-clis", "plugin-registry"]
+  "pages": ["index", "install-a-cli", "claude-code", "codex", "opencode", "hermes", "pi", "terminal", "plugin-registry"]
 }

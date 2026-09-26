@@ -1,40 +1,35 @@
 ---
-title: Quickstart
-description: From nothing to a running agent subshell you can watch from any device, in one page.
+title: Get started
+description: "A taught path from an empty machine to agent panes you can reach from any device."
 ---
 
-Five steps, each linking to its full page. You need one machine you control (Linux x86-64/arm64 or Apple-silicon macOS), tmux, and ideally one agent CLI installed; the plain Terminal harness needs nothing, so you can even start with zero.
+Install Subshell Server on a machine you control, launch your first agent subshell, and pick it up from your phone and from other machines.
 
-## 1. Install and start the control plane
+## What you build
 
-On the machine that will run the server:
+Subshell runs real CLI coding agents (Claude Code, OpenCode, Codex, Hermes, pi) in terminal panes on machines you own, and serves those panes from a web app you host yourself. The server is the control plane: its API, its database, and the web UI it serves. A node is any machine that runs agents. A client is a person's interface to the control plane: web, mobile, or desktop.
 
-```bash
-curl -fsSL https://subshell.sh/install-server.sh | bash
-```
+The result has five properties worth naming before you start:
 
-It downloads the `subshell-server` binary for your platform from the newest GitHub release, verifies the published `.sha256` digest **before** making the file executable, installs it to `~/.local/bin/subshell-server`, and runs `subshell-server init`. The one question that decides your setup (run in the background and start at login, default yes) is answered there; everything else you can accept with Enter. Prefer a window and a button? That's the [Subshell Server desktop app](/get-started/install-server#subshell-server-desktop-app).
+- **Durable panes.** Every subshell is a tmux session on the machine running it, streamed to the browser with replay on attach. Close the tab and the agent keeps working; any other device you open gets the same pane, live and typeable. The browser cannot tell whether a pane runs on the control-plane host or on an enrolled node, because both stream identically.
+- **Many machines, one control plane.** The control plane keeps the UI, the database, the terminal transport, and the decision logic; nodes execute. Commands travel signed, and a node refuses anything that does not verify.
+- **Other people, when you say so.** A subshell is private to its owner by default: invisible, not merely forbidden, to everyone else. You can grant view or edit access; deletes, re-shares, and notifications stay with the owner.
+- **Agents that coordinate.** Each subshell boots with a small MCP server wired in, so an agent can message its siblings over end-to-end-encrypted channels and can launch or restart other subshells. The control plane stores channel ciphertext it cannot read.
+- **Every device.** The web UI adapts to the screen you are on, and a Home Screen install carries notifications. [What Subshell is](/concepts) covers the whole picture, and [How it works](/concepts/how-it-works) the moving parts.
 
-The command ends by printing the address:
+## Before you start
 
-```
-Open http://localhost:3080/setup in a browser to create the admin account.
-```
+- One machine you control to run the server: Linux (x86-64 or arm64) or macOS (Apple silicon or Intel).
+- tmux on that machine, or a way to install it. Every pane runs inside tmux, and nothing launches without it; the server installer checks for it first, and an interactive run can put it on the machine as part of setup.
+- An agent CLI helps but is not required. The plain Terminal harness needs nothing installed, so you can start with zero.
 
-## 2. Create the admin account, promptly
+## The path
 
-Open that `/setup` URL now. Until the first account exists the setup endpoints are public (that is what lets you create it), so on a LAN this is a race, and whoever walks through first becomes the admin. The wizard's first screen is **Create Your Account**; after it, the [Networking step](/server/networking) is optional (skipping costs nothing; every choice there is reachable again under Settings). Full walkthrough: [Your First Subshell](/get-started/first-subshell).
+1. **Install and start the server.** [Install on Linux](/get-started/install-linux) or [Install on macOS](/get-started/install-macos): one command downloads the server binary, checks its digest, and runs a setup that ends by printing the address of the setup page.
+2. **Create the admin account and launch your first subshell.** [Your first subshell](/get-started/first-subshell) walks the browser wizard: your account, tmux, an agent CLI, and a launch form that leaves you inside a running pane.
+3. **Open it from a second device.** [Pick it up from your phone](/get-started/from-phone): sign in from the phone, add the web app to the Home Screen, and get a push when the agent needs you.
+4. **Add another machine running agents.** [Add another machine](/get-started/add-a-machine): mint a setup key, run the install command it gives you, and launch subshells there too.
 
-## 3. Confirm tmux and an agent
+## Other ways to install
 
-The wizard's **Add an Agent** screen pins a tmux row above the list of agent CLIs it can see on the server's machine (Claude Code, Codex, OpenCode, Hermes Agent, pi). A missing tmux gets an Install button where the command needs no password (Homebrew on macOS); where it would need `sudo`, the screen shows you the command to run instead. A missing agent CLI gets the same: **Install** runs the vendor's own install command on this machine. And **Terminal** (a plain shell pane) is always available with nothing installed. See [Agents](/agents) and [Installing agent CLIs](/agents/installing-agent-clis).
-
-## 4. Launch your first subshell
-
-The wizard's last screen is a launch form already filled in: the server's own machine (its node is named "Server" by default), a detected agent, and a starting directory. Pick a project folder, press **Start**. That's it: no preset exists on a fresh instance and none is needed; a launch needs only an agent and a folder. The page that opens is the live pane: type into it, close the tab, reopen from anywhere; the agent keeps running.
-
-## 5. Open it from a second device
-
-On a laptop or tablet, browse to an address the server accepts sign-ins from (the loopback URL from step 1 is only this machine's own spelling, and the wizard's Network step or Server settings add the LAN or mesh addresses) and sign in: the same live pane, yours to type into. On a phone, open the **Subshell for Mobile** dialog in the sidebar: it offers the addresses this server accepts sign-ins from, with a QR code, and installing to the Home Screen makes it a standalone app with notifications. [Mobile and Tablet](/get-started/mobile) covers the split; [Networking & Addresses](/server/networking) explains what makes an address reachable, including the mesh options under [Server](/server).
-
-Once this works and you want another machine running agents, that is what [Nodes](/nodes) is for.
+The server has other ways in: [Install with the desktop app](/server/desktop-app) for a window and a button, [Install by hand](/server/headless) for the SSH-only box, and [Run in Docker](/server/docker) for container hosts.

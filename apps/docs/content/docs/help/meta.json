@@ -1,4 +1,4 @@
 {
   "title": "Help",
-  "pages": ["troubleshooting", "faq", "release-notes", "support"]
+  "pages": ["index", "sign-in", "nodes", "install-updates", "panes", "faq", "support", "release-notes"]
 }
