@@ -545,4 +545,19 @@ describe("dispatchCli — reset / uninstall (issue #232)", () => {
     expect(h.exits).toEqual([1]);
     expect(h.err.join("\n")).toContain("unexpected argument '--force'");
   });
+
+  test("--reset-data is refused ON RESET by name: the verb already does it", async () => {
+    const h = harness();
+    await dispatchCli(["reset", "--reset-data", "--confirm", "test-host"], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain("adds nothing to a reset");
+  });
+
+  test("--reset-data parses on uninstall (reaches the name consent)", async () => {
+    const h = harness(); // hostname(): "test-host"
+    await dispatchCli(["uninstall", "--reset-data", "--confirm", "not-the-box"], h.deps);
+    expect(h.exits).toEqual([1]);
+    expect(h.err.join("\n")).toContain("did not match");
+    expect(h.err.join("\n")).not.toContain("unexpected argument");
+  });
 });

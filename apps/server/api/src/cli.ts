@@ -174,8 +174,9 @@ usage:
   subshell-server backup         snapshot the database now (--json for machine output)
   subshell-server reset          stop the server and delete its data and settings, keeping the binary;
                                  the machine's NAME must be typed (--confirm <name> when headless)
-  subshell-server uninstall      reset PLUS the installed binary; the same typed-name consent;
-                                 --yes is refused for both
+  subshell-server uninstall      stop the server, remove the service and the installed binary, and ASK
+                                 whether the data and settings go too (default: keep them); the same
+                                 typed-name consent; --yes is refused for both
   subshell-server service install    background the server (systemd user unit / launchd agent);
                                      --no-autostart to run it now but not at login
   subshell-server service uninstall  stop it and remove the service definition
@@ -210,6 +211,13 @@ update flags:         --check                  report what is available and stop
                       --json                   machine-readable output
                       --no-restart             swap the binary; the caller restarts
                       --rollback               undo the last update (binary + database)
+
+reset/uninstall flags: --confirm <machine-name>  the machine's name, for a run with no TTY to
+                      type it into; without it (and without a terminal) both verbs refuse and
+                      change nothing. --reset-data answers uninstall's data question yes without
+                      a terminal; without it a headless uninstall KEEPS the data and settings.
+                      On a reset the flag is refused: a reset always clears the data. --yes is
+                      REFUSED on both: it cannot stand in for the name.
 
 verbose:              --verbose after a verb (init/configure/update, and every service
                       verb) raises this run's CONSOLE logging to debug level, HTTP request
@@ -573,6 +581,7 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         return true;
       }
       let confirmName: string | undefined;
+      let resetData: boolean | undefined;
       for (let i = 1; i < argv.length; i++) {
         const flag = argv[i];
         if (flag === "--confirm") {
@@ -585,6 +594,16 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
           }
           confirmName = value;
           i++;
+        } else if (flag === "--reset-data") {
+          // The scripted answer to uninstall's data question. On `reset` it
+          // states a fact the verb already performs, so it is refused by
+          // name rather than silently accepted.
+          if (command === "reset") {
+            error("subshell-server: --reset-data adds nothing to a reset; a reset always clears the data");
+            exit(1);
+            return true;
+          }
+          resetData = true;
         } else {
           error(`subshell-server: unexpected argument '${flag}'`);
           error(USAGE);
@@ -593,7 +612,7 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         }
       }
       const code = await runReset(
-        { uninstall: command === "uninstall", confirm: confirmName },
+        { uninstall: command === "uninstall", confirm: confirmName, resetData },
         {
           log,
           error,
@@ -602,6 +621,10 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
           // The consent question carries NO default on purpose: an empty
           // ENTER is a mismatch, and a mismatch changes nothing.
           ask: (question) => (deps.prompt ? Promise.resolve(deps.prompt(question, "")) : promptText(question, "")),
+          // The data question defaults NO (issue #232): uninstall without a
+          // yes leaves the bytes on disk.
+          askConfirm: async (question) =>
+            (await (deps.confirm ? deps.confirm(question, false) : promptConfirm(question, false))) ?? null,
           service: serviceDeps(deps, log),
           // The same kernel-table reader `status` uses: the chain names a
           // port that still answers before the sweep and the deletes, so a

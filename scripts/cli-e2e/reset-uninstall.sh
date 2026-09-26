@@ -110,11 +110,23 @@ sleep 0.5
 kill "$SRVPID" 2>/dev/null; wait "$SRVPID" 2>/dev/null; SRVPID=""
 ok "live daemon: named, cleared anyway, exit 1"
 
-echo "== 5. uninstall takes the data AND the binary it runs as"
+echo "== 5. uninstall WITHOUT --reset-data: the binary goes, the bytes stay"
+# The operator ruling of 2026-09-26: removing the program and wiping the
+# machine are two decisions, and the scripted default is KEEP. A non-TTY run
+# answers the data question no and names the flag that answers yes.
 "$SRV" init --yes --no-service --port $PORT --host 127.0.0.1 --base-url "$BASE" >/dev/null 2>&1 || fail "third init failed"
 "$SRV" uninstall --confirm "$HOSTNAME_VAL" > "$W/uninstall.log" 2>&1 || { cat "$W/uninstall.log"; fail "uninstall exit $?"; }
-[ ! -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "config.env survived uninstall"
+[ -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "the default uninstall WIPED the data it should keep"
+grep -q -- "--reset-data" "$W/uninstall.log" || fail "the keep-log did not name the flag: $(cat "$W/uninstall.log")"
 [ ! -e "$SRV" ] || fail "the binary survived uninstall"
-ok "uninstall removed the data, the config, and its own running binary"
+ok "binary gone, config kept, flag named in the log"
+
+echo "== 6. uninstall --reset-data takes the data too, and its own running binary"
+cp "$SRV_SRC" "$SRV"
+"$SRV" uninstall --confirm "$HOSTNAME_VAL" --reset-data > "$W/uninstall2.log" 2>&1 || { cat "$W/uninstall2.log"; fail "uninstall --reset-data exit $?"; }
+[ ! -f "$SUBSHELL_SERVER_CONFIG_DIR/config.env" ] || fail "config.env survived --reset-data"
+[ ! -e "$SUBSHELL_SERVER_DATA_DIR" ] || fail "the data dir survived --reset-data"
+[ ! -e "$SRV" ] || fail "the binary survived uninstall"
+ok "uninstall --reset-data removed the data, the config, and its own running binary"
 
 echo "✓ reset/uninstall scenario passed"

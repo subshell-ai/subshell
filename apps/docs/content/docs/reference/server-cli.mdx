@@ -44,8 +44,9 @@ usage:
   subshell-server backup         snapshot the database now (--json for machine output)
   subshell-server reset          stop the server and delete its data and settings, keeping the binary;
                                  the machine's NAME must be typed (--confirm <name> when headless)
-  subshell-server uninstall      reset PLUS the installed binary; the same typed-name consent;
-                                 --yes is refused for both
+  subshell-server uninstall      stop the server, remove the service and the installed binary, and ASK
+                                 whether the data and settings go too (default: keep them); the same
+                                 typed-name consent; --yes is refused for both
   subshell-server service install    background the server (systemd user unit / launchd agent);
                                      --no-autostart to run it now but not at login
   subshell-server service uninstall  stop it and remove the service definition
@@ -83,7 +84,10 @@ update flags:         --check                  report what is available and stop
 
 reset/uninstall flags: --confirm <machine-name>  the machine's name, for a run with no TTY to
                       type it into; without it (and without a terminal) both verbs refuse and
-                      change nothing. --yes is REFUSED on both: it cannot stand in for the name.
+                      change nothing. --reset-data answers uninstall's data question yes without
+                      a terminal; without it a headless uninstall KEEPS the data and settings.
+                      On `reset` the flag is refused: a reset always clears the data. --yes is
+                      REFUSED on both: it cannot stand in for the name.
 
 verbose:              --verbose after a verb (init/configure/update, and every service
                       verb) raises this run's CONSOLE logging to debug level, HTTP request
@@ -156,7 +160,7 @@ Flags:
 
 ## reset and uninstall
 
-The two destructive verbs, twin to the desktop assistant's Reset chain. `reset` stops the service, waits for its port to go quiet, closes the pane servers, removes the service definition, and deletes exactly the paths `status --json` names (config home last); the installed binary is kept, so `init` can set the machine up again. `uninstall` does all of that and then removes the binary the resolution ladder named, plus any `.previous` a prior update left. A source checkout has no installed binary, so uninstall says so and leaves the checkout alone.
+The two destructive verbs, twin to the desktop assistant's Reset chain. `reset` stops the service, waits for its port to go quiet, closes the pane servers, removes the service definition, and deletes exactly the paths `status --json` names (config home last); the installed binary is kept, so `init` can set the machine up again. `uninstall` stops the service, closes the pane servers, removes the definition and the binary the resolution ladder named (plus any `.previous` a prior update left) — and asks, separately, whether the data and settings go too. That question defaults to keeping them: removing the program and wiping the machine are two decisions, and the prompt says what a reset does before you answer. A headless uninstall keeps the bytes unless `--reset-data` says otherwise; a source checkout has no installed binary, so uninstall says so and leaves the checkout alone.
 
 Neither is reachable over the network: there is no route for them. Consent is the machine's NAME, typed at the prompt and compared on the machine, so `--yes` (which answers every other question) is refused outright. For a run with no terminal, pass the name on the command line with `--confirm <machine-name>`; that is the same fact, just not typed at a keyboard. Without a terminal and without `--confirm`, both refuse and change nothing.
 

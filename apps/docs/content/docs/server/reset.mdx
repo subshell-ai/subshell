@@ -3,7 +3,7 @@ title: Reset
 description: "Tear the instance down from its own machine: what a reset deletes, what it never touches, and the confirmation that gates it."
 ---
 
-Delete everything an instance has ever written, from its own machine, by the guarded assistant path or by hand.
+Delete everything an instance has ever written, from its own machine: the desktop assistant, its tray item, or `subshell-server reset`.
 
 Reset is the one act that deletes everything the instance has ever written, so it is deliberately kept off the network: no page you serve can drive it. The doors to it all stand on the machine itself: the Subshell Server desktop assistant, its tray menu, and `subshell-server reset` on the CLI. They run one chain and ask one confirmation, the machine's name. (The old ruling that the CLI would never carry a reset verb was reversed on 2026-09-26, issue #232: what stayed was the no-network rule and the typed name, not the hand work.)
 
@@ -28,14 +28,15 @@ The dashboard's danger card on Settings is only a door: it raises the Subshell S
 
 ## From the CLI
 
-`subshell-server reset` runs the assistant's chain without a window: it stops the service, waits for its port to go quiet, closes the pane servers, removes the service definition, and deletes exactly the paths `status --json` names, config home last. The binary stays, so `subshell-server init` can set the machine up again. `subshell-server uninstall` is that chain plus the installed binary and any `.previous` a prior update left; a source checkout is named and left alone.
+`subshell-server reset` runs the assistant's chain without a window: it stops the service, waits for its port to go quiet, closes the pane servers, removes the service definition, and deletes exactly the paths `status --json` names, config home last. The binary stays, so `subshell-server init` can set the machine up again. `subshell-server uninstall` stops the service, closes the pane servers, and removes the service definition and the installed binary (any `.previous` with it; a source checkout is named and left alone) — and asks, separately and by default NO, whether the data and settings go too. Removing the program and wiping the machine are two decisions; the question describes a reset before you answer it, and a headless uninstall keeps the bytes unless you add `--reset-data`.
 
 A server started by hand has no service to stop; the verbs ask the port, and if it still answers they say so by name and clear the machine anyway, ending with a failing exit code. Nothing that survives consent spares the files: a step that cannot run is reported, and a reset means it all goes. Local pane servers go with the plane (remote nodes' panes live on their nodes' machines and are untouched), and the same-machine `subshell` agent keeps its own home.
 
 ```bash
 subshell-server reset                              # prompts: type this machine's name
 subshell-server reset --confirm "$(hostname)"     # the scripted spelling of the same name
-subshell-server uninstall --confirm "$(hostname)" # and take the binary
+subshell-server uninstall --confirm "$(hostname)" # the binary; the data question answers keep
+subshell-server uninstall --confirm "$(hostname)" --reset-data # ...or clear the data too
 ```
 
 The confirmation is the machine's name, compared on the machine. `--yes`, which answers every other question the server CLI asks, is refused by name here: a flag a rushed operator reaches for that silently did not apply must say so. Without a terminal to type into and without `--confirm`, both verbs refuse and change nothing before they touch a manager or a file.

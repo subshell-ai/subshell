@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { serverPaths } from "../../services/server-paths.js";
 import { buildResetPlan, type ResetDeps, type ResetPlan, runReset, sweepPaneSockets } from "../reset.js";
 
@@ -66,6 +66,7 @@ beforeEach(() => {
       machineName: () => MACHINE,
       plan: () => fx.plan,
       ask: mock(() => Promise.resolve(MACHINE)),
+      askConfirm: mock(() => Promise.resolve(true)),
       // Default: the port is quiet (the chain proceeds) and no real sleep.
       probePort: () => false,
       sleep: async () => {},
@@ -247,6 +248,80 @@ describe("uninstall", () => {
   });
 });
 
+describe("the uninstall data question (operator ruling 2026-09-26)", () => {
+  test("answering NO uninstalls the binary and leaves every byte", async () => {
+    fx.deps.askConfirm = mock(() => Promise.resolve(false));
+    const code = await runReset({ uninstall: true }, fx.deps);
+    expect(code).toBe(0);
+    // The program goes...
+    expect(existsSync(fx.binary)).toBe(false);
+    expect(fx.manager.uninstalls).toBe(1);
+    // ...the machine stays.
+    expect(existsSync(fx.plan.database)).toBe(true);
+    expect(existsSync(fx.plan.configEnv)).toBe(true);
+    expect(existsSync(fx.plan.dataDir)).toBe(true);
+    expect(fx.deps.lines.join("\n")).toContain("left the data");
+    expect(fx.deps.lines.join("\n")).toContain("data and settings are still on disk");
+    // The name consent still happened, and its scope said the data stays.
+    expect((fx.deps.ask as ReturnType<typeof mock>).mock.calls.length).toBe(1);
+  });
+
+  test("the question comes first, and a cancel there touches nothing", async () => {
+    const order: string[] = [];
+    fx.deps.askConfirm = mock(() => {
+      order.push("confirm");
+      return Promise.resolve(null); // cancelled
+    });
+    fx.deps.ask = mock(() => {
+      order.push("ask");
+      return Promise.resolve(MACHINE);
+    });
+    const code = await runReset({ uninstall: true }, fx.deps);
+    expect(code).toBe(1);
+    expect(order).toEqual(["confirm"]); // the name prompt never happened
+    expect(fx.deps.errors.join("\n")).toContain("cancelled; nothing was changed");
+    expect(fx.manager.stops).toBe(0);
+    expect(existsSync(fx.binary)).toBe(true);
+  });
+
+  test("reset never asks: clearing the data IS reset", async () => {
+    fx.deps.askConfirm = mock(() => Promise.resolve(false));
+    const code = await runReset({ uninstall: false }, fx.deps);
+    expect(code).toBe(0);
+    expect((fx.deps.askConfirm as ReturnType<typeof mock>).mock.calls.length).toBe(0);
+    expect(existsSync(fx.plan.database)).toBe(false);
+  });
+
+  test("--reset-data is the scripted yes: the question seam is never asked", async () => {
+    fx.deps.askConfirm = mock(() => Promise.resolve(false));
+    const code = await runReset({ uninstall: true, resetData: true }, fx.deps);
+    expect(code).toBe(0);
+    expect((fx.deps.askConfirm as ReturnType<typeof mock>).mock.calls.length).toBe(0);
+    expect(existsSync(fx.plan.database)).toBe(false);
+    expect(existsSync(fx.binary)).toBe(false);
+  });
+
+  test("headless without --reset-data keeps the bytes and says the flag's name", async () => {
+    fx.deps.isTTY = false;
+    const code = await runReset({ uninstall: true, confirm: MACHINE }, fx.deps);
+    expect(code).toBe(0);
+    expect(existsSync(fx.plan.database)).toBe(true);
+    expect(existsSync(fx.binary)).toBe(false); // the binary is still uninstall's own decision
+    expect(fx.deps.lines.join("\n")).toContain("--reset-data");
+  });
+
+  test("a kept-data uninstall is not blocked by a data dir the guards would refuse", async () => {
+    // The guards protect bytes; a run that deletes none is not refused for
+    // the shape of bytes it will not touch.
+    fx.deps.askConfirm = mock(() => Promise.resolve(false));
+    fx.plan = { ...fx.plan, dataDir: "/" };
+    const code = await runReset({ uninstall: true }, fx.deps);
+    expect(code).toBe(0);
+    expect(fx.deps.errors.join("\n")).not.toContain("unsafe path");
+    expect(existsSync(fx.binary)).toBe(false);
+  });
+});
+
 describe("the plan authority", () => {
   test("buildResetPlan reads the SAME paths the status view publishes", () => {
     // Not a second source, checked: status.ts's paths block and this plan
@@ -277,6 +352,13 @@ describe("the plan authority", () => {
     // A malformed SERVER_PORT plans port 0 (nobody's listener), never a
     // plausible one: the range check is the same rule status reports.
     expect(plan.listenPort >= 0 && plan.listenPort < 65_536).toBe(true);
+    // The operator-run defect: a configured DATABASE_PATH of
+    // `./data/subshell.db` reached the plan as typed and the absolute-path
+    // guard refused the whole verb. Every plan path resolves from the CWD,
+    // exactly as SQLite would dereference it.
+    for (const path of [plan.configEnv, plan.dataDir, plan.database, plan.logsDir, plan.nodeArtifacts]) {
+      expect(isAbsolute(path)).toBe(true);
+    }
   });
 });
 

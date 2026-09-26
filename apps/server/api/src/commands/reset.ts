@@ -38,10 +38,13 @@ import { serverPaths } from "@/services/server-paths.js";
  *   that survives, or a file that resists deletion are each reported and
  *   remembered for the exit code, and the rest still goes. "A reset means to
  *   clear out everything."
- * - **uninstall** is that chain PLUS the binary the ladder named (resolved
- *   BEFORE the definition goes, since the definition is where the ladder looks
- *   first) and its `.previous` sibling. It answers "remove this program from
- *   this machine" with one command.
+ * - **uninstall** stops the service, sweeps, removes the definition, and
+ *   removes the binary the ladder named (resolved BEFORE the definition
+ *   goes, since the definition is where the ladder looks first) plus its
+ *   `.previous` sibling. The DATA is a separate decision (operator ruling
+ *   2026-09-26): uninstall ASKS whether the reset's deletions should run
+ *   too, default NO, and the question says what a reset does. A headless
+ *   run keeps the bytes unless `--reset-data` says otherwise.
  *
  * What neither reaches stays what the security rules say: enrolled REMOTE
  * nodes and a same-machine `subshell` agent have their own homes; the plane's
@@ -78,6 +81,8 @@ export interface ResetDeps {
   machineName?: () => string;
   /** Ask for text (default: the clack prompt wired by `cli.ts`); `null` = cancelled. */
   ask?: (question: string) => Promise<string | null>;
+  /** Ask yes/no (the uninstall data question); `null` = cancelled. */
+  askConfirm?: (question: string) => Promise<boolean | null>;
   /** The delete plan (default: the `status`-authority assembly). */
   plan?: () => ResetPlan;
   /** The manager seams (default: `service.ts` over the real platform). */
@@ -114,11 +119,18 @@ export function buildResetPlan(): ResetPlan {
   });
   const port = Number.parseInt(cfg.get("SERVER_PORT") ?? String(SERVER_PORT), 10);
   return {
-    configEnv: cfg.path,
-    dataDir: paths.dataDir,
-    database: paths.database,
-    logsDir: paths.logsDir,
-    nodeArtifacts: paths.nodeArtifacts,
+    // Every path is resolved the way the live instance opens it: the config
+    // layer passes values through as typed (`DATABASE_PATH` is handed to
+    // SQLite relative-to-CWD by design), and a relative path is ambiguous to
+    // a delete plan — the guards must see, and the deletes must perform, what
+    // the filesystem would actually dereference from this CWD. An operator
+    // who set a relative path in a different CWD has a plan pointing
+    // elsewhere; that is what the printed plan is for.
+    configEnv: resolve(cfg.path),
+    dataDir: resolve(paths.dataDir),
+    database: resolve(paths.database),
+    logsDir: resolve(paths.logsDir),
+    nodeArtifacts: resolve(paths.nodeArtifacts),
     binary: installed.kind === "compiled" ? installed.path : null,
     // A malformed SERVER_PORT is nobody's listener: 0 keeps the chain's
     // probe honest (`status` shows the same value as invalid, portValid false).
@@ -293,26 +305,62 @@ function pruneEmptyChainInside(startDir: string, boundary: string): void {
 }
 
 /**
- * Run the verb. `opts.uninstall` adds the binary; `opts.confirm` is the
- * scripted spelling of the typed machine name. Returns the process exit code.
+ * Run the verb. `opts.uninstall` removes the service and the installed
+ * binary; `opts.confirm` is the scripted spelling of the typed machine name;
+ * `opts.resetData` is the scripted yes for the data question (see below).
+ * Returns the process exit code.
  */
-export async function runReset(opts: { uninstall: boolean; confirm?: string }, deps: ResetDeps): Promise<number> {
+export async function runReset(
+  opts: { uninstall: boolean; confirm?: string; resetData?: boolean },
+  deps: ResetDeps,
+): Promise<number> {
   const verb = opts.uninstall ? "uninstall" : "reset";
   const machine = (deps.machineName ?? hostname)().trim();
 
-  // 0. The plan and its shape guards, BEFORE consent: the desktop refuses at
+  const plan = (deps.plan ?? buildResetPlan)();
+
+  // 0a. The data question, UNINSTALL ONLY: removing the program and wiping
+  // the machine are two decisions, and uninstall used to assume the second
+  // (operator ruling 2026-09-26: uninstall must ASK whether to reset,
+  // default no, describing what reset does). `reset` needs no question:
+  // clearing the data IS reset. The scripted spelling of the answer is
+  // `--reset-data`; a headless run with neither keeps the bytes. The answer
+  // is taken BEFORE the plan guards, which exist only to protect bytes a
+  // wipe deletes — an uninstall that keeps the data is not blocked by a
+  // strange `SUBSHELL_SERVER_DATA_DIR` it will never touch.
+  let wipeData = true;
+  if (opts.uninstall) {
+    if (opts.resetData !== undefined) {
+      wipeData = opts.resetData;
+    } else if (!deps.isTTY) {
+      wipeData = false;
+      deps.log("not interactive: the data and settings stay; pass --reset-data to delete them");
+    } else {
+      const answer = await (deps.askConfirm ?? (() => Promise.resolve(false)))(
+        "Delete this server's data and settings too — the database, pane logs, node artifacts, the data directory, and config.env, the way `reset` does? A reset leaves no copy behind: backups inside the data directory go with it. [y/N]",
+      );
+      if (answer === null) {
+        deps.error(`subshell-server ${verb}: cancelled; nothing was changed`);
+        return 1;
+      }
+      wipeData = answer;
+    }
+  }
+
+  // 0b. The plan's shape guards, BEFORE consent: the desktop refuses at
   // ARM time, so nobody types a machine's name at a plan that was unsafe to
   // build. A mistyped `SUBSHELL_SERVER_DATA_DIR` must not become an `rm -rf`
   // behind a nice message, and a `reset` that would swallow the binary it
   // promises to keep is refused the way the Rust `delete_guard_ok` refuses it.
-  const plan = (deps.plan ?? buildResetPlan)();
-  for (const path of [plan.configEnv, plan.database, plan.logsDir, plan.nodeArtifacts, plan.dataDir]) {
-    if (!pathRulesOk(path)) {
-      deps.error(`subshell-server ${verb}: the delete plan names an unsafe path (${path}); refusing to run`);
-      return 1;
+  if (wipeData) {
+    for (const path of [plan.configEnv, plan.database, plan.logsDir, plan.nodeArtifacts, plan.dataDir]) {
+      if (!pathRulesOk(path)) {
+        deps.error(`subshell-server ${verb}: the delete plan names an unsafe path (${path}); refusing to run`);
+        return 1;
+      }
     }
   }
-  if (!opts.uninstall && plan.binary !== null) {
+  if (wipeData && !opts.uninstall && plan.binary !== null) {
     // The Rust twin's caller rule: `delete_guard_ok` demands canonicalized
     // arguments, because the walk deletes through the RESOLVED directory and
     // a lexical `relative` misses a symlinked data home (`/home/u/.local` →
@@ -359,8 +407,14 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
     );
     return 1;
   } else {
+    const scope =
+      verb === "reset"
+        ? "deletes this server's data and settings"
+        : wipeData
+          ? "removes the service and the installed binary, AND deletes this server's data and settings"
+          : "removes the service and the installed binary; the data and settings stay";
     const answer = await (deps.ask ?? (() => Promise.resolve(null)))(
-      `This ${verb === "reset" ? "deletes this server's data and settings" : "removes Subshell Server from this machine entirely"}. Type ${machine || "(unknown host)"} to confirm:`,
+      `This ${scope}. Type ${machine || "(unknown host)"} to confirm:`,
     );
     if (answer === null) {
       deps.error(`subshell-server ${verb}: cancelled; nothing was changed`);
@@ -486,23 +540,27 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
       failures.push(`could not delete ${what}`);
     }
   };
-  attempt(plan.database, () => rmSync(plan.database, { force: true }));
-  attempt(plan.logsDir, () => rmSync(plan.logsDir, { recursive: true, force: true }));
-  attempt(plan.nodeArtifacts, () => rmSync(plan.nodeArtifacts, { recursive: true, force: true }));
-  attempt(plan.dataDir, () => removeTreeBut(plan.dataDir, plan.configEnv));
-  attempt(plan.configEnv, () => rmSync(plan.configEnv, { force: true }));
-  // Remove-if-empty tidies, after the last consented byte's turn: the keep
-  // chain's now-empty ancestors inside the data home, the config home itself
-  // (its own directory when it lives OUTSIDE dataDir), and the data home.
-  // The default layout nests server logs and backups under dataDir, so those
-  // went with it.
-  pruneEmptyChainInside(dirname(plan.configEnv), plan.dataDir);
-  removeIfEmpty(dirname(plan.configEnv));
-  removeIfEmpty(plan.dataDir);
-  // The sentence may only claim what actually went: a failed delete is
-  // already named by `attempt`, and this line must not contradict it.
-  if (!failures.some((f) => f.startsWith("could not delete"))) {
-    deps.log("deleted the data directory, the database, the logs, the artifacts, and config.env");
+  if (wipeData) {
+    attempt(plan.database, () => rmSync(plan.database, { force: true }));
+    attempt(plan.logsDir, () => rmSync(plan.logsDir, { recursive: true, force: true }));
+    attempt(plan.nodeArtifacts, () => rmSync(plan.nodeArtifacts, { recursive: true, force: true }));
+    attempt(plan.dataDir, () => removeTreeBut(plan.dataDir, plan.configEnv));
+    attempt(plan.configEnv, () => rmSync(plan.configEnv, { force: true }));
+    // Remove-if-empty tidies, after the last consented byte's turn: the keep
+    // chain's now-empty ancestors inside the data home, the config home
+    // itself (its own directory when it lives OUTSIDE dataDir), and the data
+    // home. The default layout nests server logs and backups under dataDir,
+    // so those went with it.
+    pruneEmptyChainInside(dirname(plan.configEnv), plan.dataDir);
+    removeIfEmpty(dirname(plan.configEnv));
+    removeIfEmpty(plan.dataDir);
+    // The sentence may only claim what actually went: a failed delete is
+    // already named by `attempt`, and this line must not contradict it.
+    if (!failures.some((f) => f.startsWith("could not delete"))) {
+      deps.log("deleted the data directory, the database, the logs, the artifacts, and config.env");
+    }
+  } else {
+    deps.log("left the data, settings, and config.env in place; `subshell-server reset` deletes them");
   }
 
   // 6. The uninstall half only: the binary the LADDER named (resolved at step
@@ -516,10 +574,16 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
       // read the file's existence after its own deletion.
       const hadPrevious = existsSync(`${plan.binary}.previous`);
       if (!existsSync(plan.binary)) {
-        // Legitimate only when the binary lives INSIDE the consented data
-        // home: the tree walk already took it, and the containment guard
-        // stands down for uninstall precisely because of this shape.
-        deps.log("the installed binary went with the data directory");
+        // With the wipe chosen, the honest reading is that the tree walk
+        // already took a binary living INSIDE the consented data home (the
+        // containment guard stands down for uninstall precisely because of
+        // that shape). With the data kept, nothing walked: the ladder simply
+        // named a path that is not there.
+        deps.log(
+          wipeData
+            ? "the installed binary went with the data directory"
+            : "the installed binary was not on the ladder's path",
+        );
       } else {
         // Two separate unlinks, two separate reports: a `.previous` that
         // resists after the binary went must not blame the binary.
@@ -555,7 +619,9 @@ export async function runReset(opts: { uninstall: boolean; confirm?: string }, d
   }
   deps.log(
     opts.uninstall
-      ? "Subshell Server is uninstalled. Enrolled nodes were not reached; they will stop connecting to a plane that is gone."
+      ? wipeData
+        ? "Subshell Server is uninstalled and its data is gone. Enrolled nodes were not reached; they will stop connecting to a plane that is gone."
+        : "Subshell Server is uninstalled; the data and settings are still on disk. Enrolled nodes were not reached; they will stop connecting to a plane that is gone."
       : "Subshell Server was reset to a fresh machine. The installed binary is still here for `subshell-server init`.",
   );
   return 0;
