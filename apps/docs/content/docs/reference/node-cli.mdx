@@ -19,6 +19,8 @@ Most of the time you use three verbs: `subshell setup` once, `subshell status` w
 | `service` | install, uninstall, status, start, stop, restart, autostart |
 | `maintenance` | on, off, status: take this node out of service or back |
 | `unenroll` | Stop being a node: delete this machine's node config and lock |
+| `reset` | The full tear-down of this machine's node role, keeping the binary (typed-name consent) |
+| `uninstall` | Reset plus the installed binary; asks separately about the data (default keep) |
 | `status` | What this machine's local truth says (`--json`, `--probe`) |
 | `update` | Replace this node's own binary (`--rollback` undoes the last one) |
 | `version` | Print the version (`--version` and `-v` work in the command slot) |
@@ -82,6 +84,23 @@ usage:
                           binary; the control plane's row stays until its owner
                           deletes it there. Refuses while a daemon runs or
                           subshells are live; --yes is the confirmation.
+  subshell reset
+                          stop being a node the way the Client app's Reset does:
+                          stops the daemon, closes this machine's pane servers,
+                          removes the service definition, and deletes the data
+                          directory (identity and pane logs), the daemon lock,
+                          and the node config with its key (LAST). Everything
+                          the node role wrote HERE goes; the plane's row and
+                          other machines' panes do not. The binary stays, so
+                          subshell setup can enroll again. The machine's NAME
+                          must be typed (--confirm <name> when headless); --yes
+                          cannot confirm a reset.
+  subshell uninstall [--reset-data]
+                          reset PLUS the installed binary and any .previous
+                          an update left. Asks separately whether the data goes
+                          too (default: keep it); --reset-data answers that
+                          question yes without a terminal. The same typed-name
+                          consent; --yes is refused.
   subshell status [--json] [--probe]
   subshell update [--check] [--to <version>] [--from <file>] [--force] [--yes]
                   [--json] [--no-restart]
@@ -157,6 +176,16 @@ The CLI does not talk to the daemon. It writes a file, and the running node dete
 - While subshells are live, it lists them (name, id, working directory), writes nothing, and exits 1; `--yes` accepts the orphaning and is the confirmation.
 
 If the node service is installed, remove it with `service uninstall`: its daemon would start on the next login with no config to load.
+
+## reset and uninstall
+
+The node role's destructive verbs (issue #232), twin to `subshell-server reset|uninstall` and to the Subshell Client app's Reset screen. `reset` stops the daemon, closes this machine's `subshell-*` pane servers, removes the service definition, and deletes everything the node role wrote here: the data directory (node identity and pane logs), the daemon lock, and `config.json` last, the node key's only home, so its deletion is the deregistration. The installed binary stays, so `subshell setup` can enroll again. `uninstall` also removes the binary the service definition names (or this process's own file, when there is no definition) and any `.previous` an update left, and it asks separately, default NO, whether the data goes too; `--reset-data` answers that question for a run with no terminal.
+
+Consent is the MACHINE'S NAME, typed and compared on the machine, the same confirmation every reset door in this product asks (the node's own name in `config.json` is a plane-side label; consent names the metal). `--yes` is refused by name, and a headless run without `--confirm <machine-name>` changes nothing before it touches anything.
+
+Once the name matches, the chain clears and does not refuse mid-run: a service that will not stop, a daemon started by hand that keeps running, pane servers that survive, or a file that resists deletion are each reported by name and the exit code says the run finished with failures, but the rest still goes. Before consent, the plan guards refuse outright: an unsafe data path, or a data dir containing the binary a reset promises to keep.
+
+What none of these reach: the control plane's row for this node (its owner deletes it in the browser), panes running on OTHER machines, and the agent's own capped log, which stays as the record of the act unless a custom data directory contains it (the run's own lines say which happened). `unenroll` remains the narrow neighbour: it leaves the data directory and the installation alone.
 
 ## status
 
