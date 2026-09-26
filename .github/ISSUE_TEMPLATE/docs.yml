@@ -1,0 +1,23 @@
+name: Docs issue
+description: Something in the docs is wrong, missing, or hard to find.
+labels:
+  - documentation
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Page or section
+      description: The docs URL, or where you expected the answer to live.
+      placeholder: "https://docs.subshell.sh/..."
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong or missing?
+      placeholder: "The page says X, I found Y. Or: there is no page about Z."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to find?
+      description: Proposed wording is welcome, it usually ships close to verbatim.
