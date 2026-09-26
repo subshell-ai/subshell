@@ -261,6 +261,14 @@ describe("parseCommandPaste", () => {
     // The property the pair exists for, over the values that actually broke
     // it or nearly did. Flag values are compared trimmed because
     // `presetFormToCommand` trims them, exactly as `formToFlagTokens` does.
+    //
+    // ENV values round-trip exactly for every shape: they go through
+    // `shellQuote`, which quotes whatever the tokenizer would eat.
+    // CLI-arg VALUES print VERBATIM (operator ruling 2026-09-25), so the
+    // exact re-paste holds only while the value's own spelling carries no
+    // quote characters for the tokenizer to consume and no odd whitespace
+    // to re-collapse — the shapes outside that print as typed instead,
+    // which is the point: a quote in a CLI argument is the person's data.
     const values = [
       "$HOME",
       "`date`",
@@ -278,21 +286,42 @@ describe("parseCommandPaste", () => {
       "ünïcødé",
       "$(whoami)",
       "a  b",
-      // A leading em dash is data too: quoted on render, and the restored
+      // A leading em dash is data too: bare on render, and the restored
       // leading run must not mistake it for a typeset flag (review 2026-09-25).
       "— Q3",
     ];
     for (const value of values) {
-      const form = {
-        ...emptyPresetForm(),
-        envRows: [{ key: "K", value }],
-        flagRows: [{ flag: "--f", value }],
-      };
-      const parsed = parseCommandPaste(presetFormToCommand(form, "claude"));
-      expect(parsed.env).toEqual([{ key: "K", value }]);
-      expect(parsed.flags).toEqual([{ flag: "--f", value: value.trim() }]);
-      expect(parsed.command).toBe("claude");
+      // Env-only line: parsed exactly for every shape (no verbatim flag to
+      // throw the tokenizer on an unbalanced quote).
+      const envParsed = parseCommandPaste(
+        presetFormToCommand({ ...emptyPresetForm(), envRows: [{ key: "K", value }] }, "claude"),
+      );
+      expect(envParsed.env).toEqual([{ key: "K", value }]);
+      expect(envParsed.command).toBe("claude");
+
+      const line = presetFormToCommand({ ...emptyPresetForm(), flagRows: [{ flag: "--f", value }] }, "claude");
+      const trimmed = value.trim();
+      if (/["']|[\n\r\t]| {2,}/.test(trimmed)) {
+        // Verbatim by ruling: what is typed is on the line, unquoted by us.
+        expect(line).toContain(trimmed ? `--f ${trimmed}` : "--f");
+      } else {
+        const parsed = parseCommandPaste(line);
+        expect(parsed.flags).toEqual([{ flag: "--f", value: trimmed }]);
+        expect(parsed.command).toBe("claude");
+      }
     }
+  });
+
+  it("renders the $-plus-apostrophe env value double-quoted, the accepted expansion edge", () => {
+    // The one env class with a known wrong-on-paste rendering (review
+    // 2026-09-25): `"$it's"` lets a shell expand `$it`. Single quotes would
+    // protect it but collide with the apostrophe; the safe concatenation
+    // `'$it'"'"'s` survives both parsers and reads like line noise, so the
+    // line states the spelling we chose rather than pretend the hazard is
+    // gone. The editor's own parser still round-trips it exactly.
+    const line = presetFormToCommand({ ...emptyPresetForm(), envRows: [{ key: "K", value: "$it's" }] }, "claude");
+    expect(line).toContain(`K="$it's"`);
+    expect(parseCommandPaste(line).env).toEqual([{ key: "K", value: "$it's" }]);
   });
 });
 
