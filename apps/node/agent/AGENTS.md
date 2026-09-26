@@ -65,7 +65,9 @@ setup key, and discards the node key whose only home was that 0600 file.
 `configure` (`src/configure.ts`) makes the two maintenance edits that keep
 the SAME node: `--server` repoints, `--key` stores a rotated bearer secret in
 place (and refuses an `nsk_` setup key by name). A repoint CLEARS `nodeWsUrl`
-(the old plane's self-reported ws URL, which `resolveWsUrl` prefers), takes
+(the old plane's self-reported ws URL, which `resolveWsUrl` prefers, except a
+loopback pin beside a remote `serverUrl`, #225 residue that derives; the
+bind-narrowing edge is in `docs/repointing.md`), takes
 NO `--name`, and works only between two names for ONE plane; joining a
 genuinely different plane is an `enroll`. **Working on configure or
 enrollment: read `apps/node/agent/docs/repointing.md` first.**
