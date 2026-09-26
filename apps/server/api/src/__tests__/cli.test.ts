@@ -64,10 +64,38 @@ describe("dispatchCli — boot-path passthrough", () => {
     expect(err).toEqual([]);
   });
 
-  test("a leading flag is NOT a subcommand → false (systemd boot form)", async () => {
+  test("an unknown leading flag is NOT a subcommand → false (systemd boot form)", async () => {
     const { deps } = collectingDeps();
-    expect(await dispatchCli(["--help"], deps)).toBe(false);
-    expect(await dispatchCli(["-v", "extra"], deps)).toBe(false);
+    expect(await dispatchCli(["--frobnicate"], deps)).toBe(false);
+    expect(await dispatchCli(["-x", "extra"], deps)).toBe(false);
+  });
+
+  // The 2026-09-26 operator report: `subshell-server --help` BOOTED the
+  // server, because every leading dash was the boot form. `--help`/`-h`/
+  // `help` and `--version`/`-v` are now recognized BEFORE that check, like
+  // the node CLI's COMMAND_ALIASES recognized `--version` for the same
+  // reason; every other leading flag keeps the boot contract untouched.
+  test("--help, -h, and the word help print the usage, exit 0, and never boot", async () => {
+    for (const argv of [["--help"], ["-h"], ["help"]]) {
+      const { deps, out, err, exits } = collectingDeps();
+      expect(await dispatchCli(argv, deps)).toBe(true);
+      // USAGE arrives as ONE log call, so out[0] is the whole block.
+      expect(out.length).toBe(1);
+      expect(out[0].startsWith("subshell-server: the Subshell control plane")).toBe(true);
+      expect(out[0]).toContain("subshell-server service install");
+      expect(err).toEqual([]);
+      expect(exits).toEqual([0]);
+    }
+  });
+
+  test("--version and -v answer with the version line, exit 0, and never boot", async () => {
+    for (const argv of [["--version"], ["-v"]]) {
+      const { deps, out, err, exits } = collectingDeps();
+      expect(await dispatchCli(argv, deps)).toBe(true);
+      expect(out[0]).toMatch(/^subshell-server \d+\.\d+/);
+      expect(err).toEqual([]);
+      expect(exits).toEqual([0]);
+    }
   });
 
   // The 2026-09-26 extension of pre-boot recognition: `--verbose` is the one
@@ -86,9 +114,9 @@ describe("dispatchCli — boot-path passthrough", () => {
     expect(consoleVerbose()).toBe(false);
   });
 
-  test("--verbose after a non-verbose leading flag is still no one's business (unknown leading flag boots)", async () => {
+  test("--verbose after an unknown leading flag is still no one's business (unknown leading flag boots)", async () => {
     const { deps } = collectingDeps();
-    expect(await dispatchCli(["--help", "--verbose"], deps)).toBe(false);
+    expect(await dispatchCli(["--frobnicate", "--verbose"], deps)).toBe(false);
     expect(consoleVerbose()).toBe(false);
   });
 });
