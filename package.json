@@ -12,6 +12,7 @@
     "dev:desktop-server": "bun scripts/desktop-dev.ts server",
     "dev:desktop-client": "bun scripts/desktop-dev.ts client",
     "dev:docs": "bun run --cwd apps/docs start",
+    "dev:install": "bun scripts/dev-install.ts",
     "dev:website": "bun run --cwd apps/website start",
     "build": "turbo run build",
     "brand:generate": "bun run --cwd brand make",
