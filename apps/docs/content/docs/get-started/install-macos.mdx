@@ -29,7 +29,7 @@ Install Subshell Server on an Apple silicon or Intel Mac, start it as a backgrou
    Run Subshell Server in the background and start it at login?
    ```
 
-   Choose **Yes**. On macOS this registers a launchd agent, with no sudo. With `--yes`, every question above is answered yes at once, each by an announced line; on a tmux-less Mac that includes the install, with any password prompt asked on your terminal. A run with no terminal to ask installs no service, prints the PATH line as instructions instead of an offer, and says what it skipped.
+   Choose **Yes**. On macOS this registers a launchd agent, with no sudo. With `--yes`, every question above is answered yes at once, each by an announced line; on a tmux-less Mac that includes the install, with any password prompt asked on your terminal. A run with no terminal to ask installs no service, prints the PATH line as instructions instead of an offer, and says what it skipped. On a Mac that also lacks tmux, the run stops at that check first, with nothing written.
 
 4. When `init` finishes, it prints the address to open:
 
@@ -54,7 +54,7 @@ If you would rather have a window than a terminal, the **Subshell Server** app i
 
 - The binary is self-contained: the web UI is embedded, so the Mac needs no Bun, no checkout, and no separate frontend to serve.
 - `init` stores its settings in `~/.config/subshell-server/config.env` and generates the sign-in secret once. A second run keeps the existing secret.
-- Every configuration question `init` asks has an environment-variable spelling for unattended runs; [Install by hand](/server/headless) lists them. Two are the exception: the database path keeps its default unless you run `init --db-path` yourself, and only `--yes` answers the PATH offer.
+- Every configuration question `init` asks has an environment-variable spelling for unattended runs; [Install by hand](/server/headless) lists them. The database path is the exception: it keeps its default unless you run `init --db-path` yourself. The PATH offer and the tmux check have no variable at all: a terminal gets those questions, and `--yes` answers them.
 - To reach the server from another machine, browse to an address that machine can reach and that the instance trusts. [Networking and addresses](/server/networking) explains which addresses a browser can sign in from.
 - If something looks wrong, run `subshell-server status` first. It reports the active settings, whether tmux and the port are up, and whether the admin account exists, and it does this without starting anything.
 - A machine outside the published targets (`linux-x64`, `linux-arm64`, `darwin-arm64`, `darwin-x64`) is refused by name, never silently mis-resolved.
