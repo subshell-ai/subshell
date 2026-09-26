@@ -7,11 +7,11 @@ The control plane reads its settings from a small ladder of layers, not from one
 
 ## The file
 
-`~/.config/subshell-server/config.env` holds the instance's settings: a plain `KEY=value` file, mode 0600 inside a 0700 directory, written atomically (temp file, then rename, so a reader never sees a half-written version). That directory is the config home; `SUBSHELL_SERVER_CONFIG_DIR` relocates it.
+`~/.config/subshell-server/config.env` holds the instance's settings: a plain `KEY=value` file, mode 0600 inside a 0700 directory. It is written atomically (temp file, then rename), so a reader never sees a half-written version. That directory is the config home; `SUBSHELL_SERVER_CONFIG_DIR` relocates it.
 
-Two readers use the file, and they are the same file on purpose: the systemd unit loads it as its `EnvironmentFile`, and the binary's own loader parses it at startup. A launchd agent, a container, or a hand-run process skip the first reader and use the second, so what `subshell-server configure` writes is what the service boots with, and the two cannot disagree.
+Two readers use the file, and they are the same file on purpose. The systemd unit loads it as its `EnvironmentFile`, and the binary's own loader parses it at startup. A launchd agent, a container, or a hand-run process skips the first reader and uses the second, so what `subshell-server configure` writes is what the service boots with, and the two cannot disagree.
 
-The file is generated output. Keys you do not recognize (above all the once-generated `BETTER_AUTH_SECRET`) are carried through every rewrite **verbatim**, but comments are not preserved, because every rewrite is a fresh write.
+The file is generated output. Keys you do not recognize, above all the once-generated `BETTER_AUTH_SECRET`, are carried through every rewrite verbatim. Comments are not preserved, because every rewrite is a fresh write.
 
 ## The ladder
 
@@ -21,38 +21,38 @@ Every value resolves through the same precedence:
 process env  >  config.env  >  .env  >  built-in default
 ```
 
-- **Process env** wins outright: a variable the service manager or your shell exported. A config.env line the environment matches reads the same either way; a line it contradicts is dead letter until the environment stops setting the key.
+- **Process env** wins outright: a variable the service manager or your shell exported. A config.env line the environment matches reads the same either way. A line the environment contradicts is ignored until the environment stops setting the key.
 - **config.env**, applied only to keys the environment left unset.
 - **.env**: a dotenv file in the working directory, which the service runs from the config home. Real deployments skip it; it exists for dev checkouts.
 - **Built-in defaults** for everything nobody has written down: port `3080`, bind `0.0.0.0`, base URL `http://localhost:<port>`.
 
-`subshell-server status` tells you, for each setting, which layer supplied it: one of **process env**, **config.env**, or **default** (a `.env` value arrives through the environment by then). Settings → Service shows the same attribution next to each field, and it is the fact to check before you edit: with the environment owning a key, the dashboard **refuses** to write it (you get "change `<KEY>` where the server is started" rather than a success that never takes effect), and a CLI write lands in a file the environment still shadows.
+`subshell-server status` tells you, for each setting, which layer supplied it: one of **process env**, **config.env**, or **default** (a `.env` value arrives through the environment by then). Settings → Service shows the same attribution next to each field, and it is the fact to check before you edit. With the environment owning a key, the dashboard refuses to write it: you get "change `<KEY>` where the server is started" rather than a success that never takes effect. A CLI write in that situation lands in a file the environment still shadows.
 
 ## Who writes what
 
-Five keys belong to the configuration tools: `SERVER_PORT`, `HOST`, `APP_BASE_URL`, `DATABASE_PATH`, and `TRUSTED_ORIGINS`. Two writers touch them, and both go through the **same validator and the same file writer**, so they cannot disagree about what a valid file is:
+Five keys belong to the configuration tools: `SERVER_PORT`, `HOST`, `APP_BASE_URL`, `DATABASE_PATH`, and `TRUSTED_ORIGINS`. Two writers touch them, and both go through the same validator and the same file writer, so they cannot disagree about what a valid file is:
 
-| writer | writes |
+| Writer | Writes |
 |---|---|
 | `subshell-server configure` (and `init`, which runs the same flow) | all five, from its questions or its flags |
-| Settings → Service in the dashboard | four: port, bind address, base URL, trusted origins. **Never** `DATABASE_PATH`: moving the database from a web page is a footgun with no undo, so `--db-path` stays CLI-only. |
+| Settings → Service in the dashboard | four: port, bind address, base URL, trusted origins. Never `DATABASE_PATH`: moving the database from a web page is a destructive change with no undo, so `--db-path` stays CLI-only. |
 
-Neither writer ever touches `BETTER_AUTH_SECRET`: `init` generates it once and everything else carries it forward. Both writers refuse invalid values with the same sentence: an origin list is validated entry by entry (scheme, host, optional port; a path, query, or credentials are refused, not silently stripped), and stored in the canonical form a browser actually sends. Wildcards cannot be written through either surface, and [Networking & Addresses](/server/networking) explains why that refusal is load-bearing.
+Neither writer ever touches `BETTER_AUTH_SECRET`: `init` generates it once and everything else carries it forward. Both writers refuse invalid values with the same sentence. An origin list is validated entry by entry (scheme, host, optional port; a path, query, or credentials are refused, not silently stripped) and stored in the canonical form a browser actually sends. Wildcards cannot be written through either surface, and [Networking & Addresses](/server/networking) explains why that refusal is load-bearing.
 
-Some rules that fall out of this shape, each one deliberate:
+Some rules that follow from this shape, each one deliberate:
 
-- **`TRUSTED_ORIGINS` is written or removed, never written empty.** Its built-in default is a non-empty list, and config.env outranks `.env`: an empty line would silently strip those defaults. `--trusted-origins ""` therefore deletes the key.
-- **Defaults follow the file.** Re-running `configure` shows your stored values as the defaults, and a `--yes` run keeps any key it is not given a flag for. Flags outrank the file; a scripted re-run is an edit, not a reset.
+- **`TRUSTED_ORIGINS` is written or removed, never written empty.** Its built-in default is a non-empty list, and config.env outranks `.env`, so an empty line would silently strip those defaults. `--trusted-origins ""` therefore deletes the key.
+- **Defaults follow the file.** Re-running `configure` shows your stored values as the defaults, and a `--yes` run keeps any key it is not given a flag for. Flags outrank the file, so a scripted re-run is an edit, not a reset.
 - **Three of the four address keys take effect at the next restart; trusted origins take effect immediately**, because that list is read live on every request. Settings → Service shows saved-versus-running and says when a restart is what stands between you and the change.
-- **A write can warn without refusing.** A LAN bind with a loopback base URL, a base URL naming a port the server will not listen on: these produce warnings at write time, because their symptom is a remote node dialing itself or a browser hitting a 403.
+- **A write can warn without refusing.** A LAN bind with a loopback base URL, or a base URL naming a port the server will not listen on, produces warnings at write time. The symptoms are a remote node dialing itself or a browser hitting a 403.
 
-## The traps
+## Common pitfalls
 
 **The environment outranks your edit.** Exported variables, unit `Environment=` lines, and container environment blocks all sit above the file. Check the layer `status` reports before assuming config.env is where the value lives, and know that setting a key in both places means the environment wins.
 
-**`APP_BASE_URL` is not just a display value.** Its origin is trusted automatically, it is where auth redirects point, and it is the passkey rpID, so changing it stops existing passkeys working on the old address. If the goal is "this instance is *also* reachable at…", add to `TRUSTED_ORIGINS` instead; the difference is spelled out in [Networking & Addresses](/server/networking).
+**`APP_BASE_URL` is not just a display value.** Its origin is trusted automatically, it is where auth redirects point, and it is the passkey rpID, so changing it stops existing passkeys working on the old address. If the goal is that the instance is also reachable at another address, add to `TRUSTED_ORIGINS` instead; the difference is spelled out in [Networking & Addresses](/server/networking).
 
-**Hand-edits and env vars bypass the validators, on purpose.** Both are escape hatches (an env var is the only way to set a key no tool owns), and a bad value that slips through is diagnosed, not blocked at boot: `status` prints per-entry problems for the origins list and the base URL, naming what a browser will do with the value, and the Service page renders the same notes beside the fields.
+**Hand-edits and env vars bypass the validators, on purpose.** Both are escape hatches: an env var is the only way to set a key no tool owns. A bad value that slips through is diagnosed, not blocked at boot. `status` prints per-entry problems for the origins list and the base URL, naming what a browser will do with the value, and the Service page renders the same notes beside the fields.
 
 The full variable table (every key, its default, and what it controls) lives on the reference page.
 

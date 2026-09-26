@@ -1,17 +1,17 @@
 ---
 title: Contributing to These Docs
-description: "How to add or fix a documentation page: fork, branch, write MDX, run the content tests, changeset, and the tagged deploy that ships it."
+description: "How to add or fix a documentation page: branch, write MDX, run the content tests, add a changeset, and let the tagged deploy ship it."
 ---
 
-These docs live in the same repository as the product they describe, as MDX files in a folder tree. There is no CMS and no special access: if you can open a pull request on GitHub, you can fix a page, and a test suite pins the structure so a stranger can add a file without reviewing a framework first. This page is the whole workflow.
+These docs live in the same repository as the product they describe, as MDX files in a folder tree. There is no CMS and no special access. If you can open a pull request on GitHub, you can fix a page, and a test suite pins the structure so a first-time contributor can add a file without studying a framework first. This page covers the whole workflow.
 
 ## What this site is
 
-The site is `apps/docs`, a [Fumadocs](https://fumadocs.dev) site on Next.js built to a fully **static export** and served at docs.subshell.sh. Three practical consequences:
+The site is `apps/docs`, a [Fumadocs](https://fumadocs.dev) site on Next.js built to a fully static export and served at docs.subshell.sh. Three practical consequences:
 
-- **Pages are MDX files** under `apps/docs/content/docs/`. Markdown plus imports, but the build is static, so keep pages to prose, code blocks, tables, and GitHub-style alerts. No interactive widgets.
-- **The sidebar is a file tree**, not a config database: each folder has a `meta.json` listing its pages in order, and each page's sidebar label is its frontmatter `title`.
-- **Search is a static index** built at compile time, and the site emits `llms.txt` / `llms-full.txt` from the same frontmatter, which is why the `description` below is worth writing well: it is what search results and agents quoting these docs will read.
+- **Pages are MDX files** under `apps/docs/content/docs/`. That is Markdown plus imports, but the build is static, so keep pages to prose, code blocks, tables, and GitHub-style alerts. No interactive widgets.
+- **The sidebar is a file tree**, not a config database. Each folder has a `meta.json` listing its pages in order, and each page's sidebar label is its frontmatter `title`.
+- **Search is a static index** built at compile time, and the site emits `llms.txt` and `llms-full.txt` from the same frontmatter. Write the `description` carefully: it is what search results and agents quoting these docs will read.
 
 ## The content tree
 
@@ -35,11 +35,11 @@ apps/docs/content/docs/
 └── help/
 ```
 
-A `meta.json` `pages` array holds bare filenames (without `.mdx`) or subfolder names, in sidebar order. A page not listed anywhere is an orphan; the test suite fails on that, deliberately: an unlisted page is a page no one can navigate to.
+A `meta.json` `pages` array holds bare filenames (without `.mdx`) or subfolder names, in sidebar order. A page not listed anywhere is an orphan, and the test suite fails on one deliberately: an unlisted page is a page no one can navigate to.
 
 ### Frontmatter
 
-Every page starts with exactly this schema:
+Every page starts with this schema:
 
 ```mdx
 ---
@@ -49,12 +49,12 @@ icon: Share2            # optional: a lucide icon name for the sidebar
 ---
 ```
 
-`title` and `description` are required; anything else fails the build. Write the `description` as one sentence that would read well alone in a search result.
+`title` and `description` are required, and a page missing either fails the build. Write the `description` as one sentence that would read well alone in a search result.
 
 ## Add or change a page
 
 1. **Fork the repository and branch** from `main`. One branch per topic keeps review simple.
-2. **Write the page.** Drop a `.mdx` file in the group that owns the topic, with frontmatter above. If it is a new page, also **add its filename to that folder's `meta.json`** `pages` array, in the position it should appear.
+2. **Write the page.** Drop a `.mdx` file in the group that owns the topic, with the frontmatter above. If it is a new page, also add its filename to that folder's `meta.json` `pages` array, in the position it should appear.
 3. **Install and run the site:**
 
    ```bash
@@ -70,42 +70,42 @@ icon: Share2            # optional: a lucide icon name for the sidebar
    cd apps/docs && bun test
    ```
 
-   `content-tree.test.ts` enforces the contract: every `meta.json` entry resolves to a page or folder, every page has `title` + `description` frontmatter, and no `.mdx` file is orphaned. Green here plus a rendering check in the dev server is everything CI will check about your prose structure.
+   `content-tree.test.ts` enforces the contract: every `meta.json` entry resolves to a page or folder, every page has `title` and `description` frontmatter, and no `.mdx` file is orphaned. Green here plus a rendering check in the dev server covers everything CI will check about your prose structure.
 
-5. **Add a changeset if your change should ship soon.** A docs change goes live on a *tagged deploy* (below), and tags come from version bumps, which come from changesets:
+5. **Add a changeset if your change should ship soon.** A docs change goes live on a tagged deploy (described below), and tags come from version bumps, which come from changesets:
 
    ```bash
    bunx changeset          # select @internal/docs, describe the change
    ```
 
-   A drive-by typo fix can skip this: it merges freely and simply ships with the next version PR. Anything you would like users to actually see within days should carry one.
+   A drive-by typo fix can skip this: it merges freely and ships with the next version PR. Anything you would like users to see within days should carry one.
 
-6. **Open a pull request.** First-time contributors are asked once to sign the [CLA](https://github.com/subshell-ai/subshell/blob/main/CLA.md): you keep copyright; the grant is what keeps the project's dual licensing possible. A maintainer reviews; every page of these docs carries an Edit-on-GitHub link for exactly this loop.
+6. **Open a pull request.** First-time contributors are asked once to sign the [CLA](https://github.com/subshell-ai/subshell/blob/main/CLA.md): you keep copyright, and the grant is what keeps the project's dual licensing possible. A maintainer reviews, and every page of these docs carries an Edit-on-GitHub link for exactly this loop.
 
 ### How your change reaches the site
 
-Merging to `main` does not deploy. The release dance mirrors the product's: pushes to `main` keep a "chore: release package(s)" version PR current, and merging it bumps `@internal/docs` and its CHANGELOG. Then a maintainer dispatches the docs workflow, which pushes the `docs-vX.Y.Z` tag and deploys:
+Merging to `main` does not deploy. The process mirrors the product's releases: pushes to `main` keep a "chore: release package(s)" version PR current, and merging it bumps `@internal/docs` and its CHANGELOG. Then a maintainer dispatches the docs workflow, which pushes the `docs-vX.Y.Z` tag and deploys:
 
 ```bash
 gh workflow run docs.yml
 ```
 
-The workflow is dispatch-only and gated on CI passing: tagging and releasing is owned by the workflow, never a hand-made tag. So: your PR merging is step one; the version PR merging is step two; the dispatch is step three. If you are not a maintainer, the second and third are someone else's keystrokes; a reviewer will tell you when your change is queued.
+The workflow is dispatch-only and gated on CI passing. Tagging and releasing is owned by the workflow, never a hand-made tag. Your PR merging is step one, the version PR merging is step two, and the dispatch is step three. If you are not a maintainer, the second and third steps are maintainer actions; a reviewer will tell you when your change is queued.
 
 ## Finishing a stub page
 
-Many pages here are honest stubs: a real intent paragraph, a Draft alert, and a **Sources** section naming the repository files the content will be migrated from. Completing one is the same workflow above, with an editorial contract:
+Many pages here are honest stubs: a real intent paragraph, a Draft alert, and a **Sources** section naming the repository files the content will be migrated from. Completing one is the workflow above with an editorial contract:
 
-1. **Read every source in the stub first.** They are all real paths in this repository; where two sources disagree, the app's documentation for that area wins, and the disagreement is worth reporting.
+1. **Read every source in the stub first.** They are all real paths in this repository. Where two sources disagree, the app's documentation for that area wins, and the disagreement is worth reporting.
 2. **Write for the reader who may be on any device** (desk terminal, laptop, tablet, phone), not for a contributor reading the architecture. Cover the intent the stub paragraph promises.
-3. **Remove the Draft alert**: that is the lifecycle event that makes the page real.
-4. **Convert the Sources section** into a proper references or "see also" list (docs/security.md stays the authority for security claims; pages here summarize it and link it rather than restating its tables).
-5. Where the stub parked an open question, get an answer from a maintainer rather than guessing product behavior. Never invent a flag, a default, or a permission.
+3. **Remove the Draft alert.** That is the lifecycle event that makes the page real.
+4. **Convert the Sources section** into a proper references or "see also" list. `docs/security.md` stays the authority for security claims; pages here summarize it and link it rather than restating its tables.
+5. **Answer open questions, do not guess.** Where the stub left a question open, get an answer from a maintainer rather than guessing product behavior. Never invent a flag, a default, or a permission.
 
 ## Voice and vocabulary
 
 - **Second person, user-facing, plain.** "You grant view access…", not "the system permits…". Commands you expect the reader to run go in fenced blocks with no prompts.
-- **No em dashes.** A comma, a colon, parentheses, or a full stop and a new sentence carry the same breath; the dash is the tell of a sentence that kept growing. The rule covers prose, headings, frontmatter and callouts, and the content test fails any page carrying U+2014, so fix it before you push. En dashes in ranges and hyphens are not covered; leave them alone.
+- **No em dashes.** Use a comma, a colon, parentheses, or a full stop and a new sentence instead; the em dash tends to mark a sentence that kept growing. The rule covers prose, headings, frontmatter, and callouts, and the content test fails any page carrying U+2014, so fix it before you push. En dashes in ranges and hyphens are not covered; leave them alone.
 - **The three words are load-bearing**, and these docs are where users learn them:
 
   | word | means | is not |
@@ -116,7 +116,7 @@ Many pages here are honest stubs: a real intent paragraph, a Draft alert, and a 
 
 - **Display labels follow the product**: "Subshell Server" and "Subshell Client" are the desktop apps; `subshell-server` and `subshell` (in code font) are the CLI binaries; the control-plane host's node row is named by an admin and defaults to "Server". Harnesses are plugins. Reusing a word for two things is the one style violation that will bounce a PR.
 
-## MDX notes and gotchas
+## MDX notes
 
 - **Callouts** use GitHub alert syntax and render as styled boxes:
 
@@ -125,13 +125,13 @@ Many pages here are honest stubs: a real intent paragraph, a Draft alert, and a 
   > A subshell is invisible to other users until you share it.
   ```
 
-  `note`, `tip`, `important`, `warning`, `caution` all render; `warning` is what stubs use for their Draft banner.
+  `note`, `tip`, `important`, `warning`, and `caution` all render; `warning` is what stubs use for their Draft banner.
 
-- **Curly braces are code in MDX.** A literal `{` in prose starts a JSX expression and breaks the build; wrap such text in backticks (`` `--from <file>` `` is fine; a bare `<file>` in prose is not, since angle brackets likewise start JSX, so keep flags, placeholders and paths in code font).
+- **Curly braces are code in MDX.** A literal `{` in prose starts a JSX expression and breaks the build, so wrap such text in backticks. `` `--from <file>` `` is fine; a bare `<file>` in prose is not. Angle brackets likewise start JSX, so keep flags, placeholders, and paths in code font.
 - **Links between pages** are root-relative: `[Nodes](/nodes)`, `[the threat model](/about/security-model)`. They are checked in review the same as prose.
-- **Code fences** carry languages (`bash`, `json`, `ts`); screenshots do not exist yet; describe in words what a screen shows until the screenshot pass lands.
-- **When CLI behavior changes, docs change with it**: the reference pages transcribe the usage blocks in `apps/server/api/src/cli.ts` and `apps/node/agent/src/cli.ts`, so a PR that edits either block owes a look at the matching reference page (ideally in the same PR: one repo, one review).
+- **Code fences** carry languages (`bash`, `json`, `ts`). Screenshots do not exist yet; describe in words what a screen shows until the screenshot pass lands.
+- **When CLI behavior changes, the docs change with it.** The reference pages transcribe the usage blocks in `apps/server/api/src/cli.ts` and `apps/node/agent/src/cli.ts`, so a PR that edits either block should update the matching reference page in the same PR: one repo, one review.
 
 ## Where to ask
 
-Open an issue on the repository for anything structural (a missing group, a page that should exist and doesn't, a stub whose sources are wrong). Content questions get answered fastest in the PR itself.
+Open an issue on the repository for anything structural: a missing group, a page that should exist and does not, or a stub whose sources are wrong. Content questions get answered fastest in the PR itself.

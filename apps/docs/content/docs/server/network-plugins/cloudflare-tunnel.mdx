@@ -3,18 +3,18 @@ title: Cloudflare Tunnel
 description: Publish your server on a hostname you own, behind an Access gate that the server verifies itself.
 ---
 
-Cloudflare Tunnel is the one network plugin that inverts the posture: instead of joining a private mesh, it points a public hostname you own at this server through Cloudflare's edge. The manifest declares that exposure (`public-with-gate`) as data the card renders **before** the button, so the sentence "this instance will answer on the open internet" is something you read, not something you discover. What makes the sentence sayable is the gate: a Cloudflare Access application in front of the hostname, whose identity assertions this server verifies itself, on every request.
+Cloudflare Tunnel is the one network plugin that inverts the posture: instead of joining a private mesh, it points a public hostname you own at this server through Cloudflare's edge. The manifest declares that exposure (`public-with-gate`) as data the card renders before the button, so the sentence "this instance will answer on the open internet" is something you read before acting, not something you discover afterward. What makes the posture acceptable is the gate: a Cloudflare Access application in front of the hostname, whose identity assertions this server verifies itself, on every request.
 
 ## What you build in Cloudflare first
 
-The plugin does not create Cloudflare resources: the tunnel, its public hostname and its Access application are yours, created in the Cloudflare dashboard, and an unpublish will never delete them either. What the plugin needs is four settings that describe what you built:
+The plugin does not create Cloudflare resources: the tunnel, its public hostname, and its Access application are yours, created in the Cloudflare dashboard, and an unpublish will never delete them either. What the plugin needs is four settings that describe what you built:
 
 - **Hostname**: the bare public name the tunnel answers on, like `subshell.example.com`.
 - **Access team domain**: your team, as the slug or the full `myteam.cloudflareaccess.com`.
 - **Access application Audience tag**: the AUD tag of the application guarding that hostname; every assertion is verified against it.
 - **Tunnel token**: the connector token, pasted from Zero Trust → Networks → Tunnels → the tunnel's connector.
 
-The token is the credential that survives restarts, and it is treated differently from every other credential in this feature: it goes into the server's **write-only secret store** (readable by no plugin, includable by no command line), and the host hydrates it into the tunnel process's environment at spawn. A `ps` on this machine shows `cloudflared tunnel run --no-autoupdate` and no credential. Because the store sits on disk beside the server's own keys, a stolen data directory is a stolen tunnel; and because the database backup does not cover it, **a restored instance asks for the token again**: the settings form says so at the field.
+The token is the credential that survives restarts, and it is treated differently from every other credential in this feature: it goes into the server's write-only secret store (readable by no plugin, includable by no command line), and the host hydrates it into the tunnel process's environment at spawn. A `ps` on this machine shows `cloudflared tunnel run --no-autoupdate` and no credential. Because the store sits on disk beside the server's own keys, a stolen data directory is a stolen tunnel. And because the database backup does not cover it, a restored instance asks for the token again; the settings form says so at the field.
 
 Installing `cloudflared` is the one act of its kind the server will do itself: it is the only mesh binary needing no root anywhere, so its install command (`brew install cloudflared`, with the vendor's download page beside it) runs on request. On Linux, where the package-manager route needs root like everything else, the steps are printed for you instead.
 
@@ -23,28 +23,28 @@ Installing `cloudflared` is the one act of its kind the server will do itself: i
 Pressing **Start tunnel** runs three gates in order, and the first two can stop it:
 
 1. **Settings complete**: hostname, team, AUD, and a stored token, or it refuses by name.
-2. **The Access pre-flight**: the plugin asks `https://<hostname>/` whether Access stands in front of it, and refuses to publish unless the answer is positive: a redirect to your team's login page, or Access's own headers on the response. This check fails closed on everything it cannot positively confirm (an unreachable hostname, a timeout, a bare public origin answering directly), which is exactly the unguarded state the refusal exists to keep you out of. Access evaluates at Cloudflare's edge before your origin, so the check passes on a guarded hostname even while the tunnel is down, and fails on a public hostname with nothing in front of it.
-3. **The declarations**: only now does the plugin hand the host a process to run (the connector, `--no-autoupdate` because a tunnel that updates its own binary replaces one the server is supervising with one you never chose) and the public address, `https://<hostname>`, the secure-context address that is the whole point of this plugin.
+2. **The Access pre-flight**: the plugin asks `https://<hostname>/` whether Access stands in front of it, and refuses to publish unless the answer is positive: a redirect to your team's login page, or Access's own headers on the response. This check fails closed on everything it cannot positively confirm (an unreachable hostname, a timeout, a bare public origin answering directly). That is exactly the unguarded state the refusal exists to keep you out of. Access evaluates at Cloudflare's edge before your origin, so the check passes on a guarded hostname even while the tunnel is down, and fails on a public hostname with nothing in front of it.
+3. **The declarations**: only now does the plugin hand the host a process to run (the connector, `--no-autoupdate` because a tunnel that updates its own binary would replace one the server is supervising with one you never chose) and the public address, `https://<hostname>`, the secure-context address that is the point of this plugin.
 
-If the machine restarts, the guard goes back up before the listener accepts a single request, and the tunnel process after the server is answering; a tunnel that proxies to a port not yet open would publish a connection error.
+If the machine restarts, the guard goes back up before the listener accepts a single request, and the tunnel process starts after the server is answering. A tunnel that proxies to a port not yet open would publish a connection error, so the order is deliberate.
 
 ## The guard the server runs
 
-The Access check is not something the tunnel enforces for you, and not something plugin code holds. It is the server's own middleware, mounted ahead of every route:
+The Access check is not something the tunnel enforces for you, and it is not held in plugin code. It is the server's own middleware, mounted ahead of every route:
 
-- **Keyed on the `Host` header**, never on the presence of a Cloudflare-style header a LAN client could simply omit. A request naming your guarded hostname with no valid assertion is refused wherever it came from, and a hostname no active guard names is untouched, so loopback, the LAN and your enrolled nodes keep exactly the path they had before you published.
-- **Refused before the token is read if it did not come from loopback**, because the connector always connects to this server from this machine; a matching hostname from anywhere else is a client that chose the header itself.
+- **Keyed on the `Host` header**, never on the presence of a Cloudflare-style header a LAN client could simply omit. A request naming your guarded hostname with no valid assertion is refused wherever it came from. A hostname no active guard names is untouched, so loopback, the LAN, and your enrolled nodes keep exactly the path they had before you published.
+- **Refused before the token is read if it did not come from loopback**, because the connector always connects to this server from this machine. A matching hostname from anywhere else is a client that set the header itself, not traffic from your tunnel.
 - **The assertion is verified by this server**, against your team's published key set, with issuer, audience and signing algorithm pinned. Any failure is a refusal that names its reason (expired token, wrong audience, team mismatch), never a silent fall-through.
-- It covers **every path with no exemptions**, including the WebSocket routes and the otherwise-anonymous ones, and it covers them before the upgrade happens.
+- It covers every path with no exemptions, including the WebSocket routes and the otherwise-anonymous ones, and it covers them before the upgrade happens.
 - **No proxy header is trusted.** `X-Forwarded-*` and the Cloudflare identity headers are ignored; only the signed assertion is verified.
 
-And the assertion is a **front door, never a session**. A passing token proves Cloudflare authenticated somebody; it says nothing about who they are here. The verified email is kept for audit metadata and grants nothing, and Subshell's own sign-in is still required behind the gate, by every route that required one before. Putting your team's members in Access is not the same as giving them accounts here, and it never becomes one.
+And the assertion is a front door, never a session. A passing token proves Cloudflare authenticated somebody; it says nothing about who they are here. The verified email is kept for audit metadata and grants nothing, and Subshell's own sign-in is still required behind the gate, by every route that required one before. Putting your team's members in Access is not the same as giving them accounts here, and it never becomes one.
 
 ## Stopping
 
-Unpublish and disable follow one order and only one: the tunnel process is stopped and awaited **first**, the guard is dropped **last**. There is no instant, however brief, in which a live tunnel fronts an unguarded server: a guard with no traffic left to inspect is inert, while the reverse window is the one state this feature must never produce. If the connector refuses to stop, the act reports that and stops, because a process that will not die is a publish that is still live.
+Unpublish and disable follow one order and only one: the tunnel process is stopped and awaited first, and the guard is dropped last. There is no instant, however brief, in which a live tunnel fronts an unguarded server. A guard with no traffic left to inspect is harmless; a live tunnel with no guard is the one state this feature must never produce. If the connector refuses to stop, the act reports that and stops, because the process is still running and the publish is still live.
 
-Leave disconnects by deleting the stored token; the settings themselves are forgotten with the plugin's state, and as everywhere in this area the audit rows name hostnames and field names, never values.
+Leave disconnects by deleting the stored token. The settings themselves are forgotten with the plugin's state, and as everywhere in this area the audit rows name hostnames and field names, never values.
 
 ## See also
 

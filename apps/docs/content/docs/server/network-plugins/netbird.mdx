@@ -3,11 +3,11 @@ title: NetBird
 description: Reach your server over a NetBird mesh. Join once, and the address becomes trusted.
 ---
 
-The NetBird plugin connects the machine your server runs on to your NetBird network. Its one difference from the Tailscale family is structural: a NetBird join already makes the machine reachable at its WireGuard address, so there is nothing for a publish to *do* to the network. **Joining is publishing**: the press that puts this machine on your NetBird network also records the addresses and makes them sign-in-trusted, in one act, with the publish audit row written from the join.
+The NetBird plugin connects the machine your server runs on to your NetBird network. Its one difference from the Tailscale family is structural: a NetBird join already makes the machine reachable at its WireGuard address, so there is nothing for a publish to do to the network. Joining is publishing: the press that puts this machine on your NetBird network also records the addresses and makes them sign-in-trusted, in one act, with the publish audit row written from the join.
 
 ## Installing
 
-The plugin drives the `netbird` CLI and cannot install it; the card prints the steps and you run them, because the privileged ones are privileged:
+The plugin drives the `netbird` CLI and cannot install it. The card prints the steps and you run them, because some of them need root:
 
 - **Linux**: the vendor install script.
 - **macOS**: two routes, presented as such: the **app** (recommended: install it, open it, log in), or the **command-line daemon**, which is a Homebrew tap plus installing and starting its service. Those service commands need root, so they are printed for you, never run.
@@ -17,22 +17,22 @@ The plugin drives the `netbird` CLI and cannot install it; the card prints the s
 Two paths, chosen by whether you paste a credential:
 
 - **Interactive**: the plugin starts `netbird up` in no-browser mode, lifts the login URL (and a device code, if your account's flow uses one) off the output, and stops the command there. Open the URL to finish.
-- **Setup key**: paste one from your NetBird account. Keys are opaque strings, so the plugin deliberately does not second-guess their shape; a bad one comes back with NetBird's own words. The key rides one short command and is stored nowhere.
+- **Setup key**: paste one from your NetBird account. Keys are opaque strings, so the plugin deliberately does not check their shape; a bad one comes back with NetBird's own words. The key rides one short command and is stored nowhere.
 
-You may name this machine on the network while joining. If you run a self-managed NetBird deployment, the management URL is configured on the machine with NetBird's own tools (`netbird setup`, or your own `netbird up`); the card intentionally holds no copy of that setting, because a value there could only ever disagree with what the daemon itself says. The card reflects and publishes what the daemon reports.
+You may name this machine on the network while joining. If you run a self-managed NetBird deployment, the management URL is configured on the machine with NetBird's own tools (`netbird setup`, or your own `netbird up`). The card intentionally holds no copy of that setting, because a value there could only ever disagree with what the daemon itself reports. The card reflects and publishes what the daemon reports.
 
 ## The addresses
 
 A joined machine is published at whatever the daemon reports, in this order:
 
-- `http://<peer-name>:<port>`: the **NetBird FQDN**, and a caveat rides with it: peer names resolve only if your NetBird account has a nameserver group configured; without one, use the IP.
-- `http://<netbird-ip>:<port>`: the **NetBird IP**, the address that always works from a peer.
+- `http://<peer-name>:<port>`: the NetBird FQDN. A caveat comes with it: peer names resolve only if your NetBird account has a nameserver group configured. Without one, use the IP.
+- `http://<netbird-ip>:<port>`: the NetBird IP, the address that always works from a peer.
 
-Both are labelled non-secure contexts, and the label is a statement about your browser, not about your traffic: WireGuard encrypts end to end, but a browser seeing a plain `http://` origin will not run passkeys or `Secure` cookies there. The card says so on the address before you click, rather than after the register-passkey button does nothing.
+Both are labelled non-secure contexts, and the label is a statement about your browser, not about your traffic: WireGuard encrypts end to end, but a browser seeing a plain `http://` origin will not run passkeys or `Secure` cookies there. The card says so on the address before you click, so you know it before a register-passkey button does nothing.
 
 ## Leaving, and what unpublishing means
 
-Because reachability is a property of membership and not of a publish, unpublishing stops only the *serving*: the record keeps its addresses, and a private network goes on trusting them while this host stays a member, so an unpublish here undoes nothing about sign-in. Leaving is the act that forgets, because the join dies with the membership (`netbird down`, best-effort). Netbird stores no plugin secrets, so leaving has no credential to clean up behind it.
+Because reachability is a property of membership and not of a publish, unpublishing stops only the serving. The record keeps its addresses, and a private network goes on trusting them while this host stays a member, so an unpublish here undoes nothing about sign-in. Leaving is the act that forgets, because the join dies with the membership (`netbird down`, best-effort). Netbird stores no plugin secrets, so leaving has no credential to clean up behind it.
 
 The card's ladder is one rung shorter than Tailscale's too: NetBird reports installed, daemon reachable, and enrolled (joined or not), and makes no separate permission state, because authorisation to read the daemon is the vendor's own credential story.
 

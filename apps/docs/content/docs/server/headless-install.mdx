@@ -1,11 +1,11 @@
 ---
 title: Headless Install
-description: "Put a control plane on a box you only ever reach over SSH: the one-liner, init, and the first URL."
+description: "Put a control plane on a box you only reach over SSH: the one-liner, init, and the first URL."
 ---
 
-A box you never sit in front of is the ordinary way to run a control plane: it wants to stay up when your SSH session closes, and it never needs a browser on the machine itself. One command installs everything, and the CLI hands you the URL to finish from your own browser.
+A box you never sit in front of is the ordinary way to run a control plane. It needs to stay up when your SSH session closes, and it never needs a browser on the machine itself. One command installs everything, and the CLI then gives you the URL to finish from your own browser.
 
-## The one-liner
+## Run the one-liner
 
 From a fresh shell on the machine that will host the server:
 
@@ -13,11 +13,11 @@ From a fresh shell on the machine that will host the server:
 curl -fsSL https://subshell.sh/install-server.sh | bash
 ```
 
-The script detects your platform, finds the newest `cli-server-vX.Y.Z` [GitHub release](https://github.com/subshell-ai/subshell/releases), downloads `subshell-server-cli-<triple>`, and **verifies the release's `.sha256` before the file is ever made executable**: a mismatch removes the download and stops. It installs the binary to `~/.local/bin/subshell-server` (naming it what the service definition expects), tells you if that directory is not on your `PATH`, and hands over to `subshell-server init`. The piped script itself asks nothing; every question belongs to `init`, which reattaches to your terminal.
+The script detects your platform, finds the newest `cli-server-vX.Y.Z` [GitHub release](https://github.com/subshell-ai/subshell/releases), and downloads `subshell-server-cli-<triple>`. It verifies the release's `.sha256` before the file is ever made executable: a mismatch removes the download and stops. It installs the binary to `~/.local/bin/subshell-server` (naming it what the service definition expects), tells you if that directory is not on your `PATH`, and then runs `subshell-server init`. The piped script itself asks nothing; every question belongs to `init`, which reattaches to your terminal.
 
-## Answering ahead of time
+## Answering the prompts ahead of time
 
-A piped command takes no arguments, so the questions have environment-variable spellings. Set any of these before the one-liner and the matching prompt never fires:
+A piped command takes no arguments, so the questions have environment-variable spellings. Set any of these before the one-liner and the matching prompt never appears:
 
 | Variable | Effect |
 |---|---|
@@ -29,36 +29,36 @@ A piped command takes no arguments, so the questions have environment-variable s
 | `SUBSHELL_SERVER_VERSION` | install this exact `X.Y.Z` instead of the newest release |
 | `SUBSHELL_SERVER_RELEASE_API` / `SUBSHELL_SERVER_RELEASE_BASE` | where to look for the release list and the assets: an internal mirror, or an air-gapped copy |
 
-Under `--yes`, or on a non-interactive run (piped stdin, no TTY), every question takes its default instead; the service question's default is yes.
+Under `--yes`, or on a non-interactive run (piped stdin, no TTY), every question takes its default instead. The service question's default is yes.
 
 ## What `init` does, in order
 
 `init` is the whole setup sequence, not just a config write:
 
-1. **tmux preflight.** The control-plane host launches its own panes through tmux, so `init` refuses before writing anything when tmux is missing. An interactive run gets one chance to install it on the spot (`brew install tmux` on macOS, `apt-get`/`dnf` on Linux) and then continues where it left off. A refused init leaves no trace.
-2. **The config home.** Creates `~/.config/subshell-server` (0700) and `config.env` (0600), generating the `BETTER_AUTH_SECRET` once: a second run keeps whatever is there, so init is safe to repeat.
-3. **The configuration questions**: port, bind address, base URL, extra origins, database path. Each shows its default, so Enter is a valid answer. [Configuration](/server/configuration) explains who else can write these five keys and what outranks what.
-4. **The one question that matters:**
+1. **The tmux preflight.** The control-plane host launches its own panes through tmux, so `init` refuses before writing anything when tmux is missing. An interactive run gets one chance to install it on the spot (`brew install tmux` on macOS, `apt-get`/`dnf` on Linux) and then continues where it left off. A refused init leaves nothing behind.
+2. **The config home.** It creates `~/.config/subshell-server` (0700) and `config.env` (0600), generating the `BETTER_AUTH_SECRET` once. A second run keeps whatever is there, so init is safe to repeat.
+3. **The configuration questions:** port, bind address, base URL, extra origins, database path. Each shows its default, so Enter is a valid answer. [Configuration](/server/configuration) explains who else can write these five keys and what outranks what.
+4. **The service question:**
 
    ```
    Run Subshell Server in the background and start it at login?
    ```
 
-   Yes installs a per-user service: a systemd **user** unit on Linux, a launchd agent on macOS, no sudo. On Linux the installer also checks whether your account **lingers**, and prints the fix only when it is missing: without lingering, the server dies at logout and never comes back after a reboot with nobody logged in. [Running as a Service](/server/service) covers both managers in depth.
+   Yes installs a per-user service: a systemd user unit on Linux, a launchd agent on macOS, no sudo. On Linux the installer also checks whether your account lingers, and prints the fix only when it is missing: without lingering, the server dies at logout and never comes back after a reboot with nobody logged in. [Running as a Service](/server/service) covers both managers in depth.
 5. **The handoff.** It ends by naming the address:
 
    ```
    Open http://localhost:3080/setup in a browser to create the admin account.
    ```
 
-   If your configuration means people will browse from other machines, `init` says so here too and prints the exact `subshell-server configure --trusted-origins <address>` line to run, because the failure otherwise is a 403 that names nothing. See [Networking & Addresses](/server/networking).
+   If your configuration means people will browse from other machines, `init` says so here too and prints the exact `subshell-server configure --trusted-origins <address>` line to run. Without that entry the failure is a 403 that names no key. See [Networking & Addresses](/server/networking).
 
-> [!warning] Open it promptly
-> The setup endpoints are public until the first account exists: that is what lets you create it. On a LAN that is a race, and the window closes the moment anyone walks through it. On a network you do not own, bind loopback or set the addresses before first boot.
+> [!warning] Open the setup page promptly
+> The setup endpoints are public until the first account exists: that is what lets you create it. On a LAN that is a race, and the window closes as soon as anyone completes it. On a network you do not own, bind loopback or set the addresses before first boot.
 
 Then the browser takes over: create the admin account, add an agent CLI, launch your first subshell. [Your First Subshell](/get-started/first-subshell) continues from there.
 
-## First boot, read from the terminal
+## Read the first boot from the terminal
 
 Before you browse anywhere, take the first `status` read:
 
@@ -66,24 +66,24 @@ Before you browse anywhere, take the first `status` read:
 subshell-server status
 ```
 
-It prints what this host **would** boot with, without booting anything: the `config.env` path and the layer each setting came from (the secret shown only as set-or-missing), tmux presence, the resolved MCP entrypoint, whether the port is already answering, whether a service definition is on disk, and whether the admin account has been created yet. It is the first thing to run whenever something looks wrong, and `--json` feeds the same view to scripts.
+It prints what this host would boot with, without booting anything: the `config.env` path and the layer each setting came from (the secret shown only as set-or-missing), tmux presence, the resolved MCP entrypoint, whether the port is already answering, whether a service definition is on disk, and whether the admin account has been created yet. It is the first thing to run whenever something looks wrong, and `--json` feeds the same view to scripts.
 
-Finally, open the address you configured (from your own machine, not the box's). If sign-in answers **403 "Invalid origin"**, the browser is using a name the instance does not know; [Networking & Addresses](/server/networking) walks the fix.
+Finally, open the address you configured, from your own machine rather than the box. If sign-in answers 403 "Invalid origin", the browser is using a name the instance does not know; [Networking & Addresses](/server/networking) walks the fix.
 
-## Preferring no script
+## Install without the script
 
-The same two files, fetched by hand: download `subshell-server-cli-<triple>` and its `.sha256` from the release page, verify (the sidecar is a bare 64-hex digest; pair it with the file name yourself), then:
+The same two files can be fetched by hand. Download `subshell-server-cli-<triple>` and its `.sha256` from the release page and verify them (the sidecar is a bare 64-hex digest; pair it with the file name yourself). Then:
 
 ```bash
 install -m755 subshell-server-cli-<triple> ~/.local/bin/subshell-server
 subshell-server init
 ```
 
-[Install the Control Plane](/get-started/install-server) shows the full manual sequence, including the desktop app's door.
+[Install the Control Plane](/get-started/install-server) shows the full manual sequence, including the desktop app's route.
 
 ## See also
 
 - [Configuration](/server/configuration): the five keys, the precedence ladder, and what the writers refuse
 - [Running as a Service](/server/service): the unit, the plist, lingering, and the pane-safety rule
 - [Networking & Addresses](/server/networking): making a non-loopback address sign-in-able
-- [subshell-server CLI](/reference/server-cli): every verb `init` reaches for
+- [subshell-server CLI](/reference/server-cli): every verb `init` uses

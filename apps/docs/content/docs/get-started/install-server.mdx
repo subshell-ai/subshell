@@ -1,9 +1,9 @@
 ---
 title: Install the Control Plane
-description: "Three ways to get a server running: the one-liner, the Subshell Server desktop app, and doing it by hand."
+description: Install the control plane as a single binary with the install script, the Subshell Server desktop app, or a manual download, plus a Docker recipe for container hosts.
 ---
 
-The control plane ships as one self-contained binary per platform with its web UI embedded: no Bun, no checkout, no separate frontend to serve. Published targets are `linux-x64`, `linux-arm64`, `darwin-arm64` and `darwin-x64` (Intel Macs); anything else is refused by name, not silently mis-resolved. Pick the door that fits the machine:
+The control plane ships as one self-contained binary per platform with its web UI embedded: no Bun, no checkout, and no separate frontend to serve. Published targets are `linux-x64`, `linux-arm64`, `darwin-arm64`, and `darwin-x64` (Intel Macs). A machine outside these targets is refused by name, never silently mis-resolved. Choose the method that fits the machine.
 
 ## The one-liner (headless)
 
@@ -13,9 +13,9 @@ From a fresh shell on the machine that will host the server:
 curl -fsSL https://subshell.sh/install-server.sh | bash
 ```
 
-The script detects your platform, finds the newest `cli-server-vX.Y.Z` [GitHub release](https://github.com/subshell-ai/subshell/releases), downloads `subshell-server-cli-<triple>`, verifies the release's `.sha256` sidecar **before the first `chmod +x`**, installs the binary to `~/.local/bin/subshell-server`, and hands over to `subshell-server init`. Nothing it downloaded can execute until its bytes match the digest the release published.
+The script detects your platform and finds the newest `cli-server-vX.Y.Z` [GitHub release](https://github.com/subshell-ai/subshell/releases). It downloads `subshell-server-cli-<triple>` and verifies the release's `.sha256` sidecar before the first `chmod +x`: nothing it downloaded can execute until its bytes match the digest the release published. It then installs the binary to `~/.local/bin/subshell-server` and runs `subshell-server init`.
 
-Because a piped script has no arguments, every question it or `init` would ask can be pre-answered from the environment; every one except the database path, which keeps its default unless you run `init --db-path` yourself:
+A piped script has no arguments, so every question the script or `init` would ask can be pre-answered from the environment. The database path is the exception: it keeps its default unless you run `init --db-path` yourself.
 
 | Variable | Effect |
 | --- | --- |
@@ -27,40 +27,46 @@ Because a piped script has no arguments, every question it or `init` would ask c
 
 ## What `init` asks, and what it writes
 
-`init` is the whole setup sequence. It creates the config home at `~/.config/subshell-server` (0700) and writes `config.env` (0600), generating a `BETTER_AUTH_SECRET` of 32 random bytes exactly once; a second run keeps what is there. It then walks the configure questions (port, bind address, base URL, extra origins, database path; each defaults, so Enter is a valid answer) and finally asks the one that matters:
+`init` is the whole setup sequence. It creates the config home at `~/.config/subshell-server` (0700) and writes `config.env` (0600). It generates a `BETTER_AUTH_SECRET` of 32 random bytes exactly once; a second run keeps what is there. It then walks the configure questions (port, bind address, base URL, extra origins, database path), each with a default, so Enter is a valid answer. Finally it asks the one that matters:
 
 ```
 Run Subshell Server in the background and start it at login?
 ```
 
-Yes (the default) installs a per-user service without sudo: a systemd **user** unit on Linux, a launchd agent on macOS. On Linux it also checks whether your account lingers, and prints `loginctl enable-linger $USER` only when it doesn't: without lingering, the server dies at logout and never comes back on a headless reboot. `--yes` and non-interactive runs take the default.
+Yes is the default, and it installs a per-user service without sudo: a systemd **user** unit on Linux, a launchd agent on macOS. On Linux, `init` also checks whether your account lingers, and prints `loginctl enable-linger $USER` only when it does not. Without lingering, the server dies at logout and never comes back on a headless reboot. `--yes` and non-interactive runs take the default.
 
-It ends by naming the address:
+The command ends by naming the address:
 
 ```
 Open http://localhost:3080/setup in a browser to create the admin account.
 ```
 
-> [!warning] Open it promptly
-> The setup endpoints are public until the first account exists; that is what lets you create it. On a LAN, the first browser through wins the admin account. The window closes the moment someone walks in.
+> [!warning] Create the admin account promptly
+> The setup endpoints are public until the first account exists, and that is what lets you create it. On a LAN, the first browser through becomes the admin. The window closes when the first account exists.
 
-And if you will browse from another machine: the default bind (`0.0.0.0`) makes the server *reachable* on the LAN, but a browser may sign in only from an address the instance knows. When that applies, `init` says so and prints the exact `subshell-server configure --trusted-origins <address>` line to run. [Networking & Addresses](/server/networking) owns the whole subject.
+If you will browse from another machine: the default bind (`0.0.0.0`) makes the server reachable on the LAN, but a browser may sign in only from an address the instance knows. When that applies, `init` says so and prints the exact `subshell-server configure --trusted-origins <address>` line to run. [Networking & Addresses](/server/networking) covers the whole subject.
 
 ## Subshell Server desktop app
 
-For a Mac or Linux desktop where you want buttons: the **Subshell Server** app (a signed, notarized `.dmg` on macOS 13+, a `.deb` on Linux x86-64) ships the server binary inside it; nothing is downloaded on first run. On a machine with nothing installed it opens a setup assistant. Every first run shows "Welcome to Subshell", then Install tmux; with tmux present it costs one press of Continue, but the prerequisite gets named. It runs `brew install tmux` on a Mac with Homebrew, and `pkexec` with your desktop's password prompt on Debian/Ubuntu. On macOS a screen called **What macOS Will Ask** explains the permissions it will request, then **Set Up Subshell Server** asks the one real question (below) and, on its single press, installs the bundled `subshell-server` to `~/.local/bin`, writes a `config.env`, and starts it, registering the service only in background mode. Port and addresses sit behind "Customize port and addresses…".
+On a Mac or Linux desktop, if you prefer a window to a terminal, the **Subshell Server** app ships the server binary inside it, and nothing is downloaded on first run. It is a signed, notarized `.dmg` on macOS 13+, and a `.deb` on Linux x86-64.
 
-Two choices there mirror `init`'s question: run **In the background** (a launchd agent or systemd user service, alive whether or not the app is open) or **With the Subshell Server app** (quitting the app stops the server; running subshells keep running), plus a **Start at login** checkbox. The dashboard then opens in the same window, pointed at the server's own loopback address, and the web wizard continues the assistant's dot row: your account, your agents, your first subshell. See [Server service & autostart](/server/service) for changing your mind later.
+On a machine with nothing installed, the app opens a setup assistant. Every first run shows **Welcome to Subshell**, then an Install tmux step. If tmux is already present, the step costs one press of **Continue**, but the prerequisite is still named. The assistant runs `brew install tmux` on a Mac with Homebrew, and uses `pkexec` with your desktop's password prompt on Debian/Ubuntu.
+
+On macOS, a screen called **What macOS Will Ask** explains the permissions the app will request. **Set Up Subshell Server** then asks the one real question described below, and on its single press installs the bundled `subshell-server` to `~/.local/bin`, writes a `config.env`, and starts it. The service is registered only in background mode. Port and addresses sit behind "Customize port and addresses…".
+
+Two choices there mirror `init`'s question: run **In the background** (a launchd agent or systemd user service, alive whether or not the app is open), or **With the Subshell Server app** (quitting the app stops the server, though running subshells keep running). There is also a **Start at login** checkbox.
+
+The dashboard then opens in the same window, pointed at the server's own loopback address, and the web wizard continues the assistant's dot row: your account, your agents, your first subshell. [Running as a Service](/server/service) covers changing your mind later.
 
 ## Doing it by hand
 
-Same artifacts, no script. Download the two files for your triple from the release page (here `darwin-arm64`; the `cli` in the name marks the bare binary, not the desktop app that wraps it):
+The same artifacts, no script. Download the two files for your triple from the release page. The example below uses `darwin-arm64`; the `cli` in the name marks the bare binary, not the desktop app that wraps it:
 
 ```bash
 gh release download cli-server-vX.Y.Z -p 'subshell-server-cli-darwin-arm64*'
 ```
 
-The `.sha256` sidecar is a **bare 64-hex digest**, not the `<hash>  <name>` line checkers expect; pair the two yourself:
+The `.sha256` sidecar is a bare 64-hex digest, not the `<hash>  <name>` line that checksum tools expect. Pair the two yourself:
 
 ```bash
 printf '%s  %s\n' "$(cat subshell-server-cli-darwin-arm64.sha256)" \
@@ -75,11 +81,13 @@ subshell-server init
 subshell-server status
 ```
 
-`status` is the first thing to run when anything looks wrong: it prints the config file and the layer each setting came from (masking the secret), tmux presence, port liveness, the service definition, and whether the admin account exists yet. It reads only; it never boots anything.
+Run `status` first when anything looks wrong. It prints the config file and the layer each setting came from (masking the secret), tmux presence, port liveness, the service definition, and whether the admin account exists yet. It only reads; it never boots anything.
 
 ## Docker
 
-For a container host, the repository ships a compose recipe with two prerequisites it will refuse without: a `BETTER_AUTH_SECRET` of at least 32 characters in `.env`, and a `docker/gitconfig` copied from the tracked example. Then `docker compose build && docker compose up -d` serves port `3080`. Data bind-mounts from `~/.config/subshell-server` so the database and pane logs survive, and the harness CLI is **mounted in, not bundled**: the image doesn't ship Claude Code or the others. The honest caveat: a container restart ends tmux state, so running subshells die with it. [Docker](/server/docker) covers the volumes and limits.
+For a container host, the repository ships a compose recipe. It refuses to run without two prerequisites: a `BETTER_AUTH_SECRET` of at least 32 characters in `.env`, and a `docker/gitconfig` copied from the tracked example. Then `docker compose build && docker compose up -d` serves port `3080`.
+
+Data bind-mounts from `~/.config/subshell-server`, so the database and pane logs survive. The harness CLI is mounted in, not bundled: the image does not ship Claude Code or the other agents. A container restart ends tmux state, so running subshells die with it. [Docker](/server/docker) covers the volumes and limits.
 
 ## See also
 
@@ -87,4 +95,4 @@ For a container host, the repository ships a compose recipe with two prerequisit
 - [Headless Install](/server/headless-install): the SSH-only box in depth
 - [subshell-server CLI](/reference/server-cli): every verb, `init`, `configure`, `status`, `service`, `update`, `backup`
 - [Networking & Addresses](/server/networking): bind, base URL, and the trusted-origin allowlist
-- [Security model](/about/security-model): the trusted-network posture this install assumes
+- [Security Model](/about/security-model): the trusted-network posture this install assumes
