@@ -650,7 +650,7 @@ published one-liner stops serving the old bytes. And because the site builds
 off main, the very first dispatch **after** the commit that introduced these
 URLs landed is part of that change, not a follow-up: until it runs,
 `/install-server.sh` on the site is a 404 and the README's one-liner fails
-cleanly (`curl -f` hands bash nothing, so nothing installs, but nothing
-installs either). The tripwire is `scripts/cli-e2e/published-release.sh`
+cleanly (`curl -f` hands bash nothing, so nothing runs, but nothing installs
+either). The tripwire is `scripts/cli-e2e/published-release.sh`
 step 1, which fetches both scripts from the site and `cmp`s them against the
 checkout, naming the remedy when they differ.
