@@ -39,7 +39,7 @@ subshell-server update --to 1.9.0      # name a published version
 subshell-server update --from ./file   # a local binary: the air-gapped path
 ```
 
-The whole verb is ten steps, and nine of them are refusals: a checkout-run server, an unwritable directory, an empty release source, a downgrade (without `--force`), an already-open transaction, and a restart that would take live tmux panes down with it (also `--force`-able, same bar as `service restart`). Flags: `--check`, `--to`, `--from`, `--force`, `--yes`, `--json`, `--no-restart`, and `--rollback` to put the previous binary and database back by hand. `--rollback` is also the escape hatch when a transaction is stuck half-open.
+The whole verb is ten steps, and nine of them are refusals: a checkout-run server, an unwritable directory, an empty release source, a downgrade (without `--force`), an already-open transaction, and a restart that would take live tmux panes down with it (also `--force`-able, same bar as `service restart`). Flags: `--check`, `--to`, `--from`, `--force`, `--yes`, `--json`, `--verbose`, `--no-restart`, and `--rollback` to put the previous binary and database back by hand. `--rollback` is also the escape hatch when a transaction is stuck half-open.
 
 ## From the dashboard
 

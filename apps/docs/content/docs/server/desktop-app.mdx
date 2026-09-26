@@ -46,7 +46,7 @@ In this mode, quitting the app stops the server but keeps every live pane runnin
 ## Notes
 
 - The **In the background** choice registers a per-user service: a launchd agent on macOS or a systemd user unit on Linux, no sudo. [Service and autostart](/server/service) covers the unit, the plist, and lingering in full, and it covers changing your mind later.
-- The assistant runs `subshell-server init` on your behalf with every question answered yes except the service one, which the app owns through its own checkbox. One visible consequence: if `~/.local/bin` is not on your `PATH`, setup appends the export line to `~/.zprofile`.
+- The assistant runs `subshell-server init` on your behalf with every question answered yes except the service one, which the app owns through its own checkbox. One visible consequence: if `~/.local/bin` is not on your `PATH`, setup appends the export line to `~/.zprofile`, creating that file if needed.
 
 ## Other pages
 
