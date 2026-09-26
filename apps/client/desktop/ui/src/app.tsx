@@ -132,6 +132,9 @@ export function App() {
       .nodePendingScreen()
       .then((pending) => {
         if (pending === "about" || pending === "update") setOverride(pending);
+        // The tray's Reset door (issue 232): the dialog owns the arming and
+        // the typed-hostname consent; the tray only asks for it.
+        if (pending === "reset") setResetOpen(true);
       })
       .catch(() => {
         // An older Rust half knows no such command; nothing was requested that
@@ -139,6 +142,7 @@ export function App() {
       });
     const unlisten = listen<string>("desktop-screen", (event) => {
       if (event.payload === "about" || event.payload === "update") setOverride(event.payload);
+      if (event.payload === "reset") setResetOpen(true);
     });
     return () => {
       // Both halves swallow: a subscription that never came up has nothing to
