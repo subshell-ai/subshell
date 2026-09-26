@@ -150,6 +150,73 @@ describe("dispatchCli — --verbose (2026-09-26)", () => {
     await dispatchCli(["frobnicate"], deps);
     expect(err.join("\n")).toContain("--verbose");
   });
+
+  // SUBSHELL_VERBOSE=1 is the ENV spelling of the same affordance (operator
+  // follow-up 2026-09-26): identical for-process console-only semantics. The
+  // seams pin is `deps.env`, so no test touches this process's environment.
+  test("SUBSHELL_VERBOSE=1 activates console debug on the BARE boot (no flag, no verb)", async () => {
+    const { deps } = collectingDeps({ env: { SUBSHELL_VERBOSE: "1" } });
+    expect(consoleVerbose()).toBe(false);
+    try {
+      expect(await dispatchCli([], deps)).toBe(false); // still the boot path
+      expect(consoleVerbose()).toBe(true);
+    } finally {
+      setConsoleVerbose(false);
+    }
+  });
+
+  test('the env spellings match the debug switch\'s: "1" and "true" force, a leftover "0" does not', async () => {
+    try {
+      expect(await dispatchCli([], collectingDeps({ env: { SUBSHELL_VERBOSE: "true" } }).deps)).toBe(false);
+      expect(consoleVerbose()).toBe(true);
+      setConsoleVerbose(false);
+      expect(await dispatchCli([], collectingDeps({ env: { SUBSHELL_VERBOSE: "0" } }).deps)).toBe(false);
+      expect(consoleVerbose()).toBe(false);
+    } finally {
+      setConsoleVerbose(false);
+    }
+  });
+
+  test("env verbose + --json is refused too, naming the ENV spelling (status and backup emit JSON too)", async () => {
+    try {
+      const st = collectingDeps({ env: { SUBSHELL_VERBOSE: "1" } });
+      expect(await dispatchCli(["status", "--json"], st.deps)).toBe(true);
+      expect(st.exits).toEqual([1]);
+      expect(st.err.join("\n")).toMatch(/SUBSHELL_VERBOSE=1 and --json are mutually exclusive/);
+
+      const bk = collectingDeps({ env: { SUBSHELL_VERBOSE: "1" } });
+      expect(await dispatchCli(["backup", "--json"], bk.deps)).toBe(true);
+      expect(bk.exits).toEqual([1]);
+      expect(bk.err.join("\n")).toMatch(/SUBSHELL_VERBOSE=1 and --json are mutually exclusive/);
+
+      const up = collectingDeps({ env: { SUBSHELL_VERBOSE: "1" } });
+      expect(await dispatchCli(["update", "--json"], up.deps)).toBe(true);
+      expect(up.exits).toEqual([1]);
+      expect(up.err.join("\n")).toMatch(/SUBSHELL_VERBOSE=1 and --json are mutually exclusive/);
+      // The flag-only refusal keeps its exact old wording (the update test above
+      // pins it); naming whichever spelling was asked about is the whole change.
+      // And unlike the flag case the gate IS raised at the end: the env is a
+      // for-the-whole-process switch, raised in the dispatch head, so a refused
+      // verb still lived in a verbose process (the refusal lines themselves ride
+      // `console.error`, never the logger, so the refusal stayed clean anyway).
+      expect(consoleVerbose()).toBe(true);
+    } finally {
+      setConsoleVerbose(false);
+    }
+  });
+
+  test("env verbose with NO --json runs the verb (init has no JSON contract to conflict with)", async () => {
+    const h = initHandoffHarness({ env: { SUBSHELL_VERBOSE: "1" } });
+    // The env simply raises the console gate and the interview-style run
+    // proceeds exactly as the flag case: same answers, same exit, same writes.
+    try {
+      expect(await dispatchCli(["init", "--yes", "--no-service"], h.deps)).toBe(true);
+      expect(h.exits).toEqual([0]);
+      expect(consoleVerbose()).toBe(true);
+    } finally {
+      setConsoleVerbose(false);
+    }
+  });
 });
 
 describe("dispatchCli — pane-log (the pipe-pane capture child)", () => {

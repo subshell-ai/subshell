@@ -349,12 +349,16 @@ so a field added later is a decision rather than an accumulation.
   measured rejection of the rotation package; "replaced when full" means
   truncated). The debug switch flips only the FILE transport's level:
   stdout stays `info`, HTTP request lines ride `debug`, polled routes
-  excluded. The one exception is `--verbose` (2026-09-26): it raises
-  THE CONSOLE transport to debug for the life of a hand-invoked run
-  (`setConsoleVerbose` in `utils/logger.ts`, the deliberate mirror of
-  `applyDebugLogging` that never touches the FILE gate, the settings
-  row, or the env-forced read-only rule), and it is refused together
-  with `--json` where a command emits JSON.
+  excluded. The one exception is `--verbose` / `SUBSHELL_VERBOSE=1`
+  (2026-09-26): both raise THE CONSOLE transport to debug for the life of
+  a hand-invoked run (`setConsoleVerbose` in `utils/logger.ts`, the
+  deliberate mirror of `applyDebugLogging` that never touches the FILE
+  gate, the settings row, or the env-forced read-only rule), and either
+  is refused together with `--json` where a command emits JSON. HTTP
+  request lines surface with it NOT because of group plumbing (the
+  elysia logger group-routes only when its caller passes a `group`, and
+  `context.plugin.ts` does not) but because what kept them out of the
+  journal was always the console's own `info` gate.
 - **Node refusals map by EQUALITY** of `NodeRpcError.detail` against the
   protocol's `NODE_RESULT_*` constants (never a substring of `message`),
   and only an answered `"kills"` earns the certain sentence: `unknown`

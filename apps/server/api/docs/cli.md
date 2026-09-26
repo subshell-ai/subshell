@@ -70,14 +70,27 @@ the stdout transport's level to `debug`, HTTP request lines included, for the
 life of the process; LEADING the command it is the one pre-boot recognition
 and boots the server the same way, because the pinned contract that a leading
 flag boots still holds (the boot-path test in `__tests__/cli.test.ts` keeps
-it honest). It never touches the FILE transport's level, the `debug_logging`
-settings row, or the `SUBSHELL_DEBUG_LOGGING` env-forced read-only rule: the
-service manager's ExecStarts carry no such flag, so a managed journal stays
-clean by construction. It is refused together with `--json` on the commands
-that emit JSON (`update`, `service status`): JSON on stdout and debug lines
-cannot share it, and the refusal lands before the gate is raised.
-`status`/`backup` keep `--json` alone: their view output must not need the
-flag to stay machine-readable.
+it honest). **`SUBSHELL_VERBOSE=1` is the env spelling of the same switch**
+(operator follow-up 2026-09-26): identical console-only semantics, raised in
+the dispatch head so it covers the bare boot and every verb alike, truthy
+spellings `1`/`true` like the debug switch's, a leftover `0` forcing nothing.
+It is how a desktop-launched or otherwise unwrapped process gets the same
+view, and the node agent's mirror is deliberately NOT this branch.
+Request lines need no special plumbing for any of this: `@loglayer/elysia`
+group-routes them ONLY when its caller passes a `group` config, and this
+app's `context.plugin.ts` does not, so they ride the ordinary ungrouped
+path to BOTH transports and what keeps them out of the manager's journal is
+the console transport's `info` gate itself: raising it is exactly what
+surfaces them (verified in the installed package, 2026-09-26). It never
+touches the FILE transport's level, the `debug_logging` settings row, or the
+`SUBSHELL_DEBUG_LOGGING` env-forced read-only rule: the service manager's
+ExecStarts carry no such flag, so a managed journal stays clean by
+construction. Verbose, flag or env, is refused together with `--json` on
+every command that emits JSON (`update`, `service status`, `status`,
+`backup`): JSON on stdout and debug lines cannot share it, the refusal names
+whichever spelling was asked about, and a FLAG refusal lands before the gate
+is raised. `status`/`backup` keep `--json` alone: their view output must not
+need the flag to stay machine-readable.
 
 ### Boot output
 

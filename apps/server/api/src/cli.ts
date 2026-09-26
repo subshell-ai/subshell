@@ -207,9 +207,10 @@ update flags:         --check                  report what is available and stop
 verbose:              --verbose after a verb (init/configure/update, and every service
                       verb) raises this run's CONSOLE logging to debug level, HTTP request
                       lines included. Leading the command it boots the server the same
-                      way. It never touches server.log's level or the SUBSHELL_DEBUG_LOGGING
-                      switch, and it is refused together with --json: JSON on stdout and
-                      debug lines cannot share it.
+                      way. SUBSHELL_VERBOSE=1 (or =true) is the same switch for the
+                      whole process, flag or env. It never touches server.log's level or
+                      the SUBSHELL_DEBUG_LOGGING switch, and it is refused together with
+                      --json: JSON on stdout and debug lines cannot share it.
 
 config precedence: process env > config.env > .env > built-in defaults
 `;
@@ -245,13 +246,25 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
   const exit = deps.exit ?? ((code: number) => process.exit(code));
 
   const [command] = argv;
+  // SUBSHELL_VERBOSE=1 is the ENV spelling of `--verbose` (operator follow-up
+  // 2026-09-26): same for-process, console-only semantics, read from the
+  // injectable env like every other knob. The truthy spellings match the
+  // debug switch's (`1`/`true`); a leftover `0` forces nothing — there is no
+  // read-only rule here to engage, absence is simply off. Raising happens in
+  // the dispatch HEAD so the env reaches the boot path and every verb alike,
+  // and the `--json` conflicts below treat it exactly as the flag.
+  const envVerbose = ["1", "true"].includes(
+    String((deps.env ?? process.env).SUBSHELL_VERBOSE ?? "")
+      .trim()
+      .toLowerCase(),
+  );
   // `--verbose` LEADING (2026-09-26): recognized before the boot check, which
   // it deliberately does not change — a leading flag is still boot, and
   // `dispatchCli` still returns false so the server process lives on. This
   // is the one pre-boot recognition, because `subshell-server --verbose` is
   // how an operator boots a debug run BY HAND; a manager's ExecStart carries
   // no such flag, so a service's journal is untouched by this code path.
-  if (command === "--verbose") {
+  if (command === "--verbose" || envVerbose) {
     setConsoleVerbose(true);
   }
   // Boot path: no subcommand, or a leading flag (a service manager passes
@@ -276,6 +289,15 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       exit(0);
       return true;
     case "status": {
+      // The JSON-emitting verbs refuse ENV verbose too (2026-09-26): the flag
+      // is a usage error for `status` by design, but `SUBSHELL_VERBOSE=1` is
+      // ambient, and its debug lines would still corrupt the document.
+      if (envVerbose && argv.includes("--json")) {
+        error(verboseJsonConflict(false, true));
+        error(USAGE);
+        exit(1);
+        return true;
+      }
       // Flags are validated (unlike the pre-2026-09-05 behaviour of silently
       // ignoring extras): a typo'd `--jsonn` that fell through to human text
       // would hand a script prose it cannot parse. The exit code stays 0 for
@@ -466,8 +488,8 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       // emits a document on stdout, and debug lines would corrupt it.
       // Refused BEFORE raising the console gate, so the refusal itself is
       // the two ordinary lines it is.
-      if (opts.verbose && opts.json) {
-        error(VERBOSE_JSON_CONFLICT);
+      if ((opts.verbose === true || envVerbose) && opts.json) {
+        error(verboseJsonConflict(opts.verbose === true, envVerbose));
         error(USAGE);
         exit(1);
         return true;
@@ -484,6 +506,14 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       return true;
     }
     case "backup": {
+      // Same rule as `status` (2026-09-26): the flag is not backup's, the
+      // ambient env is still refuse-with-`--json` territory.
+      if (envVerbose && argv.includes("--json")) {
+        error(verboseJsonConflict(false, true));
+        error(USAGE);
+        exit(1);
+        return true;
+      }
       const bad = argv.slice(1).find((f) => f !== "--json");
       if (bad !== undefined) {
         error(`subshell-server: unexpected argument '${bad}'`);
@@ -525,10 +555,10 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
       }
       // The same mutual exclusion `update` enforces: `status --json` emits a
       // document on stdout, and debug lines cannot share it. Refused BEFORE
-      // raising the console gate.
-      if (flags.includes("--verbose")) {
+      // raising the console gate, and for the env spelling too (2026-09-26).
+      if (flags.includes("--verbose") || envVerbose) {
         if (verb === "status" && flags.includes("--json")) {
-          error(VERBOSE_JSON_CONFLICT);
+          error(verboseJsonConflict(flags.includes("--verbose"), envVerbose));
           error(USAGE);
           exit(1);
           return true;
@@ -631,12 +661,14 @@ const isServiceCommand = (word: string): word is ServiceCommand =>
   (SERVICE_COMMANDS as readonly string[]).includes(word);
 
 /**
- * The `--verbose` + `--json` refusal (2026-09-26), shared verbatim by the two
- * branches that can see both flags: JSON on stdout and debug lines on stdout
- * are one stream fighting over it.
+ * The verbose + `--json` refusal (2026-09-26), shared by every branch that
+ * can see both: JSON on stdout and debug lines on stdout are one stream
+ * fighting over it. Names whichever spellings were asked about (the operator
+ * follow-up added `SUBSHELL_VERBOSE=1` as the env half), because "unset the
+ * flag you did not pass" is not a remedy.
  */
-const VERBOSE_JSON_CONFLICT =
-  "subshell-server: --verbose and --json are mutually exclusive (JSON on stdout and debug lines cannot share it)";
+const verboseJsonConflict = (flag: boolean, env: boolean): string =>
+  `subshell-server: ${flag && env ? "--verbose and SUBSHELL_VERBOSE" : flag ? "--verbose" : "SUBSHELL_VERBOSE=1"} and --json are mutually exclusive (JSON on stdout and debug lines cannot share it)`;
 
 /** Per-verb flag allowlist — anything else is the same "unexpected argument" refusal the config flags use. */
 const SERVICE_FLAGS: Partial<Record<ServiceCommand, ReadonlySet<string>>> = {
