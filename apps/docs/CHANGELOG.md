@@ -1,5 +1,13 @@
 # @internal/docs
 
+## 0.5.0
+
+### Minor Changes
+
+- [#221](https://github.com/subshell-ai/subshell/pull/221) [`cf2942c`](https://github.com/subshell-ai/subshell/commit/cf2942c27b08559224dcea358d6f3f66add993ec) Thanks [@theogravity](https://github.com/theogravity)! - Documentation re-imagined: a taught Get Started path with per-platform installs, one task per page, a Concepts section for explanation, Reference as the parking lot, symptom-first troubleshooting pages, and a site-wide neutral voice (apps/docs/STYLE.md, one-sentence openers). Every fact carried from the previous pages and claim-audited against code; old URLs retired.
+
+- [#224](https://github.com/subshell-ai/subshell/pull/224) [`0534667`](https://github.com/subshell-ai/subshell/commit/0534667243ede3e9aea56588c69468be9e334b56) Thanks [@theogravity](https://github.com/theogravity)! - Sync the docs site with the CLI's re-cut first run: `init` owns its terminal (a piped install reattaches to yours), `--yes` answers every question including the tmux install and the `~/.local/bin` PATH write, the tmux preflight aborts with nothing written, macOS gets a Homebrew/MacPorts/Homebrew-bootstrap ladder, and `--verbose` / `SUBSHELL_VERBOSE` raises one run's console to debug.
+
 ## 0.4.4
 
 ### Patch Changes
