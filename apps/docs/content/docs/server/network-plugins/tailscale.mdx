@@ -3,39 +3,40 @@ title: Tailscale
 description: Reach your server over your tailnet, covering joining, publishing, and what the plugin does and never does.
 ---
 
-The Tailscale plugin puts the machine your server runs on onto your tailnet and publishes Subshell there, so your other devices reach it over the mesh instead of over your LAN address. It drives the ordinary `tailscale` CLI you install yourself. The plugin describes the commands, the server runs them under its bounds, and nothing here holds state: every card read asks Tailscale what is true now, so a `tailscale down` typed at the machine shows up on the page at the next look.
+The Tailscale plugin puts the machine your server runs on onto your tailnet and publishes Subshell there, so your other devices reach it over the mesh instead of over your LAN address. It drives the ordinary `tailscale` CLI that you install yourself. The plugin describes the commands, the server runs them under its bounds, and nothing here holds state: each card read asks Tailscale what is true now, so a `tailscale down` typed at the machine shows up on the page at the next look.
 
 ## Getting to "ready"
 
-The plugin can only control Tailscale, not install or privilege it, so the first steps are yours. The card prints them as copyable commands (numbered, never buttons) because the privileged ones need root and the server has no terminal for a password prompt (on macOS the app route sidesteps the whole list):
+The plugin can only control Tailscale, not install or privilege it, so the first steps are yours. The card prints them as copyable commands (numbered, never buttons) because the privileged ones need root and the server has no terminal for a password prompt. On macOS the app route sidesteps the whole list.
 
 - **Linux**: install Tailscale with the vendor's script, then `sudo tailscale set --operator=$USER` to let an unprivileged process drive the daemon.
-- **macOS** has two routes and the card presents them as a choice. The **app** is the recommended one: install it (the cask is `tailscale-app`, or use the Mac App Store), open it, and sign in. Detection finds the app's own binary, and the plugin drives it in CLI mode. Or use the **command-line daemon**: `brew install --formula tailscale`, its system daemon, and the same `--operator` grant. If the app route is the one you took, you never see the daemon commands as anything but an alternative.
+- **macOS** has two routes and the card presents them as a choice. The **app** is the recommended one: install it (the cask is `tailscale-app`, or use the Mac App Store), open it, and sign in. Detection finds the app's own binary, and the plugin drives it in CLI mode. Or use the **command-line daemon**: `brew install --formula tailscale`, its system daemon, and the same `--operator` grant. If you took the app route, the daemon commands appear only as the alternative.
 
-From there the card tells you which rung you are on: daemon not running, daemon up but this user not permitted, machine not logged in yet, each with the one command or action that moves it.
+From there the card shows which step you are on: daemon not running, daemon up but this user not permitted, machine not logged in yet. Each state comes with the one command or action that moves it forward.
 
 ## Joining
 
 Join from the card, and pick one of two paths:
 
-- **Interactive**: the plugin starts a login and reads the URL Tailscale prints, then stops the command there; the daemon keeps the sign-in pending, so you open the link, and the card notices when you land. You can give the machine a name on the tailnet while you are at it.
-- **Auth key**: paste a key from your Tailscale admin console (they begin with `tskey-`, and the card says so before the CLI wastes a round trip). The key is passed to one short command and stored nowhere.
+- **Interactive**: the plugin starts a login and reads the URL Tailscale prints, then stops the command there. The daemon keeps the sign-in pending, so you open the link, and the card reflects it when you finish. You can give the machine a name on the tailnet while you are at it.
+- **Auth key**: paste a key from your Tailscale admin console. Keys begin with `tskey-`, and the card says so before the CLI wastes a round trip. The key is passed to one short command and stored nowhere.
 
-One rule keeps the two plugins apart on a machine that has both: this row covers only machines connected to Tailscale's own service. If the daemon's own preferences name a different control server (a self-hosted Headscale, say), the card says the machine belongs there and does not report it as joined; that is the [Headscale](/server/network-plugins/headscale) plugin's row to manage.
+One rule keeps the two plugins apart on a machine that has both: this row covers only machines connected to Tailscale's own service. If the daemon's own preferences name a different control server (a self-hosted Headscale, say), the card says the machine belongs there and does not report it as joined. That machine is the [Headscale](/server/network-plugins/headscale) plugin's row to manage.
 
 ## Publishing with Tailscale Serve
 
-Publishing runs `tailscale serve` in the background, pointing it at the server on loopback, and hands back the machine's HTTPS MagicDNS address: `https://<machine>.<tailnet>.ts.net`. That address is a browser-secure origin, so passkeys and secure cookies work there.
+Publishing runs `tailscale serve` in the background, pointing it at the server on loopback, and returns the machine's HTTPS MagicDNS address: `https://<machine>.<tailnet>.ts.net`. That address is a browser-secure origin, so passkeys and secure cookies work there.
 
-Two things must already be true, and both are tailnet settings in your admin console rather than anything this machine can turn on: HTTPS certificates and MagicDNS must be enabled. If certificates are off, publish refuses with that sentence and the link to the setting, an honest answer rather than a failure.
+Two things must already be true, and both are tailnet settings in your admin console rather than anything this machine can turn on: HTTPS certificates and MagicDNS must be enabled. If certificates are off, publish refuses with that sentence and the link to the setting, which is a clear answer rather than an unexplained failure.
 
-Before you press, read the disclosure the card prints beside the button: Serve provisions a **real, publicly trusted certificate** for this machine's name, and every such certificate is recorded in public Certificate Transparency logs. Your machine's **name** becomes permanent public knowledge. The server behind it stays reachable only from your tailnet, but the name cannot be unpublished once issued.
+> [!warning] Your machine's name becomes public
+> Serve provisions a real, publicly trusted certificate for this machine's name, and every such certificate is recorded in public Certificate Transparency logs. Your machine's name becomes permanent public knowledge. The server behind it stays reachable only from your tailnet, but the name cannot be unpublished once issued. The card prints this disclosure beside the button; read it before you press.
 
-Unpublishing resets Serve for this machine. Note the scope: `serve reset` clears everything the machine serves, not just Subshell, which is deliberate: publishing also resets first, so the two halves never disagree about what they own. Leave logs the machine out of the tailnet; it is best-effort, because a machine that was never signed in simply has nothing to undo.
+Unpublishing resets Serve for this machine. Note the scope: `serve reset` clears everything the machine serves, not just Subshell. This is deliberate: publishing also resets first, so the two halves never disagree about what they own. Leaving takes the machine out of the tailnet; it is best-effort, because a machine that was never signed in simply has nothing to undo.
 
 ## What the plugin never does
 
-It installs nothing (there is no server-runnable installer here; every Tailscale install path needs root), prints privileged steps instead of running them, stores your auth key nowhere, and edits no Subshell configuration. The address it produces is returned to the server, and the server decides what trust it earns: on a `private` network like a tailnet, your recorded addresses become sign-in-trusted as soon as the machine is a member (joining already made them reachable), and disabling or leaving the network forgets them. No `config.env` edit, no restart.
+It installs nothing (there is no server-runnable installer here; every Tailscale install path needs root), prints privileged steps instead of running them, stores your auth key nowhere, and edits no Subshell configuration. The address it produces is returned to the server, and the server decides what trust it earns. On a `private` network like a tailnet, your recorded addresses become sign-in-trusted as soon as the machine is a member, since joining already made them reachable. Disabling or leaving the network forgets them. There is no `config.env` edit and no restart.
 
 ## See also
 

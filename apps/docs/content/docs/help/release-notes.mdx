@@ -3,11 +3,11 @@ title: Release Notes
 description: "How the four components version and where their notes live: GitHub Releases is the single home, and this page is the map, not a mirror."
 ---
 
-These docs deliberately do not restate release notes. A second copy of changelog prose is the copy that goes stale, so this page explains the shape instead: what gets released, how the artifacts are named, and where the notes for each one live.
+These docs deliberately do not restate release notes. A second copy of changelog prose is the copy that goes stale. This page explains the shape instead: what gets released, how the artifacts are named, and where the notes for each one live.
 
 ## One repository, five things that ship
 
-Four product components version independently of each other and share [one releases page](https://github.com/subshell-ai/subshell/releases), distinguished by tag prefix. Each release is cut by CI under its own tag, and you can filter the page by that prefix (`cli-server-`, `cli-node-`, `desktop-server-`, `desktop-client-`) to watch just one:
+Four product components version independently of each other and share [one releases page](https://github.com/subshell-ai/subshell/releases), distinguished by tag prefix. Each release is cut by CI under its own tag. You can filter the page by that prefix (`cli-server-`, `cli-node-`, `desktop-server-`, `desktop-client-`) to watch just one:
 
 | Component | Tag prefix | What a release carries |
 |---|---|---|
@@ -20,41 +20,41 @@ The documentation site rides the same machinery on its own `docs-vX.Y.Z` tag, wh
 
 ## Where the notes actually live
 
-- **The release page is the notes.** Each GitHub Release carries that component's newest changelog section as its body, so the page a user lands on says what changed instead of just listing downloads.
-- **Each app's full changelog lives in the repository**, generated from changesets: `apps/server/api`, `apps/node/agent`, `apps/server/desktop`, and `apps/client/desktop` each have a [`CHANGELOG.md`](https://github.com/subshell-ai/subshell/blob/main/apps/server/api/CHANGELOG.md) alongside its code. [Install the Server](/get-started/install-server) covers which artifact to reach for on which machine.
+- The release page is the notes. Each GitHub Release carries that component's newest changelog section as its body, so the page a user lands on says what changed instead of just listing downloads.
+- Each app's full changelog lives in the repository, generated from changesets. `apps/server/api`, `apps/node/agent`, `apps/server/desktop`, and `apps/client/desktop` each have a [`CHANGELOG.md`](https://github.com/subshell-ai/subshell/blob/main/apps/server/api/CHANGELOG.md) alongside its code. [Install the Control Plane](/get-started/install-server) covers which artifact to reach for on which machine.
 
 ## How to read a release page
 
-Every binary and bundle on every release ends in a `.sha256` sidecar: one **bare 64-hex digest**, not the `<hash>  <name>` line that checkers expect, so pair the two yourself:
+Every binary and bundle on every release ends in a `.sha256` sidecar. It holds one bare 64-hex digest, not the `<hash>  <name>` line that checkers expect, so pair the two yourself:
 
 ```bash
 printf '%s  %s\n' "$(cat subshell-server-cli-linux-x64.sha256)" \
   subshell-server-cli-linux-x64 | sha256sum -c -
 ```
 
-(On macOS the checker is `shasum -a 256 -c -`; same shape.)
+On macOS the checker is `shasum -a 256 -c -`, with the same shape.
 
 The naming has two markers that tell the artifacts apart, because all four components publish into the same page:
 
-- **`-cli-`** means the bare command-line binary. Install `subshell-server-cli-<triple>` **renamed to `subshell-server`**; dropping only the triple leaves you with a file named `subshell-server-cli`, which is not the name the service unit invokes. The node asset installs as plain `subshell`.
-- **`Desktop`** (in whatever case the bundle uses) marks the GUI bundle rather than a CLI, so the server desktop image and the server CLI can sit side by side and still say which is which. The installed app is unaffected; it is still "Subshell Server".
+- `-cli-` means the bare command-line binary. Install `subshell-server-cli-<triple>` renamed to `subshell-server`: dropping only the triple leaves you with a file named `subshell-server-cli`, which is not the name the service unit invokes. The node asset installs as plain `subshell`.
+- `Desktop`, in whatever case the bundle uses, marks the GUI bundle rather than a CLI. The server desktop image and the server CLI can sit side by side and still say which is which. The installed app is unaffected; it is still "Subshell Server".
 
-Every release also carries `release-manifest.json`: the component, version, node-protocol version and minimum node version, so a control plane can tell whether a node release is compatible **without downloading a binary**. What the protocol numbers mean for your fleet is on [Version Compatibility](/reference/version-compatibility).
+Every release also carries `release-manifest.json`: the component, version, node-protocol version, and minimum node version. A control plane can therefore tell whether a node release is compatible without downloading a binary. What the protocol numbers mean for your fleet is on [Version Compatibility](/reference/version-compatibility).
 
 > [!note] A desktop release re-ships a CLI
-> Each desktop bundle carries the command-line binary it wraps, built from the same commit. A fix to the server or node reaches desktop users only through the next desktop cut. Worth knowing when you are waiting for a security fix.
+> Each desktop bundle carries the command-line binary it wraps, built from the same commit. A fix to the server or node reaches desktop users only through the next desktop cut. This matters when you are waiting for a security fix.
 
-## How an installed thing learns about the next one
+## How installed components find their next release
 
-All of it reads the same release list; the source is one setting, `SUBSHELL_RELEASE_URL`, and empty disables the paths by name rather than guessing (the [air-gapped case](/help/faq)).
+All of it reads the same release list. The source is one setting, `SUBSHELL_RELEASE_URL`, and empty disables the paths by name rather than guessing; see the [FAQ](/help/faq) for the air-gapped case.
 
-- **The control plane** answers `subshell-server update --check` from the release list, installs over the running one on request (always taking a database snapshot first), and refuses loudly when it is not update-shaped, telling you to pass `--from <file>` instead. [Updating the Server](/server/updating).
-- **A node** updates the same way: `subshell update [--check]` on the machine, or the update action on its node page from the browser. [Updating a Node](/nodes/updating).
-- **The desktop apps** check GitHub's release list for their own component when they launch, and their tray item says `Check for Updates… (X available)` when a newer one exists. What they download is verified against a signing key baked into the app before it replaces itself; a release host that is compromised or lying cannot make the app install a build it did not sign.
+- The control plane answers `subshell-server update --check` from the release list and installs over the running one on request, always taking a database snapshot first. When the update cannot run, it refuses by name and tells you to pass `--from <file>` instead. See [Updating the Server](/server/updating).
+- A node updates the same way: `subshell update [--check]` on the machine, or the update action on its node page from the browser. See [Updating a Node](/nodes/updating).
+- The desktop apps check GitHub's release list for their own component when they launch. When a newer release exists, the tray item changes from `Check for Updates…` to `Update available: Subshell Server <version>`, or the matching `Update available: Subshell Client <version>`. What they download is verified against a signing key baked into the app before it replaces itself. A release host that is compromised or lying cannot make the app install a build it did not sign.
 
 ## See also
 
-- [Install the Server](/get-started/install-server): the download-and-verify walk
+- [Install the Control Plane](/get-started/install-server): the download-and-verify walk
 - [Version Compatibility](/reference/version-compatibility): protocol floors between plane and nodes
 - [Updating the Server](/server/updating) and [Updating a Node](/nodes/updating): what an update does and rolls back
 - [FAQ](/help/faq): licensing, air-gapping, and the rest of the standing questions

@@ -3,51 +3,55 @@ title: The Plugin Registry
 description: "Installing third-party plugins from a registry: where the store lives, who may install, and what integrity proves."
 ---
 
-Everything Subshell can launch is a plugin, and six ship built in. This page is about the other kind: a plugin someone else published, installed from a registry at **Settings → Plugins**. It is also the page about what that act costs, because installing a plugin is the most privileged install in the product.
+Everything Subshell can launch is a plugin, and six ship built in. This page is about the other kind: a plugin someone else published, installed from a registry at **Settings → Plugins**. Installing a plugin is the most privileged install in the product, so the page also covers what that act costs.
 
-## One store, armed fleet-wide
+## One store for every node
 
-The control plane keeps a single plugin store inside its data directory. Installing there **arms every node at once**: a node holds nothing plugin-shaped; it just executes the command lines this store produces. There is no per-node plugin set to reconcile.
+The control plane keeps a single plugin store inside its data directory. Installing there **arms every node at once**: a node holds nothing plugin-related of its own, and simply executes the command lines this store produces. There is no per-node plugin set to reconcile.
 
-A node does still need the real binary the plugin drives. What the store decides is which agents the instance *offers*; each machine's detection decides where they are *launchable*; see the [Agents overview](/agents).
+A node does still need the real binary the plugin drives. The store decides which agents the instance offers; each machine's detection decides where they are launchable. See the [Overview](/agents).
 
-At boot, the store seeds the built-ins into itself, once per plugin id. That marker is what makes your decisions stick: a plugin you uninstalled is never resurrected by the next restart, while a new built-in that ships in a later version gets seeded then. The six built-ins can also be reinstalled from this page with one click; their bytes are already in the server binary.
+At boot, the store seeds the built-ins into itself, once per plugin id. That marker is what makes your decisions stick: a plugin you uninstalled is never resurrected by the next restart, while a new built-in that ships in a later version gets seeded then. The six built-ins can also be reinstalled from this page with one click, because their bytes are already in the server binary.
 
-## Who may install: admins only, by design
+## Who may install
 
-Plugin code runs **inside the control plane's own process**, unsandboxed, with its privileges: the same process that holds the node signing keypair. A plugin that misbehaves therefore reaches every enrolled node, not one machine. Installing one is the same trust decision as installing the agent CLI it drives, made once for the whole instance, which is why:
+Plugin code runs inside the control plane's own process, unsandboxed, with its privileges: the same process that holds the node signing keypair. A plugin that misbehaves therefore reaches every enrolled node, not one machine. Installing one is the same trust decision as installing the agent CLI it drives, made once for the whole instance. The consequences:
 
-- Every write at Settings → Plugins (install, enable, uninstall) requires an **admin browser session**. Bearer API keys are refused, like every other management surface.
+- Every write at Settings → Plugins (install, enable, uninstall) requires an **admin browser session**. Bearer API keys are refused, as on every other management surface.
 - Reads (the plugin list, icons) work for any signed-in user, so launch pickers can name what they offer.
 - The registry is never reachable from the anonymous first-run window: the no-accounts setup screen only ever answers with built-ins.
 
 ## Installing from a registry
 
-Installing a registry plugin names a package with an npm-style spec: a plain name, a scoped `@org/pkg`, pinned to an **exact version or a dist-tag** (`@subshell-ai/plugin-claude-code@1.2.0`, `some-plugin@latest`). Version *ranges* are refused rather than guessed at. The control plane fetches that package from the configured registry and installs it.
+Installing a registry plugin names a package with an npm-style spec: a plain name, or a scoped `@org/pkg`, pinned to an exact version or a dist-tag (`@subshell-ai/plugin-claude-code@1.2.0`, `some-plugin@latest`). Version ranges are refused rather than guessed at. The control plane fetches that package from the configured registry and installs it.
 
-The registry itself is operator-configurable with `SUBSHELL_PLUGIN_REGISTRY_URL`; the default is npm (`https://registry.npmjs.org`), where the built-ins publish as `@subshell-ai/plugin-<id>`. `subshell-server status` prints the URL in effect.
+The registry itself is operator-configurable with `SUBSHELL_PLUGIN_REGISTRY_URL`. The default is npm (`https://registry.npmjs.org`), where the built-ins publish as `@subshell-ai/plugin-<id>`. `subshell-server status` prints the URL in effect.
 
-**What integrity proves, and what it doesn't.** The fetch verifies the tarball's SHA-512 against the hash *that registry* announced, the unpacker refuses anything npm never ships (symlinks, path traversal, oversize members), and the plugin gets a load-check from a staging copy before it can replace anything. A refused install leaves your store byte-identical. But that hash is only an assurance about the channel you configured: over npm it is npm's, over an http corporate mirror it is **your network's**. Pick the mirror as carefully as the plugins.
+### What integrity proves, and what it does not
 
-Id collisions are refused, not resolved: a package whose manifest claims an id another installed package owns is refused naming both. A package claiming a **built-in's** id is ignored at load: the compiled copy always answers for its own id.
+The fetch verifies the tarball's SHA-512 against the hash that registry announced. The unpacker refuses anything npm never ships (symlinks, path traversal, oversize members), and the plugin gets a load-check from a staging copy before it can replace anything. A refused install leaves your store byte-identical.
+
+That hash, however, is only an assurance about the channel you configured. Over npm it is npm's assurance; over an http corporate mirror it is your network's. We recommend you pick the mirror as carefully as the plugins.
+
+Id collisions are refused, not resolved: a package whose manifest claims an id that another installed package owns is refused, naming both. A package claiming a built-in's id is ignored at load: the compiled copy always answers for its own id.
 
 ## Uninstalling and disabling
 
-Before an uninstall, the page shows its blast radius: how many presets use the plugin, how many users' presets those are, and how many subshells are running on it. Then you choose:
+Before an uninstall, the page shows its scope: how many presets use the plugin, how many users' presets those are, and how many subshells are running on it. Then you choose:
 
 - **Uninstall, keeping presets** (the default): only the plugin's bytes go. Presets that used it survive, hidden, and work again if you reinstall.
 - **Uninstall, deleting presets**: every preset across every user that names this harness is removed too. Subshells that launched from those presets survive; they simply become presetless.
-- **Disable instead**: the toggle takes the plugin out of every launch picker instance-wide without deleting anything. A freshly installed plugin is enabled; the uninstall clears the remembered toggle, so a later reinstall starts enabled again.
+- **Disable instead**: the toggle takes the plugin out of every launch picker instance-wide without deleting anything. A freshly installed plugin is enabled, and the uninstall clears the remembered toggle, so a later reinstall starts enabled again.
 
-Running subshells are left alone by all three: they are processes with their own credentials; a plugin change neither terminates nor silences them.
+All three leave running subshells alone: they are processes with their own credentials, and a plugin change neither terminates nor silences them.
 
-> [!note] Plugin credentials, honestly stated
-> Some plugins declare named secrets (a network plugin's API token, for instance). Those live as files beside the store, readable only by the server's user, and deliberately **not encrypted**: whoever owns that account already owns the server's config and key material, and the encrypted-at-rest store designed for this (`SUBSHELL_SECRETS_KEY`) is not built. The database backup does **not** cover them, so a restored instance asks for those tokens again. The full accounting is in [docs/security.md on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md).
+> [!note] Plugin credentials
+> Some plugins declare named secrets (a network plugin's API token, for instance). Those live as files beside the store, readable only by the server's user, and are deliberately not encrypted. Whoever owns that account already owns the server's config and key material, and the encrypted-at-rest store designed for this (`SUBSHELL_SECRETS_KEY`) is not built. The database backup does not cover them, so a restored instance asks for those tokens again. The full accounting is in [docs/security.md on GitHub](https://github.com/subshell-ai/subshell/blob/main/docs/security.md).
 
 ## See also
 
-- [Agents overview](/agents): the plugin model the registry sits on
+- [Overview](/agents): the plugin model the registry sits on
 - [Installing Agent CLIs](/agents/installing-agent-clis): the different, narrower act of installing the binary a plugin drives
-- [Writing a Harness Plugin](/develop/harness-plugin) and [Publishing a Plugin](/develop/publish-a-plugin): the author's side of this door
+- [Writing a Harness Plugin](/develop/harness-plugin) and [Publishing a Plugin](/develop/publish-a-plugin): how the plugins behind this page get written and published
 - [Audit Log](/server/audit-log): installs and uninstalls are recorded with the admin who did them
 - [Network plugins](/server/network-plugins): installed through this same store and gate, but they connect networks rather than drive panes

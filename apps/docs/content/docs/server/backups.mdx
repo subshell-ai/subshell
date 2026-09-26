@@ -3,15 +3,15 @@ title: Backups
 description: "Snapshotting the database: the backup verb, what it covers, and what a restore still leaves you to re-enter."
 ---
 
-The database is the instance's memory: every account, role, subshell, share, preset, workspace, setting, audit row, and every channel's sealed ciphertext lives in one SQLite file. If you back up exactly one thing about a Subshell instance, back that up: it is also the single thing that makes a failed [update](/server/updating) a *revert* instead of a rebuild.
+The database holds the instance's entire state: every account, role, subshell, share, preset, workspace, setting, audit row, and every channel's sealed ciphertext, all in one SQLite file. If you back up exactly one thing about a Subshell instance, back this up. It is also what turns a failed [update](/server/updating) into a revert rather than a rebuild.
 
-## The backup verb
+## Taking a backup
 
 ```bash
 subshell-server backup
 ```
 
-One snapshot of the database, right now: a consistent single-file copy written even while the server is running and serving. It prints the path and the size; `--json` prints the same facts as one machine-readable line. The one refusal is a host with no database yet: an installed-and-configured server that has never booted has nothing to back up, and says so.
+This writes one snapshot of the database right now: a consistent single-file copy, taken even while the server is running and serving. It prints the path and the size; `--json` prints the same facts as one machine-readable line. The one refusal is a host with no database yet: an installed-and-configured server that has never booted has nothing to back up, and says so.
 
 A hand-taken backup lands in the same directory, under the same naming and the same retention, as the automatic ones the updater takes before it swaps a binary. One place to look:
 
@@ -19,21 +19,21 @@ A hand-taken backup lands in the same directory, under the same naming and the s
 <data dir>/backups/subshell-v<version>-<timestamp>.db
 ```
 
-The directory is 0700 and each file 0600, because **this is the most sensitive file the app writes**: it contains credential hashes, API-key hashes, the audit trail, and channel ciphertext. Treat any copy you take elsewhere with the care you would give the live instance's disk.
+The directory is 0700 and each file 0600, because this is the most sensitive file the app writes: it contains credential hashes, API-key hashes, the audit trail, and channel ciphertext. Treat any copy you take elsewhere with the care you would give the live instance's disk.
 
-Retention: the newest five snapshots are kept; older ones are pruned on each new backup. Set `SUBSHELL_DB_BACKUPS_KEEP` to keep fewer, or `0` to keep them forever.
+Retention: the newest five snapshots are kept, and older ones are pruned on each new backup. Set `SUBSHELL_DB_BACKUPS_KEEP` to keep fewer, or `0` to keep them forever.
 
 ## What is covered
 
-Everything in the database: users and their credential hashes, roles and account state, subshells and their shares, nodes and the **hashes** of their keys, presets, workspaces, channels' encrypted payloads, settings rows (instance name, the registration and enrollment switches), the audit trail, and API-key hashes.
+Everything in the database: users and their credential hashes, roles and account state, subshells and their shares, nodes and the hashes of their keys, presets, workspaces, channels' encrypted payloads, settings rows (instance name, the registration and enrollment switches), the audit trail, and API-key hashes.
 
-## What is not
+## What is not covered
 
-The snapshot is of the *database*, not of the machine. After a restore, you will find these were never inside it:
+The snapshot is of the database, not of the machine. After a restore, you will find these were never inside it:
 
-- **`config.env`**: the server's configuration lives in its own config home (`~/.config/subshell-server/config.env` by default; in a configured install the database file sits beside it, and together they are the instance's data directory). A backup snapshots the database file alone (a single `VACUUM INTO`), so it never carried its sibling; keep a copy of your configured port, bind address, base URL and trusted origins somewhere you trust.
-- **Plugin secrets**: tokens a network plugin was given are stored as write-only 0600 files inside the data directory (`plugins-state/<plugin>/secrets/`), never in the database (a plugin can save a secret and never read one back). A restore means re-entering them, and the Networking page says so at the field. See [Network Plugins](/server/network-plugins).
-- **The node signing keypair**: the key that signs every command to every enrolled node is a file (`node-signing.json`) inside the data directory, not a row. The enrolled nodes' own keys are on *their* machines; the database held only their hashes.
+- **`config.env`**: the server's configuration lives in its own config home (`~/.config/subshell-server/config.env` by default; in a configured install the database file sits beside it, and together they are the instance's data directory). A backup snapshots the database file alone, in a single `VACUUM INTO`, so it never carried its sibling. Keep a copy of your configured port, bind address, base URL, and trusted origins somewhere you trust.
+- **Plugin secrets**: tokens a network plugin was given are stored as write-only 0600 files inside the data directory (`plugins-state/<plugin>/secrets/`), never in the database: a plugin can save a secret and never read one back. A restore means re-entering them, and the Networking page says so at the field. See [Network Plugins](/server/network-plugins).
+- **The node signing keypair**: the key that signs every command to every enrolled node is a file (`node-signing.json`) inside the data directory, not a row. The enrolled nodes' own keys are on their machines; the database held only their hashes.
 - **Pane transcripts**: each subshell's screen log is a file on the machine that ran it, swept by age. Its history does not come back with the database.
 - **The server's own log file**: see [Logs & Debugging](/server/logs-debug).
 
@@ -42,9 +42,9 @@ The snapshot is of the *database*, not of the machine. After a restore, you will
 
 ## Backups and the air gap
 
-`SUBSHELL_RELEASE_URL` being empty (the air-gapped configuration) disables the *update* paths that fetch from the release source. It has no effect here: `backup` is a local file operation and works identically offline.
+An empty `SUBSHELL_RELEASE_URL` (the air-gapped configuration) disables the update paths that fetch from the release source. It has no effect here: `backup` is a local file operation and works identically offline.
 
-One last overlap worth knowing: a [reset](/server/reset) deletes the data directory, and the backups directory lives inside it. A reset takes your snapshots with it.
+One last overlap to know about: a [reset](/server/reset) deletes the data directory, and the backups directory lives inside it. A reset takes your snapshots with it.
 
 ## See also
 

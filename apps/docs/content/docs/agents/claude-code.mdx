@@ -3,45 +3,51 @@ title: Claude Code
 description: "Anthropic's agentic coding CLI as a Subshell harness: detection, launch, and automatic MCP wiring."
 ---
 
-Claude Code is Anthropic's interactive coding CLI. As a Subshell harness it is the fullest integration of the built-ins: the `subshell mcp` server is wired in at every launch with nothing to register, the CLI's own hooks drive your [notification bell](/use/notifications), and a restarted subshell resumes the same conversation rather than starting a fresh one.
+Claude Code is Anthropic's interactive coding CLI. Of the built-in harnesses, it has the fullest integration: the `subshell mcp` server is wired in at every launch with nothing to register, the CLI's own hooks drive your [Notifications](/use/notifications) bell, and a restarted subshell resumes the same conversation rather than starting a fresh one.
 
 ## Finding the binary
 
-Subshell resolves `claude` on the machine that will run the pane: the `claude` on the PATH there (including what a login shell would find, which covers nvm- and volta-style installs), then Claude Code's known install locations under your home directory. If you keep it anywhere else, point at it explicitly with `CLAUDE_PATH` in that machine's environment. One host setting travels through to every launch when set: `CLAUDE_CONFIG_DIR`, so a non-default Claude config directory is respected.
+Subshell resolves `claude` on the machine that will run the pane. It first tries the `claude` on the PATH there, which includes what a login shell would find, so nvm- and volta-style installs are covered. It then checks Claude Code's known install locations under your home directory. If you keep it anywhere else, point at it explicitly with `CLAUDE_PATH` in that machine's environment. One other host setting carries through to every launch when it is set: `CLAUDE_CONFIG_DIR`, so a non-default Claude config directory is respected.
 
-Detection is the plane asking, the machine answering: the launch page and the **Re-check** button probe the binary, so the picker only offers Claude Code on hosts that actually have it. Nothing is installed on your behalf here: if detection finds nothing, [Installing Agent CLIs](/agents/installing-agent-clis) covers the one-line installer, and the [vendor setup docs](https://code.claude.com/docs/en/setup) the manual path.
+The control plane asks and the machine answers: the launch page and the **Re-check** button probe the binary, so the picker only offers Claude Code on hosts that actually have it. Subshell does not install the CLI on your behalf. If detection finds nothing, [Installing Agent CLIs](/agents/installing-agent-clis) covers the one-line installer, and the [vendor setup docs](https://code.claude.com/docs/en/setup) describe the manual path.
 
 ## What a launch looks like
 
-Every Claude Code subshell starts as an interactive `claude` session in a tmux pane, with the command line built by the control plane: the `subshell mcp` registration first, then identity flags, then a `--settings` JSON carrying your preset's configuration, then the subshell's name via `--name`, then any preset and one-off flags. Settings ride on the command line per invocation: Subshell never writes into your real `~/.claude` files, so a preset cannot leak into the Claude Code you run outside Subshell.
+Every Claude Code subshell starts as an interactive `claude` session in a tmux pane. The control plane builds the command line: first the `subshell mcp` registration, then the identity flags, then a `--settings` JSON carrying your preset's configuration, then the subshell's name via `--name`, and finally any preset and one-off flags.
 
-In the [preset editor](/use/presets), Claude Code's known settings (permission mode, model, output style, and friends) appear as editable fields rather than raw flags, and the editor suggests the environment variables and flags that matter for this CLI. If a preset sets its own `hooks` key, Subshell's own hooks win over it; the alternative would be no notifications at all.
+Settings ride on the command line per invocation. Subshell never writes into your real `~/.claude` files, so a preset cannot leak into the Claude Code you run outside Subshell.
+
+In the [preset editor](/use/presets), Claude Code's known settings (permission mode, model, output style, and similar) appear as editable fields rather than raw flags, and the editor suggests the environment variables and flags that matter for this CLI. If a preset sets its own `hooks` key, Subshell's own hooks take priority over it. The alternative would be no notifications at all.
 
 ## Cross-subshell tools, automatically
 
-The [subshell MCP server](/automation/mcp-server) (the tools that let an agent see its siblings, read and write [channels](/use/channels), and coordinate) is registered for every Claude Code subshell automatically. The control plane writes a per-subshell `--mcp-config` document holding just the `subshell` server entry, and the launch names it; from the first prompt the agent can call Subshell's tools.
+The [subshell MCP server](/automation/mcp-server) provides the tools that let an agent see its siblings, read and write [channels](/use/channels), and coordinate. It is registered for every Claude Code subshell automatically. The control plane writes a per-subshell `--mcp-config` document holding just the `subshell` server entry, and the launch names it, so from the first prompt the agent can call Subshell's tools.
 
-Two things about that file are worth knowing:
+Two facts about that file:
 
-- **It contains no secrets.** The config names only the command to run. The `subshell mcp` process starts as a child of the harness and inherits the credential baked into that pane's environment, each subshell's own scoped API key, so one machine's agents can never authenticate as another's.
-- **The same wiring lands on a node.** Launch a Claude Code subshell on an enrolled machine and the registration travels with the launch, naming that machine's own `subshell` binary as the MCP server. Nothing on the node has to be configured.
+- **It contains no secrets.** The config names only the command to run. The `subshell mcp` process starts as a child of the harness and inherits the credential baked into that pane's environment, which is each subshell's own scoped API key. One machine's agents can therefore never authenticate as another's.
+- **The same wiring reaches a node.** Launch a Claude Code subshell on an enrolled machine and the registration travels with the launch, naming that machine's own `subshell` binary as the MCP server. Nothing on the node has to be configured.
 
 ## Notifications and conversation identity
 
 Claude Code is the one harness that exposes hooks, and Subshell uses them for two things:
 
-- **Attention.** The `Stop` and `Notification` hooks report "this turn finished" and "this turn is waiting for you" to the control plane, which is what makes the notification bell and the waiting state work. Delivery is still gated by the subshell's bell and your account switch; a hook firing never bypasses them. See [Notifications](/use/notifications).
+- **Attention.** The `Stop` and `Notification` hooks report "this turn finished" and "this turn is waiting for you" to the control plane, which is what makes the notification bell and the waiting state work. Delivery is still gated by the subshell's bell and your account switch, and a hook firing never bypasses them. See [Notifications](/use/notifications).
 - **Conversation identity.** The `SessionStart` hook reports the transcript id whenever the in-pane session changes (`/clear`, `/resume`, `/fork`, `/compact`), so Subshell always knows which conversation to resume.
 
-The hook commands are not guesses: the control plane resolves, per machine, the `subshell report` command line that actually exists on the host running the pane, and hands the plugin that. On a desktop install with nothing but the Subshell binary beside the pane, the hooks still reach home. If a launch ever cannot resolve that command, Subshell omits the hooks entirely rather than wiring a command the machine cannot run: one launch without notifications instead of an error on every turn.
+The control plane resolves the hook commands per machine rather than guessing them: it works out the `subshell report` command line that actually exists on the host running the pane, and hands that to the plugin. On a desktop install where nothing but the Subshell binary sits beside the pane, the hooks still work.
+
+If a launch cannot resolve that command, Subshell omits the hooks entirely rather than wiring a command the machine cannot run. That launch then has no notifications, instead of every turn producing an error.
 
 ## Resume across restarts
 
-When a Claude Code subshell starts, Subshell pins its conversation id (`--session-id`), and a restart, manual or automatic, brings the same conversation back with `--resume`. That pin survives `/clear` and in-pane `/resume` precisely because of the `SessionStart` hook above. This is unique among the built-ins: OpenCode, Codex, Hermes, and pi have no per-subshell conversation pin, and restarts there begin fresh.
+When a Claude Code subshell starts, Subshell pins its conversation id with `--session-id`, and a restart, manual or automatic, brings the same conversation back with `--resume`. The pin survives `/clear` and in-pane `/resume` because of the `SessionStart` hook described above.
+
+No other built-in does this. OpenCode, Codex, Hermes, and pi have no per-subshell conversation pin, and restarts there begin fresh.
 
 ## See also
 
 - [Notifications](/use/notifications): what the hooks feed, and how delivery is gated
 - [Presets](/use/presets): saved per-harness configuration, including Claude Code's settings fields
-- [The MCP server](/automation/mcp-server): what the registered tools actually give the agent
+- [The subshell mcp Server](/automation/mcp-server): what the registered tools actually give the agent
 - [Installing Agent CLIs](/agents/installing-agent-clis): the in-page installer for the `claude` binary
