@@ -268,7 +268,7 @@ describe("SubshellCell", () => {
     }
   });
 
-  it("the blinking cell pulses a border with NO background, letter always present (operator ask 2026-09-27)", async () => {
+  it("the blinking cell is a two-state tile: active/idle pulses, a legible letter every beat (operator ask 2026-09-27)", async () => {
     const restore = mockFetch();
     try {
       renderCell(
@@ -279,41 +279,54 @@ describe("SubshellCell", () => {
         />,
       );
       const link = await screen.findByRole("link");
-      // The operator ruling superseded the 2026-09-25 plate-and-chip design:
-      // on blink the square carries NO background at all — neither the muted
-      // plate nor a green field — the letter never fades, and the pulse rides
-      // the border ring (the state's green survives as edge, not field).
+      // A cell cannot blink to nothing the way the dot does (no letter to
+      // strand, no outline to empty), so it blinks BETWEEN two states: a full
+      // green ACTIVE tile with a dark initial pulsing over a half-green IDLE
+      // tile with a white initial on the opposite beat. Exactly one tile is
+      // opaque at any moment, so a box with a readable letter is always there.
+      // The anchor carries only posture: relative, a transparent field, and
+      // NEITHER a fill nor a pulse of its own (both live on the two child
+      // tiles). The interim "green survives as an edge" reading (the ring) and
+      // the single-fade reading (empty tile / stranded letter) are both dead.
+      const has = (el: Element | undefined, tok: string) => !!el && el.className.split(/\s+/).includes(tok);
       expect(link.className).toContain("relative");
       expect(link.className).toContain("bg-transparent");
-      expect(link.className).not.toContain("subshell-dot-blink");
       expect(link.className).not.toContain("bg-success");
+      expect(link.className).not.toContain("subshell-dot-blink");
+      expect(link.className).not.toContain("border-success");
+
       const spans = [...link.querySelectorAll("span")];
-      expect(spans.find((s) => s.className.includes("bg-muted/50"))).toBeUndefined();
-      const ring = spans.find((s) => s.className.includes("subshell-dot-blink"));
-      expect(ring).toBeTruthy();
-      expect(ring?.className).toContain("border-success");
-      // A border COLOR alone paints nothing: Tailwind v4's preflight resets
-      // every element to `border: 0 solid`, so without a width utility on the
-      // span the ring is zero-width and the whole pulse is invisible (the
-      // blocker this pins). Matched as a WHOLE CLASS TOKEN, not a substring or
-      // `\bborder\b`: a hyphen is a non-word char, so that regex matches the
-      // "border" inside "border-success" and PASSES on the color-only broken
-      // markup (reviewer-web proved the false-pass by mutation). Splitting on
-      // spaces and testing set membership is the null on that string.
-      expect(ring?.className.split(" ")).toContain("border");
-      expect(ring?.className).toContain("absolute");
-      expect(ring?.className).toContain("inset-0");
-      expect(ring?.getAttribute("aria-hidden")).toBe("true");
-      // No layer anywhere carries a BACKGROUND fill.
-      for (const s of spans) expect(s.className).not.toMatch(/bg-(success|muted)/);
-      // The letter: the cell's text, white, static, above the ring; the
-      // open-cell selection ring still reads on the anchor.
-      expect(link.textContent).toBe("A");
+      expect(spans.find((s) => s.className.includes("bg-muted"))).toBeUndefined();
+
+      // The IDLE tile (under): half green, white initial, complementary pulse.
+      const idle = spans.find((s) => has(s, "bg-success/50"));
+      expect(idle).toBeTruthy();
+      expect(has(idle, "subshell-dot-blink-alt")).toBe(true);
+      expect(has(idle, "text-foreground")).toBe(true);
+      expect(has(idle, "absolute") && has(idle, "inset-0") && has(idle, "rounded-md")).toBe(true);
+      expect(idle?.getAttribute("aria-hidden")).toBe("true");
+      expect(idle?.textContent).toBe("A");
+
+      // The ACTIVE tile (over): full green, dark initial, the plain pulse.
+      const activeTile = spans.find((s) => has(s, "bg-success") && has(s, "subshell-dot-blink"));
+      expect(activeTile).toBeTruthy();
+      expect(has(activeTile, "subshell-dot-blink-alt")).toBe(false);
+      expect(has(activeTile, "text-background")).toBe(true);
+      expect(has(activeTile, "absolute") && has(activeTile, "inset-0") && has(activeTile, "rounded-md")).toBe(true);
+      expect(activeTile?.getAttribute("aria-hidden")).toBe("true");
+      expect(activeTile?.textContent).toBe("A");
+
+      // Exactly one pulse of each kind across the cell, and both carry the
+      // initial — so the link's own text reads the letter twice even though a
+      // viewer only ever sees one (the visible half differs by opacity, not DOM).
+      expect(spans.filter((s) => s.className.includes("subshell-dot-blink-alt"))).toHaveLength(1);
+      expect(
+        spans.filter((s) => s.className.includes("subshell-dot-blink") && !s.className.includes("-alt")),
+      ).toHaveLength(1);
+      expect(link.textContent).toBe("AA");
+      // The viewed pane still rings on the anchor.
       expect(link.className).toContain("ring-1");
-      const letter = spans.find((s) => s.textContent === "A");
-      expect(letter?.className).toContain("text-foreground");
-      expect(letter?.className).not.toContain("subshell-dot-blink");
-      expect(letter?.className).not.toContain("text-background");
+      expect(link.className).toContain("ring-foreground/70");
     } finally {
       restore();
     }

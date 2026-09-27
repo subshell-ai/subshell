@@ -144,56 +144,34 @@ export function flatCellRows(
 }
 
 /**
- * The LETTER is white on every state, one operator ruling dated 2026-09-27.
- *
- * This REPLACES the 2026-09-25 apparatus it supersedes: the muted plate and
- * the green letter-chip existed only to rescue a BLACK knockout letter (a
- * dark letter on a fading fill vanished in the blink's off phase, dark on
- * dark, operator ask then). A WHITE letter needs neither rescue: it reads on
- * the dark rail in every phase, so the blinking square carries NO background
- * at all and the pulse lives on the BORDER ring — the state's green survives
- * as an edge, never a field (an off-phase green FIELD was the "second idle"
- * the old note refused, and the dimmed-green field in it is exactly what the
- * operator rejected on 2026-09-27). The per-state INITIAL_TONE table died for
- * the BLINK — the working cell has no field for a letter to fight, so it is
- * white — but the two SOLID light fills still defeat white, so a narrow
- * knockout returns for them alone (delegated ruling 2026-09-27, after the
- * operator saw the blink on an iOS device). `waiting` on `--warning` puts
- * white at 1.34:1 and `node-offline` on `--destructive` at 2.77:1, both
- * unreadable; those two wear a dark letter, everything else stays
- * `text-foreground` (idle is `success/50`, where white reads 4.34:1). The
- * square's fill/border still names the state; the letter is a hint, never a
- * key, exactly as before.
+ * The LETTER is white (`text-foreground`) by default, an operator ruling dated
+ * 2026-09-27. The 2026-09-25 apparatus it supersedes — a muted plate + green
+ * letter-chip that existed only to rescue a BLACK knockout letter — is gone.
+ * Solid light fills defeat white below AA, so they take a narrow dark knockout
+ * (see {@link DARK_KNOCKOUT}); idle's `success/50` keeps white (4.34:1) and
+ * `terminated` is hollow (white on the dark rail). The letter is a hint, not a
+ * key — the fill/nodes names the state, the tooltip is the truth.
  */
 const INITIAL_CLASS = "text-foreground";
 
-/** The only two indicators whose SOLID fill drives white below AA. `idle` is
- * semitransparent and `terminated`/`active` carry no fill, so white reads on
- * them and they are absent here. */
-const DARK_KNOCKOUT: Partial<Record<SubshellIndicator, true>> = { waiting: true, "node-offline": true };
+/** Solid fills where white drops below AA (design-tokens contrast math):
+ * `waiting` on `--warning` (1.34:1), `node-offline` on `--destructive` (2.77:1),
+ * and the working cell's ACTIVE tile on full `--success` — so `active` is listed
+ * even though it only ever shows as the top tile of the active/idle blink (see
+ * the render site). Each keeps its own pairing: the bright green tile takes a
+ * dark initial, the semitransparent idle tile beneath it keeps white (4.34:1).
+ * Ruled 2026-09-27 (image #9): the ask was the green BACKGROUND legible, not an
+ * edge, and the operator named the darker font directly. */
+const DARK_KNOCKOUT: Partial<Record<SubshellIndicator, true>> = {
+  active: true,
+  waiting: true,
+  "node-offline": true,
+};
 
 /** The initial's color for one state: dark only on a solid fill that eats
  * white, white on the no-fill and semitransparent states. */
 const initialClass = (indicator: SubshellIndicator): string =>
   DARK_KNOCKOUT[indicator] ? "text-background" : INITIAL_CLASS;
-
-/** The blink rides the BORDER ring: derived from `DOT_CLASS.active`, never
- * restated (the 2026-09-25 review's principle outliving the chip it fed) —
- * the fill tone swapped from `bg-` to its `border-` sibling, the blink class
- * carried through, so a tone change to the table moves the ring with it.
- *
- * Two things this swap makes non-obvious, both pinned at the render site:
- * the produced class is a border COLOR utility, so the span carries an
- * explicit `border` width or Tailwind v4's preflight (`border: 0 solid`)
- * leaves a zero-width, invisible ring; and the `border-*` string is assembled
- * at RUNTIME, so the scanner never sees it in source — `styles.css` carries an
- * `@source inline("border-success")` witness, NOT the test's literal, because
- * a class that only exists because a test asserts it is not in the shipped
- * page's dependency graph. */
-const ACTIVE_RING = DOT_CLASS.active
-  .split(" ")
-  .map((cls) => (cls.startsWith("bg-") ? cls.replace(/^bg-/, "border-") : cls))
-  .join(" ");
 
 /** The resolved labels for one cell — the same four the row's tooltip takes. */
 export interface SubshellCellLabels {
@@ -242,13 +220,13 @@ export function SubshellCell({
 }) {
   const indicator = subshellIndicator(subshell);
   const bell = showsBell(subshell);
-  // The ACTIVE square is the one with no fill at all (operator ruling
-  // 2026-09-27): a neutral bordered frame, a white letter that never fades,
-  // and the pulse on a BORDER ring layer — `subshell-dot-blink` animates the
-  // ring's opacity to 0 (steps(1), styles.css), so the state's green arrives
-  // and leaves as an edge, never as a dimmed field. Every other state keeps
-  // its fill on the anchor exactly as before — `terminated`'s hollow reading
-  // especially: nothing goes behind it.
+  // The ACTIVE square blinks, but between two states rather than green and
+  // nothing: an ACTIVE tile pulsing over an IDLE tile (see the render site), so a
+  // box with a legible initial is on screen every beat. A cell cannot blink to
+  // empty the way the dot does — the dot has no letter to strand and no outline
+  // to empty (images #10/#11/#14 were each a different symptom of that). Every
+  // other state keeps its single static fill on the anchor exactly as before —
+  // `terminated`'s hollow reading especially: nothing behind it.
   const blinking = !bell && indicator === "active";
   const cell = (
     <TooltipProvider delay={300}>
@@ -264,15 +242,19 @@ export function SubshellCell({
               className={cn(
                 "flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-strong text-label transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                blinking || bell
-                  ? // The blinking square and a bell share ONE neutral posture:
-                    // a bordered frame carrying no state FILL — the blink
-                    // pulses its own ring layer, the bell tones its glyph
-                    // (exactly as on the dot, whose bell path carries no
-                    // DOT_CLASS fill either; operator ruling 2026-09-27
-                    // widened it to the blink: no background on the field).
+                bell
+                  ? // The viewed pane's bell tones its glyph on a neutral,
+                    // bordered, STATIC field — the frame is the bell's posture,
+                    // and there is nothing to blink behind it.
                     "relative border border-border bg-transparent"
-                  : DOT_CLASS[indicator],
+                  : blinking
+                    ? // No field and no frame of its own: the blinking green box
+                      // (with its letter) is a child layer, so the transparent
+                      // half is genuinely empty rail, not a dark letter stranded
+                      // inside a frame (image #10). Only the selection/focus ring
+                      // (below) can still name the cell in that gap.
+                      "relative bg-transparent"
+                    : DOT_CLASS[indicator],
                 // Hover says "this one" with the theme INK at FULL
                 // brightness; selection is the same ink DIMMED to /70 (live
                 // review: the full frost was the loudest thing on the rail),
@@ -288,14 +270,34 @@ export function SubshellCell({
           {bell ? (
             <Bell size={14} aria-hidden={true} className={BELL_TONE[indicator]} />
           ) : blinking ? (
+            // The working cell blinks between two REAL states, never to an
+            // empty tile: an ACTIVE tile (`bg-success` + a dark initial) on top
+            // of an IDLE tile (`bg-success/50` + a white initial) underneath,
+            // the two driven by complementary opacity pulses (`subshell-dot-blink`
+            // / `subshell-dot-blink-alt`). Exactly one tile is fully painted at
+            // any beat, so a box carrying a legible letter is ALWAYS there — the
+            // dot can blink to nothing because it has no letter; a cell cannot
+            // (that empty tile was image #14, the ghost #10, the stranded letter
+            // #11). Under reduced-motion neither class applies, the ACTIVE tile
+            // paints over the idle one, and the cell rests as solid green + dark
+            // initial. Each tile keeps its own state's contrast pairing.
             <>
-              {/* Positioned siblings paint above in-flow content, so the
-                  white initial is `relative` to rejoin the stacking tail:
-                  it stays put in EVERY blink phase while only the ring
-                  fades (operator ruling 2026-09-27: no background at all,
-                  the letter remains). */}
-              <span aria-hidden={true} className={cn("absolute inset-0 rounded-md border", ACTIVE_RING)} />
-              {labels.initial ? <span className={cn("relative", INITIAL_CLASS)}>{labels.initial}</span> : null}
+              <span
+                aria-hidden={true}
+                className="subshell-dot-blink-alt absolute inset-0 flex items-center justify-center rounded-md bg-success/50 text-foreground"
+              >
+                {labels.initial}
+              </span>
+              <span
+                aria-hidden={true}
+                className={cn(
+                  "absolute inset-0 flex items-center justify-center rounded-md",
+                  DOT_CLASS.active,
+                  initialClass(indicator),
+                )}
+              >
+                {labels.initial}
+              </span>
             </>
           ) : labels.initial ? (
             // Solid light fills defeat white (see `DARK_KNOCKOUT`); every
