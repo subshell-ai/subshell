@@ -79,7 +79,9 @@ dark border read as no ring; `ring-2` read heavy; a focus corner bead read as
 a status dot; both orchids (`--primary`, `--ring`) lost to the green fills;
 a dim-set/full-focus ring over a dim-white grid is what stood. Set membership
 still decides which cells click-to-focus; `SubshellCellGrid` takes
-`selectedIds` AND `focusedId`.
+`selectedIds` AND `focusedId`. Deliberate asymmetry, not drift: the cell ring
+is full ink where the ROW's focus ring stays `ring-foreground/70` — the row's
+fill already carries its selection, the bare cell needed the louder mark.
 
 **The whole section lives in `components/sidebar/rail-subshells.tsx`**
 (extracted from `app-sidebar.tsx` 2026-09-25) and renders in three shapes

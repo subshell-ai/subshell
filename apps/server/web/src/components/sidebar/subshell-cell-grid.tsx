@@ -188,16 +188,16 @@ export interface SubshellCellLabels {
  * the working state pulses a half-green fill behind a constant white initial
  * (see {@link blinking} below), and a
  * bell (`showsBell`) REPLACES the fill, the dot's posture — the glyph names
- * "unseen push", the tone keeps the state. Every open pane's cell (the
- * FOCUSED pane wears the ONE full-white `ring-1 ring-foreground` with its
- * frame dropped, while EVERY other cell — open or not — wears a DIM white
- * frame (`border-foreground/25`) in place of the per-state grey ones: two
- * levels of one white, and only the tab you are on at full brightness. That
- * is the fifth form the operator settled on the same day (/70-over-dark-border
- * read as no ring, `ring-2` read heavy, a focus bead read as a status dot,
- * both orchids lost to the green fills, and the whole open set ringed — the
- * first design — was the very "ALL items have a white border" complaint the
- * change exists to fix). The accessible name is "name: status
+ * "unseen push", the tone keeps the state. The FOCUSED pane wears the ONE
+ * full-white `ring-1 ring-foreground` with its frame dropped, while EVERY
+ * other cell — open or not — wears a DIM white frame
+ * (`border-foreground/25`) in place of the per-state grey ones: two levels of
+ * one white, and only the tab you are on at full brightness. That is the
+ * fifth form the operator settled on the same day (2026-09-27: /70 over the
+ * dark border read as no ring, `ring-2` read heavy, a focus bead read as a
+ * status dot, both orchids lost to the green fills, and the whole open set
+ * ringed — the first design — was the very "ALL items have a white border"
+ * complaint this exists to fix). The accessible name is "name: status
  * word", and for a bell "name: unseen notification (status word)" — the shared
  * {@link bellAnnouncement} — since a square of colour has nothing to read out
  * and its glyph is aria-hidden.
@@ -275,7 +275,7 @@ export function SubshellCell({
                 "relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-strong text-label transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 bell
-                  ? "relative bg-transparent"
+                  ? "bg-transparent"
                   : blinking
                     ? // No field of its own: the blinking half-green fill is a
                       // child layer, so the transparent half is genuinely empty
@@ -284,29 +284,28 @@ export function SubshellCell({
                       // square keeps its frame on that half (operator
                       // 2026-09-27: the letter floating with no box read
                       // broken) — the shared dim frame below supplies it.
-                      "relative bg-transparent"
+                      "bg-transparent"
                     : DOT_CLASS[indicator],
-                // ONE ring for the whole open SET (operator 2026-09-27), at
-                // FULL ink and width 1, with the state border it replaces
-                // dropped. It was `ring-foreground/70` first, "soft so the box
-                // matches the rows"; the operator read that as NO ring at all
-                // the same day (report 2026-09-27: "not seeing the selected
-                // tab highlighted"). Soft-in-ink under a muted border was two
-                // faint lines, not one mark. The `ring-2` bump was retired
-                // for weight, not brightness — the width stays 1.
+                // Hover answers "which one am I on" at width 1 FULL ink;
+                // keyboard focus stays the orchid focus-visible ring above.
                 "hover:ring-1 hover:ring-foreground",
-                // TWO LEVELS OF WHITE (operator ruling 2026-09-27, final
-                // form after width, brightness, colour and a bead were all
-                // tried): EVERY cell wears the DIM white frame
+                // TWO LEVELS OF ONE WHITE (operator ruling 2026-09-27, final
+                // form after five): EVERY cell wears the DIM white frame
                 // (`border-foreground/25`, replacing the per-state grey ones),
                 // and ONLY the focused pane wears the full-white ring,
-                // `border-0` so the ring is the frame. This mirrors the list
-                // view, where the white ring marks the focused row alone;
-                // "all open panes ring" was the very reading the operator
-                // rejected ("when in a workspace, ALL items have a white
-                // border"). `selected` stays on the props for click-to-focus
-                // wiring (resolved in the grid); its visual use is paused
-                // pending the operator's live check.
+                // `border-0` so the ring is the frame — the first cut's
+                // `ring-foreground/70` over the dark border read as NO ring
+                // ("not seeing the selected tab highlighted"), and the
+                // `ring-2` focus bump was retired for weight, so the ring is
+                // width 1 at full ink. This mirrors the ROWS' focus-only
+                // rule, NOT their brightness: `SubshellRecentRow` still rings
+                // at /70 (softening the cell back to /70 was the rejected
+                // form; unifying the other way is a future operator call).
+                // "All open panes ring" — the ORIGINAL design — was rejected
+                // outright: "when in a workspace, ALL items have a white
+                // border". Set membership now marks nothing here; it drives
+                // ordering and click-to-focus, which the grid resolves into
+                // `focusOnOpen` before this component ever sees it.
                 focused ? "border-0 ring-1 ring-foreground" : "border border-foreground/25",
               )}
             />

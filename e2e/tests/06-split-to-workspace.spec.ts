@@ -130,7 +130,7 @@ test("split a subshell into a draft workspace, then save it", async ({ page }) =
   // name and the dialog's submit button share "Save workspace": the header is
   // clicked while it is the only one, and the dialog's own button is scoped
   // to the dialog.
-  await page.getByRole("button", { name: "Save workspace" }).click();
+  await page.getByRole("button", { name: "Save workspace", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Save workspace" })).toBeVisible();
   await page.getByRole("textbox", { name: "Workspace name" }).fill(workspaceName);
   await page.getByRole("dialog").getByRole("button", { name: "Save workspace", exact: true }).click();
