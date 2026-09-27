@@ -84,7 +84,9 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
   one-shot prior-scrollback frame sent after the replay (0 for none: booting,
   knob off, or a failed read); it is counted, not dumped, because the window
   stays recoverable from the pane's raw log at `[mark-N, mark)` whereas the
-  replay is tmux-rendered and gone once sent.
+  replay is tmux-rendered and gone once sent. NO `painted` line at all for a
+  join means the CAPTURE failed (the line rides the replay): on that path the
+  history frame may still have been sent.
   `repainted=false nudged=true` means the geometry CHANGED and the pane
   refused to repaint even for a forced SIGWINCH, so a bad replay is the
   pane's own state; `repainted=true` means a freshly painted frame was

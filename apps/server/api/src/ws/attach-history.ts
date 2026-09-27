@@ -60,12 +60,17 @@ import { sendFrame, type WsSocket } from "@/ws/viewers.js";
  * @param markOffset - the log offset where the live stream starts; the
  *   window ends here and `TERMINAL_HISTORY_BYTES` before it is where it
  *   begins (clamped at 0, so a young pane ships from its true first byte)
- * @returns the byte length of the frame actually sent (0 when none: empty
- *   window, knob off, booting skip at the caller, or failed read). The
- *   attach's ONE journal line carries it, because forensics that report only
- *   `replay=` understate what the viewer was sent by the whole window — and
- *   the window's known-degraded edges (a dropped split-marker head, a
- *   boundary U+FFFD) are exactly the "which layer lied?" evidence.
+ * @returns the length of the frame handed to the socket (the same UTF-16
+ *   string-length convention as the journal's `replay=` counter, and the
+ *   same swallow-a-dead-socket send, so it counts handoff rather than an ack;
+ *   0 when no frame: empty window, knob off, booting skip at the caller, or
+ *   failed read). The attach's ONE journal line carries it, because forensics
+ *   that report only `replay=` understate what the viewer was sent by the
+ *   whole window — and the window's known-degraded edges (a dropped
+ *   split-marker head, a boundary U+FFFD) are exactly the "which layer lied?"
+ *   evidence. The capture-failure path (`replay === null`) sends this frame
+ *   without any journal line at all: a missing `painted` line for a join
+ *   means the capture, not the history, is what failed.
  */
 export async function sendHistoryFrame(
   ws: WsSocket,
