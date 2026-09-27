@@ -65,7 +65,7 @@ selector over its own list.
 
 **The "you are here" ring is a SET, not one id** (operator ask 2026-09-27): a
 cell rings when its subshell is in the selection, which is the viewed
-`/subshells/:id` PLUS every pane of the `/workspaces/:id` you are standing in —
+`/subshells/:id` PLUS every pane of the `/workspaces/:id` you are standing in,
 so a workspace running several shells rings them all. The rail reads the SAME
 `useWorkspace` query the route runs (a cache hit, `enabled` off a workspace page
 so it never fetches elsewhere), and the grouped shapes (rows and headed cells)
