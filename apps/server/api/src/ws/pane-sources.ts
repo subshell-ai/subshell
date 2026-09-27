@@ -2,8 +2,8 @@ import { type FSWatcher, watch } from "node:fs";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { captureToTerminalText } from "@/ws/capture-text.js";
+import { ModeStreamStripper } from "@/ws/mode-stripper.js";
 import type { PaneSource } from "@/ws/pane-stream.js";
-import { SyncStreamStripper } from "@/ws/sync-stripper.js";
 
 /**
  * How often the pane log is re-read for new bytes.
@@ -54,9 +54,10 @@ export interface LogTailSourceOptions {
  * drops; both paths share one size-based read, so delivery is identical
  * either way.
  *
- * The decoder and the sync stripper are STREAM-lived, not per-viewer: a
- * multi-byte character or a DEC 2026 marker split across two reads must be
- * held until its other half arrives, and per-viewer copies of that state
+ * The decoder and the mode stripper are STREAM-lived, not per-viewer: a
+ * multi-byte character or a stripped DEC private-mode marker split across two
+ * reads must be held until its other half arrives, and per-viewer copies of
+ * that state
  * would each see only part of the file and burn the split bytes to U+FFFD.
  * This is one of the reasons the pump is shared rather than duplicated.
  *
@@ -73,7 +74,7 @@ export function createLogTailSource(options: LogTailSourceOptions): PaneSource {
       let again = false;
       let stopped = false;
       const decoder = new TextDecoder();
-      const stripper = new SyncStreamStripper();
+      const stripper = new ModeStreamStripper();
 
       const pump = async (): Promise<void> => {
         if (pumping) {
@@ -89,8 +90,9 @@ export function createLogTailSource(options: LogTailSourceOptions): PaneSource {
               const buf = await Bun.file(options.logFile).slice(lastSize, size).arrayBuffer();
               lastSize = size;
               const text = stripper.push(decoder.decode(buf, { stream: true }));
-              // Empty when the whole read was a held marker prefix or a false
-              // sync marker: nothing paintable, so nothing to send or persist.
+              // Empty when the whole read was a held marker prefix or a
+              // false-positive mode hold: nothing paintable, so nothing to
+              // send or persist.
               if (!text) continue;
               if (stopped) break; // disposed mid-read; the bytes are the next stream's
               emit(text);
@@ -221,8 +223,8 @@ export interface RemoteTailSourceOptions {
  * and disposes immediately.
  *
  * Decoder and stripper are STREAM-lived for the same reason as the local
- * twin — a multi-byte character or a DEC 2026 marker split across two reads
- * must be held until its other half arrives.
+ * twin: a multi-byte character or a stripped DEC private-mode marker split
+ * across two reads must be held until its other half arrives.
  *
  * @param options - Launcher, subshell, start offset, and the output heartbeat
  * @returns A source for {@link import("./pane-stream.js").PaneStreamRegistry}
@@ -231,7 +233,7 @@ export function createRemoteTailSource(options: RemoteTailSourceOptions): PaneSo
   return {
     start(emit) {
       const decoder = new TextDecoder();
-      const stripper = new SyncStreamStripper();
+      const stripper = new ModeStreamStripper();
       let stopped = false;
       let dispose: (() => void) | undefined;
 

@@ -1,4 +1,4 @@
-import { stripSyncMarkers } from "@/ws/sync-stripper.js";
+import { stripViewerModes } from "@/ws/mode-stripper.js";
 
 /**
  * The one boundary that turns a `capture-pane` payload into bytes safe to
@@ -18,7 +18,9 @@ import { stripSyncMarkers } from "@/ws/sync-stripper.js";
  *    (2026-09-02). The visible grid looked fine because the app's live diffs
  *    repaint it with absolute cursor positioning — but nothing ever rewrites
  *    scrollback, so the staircase froze there permanently.
- * 2. **DEC 2026 markers** ({@link stripSyncMarkers}) — the 1 s paint gate.
+ * 2. **DEC private-mode sequences** ({@link stripViewerModes}): the DEC 2026
+ *    synchronized-output markers (the 1 s paint gate) and the alternate-screen
+ *    toggles (a viewer parked on the alt buffer has no scrollback).
  *
  * NOT for the live tail. Those bytes are the pane's OWN output, replayed from
  * the pipe-pane log with the app's own control sequences; a bare LF there is
@@ -32,7 +34,7 @@ import { stripSyncMarkers } from "@/ws/sync-stripper.js";
 export function captureToTerminalText(capture: string): string {
   // `\r?\n` rather than `\n`: idempotent if tmux ever emits CRLF itself, so a
   // future tmux cannot turn this into `\r\r\n`.
-  return stripSyncMarkers(capture).replace(/\r?\n/g, "\r\n");
+  return stripViewerModes(capture).replace(/\r?\n/g, "\r\n");
 }
 
 /**

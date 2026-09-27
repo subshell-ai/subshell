@@ -84,13 +84,20 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
 grid as the viewer found it vs. the exact bytes sent. **Off by default: the
 dumps are real screen contents, which can include secrets.**
 
-Three invariants on that path are load-bearing and easy to regress:
+Four invariants on that path are load-bearing and easy to regress:
 
 - Capture text (`replay`, pane-poll deltas) goes through
   `ws/capture-text.ts`; `capture-pane -p` emits **bare LFs**, and a bare LF
   keeps the cursor's column, which staircases every row into scrollback where
   nothing ever repaints it. The live tail must NOT be normalized: those bare
   LFs are the app's own deliberate output.
+- Every outbound byte path (replay, live tail, pane-poll fallback) also passes
+  through `ws/mode-stripper.ts`, which removes DEC 2026 markers and the
+  alternate-screen modes (1049/1047/47) before xterm sees them. A panel open
+  across an app's `?1049h` would otherwise live on the alt buffer for its whole
+  life: no scrollback, no scrollbar, dead wheel (2026-09-27 operator report:
+  "Linux panes scroll, my always-open mac panels don't"). The pane's own log
+  file stays byte-raw: only the outbound copy is stripped.
 - The attach streams **gap-free**: a skipped byte desynchronizes a
   diff-rendering TUI permanently. The tail therefore joins at a PRE-RESIZE
   log offset, so the replayed capture and the first streamed bytes **overlap**.

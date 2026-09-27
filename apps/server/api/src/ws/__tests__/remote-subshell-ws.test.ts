@@ -22,7 +22,7 @@ import { paneStreams, resetLiveViewersForTests, sharedGridFor, type WsSocket } f
  * Task 11 — the live-terminal relay for agent-node rows (spec 2026-08-31
  * §6.5). The browser contract must be BYTE-IDENTICAL to the local attach:
  * `{"type":"replay","data":...}` then `{"type":"output","data":...}` frames,
- * every outbound string through `stripSyncMarkers`, refusals on 4004.
+ * every outbound string through `stripViewerModes`, refusals on 4004.
  *
  * The node side is the FULL loop: a fake `NodeSocket` on the REAL registry,
  * driven by the REAL `sendCommand` (the launcher keeps its default seams) —

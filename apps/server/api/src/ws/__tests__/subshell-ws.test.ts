@@ -7,8 +7,9 @@ import { parseClientBuild } from "@/ws/attach-params.js";
 import { handleSubshellMessage } from "@/ws/subshell-ws.js";
 import { registerViewer, resetGeometryQueueForTests, resetLiveViewersForTests, type WsSocket } from "@/ws/viewers.js";
 
-// stripSyncMarkers / SyncStreamStripper moved to ws/sync-stripper.ts —
-// pinned there by __tests__/sync-stripper.test.ts.
+// stripViewerModes / ModeStreamStripper moved to ws/mode-stripper.ts (it
+// widened past DEC 2026 on 2026-09-27); pinned there by
+// __tests__/mode-stripper.test.ts.
 
 /** Records every launcher call the message handler makes. `canInput` defaults true (an edit/owner attach). */
 function fakeSocket(
