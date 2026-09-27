@@ -1,5 +1,13 @@
 # @internal/server
 
+## 1.2.1
+
+### Patch Changes
+
+- [#245](https://github.com/subshell-ai/subshell/pull/245) [`f3429c1`](https://github.com/subshell-ai/subshell/commit/f3429c1e88684efebf38d915a0493a1b8862d6ce) Thanks [@theogravity](https://github.com/theogravity)! - fix(web): The in-flight input badge (issue [#243](https://github.com/subshell-ai/subshell/issues/243)) shows only inside the diagnostics state. With pane diagnostics off the terminal's overlay column renders nothing, so normal typing no longer flickers the top-right corner; with them on the HUD and the badge are placed exactly as before.
+
+- [#247](https://github.com/subshell-ai/subshell/pull/247) [`180cb59`](https://github.com/subshell-ai/subshell/commit/180cb59d9441d28bc42e643513c64d50b4154c01) Thanks [@theogravity](https://github.com/theogravity)! - Typing `;` (or any input ending in one) into a pane now reaches the terminal: tmux's command parser silently consumed a trailing semicolon from every input frame, so a bare `;` keystroke typed nothing at all. A working directory whose name ends in `;` no longer splits the pane's launch command.
+
 ## 1.2.0
 
 ### Minor Changes
