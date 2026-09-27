@@ -374,7 +374,6 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   const replay = text != null ? captureToReplayText(text, cursor ?? undefined) : null;
   if (replay != null) {
     sendFrame(ws, { type: "replay", data: replay });
-    recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged });
   }
   // Prior scrollback, BEFORE `open()` so the wire order is
   // [replay][history][output…] and the window ends exactly at `logStart`,
@@ -386,7 +385,13 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // and a restarted row's log spans both lives — shipping its window would
   // repaint the panel to mark-time state AFTER the replay, undoing the
   // deliberate drop.
-  if (!booting) await sendHistoryFrame(ws, launcher, row.id, logStart);
+  const historyBytes = !booting ? await sendHistoryFrame(ws, launcher, row.id, logStart) : 0;
+  if (replay != null) {
+    // ONE journal line per attach, now counting the history window too: a
+    // "which layer lied?" reading of the dump must not understate what the
+    // viewer was sent by the whole window.
+    recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged, historyBytes });
+  }
 
   // The replay is out; release everything the pane produced while it was
   // being captured, then stream live.

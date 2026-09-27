@@ -79,8 +79,12 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
   server bug; static requests are not logged, so this is the only signal.
   `build=MISSING` is a bundle older than the field; `build=dev` is a dev
   server.
-- `painted repainted=<bool> nudged=<bool> replay=<n>B dump=<dir|off>`: what
-  the pane did before the capture.
+- `painted repainted=<bool> nudged=<bool> replay=<n>B history=<n>B dump=<dir|off>`: what
+  the pane did before the capture. `history=<n>B` is the byte length of the
+  one-shot prior-scrollback frame sent after the replay (0 for none: booting,
+  knob off, or a failed read); it is counted, not dumped, because the window
+  stays recoverable from the pane's raw log at `[mark-N, mark)` whereas the
+  replay is tmux-rendered and gone once sent.
   `repainted=false nudged=true` means the geometry CHANGED and the pane
   refused to repaint even for a forced SIGWINCH, so a bad replay is the
   pane's own state; `repainted=true` means a freshly painted frame was

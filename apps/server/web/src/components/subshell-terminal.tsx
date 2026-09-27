@@ -867,16 +867,21 @@ export function SubshellTerminal({
     // Ensure the terminal has at least one line
     term.write("");
 
-    // ONE re-assertion after the first parsed write. Attach replay grows the
-    // buffer with no resize at all, and the geometry frame that follows it
-    // resizes mid-repaint — the 2026-09-27 report's pane was a reload of a
-    // panel with prior scrollback, thumb and buffer never agreeing (#6172,
-    // and #6117 for the resize-during-paused-renderer variant; see
-    // lib/terminal-scrollbar). One-shot by design: output frames must not
-    // carry the repair with them.
+    // ONE re-assertion when the buffer first OVERFLOWS the viewport — the
+    // only moment a thumb exists that could be wrong. Attach replay plus the
+    // history frame grow the buffer with no resize at all, and the geometry
+    // frame that follows resizes mid-repaint — the 2026-09-27 report's pane
+    // was a reload with prior scrollback, thumb and buffer never agreeing
+    // (#6172, and #6117 for the resize-during-paused-renderer variant; see
+    // lib/terminal-scrollbar). The gate is `baseY > 0` (the public spelling
+    // of "scrollable lines exist"), NOT "a write parsed": the `term.write("")`
+    // above is itself a parsed write and would latch the repair one event-loop
+    // turn after mount, before any replay. A flat pane never latches; if it
+    // overflows later, this same still-armed handler fires the one repair and
+    // disposes itself. One-shot by design: output frames carry nothing.
     let firstPaintResynced = false;
     const firstPaint = term.onWriteParsed(() => {
-      if (firstPaintResynced) return;
+      if (firstPaintResynced || term.buffer.active.baseY === 0) return;
       firstPaintResynced = true;
       firstPaint.dispose();
       scheduleScrollbarResync(term);

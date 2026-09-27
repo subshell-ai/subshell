@@ -60,27 +60,36 @@ import { sendFrame, type WsSocket } from "@/ws/viewers.js";
  * @param markOffset - the log offset where the live stream starts; the
  *   window ends here and `TERMINAL_HISTORY_BYTES` before it is where it
  *   begins (clamped at 0, so a young pane ships from its true first byte)
+ * @returns the byte length of the frame actually sent (0 when none: empty
+ *   window, knob off, booting skip at the caller, or failed read). The
+ *   attach's ONE journal line carries it, because forensics that report only
+ *   `replay=` understate what the viewer was sent by the whole window — and
+ *   the window's known-degraded edges (a dropped split-marker head, a
+ *   boundary U+FFFD) are exactly the "which layer lied?" evidence.
  */
 export async function sendHistoryFrame(
   ws: WsSocket,
   launcher: NodeLauncher,
   subshellId: string,
   markOffset: number,
-): Promise<void> {
+): Promise<number> {
   const from = Math.max(0, markOffset - TERMINAL_HISTORY_BYTES);
   const want = markOffset - from;
   // A mark at byte 0 has no prior history, and `TERMINAL_HISTORY_BYTES` 0
   // (the off switch) makes every window empty the same way.
-  if (want === 0) return;
+  if (want === 0) return 0;
   try {
     const { bytes } = await launcher.readLog(subshellId, from, want);
     // One push, no flush: the stripper holds a split marker's head back (see
     // the window-END note above) and the held tail is dropped with it. A
     // window that is nothing but an incomplete marker yields "" and no frame.
     const history = new ModeStreamStripper().push(new TextDecoder().decode(bytes));
-    if (history) sendFrame(ws, { type: "history", data: history });
+    if (!history) return 0;
+    sendFrame(ws, { type: "history", data: history });
+    return history.length;
   } catch (err) {
     // Deliberately swallowed: see the best-effort note above.
     logger.withError(err).warn(`ws attach: prior-history read failed for ${subshellId}`);
+    return 0;
   }
 }

@@ -324,8 +324,6 @@ export async function attachRemoteSubshellWs(
 
     const painted = captureToReplayText(replay, cursor ?? undefined);
     sendFrame(ws, { type: "replay", data: painted });
-    recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged });
-    if (detached) return;
 
     // Prior scrollback — the LOCAL twin's identical line at the identical
     // point (same helper, after the replay send, before `open()`, window
@@ -337,7 +335,14 @@ export async function attachRemoteSubshellWs(
     // the capture already shows that state, and a restarted row's log spans
     // both lives — shipping its window would repaint the panel to
     // mark-time state AFTER the replay, undoing the deliberate drop.
-    if (!booting) await sendHistoryFrame(ws, launcher, row.id, logStart);
+    // (Detached sockets get no frame either — nothing is listening.)
+    const historyBytes = !detached && !booting ? await sendHistoryFrame(ws, launcher, row.id, logStart) : 0;
+
+    // ONE journal line per attach; the history count rides it exactly as the
+    // local twin's does, so a forensics read of either path understates
+    // nothing.
+    recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged, historyBytes });
+    if (detached) return;
 
     // Deliver: flush what the pump held while the replay was being taken,
     // then stream live. Decode/strip state lives in the SOURCE, not here —

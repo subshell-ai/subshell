@@ -91,6 +91,14 @@ export interface AttachPaintFacts {
   repainted: boolean;
   /** Whether the pane had to be nudged (±1 col) to force that repaint. */
   nudged: boolean;
+  /**
+   * Byte length of the one-shot `history` frame sent after the replay, or 0/
+   * absent for none. Reported because the history window is part of what the
+   * viewer was sent, and its known-degraded edges (a split-marker head
+   * dropped at the window's END, a boundary U+FFFD at its START) are exactly
+   * the "which layer lied?" evidence a garble hunt reads alongside the dump.
+   */
+  historyBytes?: number;
 }
 
 /**
@@ -111,8 +119,13 @@ export interface AttachPaintFacts {
  */
 export function recordAttachPaint(facts: AttachPaintFacts): void {
   const dir = writeAttachForensics(facts.subshellId, facts.preResize, facts.replay);
+  // The history window is NOT dumped (it stays recoverable byte-for-byte from
+  // the pane's own raw log at [mark-N, mark), unlike the replay which is
+  // tmux-rendered and gone once sent), but it is COUNTED: a garble hunt that
+  // reads only `replay=` would understate the wire by the whole window, and
+  // the window's known-degraded edges are prime "which layer?" suspects.
   logger.info(
     `ws attach ${facts.subshellId}: painted repainted=${facts.repainted} nudged=${facts.nudged} ` +
-      `replay=${facts.replay.length}B dump=${dir ?? "off"}`,
+      `replay=${facts.replay.length}B history=${facts.historyBytes ?? 0}B dump=${dir ?? "off"}`,
   );
 }

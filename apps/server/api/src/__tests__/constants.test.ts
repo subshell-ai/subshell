@@ -216,4 +216,13 @@ describe("terminal history clamp — derived from the node-link frame", () => {
   test("the default is untouched by the re-derivation", () => {
     expect(probeHistoryBytes()).toBe(262144);
   });
+
+  test("the documented off switch and its neighbors parse through the real loader", () => {
+    // `0` and any negative spell the frame OFF (no read, no frame); garbage
+    // falls back to the default rather than to zero, because "I mistyped the
+    // env" must not silently mean "disable the feature".
+    expect(probeHistoryBytes("0")).toBe(0);
+    expect(probeHistoryBytes("-5")).toBe(0);
+    expect(probeHistoryBytes("banana")).toBe(262144);
+  });
 });

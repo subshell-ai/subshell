@@ -417,12 +417,13 @@ export const TERMINAL_REPLAY_LINES = (() => {
  * The CAP is derived from the wire budget, not a magic number: on a remote
  * pane the window rides one `log_read` RESULT back as a single JSON frame
  * capped at {@link NODE_MAX_FRAME_BYTES} (1 MiB), with the bytes base64 at
- * ~4/3 plus the envelope. Half the ceiling is the 2x margin that fits; past
- * it the agent SUPPRESSES the over-cap result and the plane's RPC stalls the
- * full 10 s timeout on every attach. That is why the cap exists at all: a
- * value chosen for local panes can never silently become a remote-pane
- * stall. `0` (or any negative) switches the frame off entirely; garbage
- * falls back to the default.
+ * ~4/3 plus the envelope. Half the ceiling is the largest raw window whose
+ * ~699 KiB base64 form still clears the 1 MiB frame with room for the
+ * envelope; past the cap the agent SUPPRESSES the over-cap result and the
+ * plane's RPC stalls the full 10 s timeout on every attach. That is why the
+ * cap exists at all: a value chosen for local panes can never silently
+ * become a remote-pane stall. `0` (or any negative) switches the frame off
+ * entirely; garbage falls back to the default.
  *
  * Env: `SUBSHELL_TERMINAL_HISTORY_BYTES` (default 262144, cap 524288).
  */
