@@ -75,7 +75,12 @@ export function SubshellRecentRow({
               draggable
               onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
               className={cn(
-                "flex items-start gap-2 rounded-md py-1 pr-3 pl-3 text-detail transition-colors",
+                // `my-0.5` separates the rows: selection is a SET now, so two
+                // adjacent open panes both take the accent fill and, flush,
+                // their rounded pills fuse into one blob (operator device
+                // review 2026-09-27). A hair of vertical air keeps each a
+                // distinct pill.
+                "my-0.5 flex items-start gap-2 rounded-md py-1 pr-3 pl-3 text-detail transition-colors",
                 active
                   ? "bg-accent font-strong text-accent-foreground"
                   : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
