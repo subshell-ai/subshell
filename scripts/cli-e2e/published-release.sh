@@ -123,6 +123,16 @@ ok "setup key minted"
 
 echo "== 4. the node one-liner, served by the released server"
 export SUBSHELL_CONFIG_HOME="$W/node-config"
+# The rendered installer reads SUBSHELL_DATA_DIR as a relocation OPT-IN: set,
+# the binary, the dirs, and `setup --data-dir` all land there instead of the
+# isolated HOME. A caller running this by hand from a shell that exports the
+# knob (an operator whose real node lives somewhere custom, or a session that
+# inherited it) would have the "sandbox" write the binary into their ACTUAL
+# node data dir while config.json stays isolated — the half-leak the 1.3.0
+# post-cut check did on 2026-09-27 (harmless that time only because the
+# lazy-fetched bytes matched the installed 1.2.1). Sandboxes scrub their
+# inputs; HOME and SUBSHELL_CONFIG_HOME already do — this completes the set.
+unset SUBSHELL_DATA_DIR
 # A node NAMES ITSELF since 2026-09-17, and `setup` refuses without one when
 # nothing can be asked — which is always true of a piped `curl | bash`. The
 # rendered install.sh forwards this env var as `--name`. Without it this step
