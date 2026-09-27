@@ -5,6 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { RotateCcw, X } from "lucide-react";
@@ -610,6 +611,16 @@ export function SubshellTerminal({
     serializeRef.current = serialize;
     const searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
+    // Unicode measurement by grapheme cluster (2026-09-26 wave; the addon
+    // VS Code donated upstream): a ZWJ family emoji is ONE cell of width 2
+    // and CJK/modern-emoji get their real widths, where core's default
+    // tables are Unicode-6-era and mis-column modern output — VS Code ships
+    // exactly this addon. Loaded before `open`, before any pane data lands
+    // (the WS attaches in a later effect), so every row in the buffer is
+    // laid out by it; copy-mode tap hit-testing reads those same cells
+    // (tapCellsOfLine in lib/terminal-url-tap), render and tap sharing one
+    // width truth.
+    term.loadAddon(new UnicodeGraphemesAddon());
     // URLs in pane output become links (issue #242), opened ONLY with
     // ctrl/cmd held (measured 2026-09-26 in the installed bundles: core
     // `LinkManager._handleMouseUp` has NO modifier gate and a plain
@@ -634,12 +645,15 @@ export function SubshellTerminal({
     // NO renderer addon — xterm 6's own DOM renderer, deliberately (2026-09-04).
     // `@xterm/addon-canvas` is out for good: every release through
     // 0.8.0-beta.48 peer-requires `@xterm/xterm@^5`, and its last publish was
-    // 2024-07-14. `@xterm/addon-webgl` is a different case now —
-    // 0.20.0-beta.300 is the first build to peer-require ^6.1, so it IS
-    // installed (see 484b02e) but deliberately NOT loaded: a GPU renderer
-    // paints into a canvas, which makes devicePixelRatio handling mandatory,
-    // and this app has never had any — the DOM renderer paints through the
-    // browser and got DPR for free. Loading it belongs with that work.
+    // 2024-07-14. `@xterm/addon-webgl` is a different case: it WAS the
+    // loaded renderer before the "WebGL → canvas" swap this note's history
+    // records. 0.20.0-beta.300 — the first build to peer-require ^6.1 —
+    // kept it installed (see 484b02e) through this 2026-09-04 decision,
+    // deliberately NOT loaded: a GPU renderer paints into a canvas, which
+    // makes devicePixelRatio handling mandatory, and this app has never had
+    // any — the DOM renderer paints through the browser and got DPR for
+    // free. Loading it belongs with that work; the not-loaded dependency
+    // was dropped 2026-09-26.
     //
     // The history below is why the swap is not attempted casually. Under
     // 6.0.0 the CANVAS addon crashed

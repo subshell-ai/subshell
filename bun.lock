@@ -72,6 +72,7 @@
         "@shopify/flash-list": "2.0.2",
         "@tanstack/react-query": "5.101.4",
         "@xterm/addon-fit": "0.12.0-beta.301",
+        "@xterm/addon-unicode-graphemes": "0.5.0-beta.301",
         "@xterm/xterm": "6.1.0-beta.304",
         "expo": "57.0.18",
         "expo-clipboard": "57.0.1",
@@ -266,8 +267,8 @@
         "@xterm/addon-fit": "0.12.0-beta.301",
         "@xterm/addon-search": "0.17.0-beta.301",
         "@xterm/addon-serialize": "0.15.0-beta.301",
+        "@xterm/addon-unicode-graphemes": "0.5.0-beta.301",
         "@xterm/addon-web-links": "0.13.0-beta.301",
-        "@xterm/addon-webgl": "0.20.0-beta.300",
         "@xterm/xterm": "6.1.0-beta.304",
         "better-auth": "1.7.1",
         "class-variance-authority": "0.7.1",
@@ -1712,9 +1713,9 @@
 
     "@xterm/addon-serialize": ["@xterm/addon-serialize@0.15.0-beta.301", "", { "peerDependencies": { "@xterm/xterm": "^6.1.0-beta.304" } }, "sha512-zWT0Sy5GCSTnarAXRiicu3XYHgam8DPtpkWfSLPME+A3s7U1A6Jy+ZATt8vMkatyeVOPI0GICYRuQJLZVgnVow=="],
 
-    "@xterm/addon-web-links": ["@xterm/addon-web-links@0.13.0-beta.301", "", { "peerDependencies": { "@xterm/xterm": "^6.1.0-beta.304" } }, "sha512-BpY297K+FGLsTQemnA6uOg6hk85DwVuUvWCqE9rIAcDxOOC7fP9GKAZTIfaEos/EZk2Ei23vD6w0P5Br6+RU7Q=="],
+    "@xterm/addon-unicode-graphemes": ["@xterm/addon-unicode-graphemes@0.5.0-beta.301", "", { "peerDependencies": { "@xterm/xterm": "^6.1.0-beta.304" } }, "sha512-EBZIZYS6RItWTGO/KpLqV6y3IKGYyugbP07lK0x6G7185FVA61L2t0/XVtVEQNpczsbPo8zAxBhpoV72TP8CYw=="],
 
-    "@xterm/addon-webgl": ["@xterm/addon-webgl@0.20.0-beta.300", "", { "peerDependencies": { "@xterm/xterm": "^6.1.0-beta.304" } }, "sha512-BJQiOx8I+zz2woe+/E9nWprRRPevo9slPgyOd43E8o18aG307ccsyaTJoIbSu99uqfDoVLWDRLTy91ZXTFsdig=="],
+    "@xterm/addon-web-links": ["@xterm/addon-web-links@0.13.0-beta.301", "", { "peerDependencies": { "@xterm/xterm": "^6.1.0-beta.304" } }, "sha512-BpY297K+FGLsTQemnA6uOg6hk85DwVuUvWCqE9rIAcDxOOC7fP9GKAZTIfaEos/EZk2Ei23vD6w0P5Br6+RU7Q=="],
 
     "@xterm/xterm": ["@xterm/xterm@6.1.0-beta.304", "", {}, "sha512-Wq9d4qFYslYQBIan+riXotdyurtREc6v+HWdAwV6Y2JSDI9eJ1dkWm/fzYb2rCGgGnM3baiYuSK4Z6OLNKLzDw=="],
 

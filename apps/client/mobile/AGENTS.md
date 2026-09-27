@@ -90,7 +90,7 @@ goes red at runtime rather than at typecheck.
 Live tab's xterm page (JS + CSS inlined, zero network requests: the WebView
 owns no network and cannot reach the token) is produced by
 `bun scripts/sync-terminal-assets.ts` (from `apps/client/mobile`), which re-inlines
-the pinned `@xterm/*` files from `node_modules`. After bumping either dep,
+the pinned `@xterm/*` files from `node_modules`. After bumping any of them,
 re-run it and commit the regenerated file. The root `biome.json` excludes
 `**/assets/terminal.html`: the exclusion is cwd-agnostic on purpose, because
 the pre-commit `lint:staged` task runs biome from `apps/client/mobile` and a
