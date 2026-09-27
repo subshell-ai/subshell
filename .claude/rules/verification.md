@@ -15,12 +15,19 @@ bunx biome check <changed paths>                      # read-only; `bun run lint
 ```bash
 bun run verify-types
 bun run lint:check
+bun run lint:prose
 bun run test
 ```
 
+`lint:prose` enforces the voice rule (no U+2014 in authored prose, operator
+ruling 2026-09-25) in ~20 ms; it joined this set after PR #269 shipped two em
+dashes that only CI's lint workflow caught, because neither the trio above (as
+it then read) nor pre-push covered it.
+
 If any of these fail, fix the issues before considering the task complete. Do not proceed to commits or other work until the checks relevant to that step pass. Subagent gate contracts should name the focused files for the work and reserve the full suite for the boundary.
 
-`pre-push` runs only the first two (types + lint): CI owns the test suite. Run all three
+`pre-push` runs the fast static checks (types, `lint:check`, licenses, design
+tokens, prose) but NOT the test suite: CI owns that. Run `bun run test`
 yourself before pushing anything you expect to be green on the first try.
 
 ## Changes under `packages/` need a build
