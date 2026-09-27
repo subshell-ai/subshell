@@ -375,14 +375,16 @@ appendStdinToLogFile(a[a.indexOf("--file") + 1]);
   // `x;` typed `x`, and a cwd ending in one split the launch command in two.
   describe("frames and cwds ending in `;` survive tmux's parser", () => {
     // [typed payload, argv element the fix must spawn]. Only payloads ending
-    // in `;` change; the rest pass through byte-identical. The fourth entry
-    // proves the encoding escapes the semicolon WITHOUT disturbing a literal
-    // backslash sitting right before it.
+    // in `;` change; the rest pass through byte-identical. The `a\;` and
+    // `a\\;` rows are where the rule is load-bearing: the parser's restore
+    // eats exactly ONE preceding backslash, so the encoder adds exactly one —
+    // enough to shield the payload's own backslashes, never one too many.
     const frames: Array<{ payload: string; encoded: string }> = [
       { payload: ";", encoded: "\\;" },
       { payload: ";;", encoded: ";\\;" },
       { payload: "x;", encoded: "x\\;" },
       { payload: "a\\;", encoded: "a\\\\;" },
+      { payload: "a\\\\;", encoded: "a\\\\\\;" },
       { payload: "a;b", encoded: "a;b" },
       { payload: ";x", encoded: ";x" },
       { payload: "y;;z", encoded: "y;;z" },
@@ -478,6 +480,32 @@ appendStdinToLogFile(a[a.indexOf("--file") + 1]);
         rmSync(readyFile, { force: true });
       }
     }, 15_000);
+
+    it("a cwd ending in `;` lands the pane in that directory (real tmux)", async () => {
+      // The stub test above pins what tmux RECEIVES for `-c`; this observes
+      // the COMPOSITION. Unfixed, the parser terminated the launch command AT
+      // the cwd — the rest of the argv became a garbage second command, tmux
+      // answered non-zero, and `newSubshell` threw before a pane existed.
+      // The pane prints its cwd into a sentinel file rather than a capture
+      // assertion because `pwd` reports the PHYSICAL path (macOS tmpdir lives
+      // under /private/ behind a symlink), so the check pins the unique
+      // directory name WITH its trailing `;` — the ending every spelling of
+      // the path shares, and the exact byte the parser used to eat.
+      const base = `subshell-semi-cwd-${process.pid}-${Date.now()};`;
+      const dir = join(tmpdir(), base);
+      mkdirSync(dir);
+      const outFile = join(tmpdir(), `subshell-semi-cwd-pwd-${process.pid}-${Date.now()}.txt`);
+      const socket = freshSocket("semicwd");
+      try {
+        runner.newSubshell(socket, "s1", dir, `pwd > ${outFile}; sleep 30`);
+        const content = await waitForFileToContain(outFile, base, 4_000);
+        expect(content.trim().endsWith(base)).toBe(true);
+      } finally {
+        runner.killSubshell(socket, "s1");
+        rmSync(dir, { recursive: true, force: true });
+        rmSync(outFile, { force: true });
+      }
+    });
   });
 
   it("relaunching on a just-emptied socket wins the server-shutdown race (restart path)", async () => {

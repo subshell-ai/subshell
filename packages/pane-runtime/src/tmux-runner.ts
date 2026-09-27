@@ -114,12 +114,12 @@ function isServerShutdownRace(err: unknown): boolean {
  * command simply ends there. `send-keys -l` cannot protect against it: by the
  * time `-l` takes effect the parser has already eaten the byte.
  *
- * Measured on tmux 3.7c, what a raw-mode `cat` pane received for each payload,
- * unencoded: `;` → NOTHING (issue #244: a semicolon keystroke typed nothing at
- * all), `;;` → `;`, `x;` → `x`, `a\;` → `a;` — while `;x`, `a;b` and `y;;z`
- * came through untouched. Only the TRAILING semicolon is eaten, and it eats a
- * backslash sitting ahead of it, so escaping exactly that one character is the
- * whole fix.
+ * Measured 2026-09-26 on tmux 3.7c, what a raw-mode `cat` pane received for
+ * each payload, unencoded: `;` → NOTHING (issue #244: a semicolon keystroke
+ * typed nothing at all), `;;` → `;`, `x;` → `x`, `a\;` → `a;` — while `;x`,
+ * `a;b` and `y;;z` came through untouched. Only the TRAILING semicolon is
+ * eaten, and it eats a backslash sitting ahead of it, so escaping exactly
+ * that one character is the whole fix.
  *
  * The escape is tmux's own. Measured through this encoder, payload → pane:
  * `;`→`;`, `;;`→`;;`, `x;`→`x;`, `a\;`→`a\;` — a payload ending in a literal
