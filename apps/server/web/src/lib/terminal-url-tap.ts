@@ -60,9 +60,12 @@ const URL_RE = /^https?:\/\//i;
  * tables — this module never decides): `width` 2 is a wide glyph owning two
  * columns, 0 is a continuation or a zero-width carry owning none, 1 is
  * ordinary. `char` is the cell's text as the buffer stores it — which may
- * be a whole grapheme cluster (the addon packs 👨‍👩‍👧 into ONE cell), a base
- * with its marks (core packs them too), "" for a continuation, and "" for a
- * blank cell (which `translateToString` renders as a space).
+ * be a whole grapheme cluster (the addon packs 👨‍👩‍👧 into ONE cell) or a base
+ * with its marks (core packs them too). Measured on the pinned beta.304: a
+ * BLANK cell stores `" "` (charcode 32 — `getChars()` hands back the space,
+ * NOT ""), so `stringUnitsOf`'s blank branch is defense against a provider
+ * spelling, not the live path; `""` is the ZERO-WIDTH spellings — a wide
+ * glyph's continuation, which contributes no text and owns no column.
  */
 export interface TapCell {
   /** The cell's text as the buffer stores it (may be multiple code points). */

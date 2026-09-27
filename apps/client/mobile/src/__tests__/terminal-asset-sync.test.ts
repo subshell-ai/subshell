@@ -3,9 +3,10 @@ import { readFileSync } from "node:fs";
 import { buildTerminalHtml, TERMINAL_HTML_PATH } from "../../scripts/sync-terminal-assets";
 
 /**
- * `assets/terminal.html` is GENERATED: it inlines xterm's bundle, its CSS and
- * the fit addon into one self-contained page, because the WebView's opaque
- * origin cannot fetch them. Regenerating it after an `@xterm/*` bump is a
+ * `assets/terminal.html` is GENERATED: it inlines xterm's bundle, its CSS,
+ * the fit addon and the unicode-graphemes addon into one self-contained page,
+ * because the WebView's opaque origin cannot fetch them. Regenerating it after
+ * an `@xterm/*` bump is a
  * manual step documented only in prose, with no build task behind it — so
  * nothing but this test notices when it is skipped.
  *
