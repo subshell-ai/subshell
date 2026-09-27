@@ -32,6 +32,7 @@ import {
   scrollbarReserve,
 } from "@/lib/terminal-geometry";
 import { isPasteChord } from "@/lib/terminal-keys";
+import { scheduleScrollbarResync } from "@/lib/terminal-scrollbar";
 import {
   attachCopyModeShield,
   attachTouchScroll,
@@ -395,7 +396,15 @@ export function SubshellTerminal({
   // Live FitAddon for the WS hook: it re-measures right before the attach
   // URL carries the grid size (a stale size captures mis-wrapped rows).
   const fitRef = useRef<FitAddon | null>(null);
-  const measureGrid = useCallback(() => fitRef.current?.fit(), []);
+  const measureGrid = useCallback(() => {
+    fitRef.current?.fit();
+    // fit() resizes the buffer whenever the measured grid differs — and a
+    // resize is what can strand the overlay thumb (upstream #6172; see
+    // lib/terminal-scrollbar). The schedule is coalesced, so a fit() that
+    // bailed early only costs one harmless re-assert at the unchanged truth.
+    const term = termRef.current;
+    if (term) scheduleScrollbarResync(term);
+  }, []);
   // Plain-text screen captured just before the terminal was disposed; shown
   // while `active` is false so a detached pane still reads as itself.
   const [snapshot, setSnapshot] = useState("");
@@ -670,6 +679,10 @@ export function SubshellTerminal({
     // `ws/capture-text.ts`.
     term.open(containerRef.current);
     fit.fit();
+    // The first resize this terminal applies, before anything else can strand
+    // the thumb (lib/terminal-scrollbar; every later one below is the same
+    // re-assert at the resize site).
+    scheduleScrollbarResync(term);
     termRef.current = term;
     // A freshly-built terminal starts at the current posture; the effect
     // beside the WS hook owns every later change, and both write the same
@@ -758,6 +771,10 @@ export function SubshellTerminal({
     };
     const ro = new ResizeObserver(() => {
       fit.fit();
+      // The letterbox's route to a buffer resize: pinning the container to
+      // the pane's grid re-measures HERE, so the geometry and font paths both
+      // land on this line (upstream #6172; lib/terminal-scrollbar).
+      scheduleScrollbarResync(term);
       repairCursorVisibility();
     });
     // The pane box drives the SIZE REQUEST. Separate from the observer above,
@@ -773,6 +790,8 @@ export function SubshellTerminal({
       if (typeof size === "number" && size > 0) {
         term.options.fontSize = size;
         fit.fit();
+        // The refit resized the buffer at the new cell size (lib/terminal-scrollbar).
+        scheduleScrollbarResync(term);
         // The pane's grid has not changed, but its cell size has — so both
         // the box that holds exactly that grid AND how much this viewport can
         // show are different now. Settled, because the metrics this reads
@@ -848,6 +867,21 @@ export function SubshellTerminal({
     // Ensure the terminal has at least one line
     term.write("");
 
+    // ONE re-assertion after the first parsed write. Attach replay grows the
+    // buffer with no resize at all, and the geometry frame that follows it
+    // resizes mid-repaint — the 2026-09-27 report's pane was a reload of a
+    // panel with prior scrollback, thumb and buffer never agreeing (#6172,
+    // and #6117 for the resize-during-paused-renderer variant; see
+    // lib/terminal-scrollbar). One-shot by design: output frames must not
+    // carry the repair with them.
+    let firstPaintResynced = false;
+    const firstPaint = term.onWriteParsed(() => {
+      if (firstPaintResynced) return;
+      firstPaintResynced = true;
+      firstPaint.dispose();
+      scheduleScrollbarResync(term);
+    });
+
     onReadyRef.current?.({
       term,
       serialize,
@@ -864,6 +898,7 @@ export function SubshellTerminal({
       detachWheelScroll();
       detachTouchKeyboard();
       detachCopyShield();
+      firstPaint.dispose();
       if (vv) {
         vv.removeEventListener("resize", repairCursorVisibility);
         vv.removeEventListener("scroll", repairCursorVisibility);
