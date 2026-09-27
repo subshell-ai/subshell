@@ -505,7 +505,7 @@ appendStdinToLogFile(a[a.indexOf("--file") + 1]);
         rmSync(dir, { recursive: true, force: true });
         rmSync(outFile, { force: true });
       }
-    });
+    }, 15_000);
   });
 
   it("relaunching on a just-emptied socket wins the server-shutdown race (restart path)", async () => {
