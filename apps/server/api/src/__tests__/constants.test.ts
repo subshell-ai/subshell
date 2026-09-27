@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { NODE_MAX_FRAME_BYTES } from "@internal/subshell-protocol";
 import { DATABASE_PATH, IS_TEST, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 
 /** Absolute path to the module under test, for the out-of-process probes below. */
@@ -158,5 +159,61 @@ describe("test-mode database resolution", () => {
     const result = probeConstants({ NODE_ENV: "development", SUBSHELL_SERVER_DATA_DIR: "/srv/subshell-data" });
 
     expect(result.SUBSHELL_SERVER_DATA_DIR).toBe("/srv/subshell-data");
+  });
+});
+
+/**
+ * Fresh-process probe of `TERMINAL_HISTORY_BYTES` and its cap. Same shape
+ * and same hygiene as `probeConstants` (bare env, empty config home, temp
+ * cwd) for the same reason: the constant parses the environment ONCE at
+ * module load, and this suite has already imported it.
+ */
+function probeHistoryBytes(historyEnv?: string): number {
+  const dir = mkdtempSync(join(tmpdir(), "subshell-constants-history-"));
+  const script = join(dir, "probe.ts");
+  writeFileSync(
+    script,
+    `import { TERMINAL_HISTORY_BYTES } from ${JSON.stringify(CONSTANTS_MODULE)};\n` +
+      `console.log(TERMINAL_HISTORY_BYTES);\n`,
+  );
+
+  const proc = Bun.spawnSync(["bun", "run", script], {
+    cwd: dir,
+    env: {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      TMPDIR: process.env.TMPDIR,
+      SUBSHELL_SERVER_CONFIG_DIR: mkdtempSync(join(tmpdir(), "subshell-constants-history-cfg-")),
+      ...(historyEnv === undefined ? {} : { SUBSHELL_TERMINAL_HISTORY_BYTES: historyEnv }),
+    } as Record<string, string>,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const stdout = proc.stdout.toString().trim();
+  if (proc.exitCode !== 0) {
+    throw new Error(`probe failed (${proc.exitCode}): ${proc.stderr.toString()}`);
+  }
+  return Number(stdout.split("\n").at(-1));
+}
+
+describe("terminal history clamp — derived from the node-link frame", () => {
+  test("an env above the cap clamps to half the node frame ceiling, not to 4 MiB", () => {
+    // The window of a REMOTE pane rides one `log_read` JSON result capped at
+    // NODE_MAX_FRAME_BYTES with the bytes base64'd at ~4/3: an over-cap
+    // value reads as a SUPPRESSED agent result and stalls the full RPC
+    // timeout on every attach. The review's defect was an invitation to set
+    // 4 MiB against a 1 MiB wire budget.
+    expect(probeHistoryBytes("8388608")).toBe(NODE_MAX_FRAME_BYTES >> 1);
+  });
+
+  test("a value between the default and the cap passes through: the cap is the wire budget, not the default", () => {
+    // 300000 > 262144 (the default) and < 524288 (the cap), so this fails
+    // the moment either number moves under someone's feet.
+    expect(probeHistoryBytes("300000")).toBe(300000);
+  });
+
+  test("the default is untouched by the re-derivation", () => {
+    expect(probeHistoryBytes()).toBe(262144);
   });
 });

@@ -1276,6 +1276,30 @@ describe("local attach history frame", () => {
     }
   });
 
+  it("a BOOTING viewer gets no history frame even when the log window is non-empty", async () => {
+    // The booting invariant the attach already enforces one screen earlier:
+    // a booting viewer's pre-capture bytes are DROPPED (discardQueued)
+    // because the capture subsumes them. A zero-byte log already ships no
+    // frame (empty window); the case that could contradict the drop is a
+    // RESTART inside the grace, whose log survived the old life and whose
+    // window therefore holds exactly the before-boot bytes. Shipping them
+    // would repaint the panel to mark-time state after the replay — the
+    // state the queued bytes were discarded to avoid (issue 166/167's
+    // second prompt), and the remote twin carries the same rule.
+    stubLauncher();
+    const spy = readLogSpy(utf8("before-boot scrollback"));
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n"); // residual log ⇒ non-empty window
+    const { repos } = getRequestlessContext();
+    await repos.subshells.update(row.id, { startedAt: new Date().toISOString() }); // fresh boot ⇒ booting
+
+    const { sent, closed } = await attach(row.userId, row.id);
+    expect(closed).toEqual([]); // the attach ran; only the history frame is withheld
+    expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+    expect(sent.some((f) => f.includes('"type":"history"'))).toBe(false);
+    expect(spy.calls).toEqual([]); // the window is not even read
+  });
+
   it("a throwing readLog still delivers the replay and the live tail", async () => {
     stubLauncher();
     // History is best effort: a torn read ships no frame and must never fail

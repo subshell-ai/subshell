@@ -93,6 +93,34 @@ describe("scheduleScrollbarResync", () => {
     }
     expect(calls.length).toBe(2);
   });
+
+  it("a dispose landing inside the booked window fires as a no-op, never a throw", () => {
+    // The REAL xterm, so this fails first if the swallow in
+    // scheduleScrollbarResync is ever removed: dispose leaves `_core._viewport`
+    // in place with `scrollToLine` present, and calling it throws a TypeError
+    // inside xterm (`_renderer.value.dimensions` is gone), which the
+    // optional-chaining guard cannot reach. A panel unmounting inside the
+    // one-frame window used to surface that throw from the rAF callback;
+    // a repair that fails on a dead terminal is exactly the no-op the guard
+    // posture is for.
+    const term = new Terminal({ cols: 20, rows: 5, scrollback: 100, allowProposedApi: true });
+    const el = document.createElement("div");
+    document.body.appendChild(el);
+    term.open(el);
+    const frames = fakeFrames();
+    try {
+      scheduleScrollbarResync(term);
+      term.dispose(); // the unmount lands inside the window
+      expect(frames.pending()).toBe(1);
+      // The raw repair DOES throw on the disposed terminal: this pins that
+      // the scheduler's catch is load-bearing, not belt-and-braces.
+      expect(() => resyncScrollbarToBuffer(term)).toThrow(TypeError);
+      expect(() => frames.run()).not.toThrow();
+    } finally {
+      frames.restore();
+      el.remove();
+    }
+  });
 });
 
 describe("the real terminal keeps buffer and scrollbar in agreement", () => {

@@ -332,7 +332,12 @@ export async function attachRemoteSubshellWs(
     // ending at `logStart` where this relay's tail starts), so
     // [replay][history][output…] holds for a node pane exactly as for a
     // local one; the read rides the node's `log_read` through the launcher.
-    await sendHistoryFrame(ws, launcher, row.id, logStart);
+    // A BOOTING viewer gets NO frame, the local twin's identical rule: the
+    // discardQueued above dropped this viewer's pre-capture bytes because
+    // the capture already shows that state, and a restarted row's log spans
+    // both lives — shipping its window would repaint the panel to
+    // mark-time state AFTER the replay, undoing the deliberate drop.
+    if (!booting) await sendHistoryFrame(ws, launcher, row.id, logStart);
 
     // Deliver: flush what the pump held while the replay was being taken,
     // then stream live. Decode/strip state lives in the SOURCE, not here —

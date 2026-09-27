@@ -635,6 +635,35 @@ describe("attachRemoteSubshellWs — the history frame", () => {
     }
   });
 
+  it("a BOOTING viewer gets no history frame even when the log window is non-empty", async () => {
+    // The local twin's rule at the identical point, pinned here where the
+    // relay conflation lives: `log_read` answers size 7 (residual bytes from
+    // a PREVIOUS life) and the row's `startedAt` is inside the boot grace,
+    // so the attach reads as booting and the discardQueued drop already
+    // discarded this viewer's pre-capture bytes — the capture subsumes them.
+    // The window would hold exactly those before-boot bytes and repaint the
+    // panel to mark-time state after the replay, undoing the drop. Only the
+    // join's 1-byte size probe may reach the wire.
+    const sim = makeNodeSim();
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", "SCREEN");
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 }, 2);
+    const { ws, sent, closed } = fakeBrowser();
+
+    await attachRemoteSubshellWs(
+      ws,
+      attachRow({ startedAt: new Date().toISOString() }),
+      new RemoteLauncher(NODE_ID),
+      "owner",
+      attachParams(),
+    );
+    await until(() => sent.some((f) => f.includes('"type":"replay"')), "replay");
+
+    expect(closed).toEqual([]); // the attach ran; only the history frame is withheld
+    expect(sent.some((f) => f.includes('"type":"history"'))).toBe(false);
+    expect(sim.cmdsOf("log_read")).toEqual([{ type: "log_read", subshellId: SID, fromByte: 0, maxBytes: 1 }]);
+  });
+
   it("a failed history read ships no frame and never fails the attach", async () => {
     // Dead file, torn read, dropped node socket: history is best effort, and
     // the live join the pane matters for must survive the read that failed.

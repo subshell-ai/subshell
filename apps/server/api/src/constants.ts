@@ -7,6 +7,7 @@ import { DEFAULT_REGISTRY_URL } from "@internal/pane-runtime";
 import {
   DEFAULT_DATABASE_PATH,
   DEFAULT_RELEASE_API,
+  NODE_MAX_FRAME_BYTES,
   defaultSubshellServerDataDir as sharedDefaultSubshellServerDataDir,
 } from "@internal/subshell-protocol";
 import { default as envVar } from "env-var";
@@ -411,18 +412,25 @@ export const TERMINAL_REPLAY_LINES = (() => {
  * 256 KiB is the budget, not the file: a pane's log lives for
  * `SUBSHELL_LOG_RETENTION_DAYS` (30 by default), but the browser has to parse
  * the window before the panel is useful, and 256 KiB is a tens-of-milliseconds
- * parse that still spans hours of TUI scrollback. Hard-capped at 4 MiB for
- * the same load-guarantee reason {@link TERMINAL_REPLAY_LINES} caps at 200.
- * `0` (or any negative) switches the frame off entirely; garbage falls back
- * to the default.
+ * parse that still spans hours of TUI scrollback.
  *
- * Env: `SUBSHELL_TERMINAL_HISTORY_BYTES` (default 262144).
+ * The CAP is derived from the wire budget, not a magic number: on a remote
+ * pane the window rides one `log_read` RESULT back as a single JSON frame
+ * capped at {@link NODE_MAX_FRAME_BYTES} (1 MiB), with the bytes base64 at
+ * ~4/3 plus the envelope. Half the ceiling is the 2x margin that fits; past
+ * it the agent SUPPRESSES the over-cap result and the plane's RPC stalls the
+ * full 10 s timeout on every attach. That is why the cap exists at all: a
+ * value chosen for local panes can never silently become a remote-pane
+ * stall. `0` (or any negative) switches the frame off entirely; garbage
+ * falls back to the default.
+ *
+ * Env: `SUBSHELL_TERMINAL_HISTORY_BYTES` (default 262144, cap 524288).
  */
 export const TERMINAL_HISTORY_BYTES = (() => {
   const raw = Number.parseInt(env.get("SUBSHELL_TERMINAL_HISTORY_BYTES").default("262144").asString(), 10);
   if (!Number.isFinite(raw)) return 262144;
   if (raw <= 0) return 0;
-  return Math.min(4 * 1024 * 1024, raw);
+  return Math.min(NODE_MAX_FRAME_BYTES >> 1, raw);
 })();
 
 /**

@@ -16,7 +16,11 @@ type PrivateViewport = {
    * the one absolute position set the class has, and the one form that also
    * heals the guard field `queueSync` misuses. With it false the call reuses
    * the in-flight smooth-scroll animation and leaves `_latestYDisp` stale,
-   * which is wrong for a repair. (The public `Terminal.scrollToLine(line)`
+   * which is wrong for a repair. True does snap an in-flight smooth-scroll
+   * animation when a resize lands mid-fling, which is cosmetic and exactly
+   * what a repair wants (an immediate set), and a user DRAG is unaffected:
+   * the assert re-reads the live `viewportY`, so the thumb stays where the
+   * user put it. (The public `Terminal.scrollToLine(line)`
    * is not a substitute: it computes `line - ydisp` and no-ops at zero,
    * then delegates to a RELATIVE `setScrollPosition` off the scroller's own
    * current position — so it moves a strayed thumb by the amount it was
@@ -63,15 +67,24 @@ const pendingResyncs = new WeakSet<Terminal>();
  * container's ResizeObserver, the settled re-fit, the font-size handler),
  * and the desync is a STATE, not an event: asserting the true line once
  * after the frame repairs all of them at once. Keyed on the terminal, so
- * two panes never coalesce into each other, and a resync that lands after
- * `term.dispose()` reads a disposed viewport — xterm's emitters refuse to
- * fire once disposed, so it is inert, exactly the no-op the guard is for.
+ * two panes never coalesce into each other. An unmount landing inside the
+ * one-frame window fires the re-assertion on a disposed terminal, and there
+ * it is NOT inert: the viewport object survives dispose, and xterm's own
+ * `scrollToLine` dereferences `_renderer.value.dimensions`, which dispose
+ * has already torn down, so it throws a TypeError no optional chain can
+ * reach (measured on the installed build). The body swallows that throw: a
+ * repair that fails on a dead terminal is exactly the no-op the guard
+ * posture is for.
  */
 export function scheduleScrollbarResync(term: Terminal): void {
   if (pendingResyncs.has(term)) return;
   pendingResyncs.add(term);
   requestAnimationFrame(() => {
     pendingResyncs.delete(term);
-    resyncScrollbarToBuffer(term);
+    try {
+      resyncScrollbarToBuffer(term);
+    } catch {
+      // Disposed between the booking and the frame; see the note above.
+    }
   });
 }

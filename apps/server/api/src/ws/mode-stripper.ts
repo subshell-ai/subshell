@@ -29,6 +29,10 @@
  * fallback) must pass through here, and
  * the pane's own log file must NOT: it is the forensic record. Do not
  * reintroduce these sequences anywhere on the outbound path.
+ *
+ * Removal is exact-byte: zero-padded or prefixed spellings (`?01049h`) do
+ * not match, recorded as a non-issue because no real TUI or terminfo emitter
+ * produces them, measured practice rather than a defense.
  */
 
 // The markers are built at runtime so no control-character literal appears

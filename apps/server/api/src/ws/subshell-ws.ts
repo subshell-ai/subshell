@@ -379,8 +379,14 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
   // Prior scrollback, BEFORE `open()` so the wire order is
   // [replay][history][output…] and the window ends exactly at `logStart`,
   // where the tail starts. Best effort inside: a failed read sends nothing.
-  // The remote twin calls the same helper at the same point.
-  await sendHistoryFrame(ws, launcher, row.id, logStart);
+  // The remote twin calls the same helper at the same point under the same
+  // booting rule: a BOOTING viewer gets NO frame. The discardQueued above
+  // dropped this viewer's pre-capture bytes precisely because the capture
+  // already shows that state (the second-prompt lineage of issue 166/167),
+  // and a restarted row's log spans both lives — shipping its window would
+  // repaint the panel to mark-time state AFTER the replay, undoing the
+  // deliberate drop.
+  if (!booting) await sendHistoryFrame(ws, launcher, row.id, logStart);
 
   // The replay is out; release everything the pane produced while it was
   // being captured, then stream live.

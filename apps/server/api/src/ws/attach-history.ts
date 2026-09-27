@@ -1,7 +1,7 @@
 import { TERMINAL_HISTORY_BYTES } from "@/constants.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { logger } from "@/utils/logger.js";
-import { stripViewerModes } from "@/ws/mode-stripper.js";
+import { ModeStreamStripper } from "@/ws/mode-stripper.js";
 import { sendFrame, type WsSocket } from "@/ws/viewers.js";
 
 /**
@@ -34,11 +34,23 @@ import { sendFrame, type WsSocket } from "@/ws/viewers.js";
  * mid-escape-sequence or mid-codepoint: one non-streaming `TextDecoder`
  * turns that into a stray byte or a U+FFFD, which xterm absorbs across its
  * own writes exactly as today's live join already absorbs a chunk that
- * splits one. The history MUST pass through {@link stripViewerModes}: an app
- * that entered the alt screen at startup would otherwise park this viewer's
- * xterm on the scrollback-less alt buffer for its whole life, the bug the
- * mode stripper exists to kill. The pane's log file on disk stays byte-raw;
- * only this outbound copy is stripped.
+ * splits one. The history MUST be mode-stripped: an app that entered the
+ * alt screen at startup would otherwise park this viewer's xterm on the
+ * scrollback-less alt buffer for its whole life, the bug the mode stripper
+ * exists to kill. The pane's log file on disk stays byte-raw; only this
+ * outbound copy is stripped.
+ *
+ * And the window ENDS at an arbitrary offset too, which the stateless
+ * {@link stripViewerModes} cannot answer: the bytes may stop mid-marker
+ * (`…ESC[?104`) while the live pump's first bytes carry the completion
+ * (`9h`). Stripped statelessly, both halves ship, xterm completes
+ * `?1049h` ACROSS ITS OWN WRITES, and the panel parks on the alt buffer
+ * (a split `?2026` costs the 1 s paint gate the same way): this frame's
+ * own bug, resurrected at the history→live seam. So the strip runs through
+ * a THROWAWAY {@link ModeStreamStripper} whose held tail is DELIBERATELY
+ * DROPPED (never `flush`ed): the incomplete head simply is not in history,
+ * and the live bytes arrive as literal text at their true position.
+ * Degraded text in the oldest scrollback, never a completed mode.
  *
  * @param ws - the joining socket
  * @param launcher - the row's launcher; the read rides the same
@@ -62,7 +74,10 @@ export async function sendHistoryFrame(
   if (want === 0) return;
   try {
     const { bytes } = await launcher.readLog(subshellId, from, want);
-    const history = stripViewerModes(new TextDecoder().decode(bytes));
+    // One push, no flush: the stripper holds a split marker's head back (see
+    // the window-END note above) and the held tail is dropped with it. A
+    // window that is nothing but an incomplete marker yields "" and no frame.
+    const history = new ModeStreamStripper().push(new TextDecoder().decode(bytes));
     if (history) sendFrame(ws, { type: "history", data: history });
   } catch (err) {
     // Deliberately swallowed: see the best-effort note above.
