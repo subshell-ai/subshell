@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { IDockviewPanelHeaderProps } from "dockview-react";
 import { type WorkspaceDockContextValue, WorkspaceDockProvider } from "@/components/workspace-dock/context";
 import { SubshellTab } from "@/components/workspace-dock/subshell-tab";
+import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
 /** A pane row as the workspace detail join delivers it; waiting state off by default. */
@@ -29,7 +31,12 @@ type SplitCall = { panelId: string; direction: Exclude<SplitDirection, "within">
  * subscription). Returns the ids passed to `onRemovePane` and the
  * `(panelId, direction)` pairs passed to `onSplitPane`.
  */
-function renderTab(panes: WorkspacePaneRow[], removed: string[], split: SplitCall[] = []) {
+/**
+ * The list cache the tab's dot reads (`useSubshellRow`): one quiet row per
+ * pane unless `rows` overrides it — `[]` is the "list has not answered yet"
+ * world where the tab must draw NO dot.
+ */
+function renderTab(panes: WorkspacePaneRow[], removed: string[], split: SplitCall[] = [], rows?: unknown[]) {
   const detail = {
     workspace: {
       id: "w-1",
@@ -60,10 +67,18 @@ function renderTab(panes: WorkspacePaneRow[], removed: string[], split: SplitCal
     params: { paneId: "pane-1" },
     tabLocation: "header",
   } as unknown as IDockviewPanelHeaderProps;
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(
+    SUBSHELLS_QUERY_KEY,
+    rows ??
+      panes.map((p) => ({ id: p.subshellId, name: p.subshellName, status: "running", alive: true, activity: "idle" })),
+  );
   render(
-    <WorkspaceDockProvider value={ctx}>
-      <SubshellTab {...props} />
-    </WorkspaceDockProvider>,
+    <QueryClientProvider client={client}>
+      <WorkspaceDockProvider value={ctx}>
+        <SubshellTab {...props} />
+      </WorkspaceDockProvider>
+    </QueryClientProvider>,
   );
   return { split, removed };
 }
@@ -77,6 +92,19 @@ async function openMenu() {
 afterEach(cleanup);
 
 describe("SubshellTab", () => {
+  it("carries the rail's dot with the raw status/alive pair for a cached row", () => {
+    renderTab([pane()], []);
+    const dot = document.querySelector("[data-status]");
+    expect(dot).not.toBeNull();
+    expect(dot?.getAttribute("data-status")).toBe("running");
+    expect(dot?.getAttribute("data-alive")).toBe("true");
+  });
+
+  it("draws NO dot before the list cache answers (a wrong dot is worse than none)", () => {
+    renderTab([pane()], [], [], []);
+    expect(document.querySelector("[data-status]")).toBeNull();
+  });
+
   it("renders the panel title", () => {
     renderTab([pane()], []);
     expect(screen.getByText("Alpha")).toBeDefined();

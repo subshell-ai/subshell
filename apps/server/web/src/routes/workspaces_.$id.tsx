@@ -1,12 +1,13 @@
 import { ApiError, Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@internal/node-admin";
-import { createFileRoute, Link, useParams } from "@tanstack/react-router";
-import { useCallback, useMemo, useRef } from "react";
+import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { WorkspaceDock } from "@/components/workspace-dock";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
 import { useDiscardThinDraft } from "@/hooks/use-discard-thin-draft";
-import { useIsWide } from "@/hooks/use-is-wide";
+import { useIsPhoneLayout } from "@/hooks/use-is-phone-layout";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { createIntentClaim } from "@/lib/intent-claim";
+import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { workspaceLoad } from "@/lib/workspace-load";
 import { parseSplitIntent } from "@/lib/workspace-split-intent";
 
@@ -24,8 +25,14 @@ export const Route = createFileRoute("/workspaces_/$id")({
 });
 
 /**
- * The workspace detail page: the dock (wide viewports) or the tab strip
- * (narrow viewports), nothing else.
+ * The workspace detail page: the tab strip on a phone, the dock everywhere
+ * else, nothing else in between.
+ *
+ * The dock is the default because it is the complete presentation: draggable
+ * tabs, splits, the layout. The strip is what a FINGER below the tiling width
+ * gets (drag is a pointer gesture there anyway); a narrow DESKTOP window
+ * keeps the dock rather than paying phone chrome for a mouse it is holding —
+ * one rule with the stacked header, `useIsPhoneLayout`.
  *
  * Each presentation renders `<WorkspaceHeader>` itself, with its own
  * `<SubshellPicker>` in the header's actions slot — only the presentation
@@ -35,6 +42,7 @@ export const Route = createFileRoute("/workspaces_/$id")({
 function WorkspaceDetailPage() {
   const { id } = useParams({ from: "/workspaces_/$id" });
   const search = Route.useSearch();
+  const navigate = useNavigate();
   // Memoized so the two effects that consume it (the dock's add, the
   // auto-discard below) see a stable value and run when the URL changes,
   // rather than on every poll-driven render.
@@ -46,7 +54,7 @@ function WorkspaceDetailPage() {
   const claim = useRef(createIntentClaim()).current;
   const claimIntent = useCallback(() => claim(intent), [claim, intent]);
   const { data: detail, isLoading, error, refetch } = useWorkspace(id);
-  const wide = useIsWide();
+  const phoneLayout = useIsPhoneLayout();
   // Above every early return: an unsaved workspace that is down to one pane
   // is discarded and the person sent back to that subshell — unless a split
   // is still in flight (the `?add=` guard, see the hook).
@@ -54,9 +62,22 @@ function WorkspaceDetailPage() {
   // Soft-keyboard pinning is the shell's job (`__root.tsx`); `h-full` below
   // resolves against the already-pinned scroll container.
 
-  // Three "no detail" truths, kept apart (regression #9; the decision itself
-  // is the tested lib/workspace-load.ts predicate, not inline logic).
+  // Five truths, kept apart (regression #9; the decision itself is the tested
+  // lib/workspace-load.ts predicate, not inline logic).
   const load = workspaceLoad({ isLoading, detail, error });
+  // Deleted mid-view: leave for the subshell view the panes' rows still
+  // deserve — deleting the WORKSPACE never deletes the subshells in it, the
+  // pane rows just go (the operator's word: drop to the subshell-only view).
+  // The dock-focused pane first (the one on screen), else the first pane,
+  // else the workspaces list; the last-good detail keeps the dock painted
+  // until the navigation lands, exactly the one frame the predicate chose.
+  const focusedPaneId = useWorkspaceFocusedId();
+  useEffect(() => {
+    if (load !== "deleted" || !detail) return;
+    const home = detail.panes.find((p) => p.subshellId === focusedPaneId) ?? detail.panes[0];
+    if (home) void navigate({ to: "/subshells/$id", params: { id: home.subshellId }, replace: true });
+    else void navigate({ to: "/workspaces", replace: true });
+  }, [load, detail, focusedPaneId, navigate]);
   if (load === "loading") {
     return (
       <main className="mx-auto w-full max-w-2xl p-6">
@@ -115,15 +136,15 @@ function WorkspaceDetailPage() {
     // to a different workspace would leave the previous workspace's layout
     // in place instead of rebuilding from the new `detail`.
     <main className="flex h-full flex-col overflow-hidden" key={detail.workspace.id}>
-      {wide ? (
-        <WorkspaceDock
+      {phoneLayout ? (
+        <WorkspaceTabs
           detail={detail}
           intent={intent}
           claimIntent={claimIntent}
           onRefetch={() => refetch().then(() => undefined)}
         />
       ) : (
-        <WorkspaceTabs
+        <WorkspaceDock
           detail={detail}
           intent={intent}
           claimIntent={claimIntent}

@@ -85,3 +85,43 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   // Prove it is gone.
   await expect(page.getByText(name)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
 });
+
+/**
+ * The bug this test pins (operator report, 2026-09-27): closing a subshell
+ * from the RAIL while its detail page is open used to leave the page standing
+ * on cached data — a doomed terminal that never learned its row was gone.
+ * The Close must end the view exactly as the page's own Close does; the rail
+ * is a different tree, so the fix is the page leaving on its own 404, and
+ * the workspace tab equivalent is the dock reconcile closing on the
+ * workspace refetch the shared mutation now fires (unit-pinned in
+ * `use-subshell-mutations.test.tsx` and the feed's gone-frame test).
+ */
+test("subshell: Close from the rail leaves the open detail page", async ({ page }) => {
+  test.setTimeout(120_000);
+  const name = `e2e-rail-close-${test.info().retry}`;
+
+  // Launch (the flagship path, kept short): the stub `pi` harness, /tmp, and
+  // the navigate to the detail page once the POST spawns tmux.
+  await page.goto("/new");
+  await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
+  await page.fill("#picker-working-dir", "/tmp");
+  await dismissDirectoryPanel(page);
+  await page.getByRole("button", { name: "Start subshell" }).click();
+  await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
+  await expectSubshellRunning(page, SPAWN_TIMEOUT);
+  await renameSubshell(page, name);
+
+  // Right-click the subshell's ROW in the rail — the sidebar's context menu
+  // is the same shared actions menu the page header mounts, but a different
+  // component tree, and that tree used to be the one that did nothing.
+  const railRow = page.locator("aside").getByText(name).first();
+  await railRow.click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Close" }).click();
+  await expect(page.getByText(`Close subshell "${name}"?`)).toBeVisible();
+  await page.locator("[data-slot='dialog-content'] button", { hasText: /^Close$/ }).click();
+
+  // The page closes out — the operator's exact complaint, now the assertion.
+  await expect(page).not.toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
+  // And the rail itself forgot the row (the list invalidation still works).
+  await expect(page.locator("aside").getByText(name)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
+});

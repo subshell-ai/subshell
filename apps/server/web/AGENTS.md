@@ -79,7 +79,9 @@ must not clobber a newer event; a broadcast carries no per-viewer `access`
 stamp (the client keeps the access it holds); pane previews are PULLED by the
 surfaces that draw them. The feed writes exactly `SUBSHELLS_QUERY_KEY`, plus
 the per-id `["subshell", id]` entry only when it already exists; removals and
-access changes INVALIDATE it instead. Pages must follow the CACHE, not the
+access changes INVALIDATE it instead, and a removal also INVALIDATES the
+`["workspace"]` detail (a close cascades the pane rows; the dock tiles render
+from that read and nothing else wakes it). Pages must follow the CACHE, not the
 feed's own copy; activity derives from `lastOutputAt` against a clock
 (`hooks/use-clock-tick.ts`), and any NEW surface rendering `subshellIndicator`
 needs its own tick.
@@ -361,7 +363,10 @@ is CHECKED, not trusted (`lib/split-workspace-refusal.ts`).
 Workspace panes hold live xterm.js terminals inside dockview panels. A dockview
 panel remount disposes its terminal, closes the WS, and forces a history
 replay; every panel must keep `renderer: "always"`, which is what keeps the
-DOM alive when a panel is hidden.
+DOM alive when a panel is hidden. **Which presentation mounts is decided by
+`useIsPhoneLayout` (touch-primary AND below the tiling width), not by width
+alone**: the dock is mounted for narrow desktop windows too, so the phone's
+tap-only strip never takes draggable tabs off a window holding a mouse.
 
 **Working on the terminal, dockview, touch/swipe handling, or shared-grid
 sizing, and before ANY `dockview-react` upgrade (which a standing hand-run

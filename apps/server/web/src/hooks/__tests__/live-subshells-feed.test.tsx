@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { LiveSubshellsFeedProvider, useLiveSubshellsFeed } from "@/hooks/use-live-subshells-feed";
 import { useLiveSubshells } from "@/hooks/useLiveSubshells";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
 /** Minimal WebSocket double: records instances, lets the test fire frames. */
@@ -250,6 +250,22 @@ describe("LiveSubshellsFeedProvider", () => {
 
     frame({ type: "subshell-gone", id: "a" });
     expect(client.getQueryData<Array<{ id: string }>>(SUBSHELLS_QUERY_KEY)).toEqual([{ id: "b" }]);
+  });
+
+  it("a subshell-gone frame also invalidates the workspace detail — the dock tab a CASCADE emptied only closes on that read", async () => {
+    stubAuthOk();
+    const client = setup();
+    await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+    // A seeded, INACTIVE workspace entry (nobody mounted a workspace page):
+    // invalidation must flag it, not fetch it — the no-cost half of the rule.
+    client.setQueryData([...WORKSPACE_QUERY_KEY, "w1"], { panes: [] });
+    expect(client.getQueryCache().find({ queryKey: [...WORKSPACE_QUERY_KEY, "w1"] })?.state.isInvalidated).toBe(false);
+
+    act(() => {
+      FakeWS.instances[0].onmessage?.({ data: JSON.stringify({ type: "subshell-gone", id: "a" }) } as MessageEvent);
+    });
+
+    expect(client.getQueryCache().find({ queryKey: [...WORKSPACE_QUERY_KEY, "w1"] })?.state.isInvalidated).toBe(true);
   });
 
   /**

@@ -1,9 +1,11 @@
 import type { IDockviewPanelHeaderProps } from "dockview-react";
 import { Bell, Columns2, Rows2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SubshellDot } from "@/components/subshell-dot";
 import { ContextMenuRoot, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { useWorkspaceDockContext } from "@/components/workspace-dock/context";
+import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { isPaneWaiting } from "@/lib/subshell-order";
 
 /**
@@ -81,6 +83,12 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
   const title = useTitle(props.api);
   const pane = detail.panes.find((p) => p.id === props.api.id);
   const waiting = pane ? isPaneWaiting(pane) : false;
+  // The rail's dot, on the tab: the SAME list-cache row (`useSubshellRow`)
+  // the rail rows and the narrow strip's tabs read, so working/waiting/dead/
+  // offline speaks one state language everywhere, blink included. No cached
+  // row yet draws no dot (operator ask 2026-09-27: tabs should carry the
+  // status button; a wrong dot is worse than none).
+  const subshell = useSubshellRow(pane?.subshellId ?? "");
   // The trigger host doubles as the menu's anchor, as in ActionsMenu's
   // context mode: the box dockview already styles the tab with.
   const anchorRef = useRef<HTMLDivElement>(null);
@@ -116,6 +124,7 @@ export function SubshellTab(props: IDockviewPanelHeaderProps) {
               middleDown.current = false;
             }}
           >
+            {subshell && <SubshellDot subshell={subshell} className="mt-0 mr-1.5" />}
             <span className="dv-default-tab-content">{title}</span>
             {waiting && <TabWaitingMarker />}
             <button

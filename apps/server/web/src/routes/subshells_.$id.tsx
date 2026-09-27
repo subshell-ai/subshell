@@ -233,13 +233,26 @@ function SubshellPage() {
   // claiming "reconnecting…" before a first attach would be a lie.
   const showPill = reconnectPillVisible({ connected, closed, dead, restarting, isLoading });
 
+  // Closed mid-view: leave, the same act this page's own Close performs.
+  // A rail Close, a card Close, another device and the MCP delete all land
+  // HERE as one fact — the detail refetch answering 404 over the cached
+  // record — and the operator ruled (2026-09-27) that a page whose row is
+  // gone closes out instead of keeping a doomed terminal alive on cached
+  // data (supersedes the mid-view half of spec 2026-09-03 §3; the no-record
+  // half below stands: a DEAD id never had a view to leave). An in-flight
+  // own-header Close reaches "/" through `onDeleted` before this refetch
+  // answers, so the two paths cannot race into a double navigate.
+  useEffect(() => {
+    if (isNotFound && subshell) void navigate({ to: "/", replace: true });
+  }, [isNotFound, subshell, navigate]);
+
   // Gone is gone: a 404 means the record will never arrive (deleted, or never
   // shared with this viewer — the backend answers 404 for both), so do NOT
   // mount the terminal: its token POST and WS attach are both doomed, and the
   // not-running panel would offer Restart/Delete on a row that doesn't exist.
-  // Only while NO record is cached — one deleted mid-view keeps the live-pane
-  // path below (spec 2026-09-03 §3). Placed after the LAST hook call in the
-  // component, so the early return never skips a hook.
+  // Only while NO record is cached — one deleted mid-view has left by the
+  // effect above. Placed after the LAST hook call in the component, so the
+  // early return never skips a hook.
   if (isNotFound && !subshell) return <SubshellNotFoundCard />;
 
   return (
