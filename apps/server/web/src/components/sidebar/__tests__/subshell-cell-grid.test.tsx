@@ -18,6 +18,7 @@ import {
 } from "@/components/sidebar/subshell-cell-grid";
 import type { SubshellNodeGroup } from "@/lib/subshell-node-groups";
 import { groupSubshellsByNode } from "@/lib/subshell-node-groups";
+import { onWorkspacePaneFocusRequest } from "@/lib/workspace-focus";
 import { setFetchRouter } from "@/test-setup";
 import type { SubshellView } from "@/types/subshell";
 
@@ -228,7 +229,12 @@ describe("SubshellCell", () => {
     const restore = mockFetch();
     try {
       renderCell(
-        <SubshellCell subshell={sub()} active={false} labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }} />,
+        <SubshellCell
+          subshell={sub()}
+          selected={false}
+          focused={false}
+          labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }}
+        />,
       );
       const link = await screen.findByRole("link");
       expect(link.getAttribute("href")).toBe("/subshells/s1");
@@ -245,19 +251,22 @@ describe("SubshellCell", () => {
       renderCell(
         <SubshellCell
           subshell={sub({ nodeOffline: true })}
-          active
+          selected
+          focused
           labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }}
         />,
       );
       const link = await screen.findByRole("link");
       expect(link.className).toContain("bg-destructive");
       // The "you are here" ring is the theme ink (`--foreground`: frost on the
-      // void) DIMMED to /70 — the operator's live ask was the full-brightness
-      // frost reading as the loudest thing on the rail — not `--ring`
-      // (orchid). Focus keeps the ring token, at width 2, so a
-      // focused-but-not-selected cell cannot look selected.
-      expect(link.className).toContain("ring-1");
-      expect(link.className).toContain("ring-foreground/70");
+      // void) at FULL brightness, width 2 — the operator's ask (2026-09-27) was
+      // a WHITE ring around the open pane. Asserted as bare TOKENS: the focus
+      // variant is `focus-visible:ring-2`/`ring-ring` and hover is
+      // `hover:ring-1`/`hover:ring-foreground`, all prefixed, so a bare `ring-2`
+      // or `ring-foreground/70` can only be the (soft) selection.
+      const toks = link.className.split(/\s+/);
+      expect(toks).toContain("ring-2");
+      expect(toks).toContain("ring-foreground/70");
       expect(link.className).toContain("focus-visible:ring-ring");
       // Hover answers "which one am I on" with the same INK at full
       // brightness — the selection reading at its loudest, never the focus
@@ -269,13 +278,53 @@ describe("SubshellCell", () => {
     }
   });
 
+  it("a workspace-member cell focuses in place; a plain cell still navigates (operator 2026-09-27)", async () => {
+    const restore = mockFetch();
+    const requests: string[] = [];
+    const unsub = onWorkspacePaneFocusRequest((id) => requests.push(id));
+    try {
+      renderCell(
+        <>
+          <SubshellCell
+            subshell={sub({ id: "here", name: "member" })}
+            selected
+            focused={false}
+            focusOnOpen
+            labels={{ nodeLabel: "m", agentLabel: "A" }}
+          />
+          <SubshellCell
+            subshell={sub({ id: "else", name: "plain" })}
+            selected={false}
+            focused={false}
+            focusOnOpen={false}
+            labels={{ nodeLabel: "m", agentLabel: "A" }}
+          />
+        </>,
+      );
+      const links = await screen.findAllByRole("link");
+      const member = links.find((l) => l.getAttribute("href") === "/subshells/here") as HTMLElement;
+      const plain = links.find((l) => l.getAttribute("href") === "/subshells/else") as HTMLElement;
+      // The workspace member's click is routed to the dock (focus the tab), not
+      // to the router.
+      fireEvent.click(member);
+      expect(requests).toEqual(["here"]);
+      // A plain cell is left to its own Link navigation — no focus request.
+      fireEvent.click(plain);
+      expect(requests).toEqual(["here"]);
+    } finally {
+      unsub();
+      restore();
+    }
+  });
+
   it("the blinking cell is a two-state tile: active/idle pulses, a legible letter every beat (operator ask 2026-09-27)", async () => {
     const restore = mockFetch();
     try {
       renderCell(
         <SubshellCell
           subshell={sub({ activity: "active", lastOutputAt: null })}
-          active
+          selected
+          focused
           labels={{ nodeLabel: "mbp", agentLabel: "Claude Code", initial: "A" }}
         />,
       );
@@ -325,9 +374,9 @@ describe("SubshellCell", () => {
         spans.filter((s) => s.className.includes("subshell-dot-blink") && !s.className.includes("-alt")),
       ).toHaveLength(1);
       expect(link.textContent).toBe("AA");
-      // The viewed pane still rings on the anchor.
-      expect(link.className).toContain("ring-1");
-      expect(link.className).toContain("ring-foreground/70");
+      // The viewed pane still rings on the anchor (the soft white selection ring).
+      expect(has(link, "ring-2")).toBe(true);
+      expect(has(link, "ring-foreground/70")).toBe(true);
     } finally {
       restore();
     }
@@ -338,10 +387,16 @@ describe("SubshellCell", () => {
     try {
       renderCell(
         <>
-          <SubshellCell subshell={sub({ id: "q" })} active={false} labels={{ nodeLabel: "m", agentLabel: "A" }} />
+          <SubshellCell
+            subshell={sub({ id: "q" })}
+            selected={false}
+            focused={false}
+            labels={{ nodeLabel: "m", agentLabel: "A" }}
+          />
           <SubshellCell
             subshell={sub({ id: "z", status: "terminated", alive: false, activity: "terminated" })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A" }}
           />
         </>,
@@ -368,17 +423,20 @@ describe("SubshellCell", () => {
         <>
           <SubshellCell
             subshell={sub({ id: "w", waitingSince: "2026-09-25T00:00:00.000Z" })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A", initial: "W" }}
           />
           <SubshellCell
             subshell={sub({ id: "o", nodeOffline: true })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A", initial: "O" }}
           />
           <SubshellCell
             subshell={sub({ id: "i" })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A", initial: "I" }}
           />
         </>,
@@ -407,7 +465,8 @@ describe("SubshellCell", () => {
       renderCell(
         <SubshellCell
           subshell={sub({ unseenPush: true })}
-          active={false}
+          selected={false}
+          focused={false}
           labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code", initial: "M" }}
         />,
       );
@@ -430,7 +489,8 @@ describe("SubshellCell", () => {
       renderCell(
         <SubshellCell
           subshell={sub({ unseenPush: true, access: "view" })}
-          active={false}
+          selected={false}
+          focused={false}
           labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code", initial: "A" }}
         />,
       );
@@ -449,12 +509,14 @@ describe("SubshellCell", () => {
         <div>
           <SubshellCell
             subshell={sub({ id: "f" })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "mbp", agentLabel: "Claude Code", initial: "A" }}
           />
           <SubshellCell
             subshell={sub({ id: "g" })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "mbp", agentLabel: "Claude Code" }}
           />
         </div>,
@@ -471,7 +533,12 @@ describe("SubshellCell", () => {
     const restore = mockFetch();
     try {
       renderCell(
-        <SubshellCell subshell={sub()} active={false} labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }} />,
+        <SubshellCell
+          subshell={sub()}
+          selected={false}
+          focused={false}
+          labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }}
+        />,
       );
       const link = await screen.findByRole("link");
       expect(link.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
@@ -507,6 +574,7 @@ describe("SubshellCellGrid", () => {
         <SubshellCellGrid
           rows={rows}
           selectedIds={new Set()}
+          focusedId={null}
           labelsFor={() => ({ nodeLabel: "mac-mini", agentLabel: "Claude Code" })}
         />,
       );
@@ -543,6 +611,7 @@ describe("SubshellCellGrid", () => {
         <SubshellCellGrid
           rows={rows}
           selectedIds={new Set()}
+          focusedId={null}
           labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })}
           tintOf={(s) => (s.nodeId === "n1" ? 0 : 1)}
         />,
@@ -563,7 +632,7 @@ describe("SubshellCellGrid", () => {
       // GROUPED view's cell-to-cell exactly (operator: "we should have the
       // same gap as we do in the grouped view"), and a 4px tint gutter on ALL
       // sides — the selection ring paints OUTSIDE the cell box, so p-0.5 left
-      // it touching the plate edge (p-1 clears ring-1 on every side).
+      // it touching the plate edge (p-1 clears the ring-2 selection on every side).
       expect(plateA?.className).toContain("p-1");
       expect(plateA?.className).toContain("gap-1.5");
       expect(plateA?.className).toContain("rounded-lg");
@@ -591,6 +660,7 @@ describe("SubshellCellGrid", () => {
         <SubshellCellGrid
           rows={[sub({ id: "a", name: "one", nodeId: "n1" })]}
           selectedIds={new Set()}
+          focusedId={null}
           labelsFor={() => ({ nodeLabel: "mac-mini", agentLabel: "A" })}
           tintOf={(s) => nodeTintBucket(s.nodeId ?? "")}
         />,
@@ -604,7 +674,7 @@ describe("SubshellCellGrid", () => {
     }
   });
 
-  it("rings EVERY pane in the selection set, not just one", async () => {
+  it("soft-rings the open SET and white-rings only the focused pane", async () => {
     const restore = mockFetch();
     try {
       const rows = [sub({ id: "a", name: "one" }), sub({ id: "b", name: "two" }), sub({ id: "c", name: "three" })];
@@ -612,18 +682,24 @@ describe("SubshellCellGrid", () => {
         <SubshellCellGrid
           rows={rows}
           selectedIds={new Set(["a", "c"])}
+          focusedId={"c"}
           labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })}
         />,
       );
       await waitFor(() => expect(screen.getAllByRole("link")).toHaveLength(3));
-      const ringFor = (id: string) =>
-        (screen.getAllByRole("link") as HTMLElement[]).find((l) => l.getAttribute("href") === `/subshells/${id}`)
-          ?.className;
-      // A workspace with several shells open rings them all (operator ask
-      // 2026-09-27): the ring is a set membership, not the single focused pane.
-      expect(ringFor("a")).toContain("ring-foreground/70");
-      expect(ringFor("c")).toContain("ring-foreground/70");
-      expect(ringFor("b")).not.toContain("ring-foreground/70");
+      const toks = (id: string) =>
+        (
+          (screen.getAllByRole("link") as HTMLElement[]).find((l) => l.getAttribute("href") === `/subshells/${id}`)
+            ?.className ?? ""
+        ).split(/\s+/);
+      // (operator 2026-09-27): the SET (a, c) wears the soft `ring-foreground/70`;
+      // only the focused pane (c) upgrades to the bold `ring-2`. Bare tokens —
+      // hover/focus add only prefixed variants, so a lone `b` carries none.
+      expect(toks("a")).toContain("ring-foreground/70");
+      expect(toks("a")).not.toContain("ring-2");
+      expect(toks("c")).toContain("ring-2");
+      expect(toks("b")).not.toContain("ring-2");
+      expect(toks("b")).not.toContain("ring-foreground/70");
     } finally {
       restore();
     }

@@ -29,6 +29,7 @@ import {
   nodeLabelFor,
   partitionCrossAgent,
 } from "@/lib/subshell-node-groups";
+import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -192,23 +193,32 @@ export function RailSubshells({
     (sub: SubshellView) => nodeLabelFor(sub.nodeId || FALLBACK_NODE_ID, nodeData?.nodes, nodeData === undefined).label,
     [nodeData],
   );
-  // Which cells wear the "you are here" ring — a SET, not one id: the viewed
-  // `/subshells/:id` PLUS every pane the current `/workspaces/:id` holds open,
-  // so a workspace running several shells shows them all as selected (operator
-  // ask 2026-09-27). The workspace read is the SAME cached query the route
-  // already runs — a hit while a workspace page is up, disabled everywhere else
-  // so the rail never fetches a workspace it is not showing.
-  const focusedId = location.pathname.startsWith("/subshells/") ? location.pathname.slice("/subshells/".length) : null;
+  // Two selection levels (operator ask 2026-09-27). SELECTED is the SET of open
+  // panes — the viewed `/subshells/:id` plus every pane the current
+  // `/workspaces/:id` holds open (the SAME cached query the route runs, a hit
+  // while a workspace page is up, disabled elsewhere). FOCUSED is the single
+  // pane: the URL's on a subshell page, or the one the DOCK has active on a
+  // workspace page (the dock publishes it through `lib/workspace-focus`; the
+  // sidebar is a different tree and cannot otherwise see dockview's focus). The
+  // set marks every open cell/row; only the focused one wears the bold ring.
+  const focusedFromUrl = location.pathname.startsWith("/subshells/")
+    ? location.pathname.slice("/subshells/".length)
+    : null;
   const workspaceId = /^\/workspaces\/[^/]+/.test(location.pathname)
     ? location.pathname.slice("/workspaces/".length)
     : null;
   const { data: workspaceDetail } = useWorkspace(workspaceId ?? "", { enabled: workspaceId !== null });
+  const dockFocusedId = useWorkspaceFocusedId();
+  const focusedId = focusedFromUrl ?? dockFocusedId;
+  // Only inside a workspace page (a dock is up to act on a focus request) does
+  // clicking an open pane focus its tab rather than navigate out.
+  const onWorkspace = workspaceId !== null;
   const selectedIds = useMemo(() => {
     const ids = new Set<string>();
-    if (focusedId) ids.add(focusedId);
+    if (focusedFromUrl) ids.add(focusedFromUrl);
     for (const pane of workspaceDetail?.panes ?? []) ids.add(pane.subshellId);
     return ids;
-  }, [focusedId, workspaceDetail]);
+  }, [focusedFromUrl, workspaceDetail]);
   // In the grouped shapes (rows and headed cells) the selection promotes whole
   // SECTIONS: a machine group holding a selected pane leads. Stable otherwise,
   // so the grouped mode's own liveliest-member rank is untouched within each
@@ -292,7 +302,9 @@ export function RailSubshells({
                 <SubshellRecentRow
                   key={`attention-${sub.id}`}
                   subshell={sub}
-                  active={selectedIds.has(sub.id)}
+                  selected={selectedIds.has(sub.id)}
+                  focused={focusedId === sub.id}
+                  focusOnOpen={onWorkspace && selectedIds.has(sub.id)}
                   nodeLabel={machineLabel(sub)}
                   agentLabel={agentLabel(sub.harnessId)}
                   presetLabel={presetLabel(sub.presetId)}
@@ -324,7 +336,8 @@ export function RailSubshells({
                   <SubshellRecentRow
                     key={`comms-${sub.id}`}
                     subshell={sub}
-                    active={selectedIds.has(sub.id)}
+                    selected={selectedIds.has(sub.id)}
+                    focused={focusedId === sub.id}
                     nodeLabel={machine}
                     subline={machine}
                     agentLabel={agentLabel(sub.harnessId)}
@@ -356,7 +369,9 @@ export function RailSubshells({
                 <SubshellRecentRow
                   key={sub.id}
                   subshell={sub}
-                  active={selectedIds.has(sub.id)}
+                  selected={selectedIds.has(sub.id)}
+                  focused={focusedId === sub.id}
+                  focusOnOpen={onWorkspace && selectedIds.has(sub.id)}
                   nodeLabel={group.label}
                   agentLabel={agentLabel(sub.harnessId)}
                   presetLabel={presetLabel(sub.presetId)}
@@ -378,6 +393,8 @@ export function RailSubshells({
               <SubshellCellGrid
                 rows={attentionRows}
                 selectedIds={selectedIds}
+                focusedId={focusedId}
+                focusOnClick={onWorkspace}
                 labelsFor={(sub) => ({
                   nodeLabel: machineLabel(sub),
                   agentLabel: agentLabel(sub.harnessId),
@@ -404,6 +421,8 @@ export function RailSubshells({
               <SubshellCellGrid
                 rows={commsGroup.subshells}
                 selectedIds={selectedIds}
+                focusedId={focusedId}
+                focusOnClick={onWorkspace}
                 labelsFor={(sub) => ({
                   // The comms header spans machines, so each cell's tooltip
                   // names its own (the rows say it in their subline).
@@ -429,6 +448,8 @@ export function RailSubshells({
               <SubshellCellGrid
                 rows={group.subshells}
                 selectedIds={selectedIds}
+                focusedId={focusedId}
+                focusOnClick={onWorkspace}
                 labelsFor={(sub) => ({
                   // The group header already names the machine — same label,
                   // one source of truth for header and tooltip. The letter is
@@ -449,6 +470,8 @@ export function RailSubshells({
         <SubshellCellGrid
           rows={flatRows}
           selectedIds={selectedIds}
+          focusedId={focusedId}
+          focusOnClick={onWorkspace}
           labelsFor={(sub) => ({
             nodeLabel: machineLabel(sub),
             agentLabel: agentLabel(sub.harnessId),

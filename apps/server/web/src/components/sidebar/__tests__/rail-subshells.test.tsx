@@ -10,6 +10,7 @@ import {
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { RailSubshells } from "@/components/sidebar/rail-subshells";
+import { resetWorkspaceFocusForTests, setWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { setFetchRouter } from "@/test-setup";
 import type { SubshellView } from "@/types/subshell";
 
@@ -149,6 +150,7 @@ async function withRail(
 
 afterEach(() => {
   cleanup();
+  resetWorkspaceFocusForTests();
   localStorage.removeItem(VIEW_KEY);
   localStorage.removeItem(GROUPS_KEY);
 });
@@ -278,18 +280,24 @@ describe("the cell modes keep the row tree's facts", () => {
 describe("a workspace's selection (operator ask 2026-09-27)", () => {
   const nodeOf = (header: HTMLElement | undefined) => header?.getAttribute("aria-controls") ?? "";
 
-  it("rings EVERY pane the current workspace has open, in the cell view", async () => {
-    // Standing in /workspaces/w1 which holds a AND b open: both cells wear the
-    // "you are here" ring — the selection is the whole pane set, not one id.
+  it("soft-rings every open pane and white-rings only the dock-focused one", async () => {
+    // Standing in /workspaces/w1 with a AND b open. Both are SELECTED (the set)
+    // so both soft-ring; the dock has focused `a`, so only `a` upgrades to the
+    // bold white ring (operator 2026-09-27). Focus arrives through the
+    // workspace-focus store the dock publishes — the rail cannot see dockview.
+    setWorkspaceFocusedId("a");
     await withRail(
       [sub({ id: "a", name: "one", nodeId: "local" }), sub({ id: "b", name: "two", nodeId: "n1" })],
       async () => {
         fireEvent.click(screen.getByRole("button", { name: "Cell view" }));
+        const tok = (id: string) =>
+          (cellLinks().find((l) => l.getAttribute("href") === `/subshells/${id}`)?.className ?? "").split(/\s+/);
         await waitFor(() => {
-          const links = cellLinks();
-          expect(links).toHaveLength(2);
-          expect(links.every((l) => l.className.includes("ring-foreground/70"))).toBe(true);
+          expect(cellLinks()).toHaveLength(2);
+          expect(tok("a")).toContain("ring-2"); // focused → white
+          expect(tok("b")).toContain("ring-foreground/70"); // set → soft
         });
+        expect(tok("b")).not.toContain("ring-2"); // only the focused pane is bold
       },
       { path: "/workspaces/w1", panes: [{ subshellId: "a" }, { subshellId: "b" }] },
     );

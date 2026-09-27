@@ -16,6 +16,7 @@ import {
 } from "@/lib/subshell-indicator";
 import type { SubshellNodeGroup } from "@/lib/subshell-node-groups";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
+import { requestWorkspacePaneFocus } from "@/lib/workspace-focus";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -183,15 +184,16 @@ export interface SubshellCellLabels {
  * `SubshellRecentRow` (Base UI's `render` merging the trigger onto the Link),
  * same tooltip string.
  *
- * The square itself carries the state: `DOT_CLASS` fills for everything
- * quiet, the working state NO fill but a blinking border ring (operator
- * ruling 2026-09-27), and a bell (`showsBell`) REPLACES the fill, the dot's
- * posture — the glyph names "unseen push", the tone keeps the state.
- * The open subshell wears a `ring-1 ring-foreground/70` so one cell still
- * says "you are here" (hover raises the same ink to full brightness). The
- * accessible name is "name: status word", and for a bell "name: unseen
- * notification (status word)" — the shared {@link bellAnnouncement} — since
- * a square of colour has nothing to read out and its glyph is aria-hidden.
+ * The square itself carries the state: `DOT_CLASS` fills for everything quiet,
+ * the working state blinks between two tiles (see {@link blinking} below), and a
+ * bell (`showsBell`) REPLACES the fill, the dot's posture — the glyph names
+ * "unseen push", the tone keeps the state. Selection reads on TWO levels
+ * (operator 2026-09-27): every open pane's cell (the workspace's SET) wears a
+ * soft `ring-1 ring-foreground/70`, and the one cell the dock has FOCUSED wears
+ * the bold white `ring-2 ring-foreground`. The accessible name is "name: status
+ * word", and for a bell "name: unseen notification (status word)" — the shared
+ * {@link bellAnnouncement} — since a square of colour has nothing to read out
+ * and its glyph is aria-hidden.
  *
  * `data-status`/`data-alive` are the DOT's e2e hooks and deliberately NOT
  * copied here: the cell is a derivative view, and liveness assertions belong
@@ -199,12 +201,22 @@ export interface SubshellCellLabels {
  */
 export function SubshellCell({
   subshell,
-  active,
+  selected,
+  focused,
+  focusOnOpen,
   labels,
 }: {
   subshell: SubshellView;
-  /** The subshell this page is showing — the cell's "you are here". */
-  active: boolean;
+  /** Open in the current workspace (or the viewed page) — marks the SET. */
+  selected: boolean;
+  /** The pane the dock has focused — the single cell with the white ring. */
+  focused: boolean;
+  /**
+   * The cell is a pane of the workspace on screen, so a click should FOCUS that
+   * tab instead of navigating to `/subshells/:id` and leaving the workspace
+   * (operator report 2026-09-27). Only true while a dock exists to act on it.
+   */
+  focusOnOpen?: boolean;
   labels: SubshellCellLabels;
 }) {
   const indicator = subshellIndicator(subshell);
@@ -227,6 +239,15 @@ export function SubshellCell({
               params={{ id: subshell.id }}
               draggable
               onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
+              // A workspace member clicked in the rail focuses its tab in place;
+              // the navigation it would otherwise do is suppressed so the person
+              // stays in the workspace (operator 2026-09-27).
+              onClick={(e) => {
+                if (focusOnOpen) {
+                  e.preventDefault();
+                  requestWorkspacePaneFocus(subshell.id);
+                }
+              }}
               aria-label={`${subshell.name}: ${bell ? bellAnnouncement(INDICATOR_LABEL[indicator]) : INDICATOR_LABEL[indicator]}`}
               className={cn(
                 "flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-strong text-label transition-colors",
@@ -244,14 +265,14 @@ export function SubshellCell({
                       // (below) can still name the cell in that gap.
                       "relative bg-transparent"
                     : DOT_CLASS[indicator],
-                // Hover says "this one" with the theme INK at FULL
-                // brightness; selection is the same ink DIMMED to /70 (live
-                // review: the full frost was the loudest thing on the rail),
-                // so a hovered selected cell just sharpens. Focus stays the
-                // RING token: orchid at width 2, a reading the other two
-                // cannot impersonate.
+                // Two selection levels (operator 2026-09-27), both SOFT so the
+                // box matches the rows: the focused pane wears a `ring-2`
+                // (`ring-foreground/70`), the other open panes (the set) keep the
+                // same tone at width 1. Focus reads bolder by WIDTH, not by a
+                // harsh full-brightness line. Hover answers "which one am I on"
+                // at width 1 full ink; focus stays the orchid RING token.
                 "hover:ring-1 hover:ring-foreground",
-                active && "ring-1 ring-foreground/70",
+                focused ? "ring-2 ring-foreground/70" : selected ? "ring-1 ring-foreground/70" : undefined,
               )}
             />
           }
@@ -350,17 +371,29 @@ export function SubshellCell({
 export function SubshellCellGrid({
   rows,
   selectedIds,
+  focusedId,
+  focusOnClick,
   labelsFor,
   tintOf,
 }: {
   rows: readonly SubshellView[];
   /**
-   * The panes the current page holds open: the viewed `/subshells/:id`, plus
-   * every pane of the `/workspaces/:id` you are standing in. A cell whose id is
-   * in this set wears the "you are here" ring — so a workspace with several
-   * shells open rings them all, not just one.
+   * The SET of panes the current page holds open: the viewed `/subshells/:id`,
+   * plus every pane of the `/workspaces/:id` you are standing in. Each wears the
+   * soft selected ring.
    */
   selectedIds: ReadonlySet<string>;
+  /**
+   * The single pane the dock has focused (or the viewed page's id) — the one
+   * cell that upgrades to the bold white ring. `selectedIds` and `focusedId`
+   * are different signals on purpose (operator 2026-09-27).
+   */
+  focusedId: string | null;
+  /**
+   * True while standing in the workspace these cells belong to (a dock is up to
+   * act): a selected cell's click focuses its pane rather than navigating out.
+   */
+  focusOnClick?: boolean;
   labelsFor: (sub: SubshellView) => SubshellCellLabels;
   /** Machine-tint bucket per row; present = flat mode's plate PER RUN */
   tintOf?: (sub: SubshellView) => number;
@@ -373,7 +406,13 @@ export function SubshellCellGrid({
     return (raw + TINT_COUNT) % TINT_COUNT;
   };
   const renderCell = (sub: SubshellView) => (
-    <SubshellCell subshell={sub} active={selectedIds.has(sub.id)} labels={labelsFor(sub)} />
+    <SubshellCell
+      subshell={sub}
+      selected={selectedIds.has(sub.id)}
+      focused={focusedId !== null && focusedId === sub.id}
+      focusOnOpen={focusOnClick && selectedIds.has(sub.id)}
+      labels={labelsFor(sub)}
+    />
   );
   if (tintOf === undefined) {
     return (
