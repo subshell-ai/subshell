@@ -86,7 +86,7 @@ size, never a second encoding**: fills from `DOT_CLASS`, the bell from
 `BELL_TONE`/`showsBell` (exported for this), the row's gestures whole on one
 element, and the same reveal tooltip, opened BELOW the cell (a right-side
 popup lands on the next cell in the rail), labels bolded by
-`TooltipLabelledLines`. Its working blink pulses the FILL only — the
+`TooltipLabelledLines`. Its working blink pulses the FILL only, the
 half-green idle tile fading in and out behind a constant WHITE initial (the
 solid-green beat and its dark knockout letter were retired 2026-09-27). On
 the empty half the square stays there: an un-ringed working cell carries a
