@@ -104,6 +104,40 @@ function isServerShutdownRace(err: unknown): boolean {
   return /server exited unexpectedly|error connecting to .*(No such file|Connection refused)/i.test(message);
 }
 
+/**
+ * Re-escapes a trailing `;` in a user-supplied tmux argument so it is delivered.
+ *
+ * tmux's client-side command parser (`cmd_parse_from_arguments`, cmd-parse.y)
+ * scans every string argument BEFORE the command itself sees it and consumes a
+ * trailing `;` as the end-of-command marker: it drops the `;`, and restores it
+ * as a literal character only when a backslash sits in front — otherwise the
+ * command simply ends there. `send-keys -l` cannot protect against it: by the
+ * time `-l` takes effect the parser has already eaten the byte.
+ *
+ * Measured on tmux 3.7c, what a raw-mode `cat` pane received for each payload,
+ * unencoded: `;` → NOTHING (issue #244: a semicolon keystroke typed nothing at
+ * all), `;;` → `;`, `x;` → `x`, `a\;` → `a;` — while `;x`, `a;b` and `y;;z`
+ * came through untouched. Only the TRAILING semicolon is eaten, and it eats a
+ * backslash sitting ahead of it, so escaping exactly that one character is the
+ * whole fix.
+ *
+ * The escape is tmux's own. Measured through this encoder, payload → pane:
+ * `;`→`;`, `;;`→`;;`, `x;`→`x;`, `a\;`→`a\;` — a payload ending in a literal
+ * backslash-semicolon survives because the restore consumes exactly ONE
+ * preceding backslash, which after this encoding is the one THIS added, never
+ * the payload's own. (Adding more overshoots: measured, argv `a\\\;` delivers
+ * the two-backslash `a\\;`.)
+ *
+ * @param value - a user-supplied string bound for tmux's argv: pane input in
+ *   {@link TmuxRunner.sendInput}, a working directory in
+ *   {@link TmuxRunner.newSubshell}
+ * @returns `value` with a trailing `;` backslash-escaped; every other string
+ *   returned byte-identical
+ */
+function encodeTrailingSemicolon(value: string): string {
+  return value.endsWith(";") ? `${value.slice(0, -1)}\\;` : value;
+}
+
 export class TmuxRunner {
   readonly #tmuxBinary: string;
 
@@ -458,7 +492,12 @@ export class TmuxRunner {
       "-s",
       subshellName,
       "-c",
-      cwd,
+      // Only the USER-supplied path is encoded; a cwd ending in `;` would end
+      // this command under the parser ({@link encodeTrailingSemicolon}). The
+      // literal ";" elements below are the OPPOSITE: deliberate separators that
+      // rely on that very behavior to chain `set-option`/`set-hook` onto the
+      // spawn as one tmux command line.
+      encodeTrailingSemicolon(cwd),
       cmd,
       ";",
       "set-option",
@@ -630,7 +669,10 @@ export class TmuxRunner {
    *
    * `-l` disables tmux's key-name lookup, so text that happens to look like
    * a key name ("Enter", "C-c") or an escape ("a\\nb") stays literal, and
-   * `--` keeps input beginning with "-" from being read as a flag.
+   * `--` keeps input beginning with "-" from being read as a flag. A trailing
+   * `;` is neutralized the same way: the command parser eats it BEFORE `-l`
+   * applies ({@link encodeTrailingSemicolon}), which is what made a bare `;`
+   * keystroke type nothing at all (issue #244).
    *
    * ORDER IS PART OF THE CONTRACT, and it stopped being free when this became
    * async. The WS handler fires one of these per keystroke WITHOUT awaiting
@@ -643,7 +685,10 @@ export class TmuxRunner {
   sendInput(socket: string, subshellName: string, input: string): Promise<void> {
     if (!input) return Promise.resolve();
     return this.#enqueueInput(socket, subshellName, async () => {
-      await this.runAsync(["-L", socket, "send-keys", "-t", subshellName, "-l", "--", input], {});
+      await this.runAsync(
+        ["-L", socket, "send-keys", "-t", subshellName, "-l", "--", encodeTrailingSemicolon(input)],
+        {},
+      );
     });
   }
 

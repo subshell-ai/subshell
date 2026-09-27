@@ -369,6 +369,117 @@ appendStdinToLogFile(a[a.indexOf("--file") + 1]);
     unlinkSync(readyFile);
   }, 15_000);
 
+  // Issue #244: tmux's command parser eats a trailing `;` out of every string
+  // argument BEFORE `-l` can make it literal (full account on
+  // encodeTrailingSemicolon), so a `;` typed into a pane typed nothing at all,
+  // `x;` typed `x`, and a cwd ending in one split the launch command in two.
+  describe("frames and cwds ending in `;` survive tmux's parser", () => {
+    // [typed payload, argv element the fix must spawn]. Only payloads ending
+    // in `;` change; the rest pass through byte-identical. The fourth entry
+    // proves the encoding escapes the semicolon WITHOUT disturbing a literal
+    // backslash sitting right before it.
+    const frames: Array<{ payload: string; encoded: string }> = [
+      { payload: ";", encoded: "\\;" },
+      { payload: ";;", encoded: ";\\;" },
+      { payload: "x;", encoded: "x\\;" },
+      { payload: "a\\;", encoded: "a\\\\;" },
+      { payload: "a;b", encoded: "a;b" },
+      { payload: ";x", encoded: ";x" },
+      { payload: "y;;z", encoded: "y;;z" },
+    ];
+
+    it("sendInput spawns send-keys with the trailing `;` re-escaped (stub argv)", async () => {
+      // What tmux RECEIVES is the fix; what it then DELIVERS to a pane is the
+      // real-tmux test below. Same stub shape as the pipe-pane argv assertions.
+      const stubDir = mkdtempSync(join(tmpdir(), "subshell-tmux-stub-"));
+      const argvFile = join(stubDir, "argv.txt");
+      const stub = join(stubDir, "tmux-stub");
+      writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvFile}"\n`, { mode: 0o755 });
+      try {
+        const tmux = new TmuxRunner(stub);
+        for (const { payload, encoded } of frames) {
+          await tmux.sendInput("sock", "s1", payload);
+          const argv = (await Bun.file(argvFile).text()).trim().split("\n");
+          expect(argv).toEqual(["-L", "sock", "send-keys", "-t", "s1", "-l", "--", encoded]);
+        }
+      } finally {
+        rmSync(stubDir, { recursive: true, force: true });
+      }
+    });
+
+    it("newSubshell re-escapes the cwd, never its intentional `;` separators (stub argv)", async () => {
+      const stubDir = mkdtempSync(join(tmpdir(), "subshell-tmux-stub-"));
+      const argvFile = join(stubDir, "argv.txt");
+      const stub = join(stubDir, "tmux-stub");
+      writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > "${argvFile}"\n`, { mode: 0o755 });
+      try {
+        // The cwd ends in `;` AND carries one mid-path: only the trailing one
+        // is a parser hazard. The exact-match list below is also the count:
+        // the lone `";"` after the command must stay a BARE separator —
+        // escaping it would fuse `set-option` into the harness's own command
+        // line instead of chaining it after the spawn.
+        new TmuxRunner(stub).newSubshell("sock", "s1", "/tmp/a;b;", "exec sleep 30");
+        const argv = (await Bun.file(argvFile).text()).trim().split("\n");
+        expect(argv).toEqual([
+          "-L",
+          "sock",
+          "new-session",
+          "-d",
+          "-s",
+          "s1",
+          "-c",
+          "/tmp/a;b\\;",
+          "exec sleep 30",
+          ";",
+          "set-option",
+          "-t",
+          "s1",
+          "remain-on-exit",
+          "on",
+        ]);
+      } finally {
+        rmSync(stubDir, { recursive: true, force: true });
+      }
+    });
+
+    it("every frame reaches the pane byte-exactly, including bare `;` (real tmux)", async () => {
+      // The reporter's symptom, end-to-end. `cat` runs in raw mode with echo
+      // OFF into a file, so the bytes the process RECEIVED are the record —
+      // the same discipline as the byte-exactness test above, chosen over
+      // capture-pane because `capture-pane -e` can carry `;` inside escape
+      // codes, which would false-positive a bare-`;` assertion on the bug.
+      const socket = freshSocket("semicolon");
+      const outFile = `/tmp/subshell-semicolon-${process.pid}-${Date.now()}.bin`;
+      const readyFile = `${outFile}.ready`;
+      runner.newSubshell(socket, "s1", "/tmp", `bash -c 'stty raw -echo; echo ready > ${readyFile}; cat > ${outFile}'`);
+      try {
+        await waitForFileToContain(readyFile, "ready", 4_000);
+        for (const { payload } of frames) {
+          await runner.sendInput(socket, "s1", payload);
+        }
+        const expected = new TextEncoder().encode(frames.map((f) => f.payload).join(""));
+        const deadline = Date.now() + 5_000;
+        let received = new Uint8Array(0);
+        while (Date.now() < deadline) {
+          if (await Bun.file(outFile).exists()) {
+            received = new Uint8Array(await Bun.file(outFile).arrayBuffer());
+            if (received.length >= expected.length) break;
+          }
+          await Bun.sleep(25);
+        }
+        expect(
+          received.length,
+          `pane received ${JSON.stringify(new TextDecoder().decode(received))}, expected ${expected.length} bytes`,
+        ).toBe(expected.length);
+        expect(Array.from(received)).toEqual(Array.from(expected));
+      } finally {
+        runner.killSubshell(socket, "s1");
+        rmSync(outFile, { force: true });
+        rmSync(readyFile, { force: true });
+      }
+    }, 15_000);
+  });
+
   it("relaunching on a just-emptied socket wins the server-shutdown race (restart path)", async () => {
     // THE restart bug: killing a socket's last subshell makes its tmux server
     // exit, but the socket file outlives the decision by a moment — a
