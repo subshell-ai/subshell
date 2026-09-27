@@ -63,12 +63,22 @@ when a pane is opened). It filters with the box and vanishes entirely when
 nothing is unseen; the home page's identically-named `TileSection` is the same
 selector over its own list.
 
+**The "you are here" ring is a SET, not one id** (operator ask 2026-09-27): a
+cell rings when its subshell is in the selection, which is the viewed
+`/subshells/:id` PLUS every pane of the `/workspaces/:id` you are standing in —
+so a workspace running several shells rings them all. The rail reads the SAME
+`useWorkspace` query the route runs (a cache hit, `enabled` off a workspace page
+so it never fetches elsewhere), and the grouped shapes (rows and headed cells)
+PROMOTE a whole machine group whose visible rows contain a selected pane to the
+top. `SubshellCellGrid` takes `selectedIds`, not an `activeId`.
+
 **The whole section lives in `components/sidebar/rail-subshells.tsx`**
 (extracted from `app-sidebar.tsx` 2026-09-25) and renders in three shapes
 behind one per-device toggle (`lib/sidebar-rail-view-pref.ts`): `rows` (the
 default, and the fallback for a corrupt pref), `cells` (the machine groups,
-every row a status square), and `cells-flat` (one headerless grid, machines
-clustered on shared tint plates, most urgent first). All modes read the SAME
+every row a status square), and `cells-flat` (one headerless grid in FOUR bands:
+Needs Attention, then machine clusters holding a selected pane, then the other
+machines, then cross-agent comms). All modes read the SAME
 derivation pipeline, so a switch changes shape only, never the caps, and
 never the set once every group is open (a collapsed group is grouped mode's
 privilege; parity-pinned by tests). **A cell is the dot's language at grid

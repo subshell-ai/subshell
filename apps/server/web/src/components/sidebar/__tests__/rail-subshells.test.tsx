@@ -54,31 +54,44 @@ function sub(overrides: Partial<SubshellView> = {}): SubshellView {
   } as SubshellView;
 }
 
-function stubFetch(subshells: SubshellView[]): () => void {
+function stubFetch(subshells: SubshellView[], panes: readonly { subshellId: string }[] = []): () => void {
   setFetchRouter(async (input: RequestInfo | URL) => {
     const url = String(typeof input === "string" || input instanceof URL ? input : input.url);
     const body = url.includes("/api/settings/public")
       ? { viewerIsAdmin: false, instanceName: "Test plane" }
       : url.includes("get-session")
         ? { user: { id: "u1", name: "Theo", email: "theo@test" } }
-        : url.includes("/api/subshells")
-          ? subshells
-          : url.includes("/api/nodes")
-            ? {
-                nodes: [
-                  { id: "local", name: "Server", kind: "local" },
-                  { id: "n1", name: "mac-mini", kind: "agent" },
-                ],
-              }
-            : url.includes("/api/plugins")
-              ? { plugins: [{ id: "claude-code", name: "Claude Code" }] }
-              : [];
+        : url.includes("/api/workspaces/")
+          ? {
+              workspace: {
+                id: "w1",
+                name: "ws",
+                draft: false,
+                layout: null,
+                subshellCount: panes.length,
+                createdAt: "2026-09-25T00:00:00.000Z",
+                updatedAt: "2026-09-25T00:00:00.000Z",
+              },
+              panes: panes.map((p, i) => ({ id: `p${i}`, ...p })),
+            }
+          : url.includes("/api/subshells")
+            ? subshells
+            : url.includes("/api/nodes")
+              ? {
+                  nodes: [
+                    { id: "local", name: "Server", kind: "local" },
+                    { id: "n1", name: "mac-mini", kind: "agent" },
+                  ],
+                }
+              : url.includes("/api/plugins")
+                ? { plugins: [{ id: "claude-code", name: "Claude Code" }] }
+                : [];
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   });
   return () => setFetchRouter(null);
 }
 
-function renderSection() {
+function renderSection(initialPath = "/") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const rootRoute = createRootRoute({
     component: () => {
@@ -90,12 +103,12 @@ function renderSection() {
       return <RailSubshells filterRef={filterRef} query={query} onQueryChange={setQuery} />;
     },
   });
-  const children = ["/", "/subshells/$id"].map((path) =>
+  const children = ["/", "/subshells/$id", "/workspaces/$id"].map((path) =>
     createRoute({ getParentRoute: () => rootRoute, path, component: () => null }),
   );
   const router = createRouter({
     routeTree: rootRoute.addChildren(children),
-    history: createMemoryHistory({ initialEntries: ["/"] }),
+    history: createMemoryHistory({ initialEntries: [initialPath] }),
     defaultPreload: false,
   });
   return render(
@@ -113,10 +126,18 @@ function cellLinks(): HTMLElement[] {
   return screen.queryAllByRole("link").filter((el) => el.className.includes("h-6")) as HTMLElement[];
 }
 
-async function withRail(subshells: SubshellView[], body: () => Promise<void> | void) {
-  const restore = stubFetch(subshells);
+async function withRail(
+  subshells: SubshellView[],
+  body: () => Promise<void> | void,
+  opts: { path?: string; panes?: readonly { subshellId: string }[] } = {},
+) {
+  const restore = stubFetch(subshells, opts.panes);
   try {
-    renderSection();
+    // Tear down any tree a previous `withRail` left in the document: the DOM
+    // queries here are document-wide, so a second call in one test would
+    // otherwise read both renders' headers/cells.
+    cleanup();
+    renderSection(opts.path ?? "/");
     // Wait on the rows themselves, not on headers: flat mode renders none,
     // and the data landing is the precondition for every body below.
     await waitFor(() => expect(document.querySelectorAll("a[href^='/subshells/']").length).toBeGreaterThan(0));
@@ -250,6 +271,53 @@ describe("the cell modes keep the row tree's facts", () => {
         expect(cellLinks()).toHaveLength(1);
         expect(cellLinks()[0]?.getAttribute("aria-label")).toContain("keep:");
       },
+    );
+  });
+});
+
+describe("a workspace's selection (operator ask 2026-09-27)", () => {
+  const nodeOf = (header: HTMLElement | undefined) => header?.getAttribute("aria-controls") ?? "";
+
+  it("rings EVERY pane the current workspace has open, in the cell view", async () => {
+    // Standing in /workspaces/w1 which holds a AND b open: both cells wear the
+    // "you are here" ring — the selection is the whole pane set, not one id.
+    await withRail(
+      [sub({ id: "a", name: "one", nodeId: "local" }), sub({ id: "b", name: "two", nodeId: "n1" })],
+      async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Cell view" }));
+        await waitFor(() => {
+          const links = cellLinks();
+          expect(links).toHaveLength(2);
+          expect(links.every((l) => l.className.includes("ring-foreground/70"))).toBe(true);
+        });
+      },
+      { path: "/workspaces/w1", panes: [{ subshellId: "a" }, { subshellId: "b" }] },
+    );
+  });
+
+  it("promotes the machine group holding a selected pane above a more-urgent one", async () => {
+    // n1's pane is WAITING (urgency rank 0); the selected pane sits on `local`,
+    // which is merely idle (rank 2). Selection outranks urgency across groups,
+    // so `local` leads when its pane is open in the workspace, and n1 leads when
+    // nothing is selected.
+    const rows = [
+      sub({ id: "a", name: "urg", nodeId: "n1", waitingSince: "2026-09-25T00:00:00.000Z" }),
+      sub({ id: "b", name: "sel", nodeId: "local" }),
+    ];
+    // Baseline: no selection (not on a workspace page) → the urgent n1 leads.
+    await withRail(rows, () => {
+      expect(groupHeaders()).toHaveLength(2);
+      expect(nodeOf(groupHeaders()[0])).toContain("n1");
+    });
+    // With `b` (on local) open in the workspace → local's group is promoted.
+    // `waitFor`: the pane set arrives on the workspace query, a tick behind the
+    // rows the harness already waited on.
+    await withRail(
+      rows,
+      async () => {
+        await waitFor(() => expect(nodeOf(groupHeaders()[0])).toContain("local"));
+      },
+      { path: "/workspaces/w1", panes: [{ subshellId: "b" }] },
     );
   });
 });

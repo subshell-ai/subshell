@@ -1,7 +1,7 @@
 import { Input } from "@internal/node-admin";
 import { useLocation } from "@tanstack/react-router";
 import { Grid3x3, LayoutGrid, List } from "lucide-react";
-import { type RefObject, useCallback, useState } from "react";
+import { type RefObject, useCallback, useMemo, useState } from "react";
 import { SubshellNodeGroup } from "@/components/sidebar/SubshellNodeGroup";
 import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { flatCellRows, nodeTintBucket, paneInitial, SubshellCellGrid } from "@/components/sidebar/subshell-cell-grid";
@@ -10,6 +10,7 @@ import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
 import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePresets } from "@/hooks/use-presets";
+import { useWorkspace } from "@/hooks/use-workspace";
 import {
   collapsedNodeGroups,
   commsGroupOpen,
@@ -191,16 +192,37 @@ export function RailSubshells({
     (sub: SubshellView) => nodeLabelFor(sub.nodeId || FALLBACK_NODE_ID, nodeData?.nodes, nodeData === undefined).label,
     [nodeData],
   );
-  // The flat grid's cell set, clustered by machine label — the SAME key the
-  // plate tint hashes, so a run of equal tints is exactly one machine's
-  // cells. Recomputed per render like the grouping itself: it is the
-  // grouping's own output re-sorted, so the two modes cannot disagree about
-  // which panes are on screen.
-  const flatRows = flatCellRows(nodeGroups, commsGroup.subshells, attentionRows, machineLabel);
+  // Which cells wear the "you are here" ring — a SET, not one id: the viewed
+  // `/subshells/:id` PLUS every pane the current `/workspaces/:id` holds open,
+  // so a workspace running several shells shows them all as selected (operator
+  // ask 2026-09-27). The workspace read is the SAME cached query the route
+  // already runs — a hit while a workspace page is up, disabled everywhere else
+  // so the rail never fetches a workspace it is not showing.
+  const focusedId = location.pathname.startsWith("/subshells/") ? location.pathname.slice("/subshells/".length) : null;
+  const workspaceId = /^\/workspaces\/[^/]+/.test(location.pathname)
+    ? location.pathname.slice("/workspaces/".length)
+    : null;
+  const { data: workspaceDetail } = useWorkspace(workspaceId ?? "", { enabled: workspaceId !== null });
+  const selectedIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (focusedId) ids.add(focusedId);
+    for (const pane of workspaceDetail?.panes ?? []) ids.add(pane.subshellId);
+    return ids;
+  }, [focusedId, workspaceDetail]);
+  // In the grouped shapes (rows and headed cells) the selection promotes whole
+  // SECTIONS: a machine group holding a selected pane leads. Stable otherwise,
+  // so the grouped mode's own liveliest-member rank is untouched within each
+  // half. The flat grid does this at cell level inside `flatCellRows`.
+  const orderedNodeGroups = [
+    ...nodeGroups.filter((group) => group.subshells.some((sub) => selectedIds.has(sub.id))),
+    ...nodeGroups.filter((group) => !group.subshells.some((sub) => selectedIds.has(sub.id))),
+  ];
 
-  // The open subshell's cell ring. Rows compare per row (their own line of
-  // JSX); the grid takes one id, derived the same way from the same pathname.
-  const activeId = location.pathname.startsWith("/subshells/") ? location.pathname.slice("/subshells/".length) : null;
+  // The flat grid's cell set, in the four bands (notifications → machines with
+  // a selection → other machines → comms). Recomputed per render like the
+  // grouping itself: it is that output re-sorted, so the two modes cannot
+  // disagree about which panes are on screen.
+  const flatRows = flatCellRows(nodeGroups, commsGroup.subshells, attentionRows, selectedIds);
 
   return (
     <>
@@ -270,7 +292,7 @@ export function RailSubshells({
                 <SubshellRecentRow
                   key={`attention-${sub.id}`}
                   subshell={sub}
-                  active={location.pathname === `/subshells/${sub.id}`}
+                  active={selectedIds.has(sub.id)}
                   nodeLabel={machineLabel(sub)}
                   agentLabel={agentLabel(sub.harnessId)}
                   presetLabel={presetLabel(sub.presetId)}
@@ -302,7 +324,7 @@ export function RailSubshells({
                   <SubshellRecentRow
                     key={`comms-${sub.id}`}
                     subshell={sub}
-                    active={location.pathname === `/subshells/${sub.id}`}
+                    active={selectedIds.has(sub.id)}
                     nodeLabel={machine}
                     subline={machine}
                     agentLabel={agentLabel(sub.harnessId)}
@@ -312,7 +334,7 @@ export function RailSubshells({
               })}
             </SubshellNodeGroup>
           )}
-          {nodeGroups.map((group) => (
+          {orderedNodeGroups.map((group) => (
             <SubshellNodeGroup
               key={group.nodeId}
               nodeId={group.nodeId}
@@ -334,7 +356,7 @@ export function RailSubshells({
                 <SubshellRecentRow
                   key={sub.id}
                   subshell={sub}
-                  active={location.pathname === `/subshells/${sub.id}`}
+                  active={selectedIds.has(sub.id)}
                   nodeLabel={group.label}
                   agentLabel={agentLabel(sub.harnessId)}
                   presetLabel={presetLabel(sub.presetId)}
@@ -355,7 +377,7 @@ export function RailSubshells({
               </div>
               <SubshellCellGrid
                 rows={attentionRows}
-                activeId={activeId}
+                selectedIds={selectedIds}
                 labelsFor={(sub) => ({
                   nodeLabel: machineLabel(sub),
                   agentLabel: agentLabel(sub.harnessId),
@@ -381,7 +403,7 @@ export function RailSubshells({
             >
               <SubshellCellGrid
                 rows={commsGroup.subshells}
-                activeId={activeId}
+                selectedIds={selectedIds}
                 labelsFor={(sub) => ({
                   // The comms header spans machines, so each cell's tooltip
                   // names its own (the rows say it in their subline).
@@ -393,7 +415,7 @@ export function RailSubshells({
               />
             </SubshellNodeGroup>
           )}
-          {nodeGroups.map((group) => (
+          {orderedNodeGroups.map((group) => (
             <SubshellNodeGroup
               key={group.nodeId}
               nodeId={group.nodeId}
@@ -406,7 +428,7 @@ export function RailSubshells({
             >
               <SubshellCellGrid
                 rows={group.subshells}
-                activeId={activeId}
+                selectedIds={selectedIds}
                 labelsFor={(sub) => ({
                   // The group header already names the machine — same label,
                   // one source of truth for header and tooltip. The letter is
@@ -426,7 +448,7 @@ export function RailSubshells({
       {view === "cells-flat" && (
         <SubshellCellGrid
           rows={flatRows}
-          activeId={activeId}
+          selectedIds={selectedIds}
           labelsFor={(sub) => ({
             nodeLabel: machineLabel(sub),
             agentLabel: agentLabel(sub.harnessId),

@@ -84,63 +84,52 @@ const NODE_TINT_CLASS = [
 ] as const;
 
 /**
- * The flat grid's cell set: the rows grouped mode would render with EVERY
- * group open (a collapsed group is grouped mode's privilege; a headerless
- * grid has nothing to collapse — the SET is the pinned parity, not the
- * order), sorted by machine cluster — clusters ranked by their most urgent
- * member, cells within a cluster sorted by the shared status band.
+ * The flat grid's cell set, ordered in FOUR bands (operator order
+ * 2026-09-26): the Needs Attention spotlight, then machine clusters that hold a
+ * SELECTED pane, then every other machine cluster, then cross-agent comms.
  *
- * The three arguments are the three things grouped mode draws in "cells":
- * each machine group's CAPPED rows, the comms section's rows, and the
- * Needs Attention spotlight. Deduped by id because the spotlight lists rows
- * that mostly also sit in their groups — a cell must never appear twice.
+ * The four arguments are the pieces grouped mode draws: each machine group's
+ * CAPPED rows, the comms section's rows, the Needs Attention spotlight, and the
+ * set of ids the current workspace has open (its panes — the ring the cells
+ * wear). The machine clusters come from the GROUPS ONLY: comms are partitioned
+ * out of them upstream and get their own band, and the spotlight is a SIBLING,
+ * never an extraction — a notification row stays inside its machine cluster
+ * here too (operator ruling 2026-09-26: bands appear AND keep their cluster),
+ * so a spotlight row may legitimately show twice, once in the top band and once
+ * in its machine's run. The parity that still holds: a row capped out of its
+ * group is invisible to the grid UNLESS the spotlight carries it — in which case
+ * it appears in the top band, exactly as grouped mode surfaces it.
  *
- * The parity it enforces: a row capped out of its group is invisible to the
- * grid UNLESS the spotlight carries it — because in grouped mode that is
- * exactly when it is visible.
- *
- * The ORDER is clusters, not one flat band (operator ask on the plate
- * screenshot: machines should read "grouped button"-style): cells sharing
- * `keyOf` (the rail passes the resolved machine label) sit CONTIGUOUS, the
- * clusters rank by their liveliest member — the same MINIMUM-rank rule
- * `groupSubshellsByNode` uses, though over the rows THIS view can see:
- * grouped headers rank over their full pre-cap rows and never rank comms
- * panes into a machine, so a cluster's lead here can differ from a
- * header's rank there, accepted (the cluster order is the scan hint, the
- * tooltip is the truth) — and members sort by the shared band WITHIN the
- * cluster.
+ * Within the cluster bands, one machine's cells sit CONTIGUOUS (the group IS the
+ * cluster — the caller's `groupSubshellsByNode` already keyed them by machine,
+ * so there is no re-bucketing here), the clusters rank by their liveliest member
+ * — the same MINIMUM-rank rule `groupSubshellsByNode` uses, over the rows THIS
+ * view can see — and members sort by the shared status band WITHIN a cluster.
+ * Selection outranks urgency across clusters; urgency still orders WITHIN each
+ * band.
  */
 export function flatCellRows(
   groups: readonly SubshellNodeGroup[],
   comms: readonly SubshellView[],
   spotlight: readonly SubshellView[],
-  keyOf: (sub: SubshellView) => string,
+  selectedIds: ReadonlySet<string>,
 ): SubshellView[] {
-  const byId = new Map<string, SubshellView>();
-  for (const group of groups) for (const sub of group.subshells) byId.set(sub.id, sub);
-  for (const sub of comms) byId.set(sub.id, sub);
-  for (const sub of spotlight) byId.set(sub.id, sub);
-  // Bucket by machine key, insertion-ordered; re-bucketing here (rather than
-  // in the caller's grouping) is what lets the uncapped spotlight rows join
-  // their machine's cluster.
-  const clusters = new Map<string, SubshellView[]>();
-  for (const sub of byId.values()) {
-    const key = keyOf(sub);
-    const bucket = clusters.get(key);
-    if (bucket) bucket.push(sub);
-    else clusters.set(key, [sub]);
-  }
-  const ranked = [...clusters.values()]
-    .map((members) => ({
-      members,
-      // The same rule the grouped headers rank by (see `groupSubshellsByNode`):
-      // a machine with something waiting for you leads, whatever the earlier
-      // one-time sort thought. `members` is non-empty by construction.
-      rank: Math.min(...members.map(subshellStatusRank)),
-    }))
-    // Stable, so equal-rank clusters keep discovery order.
-    .sort((a, b) => a.rank - b.rank);
-  return ranked.flatMap(({ members }) => sortByStatus(members));
+  // Band 1: notifications lead the grid. Sorted by the shared band so the most
+  // urgent unseen sits top-left.
+  const notifications = sortByStatus(spotlight);
+  // Bands 2 + 3: machine clusters, from the groups only. A cluster holding a
+  // selected pane leads; inside each half the grouped-mode urgency rank still
+  // orders (stable, so equal ranks keep discovery order).
+  const clusters = groups.map((group) => ({
+    members: group.subshells,
+    selected: group.subshells.some((sub) => selectedIds.has(sub.id)),
+    rank: group.subshells.length ? Math.min(...group.subshells.map(subshellStatusRank)) : Number.POSITIVE_INFINITY,
+  }));
+  const machines = clusters
+    .sort((a, b) => Number(b.selected) - Number(a.selected) || a.rank - b.rank)
+    .flatMap((cluster) => sortByStatus(cluster.members));
+  // Band 4: cross-agent comms last.
+  return [...notifications, ...machines, ...sortByStatus(comms)];
 }
 
 /**
@@ -360,13 +349,18 @@ export function SubshellCell({
  */
 export function SubshellCellGrid({
   rows,
-  activeId,
+  selectedIds,
   labelsFor,
   tintOf,
 }: {
   rows: readonly SubshellView[];
-  /** The id of the subshell the current page shows, or null */
-  activeId: string | null;
+  /**
+   * The panes the current page holds open: the viewed `/subshells/:id`, plus
+   * every pane of the `/workspaces/:id` you are standing in. A cell whose id is
+   * in this set wears the "you are here" ring — so a workspace with several
+   * shells open rings them all, not just one.
+   */
+  selectedIds: ReadonlySet<string>;
   labelsFor: (sub: SubshellView) => SubshellCellLabels;
   /** Machine-tint bucket per row; present = flat mode's plate PER RUN */
   tintOf?: (sub: SubshellView) => number;
@@ -379,7 +373,7 @@ export function SubshellCellGrid({
     return (raw + TINT_COUNT) % TINT_COUNT;
   };
   const renderCell = (sub: SubshellView) => (
-    <SubshellCell subshell={sub} active={activeId !== null && activeId === sub.id} labels={labelsFor(sub)} />
+    <SubshellCell subshell={sub} active={selectedIds.has(sub.id)} labels={labelsFor(sub)} />
   );
   if (tintOf === undefined) {
     return (

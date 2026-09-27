@@ -16,7 +16,6 @@ import {
   SubshellCell,
   SubshellCellGrid,
 } from "@/components/sidebar/subshell-cell-grid";
-import { sortByStatus } from "@/lib/subshell-indicator";
 import type { SubshellNodeGroup } from "@/lib/subshell-node-groups";
 import { groupSubshellsByNode } from "@/lib/subshell-node-groups";
 import { setFetchRouter } from "@/test-setup";
@@ -172,53 +171,55 @@ describe("flatCellRows (one grid, same set as grouped mode)", () => {
   if (!w) throw new Error("fixture broken");
   const spotlight = [w];
 
-  // The machine key is what clusters cells onto one plate — the resolved
-  // label in the rail, the raw id here (n1/n2 differ, so the fixture's two
-  // machines never share a cluster).
-  const keyOf = (r: SubshellView) => r.nodeId ?? "";
-
-  it("derives exactly the union of what grouped mode renders, deduped", () => {
-    const flat = flatCellRows(groups, comms, spotlight, keyOf);
+  it("bands the grid: notifications, then machine clusters, then comms — a spotlight row shows in its band AND its cluster", () => {
+    // Four bands (operator order 2026-09-26): notifications lead, then the
+    // machines, then cross-agent comms last. The spotlight is a SIBLING, not an
+    // extraction (operator ruling: bands appear AND keep their cluster), so `w`
+    // shows TWICE — once in the top band, once inside its n1 run — while the
+    // comms pane `c`, partitioned out of every group, shows once in the bottom
+    // band. n1 (a waiting row, rank 0) leads the machine band over n2.
+    const flat = flatCellRows(groups, comms, spotlight, new Set());
+    expect(flat.map((r) => r.id)).toEqual(["w", "w", "a", "i", "t", "c"]);
     const ids = flat.map((r) => r.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect([...ids].sort()).toEqual(["a", "c", "i", "t", "w"]);
+    expect(ids.filter((x) => x === "w")).toHaveLength(2);
+    expect(ids.filter((x) => x === "c")).toHaveLength(1);
   });
 
-  it("orders clusters by their liveliest member, cells by band within a cluster", () => {
-    // The button-group rule (operator ask on the plate screenshot): a
-    // machine's cells are CONTIGUOUS (one plate), clusters rank like the
-    // grouped mode's groups — by the MINIMUM status rank across members —
-    // and within a cluster the shared band order holds. So `c` (idle on
-    // mac-mini) sits with its machine, not between `a` and `i` the way a
-    // flat global sort ordered them.
-    const flat = flatCellRows(groups, comms, spotlight, keyOf);
-    expect(flat.map((r) => r.id)).toEqual(["w", "a", "c", "i", "t"]);
-    // Each cluster's internals still follow the global band order.
-    const n1 = flat.filter((r) => r.nodeId === "n1");
-    const n2 = flat.filter((r) => r.nodeId === "n2");
-    expect(n1.map((r) => r.id)).toEqual(sortByStatus(n1).map((r) => r.id));
-    expect(n2.map((r) => r.id)).toEqual(sortByStatus(n2).map((r) => r.id));
+  it("orders machine clusters by liveliest member and cells by band within a cluster", () => {
+    // No selection, no spotlight: clusters rank like the grouped mode's groups
+    // (the MINIMUM status rank across members), n1 ahead of n2, and each
+    // cluster's internals follow the shared band order.
+    const flat = flatCellRows(groups, comms, [], new Set());
+    expect(flat.map((r) => r.id)).toEqual(["w", "a", "i", "t", "c"]);
+  });
+
+  it("promotes a cluster holding a selected pane above more-urgent clusters", () => {
+    // The selection outranks urgency ACROSS clusters (operator ask 2026-09-27):
+    // n2 (idle/terminated, less urgent) leads when its `i` is a workspace pane,
+    // even though n1 has the waiting row. Urgency still orders WITHIN each band.
+    const flat = flatCellRows(groups, comms, [], new Set(["i"]));
+    expect(flat.map((r) => r.id)).toEqual(["i", "t", "w", "a", "c"]);
   });
 
   it("carries a group's cap through: a row beyond the cap is absent from flat UNLESS the spotlight lists it", () => {
     // The parity rule: grouped mode shows a capped-out row ONLY in the
     // (uncapped) spotlight; flat must show it exactly then, never more, never
-    // less.
+    // less. Now it surfaces in the notifications band.
     const many = Array.from({ length: 10 }, (_, i) => sub({ id: `m${i}`, nodeId: "n1", activity: "idle" }));
     const capped = groupSubshellsByNode(many, nodes, { limit: 8 });
-    const withoutSpotlight = flatCellRows(capped, [], [], keyOf);
+    const withoutSpotlight = flatCellRows(capped, [], [], new Set());
     expect(withoutSpotlight).toHaveLength(8);
     expect(withoutSpotlight.map((r) => r.id)).toEqual(many.slice(0, 8).map((r) => r.id));
 
     const m9 = many.find((r) => r.id === "m9");
     if (!m9) throw new Error("fixture broken");
-    const withSpotlight = flatCellRows(capped, [], [m9], keyOf);
+    const withSpotlight = flatCellRows(capped, [], [m9], new Set());
     expect(withSpotlight.map((r) => r.id)).toContain("m9");
     expect(withSpotlight).toHaveLength(9);
   });
 
   it("returns an empty grid for no groups", () => {
-    expect(flatCellRows([] as SubshellNodeGroup[], [], [], keyOf)).toEqual([]);
+    expect(flatCellRows([] as SubshellNodeGroup[], [], [], new Set())).toEqual([]);
   });
 });
 
@@ -505,7 +506,7 @@ describe("SubshellCellGrid", () => {
       renderCell(
         <SubshellCellGrid
           rows={rows}
-          activeId={null}
+          selectedIds={new Set()}
           labelsFor={() => ({ nodeLabel: "mac-mini", agentLabel: "Claude Code" })}
         />,
       );
@@ -541,7 +542,7 @@ describe("SubshellCellGrid", () => {
       renderCell(
         <SubshellCellGrid
           rows={rows}
-          activeId={null}
+          selectedIds={new Set()}
           labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })}
           tintOf={(s) => (s.nodeId === "n1" ? 0 : 1)}
         />,
@@ -589,7 +590,7 @@ describe("SubshellCellGrid", () => {
       renderCell(
         <SubshellCellGrid
           rows={[sub({ id: "a", name: "one", nodeId: "n1" })]}
-          activeId={null}
+          selectedIds={new Set()}
           labelsFor={() => ({ nodeLabel: "mac-mini", agentLabel: "A" })}
           tintOf={(s) => nodeTintBucket(s.nodeId ?? "")}
         />,
@@ -598,6 +599,31 @@ describe("SubshellCellGrid", () => {
       const plate = link.closest("[class*='bg-node-tint']");
       expect(plate).not.toBeNull();
       expect(plate?.querySelectorAll("a")).toHaveLength(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("rings EVERY pane in the selection set, not just one", async () => {
+    const restore = mockFetch();
+    try {
+      const rows = [sub({ id: "a", name: "one" }), sub({ id: "b", name: "two" }), sub({ id: "c", name: "three" })];
+      renderCell(
+        <SubshellCellGrid
+          rows={rows}
+          selectedIds={new Set(["a", "c"])}
+          labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })}
+        />,
+      );
+      await waitFor(() => expect(screen.getAllByRole("link")).toHaveLength(3));
+      const ringFor = (id: string) =>
+        (screen.getAllByRole("link") as HTMLElement[]).find((l) => l.getAttribute("href") === `/subshells/${id}`)
+          ?.className;
+      // A workspace with several shells open rings them all (operator ask
+      // 2026-09-27): the ring is a set membership, not the single focused pane.
+      expect(ringFor("a")).toContain("ring-foreground/70");
+      expect(ringFor("c")).toContain("ring-foreground/70");
+      expect(ringFor("b")).not.toContain("ring-foreground/70");
     } finally {
       restore();
     }
