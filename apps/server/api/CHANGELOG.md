@@ -1,5 +1,21 @@
 # @internal/server
 
+## 1.4.0
+
+### Minor Changes
+
+- [#262](https://github.com/subshell-ai/subshell/pull/262) [`3ab0753`](https://github.com/subshell-ai/subshell/commit/3ab0753c98671e1be7815258979ea359585d2463) Thanks [@theogravity](https://github.com/theogravity)! - The sidebar's Workspaces section grew up. It now has a search that filters every workspace (not just the eight it lists), splits the list into Saved and Drafts, and labels each draft by its creation stamp, so the unsaved workspaces a split leaves behind are visible and named instead of invisible. The Drafts header carries a trashcan that discards every unsaved workspace at once, sparing the one you are standing in, with a confirmation first. The rail's Workspace section (the panes of the workspace you are in) joins the machine groups, collapses on its own preference, and in flat mode the grid splits into Workspace and Others. Collapse/expand-all, the eye show-hide toggles, and the compact phone header all gained real tooltips, and two workspaces created in the same minute no longer collide: a second default name gains " (2)". Server-side, `GET /api/workspaces?drafts=only` and `DELETE /api/workspaces/drafts?except=` power the new section.
+
+### Patch Changes
+
+- [#264](https://github.com/subshell-ai/subshell/pull/264) [`bc967dc`](https://github.com/subshell-ai/subshell/commit/bc967dcaff395d51aff9e67bedd9248d9fa29614) Thanks [@theogravity](https://github.com/theogravity)! - Two rulings on the rail's cells. Every open pane now wears ONE thin selection ring, the focused one included: the wider focus ring read too heavy at cell size, so focus and set share the soft single line. And the working cell retired its bright-green beat: it now pulses the half-green fill behind a constant white letter, and a cell with no selection ring keeps a thin dark frame so the empty half is still a square, never a floating glyph.
+
+- [#265](https://github.com/subshell-ai/subshell/pull/265) [`f82b5cc`](https://github.com/subshell-ai/subshell/commit/f82b5cce31a8fc117a6e203fb793dd327b564916) Thanks [@theogravity](https://github.com/theogravity)! - Closing a subshell from the sidebar now closes its surfaces: the open subshell page leaves (it used to sit on cached data forever after its refetch answered 404), and an open workspace tab closes with it. Restart and Switch preset refresh the same read, so a dock tile stops showing a dead terminal after either act done from the rail or a card. A close made on ANOTHER device or over MCP now also wakes the dock: the live feed's gone frame re-reads the workspace detail, which nothing polled.
+
+- [#265](https://github.com/subshell-ai/subshell/pull/265) [`f82b5cc`](https://github.com/subshell-ai/subshell/commit/f82b5cce31a8fc117a6e203fb793dd327b564916) Thanks [@theogravity](https://github.com/theogravity)! - Workspace tabs now carry the rail's status dot, both the dense desktop tabs and the touch strip: working blinks, waiting, dead and offline all speak the same state language the rows and cells use, read from the same live cache. And deleting the workspace you are STANDING on now closes out: from the sidebar (or anywhere else) the page drops to the subshell view the pane's row still deserves, instead of rendering the dead workspace's cached detail forever.
+
+- [#265](https://github.com/subshell-ai/subshell/pull/265) [`f82b5cc`](https://github.com/subshell-ai/subshell/commit/f82b5cce31a8fc117a6e203fb793dd327b564916) Thanks [@theogravity](https://github.com/theogravity)! - Workspace tabs now stay draggable in narrow desktop windows. The page chose its presentation by width alone, so a window under the tiling breakpoint in CSS pixels (HiDPI scaling, browser zoom, a deliberately small window) got the phone's tap-only strip. It now asks `useIsPhoneLayout`, which is touch-primary AND narrow, the rule the detail header already used. A phone keeps the strip; a mouse keeps the dock at any width.
+
 ## 1.3.0
 
 ### Minor Changes
