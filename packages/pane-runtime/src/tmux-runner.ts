@@ -742,8 +742,9 @@ export class TmuxRunner {
   }
 
   /**
-   * The pane app's CURRENT input modes, as the DECSET bytes that announce
-   * them, for {@link capturePane} to lead its result with.
+   * The pane app's CURRENT input modes, as an AUTHORITATIVE DECSET
+   * statement (every mode's `h` or `l` form), for {@link capturePane} to
+   * lead its result with. `""` means "unknown", never "all off".
    *
    * **Why this exists** (measured 2026-09-27). The browser attach writes
    * `term.reset()` and then a replay built from `capture-pane`, but
@@ -759,20 +760,26 @@ export class TmuxRunner {
    * every capture ships the knowledge it would have carried.
    *
    * The five flags come from ONE `display-message` read, mapped live on tmux
-   * 3.7c: `alternate_on` → `?1049h`, `mouse_standard_flag` → `?1000h`,
-   * `mouse_button_flag` → `?1002h`, `mouse_all_flag` → `?1003h`,
-   * `mouse_sgr_flag` → `?1006h`. Only the modes that are ON are emitted, in
-   * that order, with no separator.
+   * 3.7c: `alternate_on` (1049), `mouse_standard_flag` (1000),
+   * `mouse_button_flag` (1002), `mouse_all_flag` (1003), `mouse_sgr_flag`
+   * (1006), always all five emitted in that order. The `l` forms are not
+   * padding: the pane-poll fallback (a pane with no readable log) re-sends
+   * whole captures as its only channel, and only a FULL statement can
+   * un-announce a mode the app dropped mid-session. For a `reset()`-fresh
+   * client every `l` is an idempotent no-op, so all-off costs nothing.
    *
-   * ANY failure degrades to `""` and never throws: a gone socket, a tmux too
-   * old to resolve a variable (its token comes back empty or literal), or
-   * otherwise unparseable output all mean "modes unknown", which is simply
-   * today's behavior. Losing the decoration is no reason to lose the capture
-   * it decorates.
+   * The statement is made only when every flag ANSWERED (`0` or `1`); any
+   * failure degrades to `""` and never throws (gone socket, the 2.5 s cap, a
+   * tmux too old to resolve a variable, any unparseable output). An
+   * unanswered flag must not become an invented OFF: mid-session, a false
+   * `l` delivered by a poll re-send would CLEAR a mode the client had
+   * learned from live bytes, which is strictly worse than saying nothing.
+   * Losing the statement is no reason to lose the capture it decorates.
    *
    * A mode that flips between this read and the capture is cosmetic: the
    * live byte stream re-announces DECSETs as the app's own bytes, so the
    * next mode change the app makes corrects the client.
+   * @internal consumed by {@link capturePane}; the stub suite pins it there.
    */
   async paneModePreamble(socket: string, subshellName: string): Promise<string> {
     try {
@@ -787,20 +794,20 @@ export class TmuxRunner {
             "-p",
             "#{alternate_on}:#{mouse_standard_flag}:#{mouse_button_flag}:#{mouse_all_flag}:#{mouse_sgr_flag}",
           ],
-          {},
+          // Fail FAST, not like the 15 s default: the contract is
+          // degrade-to-empty, so a wedged tmux must cost an attach the
+          // statement, never a doubled command timeout on the way to a
+          // refusal it would have taken anyway.
+          { timeoutMs: 2_500 },
         )
       ).stdout.trim();
-      const [alternate, standard, button, all, sgr] = out.split(":");
-      // `=== "1"` throughout: an empty token (a tmux too old for the
-      // variable), a literal one (a format that did not resolve) or anything
-      // else that is not `1` is not evidence a mode is ON.
-      let preamble = "";
-      if (alternate === "1") preamble += "\x1b[?1049h";
-      if (standard === "1") preamble += "\x1b[?1000h";
-      if (button === "1") preamble += "\x1b[?1002h";
-      if (all === "1") preamble += "\x1b[?1003h";
-      if (sgr === "1") preamble += "\x1b[?1006h";
-      return preamble;
+      // Order is part of the contract: mode number per position, matching the
+      // format string above. `entries`-style zipping reads worse for five
+      // fixed tokens; the guard below is what makes the indexing total.
+      const tokens = out.split(":");
+      if (tokens.length !== 5 || tokens.some((t) => t !== "0" && t !== "1")) return "";
+      const decsets = [1049, 1000, 1002, 1003, 1006];
+      return decsets.map((n, i) => `\x1b[?${n}${tokens[i] === "1" ? "h" : "l"}`).join("");
     } catch {
       return "";
     }
@@ -815,18 +822,21 @@ export class TmuxRunner {
    * at ANY geometry. Without it, only the visible grid is captured (preview/
    * settle callers never wanted history bytes).
    *
-   * The result LEADS with {@link paneModePreamble}. Those bytes carry no LF,
-   * so they ride the front of row 1 through the capture→terminal CRLF
-   * normalization untouched; a consumer that strips ANSI sees the plain grid,
-   * and a browser terminal learns the modes the pane's app already owns.
+   * The result LEADS with {@link paneModePreamble}: the full statement of
+   * the pane app's input modes, or silence when tmux could not answer. Those
+   * bytes carry no LF, so they ride the front of row 1 through the
+   * capture→terminal CRLF normalization untouched, and a consumer that
+   * strips ANSI still sees the plain grid.
    */
   async capturePane(socket: string, subshellName: string, scrollbackLines?: number): Promise<string> {
     const args = ["-L", socket, "capture-pane", "-p", "-e", "-t", subshellName];
     if (scrollbackLines && scrollbackLines > 0) args.push("-S", `-${scrollbackLines}`);
-    // The modes are read BEFORE the capture, not concurrently with it: the
-    // replay's preamble must describe the basis the captured grid was drawn
-    // on, and a flip inside the gap between the two reads is covered by the
-    // live join re-announcing DECSETs as app bytes ({@link paneModePreamble}).
+    // The modes are read BEFORE the capture because that is the kinder stale
+    // case, not an honest one: a flip inside the gap is re-announced by the
+    // live join either way (the gap sits above the join point), and read-
+    // before means the transient can only strand a grid in the client's
+    // scrollable primary buffer, where a later ?1049h still finds its history
+    // ({@link paneModePreamble}).
     const preamble = await this.paneModePreamble(socket, subshellName);
     const res = await this.runAsync(args, {});
     return preamble + res.stdout;

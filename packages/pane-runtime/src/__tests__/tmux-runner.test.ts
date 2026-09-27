@@ -981,6 +981,93 @@ echo "server exited unexpectedly" >&2; exit 1
       }
     });
   });
+
+  describe("capturePane leads with an authoritative mode statement", () => {
+    /**
+     * A tmux stub that answers exactly the two commands `capturePane` issues
+     * (`display-message` for the mode flags, `capture-pane` for the grid),
+     * each body deciding that command's stdout and exit. `echo` adds the
+     * trailing newline real tmux adds; the preamble reads trims it.
+     */
+    function modeStub(displayBody: string, captureBody: string): { dir: string; path: string } {
+      const dir = mkdtempSync(join(tmpdir(), "subshell-mode-"));
+      const path = join(dir, "tmux-stub");
+      writeFileSync(
+        path,
+        "#!/bin/sh\n" +
+          'for a in "$@"; do\n' +
+          `  if [ "$a" = "display-message" ]; then ${displayBody} fi\n` +
+          `  if [ "$a" = "capture-pane" ]; then ${captureBody} fi\n` +
+          "done\nexit 0\n",
+        { mode: 0o755 },
+      );
+      return { dir, path };
+    }
+    const answer = (flags: string) => `echo '${flags}'; exit 0;`;
+    const GRID = "echo 'grid'; exit 0;";
+    const run = async (displayBody: string, captureBody: string) => {
+      const { dir, path } = modeStub(displayBody, captureBody);
+      try {
+        return await new TmuxRunner(path).capturePane("sock", "s1");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+
+    it("states all five modes, in order, as h or l per flag", async () => {
+      // The mapping was verified live on tmux 3.7c; this is the pin that
+      // keeps a refactor of capturePane from dropping the statement or
+      // reordering it. `1:0:0:1:1` = alt ON, standard OFF, drag OFF,
+      // any-motion ON, SGR ON: exactly what a Claude Code 2.1.283 pane
+      // measured.
+      expect(await run(answer("1:0:0:1:1"), GRID)).toBe(
+        "\x1b[?1049h\x1b[?1000l\x1b[?1002l\x1b[?1003h\x1b[?1006hgrid\n",
+      );
+    });
+
+    it("answers an all-off pane too: the l forms are the point", async () => {
+      // Silence here would strand a poll-path client in a mode the app has
+      // dropped; the full statement is idempotent no-ops for a fresh one.
+      expect(await run(answer("0:0:0:0:0"), GRID)).toBe(
+        "\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006lgrid\n",
+      );
+    });
+
+    it("stays SILENT, not all-off, when a flag did not answer", async () => {
+      // A tmux too old for one variable yields an empty token; inventing an
+      // OFF there would let a poll re-send CLEAR a mode the client learned
+      // from live bytes. Unknown must mean no statement at all.
+      expect(await run(answer("1::0:1:1"), GRID)).toBe("grid\n");
+      expect(await run(answer("garbage"), GRID)).toBe("grid\n");
+    });
+
+    it("a display-message failure costs the statement, never the capture", async () => {
+      // The capture contract stands unchanged: tmux ANSWERING "no" (or
+      // nothing usable) about modes still ships the grid byte-for-byte.
+      expect(await run("echo 'no pane' >&2; exit 1;", GRID)).toBe("grid\n");
+    });
+
+    it("capture-pane still throws when IT fails", async () => {
+      // paneModePreamble swallows; capturePane must not — captureStable's
+      // null handling and the booting attach's 4004 refusal read that throw.
+      await expect(run(answer("0:0:0:0:0"), "echo 'no server' >&2; exit 1;")).rejects.toThrow(/no server/);
+    });
+
+    it("gives up on the mode read at its own 2.5 s deadline", async () => {
+      // The hardcoded cap is production wiring, same class as the
+      // TMUX_COMMAND_TIMEOUT_MS pin above: the preamble must never double
+      // an attach's wait on a wedged tmux. The stub answers modes only after
+      // 5 s; the run must end on the 2.5 s cap, silent, with the capture
+      // delivered.
+      const started = Date.now();
+      const out = await run("sleep 5; echo '0:0:0:0:0'; exit 0;", GRID);
+      const elapsed = Date.now() - started;
+      expect(out).toBe("grid\n");
+      expect(elapsed).toBeGreaterThanOrEqual(2_400);
+      expect(elapsed).toBeLessThan(4_900);
+    });
+  });
+
   /**
    * `remain-on-exit` makes a finished pane OBSERVABLE (spec 2026-09-19 §4.3),
    * and that changes what `has-session` means — so `hasSubshell` must not use
