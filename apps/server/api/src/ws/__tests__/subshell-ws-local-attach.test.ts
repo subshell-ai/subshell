@@ -1,5 +1,6 @@
-import { afterEach, beforeAll, describe, expect, it } from "bun:test";
+import { afterEach, beforeAll, describe, expect, it, mock } from "bun:test";
 import { appendFileSync } from "node:fs";
+import * as constants from "@/constants.js";
 import { runMigrations } from "@/db/migrate.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { getDefaultLocalLauncher } from "@/services/nodes/local-launcher.js";
@@ -43,7 +44,13 @@ const launcherOriginals = {
   paneSize: defaultLocalLauncher.paneSize,
   paneCursor: defaultLocalLauncher.paneCursor,
   signalPaneWinch: defaultLocalLauncher.signalPaneWinch,
+  // readLog stays REAL by default (the history window rides the same file
+  // the tail reads); the history cases swap in a spy and this restores it.
+  readLog: defaultLocalLauncher.readLog,
 };
+
+/** Snapshot of the constants module for the `mock.module` knob swaps below. */
+const constantsSnapshot = { ...constants };
 /** Counts `capture` calls — the pane-poll branch's observable heartbeat. */
 let captureCalls = 0;
 /** What `capture` was last asked for (scrollback line budget), and call order markers. */
@@ -92,6 +99,7 @@ afterEach(() => {
   defaultLocalLauncher.paneSize = launcherOriginals.paneSize;
   defaultLocalLauncher.paneCursor = launcherOriginals.paneCursor;
   defaultLocalLauncher.signalPaneWinch = launcherOriginals.signalPaneWinch;
+  defaultLocalLauncher.readLog = launcherOriginals.readLog;
   captureCalls = 0;
   captureLinesArg = undefined;
   resizeCalls = [];
@@ -847,20 +855,25 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
 });
 
 describe("local attach replay — one clean paint, no raw-log re-play", () => {
-  it("history never ships as raw log bytes: the tail starts at the log's size when the replay was taken", async () => {
+  it("prior history ships ONCE as its own frame; the tail never re-ships log bytes", async () => {
+    // The old rule ("raw log bytes are never re-played") had one half that
+    // was too true: a reloaded panel had no scrollback at all. The shape now
+    // is a one-shot `history` frame after the replay, and the tail still
+    // starts exactly at the log's size when the replay was taken: what the
+    // tail streams is byte-NEW, never a re-print of the pre-attach log (the
+    // jumble that took ~10s to converge and garbled the oldest scrollback
+    // forever is still gone — that mechanism re-played log bytes as OUTPUT,
+    // racing the live stream; one bounded, stripped frame cannot).
     stubLauncher();
     const row = await seedLocalRow();
     const logFile = subshellLogPath(row.id);
     await Bun.write(logFile, "HISTORY-LINES\r\n"); // pre-existing raw output
 
     const { sent } = await attach(row.userId, row.id);
-    // ONLY the replay frame: the whole "replay last N raw log lines over the
-    // capture grid" mechanism is gone (it painted mid-stream TUI redraw
-    // sequences over the snapshot — the jumble that took ~10s to converge and
-    // left the oldest scrollback lines garbled forever).
     // Terminal frames only: the socket also carries `viewers` presence now.
     expect(sent.filter((f) => !f.includes('"type":"viewers"'))).toEqual([
       JSON.stringify({ type: "replay", data: "SCREEN" }),
+      JSON.stringify({ type: "history", data: "HISTORY-LINES\r\n" }),
     ]);
 
     // New output AFTER the attach still streams — EOF is a start, not a stop.
@@ -871,8 +884,8 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     // pass in CI and fail on a Mac.
     const terminalFrames = () => sent.filter((f) => !f.includes('"type":"viewers"'));
     const deadline = Date.now() + 5000;
-    while (terminalFrames().length < 2 && Date.now() < deadline) await Bun.sleep(25);
-    expect(terminalFrames()[1]).toBe(JSON.stringify({ type: "output", data: "live\r\n" }));
+    while (terminalFrames().length < 3 && Date.now() < deadline) await Bun.sleep(25);
+    expect(terminalFrames()[2]).toBe(JSON.stringify({ type: "output", data: "live\r\n" }));
   });
 
   it("announces the pane's REAL grid BEFORE the replay, so the capture paints onto an agreed grid", async () => {
@@ -1180,5 +1193,113 @@ describe("local attach replay — one clean paint, no raw-log re-play", () => {
     appendFileSync(logFile, "after close\n");
     await Bun.sleep(1300); // watch would fire ~instantly; the backstop twice
     expect(fake.sent.slice(framesAtAttach)).toEqual([]); // no watcher/timer survived
+  });
+});
+
+/**
+ * The one-shot `history` frame on the LOCAL attach (prior scrollback): the
+ * window is computed from the same pre-resize `logStart` the tail starts at,
+ * sent between the replay and `open()` so the wire order is
+ * `[replay][history][output…]`. The local twin of the relay's cases in
+ * `remote-subshell-ws.test.ts`; the shared seam is `ws/attach-history.ts`.
+ *
+ * Only `sendHistoryFrame` calls `launcher.readLog` on this path (the tail
+ * reads the file directly through `createLogTailSource`), so a spy on it both
+ * pins the window math exactly and feeds deterministic bytes to assert the
+ * mode strip on the history frame.
+ */
+describe("local attach history frame", () => {
+  /** A spy on the launcher's log-window read: records requests, returns `bytes`. */
+  function readLogSpy(bytes: Uint8Array): { calls: Array<{ fromByte: number; maxBytes: number }> } {
+    const calls: Array<{ fromByte: number; maxBytes: number }> = [];
+    defaultLocalLauncher.readLog = async (_id: string, fromByte: number, maxBytes: number) => {
+      calls.push({ fromByte, maxBytes });
+      return { bytes, next: fromByte + maxBytes };
+    };
+    return { calls };
+  }
+  const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
+
+  it("ships history between the replay and the live tail, mode-stripped", async () => {
+    stubLauncher();
+    // The window's alt-screen startup marker must not survive into the frame
+    // or the panel parks on the scrollback-less alt buffer for its life (the
+    // bug ws/mode-stripper.ts exists to kill); the plain text stays.
+    const spy = readLogSpy(utf8("\x1b[?1049hboot junk hello\r\n"));
+    const row = await seedLocalRow();
+    await Bun.write(subshellLogPath(row.id), "old\n"); // mark = 4 bytes
+
+    const { sent } = await attach(row.userId, row.id);
+    const term = sent.filter((f) => !f.includes('"type":"viewers"'));
+    expect(term[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+    expect(term[1]).toBe(JSON.stringify({ type: "history", data: "boot junk hello\r\n" }));
+    // mark (4) < cap, so the whole log is the window, ending at the mark.
+    expect(spy.calls).toEqual([{ fromByte: 0, maxBytes: 4 }]);
+  });
+
+  it("window edges: mark below the cap reads [0, mark); mark above reads the last cap bytes", async () => {
+    stubLauncher();
+    // Edge 1 (mark < cap): a 3-byte log reads [0, 3).
+    const spySmall = readLogSpy(utf8("abc"));
+    const small = await seedLocalRow();
+    await Bun.write(subshellLogPath(small.id), "abc");
+    await attach(small.userId, small.id);
+    expect(spySmall.calls.at(-1)).toEqual({ fromByte: 0, maxBytes: 3 });
+
+    // Edge 2 (mark > cap): cap 4 against a 10-byte log reads [6, 10).
+    const spyBig = readLogSpy(utf8("wxyz"));
+    mock.module("@/constants.js", () => ({ ...constantsSnapshot, TERMINAL_HISTORY_BYTES: 4 }));
+    try {
+      const big = await seedLocalRow();
+      await Bun.write(subshellLogPath(big.id), "0123456789"); // mark = 10 bytes
+      await attach(big.userId, big.id);
+      expect(spyBig.calls.at(-1)).toEqual({ fromByte: 6, maxBytes: 4 });
+    } finally {
+      mock.module("@/constants.js", () => constantsSnapshot);
+    }
+  });
+
+  it("knob 0: no history frame, and readLog never runs", async () => {
+    stubLauncher();
+    // The off switch is not "read the window then drop it": the log is never
+    // consulted at all, so the attach costs no extra read on an empty pane.
+    const spy = readLogSpy(utf8("should-not-ship"));
+    mock.module("@/constants.js", () => ({ ...constantsSnapshot, TERMINAL_HISTORY_BYTES: 0 }));
+    try {
+      const row = await seedLocalRow();
+      await Bun.write(subshellLogPath(row.id), "0123456789");
+      const { sent } = await attach(row.userId, row.id);
+      expect(spy.calls).toEqual([]);
+      expect(sent.some((f) => f.includes('"type":"history"'))).toBe(false);
+    } finally {
+      mock.module("@/constants.js", () => constantsSnapshot);
+    }
+  });
+
+  it("a throwing readLog still delivers the replay and the live tail", async () => {
+    stubLauncher();
+    // History is best effort: a torn read ships no frame and must never fail
+    // or stall the live join the pane matters for.
+    defaultLocalLauncher.readLog = async () => {
+      throw new Error("log read exploded");
+    };
+    const row = await seedLocalRow();
+    const logFile = subshellLogPath(row.id);
+    await Bun.write(logFile, "old\n");
+
+    const { ws, sent, closed } = await attach(row.userId, row.id);
+    try {
+      expect(closed).toEqual([]);
+      expect(sent[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+      expect(sent.some((f) => f.includes('"type":"history"'))).toBe(false);
+
+      // The tail is still armed and streams bytes appended AFTER the mark.
+      appendFileSync(logFile, "live\r\n");
+      const deadline = Date.now() + 5000;
+      while (!sent.some((f) => f.includes('"type":"output"')) && Date.now() < deadline) await Bun.sleep(25);
+      expect(sent.some((f) => f.includes("live"))).toBe(true);
+    } finally {
+      cleanupSubshellWs(ws);
+    }
   });
 });

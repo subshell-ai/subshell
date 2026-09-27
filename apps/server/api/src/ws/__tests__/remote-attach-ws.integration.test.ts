@@ -155,18 +155,34 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       expect(closed).toEqual([]); // the dispatch ran to completion, not a refusal
 
       // The §6.5 flow fired THROUGH the delegation: liveness, the join size
-      // probe, the tail, then the capture — the same command list the relay's
-      // own suite pins. Historical log bytes are never re-played, so there is
-      // exactly ONE log_read.
+      // probe, the tail, then the capture, then the one-shot `history` window
+      // (the second log_read, AFTER the replay send) — the same command list
+      // the relay's own suite pins. The tail never re-ships log bytes; the
+      // history frame is the one place they ride, and its window is exactly
+      // [0, mark) here (mark < cap).
       //
       // The tail precedes the capture because this path joins the SHARED pump
       // (subscribe → capture → open), which is what lets several browsers
       // watch one node pane without two overlapping tails. `fromByte` is
       // still the pre-capture EOF, so the join stays gap-free either way.
-      // `pane_size` closes the list even though this attach carries NO size:
-      // the pane has a grid whether or not this client declared one, and the
-      // client is told it either way.
-      expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture", "pane_cursor", "pane_size"]);
+      // `pane_size` closes the capture-side list even though this attach
+      // carries NO size: the pane has a grid whether or not this client
+      // declared one, and the client is told it either way.
+      expect(sim.cmdTypes()).toEqual([
+        "probe",
+        "log_read",
+        "tail_start",
+        "capture",
+        "pane_cursor",
+        "pane_size",
+        "log_read",
+      ]);
+      expect(sim.cmdsOf("log_read")[1]).toEqual({
+        type: "log_read",
+        subshellId: id,
+        fromByte: 0,
+        maxBytes: LOG.length,
+      });
       expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: id, lines: 100 }]);
       expect(sim.cmdsOf("tail_start")).toEqual([
         { type: "tail_start", subshellId: id, subId: expect.any(String), fromByte: LOG.length },
@@ -175,10 +191,12 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       // Frame 1: the replay, exactly the local path's shape.
       // Terminal frames only: the socket also carries `viewers` presence now.
       const term = () => sent.filter((f) => !f.includes('"type":"viewers"'));
-      // Geometry first, then the replay — the client is told the pane's
-      // CONFIRMED grid before it paints the capture onto it.
+      // Geometry first, then the replay, then the history window — the client
+      // is told the pane's CONFIRMED grid before it paints the capture onto
+      // it, and prior scrollback arrives between the replay and the stream.
       expect(term()[0]).toBe(JSON.stringify({ type: "geometry", cols: 132, rows: 43 }));
       expect(term()[1]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+      expect(term()[2]).toBe(JSON.stringify({ type: "history", data: LOG }));
 
       // Owner access ⇒ keystrokes and geometry ride the signed RPC (the
       // geometry passthrough: launch carries no cols today, the attach's
@@ -198,11 +216,11 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       // pane back and announces what it found — the same confirmed grid the
       // attach announced, which is what keeps several viewers of one node
       // pane rendering the same thing as each other and as the pane.
-      expect(term()[2]).toBe(JSON.stringify({ type: "geometry", cols: 132, rows: 43 }));
+      expect(term()[3]).toBe(JSON.stringify({ type: "geometry", cols: 132, rows: 43 }));
 
       dispatchOutput(outputFrame(id, subIdOf(sim), LOG.length, "echo hi\r\n"));
-      await until(() => term().length === 4, "output frame");
-      expect(term()[3]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
+      await until(() => term().length === 5, "output frame");
+      expect(term()[4]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
     } finally {
       sim.detach();
     }

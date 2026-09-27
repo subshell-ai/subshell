@@ -399,6 +399,33 @@ export const TERMINAL_REPLAY_LINES = (() => {
 })();
 
 /**
+ * Bytes of a pane's raw output log that an attach ships as prior scrollback,
+ * as one `history` frame after the replay and before the live stream opens.
+ *
+ * An alt-screen TUI keeps zero history rows in tmux, so the capture alone
+ * leaves a reloaded panel with one bare screen and no scrollback; the log
+ * window is what the browser replays to rebuild it. The window is the
+ * newest bytes BEFORE the attach's live-stream mark — the tail reads the
+ * rest from there on, so coverage is continuous and never overlaps the mark.
+ *
+ * 256 KiB is the budget, not the file: a pane's log lives for
+ * `SUBSHELL_LOG_RETENTION_DAYS` (30 by default), but the browser has to parse
+ * the window before the panel is useful, and 256 KiB is a tens-of-milliseconds
+ * parse that still spans hours of TUI scrollback. Hard-capped at 4 MiB for
+ * the same load-guarantee reason {@link TERMINAL_REPLAY_LINES} caps at 200.
+ * `0` (or any negative) switches the frame off entirely; garbage falls back
+ * to the default.
+ *
+ * Env: `SUBSHELL_TERMINAL_HISTORY_BYTES` (default 262144).
+ */
+export const TERMINAL_HISTORY_BYTES = (() => {
+  const raw = Number.parseInt(env.get("SUBSHELL_TERMINAL_HISTORY_BYTES").default("262144").asString(), 10);
+  if (!Number.isFinite(raw)) return 262144;
+  if (raw <= 0) return 0;
+  return Math.min(4 * 1024 * 1024, raw);
+})();
+
+/**
  * Hard-fails a production boot that would sign session cookies with the
  * placeholder secret.
  *

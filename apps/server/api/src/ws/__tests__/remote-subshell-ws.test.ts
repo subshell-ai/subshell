@@ -1,5 +1,6 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import type { JsonValue, NodeCommandBody } from "@internal/subshell-protocol";
+import * as constants from "@/constants.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
@@ -39,6 +40,10 @@ const LOG_BYTES = 256 * 1024; // must mirror LOG_TAIL_BYTES (windowed-read asser
 
 const BSU = "\x1b[?2026h";
 const ESU = "\x1b[?2026l";
+const ALT_IN = "\x1b[?1049h";
+
+/** Snapshot of the constants module for the `mock.module` knob swaps below. */
+const constantsSnapshot = { ...constants };
 
 const b64 = (s: string): string => Buffer.from(s, "utf8").toString("base64");
 
@@ -131,12 +136,16 @@ function makeNodeSim() {
 function scriptHappy(sim: ReturnType<typeof makeNodeSim>) {
   sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
   sim.answer("capture", `${BSU}SCREEN${ESU}`);
-  scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 });
+  // Two `log_read`s now: the join's 1-byte size probe, and the one-shot
+  // `history` window the relay reads after the replay send (mark 7 < cap ⇒
+  // the whole log).
+  scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 }, 2);
 }
 
 /**
- * Script `times` log_read answers (attach needs exactly one — the 1-byte
- * size probe; `readSubshellLogTail` still asks size + window = two).
+ * Script `times` log_read answers (the attach now asks two: the 1-byte size
+ * probe, then the `history` window after the replay send; `readSubshellLogTail`
+ * likewise asks size + window = two).
  */
 function scriptLogRead(sim: ReturnType<typeof makeNodeSim>, log: { bytes: string; size: number }, times = 1) {
   const answer = (cmd: NodeCommandBody) =>
@@ -234,7 +243,7 @@ afterEach(() => {
 });
 
 describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
-  it("replay first, then outputs: byte-exact browser contract, sync markers stripped", async () => {
+  it("replay, history, then outputs: byte-exact browser contract, mode markers stripped", async () => {
     const sim = makeNodeSim();
     scriptHappy(sim);
     const { ws, sent } = fakeBrowser();
@@ -243,8 +252,9 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     await until(() => sim.cmdTypes().includes("tail_start"), "tail_start on the wire");
 
     // Command ORDER through the real sendCommand: liveness, the tail's JOIN
-    // size probe, the TAIL, then the capture. One log_read only — historical
-    // log bytes never ship.
+    // size probe, the TAIL, then the capture, then the one-shot `history`
+    // window AFTER the replay send (second log_read): historical bytes ship
+    // exactly once, in that frame, never inside the replay or the tail.
     //
     // The tail is armed BEFORE the capture (it moved there when this path
     // joined the shared pump, matching the local twin): a viewer subscribes
@@ -253,11 +263,23 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     // `fromByte` is the pre-resize sample either way — but subscribing first
     // is what lets several viewers share ONE pump, which `NodeLauncher`'s
     // contract requires.
-    // `pane_size` closes the list: the attach reads the pane back so the
-    // geometry it announces is CONFIRMED rather than the size it asked for —
-    // an echo of the requested size is indistinguishable from a real readback.
-    expect(sim.cmdTypes()).toEqual(["probe", "log_read", "tail_start", "capture", "pane_cursor", "pane_size"]);
-    expect(sim.cmdsOf("log_read")).toEqual([{ type: "log_read", subshellId: SID, fromByte: 0, maxBytes: 1 }]);
+    // `pane_size` closes the capture-side list: the attach reads the pane
+    // back so the geometry it announces is CONFIRMED rather than the size it
+    // asked for — an echo of the requested size is indistinguishable from a
+    // real readback.
+    expect(sim.cmdTypes()).toEqual([
+      "probe",
+      "log_read",
+      "tail_start",
+      "capture",
+      "pane_cursor",
+      "pane_size",
+      "log_read",
+    ]);
+    expect(sim.cmdsOf("log_read")).toEqual([
+      { type: "log_read", subshellId: SID, fromByte: 0, maxBytes: 1 },
+      { type: "log_read", subshellId: SID, fromByte: 0, maxBytes: 7 },
+    ]);
     // The capture carries the default replay line cap; the tail starts at the
     // probed size (7): only bytes past the snapshot ever ship.
     expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: SID, lines: 100 }]);
@@ -266,7 +288,10 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     ]);
 
     // Frame 1: replay — the capture's DEC 2026 markers are gone and the frame
-    // is the browser's exact JSON shape (key order included).
+    // is the browser's exact JSON shape (key order included). Frame 2: the
+    // one-shot `history` window (the scripted log carries no markers, so it
+    // ships verbatim here; its own stripping is pinned below). Frames after:
+    // live output only, from the tail's mark onward.
     //
     // Terminal frames only, and re-read on EVERY assertion: the socket also
     // carries `viewers` presence, which arrives on its own schedule (a viewer
@@ -274,15 +299,16 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     // — silently drifts as soon as presence lands between two output frames.
     const term = (): string[] => sent.filter((f) => !f.includes('"type":"viewers"'));
     expect(term()[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+    expect(term()[1]).toBe(JSON.stringify({ type: "history", data: "ab\ncd\n" }));
 
     // Live chunks arrive as output frames, markers stripped, byte-identical.
     const sub = subIdOf(sim);
     dispatchOutput(outputFrame(sub, 7, "echo hi\r\n"));
-    await until(() => term().length === 2, "output frame");
-    expect(term()[1]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
+    await until(() => term().length === 3, "output frame");
+    expect(term()[2]).toBe(JSON.stringify({ type: "output", data: "echo hi\r\n" }));
     dispatchOutput(outputFrame(sub, 16, `${BSU}x${ESU}`));
-    await until(() => term().length === 3, "stripped output frame");
-    expect(term()[2]).toBe(JSON.stringify({ type: "output", data: "x" }));
+    await until(() => term().length === 4, "stripped output frame");
+    expect(term()[3]).toBe(JSON.stringify({ type: "output", data: "x" }));
   });
 
   it("a zero-byte log replays, then arms the tail at offset 0 (agent tolerates a missing file)", async () => {
@@ -311,7 +337,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     const sim = makeNodeSim();
     sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
     sim.answer("capture", "SCREEN");
-    scriptLogRead(sim, { bytes: "l1\nl2\nl3\n", size: 12 });
+    scriptLogRead(sim, { bytes: "l1\nl2\nl3\n", size: 12 }, 2);
     const { ws } = fakeBrowser();
 
     // cap=2 ⇒ `capture` asks for 2 history rows; the tail
@@ -330,7 +356,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     const sim = makeNodeSim();
     sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
     sim.answer("capture", "SCREEN");
-    scriptLogRead(sim, { bytes: "l1\nl2\nl3\n", size: 12 });
+    scriptLogRead(sim, { bytes: "l1\nl2\nl3\n", size: 12 }, 2);
     await setOwnerCap(9999);
     await attachRemoteSubshellWs(fakeBrowser().ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
     await until(() => sim.cmdsOf("capture").length === 1, "capture (cap 200)");
@@ -340,7 +366,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     const sim2 = makeNodeSim();
     sim2.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
     sim2.answer("capture", "SCREEN");
-    scriptLogRead(sim2, { bytes: "l1\nl2\nl3\n", size: 12 });
+    scriptLogRead(sim2, { bytes: "l1\nl2\nl3\n", size: 12 }, 2);
     await setOwnerCap(0);
     await attachRemoteSubshellWs(fakeBrowser().ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
     await until(() => sim2.cmdsOf("capture").length === 1, "capture (cap 1)");
@@ -450,7 +476,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     const sim = makeNodeSim();
     sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
     sim.answer("capture", "SCREEN");
-    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 });
+    scriptLogRead(sim, { bytes: "ab\ncd\n", size: 7 }, 2);
     sim.answer("pane_cursor", { x: 4, y: 2 });
     const { ws, sent } = fakeBrowser();
 
@@ -508,19 +534,127 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
     await until(() => sim.cmdTypes().includes("tail_start"), "tail armed");
     // Terminal frames only: the socket also carries `viewers` presence now.
+    // The attach itself completed its terminal frames (replay + history)
+    // BEFORE the slow-client probe ever saw the queue; it is the live flood
+    // that must not ship.
     expect(sent.filter((f) => !f.includes('"type":"viewers"'))).toEqual([
       JSON.stringify({ type: "replay", data: "SCREEN" }),
+      JSON.stringify({ type: "history", data: "ab\ncd\n" }),
     ]);
 
     dispatchOutput(outputFrame(subIdOf(sim), 7, "flood"));
     await until(() => closed.some((c) => c.code === 1011), "1011 close");
     // The offending chunk never ships. Terminal frames only — presence rides
     // the same socket.
-    expect(sent.filter((f) => !f.includes('"type":"viewers"')).length).toBe(1);
+    expect(sent.filter((f) => !f.includes('"type":"viewers"')).length).toBe(2);
     // The plugin's close handler runs the cleanup; the agent sees exactly one tail_stop.
     cleanupSubshellWs(ws);
     await until(() => sim.cmdTypes().filter((t) => t === "tail_stop").length === 1, "tail_stop once");
     expect(sim.cmdTypes().filter((t) => t === "tail_stop")).toHaveLength(1);
+  });
+});
+
+/**
+ * The one-shot `history` frame (prior scrollback): window math, the strip,
+ * the off switch, and the best-effort rule. The local twin lives in
+ * `subshell-ws-local-attach.test.ts`; the shared seam is
+ * `ws/attach-history.ts`.
+ */
+describe("attachRemoteSubshellWs — the history frame", () => {
+  it("ships the window ending at the live mark, after the replay and mode-stripped", async () => {
+    // The window must not carry the app's alt-screen startup: a history that
+    // ends with `?1049h` un-stripped would park this viewer on the
+    // scrollback-less alt buffer for its whole life, the bug the stripper
+    // exists to kill. The plain text beside it survives untouched.
+    const sim = makeNodeSim();
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", "SCREEN");
+    const logBytes = `${ALT_IN}boot junk hello\r\n`;
+    const size = Buffer.byteLength(logBytes);
+    scriptLogRead(sim, { bytes: logBytes, size }, 2);
+    const { ws, sent } = fakeBrowser();
+
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await until(() => sim.cmdTypes().includes("tail_start"), "tail armed");
+
+    // Window = [0, mark): mark < cap, so `from` clamps to the log's true
+    // first byte and the read is bounded by the mark, never past it…
+    expect(sim.cmdsOf("log_read")).toEqual([
+      { type: "log_read", subshellId: SID, fromByte: 0, maxBytes: 1 },
+      { type: "log_read", subshellId: SID, fromByte: 0, maxBytes: size },
+    ]);
+    // …and the tail starts at that same mark: coverage is continuous.
+    expect((sim.cmdsOf("tail_start")[0] as { fromByte: number }).fromByte).toBe(size);
+
+    const term = () => sent.filter((f) => !f.includes('"type":"viewers"'));
+    expect(term()[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+    expect(term()[1]).toBe(JSON.stringify({ type: "history", data: "boot junk hello\r\n" }));
+
+    // Live bytes flow AFTER the history frame: the client's contract is
+    // written against this order, and a history frame is never the tail's
+    // start.
+    dispatchOutput(outputFrame(subIdOf(sim), size, "live\r\n"));
+    await until(() => term().length === 3, "output frame");
+    expect(term()[2]).toBe(JSON.stringify({ type: "output", data: "live\r\n" }));
+  });
+
+  it("window edges: mark past the cap reads the LAST cap bytes before it", async () => {
+    // cap 4, log 10 bytes ⇒ [6, 10): the newest window ending at the mark.
+    // (The mark-below-cap edge is pinned above: [0, mark).)
+    const sim = makeNodeSim();
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", "SCREEN");
+    scriptLogRead(sim, { bytes: "0123456789", size: 10 }, 2);
+    mock.module("@/constants.js", () => ({ ...constantsSnapshot, TERMINAL_HISTORY_BYTES: 4 }));
+    try {
+      await attachRemoteSubshellWs(fakeBrowser().ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+      await until(() => sim.cmdTypes().includes("tail_start"), "tail armed");
+      expect(sim.cmdsOf("log_read")[1]).toEqual({ type: "log_read", subshellId: SID, fromByte: 6, maxBytes: 4 });
+    } finally {
+      mock.module("@/constants.js", () => constantsSnapshot);
+    }
+  });
+
+  it("TERMINAL_HISTORY_BYTES=0: no history frame, and the window read never happens", async () => {
+    // The off switch is not "read it and drop it": readLog must never be
+    // consulted at all, so a knob-0 instance pays zero log traffic per attach.
+    const sim = makeNodeSim();
+    scriptHappy(sim);
+    const { ws, sent } = fakeBrowser();
+    mock.module("@/constants.js", () => ({ ...constantsSnapshot, TERMINAL_HISTORY_BYTES: 0 }));
+    try {
+      await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+      await until(() => sim.cmdTypes().includes("tail_start"), "tail armed");
+      expect(sim.cmdsOf("log_read")).toEqual([{ type: "log_read", subshellId: SID, fromByte: 0, maxBytes: 1 }]);
+      expect(sent.some((f) => f.includes('"type":"history"'))).toBe(false);
+      expect(sent.filter((f) => !f.includes('"type":"viewers"'))).toEqual([
+        JSON.stringify({ type: "replay", data: "SCREEN" }),
+      ]);
+    } finally {
+      mock.module("@/constants.js", () => constantsSnapshot);
+    }
+  });
+
+  it("a failed history read ships no frame and never fails the attach", async () => {
+    // Dead file, torn read, dropped node socket: history is best effort, and
+    // the live join the pane matters for must survive the read that failed.
+    const sim = makeNodeSim();
+    sim.answer("probe", [{ subshellId: SID, alive: true, exitCode: null }]);
+    sim.answer("capture", "SCREEN");
+    sim.answer("log_read", { bytes_b64: b64("a"), next: 1, size: 7 }); // the join probe
+    sim.answer("log_read", fail("log file gone")); // the history window read
+    const { ws, sent, closed } = fakeBrowser();
+
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await until(() => sim.cmdTypes().includes("tail_start"), "tail armed");
+    expect(closed).toEqual([]);
+    const term = () => sent.filter((f) => !f.includes('"type":"viewers"'));
+    expect(term()[0]).toBe(JSON.stringify({ type: "replay", data: "SCREEN" }));
+    expect(term().some((f) => f.includes('"type":"history"'))).toBe(false);
+
+    dispatchOutput(outputFrame(subIdOf(sim), 7, "echo\r\n"));
+    await until(() => term().length === 2, "output despite the failed history read");
+    expect(term()[1]).toBe(JSON.stringify({ type: "output", data: "echo\r\n" }));
   });
 });
 

@@ -87,21 +87,27 @@ export function setAttachRetryDelaysForTests(baseMs: number, maxMs: number): voi
 
 /**
  * Attaches a WebSocket to an xterm terminal: streams server frames
- * (`replay` + `output`) into the terminal and forwards keystrokes back.
+ * (`replay` + `history` + `output`) into the terminal and forwards
+ * keystrokes back.
  *
  * The connection survives transient drops: after any non-rejection close the
  * hook reconnects automatically (fixed 1.5s delay) until it unmounts, and —
  * since Wave D — after a 4004 "node offline" refusal it keeps retrying on an
  * escalating backoff, because that refusal can clear while the terminal is
  * open. Any other 4xxx refusal stays terminal. Each attach re-streams a
- * clean snapshot: one
+ * clean snapshot, in this frame order: one
  * `replay` frame carries the pane grid plus a bounded window of tmux's own
- * reflowed history, and the live tail then carries ONLY output produced after
- * that snapshot — historical raw log bytes (mid-stream TUI redraw sequences)
- * are never re-played over the grid. Reconnects rebuild the terminal with no
- * client-side replay history to store; the terminal is reset on the first
- * `replay` frame of an attach so the previous connection's screen content is
- * not left behind.
+ * reflowed history; one `history` frame then (the server sends at most one,
+ * best effort, and may send none) carries the last bounded window of the
+ * pane's own raw output log ending exactly at the live tail's start, so
+ * writing it after the replay scrolls the app's prior frames into a real
+ * scrollback — the content a tab that has been open for hours holds;
+ * absence means "no prior history", never an error. The live tail then
+ * carries ONLY output produced after the replay's snapshot. Reconnects
+ * rebuild the terminal with no client-side replay history to store; the
+ * terminal is reset on the first `replay` frame of an attach so the previous
+ * connection's screen content is not left behind — which is why a `history`
+ * frame is ignored until that first replay has done its reset.
  *
  * The browser's fitted geometry rides the connect URL (`cols`/`rows`) so the
  * server resizes the pane BEFORE capturing the replay — painting a grid
@@ -359,10 +365,12 @@ export function useSubshellWs(
           // (tmux subshells start at 80×24; the pane must match the client).
           syncSize();
         };
-        // Frames arrive DEC-2026-stripped from the backend (see
-        // stripSyncMarkers in ws/sync-stripper.ts): xterm 6 withholds all
-        // painting while a synchronized update is open, and the harness TUIs
-        // leave one open across idle seconds — do not "restore" the markers.
+        // Frames arrive mode-stripped from the backend (see
+        // stripViewerModes in ws/mode-stripper.ts): xterm 6 withholds all
+        // painting while a DEC-2026 synchronized update is open, and the
+        // harness TUIs leave one open across idle seconds; the alt-screen
+        // modes are removed for the same one-way reason (a panel must not
+        // land on the scrollback-less alt buffer). Do not "restore" them.
         ws.onmessage = (e) => {
           try {
             // One decoder for both wire modes (spec 2026-09-21 Wave B): the
@@ -414,6 +422,18 @@ export function useSubshellWs(
                 // already-armed tail. Without this the mis-wrap persists
                 // until the user happens to resize the window.
                 if (term.cols !== usedCols || term.rows !== usedRows) syncSize();
+              }
+            } else if (frame.type === "history" && frame.data) {
+              // Prior scrollback, written after the replay so the app's own
+              // old frames scroll into scrollback (the replay alone is one
+              // bare screen for an alt-screen TUI). Defensive ordering
+              // guard: a history frame that somehow lands BEFORE this
+              // connection's first replay is dropped, because that replay
+              // is about to `term.reset()` and would eat it; the absence is
+              // legal ("no prior history"), so nothing is owed.
+              if (replayStarted) {
+                term.write(frame.data);
+                lastOutputRef.current = Date.now();
               }
             } else if (frame.type === "output" && frame.data) {
               term.write(frame.data);

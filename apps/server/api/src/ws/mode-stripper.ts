@@ -25,7 +25,8 @@
  *
  * Measured on a claude-code subshell: keystroke→paint ~1010 ms with the
  * markers, 1–30 ms without them. Every byte the attach endpoints send
- * outbound (replay, live tail, pane-poll fallback) must pass through here, and
+ * outbound (replay, the attach `history` frame, live tail, pane-poll
+ * fallback) must pass through here, and
  * the pane's own log file must NOT: it is the forensic record. Do not
  * reintroduce these sequences anywhere on the outbound path.
  */

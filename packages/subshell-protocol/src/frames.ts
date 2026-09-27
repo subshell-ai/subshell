@@ -87,6 +87,30 @@ export type ServerFrame =
     }
   | {
       /**
+       * The pane's PRIOR scrollback: the last bounded window of its raw
+       * output log, mode-stripped, ending exactly at the live stream's start
+       * offset.
+       *
+       * One-shot. Sent ONCE per attach, after the `replay` frame and before
+       * any `output`, never again on that connection. An alt-screen TUI keeps
+       * zero history rows in tmux, so the capture in the `replay` frame is
+       * the whole screen the reloaded panel used to get; writing these bytes
+       * after the replay lets the app's own output scroll its prior frames
+       * into scrollback, rebuilding it in place the way a tab that has been
+       * open for hours already holds it. The window ends where the live
+       * stream begins, so log coverage stays continuous and nothing overlaps
+       * the replay/live join by accident.
+       *
+       * A pane with a short log (or history switched off) may ship a small
+       * frame or none at all: clients must treat absence as "no prior
+       * history", never an error.
+       */
+      type: "history";
+      /** Raw log bytes (mode-stripped), replayed into the terminal as-is. */
+      data: string;
+    }
+  | {
+      /**
        * The pane's REAL grid, read back from tmux after a resize settled, and
        * announced on attach before the `replay` so the capture paints onto a
        * grid the client already agrees with.

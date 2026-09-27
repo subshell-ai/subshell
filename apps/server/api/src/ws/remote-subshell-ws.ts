@@ -5,6 +5,7 @@ import { getLive } from "@/services/nodes/node-registry.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
+import { sendHistoryFrame } from "@/ws/attach-history.js";
 import type { AttachParams } from "@/ws/attach-params.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
 import { captureStable, fitPaneAndRepaint, paneReadsAsBooting, RESIZE_SETTLE_MS } from "@/ws/pane-repaint.js";
@@ -30,14 +31,15 @@ import {
  * 2026-08-31 §6.5) — the remote twin of the local WS attach in
  * `subshell-ws.ts`. The browser contract is BYTE-IDENTICAL: one
  * `{"type":"replay","data":...}` frame (pane grid + reflowed history rows),
- * then `{"type":"output","data":...}` frames carrying ONLY bytes appended
- * after the replay was taken, every outbound string marker-stripped, refusals
- * on close code 4004.
+ * then the one-shot `{"type":"history","data":...}` prior-scrollback frame
+ * (see `ws/attach-history.ts`), then `{"type":"output","data":...}` frames
+ * carrying ONLY bytes appended after the replay was taken, every outbound
+ * string marker-stripped, refusals on close code 4004.
  *
  * The flow (per row): liveness (registry + probe) → optional pre-capture
  * resize + settle → `capture` with the replay line cap → one `log_read(0,1)`
- * size probe (AFTER the capture — the tail starts at that EOF and never
- * replays historical log bytes). Everything the
+ * size probe (AFTER the capture — the tail starts at that EOF, and historical
+ * log bytes ride only the separate best-effort `history` frame). Everything the
  * relay consumes from the launcher is pinned by the launcher's own suite:
  * the agent's `tail_start` RESULT can resolve before its initial catch-up
  * bytes flow (never assume "caught up" at resolve — the launcher's relay
@@ -324,6 +326,13 @@ export async function attachRemoteSubshellWs(
     sendFrame(ws, { type: "replay", data: painted });
     recordAttachPaint({ subshellId: row.id, preResize, replay: painted, repainted, nudged });
     if (detached) return;
+
+    // Prior scrollback — the LOCAL twin's identical line at the identical
+    // point (same helper, after the replay send, before `open()`, window
+    // ending at `logStart` where this relay's tail starts), so
+    // [replay][history][output…] holds for a node pane exactly as for a
+    // local one; the read rides the node's `log_read` through the launcher.
+    await sendHistoryFrame(ws, launcher, row.id, logStart);
 
     // Deliver: flush what the pump held while the replay was being taken,
     // then stream live. Decode/strip state lives in the SOURCE, not here —

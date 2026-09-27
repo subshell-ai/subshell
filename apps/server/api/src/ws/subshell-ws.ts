@@ -8,6 +8,7 @@ import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
+import { sendHistoryFrame } from "@/ws/attach-history.js";
 import { resolveAttach } from "@/ws/attach-resolve.js";
 import { captureToReplayText } from "@/ws/capture-text.js";
 import { dropInputHolds, hasHeldInput, holdFailedInput } from "@/ws/input-hold.js";
@@ -57,11 +58,16 @@ const LOG_FILE_WAIT_MS = 1_500;
  *
  * Attach paints ONCE: a `capture-pane -e -S -<cap>` replay ships the visible
  * grid plus the last `cap` reflowed history rows — tmux's own rendered text,
- * never historical raw log bytes. The live tail then streams EVERY byte from
- * a join point taken before the resize — a bounded overlap the client
- * replays over the snapshot (idempotent full-row repaints) rather than a gap
- * (skipped diffs desync a diff-renderer permanently; this exact gap was the
- * final "jumbled until you resize" root cause).
+ * never historical raw log bytes in the replay itself. One separate `history`
+ * frame follows the replay (a bounded window of the pane's own raw log,
+ * mode-stripped, best effort: `ws/attach-history.ts`) so the panel opens with
+ * real prior scrollback instead of one bare screen; its window ends exactly
+ * where the live stream starts, so replay + history + tail stay gap-free.
+ * The live tail then streams EVERY byte from a join point taken before the
+ * resize — a bounded overlap the client replays over the snapshot
+ * (idempotent full-row repaints) rather than a gap (skipped diffs desync a
+ * diff-renderer permanently; this exact gap was the final "jumbled until you
+ * resize" root cause).
  *
  * A row whose `nodeId` names an agent node (spec §6.5) is delegated whole to
  * `attachRemoteSubshellWs` — the browser contract there is byte-identical;
@@ -370,6 +376,11 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
     sendFrame(ws, { type: "replay", data: replay });
     recordAttachPaint({ subshellId: row.id, preResize, replay, repainted, nudged });
   }
+  // Prior scrollback, BEFORE `open()` so the wire order is
+  // [replay][history][output…] and the window ends exactly at `logStart`,
+  // where the tail starts. Best effort inside: a failed read sends nothing.
+  // The remote twin calls the same helper at the same point.
+  await sendHistoryFrame(ws, launcher, row.id, logStart);
 
   // The replay is out; release everything the pane produced while it was
   // being captured, then stream live.
