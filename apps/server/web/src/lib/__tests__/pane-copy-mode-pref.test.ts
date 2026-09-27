@@ -3,7 +3,17 @@ import { paneCopyModeIds, setPaneCopyModeIds, togglePaneCopyMode } from "@/lib/p
 
 describe("pane copy-mode preference (per-device, per-subshell)", () => {
   const KEY = "subshell.paneCopyMode";
-  afterEach(() => localStorage.removeItem(KEY));
+  // The key OWNED below (the isolation test plants a value in it) is cleaned
+  // here too: happy-dom's localStorage is one global across every file in the
+  // package run, and a leftover diagnostics value breaks
+  // pane-diagnostics-pref.test.ts's defaults assertion — green locally, red
+  // on CI, because file order differs by platform. A file clears what it
+  // writes, whichever key it wrote.
+  const DIAGNOSTICS_KEY = "subshell.paneDiagnostics";
+  afterEach(() => {
+    localStorage.removeItem(KEY);
+    localStorage.removeItem(DIAGNOSTICS_KEY);
+  });
 
   it("defaults to off: a subshell nobody put into copy mode reads off", () => {
     expect(paneCopyModeIds()).toEqual([]);
