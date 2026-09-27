@@ -7,7 +7,13 @@ import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { BELL_TONE, bellAnnouncement, DOT_CLASS, showsBell } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { encodeSubshellDrag } from "@/lib/subshell-dnd";
-import { INDICATOR_LABEL, sortByStatus, subshellIndicator, subshellStatusRank } from "@/lib/subshell-indicator";
+import {
+  INDICATOR_LABEL,
+  type SubshellIndicator,
+  sortByStatus,
+  subshellIndicator,
+  subshellStatusRank,
+} from "@/lib/subshell-indicator";
 import type { SubshellNodeGroup } from "@/lib/subshell-node-groups";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
 import type { SubshellView } from "@/types/subshell";
@@ -148,11 +154,28 @@ export function flatCellRows(
  * at all and the pulse lives on the BORDER ring — the state's green survives
  * as an edge, never a field (an off-phase green FIELD was the "second idle"
  * the old note refused, and the dimmed-green field in it is exactly what the
- * operator rejected on 2026-09-27). The per-state INITIAL_TONE table died
- * with the knockout it existed to place: the letter is `text-foreground`
- * everywhere, and the square's fill/border keeps naming the state.
+ * operator rejected on 2026-09-27). The per-state INITIAL_TONE table died for
+ * the BLINK — the working cell has no field for a letter to fight, so it is
+ * white — but the two SOLID light fills still defeat white, so a narrow
+ * knockout returns for them alone (delegated ruling 2026-09-27, after the
+ * operator saw the blink on an iOS device). `waiting` on `--warning` puts
+ * white at 1.34:1 and `node-offline` on `--destructive` at 2.77:1, both
+ * unreadable; those two wear a dark letter, everything else stays
+ * `text-foreground` (idle is `success/50`, where white reads 4.34:1). The
+ * square's fill/border still names the state; the letter is a hint, never a
+ * key, exactly as before.
  */
 const INITIAL_CLASS = "text-foreground";
+
+/** The only two indicators whose SOLID fill drives white below AA. `idle` is
+ * semitransparent and `terminated`/`active` carry no fill, so white reads on
+ * them and they are absent here. */
+const DARK_KNOCKOUT: Partial<Record<SubshellIndicator, true>> = { waiting: true, "node-offline": true };
+
+/** The initial's color for one state: dark only on a solid fill that eats
+ * white, white on the no-fill and semitransparent states. */
+const initialClass = (indicator: SubshellIndicator): string =>
+  DARK_KNOCKOUT[indicator] ? "text-background" : INITIAL_CLASS;
 
 /** The blink rides the BORDER ring: derived from `DOT_CLASS.active`, never
  * restated (the 2026-09-25 review's principle outliving the chip it fed) —
@@ -275,7 +298,10 @@ export function SubshellCell({
               {labels.initial ? <span className={cn("relative", INITIAL_CLASS)}>{labels.initial}</span> : null}
             </>
           ) : labels.initial ? (
-            <span className={INITIAL_CLASS}>{labels.initial}</span>
+            // Solid light fills defeat white (see `DARK_KNOCKOUT`); every
+            // other state — idle's semitransparent green, terminated's hollow
+            // — keeps the white letter.
+            <span className={initialClass(indicator)}>{labels.initial}</span>
           ) : null}
         </TooltipTrigger>
         {/* `bottom`, not the row's `right`: the rail hugs the screen's left

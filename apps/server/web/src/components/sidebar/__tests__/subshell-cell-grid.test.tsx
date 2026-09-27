@@ -347,6 +347,46 @@ describe("SubshellCell", () => {
     }
   });
 
+  it("letter color per state: dark on the two solid fills, white elsewhere (delegated ruling 2026-09-27)", async () => {
+    const restore = mockFetch();
+    try {
+      renderCell(
+        <>
+          <SubshellCell
+            subshell={sub({ id: "w", waitingSince: "2026-09-25T00:00:00.000Z" })}
+            active={false}
+            labels={{ nodeLabel: "m", agentLabel: "A", initial: "W" }}
+          />
+          <SubshellCell
+            subshell={sub({ id: "o", nodeOffline: true })}
+            active={false}
+            labels={{ nodeLabel: "m", agentLabel: "A", initial: "O" }}
+          />
+          <SubshellCell
+            subshell={sub({ id: "i" })}
+            active={false}
+            labels={{ nodeLabel: "m", agentLabel: "A", initial: "I" }}
+          />
+        </>,
+      );
+      await screen.findAllByRole("link");
+      // Scope to each cell's own link (a tooltip wrapper span elsewhere in the
+      // document carries no color class and would collide with a document-wide
+      // query) and select the letter by the color utility it must wear.
+      const linkFor = (t: string) => (screen.getAllByRole("link") as HTMLElement[]).find((l) => l.textContent === t);
+      // `waiting` (bg-warning) and `node-offline` (bg-destructive) defeat white
+      // (1.34:1 / 2.77:1): a dark knockout.
+      expect(linkFor("W")?.querySelector("span.text-background")).not.toBeNull();
+      expect(linkFor("W")?.querySelector("span.text-foreground")).toBeNull();
+      expect(linkFor("O")?.querySelector("span.text-background")).not.toBeNull();
+      // `idle` (bg-success/50) keeps white (4.34:1).
+      expect(linkFor("I")?.querySelector("span.text-foreground")).not.toBeNull();
+      expect(linkFor("I")?.querySelector("span.text-background")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
   it("shows the bell for an owner's unseen push, not the fill or an initial", async () => {
     const restore = mockFetch();
     try {
