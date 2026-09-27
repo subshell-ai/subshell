@@ -403,7 +403,10 @@ describe("gateTouchKeyboard", () => {
  */
 
 describe("copy mode standdown on the scroll/gate stack", () => {
-  it("attachTouchScroll: a one-finger swipe neither scrolls nor cancels the browser's own touch", () => {
+  it("attachTouchScroll: un-shielded standdown — a one-finger swipe neither scrolls nor cancels", () => {
+    // The belt, not the composed mechanism: in the app the copy-mode shield
+    // stops these touches at the root and this listener never runs during the
+    // mode. The standdown is what a direct caller of attachTouchScroll gets.
     const root = document.createElement("div");
     const screen = document.createElement("div");
     screen.className = "xterm-screen";
@@ -462,6 +465,53 @@ describe("copy mode standdown on the scroll/gate stack", () => {
     screen.dispatchEvent(touchEvent("touchmove", 234)); // 6px from 240 => sub-row, 0 lines
     expect(term.scrolled).toEqual([]);
     detach();
+  });
+
+  it("the composed shield+scroll: a gesture handed back mid-drag re-anchors, never flings", () => {
+    // Issue 242 review #5, at the composition the unit standdown test cannot
+    // reach: the shield swallows the gesture's start, copy mode flips OFF
+    // mid-drag past the stale gap, and the scroll listener meets a touchmove
+    // with no anchor it trusts. Correct behavior: anchor on that move (zero
+    // scroll, not the whole skipped distance), resume normal scrolling after.
+    const root = document.createElement("div");
+    const screen = document.createElement("div");
+    screen.className = "xterm-screen";
+    root.append(screen);
+    const term = fakeTerm();
+    let copyOn = true;
+    let t = 0;
+    const now = () => t;
+    const detachScroll = attachTouchScroll(
+      term as never,
+      root,
+      () => true,
+      () => copyOn,
+      now,
+    );
+    const detachShield = attachCopyModeShield(
+      term as never,
+      root,
+      () => copyOn,
+      () => true,
+    );
+    // Fully-shielded start: the scroll listener sees NOTHING of this gesture.
+    screen.dispatchEvent(touchEvent("touchstart", 500));
+    t = 10;
+    screen.dispatchEvent(touchEvent("touchmove", 410));
+    expect(term.scrolled).toEqual([]);
+    // Copy mode flips off mid-gesture, after a gap past the stale threshold.
+    copyOn = false;
+    t = 600;
+    const resumed = touchEvent("touchmove", 200); // 210px above where anything was anchored
+    screen.dispatchEvent(resumed);
+    expect(term.scrolled).toEqual([]); // re-anchored, not flung
+    expect(resumed.defaultPrevented).toBe(false); // nothing consumed either
+    // From the new anchor the gesture scrolls normally.
+    t = 620;
+    screen.dispatchEvent(touchEvent("touchmove", 164)); // 36px up => 2 lines
+    expect(term.scrolled).toEqual([2]);
+    detachShield();
+    detachScroll();
   });
 
   it("gateTouchKeyboard: a tap in copy mode does NOT raise the keyboard, a scrollbar touch still blurs", async () => {

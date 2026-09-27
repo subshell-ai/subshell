@@ -69,8 +69,11 @@ export function SubshellActionsMenu({
    * behind a ⋯ button — the sidebar's recent rows (spec 2026-09-03). */
   children?: ReactNode;
 }): ReactNode {
-  // ReactNode, not JSX.Element | null: the viewer's no-menu path returns the
-  // caller's children verbatim (whatever element — or elements — they are).
+  // ReactNode, not JSX.Element | null: the zero-item path returns the
+  // caller's children verbatim (whatever element, or elements, they are).
+  // Since issue 242 this is a defense, not the viewer's route: a `view`
+  // grantee gets the menu and the always-present QR item, and the per-item
+  // gates below are what keep the managing acts out of reach.
   const [titleOpen, setTitleOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);

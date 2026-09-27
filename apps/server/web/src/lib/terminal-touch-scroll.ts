@@ -6,6 +6,10 @@ import { terminalUrlAtPoint } from "@/lib/terminal-url-tap";
 const FALLBACK_ROW_PX = 18;
 /** Pair-gesture deadzone: movement below this decides nothing (finger tremor). */
 const PAIR_DEADZONE_PX = 8;
+/** A single-finger move arriving more than this long after the last tracked
+ * one is a RESUMED gesture (a pause mid-drag, or a gap the copy-mode shield
+ * swallowed): it re-anchors instead of scrolling the whole stale delta. */
+const STALE_MOVE_MS = 400;
 /** Testable override of the styles.css `@media (pointer: coarse)` gate. */
 export const isTouchUi = () => typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
 
@@ -46,20 +50,35 @@ function rowHeightPx(term: Terminal): number {
  * `copyMode()` true means the pane is in copy mode (issue 242): a
  * one-finger touch belongs to the browser's selection pipeline, so the swipe
  * neither scrolls nor preventDefaults it. The pair path is deliberately
- * untouched — two-finger line-scroll keeps working while you select.
+ * untouched — two-finger line-scroll keeps working while you select. In the
+ * composed app the copy-mode shield stops those one-finger touches at the
+ * root before they reach this listener; the standdown here is the belt for
+ * the unshielded path, and its Y/clock tracking doubles as the re-anchor
+ * bookkeeping below.
+ *
+ * A single-finger move that arrives with no tracked start, or after a gap
+ * past STALE_MOVE_MS, RE-ANCHORS rather than flinging (issue 242 review): it
+ * records the Y and scrolls nothing. Without it, the move right after the
+ * copy-mode shield lets the gesture back through would scroll by the whole
+ * stale delta in one jump; the same is true of a long pause inside a genuine
+ * drag.
  *
  * Attaches to `.xterm-screen` (the grid body — outside it, the page still
  * scrolls normally: headers, lists, settings). Returns the detach fn.
+ * `now` is injectable so a test can fake the gap; production runs on
+ * `Date.now`.
  */
 export function attachTouchScroll(
   term: Terminal,
   root: HTMLElement,
   isTouch: () => boolean = isTouchUi,
   copyMode?: () => boolean,
+  now: () => number = Date.now,
 ): () => void {
   if (!isTouch()) return () => {};
   const target = root.querySelector<HTMLElement>(".xterm-screen") ?? root;
   let lastY: number | null = null;
+  let lastMoveAt = 0;
   let carry = 0;
   /** Live two-finger gesture: the moving finger-mean (for per-event deltas),
    * the gesture ORIGIN (the deadzone decision is total-from-origin, so a
@@ -77,6 +96,7 @@ export function attachTouchScroll(
   const onStart = (e: TouchEvent) => {
     lastY = null;
     pair = null;
+    lastMoveAt = now();
     if (e.touches.length === 1) {
       lastY = e.touches[0]?.clientY ?? null;
       carry = 0;
@@ -139,19 +159,32 @@ export function attachTouchScroll(
       pair.spread = spread;
       return;
     }
-    if (e.touches.length !== 1 || lastY === null) return;
+    if (e.touches.length !== 1) return;
     const y = e.touches[0]?.clientY;
     if (y === undefined) return;
     if (copyMode?.()) {
       // Copy mode (issue 242): the finger selects, it does not swipe. No
-      // scroll, no preventDefault — the browser owns this touch. The Y is
-      // still tracked so a mid-gesture toggle back cannot fire a jump from
-      // the stale position on the next move.
+      // scroll, no preventDefault — the browser owns this touch. The Y and
+      // the clock are still tracked: they are the anchor to resume from if
+      // the mode flips off mid-gesture.
       lastY = y;
+      lastMoveAt = now();
+      return;
+    }
+    if (lastY === null || now() - lastMoveAt > STALE_MOVE_MS) {
+      // No tracked start (a gesture whose touchstart this listener never saw,
+      // e.g. the copy-mode shield swallowed it) or a long silent gap: anchor
+      // to THIS point. Scrolling the accumulated stale distance would fling
+      // the buffer by however far the finger travelled since the last
+      // accepted move — one jump of every skipped row.
+      lastY = y;
+      carry = 0;
+      lastMoveAt = now();
       return;
     }
     const dy = lastY - y;
     lastY = y;
+    lastMoveAt = now();
     e.preventDefault();
     scrollByDy(dy);
   };

@@ -409,6 +409,9 @@ function SubshellPage() {
         <TerminalKeyBar
           disabled={!connected}
           readOnly={subshell.access === "view"}
+          // Copy mode's "typing yields to selecting" holds for the bar too:
+          // in the mode the bar is exactly the viewer's scroll row.
+          suppressInput={coarse && copyOn}
           onBytes={handleKeyBarBytes}
           onPickImage={subshell.access === "view" ? undefined : () => openImagePickerRef.current?.()}
           onScrollTop={handleScrollTop}

@@ -610,17 +610,27 @@ export function SubshellTerminal({
     serializeRef.current = serialize;
     const searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
-    // URLs in pane output are clickable links (issue #242). The opener is
+    // URLs in pane output become links (issue #242), opened ONLY with
+    // ctrl/cmd held (measured 2026-09-26 in the installed bundles: core
+    // `LinkManager._handleMouseUp` has NO modifier gate and a plain
+    // click-then-release on one link fires `activate` — VS Code's
+    // "hold the modifier" posture therefore has to be enforced HERE, or
+    // every stray focus-click on printed output opens a tab). The opener is
     // the one place a scheme gets decided — http(s) only — and `window.open`
     // is deliberate: it is ALSO the only path the desktop shells'
     // on_new_window handler sees (lib/desktop-links.ts), whose native
     // scheme re-check stays the security boundary there; a plain browser
     // gets a plain new tab. Ungated by access on purpose: reading a pane
-    // includes clicking what it printed, and `disableStdin` does not touch
-    // the linkifier. Accepted limitation, true of xterm link handling
-    // everywhere: a pane running a mouse-reporting app (tmux) may consume
-    // some of the clicks before the linkifier sees them.
-    term.loadAddon(new WebLinksAddon((_event, uri) => safeOpenTerminalUri(uri)));
+    // includes opening what it printed, and `disableStdin` does not touch
+    // the linkifier. Copy-mode taps are a separate path (they act on the
+    // MODE, so they need no modifier). Accepted limitation, true of xterm
+    // link handling everywhere: a pane running a mouse-reporting app (tmux)
+    // may consume some of the clicks before the linkifier sees them.
+    term.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        if (event.ctrlKey || event.metaKey) safeOpenTerminalUri(uri);
+      }),
+    );
     // NO renderer addon — xterm 6's own DOM renderer, deliberately (2026-09-04).
     // `@xterm/addon-canvas` is out for good: every release through
     // 0.8.0-beta.48 peer-requires `@xterm/xterm@^5`, and its last publish was
@@ -948,11 +958,17 @@ export function SubshellTerminal({
 
   // Copy mode's INPUT half (issue #242): typing and selecting are mutually
   // exclusive on a phone. The WS hook writes `disableStdin = readOnly` from
-  // its own effect (running before this one in every commit, and again on
-  // every attach); this restates the OR whenever either input moves, so the
-  // two writers converge rather than race, and leaving the mode hands the
-  // value back to the hook's rule exactly. Entering the mode dismisses the
-  // keyboard the terminal may be holding focus with.
+  // its own effect — ONCE per effect run (deps [terminalRef, subshellId,
+  // readOnly, measure]), not per attach: connect() never touches the option
+  // (checked against the hook, 2026-09-26). That effect is declared first,
+  // so in any commit where both re-run this one restates the OR last and
+  // wins. subshellId is in THESE deps so the OR is restated on a pane-swap
+  // too without leaning on the caller's remount key: `SubshellPane` forwards
+  // copyMode, so a future host that changes subshells in place must not get
+  // a copy mode with the keyboard dismissed but stdin re-armed by the hook
+  // alone. Leaving the mode hands the value back to the hook's rule exactly.
+  // Entering the mode dismisses the keyboard the terminal may be holding
+  // focus with.
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
