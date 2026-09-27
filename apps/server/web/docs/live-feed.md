@@ -40,7 +40,7 @@ entry instead, so an active page refetches to the honest answer (including the
 404 it renders as not-found) and an inactive one costs nothing. And
 `subshell-gone` INVALIDATES the `["workspace"]` detail too: a close CASCADES
 the pane rows, dock tiles render from that per-workspace read, and it has no
-poll of its own — the gone frame is therefore the ONLY live signal a close made
+poll of its own. The gone frame is therefore the ONLY live signal a close made
 elsewhere ever sends the dock (operator bug audit 2026-09-27: without it, a
 remote Close left the tile standing forever). Any new reader of a subshell
 should be a selector over the list, or it needs a line here.
