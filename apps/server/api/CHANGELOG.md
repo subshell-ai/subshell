@@ -1,5 +1,19 @@
 # @internal/server
 
+## 1.3.0
+
+### Minor Changes
+
+- [#260](https://github.com/subshell-ai/subshell/pull/260) [`ddf8872`](https://github.com/subshell-ai/subshell/commit/ddf88723df470d7649acc07fb11edec08831cc8b) Thanks [@theogravity](https://github.com/theogravity)! - The sidebar's Workspaces section grew up. It now has a search that filters every workspace (not just the eight it lists), splits the list into Saved and Drafts, and labels each draft by its creation stamp, so the unsaved workspaces a split leaves behind are visible and named instead of invisible. The Drafts header carries a trashcan that discards every unsaved workspace at once, sparing the one you are standing in, with a confirmation first. The rail's Workspace section (the panes of the workspace you are in) joins the machine groups, collapses on its own preference, and in flat mode the grid splits into Workspace and Others. Collapse/expand-all, the eye show-hide toggles, and the compact phone header all gained real tooltips, and two workspaces created in the same minute no longer collide: a second default name gains " (2)". Server-side, `GET /api/workspaces?drafts=only` and `DELETE /api/workspaces/drafts?except=` power the new section.
+
+### Patch Changes
+
+- [#257](https://github.com/subshell-ai/subshell/pull/257) [`51f3975`](https://github.com/subshell-ai/subshell/commit/51f3975908bc3ad359b4d36d43efbf88b97134c6) Thanks [@theogravity](https://github.com/theogravity)! - The rail's square cells changed how the working state pulses, by operator ruling. A blinking cell now carries no background at all: a neutral bordered square, the pane's initial in white and never fading, and the green pulse on the border ring only. Every initial is white on every state; the dimmed green field and the dark knockout letter are gone.
+
+- [#253](https://github.com/subshell-ai/subshell/pull/253) [`972c073`](https://github.com/subshell-ai/subshell/commit/972c073713050e6a0f7b01aadfc643c200cb63f4) Thanks [@theogravity](https://github.com/theogravity)! - Subshell terminal links and copy mode. URLs printed in a pane open with ctrl/cmd+click on desktop and with a tap in copy mode on touch. Copy mode, a per-subshell per-device toggle in the pane's actions menu, lets a phone long-press and drag-select terminal text; two-finger and scrollbar scrolling keep working while it is on, and the accessory key bar narrows to its scroll jumps. The actions menu now renders for every access level, with items still filtered by access: a read-only viewer gets QR, copy mode, and diagnostics. In the sidebar rail, the Cross-agent comms section now renders above the machine groups, directly under the Needs Attention spotlight.
+
+- [#256](https://github.com/subshell-ai/subshell/pull/256) [`470aca5`](https://github.com/subshell-ai/subshell/commit/470aca592961b4c47c533e3d526a599d8bfe5e3f) Thanks [@theogravity](https://github.com/theogravity)! - Terminals measure text by grapheme cluster now, via the unicode addon VS Code donated upstream. A ZWJ family emoji is one cell and CJK and modern emoji keep their real widths, so wide output stays column-aligned instead of drifting. Tap-to-open in copy mode reads the buffer's own cell widths instead of a private table, so it stays correct for whatever the terminal laid out.
+
 ## 1.2.1
 
 ### Patch Changes
