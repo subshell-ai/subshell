@@ -27,8 +27,10 @@ name: Test
 # metered, so a hung job costs money instead of just fleet time — and the
 # 360-minute GitHub default is an outage either way.
 #
-# The suites are split into eight slice jobs (web / mobile / desktop /
-# server + node / packages / scripts / smoke / e2e) rather than one big run.
+# The suites are split into ten routed jobs (web / mobile / desktop /
+# server + node / packages / scripts / smoke / e2e, plus the two Rust ones:
+# the desktop-core crate and the desktop apps' src-tauri legs) rather than
+# one big run.
 # The single `Testing` job had become the place failures were hard to LOCATE —
 # a red check meant eleven workspaces of scrollback. Per-slice jobs make the
 # job name the diagnosis, and run in parallel, so wall-clock drops even as
@@ -46,9 +48,14 @@ name: Test
 # Slices skipped here show grey; there is deliberately no required-check rule
 # to satisfy (no branch protection on this repo as of 2026-09-17).
 #
-# The two Rust jobs stay unconditional: their inputs are not in the turbo
-# graph at all, they are ~2 minutes each, and globbing them by hand would
-# reintroduce the rot this design removes.
+# The two Rust jobs are routed too (2026-09-26, at the operator's request).
+# Their inputs are not in the turbo graph — that fact stands, and is why they
+# route on FILE predicates (`rustTouched` in the router) rather than package
+# routing. The rot objection to gating them is answered by WHERE the rules
+# live: registered and unit-tested beside `scriptsTouched`, not scattered
+# into YAML conditionals. Every degraded path still runs them (allFlags
+# covers the Rust pair), and a change to THIS file runs every slice — the
+# router cannot route its own change, so a CI PR never greys its own proof.
 
 on:
   pull_request:
@@ -91,6 +98,8 @@ jobs:
       scripts: ${{ steps.route.outputs.scripts }}
       smoke: ${{ steps.route.outputs.smoke }}
       e2e: ${{ steps.route.outputs.e2e }}
+      rustCore: ${{ steps.route.outputs.rustCore }}
+      rustApps: ${{ steps.route.outputs.rustApps }}
     steps:
       # Full history: the router diffs against the PR base (or the push's
       # before-sha), and a shallow clone cannot answer that question — the
@@ -721,6 +730,8 @@ jobs:
   # each re-run it.
   desktop-core-rust:
     name: Desktop core (Rust)
+    needs: plan
+    if: needs.plan.outputs.rustCore == 'true'
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 20
@@ -781,6 +792,8 @@ jobs:
   # so the old `sudo apt-get install libwebkit2gtk…` step is gone.
   desktop-rust:
     name: Desktop (Rust) — ${{ matrix.app }}
+    needs: plan
+    if: needs.plan.outputs.rustApps == 'true'
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 30
