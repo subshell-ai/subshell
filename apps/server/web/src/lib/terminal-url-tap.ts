@@ -1,4 +1,4 @@
-import type { Terminal } from "@xterm/xterm";
+import type { IBufferLine, Terminal } from "@xterm/xterm";
 
 /**
  * "Tap the link you printed" for copy mode (issue 242, touch): a phone has
@@ -10,19 +10,35 @@ import type { Terminal } from "@xterm/xterm";
  * Two mappings carry the whole risk, and both speak BUFFER FACTS rather than
  * length guesses:
  *
- * - CELLS are not string indices. A CJK glyph is one UTF-16 unit occupying
- *   TWO cells, and a combining mark rides its base's cell for free, so the
- *   tapped column must be walked through the line's code points to find the
- *   unit under it. Comparing the raw column against string offsets would
- *   resolve a tap west of a wide run into a token the user never touched
- *   (review 2026-09-27: a tap on 打开 in "参考 https://a.com/x 打开
- *   https://b.com/y" walked back into the FIRST url).
+ * - CELLS are not string indices. A CJK glyph owns TWO cells and a wide
+ *   glyph's zero-width continuation rides its base, so the tapped column
+ *   must be walked through the row's MEASURED CELLS to find the unit under
+ *   it. This module used to own a hand-rolled wcwidth table as that bridge
+ *   (review 2026-09-27: the table was how a tap west of a wide run failed
+ *   to walk into a token the user never touched); it now reads the widths
+ *   the ACTIVE provider laid the row out with — the buffer's own cell data
+ *   (`tapCellsOfLine`), which is the grapheme truth under the unicode-
+ *   graphemes addon (2026-09-26 wave) and core's tables anywhere the addon
+ *   is not loaded. NO width knowledge may live here: it reads measurements,
+ *   never computes them.
  * - The wrap seam is a fact the buffer carries, not a guess from text
  *   length: `getLine(i).isWrapped`. A row whose trimmed text happens to fill
  *   the width after a HARD newline is not a continuation; treating it as one
  *   joins two unrelated lines. So the caller hands over `wrappedFromAbove`
  *   (this row's own isWrapped) and `wrapsToBelow` (the NEXT row's
  *   isWrapped) and no length stands in for either.
+ *
+ * The seam and a wide glyph, MEASURED 2026-09-26 on xterm 6.1.0-beta.304
+ * (both providers; at input time and again through resizes): xterm never
+ * splits a wide glyph across the wrap seam. Either the whole glyph moves to
+ * the next row (which starts on it, `isWrapped` flagging the seam), or it
+ * ENDS this row whole — base cell plus its zero-width continuation, which
+ * contributes no text — so the trimmed text ends on the glyph that owns the
+ * row's last cells, and both join rules below read real glyphs. What that
+ * leaves is the token model itself, ACCEPTED and unchanged by the addon:
+ * a token is whatever runs between whitespace, so a CJK word abutting the
+ * seam (prose has no spaces) glues onto a seam-ending URL exactly as an
+ * ASCII continuation would — identical before and after this refactor.
  */
 
 /** A token is whatever runs between whitespace (or the line's ends). A
@@ -39,75 +55,79 @@ const TRAILING_STRIP = ")[.,;:!?\"'";
 const URL_RE = /^https?:\/\//i;
 
 /**
- * The cell cost of a code point on the grid: 0 rides its base's cell
- * (combining marks, variation selectors, ZWJ), 2 spans two cells (CJK,
- * Hangul, fullwidth forms, emoji), 1 everything else. A pragmatic
- * wcwidth subset — the ranges that actually occur in terminal output —
- * because the buffer API that would answer this exactly lives per-CELL
- * (`getCell(x).width`) while the token walk lives per STRING, and this
- * function is the bridge between the two.
- *
- * @param cp - the code point to measure
+ * One MEASURED buffer cell: the glyph it carries and the columns it owns.
+ * Widths come from whoever laid the row out (the graphemes addon, core's
+ * tables — this module never decides): `width` 2 is a wide glyph owning two
+ * columns, 0 is a continuation or a zero-width carry owning none, 1 is
+ * ordinary. `char` is the cell's text as the buffer stores it — which may
+ * be a whole grapheme cluster (the addon packs 👨‍👩‍👧 into ONE cell), a base
+ * with its marks (core packs them too), "" for a continuation, and "" for a
+ * blank cell (which `translateToString` renders as a space).
  */
-export function codePointCellWidth(cp: number): number {
-  if (
-    (cp >= 0x0300 && cp <= 0x036f) || // combining marks above/below
-    (cp >= 0x1ab0 && cp <= 0x1aff) || // combining marks DiA... extended
-    (cp >= 0x20d0 && cp <= 0x20f0) || // combining marks for symbols
-    (cp >= 0x200b && cp <= 0x200f) || // zero-width space/joiners/marks
-    (cp >= 0xfe00 && cp <= 0xfe0f) || // variation selectors
-    (cp >= 0xfe20 && cp <= 0xfe2f) // combining half marks
-  ) {
-    return 0;
-  }
-  if (
-    (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo init.
-    (cp >= 0x2e80 && cp <= 0x303e) || // CJK radicals, Kangxi, punctuation
-    (cp >= 0x3041 && cp <= 0x33ff) || // kana, Hangul compat Jamo, enclosed CJK
-    (cp >= 0x3400 && cp <= 0x4dbf) || // CJK ext A
-    (cp >= 0x4e00 && cp <= 0x9fff) || // CJK unified
-    (cp >= 0xa000 && cp <= 0xa4cf) || // Yi
-    (cp >= 0xac00 && cp <= 0xd7a3) || // Hangul syllables
-    (cp >= 0xf900 && cp <= 0xfaff) || // CJK compat ideographs
-    (cp >= 0xfe10 && cp <= 0xfe19) || // vertical forms
-    (cp >= 0xfe30 && cp <= 0xfe6f) || // CJK compat forms, small form variants
-    (cp >= 0xff00 && cp <= 0xff60) || // fullwidth ASCII variants
-    (cp >= 0xffe0 && cp <= 0xffe6) || // fullwidth signs
-    (cp >= 0x17000 && cp <= 0x18aff) || // Tangut
-    (cp >= 0x1f004 && cp <= 0x1f9ff) || // emoji, mahjong, enclosed alphanumerics…
-    (cp >= 0x20000 && cp <= 0x3fffd) // CJK ext B–F
-  ) {
-    return 2;
-  }
-  return 1;
+export interface TapCell {
+  /** The cell's text as the buffer stores it (may be multiple code points). */
+  char: string;
+  /** Columns this cell owns: 1 ordinary, 2 wide glyph, 0 continuation/zero-width. */
+  width: number;
 }
 
 /**
  * The string index of the code point occupying a cell column, or null when
- * the cell is past the line's text (a blank buffer cell) or before 0. A wide
- * glyph answers for BOTH of its cells; zero-width code points never own a
- * cell, so a column answers its base.
+ * the column is past the cells' own width (a blank buffer cell) or below 0.
+ * A wide cell answers for BOTH of its columns; zero-width cells never own a
+ * column, so a column lands on the next cell that does — a combining carry
+ * or a wide continuation resolves to whatever base owns the tap.
  *
- * @param line - the row's text, trailing whitespace trimmed
+ * @param cells - the tapped line's measured cells (see {@link tapCellsOfLine})
  * @param col - the tapped cell column (0-based, as xterm counts cells)
  */
-export function cellToCharIndex(line: string, col: number): number | null {
+function cellIndexAt(cells: TapCell[], col: number): number | null {
   if (col < 0) return null;
-  let cell = 0;
-  for (let i = 0; i < line.length; ) {
-    const cp = line.codePointAt(i)!;
-    const ch = String.fromCodePoint(cp);
-    const w = codePointCellWidth(cp);
-    if (w === 0) {
-      // Rides the previous cell; never owns the tap.
-      i += ch.length;
-      continue;
+  let column = 0;
+  let index = 0;
+  for (const cell of cells) {
+    if (cell.width > 0) {
+      if (col < column + cell.width) return index;
+      column += cell.width;
     }
-    if (col < cell + w) return i;
-    cell += w;
-    i += ch.length;
+    index += stringUnitsOf(cell);
   }
   return null;
+}
+
+/** How many of `translateToString`'s string units a cell contributes: its
+ * own text, one space when it is a blank cell (the buffer stores "" and the
+ * renderer says " "), and nothing at width 0 (continuations are skipped).
+ * The tap walk and the buffer reader step the string by this rule so the
+ * two agree about where every cell sits in `line`. */
+const stringUnitsOf = (cell: TapCell): number => (cell.char ? cell.char.length : cell.width > 0 ? 1 : 0);
+
+/**
+ * Read a buffer line's cells, in the {@link TapCell} shape, covering exactly
+ * the text `translateToString(true)` yielded: the walk stops when the
+ * trimmed string is covered, so trailing blanks — and the zero-width
+ * continuation of a glyph that ENDS the row — are not cells of this tap
+ * (the base's own width already owns both of its columns; measured
+ * 2026-09-26). This is the module's ONLY reader of the live buffer; the tap
+ * mapping stays pure on the array it produces.
+ *
+ * @param line - the buffer line (`getLine(index)`)
+ * @param trimmed - that same line's `translateToString(true)`
+ */
+export function tapCellsOfLine(line: IBufferLine, trimmed: string): TapCell[] {
+  const cells: TapCell[] = [];
+  let seen = 0;
+  for (let x = 0; x < line.length && seen < trimmed.length; x++) {
+    // No reuse cursor: `getNullCell` lives on the BUFFER and exists for
+    // per-cell sweeps; a tap reads one line.
+    const cell = line.getCell(x);
+    if (!cell) break;
+    const char = cell.getChars();
+    const width = cell.getWidth();
+    cells.push({ char, width });
+    seen += stringUnitsOf({ char, width });
+  }
+  return cells;
 }
 
 /** The whitespace-delimited token at a STRING index, with its bounds, or
@@ -139,21 +159,22 @@ function trailingToken(line: string): string | null {
 }
 
 /**
- * Inputs for one tap: the buffer text around it, the tapped CELL, and the
- * two wrap facts. Lines are as `translateToString(true)` yields them —
- * trailing whitespace trimmed, which together with the wrap flags makes the
- * seam rules exact: a wrapped row's trimmed text ends in the very glyph that
- * caused the wrap, and a hard-newlined row is never joined because the
- * buffer says so. One non-exact shape, ACCEPTED: when a WIDE glyph (a CJK
- * cell) itself straddles the wrap seam, xterm splits it into a base cell + a
- * continuation cell and the head-side join sees the continuation as a blank
- * leading token, so it MISSES (returns the URL up to the seam, or null)
- * rather than ever wrong-opening; the tail-side tap still joins correctly.
- * Miss-open only, never a wrong URL — the reason this is left as-is.
+ * Inputs for one tap: the buffer text around it, the tapped row's MEASURED
+ * CELLS, the tapped CELL, and the two wrap facts. Lines are as
+ * `translateToString(true)` yields them — trailing whitespace trimmed, which
+ * together with the wrap flags makes the seam rules exact: a wrapped row's
+ * trimmed text ends in the very glyph that owns the row's last cells, and a
+ * hard-newlined row is never joined because the buffer says so. `cells`
+ * must pair with `line` — the same row read through {@link tapCellsOfLine};
+ * the seam truth for wide glyphs (and the one ACCEPTED shape that remains,
+ * the whitespace-token glue of a seam-abutting CJK word) is in the module
+ * header above.
  */
 export interface TapCellText {
   /** Text of the tapped line. */
   line: string;
+  /** The tapped line's cells, measured by the provider that laid it out. */
+  cells: TapCell[];
   /** The line above, if it exists. */
   above?: string;
   /** The line below, if it exists. */
@@ -187,12 +208,21 @@ function accept(candidate: string): string | null {
  * the final candidate is stripped. Joining needs the BUFFER's wrap fact —
  * text that merely fills the width after a hard newline is never joined.
  *
- * @param text - the tapped line, its neighbours, the tapped cell, the wrap facts
+ * @param text - the tapped line and its measured cells, the neighbours, the
+ *               tapped cell, the wrap facts
  * @returns the URL to open, or null for a plain word, whitespace, or a cell
  *          past the text
  */
-export function urlTokenAt({ line, above, below, col, wrappedFromAbove, wrapsToBelow }: TapCellText): string | null {
-  const index = cellToCharIndex(line, col);
+export function urlTokenAt({
+  line,
+  cells,
+  col,
+  above,
+  below,
+  wrappedFromAbove,
+  wrapsToBelow,
+}: TapCellText): string | null {
+  const index = cellIndexAt(cells, col);
   if (index === null) return null;
   const hit = tokenAt(line, index);
   if (!hit) return null;
@@ -258,8 +288,10 @@ export function cellAtPoint(input: {
  * same `dimensions.css.cell` the letterbox already reads), the LINE from the
  * ACTIVE viewport (`buffer.active.viewportY` shifts with the client scroll,
  * so a tap on a row paged up out of the prompt finds that row's own text),
- * and the WRAP FACTS from `isWrapped` on this row and the one below — the
- * buffer's own record of where lines actually continue.
+ * the CELLS from that same line through `tapCellsOfLine` — the provider
+ * that laid the row out is what the tap follows — and the WRAP FACTS from
+ * `isWrapped` on this row and the one below, the buffer's own record of
+ * where lines actually continue.
  *
  * @param term - the live terminal
  * @param x - client-space X of the tap
@@ -282,13 +314,16 @@ export function terminalUrlAtPoint(term: Terminal, x: number, y: number): string
   if (!point) return null;
   const buffer = term.buffer.active;
   const lineIndex = buffer.viewportY + point.row;
-  const line = buffer.getLine(lineIndex)?.translateToString(true) ?? "";
+  const bufferLine = buffer.getLine(lineIndex);
+  if (!bufferLine) return null;
+  const line = bufferLine.translateToString(true);
   return urlTokenAt({
     line,
+    cells: tapCellsOfLine(bufferLine, line),
     above: buffer.getLine(lineIndex - 1)?.translateToString(true),
     below: buffer.getLine(lineIndex + 1)?.translateToString(true),
     col: point.col,
-    wrappedFromAbove: buffer.getLine(lineIndex)?.isWrapped === true,
+    wrappedFromAbove: bufferLine.isWrapped === true,
     wrapsToBelow: buffer.getLine(lineIndex + 1)?.isWrapped === true,
   });
 }

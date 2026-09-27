@@ -1,20 +1,84 @@
 import { describe, expect, it } from "bun:test";
-import { cellAtPoint, cellToCharIndex, urlTokenAt } from "@/lib/terminal-url-tap";
+import { UnicodeGraphemesAddon } from "@xterm/addon-unicode-graphemes";
+import { Terminal } from "@xterm/xterm";
+import { cellAtPoint, type TapCell, type TapCellText, tapCellsOfLine, urlTokenAt } from "@/lib/terminal-url-tap";
+
+/**
+ * Two sources of cells feed these tests, and both matter:
+ *
+ * - `asciiCells` measures a test's own string one unit per cell. That is a
+ *   PROVIDER decision made here in the harness, not module knowledge: the
+ *   module reads the measurements it is handed and owns no width table.
+ * - `bufferTap` writes into a REAL `@xterm/xterm` (and, when asked, the
+ *   graphemes addon) and lifts the cells out of the live buffer through
+ *   `tapCellsOfLine` — the same reader `terminalUrlAtPoint` uses. Whatever
+ *   provider laid the line out, the tap follows its cells.
+ */
+
+const FAMILY = "\u{1F468}‍\u{1F469}‍\u{1F467}"; // 👨‍👩‍👧
 
 /** One tap at a CELL column, with the wrap facts the buffer would carry. */
 function tap(
   line: string,
   col: number,
-  opts: { above?: string; below?: string; wrappedFromAbove?: boolean; wrapsToBelow?: boolean } = {},
+  opts: { above?: string; below?: string; wrappedFromAbove?: boolean; wrapsToBelow?: boolean; cells?: TapCell[] } = {},
 ) {
-  return urlTokenAt({
+  const input: TapCellText = {
     line,
+    cells: opts.cells ?? asciiCells(line),
     col,
     above: opts.above,
     below: opts.below,
     wrappedFromAbove: opts.wrappedFromAbove ?? false,
     wrapsToBelow: opts.wrapsToBelow ?? false,
+  };
+  return urlTokenAt(input);
+}
+
+/** The harness's own provider: one cell per code point, one column each. */
+function asciiCells(line: string): TapCell[] {
+  return Array.from(line, (char) => ({ char, width: 1 }));
+}
+
+async function makeTerminal(cols: number, graphemes: boolean): Promise<Terminal> {
+  const term = new Terminal({ cols, rows: 8, allowProposedApi: true });
+  if (graphemes) term.loadAddon(new UnicodeGraphemesAddon());
+  return term;
+}
+
+async function write(term: Terminal, data: string): Promise<void> {
+  term.write(data);
+  // xterm's write queue is async; the empty write's callback flushes it.
+  await new Promise<void>((resolve) => term.write("", () => resolve()));
+}
+
+function tapBufferRow(term: Terminal, row: number, col: number): string | null {
+  const buffer = term.buffer.active;
+  const line = buffer.getLine(row);
+  if (!line) return null;
+  const text = line.translateToString(true);
+  return urlTokenAt({
+    line: text,
+    cells: tapCellsOfLine(line, text),
+    col,
+    above: buffer.getLine(row - 1)?.translateToString(true),
+    below: buffer.getLine(row + 1)?.translateToString(true),
+    wrappedFromAbove: line.isWrapped === true,
+    wrapsToBelow: buffer.getLine(row + 1)?.isWrapped === true,
   });
+}
+
+/** One tap against a REAL buffer: line, cells, neighbours and both wrap
+ * facts all come out of `term` exactly as `terminalUrlAtPoint` takes them
+ * (minus the DOM hit-test, which `cellAtPoint` covers on its own). */
+async function bufferTap(
+  data: string,
+  col: number,
+  opts: { cols?: number; row?: number; graphemes?: boolean } = {},
+): Promise<string | null> {
+  const term = await makeTerminal(opts.cols ?? 80, opts.graphemes ?? true);
+  await write(term, data);
+  return tapBufferRow(term, opts.row ?? 0, col);
 }
 
 describe("urlTokenAt (the tapped token, wrap-fact driven)", () => {
@@ -111,64 +175,148 @@ describe("urlTokenAt (the tapped token, wrap-fact driven)", () => {
 });
 
 describe("urlTokenAt with wide glyphs (cells are not string indices)", () => {
-  // "参考 https://a.com/x 打开 https://b.com/y" in CELLS:
+  // "参考 https://a.com/x 打开 https://b.com/y" in CELLS (measured by a real
+  // buffer; both providers agree on CJK):
   // 参 0-1 · 考 2-3 · ␠4 · first URL 5..19 · ␠20 · 打 21-22 · 开 23-24 · ␠25 · second URL 26..40
   const line = "参考 https://a.com/x 打开 https://b.com/y";
 
-  it("a tap on 打开 opens NOTHING — it must not walk back into the first URL", () => {
-    expect(tap(line, 21)).toBeNull();
-    expect(tap(line, 22)).toBeNull(); // even the right-hand cell of a wide glyph
-    expect(tap(line, 23)).toBeNull();
-    expect(tap(line, 24)).toBeNull();
+  for (const graphemes of [true, false]) {
+    const label = graphemes ? "(graphemes addon)" : "(core tables)";
+
+    it(`a tap on 打开 opens NOTHING — it must not walk back into the first URL ${label}`, async () => {
+      expect(await bufferTap(`${line}\r\n`, 21, { graphemes })).toBeNull();
+      expect(await bufferTap(`${line}\r\n`, 22, { graphemes })).toBeNull(); // even the right-hand cell of a wide glyph
+      expect(await bufferTap(`${line}\r\n`, 23, { graphemes })).toBeNull();
+      expect(await bufferTap(`${line}\r\n`, 24, { graphemes })).toBeNull();
+    });
+
+    it(`a tap on each URL's cells opens exactly that URL ${label}`, async () => {
+      expect(await bufferTap(`${line}\r\n`, 5, { graphemes })).toBe("https://a.com/x");
+      expect(await bufferTap(`${line}\r\n`, 19, { graphemes })).toBe("https://a.com/x");
+      expect(await bufferTap(`${line}\r\n`, 26, { graphemes })).toBe("https://b.com/y");
+      expect(await bufferTap(`${line}\r\n`, 40, { graphemes })).toBe("https://b.com/y");
+    });
+
+    it(`a tap on the spaces between tokens opens nothing ${label}`, async () => {
+      expect(await bufferTap(`${line}\r\n`, 4, { graphemes })).toBeNull();
+      expect(await bufferTap(`${line}\r\n`, 20, { graphemes })).toBeNull();
+      expect(await bufferTap(`${line}\r\n`, 25, { graphemes })).toBeNull();
+    });
+  }
+
+  it("a wrapped URL whose head line carries wide chars still joins (real seam)", async () => {
+    // cols=31 puts the seam exactly where the old hand-built case had it:
+    // 查 0-1 · 看 2-3 · ␠4 · "https://ex.io/very/long/pa" 5..30, then
+    // "th/page tail" soft-wraps to row 1. The tap walks real cells to the
+    // URL's start, and the join reads the NEXT row's first token.
+    expect(await bufferTap("查看 https://ex.io/very/long/path/page tail", 5, { cols: 31, row: 0 })).toBe(
+      "https://ex.io/very/long/path/page",
+    );
+    // …and the same seam tapped from below resolves the tail upward.
+    expect(await bufferTap("查看 https://ex.io/very/long/path/page tail", 0, { cols: 31, row: 1 })).toBe(
+      "https://ex.io/very/long/path/page",
+    );
   });
 
-  it("a tap on each URL's cells opens exactly that URL", () => {
-    expect(tap(line, 5)).toBe("https://a.com/x");
-    expect(tap(line, 19)).toBe("https://a.com/x");
-    expect(tap(line, 26)).toBe("https://b.com/y");
-    expect(tap(line, 40)).toBe("https://b.com/y");
+  it("a combining mark rides its base's cell and shifts nothing", async () => {
+    // "e\u0301ast https://comb.dev/x" with the mark spelled (e + U+0301): both
+    // providers pack it into the base's cell (core at input, the addon as
+    // one grapheme), so the URL starts at cell 5 either way — the mark
+    // never owns a column.
+    expect(await bufferTap("e\u0301ast https://comb.dev/x\r\n", 7)).toBe("https://comb.dev/x");
+    expect(await bufferTap("e\u0301ast https://comb.dev/x\r\n", 7, { graphemes: false })).toBe("https://comb.dev/x");
+    expect(await bufferTap("e\u0301ast https://comb.dev/x\r\n", 1)).toBeNull(); // the é cell: a word, not a URL
   });
 
-  it("a tap on the spaces between tokens opens nothing", () => {
-    expect(tap(line, 4)).toBeNull();
-    expect(tap(line, 20)).toBeNull();
-    expect(tap(line, 25)).toBeNull();
-  });
-
-  it("a wrapped URL whose head line carries wide chars still joins", () => {
-    expect(
-      tap("查看 https://ex.io/very/long/pa", 5, {
-        below: "th/page tail",
-        wrapsToBelow: true,
-      }),
-    ).toBe("https://ex.io/very/long/path/page");
-  });
-
-  it("a combining mark rides its base's cell and shifts nothing", () => {
-    // "cast" with an e + U+0301: the mark owns no cell, so the URL still
-    // starts at cell 5 and a tap at its start opens the URL.
-    const line = "éast https://comb.dev/x";
-    expect(tap(line, 7)).toBe("https://comb.dev/x");
-    expect(tap(line, 1)).toBeNull(); // the é cell: a word, not a URL
+  it("the CELLS are the only measurement the module consults", () => {
+    // The harness LIES: a width-1 cell for a glyph every width table calls
+    // wide. urlTokenAt must follow the lie (it reads measurements, never
+    // computes them): the lie puts the URL at cells 2..12, where the honest
+    // measure would put it at 3..13.
+    const lie: TapCell[] = [{ char: "参", width: 1 }, ...asciiCells(" https://a.io")];
+    expect(tap("参 https://a.io", 2, { cells: lie })).toBe("https://a.io");
+    expect(tap("参 https://a.io", 1, { cells: lie })).toBeNull(); // the space, on the lie's grid
+    const honest: TapCell[] = [{ char: "参", width: 2 }, { char: "", width: 0 }, ...asciiCells(" https://a.io")];
+    expect(tap("参 https://a.io", 2, { cells: honest })).toBeNull(); // the space, on the honest grid
+    expect(tap("参 https://a.io", 3, { cells: honest })).toBe("https://a.io");
+    expect(tap("参 https://a.io", 1, { cells: honest })).toBeNull(); // the glyph's RIGHT cell answers the glyph
   });
 });
 
-describe("cellToCharIndex (cell column → string unit)", () => {
-  it("maps ASCII cells one-to-one", () => {
-    expect(cellToCharIndex("abc", 0)).toBe(0);
-    expect(cellToCharIndex("abc", 2)).toBe(2);
-    expect(cellToCharIndex("abc", 3)).toBeNull(); // past the text
+describe("tapCellsOfLine (the buffer reader)", () => {
+  it("returns exactly the cells the trimmed text was built from", async () => {
+    const term = await makeTerminal(10, true);
+    await write(term, "abcdefghij参尾\r\n");
+    // row 0: 10 glyphs would need cols 0..9 and 参 needs two, so xterm
+    // moves the WHOLE glyph to row 1 (measured 2026-09-26) and row 0 ends
+    // on a trailing blank — trimmed away with the text, not a tap cell.
+    const row0 = term.buffer.active.getLine(0)!;
+    const text0 = row0.translateToString(true);
+    expect(text0).toBe("abcdefghij");
+    expect(tapCellsOfLine(row0, text0)).toEqual(asciiCells(text0));
+    // row 1: 参尾 = base + zero-width continuation per glyph. The reader
+    // stops when the trimmed text is covered: 尾's own continuation
+    // contributes no text and no column beyond the base's own width 2.
+    const row1 = term.buffer.active.getLine(1)!;
+    const text1 = row1.translateToString(true);
+    expect(text1).toBe("参尾");
+    expect(tapCellsOfLine(row1, text1)).toEqual([
+      { char: "参", width: 2 },
+      { char: "", width: 0 },
+      { char: "尾", width: 2 },
+    ]);
   });
 
-  it("answers for the same code point on both cells of a wide glyph", () => {
-    expect(cellToCharIndex("参a", 0)).toBe(0);
-    expect(cellToCharIndex("参a", 1)).toBe(0); // the wide glyph's second cell
-    expect(cellToCharIndex("参a", 2)).toBe(1); // and the ASCII after it
+  it("a wide glyph ending the line keeps BOTH its columns through the base", async () => {
+    // Measured 2026-09-26 (input at cols 12, and again through resizes):
+    // xterm never splits a wide glyph across the wrap seam. At a line end
+    // the glyph sits whole, its width covering both of its columns, with
+    // the width-0 continuation contributing no text — so the reader ends
+    // at the base and a tap on the glyph's RIGHT cell still resolves to
+    // the glyph, never past the seam.
+    const term = await makeTerminal(12, true);
+    await write(term, "abcdefghij参\r\n尾尾\r\n");
+    const line = term.buffer.active.getLine(0)!;
+    const text = line.translateToString(true);
+    expect(text).toBe("abcdefghij参");
+    const cells = tapCellsOfLine(line, text);
+    expect(cells.at(-1)).toEqual({ char: "参", width: 2 });
+    for (const col of [10, 11]) {
+      expect(urlTokenAt({ line: text, cells, col, wrappedFromAbove: false, wrapsToBelow: false })).toBeNull();
+    }
+  });
+});
+
+describe("providers own the widths, the tap follows (ZWJ sequences)", () => {
+  it("with the addon the family emoji is ONE width-2 cell, and the URL starts at its right", async () => {
+    const term = await makeTerminal(20, true);
+    await write(term, `${FAMILY} https://fam.dev/x\r\n`);
+    const line = term.buffer.active.getLine(0)!;
+    const text = line.translateToString(true);
+    expect(tapCellsOfLine(line, text)).toEqual([
+      { char: FAMILY, width: 2 },
+      { char: "", width: 0 },
+      ...asciiCells(" https://fam.dev/x"),
+    ]);
+    expect(await bufferTap(`${FAMILY} https://fam.dev/x\r\n`, 3, { graphemes: true })).toBe("https://fam.dev/x");
+    expect(await bufferTap(`${FAMILY} https://fam.dev/x\r\n`, 0, { graphemes: true })).toBeNull(); // the emoji itself
+    expect(await bufferTap(`${FAMILY} https://fam.dev/x\r\n`, 2, { graphemes: true })).toBeNull(); // its continuation
   });
 
-  it("zero-width code points never own a cell", () => {
-    // "éa": é (1 cell) then a (1 cell) — cell 1 is the "a".
-    expect(cellToCharIndex("éa", 1)).toBe(2);
+  it("without the addon core splits the same emoji across THREE cells, and the tap still follows", async () => {
+    // This is the mis-column the addon fixes for RENDERING; the tap map
+    // does not care, because it reads whichever provider laid the line out.
+    // The exact fragments core leaves in the three cells are internal (they
+    // carry the ZWJs); the widths and where the URL actually sits are the
+    // contract, so that is what is pinned.
+    const term = await makeTerminal(20, false);
+    await write(term, `${FAMILY} https://fam.dev/x\r\n`);
+    const line = term.buffer.active.getLine(0)!;
+    const text = line.translateToString(true);
+    const cells = tapCellsOfLine(line, text);
+    expect(cells.slice(0, 3).map((c) => c.width)).toEqual([1, 1, 1]);
+    expect(await bufferTap(`${FAMILY} https://fam.dev/x\r\n`, 4, { graphemes: false })).toBe("https://fam.dev/x");
+    expect(await bufferTap(`${FAMILY} https://fam.dev/x\r\n`, 0, { graphemes: false })).toBeNull();
   });
 });
 

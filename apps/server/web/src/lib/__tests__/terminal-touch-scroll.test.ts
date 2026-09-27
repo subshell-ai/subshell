@@ -560,7 +560,20 @@ describe("attachCopyModeShield (issue #242)", () => {
       buffer: {
         active: {
           viewportY: 0,
-          getLine: (n: number) => ({ translateToString: (_trim: boolean) => lines[n] ?? "" }),
+          // The tap now reads the line's MEASURED CELLS too
+          // (tapCellsOfLine in terminal-url-tap): this fixture is plain
+          // ASCII, so its honest provider is one cell per character.
+          getLine: (n: number) => {
+            const text = lines[n] ?? "";
+            return {
+              length: text.length,
+              translateToString: (_trim: boolean) => text,
+              getCell: (x: number) => ({
+                getChars: () => text[x] ?? "",
+                getWidth: () => 1,
+              }),
+            };
+          },
         },
       },
     };

@@ -1,6 +1,7 @@
 /**
- * Regenerates assets/terminal.html — xterm + fit inlined into one
- * self-contained page (spec §Rendering: "xterm ships as a local asset, never
+ * Regenerates assets/terminal.html — xterm, its CSS, the fit addon and the
+ * unicode-graphemes addon inlined into one self-contained page (spec
+ * §Rendering: "xterm ships as a local asset, never
  * a CDN <script>"; the WebView's opaque origin could not fetch anyway).
  *
  * Run after bumping @xterm/* in apps/client/mobile/package.json:
@@ -31,6 +32,10 @@ export function buildTerminalHtml(): string {
   const js = readFileSync(join(ASSET_ROOT, "node_modules/@xterm/xterm/lib/xterm.js"), "utf8");
   const css = readFileSync(join(ASSET_ROOT, "node_modules/@xterm/xterm/css/xterm.css"), "utf8");
   const fit = readFileSync(join(ASSET_ROOT, "node_modules/@xterm/addon-fit/lib/addon-fit.js"), "utf8");
+  const graphemes = readFileSync(
+    join(ASSET_ROOT, "node_modules/@xterm/addon-unicode-graphemes/lib/addon-unicode-graphemes.js"),
+    "utf8",
+  );
 
   return `<!doctype html>
 <html>
@@ -47,6 +52,7 @@ export function buildTerminalHtml(): string {
     <div id="t"></div>
     <script>${js}</script>
     <script>${fit}</script>
+    <script>${graphemes}</script>
     <script>
       // Glue only (spec §Rendering). The page owns NO network.
       const post = (m) => { try { window.ReactNativeWebView.postMessage(JSON.stringify(m)); } catch (e) {} };
@@ -60,6 +66,14 @@ export function buildTerminalHtml(): string {
       });
       const fitAddon = new FitAddon.FitAddon();
       term.loadAddon(fitAddon);
+      // Grapheme-cluster widths (2026-09-26 wave, the addon VS Code donated
+      // upstream; the SPA loads the same package): a ZWJ family emoji is ONE
+      // cell of width 2 and CJK/modern-emoji get their real widths, where
+      // core's default tables are Unicode-6-era and mis-column modern
+      // output. Loaded BEFORE open and before any write lands, so every row
+      // this page renders is laid out by it — the same posture the web
+      // terminal takes.
+      term.loadAddon(new UnicodeGraphemesAddon.UnicodeGraphemesAddon());
       term.open(host);
 
       // ---- touch ------------------------------------------------------
