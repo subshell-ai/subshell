@@ -30,6 +30,7 @@ body:
         - label: Subshell Client desktop app
         - label: CLI and node agent (subshell)
         - label: Web UI in a browser
+        - label: PWA (Progressive Web App via Add to Home Screen)
         - label: Mobile app
         - label: Website / docs
         - label: A harness plugin
