@@ -1,5 +1,23 @@
 # @internal/server
 
+## 1.5.0
+
+### Minor Changes
+
+- [#270](https://github.com/subshell-ai/subshell/pull/270) [`3c0313a`](https://github.com/subshell-ai/subshell/commit/3c0313a8ba282bfdff6ec5fb9542ff9a0fa43a27) Thanks [@theogravity](https://github.com/theogravity)! - Browser panes now learn the input modes the app inside them already owns, and the Claude Code classic-renderer switch is discoverable.
+  
+  A pane whose application had already enabled alt screen or mouse reporting before you attached replayed a capture carrying none of that: the browser terminal could not know the app owned the mouse, so every wheel notch became a single arrow key through the socket ("slow scroll, no scrollbar"). The pane capture now leads with the escape sequences that announce the pane's live mode flags, measured against tmux 3.7c, so a fresh attach scrolls like a terminal on the machine: at the app's own speed. Vim, htop, and any mouse-reporting harness get this; apps that keep the plain screen keep the native scrollbar and scrollback untouched, and every server/agent version mix degrades to the old behavior rather than breaking.
+  
+  The Claude Code preset editor now suggests `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN`, whose description names why you would set it: the classic renderer appends to scrollback, so the pane shows a real scrollbar. It is a per-preset choice, not a default; Claude Code's newer renderer keeps its no-flicker alt screen unless a preset says otherwise.
+
+- [#269](https://github.com/subshell-ai/subshell/pull/269) [`075e07b`](https://github.com/subshell-ai/subshell/commit/075e07b0f54d0229430ae87e410560e490a71755) Thanks [@theogravity](https://github.com/theogravity)! - Compact subshell and workspace headers, and a clearer rail selection. The subshell header's workspace control is now an icon plus a count that always opens the workspace menu (it no longer spends header width naming one workspace); the draft header's Save and Discard and the Split button are icon actions at every width, with the Split flow's word moved to its dialog ("Split" / "Split the current view into multiple"). In the sidebar's cell grids, only the focused pane wears the full-white ring; every other cell, open or not, wears a dim white frame, so "you are here" reads at a glance instead of framing the whole workspace.
+
+### Patch Changes
+
+- [#267](https://github.com/subshell-ai/subshell/pull/267) [`4ef5c3c`](https://github.com/subshell-ai/subshell/commit/4ef5c3c4420a1926e3620da78bc1a08b38261ffd) Thanks [@theogravity](https://github.com/theogravity)! - The PWA head now carries the standards-track `mobile-web-app-capable` meta beside the Apple one. Chrome had begun warning that the Apple-only spelling is deprecated; iOS keeps reading the Apple tags (and the status-bar style has no standard twin), so both are sent.
+- Updated dependencies []:
+  - @internal/pane-runtime@1.0.0
+
 ## 1.4.0
 
 ### Minor Changes
