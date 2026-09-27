@@ -989,14 +989,15 @@ echo "server exited unexpectedly" >&2; exit 1
      * each body deciding that command's stdout and exit. `echo` adds the
      * trailing newline real tmux adds, which the preamble's read trims.
      */
-    function modeStub(displayBody: string, captureBody: string): { dir: string; path: string } {
+    function modeStub(displayBody: string, captureBody: string, argvPath?: string): { dir: string; path: string } {
       const dir = mkdtempSync(join(tmpdir(), "subshell-mode-"));
       const path = join(dir, "tmux-stub");
+      const record = argvPath ? `printf '%s\\n' "$@" >> '${argvPath}'; ` : "";
       writeFileSync(
         path,
         "#!/bin/sh\n" +
           'for a in "$@"; do\n' +
-          `  if [ "$a" = "display-message" ]; then ${displayBody} fi\n` +
+          `  if [ "$a" = "display-message" ]; then ${record}${displayBody} fi\n` +
           `  if [ "$a" = "capture-pane" ]; then ${captureBody} fi\n` +
           "done\nexit 0\n",
         { mode: 0o755 },
@@ -1015,14 +1016,42 @@ echo "server exited unexpectedly" >&2; exit 1
     };
 
     it("states all five modes, in order, as h or l per flag", async () => {
-      // The mapping was verified live on tmux 3.7c. `1:0:1:0:1` is chosen
-      // so EVERY adjacent pair differs: any swap of two flags in the
-      // format string, or of two entries in the decsets array, changes
-      // this exact string (a `1:0:0:1:1` vector, the shape a Claude Code
-      // 2.1.283 pane measured, cannot see a standard/button swap).
+      // The mapping was verified live on tmux 3.7c. This vector pins the
+      // DECODE side: `1:0:1:0:1` has every adjacent pair different, so a
+      // swap of two decsets entries or an off-by-one in the positional
+      // read changes the exact string (`1:0:0:1:1`, the shape a Claude
+      // Code 2.1.283 pane measured, could not see a standard/button
+      // swap). The stub answers without reading the format string, so
+      // the QUERY side is the verbatim argv pin that follows.
       expect(await run(answer("1:0:1:0:1"), GRID)).toBe(
         "\x1b[?1049h\x1b[?1000l\x1b[?1002h\x1b[?1003l\x1b[?1006hgrid\n",
       );
+    });
+
+    it("queries the flags in the decoded order: the format string, verbatim", async () => {
+      // Tokens are read POSITIONALLY, so the order of the variables in
+      // the format string is part of the contract, and the stub cannot
+      // catch its reordering: a swapped or "alphabetized" pair would
+      // misannounce 1000/1002/1003 to every client with every other test
+      // green (precedent in this file: the tmux 3.4 format-variable
+      // history). Pinned argv, the pipePane tests' shape.
+      const marks = join(tmpdir(), `subshell-mode-argv-${process.pid}-${Date.now()}.txt`);
+      const { dir, path } = modeStub(answer("0:0:0:0:0"), GRID, marks);
+      try {
+        await new TmuxRunner(path).capturePane("sock", "s1");
+        expect((await Bun.file(marks).text()).trim().split("\n")).toEqual([
+          "-L",
+          "sock",
+          "display-message",
+          "-t",
+          "s1",
+          "-p",
+          "#{alternate_on}:#{mouse_standard_flag}:#{mouse_button_flag}:#{mouse_all_flag}:#{mouse_sgr_flag}",
+        ]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+        rmSync(marks, { force: true });
+      }
     });
 
     it("answers an all-off pane too: the l forms are the point", async () => {

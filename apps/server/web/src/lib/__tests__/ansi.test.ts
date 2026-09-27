@@ -34,11 +34,16 @@ describe("parseAnsi", () => {
     expect(line).toEqual([{ text: "bold", bold: true }, { text: " plain" }]);
   });
 
-  it("consumes a private-prefixed CSI that ends in m instead of styling it", () => {
+  it("a private-prefixed CSI ending in m neither styles nor resets", () => {
     // DEC private sequences can share the `m` final byte; only plain SGR
-    // may change styling.
-    const [line] = parseAnsi(`a${sgr("?1")}b`);
-    expect(line).toEqual([{ text: "a" }, { text: "b" }]);
+    // may change styling. Bold must SURVIVE the `?1`: without the
+    // private gate the sequence parses as `parseInt("?1") || 0` = SGR 0
+    // and resets, an unstyled version of this case could not tell.
+    const [line] = parseAnsi(`${sgr("1")}a${sgr("?1")}b`);
+    expect(line).toEqual([
+      { text: "a", bold: true },
+      { text: "b", bold: true },
+    ]);
   });
 
   it("consumes cursor addressing too, though capture -e never emits it", () => {

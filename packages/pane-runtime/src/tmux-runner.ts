@@ -779,7 +779,9 @@ export class TmuxRunner {
    * A mode that flips between this read and the capture is cosmetic: the
    * live byte stream re-announces DECSETs as the app's own bytes, so the
    * next mode change the app makes corrects the client.
-   * @internal consumed by {@link capturePane}; the stub suite pins it there.
+   * @internal consumed by {@link capturePane}; the stub suite pins its
+   * decode, its silence and its deadline there, and the verbatim argv pin
+   * holds the flag query.
    */
   async paneModePreamble(socket: string, subshellName: string): Promise<string> {
     try {
