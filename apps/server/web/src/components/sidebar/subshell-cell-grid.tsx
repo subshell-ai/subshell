@@ -157,7 +157,16 @@ const INITIAL_CLASS = "text-foreground";
 /** The blink rides the BORDER ring: derived from `DOT_CLASS.active`, never
  * restated (the 2026-09-25 review's principle outliving the chip it fed) —
  * the fill tone swapped from `bg-` to its `border-` sibling, the blink class
- * carried through, so a tone change to the table moves the ring with it. */
+ * carried through, so a tone change to the table moves the ring with it.
+ *
+ * Two things this swap makes non-obvious, both pinned at the render site:
+ * the produced class is a border COLOR utility, so the span carries an
+ * explicit `border` width or Tailwind v4's preflight (`border: 0 solid`)
+ * leaves a zero-width, invisible ring; and the `border-*` string is assembled
+ * at RUNTIME, so the scanner never sees it in source — `styles.css` carries an
+ * `@source inline("border-success")` witness, NOT the test's literal, because
+ * a class that only exists because a test asserts it is not in the shipped
+ * page's dependency graph. */
 const ACTIVE_RING = DOT_CLASS.active
   .split(" ")
   .map((cls) => (cls.startsWith("bg-") ? cls.replace(/^bg-/, "border-") : cls))
@@ -262,7 +271,7 @@ export function SubshellCell({
                   it stays put in EVERY blink phase while only the ring
                   fades (operator ruling 2026-09-27: no background at all,
                   the letter remains). */}
-              <span aria-hidden={true} className={cn("absolute inset-0 rounded-md", ACTIVE_RING)} />
+              <span aria-hidden={true} className={cn("absolute inset-0 rounded-md border", ACTIVE_RING)} />
               {labels.initial ? <span className={cn("relative", INITIAL_CLASS)}>{labels.initial}</span> : null}
             </>
           ) : labels.initial ? (

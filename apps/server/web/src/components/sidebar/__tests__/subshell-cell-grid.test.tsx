@@ -292,6 +292,12 @@ describe("SubshellCell", () => {
       const ring = spans.find((s) => s.className.includes("subshell-dot-blink"));
       expect(ring).toBeTruthy();
       expect(ring?.className).toContain("border-success");
+      // A border COLOR alone paints nothing: Tailwind v4's preflight resets
+      // every element to `border: 0 solid`, so without a width utility on the
+      // span the ring is zero-width and the whole pulse is invisible (the
+      // blocker this pins). The word boundary is load-bearing — `border-success`
+      // must NOT satisfy it, or the assertion would pass on the broken markup.
+      expect(ring?.className).toMatch(/\bborder\b/);
       expect(ring?.className).toContain("absolute");
       expect(ring?.className).toContain("inset-0");
       expect(ring?.getAttribute("aria-hidden")).toBe("true");
