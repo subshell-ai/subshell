@@ -145,15 +145,15 @@ export function flatCellRows(
 const INITIAL_CLASS = "text-foreground";
 
 /** Solid fills where white drops below AA (design-tokens contrast math):
- * `waiting` on `--warning` (1.34:1), `node-offline` on `--destructive` (2.77:1),
- * and the working cell's ACTIVE tile on full `--success` — so `active` is listed
- * even though it only ever shows as the top tile of the active/idle blink (see
- * the render site). Each keeps its own pairing: the bright green tile takes a
- * dark initial, the semitransparent idle tile beneath it keeps white (4.34:1).
- * Ruled 2026-09-27 (image #9): the ask was the green BACKGROUND legible, not an
- * edge, and the operator named the darker font directly. */
+ * `waiting` on `--warning` (1.34:1) and `node-offline` on `--destructive`
+ * (2.77:1). `active` was the third entry — the blink's full-`--success` tile
+ * took a dark initial (image #9 ruling, 2026-09-27, same day) — but the
+ * operator retired that pairing: the working cell now shows NO full-green
+ * beat at all (see the render site), so there is no bright field to knock
+ * out. White on the remaining states stands: idle's `success/50` clears
+ * 4.34:1, and the working letter sits on the rail or the half fill, white
+ * both beats. */
 const DARK_KNOCKOUT: Partial<Record<SubshellIndicator, true>> = {
-  active: true,
   waiting: true,
   "node-offline": true,
 };
@@ -185,13 +185,14 @@ export interface SubshellCellLabels {
  * same tooltip string.
  *
  * The square itself carries the state: `DOT_CLASS` fills for everything quiet,
- * the working state blinks between two tiles (see {@link blinking} below), and a
+ * the working state pulses a half-green fill behind a constant white initial
+ * (see {@link blinking} below), and a
  * bell (`showsBell`) REPLACES the fill, the dot's posture — the glyph names
- * "unseen push", the tone keeps the state. Selection reads on TWO levels
- * (operator 2026-09-27): every open pane's cell (the workspace's SET) wears a
- * thin `ring-1 ring-foreground/70`, and the one cell the dock has FOCUSED wears
- * the thicker `ring-2 ring-foreground/70` — both share the `/70` tone, so focus
- * reads bolder by WIDTH, not a brighter line. The accessible name is "name: status
+ * "unseen push", the tone keeps the state. Every open pane's cell (the
+ * workspace's SET, focused included) wears ONE soft `ring-1 ring-foreground/70`
+ * (operator ruling 2026-09-27, same day as the two-width version it replaces:
+ * the `ring-2` focus ring read too heavy at cell size, and at one width the
+ * two levels stop being tellable apart, so there is one level). The accessible name is "name: status
  * word", and for a bell "name: unseen notification (status word)" — the shared
  * {@link bellAnnouncement} — since a square of colour has nothing to read out
  * and its glyph is aria-hidden.
@@ -210,7 +211,8 @@ export function SubshellCell({
   subshell: SubshellView;
   /** Open in the current workspace (or the viewed page) — marks the SET. */
   selected: boolean;
-  /** The pane the dock has focused — the single cell with the white ring. */
+  /** The pane the dock has focused. It rings like every other open cell; kept
+   * because a focused pane must wear the ring even before the SET catches up. */
   focused: boolean;
   /**
    * The cell is a pane of the workspace on screen, so a click should FOCUS that
@@ -222,13 +224,19 @@ export function SubshellCell({
 }) {
   const indicator = subshellIndicator(subshell);
   const bell = showsBell(subshell);
-  // The ACTIVE square blinks, but between two states rather than green and
-  // nothing: an ACTIVE tile pulsing over an IDLE tile (see the render site), so a
-  // box with a legible initial is on screen every beat. A cell cannot blink to
-  // empty the way the dot does — the dot has no letter to strand and no outline
-  // to empty (images #10/#11/#14 were each a different symptom of that). Every
-  // other state keeps its single static fill on the anchor exactly as before —
-  // `terminated`'s hollow reading especially: nothing behind it.
+  // The ACTIVE square pulses its FILL only: a `bg-success/50` tile blinking
+  // over the bare rail (see the render site) behind a constant white initial.
+  // It used to blink between two painted tiles — full green with a dark
+  // knockout letter over the half-green one — so no beat ever lacked a box.
+  // The operator retired the solid-green beat on 2026-09-27: transparent
+  // background + white letter on that half, which also retires the dark
+  // knockout (images #10/#11/#14 were symptoms of stranding a DARK letter on
+  // an empty tile; a white one reads on the rail exactly as `terminated`'s
+  // does — and an UN-RINGED working cell keeps a static `--border` frame so
+  // even the empty half is a square, operator 2026-09-27 follow-up). Every
+  // other state keeps its single static fill on the anchor
+  // exactly as before — `terminated`'s hollow reading especially: nothing
+  // behind it.
   const blinking = !bell && indicator === "active";
   const cell = (
     <TooltipProvider delay={300}>
@@ -267,21 +275,26 @@ export function SubshellCell({
                     // and there is nothing to blink behind it.
                     "relative border border-border bg-transparent"
                   : blinking
-                    ? // No field and no frame of its own: the blinking green box
-                      // (with its letter) is a child layer, so the transparent
-                      // half is genuinely empty rail, not a dark letter stranded
-                      // inside a frame (image #10). Only the selection/focus ring
-                      // (below) can still name the cell in that gap.
-                      "relative bg-transparent"
+                    ? // No field of its own: the blinking half-green fill is a
+                      // child layer, so the transparent half is genuinely empty
+                      // rail with the white initial riding over it (the
+                      // constant letter is a sibling above the fill). The
+                      // square keeps a dark `--border` frame on that half —
+                      // operator 2026-09-27: the letter floating with no box
+                      // read broken, the frame is what stays — but only when
+                      // the cell has NO ring: a selected/focused working cell
+                      // already wears its frame in ink, and a border under the
+                      // ring would just be a second line.
+                      cn("relative bg-transparent", !selected && !focused && "border border-border")
                     : DOT_CLASS[indicator],
-                // Two selection levels (operator 2026-09-27), both SOFT so the
-                // box matches the rows: the focused pane wears a `ring-2`
-                // (`ring-foreground/70`), the other open panes (the set) keep the
-                // same tone at width 1. Focus reads bolder by WIDTH, not by a
-                // harsh full-brightness line. Hover answers "which one am I on"
-                // at width 1 full ink; focus stays the orchid RING token.
+                // ONE ring for the whole open SET (operator 2026-09-27), SOFT so
+                // the box matches the rows: `ring-1 ring-foreground/70` on every
+                // open pane, focused or not. The focus bump to `ring-2` from the
+                // same day read too heavy and was retired the same day. Hover
+                // answers "which one am I on" at width 1 full ink; keyboard
+                // focus stays the orchid RING token.
                 "hover:ring-1 hover:ring-foreground",
-                focused ? "ring-2 ring-foreground/70" : selected ? "ring-1 ring-foreground/70" : undefined,
+                focused || selected ? "ring-1 ring-foreground/70" : undefined,
               )}
             />
           }
@@ -289,38 +302,24 @@ export function SubshellCell({
           {bell ? (
             <Bell size={14} aria-hidden={true} className={BELL_TONE[indicator]} />
           ) : blinking ? (
-            // The working cell blinks between two REAL states, never to an
-            // empty tile: an ACTIVE tile (`bg-success` + a dark initial) on top
-            // of an IDLE tile (`bg-success/50` + a white initial) underneath,
-            // the two driven by complementary opacity pulses (`subshell-dot-blink`
-            // / `subshell-dot-blink-alt`). Exactly one tile is fully painted at
-            // any beat, so a box carrying a legible letter is ALWAYS there — the
-            // dot can blink to nothing because it has no letter; a cell cannot
-            // (that empty tile was image #14, the ghost #10, the stranded letter
-            // #11). Under reduced-motion neither class applies, the ACTIVE tile
-            // paints over the idle one, and the cell rests as solid green + dark
-            // initial. Each tile keeps its own state's contrast pairing.
+            // The working cell pulses its FILL, never its letter: a half-green
+            // tile (`bg-success/50`, the idle fill, driven by the plain
+            // `subshell-dot-blink` opacity pulse so it switches on the same
+            // beat as the dot) with a constant WHITE initial riding above it.
+            // The transparent half is the bare rail with the white letter on it
+            // — legible exactly as `terminated`'s hollow cell is, which is what
+            // lets the solid-green + dark-knockout beat go away (operator
+            // ruling 2026-09-27: that pairing read wrong; the letter is white,
+            // the background transparent). The fill is aria-hidden layout, the
+            // letter is the one the link reads out. Under reduced-motion the
+            // class carries nothing: the cell rests as the half-green fill +
+            // white initial, like idle, with the tooltip still saying working.
             <>
               <span
                 aria-hidden={true}
-                className={cn(
-                  "subshell-dot-blink-alt absolute inset-0 flex items-center justify-center rounded-md",
-                  DOT_CLASS.idle,
-                  INITIAL_CLASS,
-                )}
-              >
-                {labels.initial}
-              </span>
-              <span
-                aria-hidden={true}
-                className={cn(
-                  "absolute inset-0 flex items-center justify-center rounded-md",
-                  DOT_CLASS.active,
-                  initialClass(indicator),
-                )}
-              >
-                {labels.initial}
-              </span>
+                className={cn("subshell-dot-blink absolute inset-0 rounded-md", DOT_CLASS.idle)}
+              />
+              <span className={cn("relative", INITIAL_CLASS)}>{labels.initial}</span>
             </>
           ) : labels.initial ? (
             // Solid light fills defeat white (see `DARK_KNOCKOUT`); every
@@ -397,9 +396,10 @@ export function SubshellCellGrid({
    */
   selectedIds: ReadonlySet<string>;
   /**
-   * The single pane the dock has focused (or the viewed page's id) — the one
-   * cell that upgrades to the bold white ring. `selectedIds` and `focusedId`
-   * are different signals on purpose (operator 2026-09-27).
+   * The single pane the dock has focused (or the viewed page's id). Since the
+   * one-ring ruling (operator 2026-09-27) it renders no differently from the
+   * SET — it is carried so a just-focused pane rings even a beat before the
+   * SET's query catches up.
    */
   focusedId: string | null;
   /**

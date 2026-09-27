@@ -229,14 +229,15 @@ export function RailSubshells({
     (sub: SubshellView) => nodeLabelFor(sub.nodeId || FALLBACK_NODE_ID, nodeData?.nodes, nodeData === undefined).label,
     [nodeData],
   );
-  // Two selection levels (operator ask 2026-09-27). SELECTED is the SET of open
-  // panes — the viewed `/subshells/:id` plus every pane the current
-  // `/workspaces/:id` holds open (the SAME cached query the route runs, a hit
-  // while a workspace page is up, disabled elsewhere). FOCUSED is the single
-  // pane: the URL's on a subshell page, or the one the DOCK has active on a
-  // workspace page (the dock publishes it through `lib/workspace-focus`; the
-  // sidebar is a different tree and cannot otherwise see dockview's focus). The
-  // set marks every open cell/row; only the focused one wears the bold ring.
+  // SELECTED is the SET of open panes — the viewed `/subshells/:id` plus every
+  // pane the current `/workspaces/:id` holds open (the SAME cached query the
+  // route runs, a hit while a workspace page is up, disabled elsewhere).
+  // FOCUSED is the single pane: the URL's on a subshell page, or the one the
+  // DOCK has active on a workspace page (the dock publishes it through
+  // `lib/workspace-focus`; the sidebar is a different tree and cannot otherwise
+  // see dockview's focus). The set marks every open cell/row. On the ROWS the
+  // two still differ (set = accent fill, focus adds the ring); on the CELLS one
+  // ring now covers both (operator 2026-09-27: the wide focus ring read heavy).
   const focusedFromUrl = subshellIdFromPath(location.pathname);
   const workspaceId = workspaceIdFromPath(location.pathname);
   const { data: workspaceDetail } = useWorkspace(workspaceId ?? "", { enabled: workspaceId !== null });
