@@ -281,7 +281,12 @@ describe("SubshellCell", () => {
   it("a workspace-member cell focuses in place; a plain cell still navigates (operator 2026-09-27)", async () => {
     const restore = mockFetch();
     const requests: string[] = [];
-    const unsub = onWorkspacePaneFocusRequest((id) => requests.push(id));
+    // The dock reports it handled the pane (returns true) → the link's
+    // navigation is suppressed. A return of false would let it navigate.
+    const unsub = onWorkspacePaneFocusRequest((id) => {
+      requests.push(id);
+      return true;
+    });
     try {
       renderCell(
         <>
@@ -307,6 +312,10 @@ describe("SubshellCell", () => {
       // The workspace member's click is routed to the dock (focus the tab), not
       // to the router.
       fireEvent.click(member);
+      expect(requests).toEqual(["here"]);
+      // ⌘/ctrl-click must NOT focus-in-place: it keeps the browser's
+      // open-in-new-tab, so no focus request fires for it.
+      fireEvent.click(member, { ctrlKey: true });
       expect(requests).toEqual(["here"]);
       // A plain cell is left to its own Link navigation — no focus request.
       fireEvent.click(plain);
@@ -700,6 +709,37 @@ describe("SubshellCellGrid", () => {
       expect(toks("c")).toContain("ring-2");
       expect(toks("b")).not.toContain("ring-2");
       expect(toks("b")).not.toContain("ring-foreground/70");
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders a flat grid where a Needs-Attention row shows in its band AND its cluster (a duplicated id) without a key collision", async () => {
+    const restore = mockFetch();
+    try {
+      // `x` is a spotlight row AND a member of n1's group, so `flatCellRows`
+      // emits it twice. All cells forced to one tint so the run-merge folds them
+      // into a SINGLE plate — the worst case for an id-keyed child list (review
+      // MAJOR): position-keyed cells render every occurrence.
+      const many = [sub({ id: "x", nodeId: "n1", unseenPush: true }), sub({ id: "y", nodeId: "n1" })];
+      const groups = groupSubshellsByNode(many, [{ id: "n1", name: "m" }] as never, { limit: 8 });
+      const xRow = many.find((r) => r.id === "x");
+      if (!xRow) throw new Error("fixture broke");
+      const flat = flatCellRows(groups, [], [xRow], new Set());
+      expect(flat.map((r) => r.id).filter((i) => i === "x")).toHaveLength(2);
+      renderCell(
+        <SubshellCellGrid
+          rows={flat}
+          selectedIds={new Set()}
+          focusedId={null}
+          labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })}
+          tintOf={() => 0}
+        />,
+      );
+      await waitFor(() => expect(screen.getAllByRole("link")).toHaveLength(flat.length));
+      const hrefs = screen.getAllByRole("link").map((l) => l.getAttribute("href"));
+      expect(hrefs.filter((h) => h === "/subshells/x")).toHaveLength(2); // both occurrences render
+      expect(hrefs).toContain("/subshells/y");
     } finally {
       restore();
     }

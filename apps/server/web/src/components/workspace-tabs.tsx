@@ -134,7 +134,9 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
     () =>
       onWorkspacePaneFocusRequest((subId) => {
         const pane = detail.panes.find((p) => p.subshellId === subId);
-        if (pane) setSelectedId(pane.id);
+        if (!pane) return false;
+        setSelectedId(pane.id);
+        return true;
       }),
     [detail.panes],
   );

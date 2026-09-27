@@ -163,7 +163,8 @@ export function RailSubshells({
   // The "No matches" empty state must count the comms section too: a filter
   // that hits only a cross-agent pane would otherwise say "No matches" above a
   // row it is showing. The flat grid needs no second count — while filtering
-  // the caps are off, so it holds exactly these rows (deduped).
+  // the caps are off, so it holds exactly these rows (and a Needs-Attention row
+  // shows in BOTH its band and its machine cluster, per the four-band order).
   const listedCount = nodeGroups.reduce((sum, group) => sum + group.subshells.length, 0) + commsGroup.subshells.length;
   // Which node groups this device has shut. Read once at mount — the rail
   // lives for the session, so re-reading storage on every render would buy
@@ -338,6 +339,7 @@ export function RailSubshells({
                     subshell={sub}
                     selected={selectedIds.has(sub.id)}
                     focused={focusedId === sub.id}
+                    focusOnOpen={onWorkspace && selectedIds.has(sub.id)}
                     nodeLabel={machine}
                     subline={machine}
                     agentLabel={agentLabel(sub.harnessId)}

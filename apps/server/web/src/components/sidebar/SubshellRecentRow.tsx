@@ -87,12 +87,20 @@ export function SubshellRecentRow({
               params={{ id: subshell.id }}
               draggable
               onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
-              // Workspace member → focus its tab in place; the row's own
-              // navigation is suppressed so the workspace stays open.
+              // Workspace member → focus its tab in place (plain left-click
+              // only; ⌘/ctrl/shift-click keeps open-in-new-tab). Navigation is
+              // suppressed only when the dock handled the pane, so a stale/
+              // unready pane still navigates rather than dead-clicking.
               onClick={(e) => {
-                if (focusOnOpen) {
+                if (
+                  focusOnOpen &&
+                  e.button === 0 &&
+                  !e.metaKey &&
+                  !e.ctrlKey &&
+                  !e.shiftKey &&
+                  requestWorkspacePaneFocus(subshell.id)
+                ) {
                   e.preventDefault();
-                  requestWorkspacePaneFocus(subshell.id);
                 }
               }}
               className={cn(

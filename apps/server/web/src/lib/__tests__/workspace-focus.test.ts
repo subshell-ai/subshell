@@ -18,15 +18,19 @@ describe("workspace-focus store", () => {
     expect(getWorkspaceFocusedId()).toBeNull();
   });
 
-  it("routes a focus request to its subscribers until they unsubscribe", () => {
+  it("reports whether a focus request was handled, until the subscriber releases", () => {
     const seen: string[] = [];
-    const unsub = onWorkspacePaneFocusRequest((id) => seen.push(id));
-    requestWorkspacePaneFocus("p1");
-    expect(seen).toEqual(["p1"]);
+    const unsub = onWorkspacePaneFocusRequest((id) => {
+      seen.push(id);
+      return id === "p1"; // only handles p1; an unknown pane reports unhandled
+    });
+    expect(requestWorkspacePaneFocus("p1")).toBe(true);
+    // Unhandled → the caller lets the link navigate instead of dead-clicking.
+    expect(requestWorkspacePaneFocus("p2")).toBe(false);
+    expect(seen).toEqual(["p1", "p2"]);
     unsub();
-    // A released subscriber stops hearing requests; the dock is the only
-    // consumer, so this is the rail→dock command in miniature.
-    requestWorkspacePaneFocus("p2");
-    expect(seen).toEqual(["p1"]);
+    // No subscriber left → nothing handles it → the click navigates.
+    expect(requestWorkspacePaneFocus("p3")).toBe(false);
+    expect(seen).toEqual(["p1", "p2"]);
   });
 });

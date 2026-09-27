@@ -59,15 +59,24 @@ export function useWorkspaceFocusedId(): string | null {
  * value above, so the rail's ring follows. A plain event bus, not a snapshot:
  * a request is a transient command, and there is no "current request" to read.
  */
-const focusRequests = new Set<(subshellId: string) => void>();
+const focusRequests = new Set<(subshellId: string) => boolean>();
 
-/** Ask the dock to focus the pane running `subshellId` (no-op if not present). */
-export function requestWorkspacePaneFocus(subshellId: string): void {
-  for (const listener of [...focusRequests]) listener(subshellId);
+/**
+ * Ask the dock to focus the pane running `subshellId`. Returns TRUE only if a
+ * mounted consumer (the dock, or the tab strip) found and activated that pane —
+ * so the caller can let the link navigate when nothing handled it: a stale pane
+ * set, or no dock yet ready, must not turn the click into a dead no-op.
+ */
+export function requestWorkspacePaneFocus(subshellId: string): boolean {
+  let handled = false;
+  for (const listener of [...focusRequests]) {
+    if (listener(subshellId)) handled = true;
+  }
+  return handled;
 }
 
-/** Subscribe to focus requests; returns the unsubscribe. Used by the dock. */
-export function onWorkspacePaneFocusRequest(cb: (subshellId: string) => void): () => void {
+/** Subscribe to focus requests; the callback returns whether it handled one. */
+export function onWorkspacePaneFocusRequest(cb: (subshellId: string) => boolean): () => void {
   focusRequests.add(cb);
   return () => {
     focusRequests.delete(cb);

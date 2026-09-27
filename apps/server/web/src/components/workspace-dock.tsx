@@ -129,7 +129,10 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
     () =>
       onWorkspacePaneFocusRequest((subshellId) => {
         const pane = panesRef.current.find((p) => p.subshellId === subshellId);
-        if (pane) apiRef.current?.getPanel(pane.id)?.api.setActive();
+        const panel = pane ? apiRef.current?.getPanel(pane.id) : undefined;
+        if (!panel) return false; // no such pane here / dock not ready → the click navigates
+        panel.api.setActive();
+        return true;
       }),
     [],
   );

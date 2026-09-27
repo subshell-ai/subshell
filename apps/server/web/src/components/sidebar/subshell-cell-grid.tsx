@@ -189,8 +189,9 @@ export interface SubshellCellLabels {
  * bell (`showsBell`) REPLACES the fill, the dot's posture — the glyph names
  * "unseen push", the tone keeps the state. Selection reads on TWO levels
  * (operator 2026-09-27): every open pane's cell (the workspace's SET) wears a
- * soft `ring-1 ring-foreground/70`, and the one cell the dock has FOCUSED wears
- * the bold white `ring-2 ring-foreground`. The accessible name is "name: status
+ * thin `ring-1 ring-foreground/70`, and the one cell the dock has FOCUSED wears
+ * the thicker `ring-2 ring-foreground/70` — both share the `/70` tone, so focus
+ * reads bolder by WIDTH, not a brighter line. The accessible name is "name: status
  * word", and for a bell "name: unseen notification (status word)" — the shared
  * {@link bellAnnouncement} — since a square of colour has nothing to read out
  * and its glyph is aria-hidden.
@@ -239,13 +240,21 @@ export function SubshellCell({
               params={{ id: subshell.id }}
               draggable
               onDragStart={(e) => encodeSubshellDrag(e.dataTransfer, subshell.id)}
-              // A workspace member clicked in the rail focuses its tab in place;
-              // the navigation it would otherwise do is suppressed so the person
-              // stays in the workspace (operator 2026-09-27).
+              // A workspace member clicked in the rail focuses its tab in place.
+              // Only a plain left-click: ⌘/ctrl/shift-click keeps the browser's
+              // open-in-new-tab. And navigation is suppressed only if the dock
+              // actually activated the pane — a stale/unready pane falls through
+              // to its normal link so the click is never a dead no-op.
               onClick={(e) => {
-                if (focusOnOpen) {
+                if (
+                  focusOnOpen &&
+                  e.button === 0 &&
+                  !e.metaKey &&
+                  !e.ctrlKey &&
+                  !e.shiftKey &&
+                  requestWorkspacePaneFocus(subshell.id)
+                ) {
                   e.preventDefault();
-                  requestWorkspacePaneFocus(subshell.id);
                 }
               }}
               aria-label={`${subshell.name}: ${bell ? bellAnnouncement(INDICATOR_LABEL[indicator]) : INDICATOR_LABEL[indicator]}`}
@@ -294,7 +303,11 @@ export function SubshellCell({
             <>
               <span
                 aria-hidden={true}
-                className="subshell-dot-blink-alt absolute inset-0 flex items-center justify-center rounded-md bg-success/50 text-foreground"
+                className={cn(
+                  "subshell-dot-blink-alt absolute inset-0 flex items-center justify-center rounded-md",
+                  DOT_CLASS.idle,
+                  INITIAL_CLASS,
+                )}
               >
                 {labels.initial}
               </span>
@@ -425,23 +438,33 @@ export function SubshellCellGrid({
   }
   // Runs of consecutive equal buckets share one plate. `flatCellRows` makes
   // a machine's rows contiguous, so a run IS a machine cluster (or two
-  // same-bucket clusters touching, which reads as one — documented).
-  const runs: { bucket: number; rows: SubshellView[] }[] = [];
+  // same-bucket clusters touching, which reads as one — documented). Keys are
+  // per-OCCURRENCE, not per-id: a Needs-Attention row shows in BOTH its band and
+  // its machine cluster, so the same subshell id recurs — even twice inside one
+  // plate when a band run and the machine's run share a tint and touch. A bare
+  // id key would hand React two siblings with one key (review MAJOR); an array
+  // INDEX key trips `noArrayIndexKey` and isn't stable. So the first `x` keys as
+  // `x`, the repeat as `x~2` — a stable, index-free identity for the render list.
+  const seen = new Map<string, number>();
+  const runs: { bucket: number; cells: { sub: SubshellView; key: string }[] }[] = [];
   for (const sub of rows) {
+    const n = (seen.get(sub.id) ?? 0) + 1;
+    seen.set(sub.id, n);
+    const cell = { sub, key: n === 1 ? sub.id : `${sub.id}~${n}` };
     const bucket = bucketOf(sub);
     const last = runs[runs.length - 1];
-    if (last && last.bucket === bucket) last.rows.push(sub);
-    else runs.push({ bucket, rows: [sub] });
+    if (last && last.bucket === bucket) last.cells.push(cell);
+    else runs.push({ bucket, cells: [cell] });
   }
   return (
     <div className="flex flex-wrap gap-1.5 px-2 py-1">
       {runs.map((run) => (
         <div
-          key={run.rows[0]?.id}
+          key={run.cells[0]?.key}
           className={cn("inline-flex items-center gap-1.5 rounded-lg p-1", NODE_TINT_CLASS[run.bucket])}
         >
-          {run.rows.map((sub) => (
-            <Fragment key={sub.id}>{renderCell(sub)}</Fragment>
+          {run.cells.map((c) => (
+            <Fragment key={c.key}>{renderCell(c.sub)}</Fragment>
           ))}
         </div>
       ))}
