@@ -1,0 +1,36 @@
+---
+title: Local web servers
+description: "Run a dev server or design preview in a pane, and open it from your phone or another machine."
+---
+
+Run a small web server in a pane, such as a dev environment or a design preview, and open it from your phone or another machine.
+
+## Why the page only opens on one machine
+
+Most dev servers bind to `127.0.0.1` unless told otherwise. That address is the machine talking to itself, so only a browser on the machine running the pane can open the page.
+
+The pane you type into reaches every device because Subshell streams the terminal itself. A web server inside that pane is a separate program, and its reach is decided by its bind address and the machine's network.
+
+## Bind the server to the machine
+
+Start the dev server bound to `0.0.0.0`, or to the machine's LAN or tailnet address specifically. Most dev servers take a flag or a config setting for this, commonly named `host` or `bind`; check the server's own docs for the exact spelling.
+
+Open the page from the other device at the machine's address plus the server's own port, for example `http://192.168.1.20:5173`. That port belongs to the dev server, not to Subshell, and when the pane runs on a remote node the address is the node machine's.
+
+A firewall on that machine may also need to allow the port.
+
+## Reaching Subshell itself from the other device
+
+While you preview, you probably keep typing into the pane from that device too, which means signing in to Subshell there. The instance lists the addresses it will accept under Server Settings → Networking, and that page also manages the trusted origins a browser needs in order to sign in from them.
+
+A phone on your Wi-Fi usually needs nothing added, because the machine's own LAN addresses are trusted automatically (since 2026-09-17). A name that is not one of the machine's interface addresses, such as `.local`, still needs an entry, and the failure it produces is `403 "Invalid origin"`; [Networking and addresses](/server/networking) walks through the fix.
+
+## Bind on networks you control
+
+> [!warning] A public bind is open to the whole network
+> Subshell is built for a trusted network: a LAN, a VPN, or a tailnet. Do not bind a dev server to `0.0.0.0` on a network you do not control, because everyone on that network can then reach anything bound that way.
+
+## Next steps
+
+- [Networking and addresses](/server/networking): which addresses the instance accepts, and how to add a name.
+- [Security model](/concepts/security-model): the trusted-network posture, in product terms.
