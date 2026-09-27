@@ -32,8 +32,8 @@ import type { SubshellView } from "@/types/subshell";
 
 /**
  * The rail's whole subshell section: the mode control, the filter box, the
- * Needs Attention spotlight, the machine groups and the Cross-agent comms
- * section, in one of THREE renderings behind a single choice.
+ * Needs Attention spotlight, the Cross-agent comms section and the machine
+ * groups, in one of THREE renderings behind a single choice.
  *
  * - `rows` (the default): text rows — the shape the rail has always had.
  * - `cells`: the same machine groups (headers, counts, collapse prefs,
@@ -119,9 +119,10 @@ export function RailSubshells({
   const railRows = q ? filterSubshells(byStatus, query) : byStatus;
   // Panes an AGENT opened over MCP leave the machine groups entirely
   // (operator ask 2026-09-25): they are internal cross-agent comms, filed in
-  // one section of their own below the machines, each row naming the machine
-  // it runs on since the section spans them. The partition runs on the
-  // FILTERED list, so a search matches them exactly like a machine's rows.
+  // one section of their own ABOVE the machine groups (moved from below on
+  // operator ask 2026-09-26), each row naming the machine it runs on since
+  // the section spans them. The partition runs on the FILTERED list, so a
+  // search matches them exactly like a machine's rows.
   const { human: railHuman, comms: railComms } = partitionCrossAgent(railRows);
   const commsGroup = {
     nodeId: CROSS_AGENT_GROUP_ID,
@@ -277,6 +278,40 @@ export function RailSubshells({
               ))}
             </section>
           )}
+          {/* The cross-agent comms section (operator ask 2026-09-25), ABOVE
+              the machine groups since the operator ask of 2026-09-26, and
+              only when there is something to file. It reuses the machine
+              group's collapsing IDIOM but carries its own preference, because
+              its default is the other way: closed. Each row's subline names
+              its own machine (the section header cannot, it spans them
+              all). */}
+          {commsGroup.total > 0 && (
+            <SubshellNodeGroup
+              key={commsGroup.nodeId}
+              nodeId={commsGroup.nodeId}
+              label={commsGroup.label}
+              title={commsGroup.title}
+              count={commsGroup.total}
+              open={q !== "" || commsOpen}
+              disabled={q !== ""}
+              onToggle={toggleCommsOpen}
+            >
+              {commsGroup.subshells.map((sub) => {
+                const machine = machineLabel(sub);
+                return (
+                  <SubshellRecentRow
+                    key={`comms-${sub.id}`}
+                    subshell={sub}
+                    active={location.pathname === `/subshells/${sub.id}`}
+                    nodeLabel={machine}
+                    subline={machine}
+                    agentLabel={agentLabel(sub.harnessId)}
+                    presetLabel={presetLabel(sub.presetId)}
+                  />
+                );
+              })}
+            </SubshellNodeGroup>
+          )}
           {nodeGroups.map((group) => (
             <SubshellNodeGroup
               key={group.nodeId}
@@ -307,39 +342,6 @@ export function RailSubshells({
               ))}
             </SubshellNodeGroup>
           ))}
-          {/* The cross-agent comms section (operator ask 2026-09-25), below
-              the machines and only when there is something to file. It
-              reuses the machine group's collapsing IDIOM but carries its own
-              preference, because its default is the other way: closed. Each
-              row's subline names its own machine (the section header cannot,
-              it spans them all). */}
-          {commsGroup.total > 0 && (
-            <SubshellNodeGroup
-              key={commsGroup.nodeId}
-              nodeId={commsGroup.nodeId}
-              label={commsGroup.label}
-              title={commsGroup.title}
-              count={commsGroup.total}
-              open={q !== "" || commsOpen}
-              disabled={q !== ""}
-              onToggle={toggleCommsOpen}
-            >
-              {commsGroup.subshells.map((sub) => {
-                const machine = machineLabel(sub);
-                return (
-                  <SubshellRecentRow
-                    key={`comms-${sub.id}`}
-                    subshell={sub}
-                    active={location.pathname === `/subshells/${sub.id}`}
-                    nodeLabel={machine}
-                    subline={machine}
-                    agentLabel={agentLabel(sub.harnessId)}
-                    presetLabel={presetLabel(sub.presetId)}
-                  />
-                );
-              })}
-            </SubshellNodeGroup>
-          )}
         </>
       )}
 
@@ -362,6 +364,34 @@ export function RailSubshells({
                 })}
               />
             </section>
+          )}
+          {/* The comms section keeps its place above the machine groups in
+              this mode too (operator ask 2026-09-26); grouped cells keeps it a
+              headed section because its header carries the count. */}
+          {commsGroup.total > 0 && (
+            <SubshellNodeGroup
+              key={commsGroup.nodeId}
+              nodeId={commsGroup.nodeId}
+              label={commsGroup.label}
+              title={commsGroup.title}
+              count={commsGroup.total}
+              open={q !== "" || commsOpen}
+              disabled={q !== ""}
+              onToggle={toggleCommsOpen}
+            >
+              <SubshellCellGrid
+                rows={commsGroup.subshells}
+                activeId={activeId}
+                labelsFor={(sub) => ({
+                  // The comms header spans machines, so each cell's tooltip
+                  // names its own (the rows say it in their subline).
+                  nodeLabel: machineLabel(sub),
+                  agentLabel: agentLabel(sub.harnessId),
+                  presetLabel: presetLabel(sub.presetId),
+                  initial: paneInitial(sub.name),
+                })}
+              />
+            </SubshellNodeGroup>
           )}
           {nodeGroups.map((group) => (
             <SubshellNodeGroup
@@ -390,31 +420,6 @@ export function RailSubshells({
               />
             </SubshellNodeGroup>
           ))}
-          {commsGroup.total > 0 && (
-            <SubshellNodeGroup
-              key={commsGroup.nodeId}
-              nodeId={commsGroup.nodeId}
-              label={commsGroup.label}
-              title={commsGroup.title}
-              count={commsGroup.total}
-              open={q !== "" || commsOpen}
-              disabled={q !== ""}
-              onToggle={toggleCommsOpen}
-            >
-              <SubshellCellGrid
-                rows={commsGroup.subshells}
-                activeId={activeId}
-                labelsFor={(sub) => ({
-                  // The comms header spans machines, so each cell's tooltip
-                  // names its own (the rows say it in their subline).
-                  nodeLabel: machineLabel(sub),
-                  agentLabel: agentLabel(sub.harnessId),
-                  presetLabel: presetLabel(sub.presetId),
-                  initial: paneInitial(sub.name),
-                })}
-              />
-            </SubshellNodeGroup>
-          )}
         </>
       )}
 

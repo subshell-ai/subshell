@@ -1,4 +1,6 @@
 import type { Terminal } from "@xterm/xterm";
+import { safeOpenTerminalUri } from "@/lib/terminal-url-open";
+import { terminalUrlAtPoint } from "@/lib/terminal-url-tap";
 
 /** Fallback row height when the renderer's metrics are unreachable. */
 const FALLBACK_ROW_PX = 18;
@@ -41,10 +43,20 @@ function rowHeightPx(term: Terminal): number {
  * pair or a changing finger spread decides the gesture as non-scrolling for
  * its remainder, so a pinch never jitters the buffer.
  *
+ * `copyMode()` true means the pane is in copy mode (issue 242): a
+ * one-finger touch belongs to the browser's selection pipeline, so the swipe
+ * neither scrolls nor preventDefaults it. The pair path is deliberately
+ * untouched — two-finger line-scroll keeps working while you select.
+ *
  * Attaches to `.xterm-screen` (the grid body — outside it, the page still
  * scrolls normally: headers, lists, settings). Returns the detach fn.
  */
-export function attachTouchScroll(term: Terminal, root: HTMLElement, isTouch: () => boolean = isTouchUi): () => void {
+export function attachTouchScroll(
+  term: Terminal,
+  root: HTMLElement,
+  isTouch: () => boolean = isTouchUi,
+  copyMode?: () => boolean,
+): () => void {
   if (!isTouch()) return () => {};
   const target = root.querySelector<HTMLElement>(".xterm-screen") ?? root;
   let lastY: number | null = null;
@@ -130,6 +142,14 @@ export function attachTouchScroll(term: Terminal, root: HTMLElement, isTouch: ()
     if (e.touches.length !== 1 || lastY === null) return;
     const y = e.touches[0]?.clientY;
     if (y === undefined) return;
+    if (copyMode?.()) {
+      // Copy mode (issue 242): the finger selects, it does not swipe. No
+      // scroll, no preventDefault — the browser owns this touch. The Y is
+      // still tracked so a mid-gesture toggle back cannot fire a jump from
+      // the stale position on the next move.
+      lastY = y;
+      return;
+    }
     const dy = lastY - y;
     lastY = y;
     e.preventDefault();
@@ -252,8 +272,18 @@ const SCROLLBAR_SELECTOR = ".xterm-viewport, .xterm-scrollbar";
  * drag, a two-finger gesture and a cancelled touch all end without focusing.
  * Touch only; mouse and pen keep xterm's own behavior, which works there
  * because `mousedown` is real.
+ *
+ * `copyMode()` true (issue 242) suppresses the focus half: a tap in copy
+ * mode selects, and a soft keyboard over a selection is the exact wrong
+ * answer. The blur halves (swipe, scrollbar) stay — reading gestures have
+ * never wanted the keyboard, copy mode or not.
  */
-export function gateTouchKeyboard(term: Terminal, root: HTMLElement, isTouch: () => boolean = isTouchUi): () => void {
+export function gateTouchKeyboard(
+  term: Terminal,
+  root: HTMLElement,
+  isTouch: () => boolean = isTouchUi,
+  copyMode?: () => boolean,
+): () => void {
   if (!isTouch()) return () => {};
   const blur = () => term.textarea?.blur();
   let kind: "tap" | "swipe" | "scrollbar" | null = null;
@@ -307,7 +337,10 @@ export function gateTouchKeyboard(term: Terminal, root: HTMLElement, isTouch: ()
     const wasTap = e.type === "touchend" && kind === "tap" && !multi && lastFingerUp;
     kind = null;
     if (lastFingerUp) multi = false;
-    if (wasTap) term.focus();
+    // Copy mode never raises the keyboard on a tap (belt to the shield's
+    // cancel of the compatibility mousedown — belt because the shield is
+    // attached beside this and the two must not disagree about the contract).
+    if (wasTap && !copyMode?.()) term.focus();
   };
 
   root.addEventListener("pointerdown", onPointerDown, true);
@@ -323,5 +356,122 @@ export function gateTouchKeyboard(term: Terminal, root: HTMLElement, isTouch: ()
     root.removeEventListener("touchmove", onTouchMove);
     root.removeEventListener("touchend", onEnd);
     root.removeEventListener("touchcancel", onEnd);
+  };
+}
+
+/** Long-press commit point: Blink and WebKit hand a held touch to the
+ * selection pipeline at ~500 ms. A tap must finish clearly below that, or a
+ * slow press would both open a URL and start a selection. */
+const TAP_MAX_MS = 450;
+
+/**
+ * The copy-mode shield (issue 242, touch): while `copyMode()` is true the
+ * browser must OWN a one-finger gesture on the grid, because that is what
+ * turns a long-press into a native selection with a Copy path — and xterm
+ * cannot be merely PAUSED into granting it. Its Gesture service
+ * `preventDefault()`s the touchstart it dispatches a gesture for, and a
+ * cancelled touchstart kills the native gesture before selection ever
+ * begins (the same cancellation gateTouchKeyboard's doc measured for the
+ * compatibility mouse events). So this shields rather than pauses:
+ * capture-phase listeners on the terminal root `stopPropagation()` the
+ * grid's single-finger touch/pointer/mouse gestures, Gesture never sees the
+ * touch, nothing cancels it, and the OS selection pipeline runs over the
+ * DOM-rendered text (`user-select: text` + `touch-action: auto` come from
+ * the `.copy-mode` rules inside styles.css' `@media (pointer: coarse)`).
+ *
+ * What stays deliberately live during copy mode:
+ * - two-finger line-scroll (multi-touch passes; the pair path in
+ *   attachTouchScroll consumes it exactly as before);
+ * - the scrollbar/viewport strip (xterm's own control — and the keyboard
+ *   gate's blur-on-scrollbar still applies);
+ * - the wheel bridge (trackpads scroll the buffer mid-select).
+ *
+ * A CLEAN tap — one finger, no movement past the slop, released well before
+ * the long-press timer — gets the shield's only `preventDefault()`, on
+ * `touchend`: the compatibility `mousedown` is what would focus xterm and
+ * raise the soft keyboard, and a tap must never do that here. The tap then
+ * opens the URL under the finger if the tapped token is one
+ * (lib/terminal-url-tap.ts); anything else does nothing.
+ */
+export function attachCopyModeShield(
+  term: Terminal,
+  root: HTMLElement,
+  copyMode: () => boolean,
+  isTouch: () => boolean = isTouchUi,
+): () => void {
+  if (!isTouch()) return () => {};
+  /** The gesture currently inside the shield; null while it is not ours. */
+  let tap: { x: number; y: number; t: number; moved: boolean } | null = null;
+
+  /** The scrollbar/viewport strip is xterm's own control — never shielded. */
+  const onScrollbar = (target: EventTarget | null): boolean =>
+    target instanceof Element && !!target.closest(SCROLLBAR_SELECTOR);
+
+  /** Is THIS event inside the shield's remit? Multi-touch belongs to the
+   * pair path; the scrollbar belongs to xterm; copy mode off means the old
+   * (untouched) stack owns everything. */
+  const shielded = (e: Event): boolean =>
+    copyMode() && !onScrollbar(e.target) && !(e.type.startsWith("touch") && (e as TouchEvent).touches.length > 1);
+
+  const onTouchStart = (e: TouchEvent) => {
+    if (!shielded(e)) {
+      tap = null;
+      return;
+    }
+    e.stopPropagation();
+    const p = e.touches.length === 1 ? e.touches[0] : undefined;
+    tap = p ? { x: p.clientX, y: p.clientY, t: Date.now(), moved: false } : null;
+  };
+  const onTouchMove = (e: TouchEvent) => {
+    if (!shielded(e)) return;
+    e.stopPropagation();
+    const p = e.touches[0];
+    if (tap && p && e.touches.length === 1 && Math.hypot(p.clientX - tap.x, p.clientY - tap.y) > SWIPE_SLOP_PX) {
+      tap.moved = true; // a drag: the selection owns it, and a drag opens nothing
+    }
+  };
+  const onTouchEnd = (e: TouchEvent) => {
+    const t = tap;
+    tap = null;
+    if (!t || !copyMode() || onScrollbar(e.target)) return; // not our gesture
+    e.stopPropagation();
+    const p = e.changedTouches?.[0];
+    if (!p || t.moved || Date.now() - t.t > TAP_MAX_MS) return; // a drag or a long-press: no open
+    e.preventDefault(); // cancel the compatibility mouse → no focus, no keyboard
+    const uri = terminalUrlAtPoint(term, p.clientX, p.clientY);
+    if (uri) safeOpenTerminalUri(uri);
+  };
+  const onTouchCancel = (e: TouchEvent) => {
+    if (!tap) return;
+    tap = null;
+    if (shielded(e)) e.stopPropagation();
+  };
+  /** Copy mode hands the grid to the browser: xterm's mouse and pointer
+   * paths (selection, focus, hover links) are as unwelcome there as its
+   * touch ones. `mousedown` is the one that focuses the textarea. All three
+   * do the same single thing, so they share one `Event`-shaped handler. */
+  const stopIfShielded = (e: Event): void => {
+    if (shielded(e)) e.stopPropagation();
+  };
+
+  // The touch handlers are `TouchEvent`-typed; the tuple erases the literal
+  // type strings that would otherwise pick the right DOM overload, so the
+  // one real handler each is registered for is exactly its event's shape.
+  const listeners: [string, EventListener, boolean][] = [
+    ["touchstart", onTouchStart as EventListener, true],
+    ["touchmove", onTouchMove as EventListener, true],
+    ["touchend", onTouchEnd as EventListener, true],
+    ["touchcancel", onTouchCancel as EventListener, true],
+    ["pointerdown", stopIfShielded, true],
+    ["pointermove", stopIfShielded, true],
+    ["pointerup", stopIfShielded, true],
+    ["pointercancel", stopIfShielded, true],
+    ["mousedown", stopIfShielded, true],
+    ["mouseup", stopIfShielded, true],
+    ["click", stopIfShielded, true],
+  ];
+  for (const [type, handler, capture] of listeners) root.addEventListener(type, handler, capture);
+  return () => {
+    for (const [type, handler, capture] of listeners) root.removeEventListener(type, handler, capture);
   };
 }

@@ -31,6 +31,7 @@ import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
 import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
+import { paneCopyModeIds, setPaneCopyModeIds, togglePaneCopyMode } from "@/lib/pane-copy-mode-pref";
 import { paneDiagnosticsIds, setPaneDiagnosticsIds, togglePaneDiagnostics } from "@/lib/pane-diagnostics-pref";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
@@ -92,6 +93,21 @@ function SubshellPage() {
     const next = togglePaneDiagnostics(paneDiagnosticsIds(), id);
     setPaneDiagnosticsIds(next);
     setDiagOn(next.includes(id));
+  }
+  // Copy mode (issue 242): the SAME per-device, per-subshell, page-owned
+  // posture as the diagnostics HUD above, for the same reasons (swipe
+  // navigation repoints this page without remounting it). Touch-only: the
+  // menu item is offered only on a coarse pointer, where a finger cannot
+  // drag-select the grid today; on a mouse surface selection already works.
+  const [copyOn, setCopyOn] = useState(false);
+  useEffect(() => {
+    setCopyOn(paneCopyModeIds().includes(id));
+  }, [id]);
+  /** Flips this subshell's copy mode and persists the per-device set. */
+  function toggleCopyMode() {
+    const next = togglePaneCopyMode(paneCopyModeIds(), id);
+    setPaneCopyModeIds(next);
+    setCopyOn(next.includes(id));
   }
   // The HUD names the machine the pane runs on, on the SAME ladder the
   // sidebar's node groups use (`nodeLabelFor`): the resolved name, the short
@@ -311,6 +327,7 @@ function SubshellPage() {
                     disabled={restarting || deleting}
                     onDeleted={() => void navigate({ to: "/" })}
                     diagnostics={{ on: diagOn, onToggle: toggleDiagnostics }}
+                    copyMode={coarse ? { on: copyOn, onToggle: toggleCopyMode } : undefined}
                   />
                 )}
               </>
@@ -362,6 +379,10 @@ function SubshellPage() {
             deleting={deleting}
             diagnostics={logTail ?? null}
             diagnosticsOverlay={diagOn ? { nodeLabel } : null}
+            // Copy mode is a touch affordance end to end — a stored "on"
+            // must never silence the keyboard on a surface that grew a
+            // mouse without the page knowing.
+            copyMode={coarse && copyOn}
             extraActions={
               preset && (
                 <Button

@@ -50,6 +50,7 @@ async function renderMenu(
   subshell: SubshellView,
   children?: ReactNode,
   diagnostics?: { on: boolean; onToggle: () => void },
+  copyMode?: { on: boolean; onToggle: () => void },
 ) {
   // retry: 0 so the presets query settles on the first canned response.
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -60,7 +61,7 @@ async function renderMenu(
     // With children the menu switches to right-click mode around the row
     // (sidebar use, spec 2026-09-03); without, today's ⋯ button.
     component: () => (
-      <SubshellActionsMenu subshell={subshell} diagnostics={diagnostics}>
+      <SubshellActionsMenu subshell={subshell} diagnostics={diagnostics} copyMode={copyMode}>
         {children}
       </SubshellActionsMenu>
     ),
@@ -159,11 +160,35 @@ describe("SubshellActionsMenu — notification bell", () => {
 describe("SubshellActionsMenu — access gating (spec §4.1)", () => {
   afterEach(cleanup);
 
-  it("renders no actions menu at all for a view grantee", async () => {
+  it("a view grantee gets the menu, and within it only what reading allows (issue #242)", async () => {
     const { restore } = mockFetch();
     try {
       await renderMenu(makeSubshell({ access: "view" }));
-      expect(screen.queryByRole("button", { name: "Actions for subshell" })).toBeNull();
+      await openMenu("subshell");
+      // Viewer-side acts render: the QR opens THIS same readable page
+      // elsewhere; the server's own arrival check is the real gate.
+      expect(screen.getByRole("menuitem", { name: "QR code…" })).toBeDefined();
+      // Managing acts stay gated out by the per-item rules, not by hiding
+      // the whole menu.
+      for (const name of [
+        "Edit title",
+        "Notify when done",
+        "Mute notifications",
+        "Restart",
+        "Switch preset…",
+        "Clone…",
+        "Share…",
+        "Close",
+      ]) {
+        expect(screen.queryByRole("menuitem", { name })).toBeNull();
+      }
+      cleanup();
+
+      // A dead view row gains a Start again for nobody else, either.
+      await renderMenu(makeSubshell({ access: "view", alive: false, status: "terminated" }));
+      await openMenu("subshell");
+      expect(screen.getByRole("menuitem", { name: "QR code…" })).toBeDefined();
+      expect(screen.queryByRole("menuitem", { name: "Start again" })).toBeNull();
     } finally {
       restore();
     }
@@ -316,11 +341,12 @@ describe("SubshellActionsMenu — Switch preset (spec 2026-09-23)", () => {
     }
   });
 
-  it("a view grantee gets no menu, so no Switch preset either", async () => {
+  it("a view grantee sees the menu, but not the Switch preset item", async () => {
     const { restore } = mockFetch();
     try {
       await renderMenu(makeSubshell({ access: "view" }));
-      expect(screen.queryByRole("button", { name: "Actions for subshell" })).toBeNull();
+      await openMenu("subshell");
+      expect(screen.getByRole("menuitem", { name: "QR code…" })).toBeDefined();
       expect(screen.queryByRole("menuitem", { name: "Switch preset…" })).toBeNull();
     } finally {
       restore();
@@ -377,6 +403,78 @@ describe("SubshellActionsMenu — diagnostics toggle (spec 2026-09-21 Wave C)", 
   });
 });
 
+describe("SubshellActionsMenu — copy mode (issue #242)", () => {
+  afterEach(cleanup);
+
+  it("off: the row offers 'Enable text copying', no check mark, and pressing it toggles", async () => {
+    const { restore } = mockFetch();
+    try {
+      let toggles = 0;
+      await renderMenu(makeSubshell(), undefined, undefined, { on: false, onToggle: () => toggles++ });
+      await openMenu("subshell");
+      const item = screen.getByRole("menuitem", { name: "Enable text copying" });
+      // The bell's swap-label pattern carries the state; no check slot at all.
+      expect(item.querySelector(".ml-auto")).toBeNull();
+      fireEvent.click(item);
+      expect(toggles).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("on: the same row reads 'Enable text input' — the label names what the press does", async () => {
+    const { restore } = mockFetch();
+    try {
+      let toggles = 0;
+      await renderMenu(makeSubshell(), undefined, undefined, { on: true, onToggle: () => toggles++ });
+      await openMenu("subshell");
+      expect(screen.queryByRole("menuitem", { name: "Enable text copying" })).toBeNull();
+      fireEvent.click(screen.getByRole("menuitem", { name: "Enable text input" }));
+      expect(toggles).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("absent without the prop — the shared surfaces cannot toggle a terminal they do not render", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell());
+      await openMenu("subshell");
+      expect(screen.queryByRole("menuitem", { name: "Enable text copying" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a view grantee gets it too — selecting text is a reading act (issue #242)", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell({ access: "view" }), undefined, undefined, {
+        on: false,
+        onToggle: () => {},
+      });
+      await openMenu("subshell");
+      expect(screen.getByRole("menuitem", { name: "Enable text copying" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("not in the sidebar right-click set (a rail row has no terminal to put into copy mode)", async () => {
+    const { restore } = mockFetch();
+    const row = <a href="/subshells/id-1">the row</a>;
+    try {
+      await renderMenu(makeSubshell(), row, undefined, { on: false, onToggle: () => {} });
+      fireEvent.contextMenu(screen.getByText("the row"));
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(7));
+      expect(screen.queryByRole("menuitem", { name: "Enable text copying" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("SubshellActionsMenu — children mode, sidebar right-click (spec 2026-09-03)", () => {
   afterEach(cleanup);
 
@@ -411,13 +509,16 @@ describe("SubshellActionsMenu — children mode, sidebar right-click (spec 2026-
     }
   });
 
-  it("a view grantee gets the bare row back — nothing to open", async () => {
+  it("a view grantee's row right-click opens the curated reading set (issue #242)", async () => {
     const { restore } = mockFetch();
     try {
       await renderMenu(makeSubshell({ access: "view" }), row);
       expect(screen.getByText("the row")).toBeDefined();
       fireEvent.contextMenu(screen.getByText("the row"));
-      expect(screen.queryAllByRole("menuitem").length).toBe(0);
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBeGreaterThan(0));
+      // Of the curated seven, a viewer keeps exactly the one reading act.
+      const names = screen.getAllByRole("menuitem").map((m) => m.textContent);
+      expect(names).toEqual(["QR code…"]);
     } finally {
       restore();
     }
