@@ -1,184 +1,24 @@
 import { Button, cn } from "@internal/node-admin";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import {
-  Activity,
-  ArrowUpCircle,
-  ChevronDown,
-  ChevronLeft,
-  ExternalLink,
-  Eye,
-  EyeOff,
-  KeyRound,
-  LayoutDashboard,
-  type LucideIcon,
-  Network,
-  Plus,
-  Power,
-  Puzzle,
-  ScrollText,
-  Server,
-  ServerCog,
-  Settings,
-  Shield,
-  SlidersHorizontal,
-  Smartphone,
-  TerminalSquare,
-  Users,
-} from "lucide-react";
+import { ChevronDown, ChevronLeft, ExternalLink, Smartphone } from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AboutDialog } from "@/components/about-dialog";
 import { MobileInstallDialog } from "@/components/mobile-install-dialog";
 import { useQuickAdd } from "@/components/quick-add";
+import { RailSectionActions } from "@/components/sidebar/rail-section-actions";
 import { RailSubshells } from "@/components/sidebar/rail-subshells";
+import { groupOpen, isNavGroup, type NavItem, visibleNavEntries } from "@/components/sidebar/sidebar-nav";
 import { WorkspacesSection } from "@/components/sidebar/workspaces-section";
-import { TippedIconButton } from "@/components/tipped-icon-button";
 import { UserMenu } from "@/components/user-menu";
 import { useClockTick } from "@/hooks/use-clock-tick";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
 import { desktopInvoke, isDesktop, onDesktopAction } from "@/lib/desktop";
+import { readHiddenSections, revealHidden, toggleHidden, writeHiddenSections } from "@/lib/sidebar-section-hidden-pref";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 
 /** localStorage key for the collapsed state (persists across reloads). */
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";
-
-/**
- * localStorage key for the sections a person has HIDDEN with their eye toggle
- * (operator ask 2026-09-27): a JSON object of `{ [sectionId]: true }`, so a long
- * Subshells or Workspaces list can be folded out of the way and the sections
- * below it reached. Only the TRUE entries are stored — an absent section is
- * shown — so the value stays small and a newly-added nav section defaults open.
- */
-const HIDDEN_SECTIONS_KEY = "subshell.sidebarHiddenSections";
-
-/** Sidebar item: route target + icon. */
-export interface NavItem {
-  to: string;
-  label: string;
-  icon: LucideIcon;
-  /** Optional short label shown when the rail is collapsed. */
-  short?: string;
-  /** When true, the item shows only while the server reports the viewer is an admin. */
-  requiresAdmin?: boolean;
-}
-
-/**
- * A label with a chevron that opens to pages. NEVER a page itself (spec
- * 2026-09-11 §1): a header that is also a link needs a toggle button beside
- * it, and this rail already refuses to nest interactive elements (see the
- * quick-add + below). A label-only header has one job.
- */
-export interface NavGroup {
-  /** Stable key: the React key, and what a chevron press is recorded against. */
-  id: string;
-  label: string;
-  /** Shown beside the label when expanded; never shown collapsed (§3.3). */
-  icon: LucideIcon;
-  children: NavItem[];
-  /** Gates the WHOLE group. Children carry no flag of their own. */
-  requiresAdmin?: boolean;
-}
-
-export type NavEntry = NavItem | NavGroup;
-
-/** Narrows a rail entry to a group. Groups are the ones with children. */
-export const isNavGroup = (entry: NavEntry): entry is NavGroup => "children" in entry;
-
-const NAV_ENTRIES: NavEntry[] = [
-  // Terminal, like the empty subshells box — subshells are terminal harnesses,
-  // not a grid (the grid icon belongs to the tiles/list view toggle).
-  { to: "/", label: "Subshells", icon: TerminalSquare },
-  { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
-  { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
-  { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
-  // On the label (spec 2026-09-11 §2.1). The single entry here used to read
-  // "Instance", not "Server", because the control-plane host's own NODE is
-  // named Server by default and on /nodes an admin saw that word twice, on two
-  // different things. This is a GROUP of pages now, and "Server Settings" is
-  // two words: it reads as the plane's settings rather than as that node, and
-  // the collision the old label was avoiding is accepted here deliberately —
-  // the group has to say what the pages under it configure, and "Instance
-  // Settings" would name a thing no page inside it is called.
-  {
-    id: "server-settings",
-    label: "Server Settings",
-    icon: ServerCog,
-    requiresAdmin: true,
-    children: [
-      // ServerCog above so the plain gear can stay on General and Server stays
-      // on Nodes — three related icons, three different things.
-      { to: "/settings", label: "General", icon: Settings, short: "Gen" },
-      { to: "/settings/users", label: "Users", icon: Users, short: "Users" },
-      // After Users, because a door is a question about who gets in: the two
-      // pages are the accounts and the ways to reach them (spec 2026-09-24 §7).
-      { to: "/settings/auth", label: "Auth", icon: Shield, short: "Auth" },
-      { to: "/settings/api-keys", label: "API keys", icon: KeyRound, short: "Keys" },
-      { to: "/settings/plugins", label: "Plugins", icon: Puzzle, short: "Plug" },
-      // "Service", not "Server": the control-plane host's own node row is
-      // named Server by default, and every card on this page is about the
-      // running process — who supervises it and since when. (Where it
-      // listens moved to Networking on 2026-09-17; what it logged moved to
-      // Logs on 2026-09-20.)
-      { to: "/settings/service", label: "Service", icon: Power, short: "Svc" },
-      // After Service, because it holds both halves of address: where this
-      // server listens (the Addresses card, here from Service since
-      // 2026-09-17) and how anything not on this machine gets to it.
-      { to: "/settings/networking", label: "Networking", icon: Network, short: "Net" },
-      // Beside Service, because the two are about the same machine: Service is
-      // the process as it runs now, Updates is what it could be running next.
-      { to: "/settings/updates", label: "Updates", icon: ArrowUpCircle, short: "Upd" },
-      { to: "/settings/status", label: "Status", icon: Activity, short: "Stat" },
-      { to: "/settings/logs", label: "Logs", icon: ScrollText, short: "Logs" },
-    ],
-  },
-];
-
-/**
- * The rail's entries for this viewer (spec 2026-09-02 settings-split §4,
- * regrouped by 2026-09-11 §3.2): an admin-gated entry hides unless the server
- * says so, and while the flag is still unknown (first fetch) it stays hidden
- * (unknown ≠ open). A group drops as a WHOLE — its children carry no flag of
- * their own, so there is one gate to reason about rather than seven.
- */
-export function visibleNavEntries(isAdmin: boolean | undefined): readonly NavEntry[] {
-  return NAV_ENTRIES.filter((entry) => !entry.requiresAdmin || isAdmin === true);
-}
-
-/**
- * Every PAGE the viewer may reach from the rail, groups flattened, in rail
- * order. The gate lives once, in {@link visibleNavEntries}; this is the flat
- * view of the same answer.
- *
- * **Nothing in the app calls this — the tests are its only consumers**, and
- * that is deliberate rather than dead code left behind. The rail renders from
- * the TREE, but the question the tests need to ask is about pages ("can a
- * member reach /settings/users from here?"), which a tree makes them walk. Keeping the
- * flat view as the tested surface is also what let the group land without
- * rewriting the assertions that predate it.
- */
-export function visibleNavItems(isAdmin: boolean | undefined): readonly NavItem[] {
-  return visibleNavEntries(isAdmin).flatMap((entry) => (isNavGroup(entry) ? entry.children : [entry]));
-}
-
-/**
- * Whether a group renders open: **the route decides, and a click overrides it
- * until the route changes.**
- *
- * So a group is open exactly while you are on one of its pages, and shut
- * otherwise — the rail stays as short as where you are — and the chevron can
- * always be used, in both directions, including to shut a group you are
- * inside.
- *
- * The first version of this made a group holding the current page
- * unconditionally open, on the reasoning that the rail must be able to say
- * where you are. That reasoning was wrong twice over: the group header stays
- * lit either way, so nothing is lost by shutting it — and a chevron that
- * refuses on the one page a person is most likely to press it does not read
- * as a rule, it reads as broken. Reported 2026-09-12.
- */
-export function groupOpen(override: boolean | undefined, childActive: boolean): boolean {
-  return override ?? childActive;
-}
 
 /**
  * Persistent left navigation for the app shell, rendered in the root layout
@@ -273,52 +113,26 @@ export function AppSidebar({
   // losing the typed text across a collapse. Persistence is the parent's job.
   const filterRef = useRef<HTMLInputElement>(null);
   const [subshellQuery, setSubshellQuery] = useState("");
-  // Sections folded away by their eye toggle (operator ask 2026-09-27). A person
-  // hides Subshells or Workspaces so the sections BELOW them stay reachable when
-  // the list is long. Per-DEVICE, like the collapse preference; only true entries
-  // persist, so an absent section reads shown.
-  const [hiddenSections, setHiddenSections] = useState<Record<string, boolean>>(() => {
-    try {
-      const raw = localStorage.getItem(HIDDEN_SECTIONS_KEY);
-      const parsed: unknown = raw ? JSON.parse(raw) : null;
-      return parsed && typeof parsed === "object" ? (parsed as Record<string, boolean>) : {};
-    } catch {
-      return {};
-    }
-  });
-  const persistHidden = useCallback((next: Record<string, boolean>) => {
-    try {
-      localStorage.setItem(HIDDEN_SECTIONS_KEY, JSON.stringify(next));
-    } catch {
-      // storage unavailable (private mode) — the toggle still works this session
-    }
+  // Sections folded away by their eye toggle (operator ask 2026-09-27). The
+  // storage SHAPE and the transitions live in `lib/sidebar-section-hidden-pref`;
+  // the state stays here because a press must re-render the rail.
+  const [hiddenSections, setHiddenSections] = useState<Record<string, boolean>>(readHiddenSections);
+  const toggleSectionHidden = useCallback((id: string) => {
+    setHiddenSections((prev) => {
+      const next = toggleHidden(prev, id);
+      writeHiddenSections(next);
+      return next;
+    });
   }, []);
-  const toggleSectionHidden = useCallback(
-    (id: string) => {
-      setHiddenSections((prev) => {
-        const next = { ...prev };
-        if (next[id]) delete next[id];
-        else next[id] = true;
-        persistHidden(next);
-        return next;
-      });
-    },
-    [persistHidden],
-  );
   // Forces a section SHOWN (never toggles), so ⌘F can reveal a hidden rail
   // before it tries to focus the filter inside it.
-  const revealSection = useCallback(
-    (id: string) => {
-      setHiddenSections((prev) => {
-        if (!prev[id]) return prev;
-        const next = { ...prev };
-        delete next[id];
-        persistHidden(next);
-        return next;
-      });
-    },
-    [persistHidden],
-  );
+  const revealSection = useCallback((id: string) => {
+    setHiddenSections((prev) => {
+      const next = revealHidden(prev, id);
+      if (next !== prev) writeHiddenSections(next);
+      return next;
+    });
+  }, []);
   const isSectionHidden = (id: string) => hiddenSections[id] === true;
   const [collapsedState, setCollapsed] = useState(() => {
     try {
@@ -575,64 +389,30 @@ export function AppSidebar({
                     Subshells/Workspaces list cannot push the sections below out
                     of reach. It sits left of the section's +. */}
                 {!collapsed && item.to === "/workspaces" && (
-                  <>
-                    <TippedIconButton
-                      tooltip="New workspace"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
-                      onClick={() => {
-                        quickAdd.openNewWorkspace();
-                        onQuickAdd?.();
-                      }}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </TippedIconButton>
-                    <TippedIconButton
-                      tooltip={isSectionHidden("workspaces") ? "Show workspaces" : "Hide workspaces"}
-                      variant="ghost"
-                      size="icon"
-                      aria-pressed={isSectionHidden("workspaces")}
-                      className="absolute top-1/2 right-8 h-6 w-6 -translate-y-1/2 text-muted-foreground"
-                      onClick={() => toggleSectionHidden("workspaces")}
-                    >
-                      {isSectionHidden("workspaces") ? (
-                        <EyeOff className="h-3.5 w-3.5" />
-                      ) : (
-                        <Eye className="h-3.5 w-3.5" />
-                      )}
-                    </TippedIconButton>
-                  </>
+                  <RailSectionActions
+                    addTooltip="New workspace"
+                    onAdd={() => {
+                      quickAdd.openNewWorkspace();
+                      onQuickAdd?.();
+                    }}
+                    hidden={isSectionHidden("workspaces")}
+                    showTooltip="Show workspaces"
+                    hideTooltip="Hide workspaces"
+                    onToggleHidden={() => toggleSectionHidden("workspaces")}
+                  />
                 )}
                 {!collapsed && item.to === "/" && (
-                  <>
-                    <TippedIconButton
-                      tooltip="New subshell"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
-                      onClick={() => {
-                        quickAdd.openLaunch();
-                        onQuickAdd?.();
-                      }}
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                    </TippedIconButton>
-                    <TippedIconButton
-                      tooltip={isSectionHidden("subshells") ? "Show subshells" : "Hide subshells"}
-                      variant="ghost"
-                      size="icon"
-                      aria-pressed={isSectionHidden("subshells")}
-                      className="absolute top-1/2 right-8 h-6 w-6 -translate-y-1/2 text-muted-foreground"
-                      onClick={() => toggleSectionHidden("subshells")}
-                    >
-                      {isSectionHidden("subshells") ? (
-                        <EyeOff className="h-3.5 w-3.5" />
-                      ) : (
-                        <Eye className="h-3.5 w-3.5" />
-                      )}
-                    </TippedIconButton>
-                  </>
+                  <RailSectionActions
+                    addTooltip="New subshell"
+                    onAdd={() => {
+                      quickAdd.openLaunch();
+                      onQuickAdd?.();
+                    }}
+                    hidden={isSectionHidden("subshells")}
+                    showTooltip="Show subshells"
+                    hideTooltip="Hide subshells"
+                    onToggleHidden={() => toggleSectionHidden("subshells")}
+                  />
                 )}
               </div>
               {/* The whole subshell section — mode control, filter, the

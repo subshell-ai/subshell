@@ -5,6 +5,7 @@ import { type JSX, type ReactNode, useCallback, useState } from "react";
 import { TippedIconButton } from "@/components/tipped-icon-button";
 import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useDraftWorkspaces, useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
+import { workspaceIdFromPath } from "@/lib/route-ids";
 import { RECENT_LIMIT } from "@/lib/sidebar-recents";
 import { formatWorkspaceDate } from "@/lib/workspace-name";
 
@@ -126,7 +127,7 @@ export function WorkspacesSection(): JSX.Element | null {
   // to spare from the discard sweep and to highlight. A SAVED active id must not
   // be treated as a spared draft, else the trashcan copy would promise a saved
   // workspace "stays" while it is in fact not one of the drafts at all.
-  const activeWorkspaceId = /^\/workspaces\/([^/]+)/.exec(location.pathname)?.[1] ?? null;
+  const activeWorkspaceId = workspaceIdFromPath(location.pathname);
 
   // Drafts, labelled by creation stamp. A stamp is minute-granular, so two drafts
   // made in one minute would be indistinguishable; when the label repeats, the

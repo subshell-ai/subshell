@@ -12,6 +12,7 @@ import { useNodes } from "@/hooks/use-nodes";
 import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePresets } from "@/hooks/use-presets";
 import { useWorkspace } from "@/hooks/use-workspace";
+import { subshellIdFromPath, workspaceIdFromPath } from "@/lib/route-ids";
 import {
   collapsedNodeGroups,
   commsGroupOpen,
@@ -236,12 +237,8 @@ export function RailSubshells({
   // workspace page (the dock publishes it through `lib/workspace-focus`; the
   // sidebar is a different tree and cannot otherwise see dockview's focus). The
   // set marks every open cell/row; only the focused one wears the bold ring.
-  const focusedFromUrl = location.pathname.startsWith("/subshells/")
-    ? location.pathname.slice("/subshells/".length)
-    : null;
-  const workspaceId = /^\/workspaces\/[^/]+/.test(location.pathname)
-    ? location.pathname.slice("/workspaces/".length)
-    : null;
+  const focusedFromUrl = subshellIdFromPath(location.pathname);
+  const workspaceId = workspaceIdFromPath(location.pathname);
   const { data: workspaceDetail } = useWorkspace(workspaceId ?? "", { enabled: workspaceId !== null });
   const dockFocusedId = useWorkspaceFocusedId();
   const focusedId = focusedFromUrl ?? dockFocusedId;

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { Sheet, SheetClose, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { useHasSidebar } from "@/hooks/use-has-sidebar";
+import { isDetailPath } from "@/lib/route-ids";
 
 /**
  * The nav drawer (hamburger trigger + side sheet), self-contained so it can
@@ -74,7 +75,7 @@ export function MobileNav() {
  */
 export function MobileTopBar() {
   const location = useLocation();
-  if (/^\/(subshells|workspaces)\/[^/]+/.test(location.pathname)) return null;
+  if (isDetailPath(location.pathname)) return null;
 
   return (
     <header className="flex shrink-0 items-center border-border border-b bg-card px-3 py-2">

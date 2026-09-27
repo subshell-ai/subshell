@@ -1,3 +1,5 @@
+import { isDetailPath } from "@/lib/route-ids";
+
 /**
  * Which pages OWN the bottom edge of the frame on touch.
  *
@@ -27,5 +29,5 @@
  * `/workspaces` (no id) are the list pages, which scroll.
  */
 export function routeOwnsBottomEdge(pathname: string): boolean {
-  return /^\/(subshells|workspaces)\/[^/]+/.test(pathname);
+  return isDetailPath(pathname);
 }
