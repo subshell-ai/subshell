@@ -1,184 +1,24 @@
 import { Button, cn } from "@internal/node-admin";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import {
-  Activity,
-  ArrowUpCircle,
-  ChevronDown,
-  ChevronLeft,
-  ExternalLink,
-  KeyRound,
-  LayoutDashboard,
-  type LucideIcon,
-  Network,
-  Plus,
-  Power,
-  Puzzle,
-  ScrollText,
-  Server,
-  ServerCog,
-  Settings,
-  Shield,
-  SlidersHorizontal,
-  Smartphone,
-  TerminalSquare,
-  Users,
-} from "lucide-react";
+import { ChevronDown, ChevronLeft, ExternalLink, Smartphone } from "lucide-react";
 import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { AboutDialog } from "@/components/about-dialog";
 import { MobileInstallDialog } from "@/components/mobile-install-dialog";
 import { useQuickAdd } from "@/components/quick-add";
+import { RailSectionActions } from "@/components/sidebar/rail-section-actions";
 import { RailSubshells } from "@/components/sidebar/rail-subshells";
+import { groupOpen, isNavGroup, type NavItem, visibleNavEntries } from "@/components/sidebar/sidebar-nav";
+import { WorkspacesSection } from "@/components/sidebar/workspaces-section";
 import { UserMenu } from "@/components/user-menu";
-import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useClockTick } from "@/hooks/use-clock-tick";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { useWorkspaces } from "@/hooks/use-workspaces";
 import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
 import { desktopInvoke, isDesktop, onDesktopAction } from "@/lib/desktop";
-import { recentWorkspaceLinks } from "@/lib/sidebar-recents";
+import { readHiddenSections, revealHidden, toggleHidden, writeHiddenSections } from "@/lib/sidebar-section-hidden-pref";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 
 /** localStorage key for the collapsed state (persists across reloads). */
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";
-
-/** Sidebar item: route target + icon. */
-export interface NavItem {
-  to: string;
-  label: string;
-  icon: LucideIcon;
-  /** Optional short label shown when the rail is collapsed. */
-  short?: string;
-  /** When true, the item shows only while the server reports the viewer is an admin. */
-  requiresAdmin?: boolean;
-}
-
-/**
- * A label with a chevron that opens to pages. NEVER a page itself (spec
- * 2026-09-11 §1): a header that is also a link needs a toggle button beside
- * it, and this rail already refuses to nest interactive elements (see the
- * quick-add + below). A label-only header has one job.
- */
-export interface NavGroup {
-  /** Stable key: the React key, and what a chevron press is recorded against. */
-  id: string;
-  label: string;
-  /** Shown beside the label when expanded; never shown collapsed (§3.3). */
-  icon: LucideIcon;
-  children: NavItem[];
-  /** Gates the WHOLE group. Children carry no flag of their own. */
-  requiresAdmin?: boolean;
-}
-
-export type NavEntry = NavItem | NavGroup;
-
-/** Narrows a rail entry to a group. Groups are the ones with children. */
-export const isNavGroup = (entry: NavEntry): entry is NavGroup => "children" in entry;
-
-const NAV_ENTRIES: NavEntry[] = [
-  // Terminal, like the empty subshells box — subshells are terminal harnesses,
-  // not a grid (the grid icon belongs to the tiles/list view toggle).
-  { to: "/", label: "Subshells", icon: TerminalSquare },
-  { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
-  { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
-  { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
-  // On the label (spec 2026-09-11 §2.1). The single entry here used to read
-  // "Instance", not "Server", because the control-plane host's own NODE is
-  // named Server by default and on /nodes an admin saw that word twice, on two
-  // different things. This is a GROUP of pages now, and "Server Settings" is
-  // two words: it reads as the plane's settings rather than as that node, and
-  // the collision the old label was avoiding is accepted here deliberately —
-  // the group has to say what the pages under it configure, and "Instance
-  // Settings" would name a thing no page inside it is called.
-  {
-    id: "server-settings",
-    label: "Server Settings",
-    icon: ServerCog,
-    requiresAdmin: true,
-    children: [
-      // ServerCog above so the plain gear can stay on General and Server stays
-      // on Nodes — three related icons, three different things.
-      { to: "/settings", label: "General", icon: Settings, short: "Gen" },
-      { to: "/settings/users", label: "Users", icon: Users, short: "Users" },
-      // After Users, because a door is a question about who gets in: the two
-      // pages are the accounts and the ways to reach them (spec 2026-09-24 §7).
-      { to: "/settings/auth", label: "Auth", icon: Shield, short: "Auth" },
-      { to: "/settings/api-keys", label: "API keys", icon: KeyRound, short: "Keys" },
-      { to: "/settings/plugins", label: "Plugins", icon: Puzzle, short: "Plug" },
-      // "Service", not "Server": the control-plane host's own node row is
-      // named Server by default, and every card on this page is about the
-      // running process — who supervises it and since when. (Where it
-      // listens moved to Networking on 2026-09-17; what it logged moved to
-      // Logs on 2026-09-20.)
-      { to: "/settings/service", label: "Service", icon: Power, short: "Svc" },
-      // After Service, because it holds both halves of address: where this
-      // server listens (the Addresses card, here from Service since
-      // 2026-09-17) and how anything not on this machine gets to it.
-      { to: "/settings/networking", label: "Networking", icon: Network, short: "Net" },
-      // Beside Service, because the two are about the same machine: Service is
-      // the process as it runs now, Updates is what it could be running next.
-      { to: "/settings/updates", label: "Updates", icon: ArrowUpCircle, short: "Upd" },
-      { to: "/settings/status", label: "Status", icon: Activity, short: "Stat" },
-      { to: "/settings/logs", label: "Logs", icon: ScrollText, short: "Logs" },
-    ],
-  },
-];
-
-/**
- * The rail's entries for this viewer (spec 2026-09-02 settings-split §4,
- * regrouped by 2026-09-11 §3.2): an admin-gated entry hides unless the server
- * says so, and while the flag is still unknown (first fetch) it stays hidden
- * (unknown ≠ open). A group drops as a WHOLE — its children carry no flag of
- * their own, so there is one gate to reason about rather than seven.
- */
-export function visibleNavEntries(isAdmin: boolean | undefined): readonly NavEntry[] {
-  return NAV_ENTRIES.filter((entry) => !entry.requiresAdmin || isAdmin === true);
-}
-
-/**
- * Every PAGE the viewer may reach from the rail, groups flattened, in rail
- * order. The gate lives once, in {@link visibleNavEntries}; this is the flat
- * view of the same answer.
- *
- * **Nothing in the app calls this — the tests are its only consumers**, and
- * that is deliberate rather than dead code left behind. The rail renders from
- * the TREE, but the question the tests need to ask is about pages ("can a
- * member reach /settings/users from here?"), which a tree makes them walk. Keeping the
- * flat view as the tested surface is also what let the group land without
- * rewriting the assertions that predate it.
- */
-export function visibleNavItems(isAdmin: boolean | undefined): readonly NavItem[] {
-  return visibleNavEntries(isAdmin).flatMap((entry) => (isNavGroup(entry) ? entry.children : [entry]));
-}
-
-/**
- * Whether a group renders open: **the route decides, and a click overrides it
- * until the route changes.**
- *
- * So a group is open exactly while you are on one of its pages, and shut
- * otherwise — the rail stays as short as where you are — and the chevron can
- * always be used, in both directions, including to shut a group you are
- * inside.
- *
- * The first version of this made a group holding the current page
- * unconditionally open, on the reasoning that the rail must be able to say
- * where you are. That reasoning was wrong twice over: the group header stays
- * lit either way, so nothing is lost by shutting it — and a chevron that
- * refuses on the one page a person is most likely to press it does not read
- * as a rule, it reads as broken. Reported 2026-09-12.
- */
-export function groupOpen(override: boolean | undefined, childActive: boolean): boolean {
-  return override ?? childActive;
-}
-
-/** Classes for a "recent" sub-link: a compact row under its nav item. */
-function recentClass(active: boolean): string {
-  return cn(
-    "block truncate rounded-md py-1 pr-3 pl-10 text-detail transition-colors",
-    active
-      ? "font-strong text-accent-foreground"
-      : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
-  );
-}
 
 /**
  * Persistent left navigation for the app shell, rendered in the root layout
@@ -259,12 +99,6 @@ export function AppSidebar({
   // settings-split §4) — the same cached query the emergency banner /
   // Add-node dialog use.
   const { data: publicSettings } = usePublicSettings();
-  // "Recent" sub-lists under Subshells / Workspaces — the quick jump that the
-  // subshell page's switcher strip used to offer. Same query keys as the home
-  // page, so every mutation and the page's polling keep these current; shown
-  // only while the rail is expanded.
-  const { data: workspaces } = useWorkspaces();
-  const recentWorkspaces = recentWorkspaceLinks(workspaces);
   // The About dialog the user menu raises. Held here rather than in the menu
   // because choosing an item closes the menu, which would take the dialog
   // with it.
@@ -279,6 +113,27 @@ export function AppSidebar({
   // losing the typed text across a collapse. Persistence is the parent's job.
   const filterRef = useRef<HTMLInputElement>(null);
   const [subshellQuery, setSubshellQuery] = useState("");
+  // Sections folded away by their eye toggle (operator ask 2026-09-27). The
+  // storage SHAPE and the transitions live in `lib/sidebar-section-hidden-pref`;
+  // the state stays here because a press must re-render the rail.
+  const [hiddenSections, setHiddenSections] = useState<Record<string, boolean>>(readHiddenSections);
+  const toggleSectionHidden = useCallback((id: string) => {
+    setHiddenSections((prev) => {
+      const next = toggleHidden(prev, id);
+      writeHiddenSections(next);
+      return next;
+    });
+  }, []);
+  // Forces a section SHOWN (never toggles), so ⌘F can reveal a hidden rail
+  // before it tries to focus the filter inside it.
+  const revealSection = useCallback((id: string) => {
+    setHiddenSections((prev) => {
+      const next = revealHidden(prev, id);
+      if (next !== prev) writeHiddenSections(next);
+      return next;
+    });
+  }, []);
+  const isSectionHidden = (id: string) => hiddenSections[id] === true;
   const [collapsedState, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(COLLAPSED_KEY) === "1";
@@ -354,12 +209,16 @@ export function AppSidebar({
           // ⌘F was a silent no-op on a collapsed rail — the one state where a
           // user is most likely to reach for it.
           else {
+            // Reveal the rail both ways it might be out of view — the whole-
+            // sidebar collapse, and this section's own eye — before waiting for
+            // the input to mount.
             setFocusFilterWhenOpen(true);
             setCollapsed(false);
+            revealSection("subshells");
           }
         }
       }),
-    [toggle],
+    [toggle, revealSection],
   );
 
   useEffect(() => {
@@ -525,35 +384,35 @@ export function AppSidebar({
                   2026-09-03). */}
               <div className="relative">
                 {navLink(item, false)}
+                {/* Each of these two sections carries an EYE (operator ask
+                    2026-09-27) that folds its whole list away, so a long
+                    Subshells/Workspaces list cannot push the sections below out
+                    of reach. It sits left of the section's +. */}
                 {!collapsed && item.to === "/workspaces" && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="New workspace"
-                    title="New workspace"
-                    className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
-                    onClick={() => {
+                  <RailSectionActions
+                    addTooltip="New workspace"
+                    onAdd={() => {
                       quickAdd.openNewWorkspace();
                       onQuickAdd?.();
                     }}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </Button>
+                    hidden={isSectionHidden("workspaces")}
+                    showTooltip="Show workspaces"
+                    hideTooltip="Hide workspaces"
+                    onToggleHidden={() => toggleSectionHidden("workspaces")}
+                  />
                 )}
                 {!collapsed && item.to === "/" && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="New subshell"
-                    title="New subshell"
-                    className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
-                    onClick={() => {
+                  <RailSectionActions
+                    addTooltip="New subshell"
+                    onAdd={() => {
                       quickAdd.openLaunch();
                       onQuickAdd?.();
                     }}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </Button>
+                    hidden={isSectionHidden("subshells")}
+                    showTooltip="Show subshells"
+                    hideTooltip="Hide subshells"
+                    onToggleHidden={() => toggleSectionHidden("subshells")}
+                  />
                 )}
               </div>
               {/* The whole subshell section — mode control, filter, the
@@ -564,31 +423,19 @@ export function AppSidebar({
                   and the query outlives it (see its prop JSDoc). It stays
                   hidden exactly where it always was: collapsed has no room
                   for any of it. */}
-              {!collapsed && item.to === "/" && (
-                <RailSubshells filterRef={filterRef} query={subshellQuery} onQueryChange={setSubshellQuery} />
+              {/* A little air between a SELECTED nav pill and the list under it,
+                  so the highlight's bottom edge does not sit flush on the first
+                  row (operator ask 2026-09-27). Only while the item is the
+                  active route — an unselected pill carries no fill to separate. */}
+              {!collapsed && item.to === "/" && !isSectionHidden("subshells") && (
+                <div className={location.pathname === "/" ? "mt-1.5" : undefined}>
+                  <RailSubshells filterRef={filterRef} query={subshellQuery} onQueryChange={setSubshellQuery} />
+                </div>
               )}
-              {!collapsed &&
-                item.to === "/workspaces" &&
-                recentWorkspaces.map((r) => {
-                  const full = workspaces?.find((w) => w.id === r.id);
-                  const row = (
-                    <Link
-                      key={r.id}
-                      to="/workspaces/$id"
-                      params={{ id: r.id }}
-                      className={recentClass(location.pathname === `/workspaces/${r.id}`)}
-                    >
-                      {r.label}
-                    </Link>
-                  );
-                  return full ? (
-                    <WorkspaceActionsMenu key={r.id} workspace={full}>
-                      {row}
-                    </WorkspaceActionsMenu>
-                  ) : (
-                    <Fragment key={r.id}>{row}</Fragment>
-                  );
-                })}
+              {/* The Workspaces rail body (search, Saved, Drafts) lives in its
+                  own component; it renders nothing when there is nothing to
+                  show, which is the same promise the old inline block made. */}
+              {!collapsed && item.to === "/workspaces" && !isSectionHidden("workspaces") && <WorkspacesSection />}
             </div>
           );
         })}

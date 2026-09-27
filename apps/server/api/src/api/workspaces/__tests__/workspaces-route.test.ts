@@ -611,6 +611,74 @@ describe("workspaces route", () => {
       expect(still.status).toBe(200);
       expect(((await still.json()) as { panes: unknown[] }).panes).toHaveLength(1);
     });
+
+    /** Whether a workspace still answers its detail route (200 present / 404 gone). */
+    async function stillThere(token: string, id: string): Promise<boolean> {
+      const res = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${id}`, token));
+      return res.status === 200;
+    }
+
+    it("DELETE /drafts discards every draft EXCEPT the one named, sparing saved", async () => {
+      const token = await signIn(ownerEmail, password);
+      const draftA = ((await (await post(token, { name: "a", draft: true })).json()) as { id: string }).id;
+      const draftB = ((await (await post(token, { name: "b", draft: true })).json()) as { id: string }).id;
+      const savedId = await createWorkspace(token, `keep-${crypto.randomUUID().slice(0, 8)}`);
+
+      const res = await workspaceRoutes.fetch(
+        authedRequest(`/api/workspaces/drafts?except=${draftB}`, token, { method: "DELETE" }),
+      );
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { discarded: number }).discarded).toBe(1);
+      expect(await stillThere(token, draftA)).toBe(false);
+      expect(await stillThere(token, draftB)).toBe(true);
+      // The bulk verb never reaches a saved workspace.
+      expect(await stillThere(token, savedId)).toBe(true);
+    });
+
+    it("DELETE /drafts with no except discards all of the caller's drafts, and nobody else's", async () => {
+      const ownerToken = await signIn(ownerEmail, password);
+      const otherToken = await signIn(otherEmail, password);
+      const mine = ((await (await post(ownerToken, { name: "mine", draft: true })).json()) as { id: string }).id;
+      const mine2 = ((await (await post(ownerToken, { name: "mine2", draft: true })).json()) as { id: string }).id;
+      const theirs = ((await (await post(otherToken, { name: "theirs", draft: true })).json()) as { id: string }).id;
+
+      const res = await workspaceRoutes.fetch(
+        authedRequest("/api/workspaces/drafts", ownerToken, { method: "DELETE" }),
+      );
+      expect(((await res.json()) as { discarded: number }).discarded).toBe(2);
+      expect(await stillThere(ownerToken, mine)).toBe(false);
+      expect(await stillThere(ownerToken, mine2)).toBe(false);
+      // Owner-scoped: another user's draft is untouched.
+      expect(await stillThere(otherToken, theirs)).toBe(true);
+    });
+
+    it("?drafts=only returns every draft and no saved (the rail's Drafts section)", async () => {
+      const token = await signIn(ownerEmail, password);
+      const d1 = ((await (await post(token, { name: "d1", draft: true })).json()) as { id: string }).id;
+      const d2 = ((await (await post(token, { name: "d2", draft: true })).json()) as { id: string }).id;
+      const savedId = await createWorkspace(token, `s-only-${crypto.randomUUID().slice(0, 8)}`);
+
+      const res = await workspaceRoutes.fetch(authedRequest("/api/workspaces?drafts=only", token));
+      expect(res.status).toBe(200);
+      const rows = (await res.json()) as { id: string; draft: boolean }[];
+      expect(rows.map((r) => r.id).sort()).toEqual([d1, d2].sort());
+      expect(rows.every((r) => r.draft)).toBe(true);
+      expect(rows.map((r) => r.id)).not.toContain(savedId);
+    });
+
+    it("DELETE /drafts is cookie-only — a subshell bearer is refused", async () => {
+      const subshellId = await makeSubshell(ownerId);
+      const key = await issueSubshellToken(subshellId, ownerId);
+      const apiKeyId = (await new SubshellsRepository(db).findById(subshellId))?.apiKeyId;
+      const res = await workspaceRoutes.fetch(
+        new Request("http://localhost:3080/api/workspaces/drafts", {
+          method: "DELETE",
+          headers: { authorization: `Bearer ${key}` },
+        }),
+      );
+      expect(res.status).toBe(403);
+      if (apiKeyId) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [apiKeyId]);
+    });
   });
 
   // F4 (security audit 2026-08): /api/workspaces is a browser-only surface —

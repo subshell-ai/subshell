@@ -9,6 +9,7 @@ import { TabWaitingMarker } from "@/components/workspace-dock/subshell-tab";
 import { WorkspaceHeader } from "@/components/workspace-header";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { isPaneWaiting } from "@/lib/subshell-order";
+import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId } from "@/lib/workspace-focus";
 import type { SplitIntent } from "@/lib/workspace-split-intent";
 import type { SplitDirection, WorkspaceDetail, WorkspacePaneRow } from "@/types/workspace";
 
@@ -117,6 +118,28 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
   // that still exists — including the moment the poll removes whichever pane
   // was selected — without needing a separate effect to "clamp" it.
   const selected = detail.panes.find((p) => p.id === selectedId) ?? detail.panes[0];
+
+  // Publish the selected tab as the dock's equivalent focus, so the rail rings
+  // one tab in the narrow presentation too (the dock owns this on wide ones).
+  // Cleared on unmount. Keyed on the subshell id so a re-render that does not
+  // move focus does not churn the store.
+  const focusedSubshellId = selected?.subshellId ?? null;
+  useEffect(() => {
+    setWorkspaceFocusedId(focusedSubshellId);
+  }, [focusedSubshellId]);
+  useEffect(() => () => setWorkspaceFocusedId(null), []);
+  // A focus request from the rail selects the matching tab instead of letting
+  // the rail's link navigate out of the workspace.
+  useEffect(
+    () =>
+      onWorkspacePaneFocusRequest((subId) => {
+        const pane = detail.panes.find((p) => p.subshellId === subId);
+        if (!pane) return false;
+        setSelectedId(pane.id);
+        return true;
+      }),
+    [detail.panes],
+  );
 
   /**
    * Adds `subshellId` to the workspace and selects it. `direction` comes from

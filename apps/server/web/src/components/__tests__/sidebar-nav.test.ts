@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { groupOpen, isNavGroup, visibleNavEntries, visibleNavItems } from "@/components/app-sidebar";
+import { groupOpen, isNavGroup, visibleNavEntries, visibleNavItems } from "@/components/sidebar/sidebar-nav";
 
 /**
  * The pages that live inside the admin group (spec 2026-09-11 §2.1, plus the

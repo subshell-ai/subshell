@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { ServerCog, Settings, SlidersHorizontal } from "lucide-react";
-import { isNavGroup, visibleNavEntries, visibleNavItems } from "@/components/app-sidebar";
+import { isNavGroup, visibleNavEntries, visibleNavItems } from "@/components/sidebar/sidebar-nav";
 
 describe("sidebar nav icons (spec 2026-09-02 §3, 2026-09-11 §3.1)", () => {
   const entries = visibleNavEntries(true);

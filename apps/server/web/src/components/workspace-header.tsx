@@ -1,10 +1,13 @@
 import { apiFetch, Button, confirmAction, errMessage, isAlreadyGone } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import { Save, Trash2 } from "lucide-react";
 import { type JSX, type ReactNode, useState } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { SaveWorkspaceDialog } from "@/components/save-workspace-dialog";
+import { TippedIconButton } from "@/components/tipped-icon-button";
+import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
 import { WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import type { WorkspaceRow } from "@/types/workspace";
@@ -51,6 +54,11 @@ export function WorkspaceHeader({
   const queryClient = useQueryClient();
   const invalidateWorkspaces = useInvalidateWorkspaces();
   const navigate = useNavigate();
+  // On a phone (the stacked header), the draft bar has no room for three
+  // text-labelled buttons beside the hamburger + back — Save and Discard drop
+  // to icon actions (their labels survive as aria-labels, and the Add trigger
+  // compacts in `SubshellPicker` the same way). Operator mobile report 2026-09-27.
+  const stacked = useIsStackedHeader();
   const [saveOpen, setSaveOpen] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const [discardError, setDiscardError] = useState<string | null>(null);
@@ -130,12 +138,36 @@ export function WorkspaceHeader({
         actions={
           workspace.draft ? (
             <>
-              <Button size="sm" onClick={() => setSaveOpen(true)}>
-                Save workspace…
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => void discard()} disabled={discarding}>
-                {discarding ? "Discarding…" : "Discard"}
-              </Button>
+              {stacked ? (
+                <>
+                  <TippedIconButton
+                    tooltip="Save workspace"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setSaveOpen(true)}
+                  >
+                    <Save className="h-4 w-4" />
+                  </TippedIconButton>
+                  <TippedIconButton
+                    tooltip="Discard workspace"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => void discard()}
+                    disabled={discarding}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </TippedIconButton>
+                </>
+              ) : (
+                <>
+                  <Button size="sm" onClick={() => setSaveOpen(true)}>
+                    Save workspace…
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => void discard()} disabled={discarding}>
+                    {discarding ? "Discarding…" : "Discard"}
+                  </Button>
+                </>
+              )}
               {discardError && <span className="text-destructive text-detail">{discardError}</span>}
               {actions}
             </>

@@ -104,3 +104,74 @@ export function setCommsGroupOpen(open: boolean): boolean {
   }
   return open;
 }
+
+/**
+ * The rail's "Workspace" section (the panes of the workspace you are standing
+ * in) collapses like every other group, and defaults OPEN — the opposite of
+ * comms and the same as a machine's groups, because the workspace you opened is
+ * the work you came to look at (operator ask 2026-09-27). It cannot share
+ * `collapsedNodeGroups`: that set is keyed by real node id and holds the
+ * COLLAPSED ids of machine groups, and the workspace pseudo-group has a synthetic
+ * id and lives on a different tier (it exists only while a workspace page is
+ * open). So it gets its own boolean, keyed to the remembered OPEN state.
+ *
+ * Absent/corrupt/blocked storage reads OPEN, the default the ask named.
+ * Per-DEVICE, like every other rail collapse pref.
+ */
+const WORKSPACE_KEY = "subshell.sidebarWorkspaceOpen";
+
+/** False only when this device last shut it; anything else (incl. absent) is open. */
+export function workspaceGroupOpen(): boolean {
+  try {
+    return localStorage.getItem(WORKSPACE_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Persists the workspace section's open/closed choice.
+ * @returns the value stored, so the caller binds its render to the stored fact
+ */
+export function setWorkspaceGroupOpen(open: boolean): boolean {
+  try {
+    localStorage.setItem(WORKSPACE_KEY, open ? "1" : "0");
+  } catch {
+    // Storage refused: the choice still holds for this page load.
+  }
+  return open;
+}
+
+/**
+ * The flat view's "Others" section (the subshells that are NOT panes of the
+ * workspace you are standing in) — the counterpart that distinguishes them from
+ * the Workspace group (operator ask 2026-09-27). Like Workspace it defaults OPEN
+ * and gets its own per-DEVICE boolean; absent/corrupt/blocked storage reads
+ * OPEN. Like Workspace it stays OUT of `collapsedNodeGroups`: both are synthetic
+ * ids on a tier that exists only while a workspace page is open, so filing them
+ * with the machines would let a machine-fold list hold entries no machine group
+ * will ever read back.
+ */
+const OTHERS_KEY = "subshell.sidebarOthersOpen";
+
+/** False only when this device last shut it; anything else (incl. absent) is open. */
+export function othersGroupOpen(): boolean {
+  try {
+    return localStorage.getItem(OTHERS_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Persists the others section's open/closed choice.
+ * @returns the value stored, so the caller binds its render to the stored fact
+ */
+export function setOthersGroupOpen(open: boolean): boolean {
+  try {
+    localStorage.setItem(OTHERS_KEY, open ? "1" : "0");
+  } catch {
+    // Storage refused: the choice still holds for this page load.
+  }
+  return open;
+}

@@ -16,9 +16,9 @@ import {
   SubshellCell,
   SubshellCellGrid,
 } from "@/components/sidebar/subshell-cell-grid";
-import { sortByStatus } from "@/lib/subshell-indicator";
 import type { SubshellNodeGroup } from "@/lib/subshell-node-groups";
 import { groupSubshellsByNode } from "@/lib/subshell-node-groups";
+import { onWorkspacePaneFocusRequest } from "@/lib/workspace-focus";
 import { setFetchRouter } from "@/test-setup";
 import type { SubshellView } from "@/types/subshell";
 
@@ -172,53 +172,55 @@ describe("flatCellRows (one grid, same set as grouped mode)", () => {
   if (!w) throw new Error("fixture broken");
   const spotlight = [w];
 
-  // The machine key is what clusters cells onto one plate — the resolved
-  // label in the rail, the raw id here (n1/n2 differ, so the fixture's two
-  // machines never share a cluster).
-  const keyOf = (r: SubshellView) => r.nodeId ?? "";
-
-  it("derives exactly the union of what grouped mode renders, deduped", () => {
-    const flat = flatCellRows(groups, comms, spotlight, keyOf);
+  it("bands the grid: notifications, then machine clusters, then comms — a spotlight row shows in its band AND its cluster", () => {
+    // Four bands (operator order 2026-09-26): notifications lead, then the
+    // machines, then cross-agent comms last. The spotlight is a SIBLING, not an
+    // extraction (operator ruling: bands appear AND keep their cluster), so `w`
+    // shows TWICE — once in the top band, once inside its n1 run — while the
+    // comms pane `c`, partitioned out of every group, shows once in the bottom
+    // band. n1 (a waiting row, rank 0) leads the machine band over n2.
+    const flat = flatCellRows(groups, comms, spotlight, new Set());
+    expect(flat.map((r) => r.id)).toEqual(["w", "w", "a", "i", "t", "c"]);
     const ids = flat.map((r) => r.id);
-    expect(new Set(ids).size).toBe(ids.length);
-    expect([...ids].sort()).toEqual(["a", "c", "i", "t", "w"]);
+    expect(ids.filter((x) => x === "w")).toHaveLength(2);
+    expect(ids.filter((x) => x === "c")).toHaveLength(1);
   });
 
-  it("orders clusters by their liveliest member, cells by band within a cluster", () => {
-    // The button-group rule (operator ask on the plate screenshot): a
-    // machine's cells are CONTIGUOUS (one plate), clusters rank like the
-    // grouped mode's groups — by the MINIMUM status rank across members —
-    // and within a cluster the shared band order holds. So `c` (idle on
-    // mac-mini) sits with its machine, not between `a` and `i` the way a
-    // flat global sort ordered them.
-    const flat = flatCellRows(groups, comms, spotlight, keyOf);
-    expect(flat.map((r) => r.id)).toEqual(["w", "a", "c", "i", "t"]);
-    // Each cluster's internals still follow the global band order.
-    const n1 = flat.filter((r) => r.nodeId === "n1");
-    const n2 = flat.filter((r) => r.nodeId === "n2");
-    expect(n1.map((r) => r.id)).toEqual(sortByStatus(n1).map((r) => r.id));
-    expect(n2.map((r) => r.id)).toEqual(sortByStatus(n2).map((r) => r.id));
+  it("orders machine clusters by liveliest member and cells by band within a cluster", () => {
+    // No selection, no spotlight: clusters rank like the grouped mode's groups
+    // (the MINIMUM status rank across members), n1 ahead of n2, and each
+    // cluster's internals follow the shared band order.
+    const flat = flatCellRows(groups, comms, [], new Set());
+    expect(flat.map((r) => r.id)).toEqual(["w", "a", "i", "t", "c"]);
+  });
+
+  it("promotes a cluster holding a selected pane above more-urgent clusters", () => {
+    // The selection outranks urgency ACROSS clusters (operator ask 2026-09-27):
+    // n2 (idle/terminated, less urgent) leads when its `i` is a workspace pane,
+    // even though n1 has the waiting row. Urgency still orders WITHIN each band.
+    const flat = flatCellRows(groups, comms, [], new Set(["i"]));
+    expect(flat.map((r) => r.id)).toEqual(["i", "t", "w", "a", "c"]);
   });
 
   it("carries a group's cap through: a row beyond the cap is absent from flat UNLESS the spotlight lists it", () => {
     // The parity rule: grouped mode shows a capped-out row ONLY in the
     // (uncapped) spotlight; flat must show it exactly then, never more, never
-    // less.
+    // less. Now it surfaces in the notifications band.
     const many = Array.from({ length: 10 }, (_, i) => sub({ id: `m${i}`, nodeId: "n1", activity: "idle" }));
     const capped = groupSubshellsByNode(many, nodes, { limit: 8 });
-    const withoutSpotlight = flatCellRows(capped, [], [], keyOf);
+    const withoutSpotlight = flatCellRows(capped, [], [], new Set());
     expect(withoutSpotlight).toHaveLength(8);
     expect(withoutSpotlight.map((r) => r.id)).toEqual(many.slice(0, 8).map((r) => r.id));
 
     const m9 = many.find((r) => r.id === "m9");
     if (!m9) throw new Error("fixture broken");
-    const withSpotlight = flatCellRows(capped, [], [m9], keyOf);
+    const withSpotlight = flatCellRows(capped, [], [m9], new Set());
     expect(withSpotlight.map((r) => r.id)).toContain("m9");
     expect(withSpotlight).toHaveLength(9);
   });
 
   it("returns an empty grid for no groups", () => {
-    expect(flatCellRows([] as SubshellNodeGroup[], [], [], keyOf)).toEqual([]);
+    expect(flatCellRows([] as SubshellNodeGroup[], [], [], new Set())).toEqual([]);
   });
 });
 
@@ -227,7 +229,12 @@ describe("SubshellCell", () => {
     const restore = mockFetch();
     try {
       renderCell(
-        <SubshellCell subshell={sub()} active={false} labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }} />,
+        <SubshellCell
+          subshell={sub()}
+          selected={false}
+          focused={false}
+          labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }}
+        />,
       );
       const link = await screen.findByRole("link");
       expect(link.getAttribute("href")).toBe("/subshells/s1");
@@ -244,19 +251,22 @@ describe("SubshellCell", () => {
       renderCell(
         <SubshellCell
           subshell={sub({ nodeOffline: true })}
-          active
+          selected
+          focused
           labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }}
         />,
       );
       const link = await screen.findByRole("link");
       expect(link.className).toContain("bg-destructive");
       // The "you are here" ring is the theme ink (`--foreground`: frost on the
-      // void) DIMMED to /70 — the operator's live ask was the full-brightness
-      // frost reading as the loudest thing on the rail — not `--ring`
-      // (orchid). Focus keeps the ring token, at width 2, so a
-      // focused-but-not-selected cell cannot look selected.
-      expect(link.className).toContain("ring-1");
-      expect(link.className).toContain("ring-foreground/70");
+      // void) at FULL brightness, width 2 — the operator's ask (2026-09-27) was
+      // a WHITE ring around the open pane. Asserted as bare TOKENS: the focus
+      // variant is `focus-visible:ring-2`/`ring-ring` and hover is
+      // `hover:ring-1`/`hover:ring-foreground`, all prefixed, so a bare `ring-2`
+      // or `ring-foreground/70` can only be the (soft) selection.
+      const toks = link.className.split(/\s+/);
+      expect(toks).toContain("ring-2");
+      expect(toks).toContain("ring-foreground/70");
       expect(link.className).toContain("focus-visible:ring-ring");
       // Hover answers "which one am I on" with the same INK at full
       // brightness — the selection reading at its loudest, never the focus
@@ -268,52 +278,114 @@ describe("SubshellCell", () => {
     }
   });
 
-  it("the blinking cell pulses a border with NO background, letter always present (operator ask 2026-09-27)", async () => {
+  it("a workspace-member cell focuses in place; a plain cell still navigates (operator 2026-09-27)", async () => {
+    const restore = mockFetch();
+    const requests: string[] = [];
+    // The dock reports it handled the pane (returns true) → the link's
+    // navigation is suppressed. A return of false would let it navigate.
+    const unsub = onWorkspacePaneFocusRequest((id) => {
+      requests.push(id);
+      return true;
+    });
+    try {
+      renderCell(
+        <>
+          <SubshellCell
+            subshell={sub({ id: "here", name: "member" })}
+            selected
+            focused={false}
+            focusOnOpen
+            labels={{ nodeLabel: "m", agentLabel: "A" }}
+          />
+          <SubshellCell
+            subshell={sub({ id: "else", name: "plain" })}
+            selected={false}
+            focused={false}
+            focusOnOpen={false}
+            labels={{ nodeLabel: "m", agentLabel: "A" }}
+          />
+        </>,
+      );
+      const links = await screen.findAllByRole("link");
+      const member = links.find((l) => l.getAttribute("href") === "/subshells/here") as HTMLElement;
+      const plain = links.find((l) => l.getAttribute("href") === "/subshells/else") as HTMLElement;
+      // The workspace member's click is routed to the dock (focus the tab), not
+      // to the router.
+      fireEvent.click(member);
+      expect(requests).toEqual(["here"]);
+      // ⌘/ctrl-click must NOT focus-in-place: it keeps the browser's
+      // open-in-new-tab, so no focus request fires for it.
+      fireEvent.click(member, { ctrlKey: true });
+      expect(requests).toEqual(["here"]);
+      // A plain cell is left to its own Link navigation — no focus request.
+      fireEvent.click(plain);
+      expect(requests).toEqual(["here"]);
+    } finally {
+      unsub();
+      restore();
+    }
+  });
+
+  it("the blinking cell is a two-state tile: active/idle pulses, a legible letter every beat (operator ask 2026-09-27)", async () => {
     const restore = mockFetch();
     try {
       renderCell(
         <SubshellCell
           subshell={sub({ activity: "active", lastOutputAt: null })}
-          active
+          selected
+          focused
           labels={{ nodeLabel: "mbp", agentLabel: "Claude Code", initial: "A" }}
         />,
       );
       const link = await screen.findByRole("link");
-      // The operator ruling superseded the 2026-09-25 plate-and-chip design:
-      // on blink the square carries NO background at all — neither the muted
-      // plate nor a green field — the letter never fades, and the pulse rides
-      // the border ring (the state's green survives as edge, not field).
+      // A cell cannot blink to nothing the way the dot does (no letter to
+      // strand, no outline to empty), so it blinks BETWEEN two states: a full
+      // green ACTIVE tile with a dark initial pulsing over a half-green IDLE
+      // tile with a white initial on the opposite beat. Exactly one tile is
+      // opaque at any moment, so a box with a readable letter is always there.
+      // The anchor carries only posture: relative, a transparent field, and
+      // NEITHER a fill nor a pulse of its own (both live on the two child
+      // tiles). The interim "green survives as an edge" reading (the ring) and
+      // the single-fade reading (empty tile / stranded letter) are both dead.
+      const has = (el: Element | undefined, tok: string) => !!el && el.className.split(/\s+/).includes(tok);
       expect(link.className).toContain("relative");
       expect(link.className).toContain("bg-transparent");
-      expect(link.className).not.toContain("subshell-dot-blink");
       expect(link.className).not.toContain("bg-success");
+      expect(link.className).not.toContain("subshell-dot-blink");
+      expect(link.className).not.toContain("border-success");
+
       const spans = [...link.querySelectorAll("span")];
-      expect(spans.find((s) => s.className.includes("bg-muted/50"))).toBeUndefined();
-      const ring = spans.find((s) => s.className.includes("subshell-dot-blink"));
-      expect(ring).toBeTruthy();
-      expect(ring?.className).toContain("border-success");
-      // A border COLOR alone paints nothing: Tailwind v4's preflight resets
-      // every element to `border: 0 solid`, so without a width utility on the
-      // span the ring is zero-width and the whole pulse is invisible (the
-      // blocker this pins). Matched as a WHOLE CLASS TOKEN, not a substring or
-      // `\bborder\b`: a hyphen is a non-word char, so that regex matches the
-      // "border" inside "border-success" and PASSES on the color-only broken
-      // markup (reviewer-web proved the false-pass by mutation). Splitting on
-      // spaces and testing set membership is the null on that string.
-      expect(ring?.className.split(" ")).toContain("border");
-      expect(ring?.className).toContain("absolute");
-      expect(ring?.className).toContain("inset-0");
-      expect(ring?.getAttribute("aria-hidden")).toBe("true");
-      // No layer anywhere carries a BACKGROUND fill.
-      for (const s of spans) expect(s.className).not.toMatch(/bg-(success|muted)/);
-      // The letter: the cell's text, white, static, above the ring; the
-      // open-cell selection ring still reads on the anchor.
-      expect(link.textContent).toBe("A");
-      expect(link.className).toContain("ring-1");
-      const letter = spans.find((s) => s.textContent === "A");
-      expect(letter?.className).toContain("text-foreground");
-      expect(letter?.className).not.toContain("subshell-dot-blink");
-      expect(letter?.className).not.toContain("text-background");
+      expect(spans.find((s) => s.className.includes("bg-muted"))).toBeUndefined();
+
+      // The IDLE tile (under): half green, white initial, complementary pulse.
+      const idle = spans.find((s) => has(s, "bg-success/50"));
+      expect(idle).toBeTruthy();
+      expect(has(idle, "subshell-dot-blink-alt")).toBe(true);
+      expect(has(idle, "text-foreground")).toBe(true);
+      expect(has(idle, "absolute") && has(idle, "inset-0") && has(idle, "rounded-md")).toBe(true);
+      expect(idle?.getAttribute("aria-hidden")).toBe("true");
+      expect(idle?.textContent).toBe("A");
+
+      // The ACTIVE tile (over): full green, dark initial, the plain pulse.
+      const activeTile = spans.find((s) => has(s, "bg-success") && has(s, "subshell-dot-blink"));
+      expect(activeTile).toBeTruthy();
+      expect(has(activeTile, "subshell-dot-blink-alt")).toBe(false);
+      expect(has(activeTile, "text-background")).toBe(true);
+      expect(has(activeTile, "absolute") && has(activeTile, "inset-0") && has(activeTile, "rounded-md")).toBe(true);
+      expect(activeTile?.getAttribute("aria-hidden")).toBe("true");
+      expect(activeTile?.textContent).toBe("A");
+
+      // Exactly one pulse of each kind across the cell, and both carry the
+      // initial — so the link's own text reads the letter twice even though a
+      // viewer only ever sees one (the visible half differs by opacity, not DOM).
+      expect(spans.filter((s) => s.className.includes("subshell-dot-blink-alt"))).toHaveLength(1);
+      expect(
+        spans.filter((s) => s.className.includes("subshell-dot-blink") && !s.className.includes("-alt")),
+      ).toHaveLength(1);
+      expect(link.textContent).toBe("AA");
+      // The viewed pane still rings on the anchor (the soft white selection ring).
+      expect(has(link, "ring-2")).toBe(true);
+      expect(has(link, "ring-foreground/70")).toBe(true);
     } finally {
       restore();
     }
@@ -324,10 +396,16 @@ describe("SubshellCell", () => {
     try {
       renderCell(
         <>
-          <SubshellCell subshell={sub({ id: "q" })} active={false} labels={{ nodeLabel: "m", agentLabel: "A" }} />
+          <SubshellCell
+            subshell={sub({ id: "q" })}
+            selected={false}
+            focused={false}
+            labels={{ nodeLabel: "m", agentLabel: "A" }}
+          />
           <SubshellCell
             subshell={sub({ id: "z", status: "terminated", alive: false, activity: "terminated" })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A" }}
           />
         </>,
@@ -354,17 +432,20 @@ describe("SubshellCell", () => {
         <>
           <SubshellCell
             subshell={sub({ id: "w", waitingSince: "2026-09-25T00:00:00.000Z" })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A", initial: "W" }}
           />
           <SubshellCell
             subshell={sub({ id: "o", nodeOffline: true })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A", initial: "O" }}
           />
           <SubshellCell
             subshell={sub({ id: "i" })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A", initial: "I" }}
           />
         </>,
@@ -393,7 +474,8 @@ describe("SubshellCell", () => {
       renderCell(
         <SubshellCell
           subshell={sub({ unseenPush: true })}
-          active={false}
+          selected={false}
+          focused={false}
           labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code", initial: "M" }}
         />,
       );
@@ -416,7 +498,8 @@ describe("SubshellCell", () => {
       renderCell(
         <SubshellCell
           subshell={sub({ unseenPush: true, access: "view" })}
-          active={false}
+          selected={false}
+          focused={false}
           labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code", initial: "A" }}
         />,
       );
@@ -435,12 +518,14 @@ describe("SubshellCell", () => {
         <div>
           <SubshellCell
             subshell={sub({ id: "f" })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "mbp", agentLabel: "Claude Code", initial: "A" }}
           />
           <SubshellCell
             subshell={sub({ id: "g" })}
-            active={false}
+            selected={false}
+            focused={false}
             labels={{ nodeLabel: "mbp", agentLabel: "Claude Code" }}
           />
         </div>,
@@ -457,7 +542,12 @@ describe("SubshellCell", () => {
     const restore = mockFetch();
     try {
       renderCell(
-        <SubshellCell subshell={sub()} active={false} labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }} />,
+        <SubshellCell
+          subshell={sub()}
+          selected={false}
+          focused={false}
+          labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }}
+        />,
       );
       const link = await screen.findByRole("link");
       expect(link.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
@@ -492,7 +582,8 @@ describe("SubshellCellGrid", () => {
       renderCell(
         <SubshellCellGrid
           rows={rows}
-          activeId={null}
+          selectedIds={new Set()}
+          focusedId={null}
           labelsFor={() => ({ nodeLabel: "mac-mini", agentLabel: "Claude Code" })}
         />,
       );
@@ -528,7 +619,8 @@ describe("SubshellCellGrid", () => {
       renderCell(
         <SubshellCellGrid
           rows={rows}
-          activeId={null}
+          selectedIds={new Set()}
+          focusedId={null}
           labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })}
           tintOf={(s) => (s.nodeId === "n1" ? 0 : 1)}
         />,
@@ -549,7 +641,7 @@ describe("SubshellCellGrid", () => {
       // GROUPED view's cell-to-cell exactly (operator: "we should have the
       // same gap as we do in the grouped view"), and a 4px tint gutter on ALL
       // sides — the selection ring paints OUTSIDE the cell box, so p-0.5 left
-      // it touching the plate edge (p-1 clears ring-1 on every side).
+      // it touching the plate edge (p-1 clears the ring-2 selection on every side).
       expect(plateA?.className).toContain("p-1");
       expect(plateA?.className).toContain("gap-1.5");
       expect(plateA?.className).toContain("rounded-lg");
@@ -576,7 +668,8 @@ describe("SubshellCellGrid", () => {
       renderCell(
         <SubshellCellGrid
           rows={[sub({ id: "a", name: "one", nodeId: "n1" })]}
-          activeId={null}
+          selectedIds={new Set()}
+          focusedId={null}
           labelsFor={() => ({ nodeLabel: "mac-mini", agentLabel: "A" })}
           tintOf={(s) => nodeTintBucket(s.nodeId ?? "")}
         />,
@@ -585,6 +678,68 @@ describe("SubshellCellGrid", () => {
       const plate = link.closest("[class*='bg-node-tint']");
       expect(plate).not.toBeNull();
       expect(plate?.querySelectorAll("a")).toHaveLength(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("soft-rings the open SET and white-rings only the focused pane", async () => {
+    const restore = mockFetch();
+    try {
+      const rows = [sub({ id: "a", name: "one" }), sub({ id: "b", name: "two" }), sub({ id: "c", name: "three" })];
+      renderCell(
+        <SubshellCellGrid
+          rows={rows}
+          selectedIds={new Set(["a", "c"])}
+          focusedId={"c"}
+          labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })}
+        />,
+      );
+      await waitFor(() => expect(screen.getAllByRole("link")).toHaveLength(3));
+      const toks = (id: string) =>
+        (
+          (screen.getAllByRole("link") as HTMLElement[]).find((l) => l.getAttribute("href") === `/subshells/${id}`)
+            ?.className ?? ""
+        ).split(/\s+/);
+      // (operator 2026-09-27): the SET (a, c) wears the soft `ring-foreground/70`;
+      // only the focused pane (c) upgrades to the bold `ring-2`. Bare tokens —
+      // hover/focus add only prefixed variants, so a lone `b` carries none.
+      expect(toks("a")).toContain("ring-foreground/70");
+      expect(toks("a")).not.toContain("ring-2");
+      expect(toks("c")).toContain("ring-2");
+      expect(toks("b")).not.toContain("ring-2");
+      expect(toks("b")).not.toContain("ring-foreground/70");
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders a flat grid where a Needs-Attention row shows in its band AND its cluster (a duplicated id) without a key collision", async () => {
+    const restore = mockFetch();
+    try {
+      // `x` is a spotlight row AND a member of n1's group, so `flatCellRows`
+      // emits it twice. All cells forced to one tint so the run-merge folds them
+      // into a SINGLE plate — the worst case for an id-keyed child list (review
+      // MAJOR): position-keyed cells render every occurrence.
+      const many = [sub({ id: "x", nodeId: "n1", unseenPush: true }), sub({ id: "y", nodeId: "n1" })];
+      const groups = groupSubshellsByNode(many, [{ id: "n1", name: "m" }] as never, { limit: 8 });
+      const xRow = many.find((r) => r.id === "x");
+      if (!xRow) throw new Error("fixture broke");
+      const flat = flatCellRows(groups, [], [xRow], new Set());
+      expect(flat.map((r) => r.id).filter((i) => i === "x")).toHaveLength(2);
+      renderCell(
+        <SubshellCellGrid
+          rows={flat}
+          selectedIds={new Set()}
+          focusedId={null}
+          labelsFor={() => ({ nodeLabel: "m", agentLabel: "A" })}
+          tintOf={() => 0}
+        />,
+      );
+      await waitFor(() => expect(screen.getAllByRole("link")).toHaveLength(flat.length));
+      const hrefs = screen.getAllByRole("link").map((l) => l.getAttribute("href"));
+      expect(hrefs.filter((h) => h === "/subshells/x")).toHaveLength(2); // both occurrences render
+      expect(hrefs).toContain("/subshells/y");
     } finally {
       restore();
     }

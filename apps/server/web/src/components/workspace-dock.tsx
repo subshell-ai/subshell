@@ -21,6 +21,7 @@ import { useDebouncedSave } from "@/hooks/use-debounced-save";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
 import { readSubshellDrag, SUBSHELL_DND_TYPE } from "@/lib/subshell-dnd";
+import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId } from "@/lib/workspace-focus";
 import {
   normalizeLegacyLayout,
   panelIdsInLayout,
@@ -113,6 +114,28 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
   // places the new panel relative to the active one, and there is no panel —
   // and no `apiRef.current` — until `onReady` has run.
   const [ready, setReady] = useState(false);
+  // The latest pane list, readable from dockview's event callbacks (which fire
+  // outside React render, so they cannot close over `detail` and stay current).
+  const panesRef = useRef(detail.panes);
+  panesRef.current = detail.panes;
+  // Publish the dock's focused pane to the rail (it lives in the app shell, a
+  // separate tree). Cleared on unmount so a stale focus never outlives the page.
+  useEffect(() => () => setWorkspaceFocusedId(null), []);
+  // The rail asks to focus a pane by subshell id when a click lands on a cell
+  // that is already open here (so the click focuses the tab instead of
+  // navigating away). Activation fires the onDidActiveGroupChange handler, which
+  // publishes the new focus back — one request, one ring move.
+  useEffect(
+    () =>
+      onWorkspacePaneFocusRequest((subshellId) => {
+        const pane = panesRef.current.find((p) => p.subshellId === subshellId);
+        const panel = pane ? apiRef.current?.getPanel(pane.id) : undefined;
+        if (!panel) return false; // no such pane here / dock not ready → the click navigates
+        panel.api.setActive();
+        return true;
+      }),
+    [],
+  );
 
   const setSearchAddon = useCallback((paneId: string, addon: SearchAddon | null) => {
     setSearchAddons((prev) => {
@@ -188,6 +211,21 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
       if (!event.api.getPanel(pane.id)) addPanel(event.api, pane);
     }
     event.api.onDidLayoutChange(() => save.schedule(event.api.toJSON()));
+    // Publish the focused pane (as its subshell id) so the rail can ring the
+    // single active tab. Fires on group/panel activation and layout changes;
+    // called once now to seed the rail on first mount.
+    const publishFocus = () => {
+      const activeId = event.api.activePanel?.id;
+      const pane = activeId ? panesRef.current.find((p) => p.id === activeId) : undefined;
+      setWorkspaceFocusedId(pane?.subshellId ?? null);
+    };
+    // dockview disposes these subscriptions on api destroy (the component
+    // unmount); the id→subshell mapping is re-read each fire, so a pane added
+    // or removed elsewhere still resolves on the next layout/add event.
+    event.api.onDidActiveGroupChange(() => publishFocus());
+    event.api.onDidLayoutChange(() => publishFocus());
+    event.api.onDidAddPanel(() => publishFocus());
+    publishFocus();
     setReady(true);
   }, []);
 

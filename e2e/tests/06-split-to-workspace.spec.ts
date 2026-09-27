@@ -111,8 +111,9 @@ test("split a subshell into a draft workspace, then save it", async ({ page }) =
   await expect(page).not.toHaveURL(/[?&]add=/, { timeout: SPAWN_TIMEOUT });
   await expect(page.getByText("Unsaved workspace")).toBeVisible();
 
-  // It is a draft on the server too, and it is invisible to the list that
-  // feeds /workspaces and the sidebar.
+  // It is a draft on the server too, and invisible to the plain saved-only
+  // list that feeds /workspaces (the sidebar's Drafts section rides its own
+  // `?drafts=only` read, not this one).
   const holding = await workspacesHolding(page, rootSubshellId);
   expect(holding.map((w) => ({ id: w.id, draft: w.draft }))).toEqual([{ id: workspaceId, draft: true }]);
   const listed = (await (await page.request.get("/api/workspaces")).json()) as { id: string }[];

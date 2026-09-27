@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { addWorkspacePaneRoute } from "@/api/workspaces/add-workspace-pane.route.js";
 import { createWorkspaceRoute } from "@/api/workspaces/create-workspace.route.js";
 import { deleteWorkspaceRoute } from "@/api/workspaces/delete-workspace.route.js";
+import { discardDraftsRoute } from "@/api/workspaces/discard-drafts.route.js";
 import { getWorkspaceRoute } from "@/api/workspaces/get-workspace.route.js";
 import { listWorkspacesRoute } from "@/api/workspaces/list-workspaces.route.js";
 import { removeWorkspacePaneRoute } from "@/api/workspaces/remove-workspace-pane.route.js";
@@ -18,6 +19,8 @@ export const workspaceRoutes = new Elysia({ prefix: "/api/workspaces" })
   .use(listWorkspacesRoute)
   .use(getWorkspaceRoute)
   .use(updateWorkspaceRoute)
+  // `/drafts` before `/:id` so the static segment is not shadowed by the param.
+  .use(discardDraftsRoute)
   .use(deleteWorkspaceRoute)
   .use(addWorkspacePaneRoute)
   .use(saveWorkspaceLayoutRoute)

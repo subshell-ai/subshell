@@ -16,19 +16,6 @@
  */
 @source "../../../../packages/node-admin/src";
 
-/*
- * A class the scanner cannot see, so it has to be named.
- *
- * The rail's blinking cell derives its border tone at RUNTIME from
- * `DOT_CLASS.active` (a `bg-` swapped to its `border-` sibling), so the shipped
- * `border-success` string never appears in source and automatic detection
- * would not generate it. Same shape of failure as the symlink note above: the
- * colour rule is simply absent, and the ring renders invisible. Naming it here
- * puts it in the built stylesheet on its own merits, independent of anything a
- * test happens to assert.
- */
-@source inline("border-success");
-
 @custom-variant dark (&:is(.dark *));
 
 /*
@@ -342,6 +329,19 @@ body {
     animation: subshell-dot-blink 1.6s steps(1) infinite;
   }
 
+  /* The exact complement of `.subshell-dot-blink` (same 1.6s / steps(1), the
+     two opacity halves swapped). The rail's working CELL needs both at once:
+     the green box and its dark letter ride the plain blink, and a WHITE letter
+     underneath rides THIS one, so a readable initial is present in either
+     half. Without it the transparent half leaves an empty tile (the dot can
+     vanish clean because it carries no letter; a cell cannot) — operator device
+     review 2026-09-27, image #11. Under `prefers-reduced-motion` neither class
+     exists, both letters sit at full opacity, and the green box paints over
+     the white one, so the resting cell is the solid green + dark letter. */
+  .subshell-dot-blink-alt {
+    animation: subshell-dot-blink-alt 1.6s steps(1) infinite;
+  }
+
   /* Input queue badge (spec 2026-09-21 Wave A): the three chevrons pulse in a
      stagger so in-flight keystrokes read as moving, not stuck. One keyframe,
      three delays. Inside the motion gate like every other animation here —
@@ -363,6 +363,17 @@ body {
   }
   50% {
     opacity: 0;
+  }
+}
+/* The complement of `subshell-dot-blink`: visible exactly where that one hides,
+   so the white initial underneath the blinking green box reads through the
+   transparent half. See `.subshell-dot-blink-alt`. */
+@keyframes subshell-dot-blink-alt {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
   }
 }
 @keyframes assistant-in {
