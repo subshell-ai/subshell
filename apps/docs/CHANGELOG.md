@@ -1,5 +1,11 @@
 # @internal/docs
 
+## 0.5.3
+
+### Patch Changes
+
+- [#254](https://github.com/subshell-ai/subshell/pull/254) [`0e2e09e`](https://github.com/subshell-ai/subshell/commit/0e2e09e512862d43a5917897ba0edfa12ee1a20b) Thanks [@theogravity](https://github.com/theogravity)! - Add a "Local web servers" guide: reaching a dev server running in a pane from a phone or another machine.
+
 ## 0.5.2
 
 ### Patch Changes
