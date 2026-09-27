@@ -221,7 +221,10 @@ handlers) reaches the same graph via `getRequestlessContext()`
 **Workspaces have a draft state** (spec 2026-09-14): `workspaces.draft` is 0/1 and
 the per-user unique name index is PARTIAL (`WHERE draft = 0`), so an unsaved
 workspace created by splitting a subshell may share a name freely. `GET /` hides
-drafts; `?subshellId=` is the one read that returns them. `PUT /:id { draft: false }`
+drafts; the two opt-in reads are `?subshellId=` (workspaces holding that
+subshell, drafts included) and `?drafts=only` (every draft the caller owns, the
+sidebar's Drafts section), and `DELETE /api/workspaces/drafts?except=` sweeps
+them in one request. `PUT /:id { draft: false }`
 is the only transition, and removing a pane from a draft left with fewer than two
 deletes the draft (`workspaceDeleted: true`). Migration `0029`'s `down` DELETES
 drafts rather than renaming them; the pre-0029 schema cannot express one.

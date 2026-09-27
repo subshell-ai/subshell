@@ -203,20 +203,30 @@ export class WorkspacesService extends BaseService {
    * Lists the caller's workspaces with each pane tally.
    *
    * Drafts are EXCLUDED by default — an unsaved workspace belongs to the page
-   * that created it, not to the Workspaces list or the sidebar. Passing
-   * `subshellId` answers a different question ("which of my workspaces hold
-   * this subshell"), where a freshly split draft is the most interesting
-   * answer, so that filter includes them and orders by recency instead of name.
+   * that created it, not to the Workspaces list. The two opt-ins each answer a
+   * different draft question: `subshellId` asks "which of my workspaces hold
+   * this subshell", where a freshly split draft is the most interesting answer,
+   * so that filter INCLUDES drafts and orders by recency instead of name;
+   * `draftsOnly` asks "every draft I hold" (the sidebar's Drafts section),
+   * returning drafts and nothing else. `subshellId` wins when both are passed:
+   * the sidebar never sends the pair, and the hold-check is the more specific
+   * question of the two.
    *
    * @param userId - Owner whose workspaces to list
-   * @param opts.subshellId - Restrict to workspaces holding a pane for this subshell
+   * @param opts.subshellId - Restrict to workspaces holding a pane for this subshell (drafts included)
+   * @param opts.draftsOnly - Return ONLY the caller's unsaved drafts (the sidebar read)
    */
-  async listWorkspaces(userId: string, opts?: { subshellId?: string | undefined }): Promise<WorkspaceResponse[]> {
+  async listWorkspaces(
+    userId: string,
+    opts?: { subshellId?: string | undefined; draftsOnly?: boolean | undefined },
+  ): Promise<WorkspaceResponse[]> {
     // Two queries regardless of list size: the rows, then every pane count
     // grouped by workspace — merging beats an N+1.
     const workspaces = opts?.subshellId
       ? await this.repos.workspaces.listBySubshellForUser(userId, opts.subshellId)
-      : await this.repos.workspaces.listByUser(userId);
+      : opts?.draftsOnly
+        ? await this.repos.workspaces.listDraftsByUser(userId)
+        : await this.repos.workspaces.listByUser(userId);
     const counts = await this.repos.workspacePanes.countByUser(userId);
     return workspaces.map((w) => toWorkspaceResponse(w, counts.get(w.id) ?? 0));
   }
@@ -316,6 +326,22 @@ export class WorkspacesService extends BaseService {
     if (!existing) throw new WorkspacesError("not_found", "Workspace not found", 404);
     await repo.delete(id);
     return { ok: true };
+  }
+
+  /**
+   * Discards the caller's unsaved DRAFT workspaces except `exceptId` — the
+   * sidebar's "clear my other drafts" cleanup, and the counterpart to the rail
+   * surfacing only the draft you are standing in. Panes cascade; the subshells
+   * those drafts held keep running (deleting a workspace never stops a session),
+   * which is exactly the promise the confirm dialog makes.
+   *
+   * @param exceptId - The active workspace to spare. A no-op if it is already
+   *   gone or not a draft — the exclusion is `id <>`, never a lookup.
+   * @returns `discarded` count, so the caller can report what actually left.
+   */
+  async discardDrafts(userId: string, exceptId?: string): Promise<{ discarded: number }> {
+    const discarded = await this.repos.workspaces.deleteDraftsExcept(userId, exceptId);
+    return { discarded };
   }
 
   /**

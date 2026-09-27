@@ -13,6 +13,11 @@ const ListWorkspacesQuerySchema = t.Object({
         "Restrict to the caller's workspaces holding a pane for this subshell, most recently updated first, unsaved drafts INCLUDED (the unfiltered list excludes them)",
     }),
   ),
+  drafts: t.Optional(
+    t.Literal("only", {
+      description: "Return only the caller's UNSAVED draft workspaces (the Workspaces rail's Drafts section)",
+    }),
+  ),
 });
 
 /** `GET /api/workspaces` — lists the authenticated user's workspaces. */
@@ -24,7 +29,10 @@ export const listWorkspacesRoute = new Elysia()
     "/",
     async ({ query, actor, user, ctx }) => {
       requireCookieActor(actor);
-      return await ctx.services.workspaces.listWorkspaces(user.id, { subshellId: query.subshellId });
+      return await ctx.services.workspaces.listWorkspaces(user.id, {
+        subshellId: query.subshellId,
+        draftsOnly: query.drafts === "only",
+      });
     },
     {
       query: ListWorkspacesQuerySchema,
@@ -36,7 +44,8 @@ export const listWorkspacesRoute = new Elysia()
       detail: {
         operationId: "listWorkspaces",
         tags: ["workspaces"],
-        description: "Lists the authenticated user's workspaces (unsaved drafts excluded unless filtered by subshell)",
+        description:
+          "Lists the authenticated user's workspaces (unsaved drafts excluded unless ?subshellId= or ?drafts=only)",
       },
     },
   );

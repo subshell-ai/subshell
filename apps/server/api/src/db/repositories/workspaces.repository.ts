@@ -50,6 +50,21 @@ export class WorkspacesRepository extends BaseRepository {
   }
 
   /**
+   * The caller's UNSAVED drafts only, most recently touched first. The mirror of
+   * `listByUser`'s default (saved only): this is the Workspaces rail's "Drafts"
+   * section, which lists every unsaved workspace rather than hiding them.
+   */
+  async listDraftsByUser(userId: string): Promise<WorkspaceTable[]> {
+    return this.db
+      .selectFrom("workspaces")
+      .selectAll()
+      .where("userId", "=", userId)
+      .where("draft", "=", 1)
+      .orderBy("updatedAt", "desc")
+      .execute();
+  }
+
+  /**
    * The caller's workspaces that hold a pane for one subshell, most recently
    * updated first. **Drafts are included** — this is what answers "is this
    * subshell already part of a workspace", and a freshly split draft is
@@ -99,5 +114,24 @@ export class WorkspacesRepository extends BaseRepository {
   /** Deletes a workspace; its panes cascade away. */
   async delete(id: string): Promise<void> {
     await this.db.deleteFrom("workspaces").where("id", "=", id).execute();
+  }
+
+  /**
+   * Deletes every one of the user's UNSAVED drafts except an optional id, and
+   * returns how many went. Panes cascade (the `workspace_id` FK is `ON DELETE
+   * CASCADE`); the subshells they held are separate rows and keep running.
+   *
+   * This is the sidebar's "discard other unsaved workspaces" cleanup. Scoping by
+   * `userId` is the whole authorization: it can only ever reach the caller's own
+   * drafts, and the drafts it removes are ones the list surface never showed.
+   *
+   * @param userId - Owner whose drafts are eligible (never another user's)
+   * @param exceptId - A draft to spare — normally the one being viewed
+   */
+  async deleteDraftsExcept(userId: string, exceptId?: string): Promise<number> {
+    let query = this.db.deleteFrom("workspaces").where("userId", "=", userId).where("draft", "=", 1);
+    if (exceptId) query = query.where("id", "<>", exceptId);
+    const result = await query.executeTakeFirst();
+    return Number(result?.numDeletedRows ?? 0);
   }
 }
