@@ -363,7 +363,10 @@ is CHECKED, not trusted (`lib/split-workspace-refusal.ts`).
 Workspace panes hold live xterm.js terminals inside dockview panels. A dockview
 panel remount disposes its terminal, closes the WS, and forces a history
 replay; every panel must keep `renderer: "always"`, which is what keeps the
-DOM alive when a panel is hidden.
+DOM alive when a panel is hidden. **Which presentation mounts is decided by
+`useIsPhoneLayout` (touch-primary AND below the tiling width), not by width
+alone**: the dock is mounted for narrow desktop windows too, so the phone's
+tap-only strip never takes draggable tabs off a window holding a mouse.
 
 **Working on the terminal, dockview, touch/swipe handling, or shared-grid
 sizing, and before ANY `dockview-react` upgrade (which a standing hand-run

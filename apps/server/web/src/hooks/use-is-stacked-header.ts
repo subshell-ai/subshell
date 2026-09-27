@@ -1,5 +1,4 @@
-import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
-import { useIsWide } from "@/hooks/use-is-wide";
+import { useIsPhoneLayout } from "@/hooks/use-is-phone-layout";
 
 /**
  * True when a detail header must reflow to stacked rows (chrome row on top,
@@ -13,9 +12,12 @@ import { useIsWide } from "@/hooks/use-is-wide";
  * pointer is what separates those windows from a phone: `fine` keeps the
  * single-row header at any width; a coarse (finger) pointer below the tiling
  * width still stacks, where title + path genuinely do not share a line.
+ *
+ * That question IS {@link useIsPhoneLayout}'s answer, so it composes the
+ * shared hook — the same formula the workspace presentation switch now uses,
+ * which is the point of extracting it: a header and its page's panes may
+ * never disagree about whether this visitor is on a phone.
  */
 export function useIsStackedHeader(): boolean {
-  const wide = useIsWide();
-  const coarse = useIsCoarsePointer();
-  return !wide && coarse;
+  return useIsPhoneLayout();
 }

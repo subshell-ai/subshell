@@ -10,9 +10,9 @@ import { isDetailPath } from "@/lib/route-ids";
  * - `/subshells/$id` — the touch key bar pads HALF the inset inside its own
  *   bg-card strip: it is chrome, and its 44 pt buttons clear the
  *   indicator's ~15 pt visual at half (see `terminal-key-bar.tsx`).
- * - `/workspaces/$id` — the WIDE dock's active pane shows that same
- *   half-pad key bar; the narrow tabs presentation (every phone-portrait
- *   visit — the dock is `useIsWide()`) carries no key bar and pads its
+ * - `/workspaces/$id` — the dock's active pane shows that same
+ *   half-pad key bar (it is gated on `coarse`); the phone's tabs presentation
+ *   (`useIsPhoneLayout`) carries no key bar and pads its
  *   terminal column with the FULL inset, in `bg-terminal-canvas` — that
  *   pad is canvas clearance for the last output row, not chrome, so it
  *   does not halve.

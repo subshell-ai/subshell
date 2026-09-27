@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { WorkspaceDock } from "@/components/workspace-dock";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
 import { useDiscardThinDraft } from "@/hooks/use-discard-thin-draft";
-import { useIsWide } from "@/hooks/use-is-wide";
+import { useIsPhoneLayout } from "@/hooks/use-is-phone-layout";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { createIntentClaim } from "@/lib/intent-claim";
 import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
@@ -25,8 +25,14 @@ export const Route = createFileRoute("/workspaces_/$id")({
 });
 
 /**
- * The workspace detail page: the dock (wide viewports) or the tab strip
- * (narrow viewports), nothing else.
+ * The workspace detail page: the tab strip on a phone, the dock everywhere
+ * else, nothing else in between.
+ *
+ * The dock is the default because it is the complete presentation: draggable
+ * tabs, splits, the layout. The strip is what a FINGER below the tiling width
+ * gets (drag is a pointer gesture there anyway); a narrow DESKTOP window
+ * keeps the dock rather than paying phone chrome for a mouse it is holding —
+ * one rule with the stacked header, `useIsPhoneLayout`.
  *
  * Each presentation renders `<WorkspaceHeader>` itself, with its own
  * `<SubshellPicker>` in the header's actions slot — only the presentation
@@ -48,7 +54,7 @@ function WorkspaceDetailPage() {
   const claim = useRef(createIntentClaim()).current;
   const claimIntent = useCallback(() => claim(intent), [claim, intent]);
   const { data: detail, isLoading, error, refetch } = useWorkspace(id);
-  const wide = useIsWide();
+  const phoneLayout = useIsPhoneLayout();
   // Above every early return: an unsaved workspace that is down to one pane
   // is discarded and the person sent back to that subshell — unless a split
   // is still in flight (the `?add=` guard, see the hook).
@@ -130,15 +136,15 @@ function WorkspaceDetailPage() {
     // to a different workspace would leave the previous workspace's layout
     // in place instead of rebuilding from the new `detail`.
     <main className="flex h-full flex-col overflow-hidden" key={detail.workspace.id}>
-      {wide ? (
-        <WorkspaceDock
+      {phoneLayout ? (
+        <WorkspaceTabs
           detail={detail}
           intent={intent}
           claimIntent={claimIntent}
           onRefetch={() => refetch().then(() => undefined)}
         />
       ) : (
-        <WorkspaceTabs
+        <WorkspaceDock
           detail={detail}
           intent={intent}
           claimIntent={claimIntent}

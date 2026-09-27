@@ -71,7 +71,12 @@ export interface WorkspaceDockProps {
 }
 
 /**
- * The wide presentation: a tmux-style tiling layout on `dockview-react`.
+ * The default presentation: a tmux-style tiling layout on `dockview-react`.
+ *
+ * Mounted everywhere except a phone (`useIsPhoneLayout`) — the ROUTE decides,
+ * see `workspaces_.$id.tsx`. Narrow is no reason to refuse it: drag is a
+ * pointer gesture, and a narrow pointer window would get the worse of the
+ * strip otherwise, with no draggable tabs to show it why.
  *
  * Every panel is added with `renderer: "always"`, which is what keeps a
  * panel's DOM — and the terminal inside it — alive when dockview hides,

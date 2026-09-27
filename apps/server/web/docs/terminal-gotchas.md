@@ -124,3 +124,14 @@ real (2026-09-04):
   metrics read back immediately after assigning `options.fontSize` may be
   stale, so anything that changes the font re-runs on the next frame
   (`applyLetterboxSettled`).
+- **The tab strip is phone chrome, decided by the pointer, not by width
+  alone.** The route mounts `WorkspaceTabs` only under `useIsPhoneLayout`
+  (touch-primary AND below `WORKSPACE_TILING_MIN_WIDTH`); every other visitor
+  gets the dock. Width alone used to decide it, and it lied for the small
+  desktop window: HiDPI scaling or ⌘+ easily puts a maximised window under the
+  breakpoint in CSS pixels, and that mouse-holding window was handed the
+  phone's tap-only strip, whose non-draggable tabs read as a broken dock
+  (operator, 2026-09-27: "is it possible we're using two different libraries
+  here?" she was). The strip still must never write `layout_json` and still
+  has no drag: on a finger, dockview drags no better, so the phone keeps the
+  presentation that matches its input.

@@ -102,8 +102,11 @@ export interface WorkspaceTabsProps {
 }
 
 /**
- * The narrow presentation: a scrollable tab strip over one `<SubshellPane>`
- * filling the rest of the viewport, used below `WORKSPACE_TILING_MIN_WIDTH`.
+ * The phone presentation: a scrollable tab strip over one `<SubshellPane>`
+ * filling the rest of the viewport, mounted only where `useIsPhoneLayout`
+ * says so — touch-primary AND below `WORKSPACE_TILING_MIN_WIDTH`. A narrow
+ * desktop window does NOT come here (operator ruling 2026-09-27): it keeps
+ * the dock, because a mouse gets no phone chrome for being small.
  *
  * The narrow presentation deliberately never writes `layout_json`. If it did,
  * opening a workspace on a phone would flatten a carefully split desktop
