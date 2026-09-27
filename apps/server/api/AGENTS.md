@@ -269,7 +269,7 @@ remote pane, so nothing downstream of the attach branches on where a pane runs.
 A garbled live terminal is diagnosed from the journal first: the
 `geometry` and `painted` lines under `journalctl --user -u
 subshell-server.service | grep "ws attach"` say which bundle is talking
-and what the pane did before the capture. Three invariants on that path
+and what the pane did before the capture. Four invariants on that path
 are load-bearing and easy to regress: capture-text LF normalization
 (`ws/capture-text.ts`; the live tail must NOT be normalized), the
 gap-free OVERLAPPING join (a skipped byte desynchronizes a

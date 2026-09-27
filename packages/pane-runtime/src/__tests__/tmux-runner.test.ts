@@ -1033,8 +1033,9 @@ echo "server exited unexpectedly" >&2; exit 1
       // the format string is part of the contract, and the stub cannot
       // catch its reordering: a swapped or "alphabetized" pair would
       // misannounce 1000/1002/1003 to every client with every other test
-      // green (precedent in this file: the tmux 3.4 format-variable
-      // history). Pinned argv, the pipePane tests' shape.
+      // green (the precedent: the tmux 3.4 format-variable history
+      // narrated in `SESSION_LIVENESS_FORMAT`, tmux-runner.ts). Pinned
+      // argv, the pipePane tests' shape.
       const marks = join(tmpdir(), `subshell-mode-argv-${process.pid}-${Date.now()}.txt`);
       const { dir, path } = modeStub(answer("0:0:0:0:0"), GRID, marks);
       try {
