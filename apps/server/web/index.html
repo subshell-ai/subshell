@@ -14,6 +14,11 @@
     <link rel="icon" href="/icons/favicon.ico" sizes="any" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#0a0a0a" />
+    <!-- Chrome deprecation (2026-09): the apple- spelling is no longer enough on its own.
+         Both stay: iOS Safari and the WKWebView home-screen shell read only the
+         apple- tags (status-bar-style has no standard twin), Android and desktop
+         Chrome read the standards-track one. -->
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
