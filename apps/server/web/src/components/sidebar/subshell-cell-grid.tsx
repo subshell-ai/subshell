@@ -7,13 +7,7 @@ import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { BELL_TONE, bellAnnouncement, DOT_CLASS, showsBell } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { encodeSubshellDrag } from "@/lib/subshell-dnd";
-import {
-  INDICATOR_LABEL,
-  type SubshellIndicator,
-  sortByStatus,
-  subshellIndicator,
-  subshellStatusRank,
-} from "@/lib/subshell-indicator";
+import { INDICATOR_LABEL, sortByStatus, subshellIndicator, subshellStatusRank } from "@/lib/subshell-indicator";
 import type { SubshellNodeGroup } from "@/lib/subshell-node-groups";
 import { subshellRowTooltip } from "@/lib/subshell-row-tooltip";
 import type { SubshellView } from "@/types/subshell";
@@ -144,45 +138,29 @@ export function flatCellRows(
 }
 
 /**
- * Letter colour per state on a flat cell: solid fills carry the background
- * tone (green/amber/red under a dark letter would fight the fill), dim and
- * hollow ones carry the foreground (the letter IS the content there). Spelled
- * per indicator rather than by re-testing the fill class so a new state
- * shows up as a missing table key, not a silently wrong letter.
- */
-const INITIAL_TONE: Record<SubshellIndicator, string> = {
-  active: "text-background",
-  waiting: "text-background",
-  "node-offline": "text-background",
-  idle: "text-foreground",
-  exited: "text-foreground",
-  terminated: "text-foreground",
-};
-
-/**
- * The LETTER CHIP under a blinking cell's glyph: the fill half of
- * `DOT_CLASS["active"]` without the blink (`active` is the only state that
- * blinks, so the table lookup would be one value). The chip rides ABOVE the
- * fading layer, so the letter's contrast pair — knockout on green — is the
- * same in the blink's on phase and its off phase; without it the
- * `text-background` letter sat directly on the muted plate and read as a
- * missing glyph (first operator ask on the live grid).
+ * The LETTER is white on every state, one operator ruling dated 2026-09-27.
  *
- * It is GLYPH-SIZED on purpose (`px-0.5 leading-none`, applied at the span):
- * the first chip padded to the line box, and at that fullness the off phase
- * stayed a bright green pill in a dark rim — the pulse read as FROZEN, and a
- * selected blinking cell drifted toward `idle`'s look (operator screenshot
- * 2026-09-25). Shrunk to the glyph, the plate carries the pulse and the pill
- * covers well under half the square in the off phase. What must never move:
- * the chip going UNDER the fading layer (reintroduces the dark-on-dark
- * vanish), or the off-phase plate dimming toward success/50 (an off-phase
- * green field would be a second `idle` — one state, one language).
+ * This REPLACES the 2026-09-25 apparatus it supersedes: the muted plate and
+ * the green letter-chip existed only to rescue a BLACK knockout letter (a
+ * dark letter on a fading fill vanished in the blink's off phase, dark on
+ * dark, operator ask then). A WHITE letter needs neither rescue: it reads on
+ * the dark rail in every phase, so the blinking square carries NO background
+ * at all and the pulse lives on the BORDER ring — the state's green survives
+ * as an edge, never a field (an off-phase green FIELD was the "second idle"
+ * the old note refused, and the dimmed-green field in it is exactly what the
+ * operator rejected on 2026-09-27). The per-state INITIAL_TONE table died
+ * with the knockout it existed to place: the letter is `text-foreground`
+ * everywhere, and the square's fill/border keeps naming the state.
  */
-// Derived from the table, never restated (2026-09-25 review): a tone change
-// to `DOT_CLASS.active` moves the chip with the fill it sits on.
-const ACTIVE_CHIP = DOT_CLASS.active
+const INITIAL_CLASS = "text-foreground";
+
+/** The blink rides the BORDER ring: derived from `DOT_CLASS.active`, never
+ * restated (the 2026-09-25 review's principle outliving the chip it fed) —
+ * the fill tone swapped from `bg-` to its `border-` sibling, the blink class
+ * carried through, so a tone change to the table moves the ring with it. */
+const ACTIVE_RING = DOT_CLASS.active
   .split(" ")
-  .filter((cls) => !cls.includes("blink"))
+  .map((cls) => (cls.startsWith("bg-") ? cls.replace(/^bg-/, "border-") : cls))
   .join(" ");
 
 /** The resolved labels for one cell — the same four the row's tooltip takes. */
@@ -206,9 +184,10 @@ export interface SubshellCellLabels {
  * `SubshellRecentRow` (Base UI's `render` merging the trigger onto the Link),
  * same tooltip string.
  *
- * The square itself carries the state: `DOT_CLASS` fills and the working
- * blink for everything quiet, and a bell (`showsBell`) REPLACES the fill, the
- * dot's posture — the glyph names "unseen push", the tone keeps the state.
+ * The square itself carries the state: `DOT_CLASS` fills for everything
+ * quiet, the working state NO fill but a blinking border ring (operator
+ * ruling 2026-09-27), and a bell (`showsBell`) REPLACES the fill, the dot's
+ * posture — the glyph names "unseen push", the tone keeps the state.
  * The open subshell wears a `ring-1 ring-foreground/70` so one cell still
  * says "you are here" (hover raises the same ink to full brightness). The
  * accessible name is "name: status word", and for a bell "name: unseen
@@ -231,12 +210,12 @@ export function SubshellCell({
 }) {
   const indicator = subshellIndicator(subshell);
   const bell = showsBell(subshell);
-  // The blink animates the element's opacity to 0 (steps(1), styles.css), so
-  // the ACTIVE square alone gets layered: a persistent muted plate underneath
-  // and the fill on a layer that fades — the cell pulses where the dot's 6px
-  // circle simply blanks out for 800ms (operator ask: vanishing reads as
-  // broken at 24px). Every other state keeps the fill on the anchor, exactly
-  // as rendered before this branch existed — `terminated`'s hollow reading
+  // The ACTIVE square is the one with no fill at all (operator ruling
+  // 2026-09-27): a neutral bordered frame, a white letter that never fades,
+  // and the pulse on a BORDER ring layer — `subshell-dot-blink` animates the
+  // ring's opacity to 0 (steps(1), styles.css), so the state's green arrives
+  // and leaves as an edge, never as a dimmed field. Every other state keeps
+  // its fill on the anchor exactly as before — `terminated`'s hollow reading
   // especially: nothing goes behind it.
   const blinking = !bell && indicator === "active";
   const cell = (
@@ -253,14 +232,15 @@ export function SubshellCell({
               className={cn(
                 "flex h-6 w-6 shrink-0 items-center justify-center rounded-md font-strong text-label transition-colors",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                blinking
-                  ? "relative"
-                  : // A bell sits on a neutral bordered square: the square belongs
-                    // to no state, the tone belongs to the glyph — exactly as on
-                    // the dot, whose bell path carries no DOT_CLASS fill either.
-                    bell
-                    ? "border border-border bg-transparent"
-                    : DOT_CLASS[indicator],
+                blinking || bell
+                  ? // The blinking square and a bell share ONE neutral posture:
+                    // a bordered frame carrying no state FILL — the blink
+                    // pulses its own ring layer, the bell tones its glyph
+                    // (exactly as on the dot, whose bell path carries no
+                    // DOT_CLASS fill either; operator ruling 2026-09-27
+                    // widened it to the blink: no background on the field).
+                    "relative border border-border bg-transparent"
+                  : DOT_CLASS[indicator],
                 // Hover says "this one" with the theme INK at FULL
                 // brightness; selection is the same ink DIMMED to /70 (live
                 // review: the full frost was the loudest thing on the rail),
@@ -278,18 +258,15 @@ export function SubshellCell({
           ) : blinking ? (
             <>
               {/* Positioned siblings paint above in-flow content, so the
-                  initial (when the flat grid supplies one) gets `relative` to
-                  rejoin the stacking tail and read ON the fill. */}
-              <span aria-hidden={true} className="absolute inset-0 rounded-md bg-muted/50" />
-              <span aria-hidden={true} className={cn("absolute inset-0 rounded-md", DOT_CLASS[indicator])} />
-              {labels.initial ? (
-                <span className={cn("relative rounded px-0.5 leading-none", ACTIVE_CHIP, INITIAL_TONE[indicator])}>
-                  {labels.initial}
-                </span>
-              ) : null}
+                  white initial is `relative` to rejoin the stacking tail:
+                  it stays put in EVERY blink phase while only the ring
+                  fades (operator ruling 2026-09-27: no background at all,
+                  the letter remains). */}
+              <span aria-hidden={true} className={cn("absolute inset-0 rounded-md", ACTIVE_RING)} />
+              {labels.initial ? <span className={cn("relative", INITIAL_CLASS)}>{labels.initial}</span> : null}
             </>
           ) : labels.initial ? (
-            <span className={INITIAL_TONE[indicator]}>{labels.initial}</span>
+            <span className={INITIAL_CLASS}>{labels.initial}</span>
           ) : null}
         </TooltipTrigger>
         {/* `bottom`, not the row's `right`: the rail hugs the screen's left
