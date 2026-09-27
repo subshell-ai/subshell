@@ -222,3 +222,9 @@ yet', never 'lost'" holds ONLY for the browser↔plane leg, the one leg TCP
 actually spans there. The plane→node leg fails independently — this wave
 closes it: the plane holds what the node could not take, and the client
 retries the attach the node would not grant.
+
+**Amendment 2026-09-26 (#243).** The overlay badge is no longer independent
+of diagnostics mode: it renders only inside the diagnostics state, below the
+open HUD; with diagnostics off the overlay column renders nothing (the badge
+never mounts, so its per-frame subscription never runs either). The Wave A
+bullet above records what shipped then, not now.

@@ -15,8 +15,9 @@ import type { SubshellView } from "@/types/subshell";
  * ONE one-second clock tick that keeps the ages honest.
  *
  * Styled like the input badge and the devices strip (floated, dense,
- * `text-detail`, the same plate), and stacked BELOW the badge in the same
- * corner by the terminal, so the two never fight for the same pixels.
+ * `text-detail`, the same plate), and stacked by the terminal as the
+ * overlay column's anchored FIRST plate, with the input badge yielding below
+ * it — and no badge at all outside the diagnostics state (issue 243).
  */
 
 /** Short duration for RTT and stall figures: milliseconds under a second, then one decimal of seconds. */
