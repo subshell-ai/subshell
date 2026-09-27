@@ -26,8 +26,6 @@ export interface WorkspaceLinkOption {
 
 /** Everything the subshell header needs to offer a way into this subshell's workspaces. */
 export interface WorkspaceLinkView {
-  /** The control's visible text */
-  label: string;
   /** The control's accessible name */
   ariaLabel: string;
   /** Every workspace, drafts first then most recently updated */
@@ -35,14 +33,15 @@ export interface WorkspaceLinkView {
 }
 
 /**
- * Decides what the subshell page says about the workspaces it is on.
+ * Decides what the subshell header offers for the workspaces it is on.
  *
  * A subshell may be on any number of them — panes are per-workspace rows, and
  * nothing stops the same subshell appearing in several arrangements. The
  * control used to pick ONE and stay silent about the rest, which is wrong in
  * both directions: it hid workspaces, and it named a single one as though it
- * were the only one. So one is a direct link and several are a count with a
- * menu behind it.
+ * were the only one. The header is tight on space, so the control carries no
+ * workspace names (operator ruling 2026-09-27): an icon and the count, and
+ * every click opens the same menu.
  *
  * **Drafts lead and are named for what they are.** A draft's stored name is a
  * placeholder nobody chose (the subshell's own name at the moment of the
@@ -64,16 +63,11 @@ export function workspaceLinkView(workspaces: WorkspaceRow[]): WorkspaceLinkView
     return a.updatedAt > b.updatedAt ? -1 : 1;
   });
   const options = ordered.map((w) => ({ id: w.id, label: w.draft ? DRAFT_LABEL : w.name, draft: w.draft }));
-
-  if (options.length > 1) {
-    const label = `In ${options.length} workspaces`;
-    return { label, ariaLabel: `Show the ${options.length} workspaces this subshell is on`, options };
-  }
-  const only = ordered[0];
-  if (!only) return null;
-  return only.draft
-    ? { label: "Open unsaved workspace", ariaLabel: "Open the unsaved workspace this subshell is on", options }
-    : { label: `In “${only.name}”`, ariaLabel: `Open workspace ${only.name}`, options };
+  const n = options.length;
+  return {
+    ariaLabel: n === 1 ? "Show the workspace this subshell is on" : `Show the ${n} workspaces this subshell is on`,
+    options,
+  };
 }
 
 /**
@@ -82,41 +76,22 @@ export function workspaceLinkView(workspaces: WorkspaceRow[]): WorkspaceLinkView
  *
  * Renders nothing when there are none, which is the common case: a subshell
  * that was never split is on no workspace, and an absent control says that
- * better than a disabled one. One workspace is a plain link; several open a
- * menu, because there is no single destination to send the click to.
+ * better than a disabled one. It names NO workspace (operator ruling
+ * 2026-09-27: the header has no space to spend on it) — just the icon and how
+ * many workspaces there are — and always opens a menu, even for the lone one;
+ * the menu's rows are real links, so middle-click and open-in-new-tab are
+ * still there.
  */
 export function SubshellWorkspaceLink({ subshellId }: { subshellId: string }): JSX.Element | null {
   const { data: workspaces } = useSubshellWorkspaces(subshellId);
   const view = workspaces ? workspaceLinkView(workspaces) : null;
   if (!view) return null;
 
-  const only = view.options.length === 1 ? view.options[0] : null;
-  if (only) {
-    return (
-      <Button
-        variant="ghost"
-        size="sm"
-        // `Button render={<Link/>}` is the house idiom (see
-        // `detail-back-header.tsx`), and it is deliberately NOT given
-        // `nativeButton={false}`: that would announce this navigation control
-        // as a button when the correct role for it is a link.
-        render={<Link to="/workspaces/$id" params={{ id: only.id }} />}
-        aria-label={view.ariaLabel}
-      >
-        <LayoutDashboard className="h-3.5 w-3.5" />
-        {/* Icon-only below `sm`, exactly as the Split button beside it in this
-            header already is. The `aria-label` above carries the whole name
-            either way, so hiding the text costs nothing but width. */}
-        <span className="hidden max-w-40 truncate sm:inline">{view.label}</span>
-      </Button>
-    );
-  }
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="sm" aria-label={view.ariaLabel} />}>
         <LayoutDashboard className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">{view.label}</span>
+        <span className="tabular-nums">{view.options.length}</span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         {view.options.map((option) => (

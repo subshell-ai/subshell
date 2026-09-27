@@ -92,8 +92,8 @@ describe("WorkspaceHeader — draft", () => {
 
   it("offers Save and Discard ahead of the caller's own actions", async () => {
     renderHeader(true);
-    expect(await screen.findByRole("button", { name: "Save workspace…" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Discard" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Save workspace" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Discard workspace" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add subshell" })).toBeTruthy();
   });
 
@@ -101,7 +101,7 @@ describe("WorkspaceHeader — draft", () => {
     const { calls } = stubFetch();
     const { asked } = stubConfirm(true);
     renderHeader(true);
-    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard workspace" }));
     await waitFor(() => {
       expect(calls.some((c) => c.method === "DELETE" && c.url === "/api/workspaces/w1")).toBe(true);
     });
@@ -113,9 +113,9 @@ describe("WorkspaceHeader — draft", () => {
     const { calls } = stubFetch();
     stubConfirm(false);
     renderHeader(true);
-    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard workspace" }));
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Discard" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Discard workspace" })).toBeTruthy();
     });
     expect(calls.filter((c) => c.method === "DELETE")).toEqual([]);
   });
@@ -124,16 +124,16 @@ describe("WorkspaceHeader — draft", () => {
     stubFetch(500);
     stubConfirm(true);
     renderHeader(true);
-    fireEvent.click(await screen.findByRole("button", { name: "Discard" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Discard workspace" }));
     expect(await screen.findByText(/boom/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Discard" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Discard workspace" })).toBeTruthy();
   });
 
   it("leaves a saved workspace's editable name and bare actions exactly as they were", async () => {
     renderHeader(false);
     expect(await screen.findByText("Sep 14, 4:45 PM")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Save workspace…" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Discard" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save workspace" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Discard workspace" })).toBeNull();
     expect(screen.getByRole("button", { name: "Add subshell" })).toBeTruthy();
   });
 });

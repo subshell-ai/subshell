@@ -294,19 +294,19 @@ describe("the cell modes keep the row tree's facts", () => {
 describe("a workspace's selection (operator ask 2026-09-27)", () => {
   const nodeOf = (header: HTMLElement | undefined) => header?.getAttribute("aria-controls") ?? "";
 
-  it("soft-rings every open pane, focused included, at one width", async () => {
-    // Standing in /workspaces/w1 with a AND b open. Both are SELECTED (the set)
-    // so both wear the soft ring; the dock-focused `a` wears the SAME ring — the
-    // `ring-2` focus upgrade was retired the same day it arrived (operator
-    // 2026-09-27: too heavy at cell size). Focus arrives through the
-    // workspace-focus store the dock publishes — the rail cannot see dockview.
+  it("rings the focused pane alone; the rest of the open set wears the dim frame", async () => {
+    // Standing in /workspaces/w1 with a AND b open. Only the focused `a`
+    // wears the full-white ring; open-but-unfocused `b` wears the SAME dim
+    // white frame as any unselected cell — the operator's final ruling
+    // 2026-09-27, which killed the set-wide cell ring ("when in a workspace,
+    // ALL items have a white border"). The set still decides ordering and
+    // click-to-focus, and `b` keeps both. Focus arrives through the
+    // workspace-focus store the dock publishes.
     setWorkspaceFocusedId("a");
     await withRail(
       [sub({ id: "a", name: "one", nodeId: "local" }), sub({ id: "b", name: "two", nodeId: "n1" })],
       async () => {
         fireEvent.click(screen.getByRole("button", { name: "Cell view" }));
-        const tok = (id: string) =>
-          (cellLinks().find((l) => l.getAttribute("href") === `/subshells/${id}`)?.className ?? "").split(/\s+/);
         // Each open pane now renders TWICE (the new Workspace section AND its
         // machine group, per "also keep in machine groups"): 4 cells, not 2.
         await waitFor(() => expect(cellLinks()).toHaveLength(4));
@@ -317,13 +317,30 @@ describe("a workspace's selection (operator ask 2026-09-27)", () => {
             .slice(0, 2)
             .map((l) => l.getAttribute("href")),
         ).toEqual(["/subshells/a", "/subshells/b"]);
-        // One ring, one width, the whole set — the bare `ring-1` token is the
-        // selection (hover adds only the prefixed `hover:ring-1`), and the
-        // retired `ring-2` must be gone from both.
-        for (const id of ["a", "b"]) {
-          expect(tok(id)).toContain("ring-1");
-          expect(tok(id)).toContain("ring-foreground/70");
-          expect(tok(id)).not.toContain("ring-2");
+        // The ring, width 1, on the focused pane alone — the bare
+        // `ring-1`/`ring-foreground` tokens appear in EVERY rendering of `a`
+        // (it appears twice: Workspace section + machine group) and in NONE
+        // of `b`'s, which wears `border-foreground/25` like every other cell.
+        // TOKENS, not substring: `hover:ring-foreground` would match a bare
+        // claim. The retired orchid must be gone from both.
+        const allToks = (id: string) =>
+          cellLinks()
+            .filter((l) => l.getAttribute("href") === `/subshells/${id}`)
+            .map((l) => l.className.split(/\s+/));
+        expect(allToks("a")).toHaveLength(2);
+        expect(allToks("b")).toHaveLength(2);
+        for (const toks of allToks("a")) {
+          expect(toks).toContain("ring-1");
+          expect(toks).toContain("ring-foreground");
+          expect(toks).toContain("border-0");
+          expect(toks).not.toContain("ring-2");
+          expect(toks).not.toContain("ring-primary");
+        }
+        for (const toks of allToks("b")) {
+          expect(toks).not.toContain("ring-1");
+          expect(toks).not.toContain("ring-foreground");
+          expect(toks).not.toContain("ring-primary");
+          expect(toks).toContain("border-foreground/25");
         }
       },
       { path: "/workspaces/w1", panes: [{ subshellId: "a" }, { subshellId: "b" }] },
