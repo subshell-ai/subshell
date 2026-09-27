@@ -85,7 +85,8 @@ test("split a subshell into a draft workspace, then save it", async ({ page }) =
   const root = await subshellRow(page, rootSubshellId);
 
   await page.getByRole("button", { name: "Split this subshell into a workspace" }).click();
-  await expect(page.getByRole("heading", { name: "Add a subshell" })).toBeVisible();
+  // The split's dialog is titled by the button that opened it (2026-09-27).
+  await expect(page.getByRole("heading", { name: "Split", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "New subshell" }).click();
 
   // The split seeds the New half from the subshell being split, so the form
@@ -125,10 +126,14 @@ test("split a subshell into a draft workspace, then save it", async ({ page }) =
   await expect(page.getByText("Unsaved workspace")).toBeVisible();
 
   // Saving it is naming it — one PUT, and the header stops calling it unsaved.
-  await page.getByRole("button", { name: "Save workspace…" }).click();
+  // The header's Save is an icon button now (2026-09-27), so its accessible
+  // name and the dialog's submit button share "Save workspace": the header is
+  // clicked while it is the only one, and the dialog's own button is scoped
+  // to the dialog.
+  await page.getByRole("button", { name: "Save workspace" }).click();
   await expect(page.getByRole("heading", { name: "Save workspace" })).toBeVisible();
   await page.getByRole("textbox", { name: "Workspace name" }).fill(workspaceName);
-  await page.getByRole("button", { name: "Save workspace", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Save workspace", exact: true }).click();
   await expect(page.getByRole("button", { name: "Rename workspace" })).toHaveText(workspaceName);
   await expect(page.getByText("Unsaved workspace")).toHaveCount(0);
 
@@ -161,7 +166,8 @@ test("closing a pane of an unsaved workspace discards it and lands on the subshe
   const rootSubshellId = idFromUrl(page);
 
   await page.getByRole("button", { name: "Split this subshell into a workspace" }).click();
-  await expect(page.getByRole("heading", { name: "Add a subshell" })).toBeVisible();
+  // The split's dialog is titled by the button that opened it (2026-09-27).
+  await expect(page.getByRole("heading", { name: "Split", exact: true })).toBeVisible();
   // The subshell being split is excluded from its own picker; the other one
   // is the only sensible pick and picking it adds the pane immediately.
   // Rows are buttons whose accessible name is the whole line (name, directory,

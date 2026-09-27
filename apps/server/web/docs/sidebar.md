@@ -63,14 +63,23 @@ when a pane is opened). It filters with the box and vanishes entirely when
 nothing is unseen; the home page's identically-named `TileSection` is the same
 selector over its own list.
 
-**The "you are here" ring is a SET, not one id** (operator ask 2026-09-27): a
-cell rings when its subshell is in the selection, which is the viewed
-`/subshells/:id` PLUS every pane of the `/workspaces/:id` you are standing in,
-so a workspace running several shells rings them all. The rail reads the SAME
-`useWorkspace` query the route runs (a cache hit, `enabled` off a workspace page
-so it never fetches elsewhere), and the grouped shapes (rows and headed cells)
-PROMOTE a whole machine group whose visible rows contain a selected pane to the
-top. `SubshellCellGrid` takes `selectedIds`, not an `activeId`.
+**The selection is a SET for ordering, a single FOCUS for marking.** The set
+is the viewed `/subshells/:id` PLUS every pane of the `/workspaces/:id` you
+are standing in; the rail reads the SAME `useWorkspace` query the route runs
+(a cache hit, `enabled` off a workspace page so it never fetches elsewhere),
+and the grouped shapes (rows and headed cells) PROMOTE a whole machine group
+whose visible rows contain a selected pane to the top. On the ROWS the set
+fills with the accent and focus adds the ring. On the CELLS (final ruling
+2026-09-27) only the focused pane marks: a full-white `ring-1 ring-foreground`
+with the frame dropped, over a grid whose every other cell wears a DIM white
+`border-foreground/25` — two levels of one white. The set-wide cell ring was
+the FIRST design and was rejected the same day: "when in a workspace, ALL
+items have a white border." The five forms that day, in order: `/70` over the
+dark border read as no ring; `ring-2` read heavy; a focus corner bead read as
+a status dot; both orchids (`--primary`, `--ring`) lost to the green fills;
+a dim-set/full-focus ring over a dim-white grid is what stood. Set membership
+still decides which cells click-to-focus; `SubshellCellGrid` takes
+`selectedIds` AND `focusedId`.
 
 **The whole section lives in `components/sidebar/rail-subshells.tsx`**
 (extracted from `app-sidebar.tsx` 2026-09-25) and renders in three shapes
@@ -89,9 +98,9 @@ popup lands on the next cell in the rail), labels bolded by
 `TooltipLabelledLines`. Its working blink pulses the FILL only, the
 half-green idle tile fading in and out behind a constant WHITE initial (the
 solid-green beat and its dark knockout letter were retired 2026-09-27). On
-the empty half the square stays there: an un-ringed working cell carries a
-static `--border` frame the fill pulses inside, while a selected/focused one
-needs no frame under its ring. Cells wear their PANE's initial, a
+the empty half the square stays there: an un-ringed working cell carries the
+shared dim-white `border-foreground/25` frame the fill pulses inside, while a
+focused one needs no frame under its ring. Cells wear their PANE's initial, a
 hint never a key, and the flat plates are FNV-1a over the machine NAME into
 eight theme-tuned `--node-tint-*` tokens (278–332, the canvas hue is 296):
 pure function, no per-machine state, a rename can move a colour, two

@@ -235,9 +235,14 @@ export function RailSubshells({
   // FOCUSED is the single pane: the URL's on a subshell page, or the one the
   // DOCK has active on a workspace page (the dock publishes it through
   // `lib/workspace-focus`; the sidebar is a different tree and cannot otherwise
-  // see dockview's focus). The set marks every open cell/row. On the ROWS the
-  // two still differ (set = accent fill, focus adds the ring); on the CELLS one
-  // ring now covers both (operator 2026-09-27: the wide focus ring read heavy).
+  // see dockview's focus). On the ROWS the two differ as before (set = accent
+  // fill, focus adds the ring). On the CELLS only FOCUSED marks (the
+  // full-white ring over a grid whose every other cell wears a dim-white
+  // frame): a set-wide cell ring was the first design and the operator
+  // rejected it the same day — "when in a workspace, ALL items have a white
+  // border" — after width, brightness, two orchids and a corner bead had all
+  // failed to make a single mark legible. The set still drives ORDERING and
+  // click-to-focus, and the Workspace section names it in every mode.
   const focusedFromUrl = subshellIdFromPath(location.pathname);
   const workspaceId = workspaceIdFromPath(location.pathname);
   const { data: workspaceDetail } = useWorkspace(workspaceId ?? "", { enabled: workspaceId !== null });

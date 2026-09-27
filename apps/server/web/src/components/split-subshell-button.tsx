@@ -1,9 +1,10 @@
-import { apiFetch, apiPost, Button } from "@internal/node-admin";
+import { apiFetch, apiPost } from "@internal/node-admin";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { SquareSplitHorizontal } from "lucide-react";
 import { type JSX, useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
+import { TippedIconButton } from "@/components/tipped-icon-button";
 import { SUBSHELL_WORKSPACES_QUERY_KEY } from "@/lib/query-keys";
 import { splitCreateFailureMessage, splitWorkspaceRefusal } from "@/lib/split-workspace-refusal";
 import { defaultWorkspaceName } from "@/lib/workspace-name";
@@ -72,19 +73,24 @@ export function SplitSubshellButton({ subshell }: { subshell: SubshellView }): J
 
   return (
     <>
-      <Button
+      {/* Icon-only at every width (operator ruling 2026-09-27: the header
+          cannot afford the word). The tooltip carries it, and the dialog it
+          opens is titled "Split" so the word survives where the choice is
+          actually made. */}
+      <TippedIconButton
+        tooltip="Split this subshell into a workspace"
         size="sm"
         variant="outline"
-        aria-label="Split this subshell into a workspace"
         onClick={() => setOpen(true)}
       >
         <SquareSplitHorizontal className="h-3.5 w-3.5" />
-        <span className="hidden sm:inline">Split</span>
-      </Button>
+      </TippedIconButton>
       <AddSubshellDialog
         open={open}
         onOpenChange={setOpen}
         excludeSubshellIds={[subshell.id]}
+        title="Split"
+        description="Split the current view into multiple"
         // Same plugin, same machine, same directory: a split is almost always
         // "another one of these", and every one of the three is re-pickable.
         initialForm={{

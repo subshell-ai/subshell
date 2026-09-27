@@ -53,23 +53,23 @@ describe("workspaceLinkView", () => {
     expect(workspaceLinkView([])).toBeNull();
   });
 
-  it("names the one saved workspace it is on", () => {
+  it("offers the one saved workspace it is on", () => {
     const view = workspaceLinkView([row({ id: "w1", name: "Rewrite" })]);
-    expect(view?.label).toBe("In “Rewrite”");
+    expect(view?.ariaLabel).toBe("Show the workspace this subshell is on");
     expect(view?.options).toEqual([{ id: "w1", label: "Rewrite", draft: false }]);
   });
 
   it("offers a lone draft by what it IS, never by its placeholder name", () => {
     const view = workspaceLinkView([row({ id: "w1", name: "Sep 14, 4:45 PM", draft: true })]);
-    expect(view?.label).toBe("Open unsaved workspace");
+    expect(view?.ariaLabel).toBe("Show the workspace this subshell is on");
     expect(view?.options[0]?.label).toBe("Unsaved workspace");
   });
 
   // The point of the whole view: a subshell on several workspaces used to
   // offer exactly one of them and say nothing about the rest.
-  it("counts them once there is more than one", () => {
+  it("counts them in the accessible name once there is more than one", () => {
     const view = workspaceLinkView([row({ id: "a" }), row({ id: "b" }), row({ id: "c" })]);
-    expect(view?.label).toBe("In 3 workspaces");
+    expect(view?.ariaLabel).toBe("Show the 3 workspaces this subshell is on");
     expect(view?.options.map((o) => o.id)).toEqual(["a", "b", "c"]);
   });
 
@@ -99,29 +99,41 @@ describe("SubshellWorkspaceLink", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("links straight to the workspace when there is only one", async () => {
+  // The control names no workspace and always a menu (operator ruling
+  // 2026-09-27): an icon, the count, and the rows.
+  it("opens a menu with the one row when there is only one", async () => {
     renderLink([row({ id: "w2", name: "Rewrite" })]);
-    const link = await screen.findByRole("link", { name: "Open workspace Rewrite" });
-    expect(link.getAttribute("href")).toBe("/workspaces/w2");
-    expect(screen.getByText("In “Rewrite”")).toBeTruthy();
+    const trigger = await screen.findByRole("button", { name: "Show the workspace this subshell is on" });
+    expect(trigger.textContent).toContain("1");
+    expect(screen.queryByRole("link")).toBeNull();
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(1));
+    const [item] = screen.getAllByRole("menuitem");
+    expect(item?.textContent).toBe("Rewrite");
+    expect(item?.getAttribute("href")).toBe("/workspaces/w2");
   });
 
-  it("links straight to a lone unsaved workspace", async () => {
+  it("offers a lone unsaved workspace by what it IS", async () => {
     renderLink([row({ id: "w1", name: "Sep 14, 4:45 PM", draft: true })]);
-    const link = await screen.findByRole("link", { name: "Open the unsaved workspace this subshell is on" });
-    expect(link.getAttribute("href")).toBe("/workspaces/w1");
+    const trigger = await screen.findByRole("button", { name: "Show the workspace this subshell is on" });
     expect(screen.queryByText(/Sep 14/)).toBeNull();
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(1));
+    const [item] = screen.getAllByRole("menuitem");
+    expect(item?.textContent).toBe("Unsaved workspace");
+    expect(item?.getAttribute("href")).toBe("/workspaces/w1");
   });
 
-  it("counts several and lets the person pick one", async () => {
+  it("lets the person pick among several", async () => {
     renderLink([
       row({ id: "a", name: "Rewrite" }),
       row({ id: "b", name: "Docs" }),
       row({ id: "c", name: "Sep 14, 4:45 PM", draft: true }),
     ]);
-    // No single destination, so the control opens rather than navigating.
     const trigger = await screen.findByRole("button", { name: "Show the 3 workspaces this subshell is on" });
-    expect(screen.getByText("In 3 workspaces")).toBeTruthy();
+    expect(trigger.textContent).toContain("3");
     expect(screen.queryByRole("link")).toBeNull();
 
     fireEvent.keyDown(trigger, { key: "ArrowDown" });

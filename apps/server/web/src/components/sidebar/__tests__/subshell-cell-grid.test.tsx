@@ -229,12 +229,7 @@ describe("SubshellCell", () => {
     const restore = mockFetch();
     try {
       renderCell(
-        <SubshellCell
-          subshell={sub()}
-          selected={false}
-          focused={false}
-          labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }}
-        />,
+        <SubshellCell subshell={sub()} focused={false} labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }} />,
       );
       const link = await screen.findByRole("link");
       expect(link.getAttribute("href")).toBe("/subshells/s1");
@@ -245,36 +240,61 @@ describe("SubshellCell", () => {
     }
   });
 
-  it("wears the dot's own fill for its state, and the open one gets a ring", async () => {
+  it("wears the dot's own fill for its state, and the focused one gets the ring", async () => {
     const restore = mockFetch();
     try {
       renderCell(
         <SubshellCell
           subshell={sub({ nodeOffline: true })}
-          selected
           focused
           labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }}
         />,
       );
       const link = await screen.findByRole("link");
       expect(link.className).toContain("bg-destructive");
-      // The "you are here" ring is the theme ink (`--foreground`: frost on the
-      // void) at 70, width 1 — the operator's ruling (2026-09-27): ONE soft
-      // ring for the whole open set, the `ring-2` focus bump retired the same
-      // day as too heavy. Asserted as bare TOKENS: the focus variant is
-      // `focus-visible:ring-2`/`ring-ring` and hover is
-      // `hover:ring-1`/`hover:ring-foreground`, all prefixed, so a bare `ring-1`
-      // or `ring-foreground/70` can only be the (soft) selection.
+      // The focused pane's mark is the full-white ring at width 1 (operator
+      // ruling 2026-09-27, the fifth and final form that day: /70 over the
+      // dark border read as nothing, ring-2 read heavy, a focus bead read as
+      // a status dot, both orchids failed against the green fills, and a
+      // SET-wide ring was rejected outright — "ALL items have a white
+      // border". Two levels of one white, focus alone at full). A ringed cell
+      // wears no frame under it. Asserted as bare TOKENS: the keyboard focus
+      // variant is `focus-visible:ring-2`/`ring-ring` and hover is
+      // `hover:ring-1`/`hover:ring-foreground`, all prefixed, so a bare
+      // `ring-1` or `ring-foreground` can only be the focus ring.
       const toks = link.className.split(/\s+/);
       expect(toks).toContain("ring-1");
       expect(toks).not.toContain("ring-2");
-      expect(toks).toContain("ring-foreground/70");
+      expect(toks).toContain("ring-foreground");
+      expect(toks).not.toContain("ring-primary");
+      expect(toks).toContain("border-0");
+      expect(toks).not.toContain("border-foreground/25");
       expect(link.className).toContain("focus-visible:ring-ring");
-      // Hover answers "which one am I on" with the same INK at full
-      // brightness — the selection reading at its loudest, never the focus
-      // orchid (operator ask: cells need a hover outline).
+      // Hover answers "which one am I on" with the same white at full
+      // brightness (operator ask: cells need a hover outline).
       expect(link.className).toContain("hover:ring-1");
       expect(link.className).toContain("hover:ring-foreground");
+    } finally {
+      restore();
+    }
+  });
+
+  // The mark is ONE crisp line: a terminated cell's frame (its whole state
+  // fill) must yield to the ring, or the focused and unfocused cells are two
+  // faint frames apart.
+  it("a ringed terminated cell drops its hollow frame", async () => {
+    const restore = mockFetch();
+    try {
+      renderCell(
+        <SubshellCell
+          subshell={sub({ status: "terminated" })}
+          focused
+          labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }}
+        />,
+      );
+      const toks = (await screen.findByRole("link")).className.split(/\s+/);
+      expect(toks).toContain("border-0");
+      expect(toks).toContain("ring-foreground");
     } finally {
       restore();
     }
@@ -294,14 +314,12 @@ describe("SubshellCell", () => {
         <>
           <SubshellCell
             subshell={sub({ id: "here", name: "member" })}
-            selected
             focused={false}
             focusOnOpen
             labels={{ nodeLabel: "m", agentLabel: "A" }}
           />
           <SubshellCell
             subshell={sub({ id: "else", name: "plain" })}
-            selected={false}
             focused={false}
             focusOnOpen={false}
             labels={{ nodeLabel: "m", agentLabel: "A" }}
@@ -334,7 +352,6 @@ describe("SubshellCell", () => {
       renderCell(
         <SubshellCell
           subshell={sub({ activity: "active", lastOutputAt: null })}
-          selected
           focused
           labels={{ nodeLabel: "mbp", agentLabel: "Claude Code", initial: "A" }}
         />,
@@ -379,12 +396,13 @@ describe("SubshellCell", () => {
       expect(has(letter, "text-foreground")).toBe(true);
       expect(has(letter, "text-background")).toBe(false);
       expect(letter?.textContent).toBe("A");
-      // The viewed pane still rings on the anchor (the soft 1px selection ring).
-      // The ring IS the frame here, so no border rides along with it.
+      // The viewed pane still rings on the anchor: the set's full white,
+      // width 1. The ring IS the frame here, so no border rides along with it.
       expect(has(link, "ring-1")).toBe(true);
-      expect(has(link, "ring-foreground/70")).toBe(true);
+      expect(has(link, "ring-foreground")).toBe(true);
       expect(has(link, "ring-2")).toBe(false);
       expect(has(link, "border-border")).toBe(false);
+      expect(has(link, "border-foreground/25")).toBe(false);
     } finally {
       restore();
     }
@@ -396,7 +414,6 @@ describe("SubshellCell", () => {
       renderCell(
         <SubshellCell
           subshell={sub({ id: "w", activity: "active", lastOutputAt: null })}
-          selected={false}
           focused={false}
           labels={{ nodeLabel: "mbp", agentLabel: "Claude Code", initial: "W" }}
         />,
@@ -405,10 +422,12 @@ describe("SubshellCell", () => {
       const has2 = (el: Element | undefined, tok: string) => !!el && el.className.split(/\s+/).includes(tok);
       // The transparent half must not be a letter floating on bare rail: the
       // anchor carries a static `--border` frame the fill pulses inside. Only
-      // where there is no ring — a selected/focused cell's frame is the ring.
+      // where there is no ring — a focused cell's frame is the ring.
       expect(has2(link, "border")).toBe(true);
-      expect(has2(link, "border-border")).toBe(true);
-      expect(has2(link, "ring-foreground/70")).toBe(false);
+      expect(has2(link, "border-foreground/25")).toBe(true);
+      expect(has2(link, "ring-foreground")).toBe(false);
+      expect(has2(link, "ring-primary")).toBe(false);
+      expect(has2(link, "ring-1")).toBe(false);
       // And it does NOT blink: the frame is on the anchor, the pulse stays on
       // the fill child.
       expect(has2(link, "subshell-dot-blink")).toBe(false);
@@ -422,15 +441,9 @@ describe("SubshellCell", () => {
     try {
       renderCell(
         <>
-          <SubshellCell
-            subshell={sub({ id: "q" })}
-            selected={false}
-            focused={false}
-            labels={{ nodeLabel: "m", agentLabel: "A" }}
-          />
+          <SubshellCell subshell={sub({ id: "q" })} focused={false} labels={{ nodeLabel: "m", agentLabel: "A" }} />
           <SubshellCell
             subshell={sub({ id: "z", status: "terminated", alive: false, activity: "terminated" })}
-            selected={false}
             focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A" }}
           />
@@ -443,7 +456,7 @@ describe("SubshellCell", () => {
       expect(idle.className).not.toContain("bg-muted");
       expect(idle.querySelectorAll("span")).toHaveLength(0);
       // `terminated` stays a hollow ring: border + nothing behind it.
-      expect(ended.className).toContain("border-muted-foreground");
+      expect(ended.className).toContain("border-foreground/25");
       expect(ended.className).not.toContain("bg-muted");
       expect(ended.querySelectorAll("span")).toHaveLength(0);
     } finally {
@@ -458,19 +471,16 @@ describe("SubshellCell", () => {
         <>
           <SubshellCell
             subshell={sub({ id: "w", waitingSince: "2026-09-25T00:00:00.000Z" })}
-            selected={false}
             focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A", initial: "W" }}
           />
           <SubshellCell
             subshell={sub({ id: "o", nodeOffline: true })}
-            selected={false}
             focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A", initial: "O" }}
           />
           <SubshellCell
             subshell={sub({ id: "i" })}
-            selected={false}
             focused={false}
             labels={{ nodeLabel: "m", agentLabel: "A", initial: "I" }}
           />
@@ -500,7 +510,6 @@ describe("SubshellCell", () => {
       renderCell(
         <SubshellCell
           subshell={sub({ unseenPush: true })}
-          selected={false}
           focused={false}
           labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code", initial: "M" }}
         />,
@@ -524,7 +533,6 @@ describe("SubshellCell", () => {
       renderCell(
         <SubshellCell
           subshell={sub({ unseenPush: true, access: "view" })}
-          selected={false}
           focused={false}
           labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code", initial: "A" }}
         />,
@@ -544,13 +552,11 @@ describe("SubshellCell", () => {
         <div>
           <SubshellCell
             subshell={sub({ id: "f" })}
-            selected={false}
             focused={false}
             labels={{ nodeLabel: "mbp", agentLabel: "Claude Code", initial: "A" }}
           />
           <SubshellCell
             subshell={sub({ id: "g" })}
-            selected={false}
             focused={false}
             labels={{ nodeLabel: "mbp", agentLabel: "Claude Code" }}
           />
@@ -568,12 +574,7 @@ describe("SubshellCell", () => {
     const restore = mockFetch();
     try {
       renderCell(
-        <SubshellCell
-          subshell={sub()}
-          selected={false}
-          focused={false}
-          labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }}
-        />,
+        <SubshellCell subshell={sub()} focused={false} labels={{ nodeLabel: "mac-mini", agentLabel: "Claude Code" }} />,
       );
       const link = await screen.findByRole("link");
       expect(link.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
@@ -709,7 +710,7 @@ describe("SubshellCellGrid", () => {
     }
   });
 
-  it("soft-rings every open pane, focused included, at one width", async () => {
+  it("rings the focused pane alone; every other cell wears the dim frame", async () => {
     const restore = mockFetch();
     try {
       const rows = [sub({ id: "a", name: "one" }), sub({ id: "b", name: "two" }), sub({ id: "c", name: "three" })];
@@ -727,16 +728,21 @@ describe("SubshellCellGrid", () => {
           (screen.getAllByRole("link") as HTMLElement[]).find((l) => l.getAttribute("href") === `/subshells/${id}`)
             ?.className ?? ""
         ).split(/\s+/);
-      // (operator 2026-09-27): ONE ring for the open set — a, c and the focused
-      // c alike wear the soft `ring-1 ring-foreground/70`. Bare tokens:
-      // hover/focus add only prefixed variants, so a lone `b` carries none.
-      for (const id of ["a", "c"]) {
-        expect(toks(id)).toContain("ring-1");
-        expect(toks(id)).toContain("ring-foreground/70");
-        expect(toks(id)).not.toContain("ring-2");
+      // (operator 2026-09-27, final form): the focused pane alone wears the
+      // full-white ring — open-but-unfocused `a` does NOT, which is exactly
+      // the ruling that killed the set-wide ring ("when in a workspace, ALL
+      // items have a white border"). Every other cell, `a` and `b` alike,
+      // wears the DIM white frame. Bare tokens: hover/focus add only
+      // prefixed variants.
+      expect(toks("c")).toContain("ring-1");
+      expect(toks("c")).toContain("ring-foreground");
+      expect(toks("c")).toContain("border-0");
+      expect(toks("c")).not.toContain("ring-2");
+      for (const id of ["a", "b"]) {
+        expect(toks(id)).not.toContain("ring-1");
+        expect(toks(id)).not.toContain("ring-foreground");
+        expect(toks(id)).toContain("border-foreground/25");
       }
-      expect(toks("b")).not.toContain("ring-1");
-      expect(toks("b")).not.toContain("ring-foreground/70");
     } finally {
       restore();
     }

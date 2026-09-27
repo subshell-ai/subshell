@@ -43,6 +43,8 @@ export function AddSubshellDialog({
   onOpenChange,
   excludeSubshellIds,
   initialForm,
+  title,
+  description,
   onAdd,
 }: {
   open: boolean;
@@ -56,6 +58,15 @@ export function AddSubshellDialog({
    * directory so the New half starts as "another one like this".
    */
   initialForm?: Partial<NewSubshellFormValue>;
+  /**
+   * The dialog's heading. Defaults to "Add a subshell"; the Split flow passes
+   * the IDE word "Split" instead (operator ruling 2026-09-27), so the dialog
+   * is named by the button that opened it — the button itself is icon-only
+   * now, and this heading is where the word lives.
+   */
+  title?: string;
+  /** The line under the heading; the Split flow says what a split DOES. */
+  description?: string;
   /** Adds `subshellId` to the workspace at `direction`. */
   onAdd: (subshellId: string, direction: SplitDirection) => Promise<unknown>;
 }): JSX.Element {
@@ -144,8 +155,8 @@ export function AddSubshellDialog({
     >
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add a subshell</DialogTitle>
-          <DialogDescription>Pick one you already have, or launch a new one.</DialogDescription>
+          <DialogTitle>{title ?? "Add a subshell"}</DialogTitle>
+          <DialogDescription>{description ?? "Pick one you already have, or launch a new one."}</DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-wrap items-center justify-between gap-2">
