@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { allFlags, computePlan, scriptsTouched, type AffectedPackage } from "../ci-test-plan";
+import { type AffectedPackage, type allFlags, computePlan, rustTouched, scriptsTouched } from "../ci-test-plan";
 
 const pkg = (name: string, dir: string): AffectedPackage => ({ name, dir });
 
@@ -19,12 +19,24 @@ describe("computePlan", () => {
     ];
     for (const [p, slice] of cases) {
       const { flags } = computePlan([p], []);
-      for (const key of ["web", "mobile", "desktop", "serverNode", "packages", "scripts", "e2e"] as const) {
+      for (const key of [
+        "web",
+        "mobile",
+        "desktop",
+        "serverNode",
+        "packages",
+        "scripts",
+        "e2e",
+        "rustCore",
+        "rustApps",
+      ] as const) {
         // Every named-package slice routes ALONE; `scripts` stays closed for
         // the other packages with an empty changed-file list, and opens for
         // website from the registration alone (`||=`, not `=`). `smoke` is
         // excluded because server ∈ affected is ITS trigger too — its own
-        // test below pins that pair.
+        // test below pins that pair. The Rust pair is IN because nothing
+        // routes there by package: an affected set with no files must find
+        // both false.
         expect(flags[key]).toBe(key === slice);
       }
       expect(flags.smoke).toBe(p.name === "@internal/server");
@@ -78,6 +90,71 @@ describe("computePlan", () => {
     const { flags } = computePlan([], [".github/workflows/lint.yml"]);
     expect(flags.scripts).toBe(false);
     expect(flags.web).toBe(false);
+  });
+
+  test("a crates/desktop-core change lights BOTH Rust slices", () => {
+    // Path dependency, measured in each src-tauri/Cargo.toml
+    // (`subshell-desktop-core = { path = ... }`): the apps compile the core,
+    // so its change must relight their legs. Nothing else moves — crates/ is
+    // no package's dir and no script reads it.
+    const { flags } = computePlan([], ["crates/desktop-core/src/lib.rs"]);
+    expect(flags.rustCore).toBe(true);
+    expect(flags.rustApps).toBe(true);
+    expect(Object.entries(flags).every(([k, v]) => (k === "rustCore" || k === "rustApps") === v)).toBe(true);
+  });
+
+  test("an app's src-tauri change lights its slice only", () => {
+    // NOT core: the three Cargo projects are independent (each its own
+    // Cargo.lock, no root workspace) and core depends on neither app.
+    // `scripts` DOES open here — the design-linter/license predicate covers
+    // every apps/ file; the Rust pair is the assertion, not the bystanders.
+    const { flags } = computePlan([], ["apps/server/desktop/src-tauri/src/trust.rs"]);
+    expect(flags.rustApps).toBe(true);
+    expect(flags.rustCore).toBe(false);
+    const appLock = computePlan([], ["apps/client/desktop/src-tauri/Cargo.lock"]);
+    expect(appLock.flags.rustApps).toBe(true);
+    expect(appLock.flags.rustCore).toBe(false);
+  });
+
+  test("the builder image lights both Rust slices", () => {
+    // The toolchain itself: rustup + Tauri system deps are IN the image
+    // (docker/desktop-builder.Dockerfile), so an image change can break any
+    // cargo run regardless of which tree it touches.
+    const { flags } = computePlan([], ["docker/desktop-builder.Dockerfile"]);
+    expect(flags.rustCore).toBe(true);
+    expect(flags.rustApps).toBe(true);
+    expect(flags.scripts).toBe(false);
+  });
+
+  test("a test.yml change itself runs EVERYTHING", () => {
+    // The router cannot route its own change: gating the Rust jobs created a
+    // class of PR (an edit HERE) whose own proof is exactly what a router
+    // could mis-grey, so the self-reference answers all-true.
+    const { flags, reason } = computePlan([], [".github/workflows/test.yml"]);
+    expect(Object.values(flags).every(Boolean)).toBe(true);
+    expect(reason).toContain("CI definition");
+  });
+});
+
+describe("rustTouched", () => {
+  test("fires per the Cargo dependency arrows and the toolchain image", () => {
+    expect(rustTouched(["crates/desktop-core/src/lib.rs"])).toEqual({ core: true, apps: true });
+    // Core first, app later: the early `{core:true, apps:true}` must not
+    // depend on iteration order of the reverse spelling either.
+    expect(rustTouched(["apps/client/desktop/src-tauri/src/cmd.rs", "crates/desktop-core/build.rs"])).toEqual({
+      core: true,
+      apps: true,
+    });
+    expect(rustTouched(["docker/desktop-builder.Dockerfile"])).toEqual({ core: true, apps: true });
+    expect(rustTouched(["apps/server/desktop/src-tauri/Cargo.toml"])).toEqual({ core: false, apps: true });
+  });
+
+  test("stays quiet for everything else, desktop TS included", () => {
+    // The trap this half exists for: the TS desktop packages live in the SAME
+    // directories as the Rust crates. A React edit under apps/*/desktop must
+    // not light the Rust jobs any more than a Rust edit lights `Test: desktop`.
+    expect(rustTouched(["apps/server/desktop/ui/src/main.tsx"])).toEqual({ core: false, apps: false });
+    expect(rustTouched(["docs/release-and-ci.md"])).toEqual({ core: false, apps: false });
   });
 });
 

@@ -4,7 +4,7 @@
  *
  * The workflow split the suites so a red job names its own territory; this is
  * the other half — a green PR that touched one package should not pay for the
- * other seven. Routing uses TURBO's OWN change-impact, never hand-written
+ * other nine. Routing uses TURBO's OWN change-impact, never hand-written
  * globs: `turbo run test --filter='...[BASE]'` answers "which packages changed
  * since BASE, plus every package that depends on a changed one" from the real
  * build graph. A `packages/subshell-protocol` edit therefore lands in the
@@ -16,7 +16,8 @@
  *
  * It fails LOUD-AND-WIDE: every path that cannot answer with confidence — an
  * unreadable base ref (force-push, branch sync), a turbo error, a changed
- * package that maps to no slice (a workspace added without registering it) —
+ * package that maps to no slice (a workspace added without registering it),
+ * an edit to `test.yml` itself (the router cannot route its own change) —
  * returns ALL flags true, with the reason printed. A router that silently
  * under-runs is worse than no router; the worst outcome here is today's CI.
  *
@@ -24,7 +25,7 @@
  */
 import { appendFileSync } from "node:fs";
 
-/** The eight slice flags `test.yml` gates on, in the order the workflow reads them. */
+/** The ten slice flags `test.yml` gates on, in the order the workflow reads them. */
 export interface SliceFlags {
   web: boolean;
   mobile: boolean;
@@ -34,6 +35,10 @@ export interface SliceFlags {
   scripts: boolean;
   smoke: boolean;
   e2e: boolean;
+  /** `crates/desktop-core` — the Rust job for the shared desktop crate. */
+  rustCore: boolean;
+  /** the two desktop apps' `src-tauri/` trees — the Rust matrix legs. */
+  rustApps: boolean;
 }
 
 /** One package the change-impact filter selected. */
@@ -53,6 +58,8 @@ const FLAG_KEYS: readonly (keyof SliceFlags)[] = [
   "scripts",
   "smoke",
   "e2e",
+  "rustCore",
+  "rustApps",
 ];
 
 /**
@@ -87,6 +94,8 @@ export function allFlags(): SliceFlags {
     scripts: true,
     smoke: true,
     e2e: true,
+    rustCore: true,
+    rustApps: true,
   };
 }
 
@@ -101,6 +110,8 @@ function noFlags(): SliceFlags {
     scripts: false,
     smoke: false,
     e2e: false,
+    rustCore: false,
+    rustApps: false,
   };
 }
 
@@ -131,8 +142,39 @@ export function scriptsTouched(files: readonly string[]): boolean {
 }
 
 /**
+ * Which files could the two Rust jobs NOTICE?
+ *
+ * The three Cargo projects are INDEPENDENT — `crates/desktop-core`,
+ * `apps/server/desktop/src-tauri` and `apps/client/desktop/src-tauri` each
+ * carry their own `Cargo.lock` and there is no root workspace — so an app's
+ * change cannot light the core job, and one app cannot light the other's.
+ * But BOTH app crates depend on the core by PATH (measured in each
+ * src-tauri/Cargo.toml: `subshell-desktop-core = { path = "../../../../crates/desktop-core" }`),
+ * so a core change must relight the app legs, never the reverse. And the
+ * Rust toolchain itself lives in the builder IMAGE
+ * (`docker/desktop-builder.Dockerfile` installs rustup + Tauri's system
+ * deps), so `docker/**` lights both slices.
+ *
+ * Registered as a predicate HERE, in the router with a unit test, precisely
+ * so the workflow needs no YAML globs of its own — the rot objection to
+ * gating the Rust jobs (their inputs are not in the turbo graph, so package
+ * routing cannot reach them) is answered by WHERE the predicates live, not
+ * by leaving the jobs unconditional.
+ */
+export function rustTouched(files: readonly string[]): { core: boolean; apps: boolean } {
+  let apps = false;
+  for (const f of files) {
+    // Core or the toolchain image: both slices, and the answer cannot change
+    // with later files — early-return, like scriptsTouched.
+    if (f.startsWith("crates/desktop-core/") || f.startsWith("docker/")) return { core: true, apps: true };
+    if (f.startsWith("apps/server/desktop/src-tauri/") || f.startsWith("apps/client/desktop/src-tauri/")) apps = true;
+  }
+  return { core: false, apps };
+}
+
+/**
  * Pure routing: the affected set + the changed-file list in, the flags out.
- * `reason` is what gets printed beside the flags — "why eight greys or six
+ * `reason` is what gets printed beside the flags — "why ten greys or six
  * greens", so a mis-routed PR is debuggable from the Plan log alone.
  */
 export function computePlan(
@@ -140,6 +182,16 @@ export function computePlan(
   changedFiles: readonly string[],
 ): { flags: SliceFlags; reason: string } {
   const names = new Set(affected.map((p) => p.name));
+
+  // A change to the CI definition itself: routing the jobs THAT FILE defines
+  // from rules THAT FILE changed is self-reference — the diff being routed
+  // includes the router's contract. Today it would still run the Rust jobs
+  // unconditionally; after the 2026-09-26 gating, running everything is the
+  // only answer that lets a workflow PR prove itself. Grey jobs that a
+  // test.yml edit should have lit are how a CI change merges on faith.
+  if (changedFiles.some((f) => f === ".github/workflows/test.yml")) {
+    return { flags: allFlags(), reason: "the CI definition itself changed — the router cannot route its own change" };
+  }
 
   // The root pseudo-package in the affected set means a GLOBAL input changed
   // (lockfile, root tsconfig/biome, turbo.json) — turbo invalidated everything
@@ -174,6 +226,12 @@ export function computePlan(
   // `@internal/server` ∈ affected IS that closure (dependents-of-changed is
   // how the filter is built). `scripts/**` covers the smoke's own shell script.
   flags.smoke = serverAffected || changedFiles.some((f) => f.startsWith("scripts/"));
+  // Plain `=`, not `||=`: no package registers into these two — the Rust
+  // jobs' inputs are not in the turbo graph at all, so the file predicate is
+  // the ONLY trigger they can have (see {@link rustTouched}).
+  const rust = rustTouched(changedFiles);
+  flags.rustCore = rust.core;
+  flags.rustApps = rust.apps;
 
   const why: string[] = [];
   for (const k of FLAG_KEYS) if (flags[k]) why.push(k);

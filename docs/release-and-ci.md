@@ -320,7 +320,9 @@ image as well as the release one). The first job routes the other ten:
 plus their dependents, and the test jobs `if:` on those flags: a docs-only
 PR runs Plan and greys the rest, and every path the router cannot answer
 fails wide to run-everything. Rust inputs are not in the turbo graph, so the
-two Rust jobs stay unconditional. It already carries bun (1.4.2, pinned to
+two Rust jobs route on file predicates registered in that same router
+(`rustTouched`), and a change to `test.yml` itself runs every slice. It
+already carries bun (1.4.2, pinned to
 the root `packageManager` so CI runs what developers run), rustup stable and
 Tauri's system dependencies; `tmux`, `rustfmt` and `clippy` were added for
 CI's sake. That is what lets `setup-bun`, `dtolnay/rust-toolchain` and every
