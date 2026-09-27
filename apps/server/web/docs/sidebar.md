@@ -72,7 +72,7 @@ whose visible rows contain a selected pane to the top. On the ROWS the set
 fills with the accent and focus adds the ring. On the CELLS (final ruling
 2026-09-27) only the focused pane marks: a full-white `ring-1 ring-foreground`
 with the frame dropped, over a grid whose every other cell wears a DIM white
-`border-foreground/25` — two levels of one white. The set-wide cell ring was
+`border-foreground/25`. Two levels of one white. The set-wide cell ring was
 the FIRST design and was rejected the same day: "when in a workspace, ALL
 items have a white border." The five forms that day, in order: `/70` over the
 dark border read as no ring; `ring-2` read heavy; a focus corner bead read as
@@ -80,8 +80,8 @@ a status dot; both orchids (`--primary`, `--ring`) lost to the green fills;
 a dim-set/full-focus ring over a dim-white grid is what stood. Set membership
 still decides which cells click-to-focus; `SubshellCellGrid` takes
 `selectedIds` AND `focusedId`. Deliberate asymmetry, not drift: the cell ring
-is full ink where the ROW's focus ring stays `ring-foreground/70` — the row's
-fill already carries its selection, the bare cell needed the louder mark.
+is full ink where the ROW's focus ring stays `ring-foreground/70`. The row's
+fill already carries its selection; the bare cell needed the louder mark.
 
 **The whole section lives in `components/sidebar/rail-subshells.tsx`**
 (extracted from `app-sidebar.tsx` 2026-09-25) and renders in three shapes
