@@ -969,12 +969,13 @@ export function SubshellTerminal({
   // alone. Leaving the mode hands the value back to the hook's rule exactly.
   // Entering the mode dismisses the keyboard the terminal may be holding
   // focus with.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fire-on-change effect, subshellId is deliberately the trigger (restate the OR on an in-place pane swap), not a read
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
     term.options.disableStdin = readOnly || copyMode;
     if (copyMode) term.textarea?.blur();
-  }, [readOnly, copyMode]);
+  }, [readOnly, copyMode, subshellId]);
 
   // Typed bytes from the caller's handles (key bar, custom keys) ride the same
   // queue the hook's own onData path uses: engaged, they are tracked and

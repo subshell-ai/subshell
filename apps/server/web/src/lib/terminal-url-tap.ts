@@ -144,7 +144,12 @@ function trailingToken(line: string): string | null {
  * trailing whitespace trimmed, which together with the wrap flags makes the
  * seam rules exact: a wrapped row's trimmed text ends in the very glyph that
  * caused the wrap, and a hard-newlined row is never joined because the
- * buffer says so.
+ * buffer says so. One non-exact shape, ACCEPTED: when a WIDE glyph (a CJK
+ * cell) itself straddles the wrap seam, xterm splits it into a base cell + a
+ * continuation cell and the head-side join sees the continuation as a blank
+ * leading token, so it MISSES (returns the URL up to the seam, or null)
+ * rather than ever wrong-opening; the tail-side tap still joins correctly.
+ * Miss-open only, never a wrong URL — the reason this is left as-is.
  */
 export interface TapCellText {
   /** Text of the tapped line. */
