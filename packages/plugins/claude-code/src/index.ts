@@ -66,6 +66,10 @@ const SUGGESTED_ENV: { key: string; description: string }[] = [
   { key: "CLAUDE_CODE_MAX_OUTPUT_TOKENS", description: "Max output tokens" },
   { key: "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", description: "Disable telemetry/update traffic (1)" },
   {
+    key: "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN",
+    description: "Classic renderer: appends to scrollback so the pane shows a scrollbar (1)",
+  },
+  {
     key: "CLAUDE_CODE_SSE_URL",
     description: "Anthropic SSE URL override (e.g. http://localhost:8080/anthropic)",
   },
