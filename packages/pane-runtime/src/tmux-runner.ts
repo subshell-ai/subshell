@@ -742,6 +742,80 @@ export class TmuxRunner {
   }
 
   /**
+   * The pane app's CURRENT input modes, as an AUTHORITATIVE DECSET
+   * statement (every mode's `h` or `l` form), for {@link capturePane} to
+   * lead its result with. `""` means "unknown", never "all off".
+   *
+   * **Why this exists** (measured 2026-09-27). The browser attach writes
+   * `term.reset()` and then a replay built from `capture-pane`, but
+   * capture-pane re-emits no DECSET, so an app that had ALREADY enabled alt
+   * screen or mouse reporting before the attach is invisible to the client's
+   * xterm. Claude Code 2.1.283 measures `alt=1, mouse_all=1, mouse_sgr=1` at
+   * attach time, and the client that never learned the app owns the mouse
+   * fires xterm's passive-wheel fallback on every notch: one arrow key typed
+   * into the pane through the WS. That is the reported "slow scroll, no
+   * scrollbar". A real terminal on the same machine scrolls fast because the
+   * PTY stream carried the DECSETs the app emitted at startup, and the
+   * browser never sees that stream; mirroring the pane's live flags into
+   * every capture ships the knowledge it would have carried.
+   *
+   * The five flags come from ONE `display-message` read, mapped live on tmux
+   * 3.7c: `alternate_on` (1049), `mouse_standard_flag` (1000),
+   * `mouse_button_flag` (1002), `mouse_all_flag` (1003), `mouse_sgr_flag`
+   * (1006), always all five emitted in that order. The `l` forms are not
+   * padding: the pane-poll fallback (a pane with no readable log) re-sends
+   * whole captures as its only channel, and only a FULL statement can
+   * un-announce a mode the app dropped mid-session. For a `reset()`-fresh
+   * client every `l` is an idempotent no-op, so all-off costs nothing.
+   *
+   * The statement is made only when every flag ANSWERED (`0` or `1`); any
+   * failure degrades to `""` and never throws (gone socket, the 2.5 s cap, a
+   * tmux too old to resolve a variable, any unparseable output). An
+   * unanswered flag must not become an invented OFF: mid-session, a false
+   * `l` delivered by a poll re-send would CLEAR a mode the client had
+   * learned from live bytes, which is strictly worse than saying nothing.
+   * Losing the statement is no reason to lose the capture it decorates.
+   *
+   * A mode that flips between this read and the capture is cosmetic: the
+   * live byte stream re-announces DECSETs as the app's own bytes, so the
+   * next mode change the app makes corrects the client.
+   * @internal consumed by {@link capturePane}; the stub suite pins its
+   * decode, its silence and its deadline there, and the verbatim argv pin
+   * holds the flag query.
+   */
+  async paneModePreamble(socket: string, subshellName: string): Promise<string> {
+    try {
+      const out = (
+        await this.runAsync(
+          [
+            "-L",
+            socket,
+            "display-message",
+            "-t",
+            subshellName,
+            "-p",
+            "#{alternate_on}:#{mouse_standard_flag}:#{mouse_button_flag}:#{mouse_all_flag}:#{mouse_sgr_flag}",
+          ],
+          // Fail FAST, not like the 15 s default: the contract is
+          // degrade-to-empty, so a wedged tmux must cost an attach the
+          // statement, never a doubled command timeout on the way to a
+          // refusal it would have taken anyway.
+          { timeoutMs: 2_500 },
+        )
+      ).stdout.trim();
+      // Order is part of the contract: mode number per position, matching the
+      // format string above. `entries`-style zipping reads worse for five
+      // fixed tokens; the guard below is what makes the indexing total.
+      const tokens = out.split(":");
+      if (tokens.length !== 5 || tokens.some((t) => t !== "0" && t !== "1")) return "";
+      const decsets = [1049, 1000, 1002, 1003, 1006];
+      return decsets.map((n, i) => `\x1b[?${n}${tokens[i] === "1" ? "h" : "l"}`).join("");
+    } catch {
+      return "";
+    }
+  }
+
+  /**
    * Captures the pane's current visible content with escape sequences.
    *
    * With `scrollbackLines`, also prepends up to that many rows of the pane's
@@ -749,12 +823,25 @@ export class TmuxRunner {
    * rows carry the same SGR-only shape as the visible grid and replay cleanly
    * at ANY geometry. Without it, only the visible grid is captured (preview/
    * settle callers never wanted history bytes).
+   *
+   * The result LEADS with {@link paneModePreamble}: the full statement of
+   * the pane app's input modes, or silence when tmux could not answer. Those
+   * bytes carry no LF, so they ride the front of row 1 through the
+   * capture→terminal CRLF normalization untouched, and a consumer that
+   * strips ANSI still sees the plain grid.
    */
   async capturePane(socket: string, subshellName: string, scrollbackLines?: number): Promise<string> {
     const args = ["-L", socket, "capture-pane", "-p", "-e", "-t", subshellName];
     if (scrollbackLines && scrollbackLines > 0) args.push("-S", `-${scrollbackLines}`);
+    // The modes are read BEFORE the capture because that is the kinder stale
+    // case, not an honest one: a flip inside the gap is re-announced by the
+    // live join either way (the gap sits above the join point), and read-
+    // before means the transient can only strand a grid in the client's
+    // scrollable primary buffer, where a later ?1049h still finds its history
+    // ({@link paneModePreamble}).
+    const preamble = await this.paneModePreamble(socket, subshellName);
     const res = await this.runAsync(args, {});
-    return res.stdout;
+    return preamble + res.stdout;
   }
 
   /** Terminates a subshell (also kills the harness process tree). */

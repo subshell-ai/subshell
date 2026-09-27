@@ -84,7 +84,7 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
 grid as the viewer found it vs. the exact bytes sent. **Off by default: the
 dumps are real screen contents, which can include secrets.**
 
-Three invariants on that path are load-bearing and easy to regress:
+Four invariants on that path are load-bearing and easy to regress:
 
 - Capture text (`replay`, pane-poll deltas) goes through
   `ws/capture-text.ts`; `capture-pane -p` emits **bare LFs**, and a bare LF
@@ -124,6 +124,26 @@ Three invariants on that path are load-bearing and easy to regress:
   off by whatever sat between the pane's cursor row and the bottom of the
   grid (up to a full screen), the 2026-09-23 "prompt at the top, typing
   off-screen" report.
+- The capture result **leads with a mirrored mode statement**
+  (`@internal/pane-runtime` `TmuxRunner.paneModePreamble`, prepended by
+  `capturePane`): all five alt-screen/mouse DECSETs (`?1049`, `?1000`,
+  `?1002`, `?1003`, `?1006`) in their `h` or `l` form per the pane app's
+  live tmux flags, read via `display-message`. `capture-pane` re-emits no
+  DECSET and the live join starts after the app announced them, so without
+  the mirror the client's xterm never learns the app owns the mouse and
+  every wheel notch fires xterm's passive-wheel fallback, one arrow key
+  through the socket (the 2026-09-27 "slow scroll, no scrollbar" report).
+  The `l` forms matter: the pane-poll fallback re-sends whole captures as
+  its only channel, and only a full statement can un-announce a mode the
+  app dropped mid-session. They ride the front of the `replay` frame: no
+  LF, no 2026 marker, so the capture-text pipeline lets them through and
+  the byte join is untouched, because they are server-injected knowledge,
+  not pane output. Do NOT "restore" a capture to pure `capture-pane`
+  bytes; that is exactly the hole they fill. A `""` preamble means
+  UNKNOWN, not "all off": an old agent binary, a wedged tmux (the read
+  fails fast, 2.5 s), or a tmux that could not answer a flag all stay
+  silent rather than inventing an OFF that a poll re-send could deliver as
+  a false clearing of live-learned state.
 
 ## Node presence is an announcement too (moved from AGENTS.md "Architecture")
 

@@ -1571,20 +1571,28 @@ describe("reconcile partition — agent rows (spec §6.3)", () => {
 
 describe("#preview — local rows read through the cache (cross-consumer dedupe)", () => {
   /**
-   * A tmux stub that answers every `capture-pane` with the same two rows and
-   * counts its invocations by growing a file. Counting through a file rather
-   * than a closure is what makes the assertion honest: every capture is a
-   * fresh child process, and the one that captured N times is the one whose
-   * counter says N, not the one whose JS scope thinks so.
+   * A tmux stub that answers every call with the same two rows and counts
+   * `capture-pane` invocations by growing a file. Counting through a file
+   * rather than a closure is what makes the assertion honest: every capture
+   * is a fresh child process, and the one that captured N times is the one
+   * whose counter says N, not the one whose JS scope thinks so.
+   *
+   * The counter guards on `capture-pane` because since the mode mirror
+   * (2026-09-27) every `capturePane` call pays TWO tmux invocations: the
+   * flag read that leads the grid with the mode statement, and the capture.
+   * The dedupe this test pins is about the CAPTURE, so that is what gets
+   * counted; counting every call would report the mode read as a cache miss.
    */
   function captureStub(): { stub: string; captures: () => number; cleanup: () => void } {
     const dir = mkdtempSync(join(tmpdir(), "subshell-preview-stub-"));
     const counter = join(dir, "count");
     writeFileSync(counter, "");
     const stub = join(dir, "tmux-stub");
-    writeFileSync(stub, `#!/bin/sh\nprintf x >> "${counter}"\necho "screen line 1"\necho "screen line 2"\n`, {
-      mode: 0o755,
-    });
+    writeFileSync(
+      stub,
+      `#!/bin/sh\ncase "$*" in\n  *capture-pane*) printf x >> "${counter}" ;;\nesac\necho "screen line 1"\necho "screen line 2"\n`,
+      { mode: 0o755 },
+    );
     return {
       stub,
       captures: () => readFileSync(counter, "utf8").length,

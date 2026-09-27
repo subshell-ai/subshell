@@ -269,15 +269,18 @@ remote pane, so nothing downstream of the attach branches on where a pane runs.
 A garbled live terminal is diagnosed from the journal first: the
 `geometry` and `painted` lines under `journalctl --user -u
 subshell-server.service | grep "ws attach"` say which bundle is talking
-and what the pane did before the capture. Three invariants on that path
+and what the pane did before the capture. Four invariants on that path
 are load-bearing and easy to regress: capture-text LF normalization
 (`ws/capture-text.ts`; the live tail must NOT be normalized), the
 gap-free OVERLAPPING join (a skipped byte desynchronizes a
 diff-rendering TUI permanently; the overlap's visible transient is
 deliberate damage control, and the zero-overlap "quiet join" was tried
-and rolled back), and the replay's MISSING trailing terminator plus the
+and rolled back), the replay's MISSING trailing terminator plus the
 absolute-cursor restore (without it, every later relative-positioned
-frame lands on the wrong rows). `SUBSHELL_ATTACH_DEBUG=1` dumps real
+frame lands on the wrong rows), and the mode statement every capture
+LEADS with (the pane app's alt-screen/mouse DECSETs, authoritative h/l
+per live tmux flags; `""` means UNKNOWN, never "all off";
+`TmuxRunner.paneModePreamble`). `SUBSHELL_ATTACH_DEBUG=1` dumps real
 screen contents to world-readable files: off by default, never swept.
 
 **Read `apps/server/api/docs/ws-attach.md` first: the full invariants,

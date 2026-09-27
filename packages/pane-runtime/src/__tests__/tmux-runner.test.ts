@@ -981,6 +981,127 @@ echo "server exited unexpectedly" >&2; exit 1
       }
     });
   });
+
+  describe("capturePane leads with an authoritative mode statement", () => {
+    /**
+     * A tmux stub that answers exactly the two commands `capturePane` issues
+     * (`display-message` for the mode flags, `capture-pane` for the grid),
+     * each body deciding that command's stdout and exit. `echo` adds the
+     * trailing newline real tmux adds, which the preamble's read trims.
+     */
+    function modeStub(displayBody: string, captureBody: string, argvPath?: string): { dir: string; path: string } {
+      const dir = mkdtempSync(join(tmpdir(), "subshell-mode-"));
+      const path = join(dir, "tmux-stub");
+      const record = argvPath ? `printf '%s\\n' "$@" >> '${argvPath}'; ` : "";
+      writeFileSync(
+        path,
+        "#!/bin/sh\n" +
+          'for a in "$@"; do\n' +
+          `  if [ "$a" = "display-message" ]; then ${record}${displayBody} fi\n` +
+          `  if [ "$a" = "capture-pane" ]; then ${captureBody} fi\n` +
+          "done\nexit 0\n",
+        { mode: 0o755 },
+      );
+      return { dir, path };
+    }
+    const answer = (flags: string) => `echo '${flags}'; exit 0;`;
+    const GRID = "echo 'grid'; exit 0;";
+    const run = async (displayBody: string, captureBody: string) => {
+      const { dir, path } = modeStub(displayBody, captureBody);
+      try {
+        return await new TmuxRunner(path).capturePane("sock", "s1");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+
+    it("states all five modes, in order, as h or l per flag", async () => {
+      // The mapping was verified live on tmux 3.7c. This vector pins the
+      // DECODE side: `1:0:1:0:1` has every adjacent pair different, so a
+      // swap of two decsets entries or an off-by-one in the positional
+      // read changes the exact string (`1:0:0:1:1`, the shape a Claude
+      // Code 2.1.283 pane measured, could not see a standard/button
+      // swap). The stub answers without reading the format string, so
+      // the QUERY side is the verbatim argv pin that follows.
+      expect(await run(answer("1:0:1:0:1"), GRID)).toBe(
+        "\x1b[?1049h\x1b[?1000l\x1b[?1002h\x1b[?1003l\x1b[?1006hgrid\n",
+      );
+    });
+
+    it("queries the flags in the decoded order: the format string, verbatim", async () => {
+      // Tokens are read POSITIONALLY, so the order of the variables in
+      // the format string is part of the contract, and the stub cannot
+      // catch its reordering: a swapped or "alphabetized" pair would
+      // misannounce 1000/1002/1003 to every client with every other test
+      // green (the precedent: the tmux 3.4 format-variable history
+      // narrated in `SESSION_LIVENESS_FORMAT`, tmux-runner.ts). Pinned
+      // argv, the pipePane tests' shape.
+      const marks = join(tmpdir(), `subshell-mode-argv-${process.pid}-${Date.now()}.txt`);
+      const { dir, path } = modeStub(answer("0:0:0:0:0"), GRID, marks);
+      try {
+        await new TmuxRunner(path).capturePane("sock", "s1");
+        expect((await Bun.file(marks).text()).trim().split("\n")).toEqual([
+          "-L",
+          "sock",
+          "display-message",
+          "-t",
+          "s1",
+          "-p",
+          "#{alternate_on}:#{mouse_standard_flag}:#{mouse_button_flag}:#{mouse_all_flag}:#{mouse_sgr_flag}",
+        ]);
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+        rmSync(marks, { force: true });
+      }
+    });
+
+    it("answers an all-off pane too: the l forms are the point", async () => {
+      // Silence here would strand a poll-path client in a mode the app has
+      // dropped; the full statement is idempotent no-ops for a fresh one.
+      expect(await run(answer("0:0:0:0:0"), GRID)).toBe(
+        "\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006lgrid\n",
+      );
+    });
+
+    it("stays SILENT, not all-off, when a flag did not answer", async () => {
+      // A tmux too old for one variable yields an empty token; inventing an
+      // OFF there would let a poll re-send CLEAR a mode the client learned
+      // from live bytes. Unknown must mean no statement at all. `"01"`
+      // pins strict equality over truthiness: a `tokens[i] &&`-style
+      // refactor would read it as ON.
+      expect(await run(answer("1::0:1:1"), GRID)).toBe("grid\n");
+      expect(await run(answer("1:01:0:1:1"), GRID)).toBe("grid\n");
+      expect(await run(answer("garbage"), GRID)).toBe("grid\n");
+    });
+
+    it("a display-message failure costs the statement, never the capture", async () => {
+      // tmux ANSWERING "no" (or nothing usable) about modes still ships the
+      // grid byte-for-byte: losing the decoration is no reason to lose the
+      // capture it decorates.
+      expect(await run("echo 'no pane' >&2; exit 1;", GRID)).toBe("grid\n");
+    });
+
+    it("capture-pane still throws when IT fails", async () => {
+      // paneModePreamble swallows; capturePane must not. captureStable's
+      // null handling and the booting attach's 4004 refusal read the throw.
+      await expect(run(answer("0:0:0:0:0"), "echo 'no server' >&2; exit 1;")).rejects.toThrow(/no server/);
+    });
+
+    it("gives up on the mode read at its own 2.5 s deadline", async () => {
+      // The hardcoded cap is production wiring, same class as the
+      // TMUX_COMMAND_TIMEOUT_MS pin above: the preamble must never double
+      // an attach's wait on a wedged tmux. The stub answers modes only after
+      // 5 s; the run must end on the 2.5 s cap, silent, with the capture
+      // delivered.
+      const started = Date.now();
+      const out = await run("sleep 5; echo '0:0:0:0:0'; exit 0;", GRID);
+      const elapsed = Date.now() - started;
+      expect(out).toBe("grid\n");
+      expect(elapsed).toBeGreaterThanOrEqual(2_400);
+      expect(elapsed).toBeLessThan(4_900);
+    });
+  });
+
   /**
    * `remain-on-exit` makes a finished pane OBSERVABLE (spec 2026-09-19 §4.3),
    * and that changes what `has-session` means — so `hasSubshell` must not use
