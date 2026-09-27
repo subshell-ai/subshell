@@ -1,6 +1,6 @@
 import { apiFetch } from "@internal/node-admin";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { SUBSHELL_WORKSPACES_QUERY_KEY } from "@/lib/query-keys";
+import { SUBSHELL_WORKSPACES_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import type { WorkspaceRow } from "@/types/workspace";
 
 /** Query key for the caller's workspaces, shared by every mutation site. */
@@ -40,6 +40,13 @@ export function useInvalidateWorkspaces(): () => Promise<void> {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: WORKSPACES_QUERY_KEY }),
       queryClient.invalidateQueries({ queryKey: SUBSHELL_WORKSPACES_QUERY_KEY }),
+      // And the OPEN detail: a Delete from the rail (or any other surface)
+      // must reach the page standing on that workspace — the detail query is
+      // what it renders, and nothing else re-reads it (operator bug
+      // 2026-09-27: deleting the workspace you are standing in left the
+      // page rendering the dead one's cached detail forever, exactly the
+      // subshell page's earlier half of the same bug).
+      queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY }),
     ]);
   };
 }

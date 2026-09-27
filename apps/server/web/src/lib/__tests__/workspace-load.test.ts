@@ -10,6 +10,13 @@ describe("workspaceLoad", () => {
     expect(workspaceLoad({ isLoading: true, detail: undefined, error: null })).toBe("loading");
   });
 
+  // Operator ruling 2026-09-27: a 404 that lands ON the cached detail is the
+  // server's word "gone" (deleted from the rail / another tab / another
+  // device), not the blip regression #9 protects — the route leaves on it.
+  it("says deleted when a 404 lands on a cached detail", () => {
+    expect(workspaceLoad({ isLoading: false, detail, error: new ApiError(404, "gone") })).toBe("deleted");
+  });
+
   // Regression #9: an outage is the absence of an answer, not a deletion.
   it("holds loading while the server is unreachable (no answer at all)", () => {
     expect(workspaceLoad({ isLoading: false, detail: undefined, error: net })).toBe("loading");

@@ -1,12 +1,13 @@
 import { ApiError, Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from "@internal/node-admin";
-import { createFileRoute, Link, useParams } from "@tanstack/react-router";
-import { useCallback, useMemo, useRef } from "react";
+import { createFileRoute, Link, useNavigate, useParams } from "@tanstack/react-router";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { WorkspaceDock } from "@/components/workspace-dock";
 import { WorkspaceTabs } from "@/components/workspace-tabs";
 import { useDiscardThinDraft } from "@/hooks/use-discard-thin-draft";
 import { useIsWide } from "@/hooks/use-is-wide";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { createIntentClaim } from "@/lib/intent-claim";
+import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
 import { workspaceLoad } from "@/lib/workspace-load";
 import { parseSplitIntent } from "@/lib/workspace-split-intent";
 
@@ -35,6 +36,7 @@ export const Route = createFileRoute("/workspaces_/$id")({
 function WorkspaceDetailPage() {
   const { id } = useParams({ from: "/workspaces_/$id" });
   const search = Route.useSearch();
+  const navigate = useNavigate();
   // Memoized so the two effects that consume it (the dock's add, the
   // auto-discard below) see a stable value and run when the URL changes,
   // rather than on every poll-driven render.
@@ -54,9 +56,22 @@ function WorkspaceDetailPage() {
   // Soft-keyboard pinning is the shell's job (`__root.tsx`); `h-full` below
   // resolves against the already-pinned scroll container.
 
-  // Three "no detail" truths, kept apart (regression #9; the decision itself
-  // is the tested lib/workspace-load.ts predicate, not inline logic).
+  // Five truths, kept apart (regression #9; the decision itself is the tested
+  // lib/workspace-load.ts predicate, not inline logic).
   const load = workspaceLoad({ isLoading, detail, error });
+  // Deleted mid-view: leave for the subshell view the panes' rows still
+  // deserve — deleting the WORKSPACE never deletes the subshells in it, the
+  // pane rows just go (the operator's word: drop to the subshell-only view).
+  // The dock-focused pane first (the one on screen), else the first pane,
+  // else the workspaces list; the last-good detail keeps the dock painted
+  // until the navigation lands, exactly the one frame the predicate chose.
+  const focusedPaneId = useWorkspaceFocusedId();
+  useEffect(() => {
+    if (load !== "deleted" || !detail) return;
+    const home = detail.panes.find((p) => p.subshellId === focusedPaneId) ?? detail.panes[0];
+    if (home) void navigate({ to: "/subshells/$id", params: { id: home.subshellId }, replace: true });
+    else void navigate({ to: "/workspaces", replace: true });
+  }, [load, detail, focusedPaneId, navigate]);
   if (load === "loading") {
     return (
       <main className="mx-auto w-full max-w-2xl p-6">
