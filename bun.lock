@@ -122,7 +122,7 @@
     },
     "apps/node/agent": {
       "name": "@internal/node",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "dependencies": {
         "@clack/prompts": "1.8.1",
         "@internal/backend-errors": "workspace:*",
@@ -175,7 +175,7 @@
     },
     "apps/server/api": {
       "name": "@internal/server",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "dependencies": {
         "@better-auth/api-key": "1.7.1",
         "@better-auth/passkey": "1.7.1",
