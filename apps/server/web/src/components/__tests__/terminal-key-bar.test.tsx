@@ -134,6 +134,41 @@ describe("TerminalKeyBar", () => {
     expect(jumps).toBe(2);
   });
 
+  it("copy mode (suppressInput) hides input like readOnly does, without the permission claim", () => {
+    let jumps = 0;
+    render(
+      <TerminalKeyBar
+        disabled={false}
+        suppressInput
+        onBytes={() => {
+          throw new Error("copy mode must not offer byte keys");
+        }}
+        onPickImage={() => {
+          throw new Error("copy mode must not offer the image picker");
+        }}
+        onScrollTop={() => jumps++}
+        onScrollBottom={() => jumps++}
+      />,
+    );
+    // Exactly the scroll-only surface the viewer's bar is — the same shape,
+    // reached for the MODE rather than the permission.
+    expect(screen.queryByRole("toolbar", { name: "Terminal special keys" })).toBeNull();
+    expect(screen.getByRole("toolbar", { name: "Terminal scrolling" })).toBeDefined();
+    for (const b of KEY_BAR_BUTTONS) {
+      expect(screen.queryByRole("button", { name: b.aria })).toBeNull();
+    }
+    expect(screen.queryByRole("button", { name: "Attach image" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Scroll to top" }));
+    fireEvent.click(screen.getByRole("button", { name: "Scroll to bottom" }));
+    expect(jumps).toBe(2);
+  });
+
+  it("suppressInput left off keeps the full bar", () => {
+    render(<TerminalKeyBar disabled={false} suppressInput={false} onBytes={() => {}} />);
+    expect(screen.getByRole("toolbar", { name: "Terminal special keys" })).toBeDefined();
+    expect(screen.getByRole("button", { name: "Send Escape" })).toBeDefined();
+  });
+
   it("bottom-pads by HALF the home-indicator inset, both modes", () => {
     // The full inset read as a dead card band under the keys (operator:
     // "huge bottom padding"); half keeps the 44 pt buttons clear of the

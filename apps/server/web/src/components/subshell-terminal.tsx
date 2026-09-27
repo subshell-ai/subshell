@@ -5,6 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { RotateCcw, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
@@ -30,7 +31,14 @@ import {
   scrollbarReserve,
 } from "@/lib/terminal-geometry";
 import { isPasteChord } from "@/lib/terminal-keys";
-import { attachTouchScroll, attachWheelScroll, gateTouchKeyboard, isTouchUi } from "@/lib/terminal-touch-scroll";
+import {
+  attachCopyModeShield,
+  attachTouchScroll,
+  attachWheelScroll,
+  gateTouchKeyboard,
+  isTouchUi,
+} from "@/lib/terminal-touch-scroll";
+import { safeOpenTerminalUri } from "@/lib/terminal-url-open";
 import { isRetryableAttachClose, useSubshellWs } from "@/lib/use-subshell-ws";
 import type { SubshellView } from "@/types/subshell";
 import "@xterm/xterm/css/xterm.css";
@@ -296,6 +304,15 @@ export interface SubshellTerminalProps {
    * either: the badge shows only inside the diagnostics state (issue #243).
    */
   diagnosticsOverlay?: { nodeLabel: string | null } | null;
+  /**
+   * Copy mode (issue #242, touch): typing yields to selecting. While true —
+   * input is off (`disableStdin`, OR-ed with read-only), the gesture stack
+   * stands down for one-finger touches so the browser's long-press owns the
+   * grid, and a clean tap opens the URL under the finger. The subshell PAGE
+   * passes it (the per-device preference behind the actions-menu toggle,
+   * offered on touch surfaces only); the workspace dock never does.
+   */
+  copyMode?: boolean;
   /** Extra buttons for the exited panel's action row (e.g. Edit preset). */
   extraActions?: ReactNode;
 }
@@ -365,6 +382,7 @@ export function SubshellTerminal({
   deleting = false,
   diagnostics = null,
   diagnosticsOverlay = null,
+  copyMode = false,
   extraActions,
 }: SubshellTerminalProps) {
   // The pane box. The terminal's own container is pinned to the pane's grid
@@ -536,6 +554,16 @@ export function SubshellTerminal({
   // Current status, readable from the WS callbacks without closing over the
   // render they were created in.
   const statusRef = useRef(status);
+  // A `view` grantee watches the pane but cannot type (spec §4.1) — and
+  // copy mode must not silently re-arm input for one when it lifts.
+  const readOnly = subshell?.access === "view";
+  // Copy mode and read-only are read through refs by the gesture stack, the
+  // shield and the terminal-creation posture: all are attached once per
+  // terminal, and toggling the mode must not re-attach anything (issue #242).
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+  const copyModeRef = useRef(copyMode);
+  copyModeRef.current = copyMode;
   // Writes to the live socket. Kept behind a ref so the mount effect below
   // never has to read the socket itself (which would make it a dependency and
   // re-create the terminal on every reconnect); it is re-pointed at the
@@ -582,6 +610,27 @@ export function SubshellTerminal({
     serializeRef.current = serialize;
     const searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
+    // URLs in pane output become links (issue #242), opened ONLY with
+    // ctrl/cmd held (measured 2026-09-26 in the installed bundles: core
+    // `LinkManager._handleMouseUp` has NO modifier gate and a plain
+    // click-then-release on one link fires `activate` — VS Code's
+    // "hold the modifier" posture therefore has to be enforced HERE, or
+    // every stray focus-click on printed output opens a tab). The opener is
+    // the one place a scheme gets decided — http(s) only — and `window.open`
+    // is deliberate: it is ALSO the only path the desktop shells'
+    // on_new_window handler sees (lib/desktop-links.ts), whose native
+    // scheme re-check stays the security boundary there; a plain browser
+    // gets a plain new tab. Ungated by access on purpose: reading a pane
+    // includes opening what it printed, and `disableStdin` does not touch
+    // the linkifier. Copy-mode taps are a separate path (they act on the
+    // MODE, so they need no modifier). Accepted limitation, true of xterm
+    // link handling everywhere: a pane running a mouse-reporting app (tmux)
+    // may consume some of the clicks before the linkifier sees them.
+    term.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        if (event.ctrlKey || event.metaKey) safeOpenTerminalUri(uri);
+      }),
+    );
     // NO renderer addon — xterm 6's own DOM renderer, deliberately (2026-09-04).
     // `@xterm/addon-canvas` is out for good: every release through
     // 0.8.0-beta.48 peer-requires `@xterm/xterm@^5`, and its last publish was
@@ -608,16 +657,27 @@ export function SubshellTerminal({
     term.open(containerRef.current);
     fit.fit();
     termRef.current = term;
+    // A freshly-built terminal starts at the current posture; the effect
+    // beside the WS hook owns every later change, and both write the same
+    // OR so the two never disagree (issue #242).
+    term.options.disableStdin = readOnlyRef.current || copyModeRef.current;
     // iPhone/iPad: xterm's own touchmove preventDefault kills the CSS pan
     // (see lib/terminal-touch-scroll.ts); this drives line-scroll instead.
-    const detachTouchScroll = attachTouchScroll(term, containerRef.current);
+    // Copy mode is read live per event — toggling it never re-attaches.
+    const detachTouchScroll = attachTouchScroll(term, containerRef.current, isTouchUi, () => copyModeRef.current);
     // iPad Magic Keyboard: the trackpad emits wheel, not touch — and xterm
     // only consumes wheel when the inner app asks for mouse reporting, so an
     // unconsumed one scrolls the PWA shell. Bridge it to the buffer.
     const detachWheelScroll = attachWheelScroll(term, containerRef.current);
     // Tap = type (keyboard), swipe/scrollbar-drag = read (no keyboard) —
     // see lib/terminal-touch-scroll.ts for why xterm needs un-focusing.
-    const detachTouchKeyboard = gateTouchKeyboard(term, containerRef.current);
+    const detachTouchKeyboard = gateTouchKeyboard(term, containerRef.current, isTouchUi, () => copyModeRef.current);
+    // Copy mode's shield (issue #242): while the mode is ON, single-finger
+    // grid gestures are stopped short of xterm so the browser's long-press
+    // selection can own them, and a clean tap opens the URL under the
+    // finger. Inert while the mode is off — which is why it can be attached
+    // unconditionally and needs no lifecycle of its own beyond the terminal.
+    const detachCopyShield = attachCopyModeShield(term, containerRef.current, () => copyModeRef.current);
 
     // Shift+Enter must insert a newline at the harness prompt (Claude Code
     // reads ESC+CR — the very sequence its /terminal-setup keybinding emits
@@ -789,6 +849,7 @@ export function SubshellTerminal({
       detachTouchScroll();
       detachWheelScroll();
       detachTouchKeyboard();
+      detachCopyShield();
       if (vv) {
         vv.removeEventListener("resize", repairCursorVisibility);
         vv.removeEventListener("scroll", repairCursorVisibility);
@@ -871,7 +932,7 @@ export function SubshellTerminal({
       },
     },
     // A `view` grantee watches the pane but cannot type (spec §4.1).
-    subshell?.access === "view",
+    readOnly,
     // Re-fit before the attach URL commits to a grid size.
     measureGrid,
     // ...and announce the VIEWPORT's capacity rather than the pinned grid, so
@@ -894,6 +955,27 @@ export function SubshellTerminal({
     setHudViewers(null);
     onViewersRef.current?.(null);
   }, [active, emitStatus]);
+
+  // Copy mode's INPUT half (issue #242): typing and selecting are mutually
+  // exclusive on a phone. The WS hook writes `disableStdin = readOnly` from
+  // its own effect — ONCE per effect run (deps [terminalRef, subshellId,
+  // readOnly, measure]), not per attach: connect() never touches the option
+  // (checked against the hook, 2026-09-26). That effect is declared first,
+  // so in any commit where both re-run this one restates the OR last and
+  // wins. subshellId is in THESE deps so the OR is restated on a pane-swap
+  // too without leaning on the caller's remount key: `SubshellPane` forwards
+  // copyMode, so a future host that changes subshells in place must not get
+  // a copy mode with the keyboard dismissed but stdin re-armed by the hook
+  // alone. Leaving the mode hands the value back to the hook's rule exactly.
+  // Entering the mode dismisses the keyboard the terminal may be holding
+  // focus with.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fire-on-change effect, subshellId is deliberately the trigger (restate the OR on an in-place pane swap), not a read
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term) return;
+    term.options.disableStdin = readOnly || copyMode;
+    if (copyMode) term.textarea?.blur();
+  }, [readOnly, copyMode, subshellId]);
 
   // Typed bytes from the caller's handles (key bar, custom keys) ride the same
   // queue the hook's own onData path uses: engaged, they are tracked and
@@ -942,8 +1024,14 @@ export function SubshellTerminal({
               known (and forever for panes whose size cannot be read), and
               then this is exactly the old fill-the-box layout. */}
           <div ref={outerRef} className="flex h-full w-full items-center justify-center overflow-hidden">
+            {/* `copy-mode` is the CSS half of issue #242 — the `.copy-mode`
+                rules in styles.css (inside `@media (pointer: coarse)`) hand
+                the grid's touch pipeline back to the browser and make its
+                text selectable; the gesture stand-down lives in
+                lib/terminal-touch-scroll.ts. */}
             <div
               ref={containerRef}
+              className={copyMode ? "copy-mode" : undefined}
               style={
                 letterbox
                   ? { width: `${letterbox.width}px`, height: `${letterbox.height}px`, flex: "none" }

@@ -39,6 +39,12 @@ export interface SubshellPaneProps {
   onReady?: (handles: SubshellTerminalHandles) => void;
   /** Forwarded to the underlying `SubshellTerminal`'s `onDispose`. */
   onDispose?: () => void;
+  /**
+   * Forwarded to the underlying `SubshellTerminal`'s copy mode (issue 242).
+   * The workspace dock NEVER passes it — copy mode is the detail page's
+   * per-subshell toggle, and a dock pane has no menu of its own to offer one.
+   */
+  copyMode?: boolean;
 }
 
 /**
@@ -57,6 +63,7 @@ export function SubshellPane({
   onRemovePane,
   onReady,
   onDispose,
+  copyMode,
 }: SubshellPaneProps) {
   const exited = pane.subshellStatus === "running" && !pane.subshellAlive;
   const gone = exited || pane.subshellStatus === "terminated";
@@ -175,6 +182,7 @@ export function SubshellPane({
       onDispose={handleDispose}
       onStatusChange={(status) => setConnected(status.connected)}
       onViewers={setViewers}
+      copyMode={copyMode}
     />
   );
 

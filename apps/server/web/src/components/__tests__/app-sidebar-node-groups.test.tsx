@@ -557,4 +557,31 @@ describe("the cross-agent comms section (operator ask 2026-09-25)", () => {
       expect(document.querySelector("button[aria-controls='sidebar-node-group-cross-agent']")).toBeNull();
     });
   });
+
+  it("sits ABOVE the machine groups, under the Needs Attention spotlight (operator ask 2026-09-26)", async () => {
+    await withRail(
+      [
+        subshell({ id: "a", name: "needs-me", nodeId: "n1", unseenPush: true }),
+        subshell({ id: "h", name: "plain-work", nodeId: "local" }),
+        subshell({ id: "c", name: "helper-bot", crossAgent: true }),
+      ],
+      async () => {
+        await waitFor(() => expect(groupHeaders()).toHaveLength(3));
+        // Order is the whole assertion: comms is a section first, the machines
+        // after it. Nothing about the filter, the caps or the prefs moved.
+        const order = groupHeaders().map((h) => h.getAttribute("aria-controls"));
+        expect(order.indexOf("sidebar-node-group-cross-agent")).toBeLessThan(order.indexOf("sidebar-node-group-n1"));
+        expect(order.indexOf("sidebar-node-group-cross-agent")).toBeLessThan(order.indexOf("sidebar-node-group-local"));
+        // And directly under the spotlight: the Needs Attention section
+        // precedes every group header in the document.
+        const attention = document.querySelector('[aria-label="Needs Attention"]');
+        expect(attention).not.toBeNull();
+        for (const header of groupHeaders()) {
+          // Ask the EARLIER node where the header sits: a header after the
+          // spotlight carries DOCUMENT_POSITION_FOLLOWING.
+          expect(attention!.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        }
+      },
+    );
+  });
 });

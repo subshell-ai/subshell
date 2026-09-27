@@ -6,6 +6,7 @@ import {
   BellOff,
   Copy,
   ExternalLink,
+  Keyboard,
   QrCode,
   RotateCcw,
   Share2,
@@ -39,6 +40,7 @@ export function SubshellActionsMenu({
   disabled,
   onDeleted,
   diagnostics,
+  copyMode,
   children,
 }: {
   subshell: SubshellView;
@@ -54,12 +56,24 @@ export function SubshellActionsMenu({
    * per-device persistence; the menu only offers the act.
    */
   diagnostics?: { on: boolean; onToggle: () => void };
+  /**
+   * The copy-mode toggle (issue 242): exactly the diagnostics posture — the
+   * PAGE passes it, and only a TOUCH page (the menu adds no second gate),
+   * because copy mode is what lets a finger select the terminal text that a
+   * mouse has always been able to drag-select. A viewer act on the viewer's
+   * own screen, so it renders for `view` grantees too. Swap labels follow
+   * the bell pattern: the label names what pressing the item DOES.
+   */
+  copyMode?: { on: boolean; onToggle: () => void };
   /** When present: the menu opens on right-click of this subtree instead of
    * behind a ⋯ button — the sidebar's recent rows (spec 2026-09-03). */
   children?: ReactNode;
 }): ReactNode {
-  // ReactNode, not JSX.Element | null: the viewer's no-menu path returns the
-  // caller's children verbatim (whatever element — or elements — they are).
+  // ReactNode, not JSX.Element | null: the zero-item path returns the
+  // caller's children verbatim (whatever element, or elements, they are).
+  // Since issue 242 this is a defense, not the viewer's route: a `view`
+  // grantee gets the menu and the always-present QR item, and the per-item
+  // gates below are what keep the managing acts out of reach.
   const [titleOpen, setTitleOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
@@ -70,9 +84,10 @@ export function SubshellActionsMenu({
     onDeleted,
   });
   // Access drives which actions exist (spec 2026-08-31 §4.1): `view` can read
-  // and watch only (so the menu itself is absent), `edit` interacts and manages
-  // (title, restart), and only the `owner` may ring the bell, clone,
-  // manage sharing, or close. A viewer has nothing to do here.
+  // and watch, `edit` interacts and manages (title, restart), and only the
+  // `owner` may ring the bell, clone, manage sharing, or close. A `view`
+  // grantee still gets a MENU (issue 242): the viewer-side items — QR, copy
+  // mode, diagnostics — act on this viewer's own screen, not on the subshell.
   // Lifecycle shrank with the Close rename (spec 2026-09-03): no Terminate
   // (Close subsumes it) and no title-pin toggle (a rename IS the pin).
   const canEdit = subshell.access !== "view";
@@ -113,9 +128,9 @@ export function SubshellActionsMenu({
     // gets into the browser the person actually uses; both apps grant the one
     // command it calls.
     //
-    // It is not gated beyond the menu's own `canEdit`, and it does not need to
-    // be: it opens the SAME page the menu was opened from, whose own access
-    // check the server does on arrival. A `view` grantee has no menu at all.
+    // Not gated by access, and it does not need to be (issue 242 made this
+    // reachable for a `view` grantee too): it opens the SAME page the menu
+    // was opened from, whose own access check the server does on arrival.
     //
     // `sidebar: true`, so the rail's right-click menu on a recent row carries
     // it too — which is where "open this one elsewhere" is most often wanted.
@@ -132,10 +147,11 @@ export function SubshellActionsMenu({
     // Beside "Open in browser", because it is the same act with a further
     // destination — the QR carries this subshell's own path on an address the
     // instance will actually accept, which is the half a uuid in the URL bar
-    // does not solve. Ungated beyond the menu's `canEdit` for that item's
-    // reason: it opens the SAME page, whose access the server checks on
-    // arrival, and a `view` grantee has no menu at all. `sidebar: true` so the
-    // rail's right-click menu carries it too.
+    // does not solve. Ungated by access for that item's reason: it opens the
+    // SAME page, whose access the server checks on arrival — which is exactly
+    // why it is worth showing to a `view` grantee, for whom it is how this
+    // same page reaches a second screen. `sidebar: true` so the rail's
+    // right-click menu carries it too.
     { icon: QrCode, label: "QR code…", sidebar: true, onSelect: () => setQrOpen(true) },
     // Page-only (see the prop's doc): toggles the pane diagnostics overlay on
     // THIS view. A toggle, not an act on the subshell, so it is checkable
@@ -143,6 +159,18 @@ export function SubshellActionsMenu({
     // because a rail row has no terminal under it to diagnose.
     ...(diagnostics
       ? [{ icon: Activity, label: "Diagnostics", checked: diagnostics.on, onSelect: diagnostics.onToggle }]
+      : []),
+    // Copy mode (issue 242), the diagnostics posture again: page-and-touch
+    // only (the prop's presence is the whole gate). The bell's swap-label
+    // pattern — each state names what the NEXT press does — and no check
+    // mark, because the two labels already are the state. Not `sidebar:
+    // true`: a rail row has no terminal to put into copy mode.
+    ...(copyMode
+      ? [
+          copyMode.on
+            ? { icon: Keyboard, label: "Enable text input", onSelect: copyMode.onToggle }
+            : { icon: Copy, label: "Enable text copying", onSelect: copyMode.onToggle },
+        ]
       : []),
     // Owner-only: the bell decides whether THIS subshell pushes to the owner's
     // devices, so it is theirs to set regardless of who else can act on it.
@@ -219,10 +247,13 @@ export function SubshellActionsMenu({
       : []),
   ];
 
-  // A viewer gets no actions menu at all — they watch the subshell (read-only
-  // terminal) and that is the whole of it. In children mode "no menu" must
-  // still show the row itself, so the children pass through unwrapped.
-  if (!canEdit) return children ? children : null;
+  // The menu renders for EVERY access level (issue 242): the per-item gates
+  // above are what enforce §4.1, and a `view` grantee has viewer-side acts —
+  // QR, copy mode, diagnostics — that act on this viewer's screen rather
+  // than on the subshell. An item list that came out empty is still no menu:
+  // in children mode the row must show unwrapped, exactly as the viewer's
+  // old always-bare path did.
+  if (items.length === 0) return children ? children : null;
 
   return (
     <>

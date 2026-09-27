@@ -277,6 +277,21 @@ body {
   .xterm .xterm-screen {
     touch-action: none;
   }
+  /* Copy mode (issue #242): the finger SELECTS the grid instead of swiping
+     it — the JS stand-down lives in lib/terminal-touch-scroll.ts and this is
+     the compositor-declared half of that contract. `touch-action: auto`
+     hands the gesture pipeline back to the browser, which long-press
+     selection needs to begin; a stray single-finger pan is the accepted cost
+     of the mode. `user-select: text` is the other half: with it off, no
+     engine selects what it hit-tests to. The grid is DOM-rendered on purpose
+     (see components/subshell-terminal.tsx), so the visible rows ARE the
+     selectable text. The viewport's `overscroll-behavior: contain` below
+     stays in force: a selection drag must never hand momentum to the shell. */
+  .copy-mode .xterm .xterm-screen {
+    touch-action: auto;
+    user-select: text;
+    -webkit-user-select: text;
+  }
   .xterm .xterm-viewport {
     overscroll-behavior: contain;
   }

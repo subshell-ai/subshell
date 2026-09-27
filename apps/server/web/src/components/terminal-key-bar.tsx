@@ -77,6 +77,15 @@ export interface TerminalKeyBarProps {
    * scroll buttons — and no byte keys or image picker.
    */
   readOnly?: boolean;
+  /**
+   * Copy mode (issue 242): input controls suppressed for the MODE, not the
+   * permission. A pane in copy mode has declared "typing yields to
+   * selecting", and a byte row one tap away would contradict that.
+   * Deliberately NOT folded into {@link readOnly}, which names an access
+   * level — the bar hides input when EITHER says so, and the two reasons
+   * stay distinguishable to whoever reads this later.
+   */
+  suppressInput?: boolean;
 }
 
 const BUTTON_CLASS =
@@ -94,7 +103,8 @@ const BUTTON_CLASS =
  * hidden textarea) when a button is tapped — a native button would take
  * focus, and xterm stops routing keystrokes once its textarea is blurred,
  * so the next hardware key would go missing. `click` still fires normally.
- * In {@link readOnly} mode only the scroll row renders.
+ * In {@link readOnly} or {@link suppressInput} mode only the scroll row
+ * renders — the same scroll-only shape, reached by permission or by mode.
  *
  * The bottom padding is HALF the home-indicator inset, not all of it. The
  * indicator's VISUAL sits in roughly the bottom 15 pt (the ~21 pt below
@@ -111,7 +121,11 @@ export function TerminalKeyBar({
   onScrollTop,
   onScrollBottom,
   readOnly = false,
+  suppressInput = false,
 }: TerminalKeyBarProps) {
+  // The input half stands down for either reason: a permission (`view`) or
+  // the copy-mode flag. The scroll row is reading, so it always stays.
+  const inputless = readOnly || suppressInput;
   const scrollButtons = (
     <>
       {onScrollTop && (
@@ -140,7 +154,7 @@ export function TerminalKeyBar({
   );
   const trailingActions: ReactNode = (
     <>
-      {!readOnly && onPickImage && (
+      {!inputless && onPickImage && (
         <button
           type="button"
           disabled={disabled}
@@ -156,7 +170,7 @@ export function TerminalKeyBar({
     </>
   );
 
-  if (readOnly) {
+  if (inputless) {
     return (
       <div
         role="toolbar"
