@@ -6,6 +6,8 @@ import {
   ChevronDown,
   ChevronLeft,
   ExternalLink,
+  Eye,
+  EyeOff,
   KeyRound,
   LayoutDashboard,
   type LucideIcon,
@@ -28,18 +30,26 @@ import { AboutDialog } from "@/components/about-dialog";
 import { MobileInstallDialog } from "@/components/mobile-install-dialog";
 import { useQuickAdd } from "@/components/quick-add";
 import { RailSubshells } from "@/components/sidebar/rail-subshells";
+import { WorkspacesSection } from "@/components/sidebar/workspaces-section";
+import { TippedIconButton } from "@/components/tipped-icon-button";
 import { UserMenu } from "@/components/user-menu";
-import { WorkspaceActionsMenu } from "@/components/workspace-actions-menu";
 import { useClockTick } from "@/hooks/use-clock-tick";
 import { usePublicSettings } from "@/hooks/use-public-settings";
-import { useWorkspaces } from "@/hooks/use-workspaces";
 import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
 import { desktopInvoke, isDesktop, onDesktopAction } from "@/lib/desktop";
-import { recentWorkspaceLinks } from "@/lib/sidebar-recents";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 
 /** localStorage key for the collapsed state (persists across reloads). */
 const COLLAPSED_KEY = "subshell.sidebarCollapsed";
+
+/**
+ * localStorage key for the sections a person has HIDDEN with their eye toggle
+ * (operator ask 2026-09-27): a JSON object of `{ [sectionId]: true }`, so a long
+ * Subshells or Workspaces list can be folded out of the way and the sections
+ * below it reached. Only the TRUE entries are stored — an absent section is
+ * shown — so the value stays small and a newly-added nav section defaults open.
+ */
+const HIDDEN_SECTIONS_KEY = "subshell.sidebarHiddenSections";
 
 /** Sidebar item: route target + icon. */
 export interface NavItem {
@@ -170,16 +180,6 @@ export function groupOpen(override: boolean | undefined, childActive: boolean): 
   return override ?? childActive;
 }
 
-/** Classes for a "recent" sub-link: a compact row under its nav item. */
-function recentClass(active: boolean): string {
-  return cn(
-    "block truncate rounded-md py-1 pr-3 pl-10 text-detail transition-colors",
-    active
-      ? "font-strong text-accent-foreground"
-      : "text-muted-foreground hover:bg-accent/50 hover:text-accent-foreground",
-  );
-}
-
 /**
  * Persistent left navigation for the app shell, rendered in the root layout
  * beside the page outlet. Collapses to an icon rail (chevron in the top
@@ -259,12 +259,6 @@ export function AppSidebar({
   // settings-split §4) — the same cached query the emergency banner /
   // Add-node dialog use.
   const { data: publicSettings } = usePublicSettings();
-  // "Recent" sub-lists under Subshells / Workspaces — the quick jump that the
-  // subshell page's switcher strip used to offer. Same query keys as the home
-  // page, so every mutation and the page's polling keep these current; shown
-  // only while the rail is expanded.
-  const { data: workspaces } = useWorkspaces();
-  const recentWorkspaces = recentWorkspaceLinks(workspaces);
   // The About dialog the user menu raises. Held here rather than in the menu
   // because choosing an item closes the menu, which would take the dialog
   // with it.
@@ -279,6 +273,53 @@ export function AppSidebar({
   // losing the typed text across a collapse. Persistence is the parent's job.
   const filterRef = useRef<HTMLInputElement>(null);
   const [subshellQuery, setSubshellQuery] = useState("");
+  // Sections folded away by their eye toggle (operator ask 2026-09-27). A person
+  // hides Subshells or Workspaces so the sections BELOW them stay reachable when
+  // the list is long. Per-DEVICE, like the collapse preference; only true entries
+  // persist, so an absent section reads shown.
+  const [hiddenSections, setHiddenSections] = useState<Record<string, boolean>>(() => {
+    try {
+      const raw = localStorage.getItem(HIDDEN_SECTIONS_KEY);
+      const parsed: unknown = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, boolean>) : {};
+    } catch {
+      return {};
+    }
+  });
+  const persistHidden = useCallback((next: Record<string, boolean>) => {
+    try {
+      localStorage.setItem(HIDDEN_SECTIONS_KEY, JSON.stringify(next));
+    } catch {
+      // storage unavailable (private mode) — the toggle still works this session
+    }
+  }, []);
+  const toggleSectionHidden = useCallback(
+    (id: string) => {
+      setHiddenSections((prev) => {
+        const next = { ...prev };
+        if (next[id]) delete next[id];
+        else next[id] = true;
+        persistHidden(next);
+        return next;
+      });
+    },
+    [persistHidden],
+  );
+  // Forces a section SHOWN (never toggles), so ⌘F can reveal a hidden rail
+  // before it tries to focus the filter inside it.
+  const revealSection = useCallback(
+    (id: string) => {
+      setHiddenSections((prev) => {
+        if (!prev[id]) return prev;
+        const next = { ...prev };
+        delete next[id];
+        persistHidden(next);
+        return next;
+      });
+    },
+    [persistHidden],
+  );
+  const isSectionHidden = (id: string) => hiddenSections[id] === true;
   const [collapsedState, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(COLLAPSED_KEY) === "1";
@@ -354,12 +395,16 @@ export function AppSidebar({
           // ⌘F was a silent no-op on a collapsed rail — the one state where a
           // user is most likely to reach for it.
           else {
+            // Reveal the rail both ways it might be out of view — the whole-
+            // sidebar collapse, and this section's own eye — before waiting for
+            // the input to mount.
             setFocusFilterWhenOpen(true);
             setCollapsed(false);
+            revealSection("subshells");
           }
         }
       }),
-    [toggle],
+    [toggle, revealSection],
   );
 
   useEffect(() => {
@@ -525,35 +570,69 @@ export function AppSidebar({
                   2026-09-03). */}
               <div className="relative">
                 {navLink(item, false)}
+                {/* Each of these two sections carries an EYE (operator ask
+                    2026-09-27) that folds its whole list away, so a long
+                    Subshells/Workspaces list cannot push the sections below out
+                    of reach. It sits left of the section's +. */}
                 {!collapsed && item.to === "/workspaces" && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="New workspace"
-                    title="New workspace"
-                    className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
-                    onClick={() => {
-                      quickAdd.openNewWorkspace();
-                      onQuickAdd?.();
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </Button>
+                  <>
+                    <TippedIconButton
+                      tooltip="New workspace"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
+                      onClick={() => {
+                        quickAdd.openNewWorkspace();
+                        onQuickAdd?.();
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </TippedIconButton>
+                    <TippedIconButton
+                      tooltip={isSectionHidden("workspaces") ? "Show workspaces" : "Hide workspaces"}
+                      variant="ghost"
+                      size="icon"
+                      aria-pressed={isSectionHidden("workspaces")}
+                      className="absolute top-1/2 right-8 h-6 w-6 -translate-y-1/2 text-muted-foreground"
+                      onClick={() => toggleSectionHidden("workspaces")}
+                    >
+                      {isSectionHidden("workspaces") ? (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5" />
+                      )}
+                    </TippedIconButton>
+                  </>
                 )}
                 {!collapsed && item.to === "/" && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="New subshell"
-                    title="New subshell"
-                    className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
-                    onClick={() => {
-                      quickAdd.openLaunch();
-                      onQuickAdd?.();
-                    }}
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </Button>
+                  <>
+                    <TippedIconButton
+                      tooltip="New subshell"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-1/2 right-1 h-6 w-6 -translate-y-1/2 text-muted-foreground"
+                      onClick={() => {
+                        quickAdd.openLaunch();
+                        onQuickAdd?.();
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </TippedIconButton>
+                    <TippedIconButton
+                      tooltip={isSectionHidden("subshells") ? "Show subshells" : "Hide subshells"}
+                      variant="ghost"
+                      size="icon"
+                      aria-pressed={isSectionHidden("subshells")}
+                      className="absolute top-1/2 right-8 h-6 w-6 -translate-y-1/2 text-muted-foreground"
+                      onClick={() => toggleSectionHidden("subshells")}
+                    >
+                      {isSectionHidden("subshells") ? (
+                        <EyeOff className="h-3.5 w-3.5" />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5" />
+                      )}
+                    </TippedIconButton>
+                  </>
                 )}
               </div>
               {/* The whole subshell section — mode control, filter, the
@@ -564,31 +643,19 @@ export function AppSidebar({
                   and the query outlives it (see its prop JSDoc). It stays
                   hidden exactly where it always was: collapsed has no room
                   for any of it. */}
-              {!collapsed && item.to === "/" && (
-                <RailSubshells filterRef={filterRef} query={subshellQuery} onQueryChange={setSubshellQuery} />
+              {/* A little air between a SELECTED nav pill and the list under it,
+                  so the highlight's bottom edge does not sit flush on the first
+                  row (operator ask 2026-09-27). Only while the item is the
+                  active route — an unselected pill carries no fill to separate. */}
+              {!collapsed && item.to === "/" && !isSectionHidden("subshells") && (
+                <div className={location.pathname === "/" ? "mt-1.5" : undefined}>
+                  <RailSubshells filterRef={filterRef} query={subshellQuery} onQueryChange={setSubshellQuery} />
+                </div>
               )}
-              {!collapsed &&
-                item.to === "/workspaces" &&
-                recentWorkspaces.map((r) => {
-                  const full = workspaces?.find((w) => w.id === r.id);
-                  const row = (
-                    <Link
-                      key={r.id}
-                      to="/workspaces/$id"
-                      params={{ id: r.id }}
-                      className={recentClass(location.pathname === `/workspaces/${r.id}`)}
-                    >
-                      {r.label}
-                    </Link>
-                  );
-                  return full ? (
-                    <WorkspaceActionsMenu key={r.id} workspace={full}>
-                      {row}
-                    </WorkspaceActionsMenu>
-                  ) : (
-                    <Fragment key={r.id}>{row}</Fragment>
-                  );
-                })}
+              {/* The Workspaces rail body (search, Saved, Drafts) lives in its
+                  own component; it renders nothing when there is nothing to
+                  show, which is the same promise the old inline block made. */}
+              {!collapsed && item.to === "/workspaces" && !isSectionHidden("workspaces") && <WorkspacesSection />}
             </div>
           );
         })}

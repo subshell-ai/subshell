@@ -7,9 +7,10 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { AppSidebar } from "@/components/app-sidebar";
 import * as quickAdd from "@/components/quick-add";
+import { formatWorkspaceDate } from "@/lib/workspace-name";
 import { setFetchRouter } from "@/test-setup";
 import type { SubshellView } from "@/types/subshell";
 
@@ -66,7 +67,13 @@ function subshell(over: Partial<SubshellView> = {}): SubshellView {
  * is how the failed-REFRESH case (cache populated, refetch errors) is
  * distinguishable from the cold-failure case (nothing cached).
  */
-function stubFetch(subshells: SubshellView[], state: { failNodes: boolean } = { failNodes: false }): () => void {
+function stubFetch(
+  subshells: SubshellView[],
+  state: { failNodes: boolean } = { failNodes: false },
+  workspaces: unknown[] = [],
+  workspaceDetail?: unknown,
+  draftWorkspaces: unknown[] = [],
+): () => void {
   setFetchRouter(async (input: RequestInfo | URL) => {
     const url = String(typeof input === "string" || input instanceof URL ? input : input.url);
     if (state.failNodes && url.includes("/api/nodes")) {
@@ -79,34 +86,48 @@ function stubFetch(subshells: SubshellView[], state: { failNodes: boolean } = { 
       ? { viewerIsAdmin: false, instanceName: "Test plane" }
       : url.includes("get-session")
         ? { user: { id: "u1", name: "Theo", email: "theo@test" } }
-        : url.includes("/api/subshells")
-          ? subshells
-          : url.includes("/api/nodes")
-            ? {
-                nodes: [
-                  { id: "local", name: "Server", kind: "local" },
-                  { id: "n1", name: "mac-mini", kind: "agent" },
-                ],
-              }
-            : url.includes("/api/plugins")
-              ? { plugins: [{ id: "claude-code", name: "Claude Code" }] }
-              : [];
+        : // ?drafts=only (the rail's Drafts list) before the plain list, and the
+          // detail (…/workspaces/<id>) before the list too — the extra path/query
+          // segment is what tells the three reads apart.
+          url.includes("drafts=only")
+          ? draftWorkspaces
+          : url.includes("/api/workspaces/")
+            ? (workspaceDetail ?? { workspace: null, panes: [] })
+            : url.includes("/api/workspaces")
+              ? workspaces
+              : url.includes("/api/subshells")
+                ? subshells
+                : url.includes("/api/nodes")
+                  ? {
+                      nodes: [
+                        { id: "local", name: "Server", kind: "local" },
+                        { id: "n1", name: "mac-mini", kind: "agent" },
+                      ],
+                    }
+                  : url.includes("/api/plugins")
+                    ? { plugins: [{ id: "claude-code", name: "Claude Code" }] }
+                    : [];
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   });
   return () => setFetchRouter(null);
 }
 
 /** Renders the rail and hands back the QueryClient, so a test can force the
- * nodes refetch a live user would get from focus/reconnect/invalidation. */
-function renderRail(): { client: QueryClient } {
+ * nodes refetch a live user would get from focus/reconnect/invalidation.
+ * ASYNC on purpose: the rail mounts Base UI TooltipRoots (the eye, the +, the
+ * trashcan) that dispatch one store update a scheduled tick after commit, and
+ * a test that clicks and asserts without ever awaiting would leave that update
+ * to fire in the gap before the next hook — outside any acting scope. Draining
+ * a few turns inside act() right here settles every mount the same way. */
+async function renderRail(initialPath = "/"): Promise<{ client: QueryClient }> {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute({ component: () => <AppSidebar /> });
-  const children = ["/", "/workspaces", "/nodes", "/presets", "/settings", "/subshells/$id"].map((path) =>
-    createRoute({ getParentRoute: () => rootRoute, path, component: () => null }),
+  const children = ["/", "/workspaces", "/workspaces/$id", "/nodes", "/presets", "/settings", "/subshells/$id"].map(
+    (path) => createRoute({ getParentRoute: () => rootRoute, path, component: () => null }),
   );
   const router = createRouter({
     routeTree: rootRoute.addChildren(children),
-    history: createMemoryHistory({ initialEntries: ["/"] }),
+    history: createMemoryHistory({ initialEntries: [initialPath] }),
     defaultPreload: false,
   });
   render(
@@ -114,6 +135,11 @@ function renderRail(): { client: QueryClient } {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  await act(async () => {
+    for (let tick = 0; tick < 3; tick += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  });
   return { client };
 }
 
@@ -135,8 +161,19 @@ function groupList(nodeId: string): HTMLElement {
   return el;
 }
 
-afterEach(() => {
-  cleanup();
+afterEach(async () => {
+  // The rail mounts Base UI TooltipRoots (the eye, the +, the row and header
+  // reveals) that dispatch store updates on scheduled ticks after commit and
+  // after unmount. Doing the cleanup INSIDE act() and draining a few turns
+  // around it is the settle — the pattern mobile-install-dialog.test.tsx
+  // documents, widened here because the rail's tooltip work lands on both
+  // sides of the unmount.
+  await act(async () => {
+    cleanup();
+    for (let tick = 0; tick < 3; tick += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+  });
   localStorage.removeItem(PREF_KEY);
 });
 
@@ -153,7 +190,7 @@ const withRail = async (
     openNewWorkspace: () => {},
   });
   try {
-    const { client } = renderRail();
+    const { client } = await renderRail();
     await waitFor(() => expect(groupHeaders().length).toBeGreaterThan(0));
     await body({
       client,
@@ -274,6 +311,10 @@ describe("the rail's subshell list, grouped by node", () => {
       // The full id exists in the DOM nowhere else on the rail while shut —
       // finding it IS the popup.
       expect(await screen.findByText("gone-node-xyz")).toBeTruthy();
+      // Leave it SHUT: a tooltip still open when the test ends has its close
+      // dispatch land during the NEXT test's mount, outside any acting scope
+      // (the React act warning this line silences). Blur cancels it.
+      fireEvent.blur(groupHeader("gone-node-xyz"));
     });
   });
 
@@ -282,8 +323,12 @@ describe("the rail's subshell list, grouped by node", () => {
       await waitFor(() => expect(groupHeaders()).toHaveLength(1));
       fireEvent.focus(groupHeader("n1"));
       // Past the 300 ms open delay: still nothing. The header has no hover
-      // content, because its hover would say only "mac-mini" again.
-      await new Promise((r) => setTimeout(r, 450));
+      // content, because its hover would say only "mac-mini" again. The wait
+      // runs INSIDE act(): it is the one window where an unrelated tooltip's
+      // delayed mount update would otherwise land outside an acting scope.
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 450));
+      });
       expect(document.querySelector("[class*='text-body']")).toBeNull();
     });
   });
@@ -575,13 +620,301 @@ describe("the cross-agent comms section (operator ask 2026-09-25)", () => {
         // And directly under the spotlight: the Needs Attention section
         // precedes every group header in the document.
         const attention = document.querySelector('[aria-label="Needs Attention"]');
-        expect(attention).not.toBeNull();
+        if (!attention) throw new Error("no Needs Attention section rendered");
         for (const header of groupHeaders()) {
           // Ask the EARLIER node where the header sits: a header after the
           // spotlight carries DOCUMENT_POSITION_FOLLOWING.
-          expect(attention!.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+          expect(attention.compareDocumentPosition(header) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         }
       },
     );
+  });
+});
+
+describe("the eye toggle (operator ask 2026-09-27)", () => {
+  const HIDDEN_KEY = "subshell.sidebarHiddenSections";
+
+  afterEach(() => localStorage.removeItem(HIDDEN_KEY));
+
+  it("hides and shows the whole Subshells section via the eye", async () => {
+    await withRail([subshell({ id: "a", name: "one", nodeId: "local" })], async () => {
+      // The rail's filter box is the tell that the section body is mounted.
+      expect(screen.getByLabelText("Filter subshells")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Hide subshells" }));
+      // Whole body gone: mode control, filter, groups — the eye is still there.
+      await waitFor(() => expect(screen.queryByLabelText("Filter subshells")).toBeNull());
+      expect(localStorage.getItem(HIDDEN_KEY)).toContain("subshells");
+      fireEvent.click(screen.getByRole("button", { name: "Show subshells" }));
+      await waitFor(() => expect(screen.getByLabelText("Filter subshells")).toBeTruthy());
+    });
+  });
+
+  it("reads a hidden section back from storage on the next mount", async () => {
+    localStorage.setItem(HIDDEN_KEY, JSON.stringify({ subshells: true }));
+    const restore = stubFetch([subshell({ id: "a", name: "one", nodeId: "local" })]);
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    try {
+      await renderRail();
+      // The eye is ALWAYS drawn (it is the way back); it says Show, and the
+      // rail never mounts — so this is a bare render, not `withRail`, whose
+      // precondition waits on group headers the hidden section does not draw.
+      await waitFor(() => expect(screen.getByRole("button", { name: "Show subshells" })).toBeTruthy());
+      expect(screen.queryByLabelText("Filter subshells")).toBeNull();
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+});
+
+describe("the Drafts section (operator ask 2026-09-27)", () => {
+  const HIDDEN_KEY = "subshell.sidebarHiddenSections";
+  const WS_COLLAPSED_KEY = "subshell.sidebarWsGroupsCollapsed";
+  afterEach(() => {
+    localStorage.removeItem(HIDDEN_KEY);
+    localStorage.removeItem(WS_COLLAPSED_KEY);
+  });
+
+  const draft = (id: string, createdAt: string) => ({
+    id,
+    name: `DraftName-${id}`,
+    draft: true,
+    layout: null,
+    subshellCount: 0,
+    createdAt,
+    updatedAt: createdAt,
+  });
+
+  it("lists every unsaved workspace by its creation stamp, not its stored name", async () => {
+    // Two drafts with distinctive names. The row shows the creation date (so they
+    // read like saved siblings), and on the home page — in no workspace — the
+    // trashcan offers to discard ALL of them.
+    const restore = stubFetch([], { failNodes: false }, [], undefined, [
+      draft("w1", "2026-08-28T16:45:00.000Z"),
+      draft("w2", "2026-09-01T09:05:00.000Z"),
+    ]);
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    try {
+      await renderRail("/");
+      await waitFor(() => expect(document.querySelector("a[href='/workspaces/w1']")).toBeTruthy());
+      expect(document.querySelector("a[href='/workspaces/w2']")).toBeTruthy();
+      expect(screen.getByText("Drafts")).toBeTruthy();
+      expect(screen.queryByText("DraftName-w1")).toBeNull();
+      expect(screen.getByRole("button", { name: "Discard all unsaved workspaces" })).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
+  it("highlights the draft you are standing in", async () => {
+    const restore = stubFetch([], { failNodes: false }, [], undefined, [draft("w1", "2026-08-28T16:45:00.000Z")]);
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    try {
+      await renderRail("/workspaces/w1");
+      await waitFor(() => expect(document.querySelector("a[href='/workspaces/w1']")).toBeTruthy());
+      const row = document.querySelector("a[href='/workspaces/w1']") as HTMLElement;
+      expect(row.className).toContain("bg-accent");
+      expect(screen.getByRole("button", { name: "Discard your other unsaved workspaces" })).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
+  it("collapses a Workspaces section on its header and remembers it", async () => {
+    const restore = stubFetch([], { failNodes: false }, [], undefined, [draft("w1", "2026-08-28T16:45:00.000Z")]);
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    try {
+      await renderRail("/");
+      await waitFor(() => expect(document.getElementById("ws-group-drafts")).toBeTruthy());
+      const header = screen.getByRole("button", { name: /^Drafts/ });
+      expect(header.getAttribute("aria-expanded")).toBe("true");
+      fireEvent.click(header);
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /^Drafts/ }).getAttribute("aria-expanded")).toBe("false"),
+      );
+      expect(document.getElementById("ws-group-drafts")?.className).toContain("hidden");
+      // The row is hidden by class, not unmounted (aria-controls stays real), and
+      // the fold persists per device.
+      expect(document.getElementById("ws-group-drafts")?.querySelector("a[href='/workspaces/w1']")).toBeTruthy();
+      expect(localStorage.getItem(WS_COLLAPSED_KEY)).toContain("drafts");
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
+  it("offers to discard ALL drafts when you are standing in a SAVED workspace", async () => {
+    // The bug this pins: the copy keyed off the URL alone, so standing on a
+    // saved page promised "the one you're in stays" about a workspace that is
+    // not one of the drafts the sweep targets — and sent it as `except` anyway.
+    const saved = {
+      id: "s1",
+      name: "My saved",
+      draft: false,
+      layout: null,
+      subshellCount: 0,
+      createdAt: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-25T00:00:00.000Z",
+    };
+    const restore = stubFetch([], { failNodes: false }, [saved], undefined, [draft("d1", "2026-08-28T16:45:00.000Z")]);
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    try {
+      await renderRail("/workspaces/s1");
+      await waitFor(() => expect(document.querySelector("a[href='/workspaces/d1']")).toBeTruthy());
+      expect(screen.getByRole("button", { name: "Discard all unsaved workspaces" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Discard your other unsaved workspaces" })).toBeNull();
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
+  it("tells two same-minute drafts apart in their labels", async () => {
+    // The stamp is minute-granular; the SECOND draft of one minute carries the
+    // stored name, so the rows never render (or search) identically.
+    const restore = stubFetch([], { failNodes: false }, [], undefined, [
+      draft("w1", "2026-08-28T16:45:00.000Z"),
+      draft("w2", "2026-08-28T16:45:30.000Z"),
+    ]);
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    try {
+      await renderRail("/");
+      await waitFor(() => expect(document.querySelector("a[href='/workspaces/w2']")).toBeTruthy());
+      const stamp = formatWorkspaceDate("2026-08-28T16:45:00.000Z");
+      const labelOf = (id: string) => document.querySelector(`a[href='/workspaces/${id}']`)?.textContent ?? "";
+      // Newest first: w2 is alone at its first appearance, so it wears the bare
+      // stamp; w1 shares the minute and gains its name.
+      expect(labelOf("w2")).toBe(stamp);
+      expect(labelOf("w1")).toBe(`${stamp} · DraftName-w1`);
+      expect(labelOf("w1")).not.toBe(labelOf("w2"));
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
+  it("keeps the box and the no-match line when a drafts-only search misses", async () => {
+    // The vanishing act this pins: the presence gate read the FILTERED drafts,
+    // so a user with nothing saved typing a non-matching query unmounted the
+    // section — the input they were typing in — with no way to clear it.
+    const restore = stubFetch([], { failNodes: false }, [], undefined, [draft("d1", "2026-08-28T16:45:00.000Z")]);
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    try {
+      await renderRail("/");
+      const input = await screen.findByLabelText("Filter workspaces");
+      fireEvent.change(input, { target: { value: "zzz" } });
+      await waitFor(() => expect(screen.getByText("No workspaces match.")).toBeTruthy());
+      expect(screen.getByLabelText("Filter workspaces")).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
+  it("shows no Drafts section when there are none", async () => {
+    const saved = {
+      id: "s1",
+      name: "My saved",
+      draft: false,
+      layout: null,
+      subshellCount: 0,
+      createdAt: "2026-09-01T00:00:00.000Z",
+      updatedAt: "2026-09-25T00:00:00.000Z",
+    };
+    const restore = stubFetch([], { failNodes: false }, [saved]);
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    try {
+      await renderRail("/");
+      await waitFor(() => expect(screen.getByText("My saved")).toBeTruthy());
+      expect(screen.queryByText("Drafts")).toBeNull();
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+});
+
+describe("the workspace search filter (operator ask 2026-09-27)", () => {
+  const ws = (id: string, name: string, updatedAt: string) => ({
+    id,
+    name,
+    draft: false,
+    layout: null,
+    subshellCount: 0,
+    createdAt: "2026-09-01T00:00:00.000Z",
+    updatedAt,
+  });
+  const draft = (id: string, name: string, createdAt: string) => ({
+    id,
+    name,
+    draft: true,
+    layout: null,
+    subshellCount: 0,
+    createdAt,
+    updatedAt: createdAt,
+  });
+  const WS_COLLAPSED_KEY = "subshell.sidebarWsGroupsCollapsed";
+  afterEach(() => localStorage.removeItem(WS_COLLAPSED_KEY));
+
+  it("unfolds a folded section for a search match and keeps its header inert while searching", async () => {
+    // The rail's filter idiom has two halves and the section needed both: a
+    // match inside a folded section must not read as a broken search (force
+    // open), and a press during that force must not persist a fold the user
+    // cannot see happening (inert header).
+    // The query must keep BOTH sections non-empty (a Saved header only
+    // renders when a Drafts section does): "Doc" hits the saved "Docs" and,
+    // via the same-minute dedup label, the second draft "Doc-thing".
+    localStorage.setItem(WS_COLLAPSED_KEY, JSON.stringify({ saved: true }));
+    const rows = [ws("w1", "Alpha", "2026-09-20T00:00:00.000Z"), ws("w2", "Docs", "2026-09-25T00:00:00.000Z")];
+    const restore = stubFetch([], { failNodes: false }, rows, undefined, [
+      draft("d1", "Doc-thing", "2026-08-28T16:45:00.000Z"),
+      draft("d2", "Other", "2026-08-28T16:45:30.000Z"),
+    ]);
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    try {
+      await renderRail("/");
+      const savedHeader = () => screen.getByRole("button", { name: /^Saved/ }) as HTMLButtonElement;
+      await waitFor(() => expect(savedHeader().getAttribute("aria-expanded")).toBe("false"));
+      const input = await screen.findByLabelText("Filter workspaces");
+      fireEvent.change(input, { target: { value: "Doc" } });
+      await waitFor(() => expect(savedHeader().getAttribute("aria-expanded")).toBe("true"));
+      // Inert while force-open: the button is disabled, and a press writes
+      // nothing — the stored fold is exactly what was there before.
+      expect(savedHeader().disabled).toBe(true);
+      fireEvent.click(savedHeader());
+      expect(savedHeader().getAttribute("aria-expanded")).toBe("true");
+      expect(localStorage.getItem(WS_COLLAPSED_KEY)).toBe(JSON.stringify({ saved: true }));
+      // Clearing the search returns the remembered fold.
+      fireEvent.change(input, { target: { value: "" } });
+      await waitFor(() => expect(savedHeader().getAttribute("aria-expanded")).toBe("false"));
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
+  });
+
+  it("filters the workspace list as you type, over the whole set", async () => {
+    const rows = [ws("w1", "Alpha", "2026-09-20T00:00:00.000Z"), ws("w2", "Docs", "2026-09-25T00:00:00.000Z")];
+    const restore = stubFetch([], { failNodes: false }, rows);
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    try {
+      await renderRail();
+      const input = await screen.findByLabelText("Filter workspaces");
+      expect(screen.getByText("Alpha")).toBeTruthy();
+      expect(screen.getByText("Docs")).toBeTruthy();
+      // A partial narrows to the one hit.
+      fireEvent.change(input, { target: { value: "Doc" } });
+      await waitFor(() => expect(screen.queryByText("Alpha")).toBeNull());
+      expect(screen.getByText("Docs")).toBeTruthy();
+      // A no-match clears the list but KEEPS the box, so the text can be cleared.
+      fireEvent.change(input, { target: { value: "zzz" } });
+      await waitFor(() => expect(screen.getByText("No workspaces match.")).toBeTruthy());
+      expect(screen.getByLabelText("Filter workspaces")).toBeTruthy();
+    } finally {
+      spy.mockRestore();
+      restore();
+    }
   });
 });

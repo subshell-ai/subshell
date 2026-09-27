@@ -2,6 +2,8 @@ import { Button } from "@internal/node-admin";
 import { Plus } from "lucide-react";
 import { type JSX, useState } from "react";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
+import { TippedIconButton } from "@/components/tipped-icon-button";
+import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import type { SplitDirection, WorkspacePaneRow } from "@/types/workspace";
 
 /** Props for {@link SubshellPicker}. */
@@ -36,17 +38,27 @@ export interface SubshellPickerProps {
  */
 export function SubshellPicker({ existing, onAdd }: SubshellPickerProps): JSX.Element {
   const [open, setOpen] = useState(false);
+  // The stacked (phone) header shares its top row with Save/Discard and the nav
+  // chrome, so this drops to a bare "+" icon (the aria-label still names it).
+  // Matches how `workspace-header` compacts its own draft actions.
+  const stacked = useIsStackedHeader();
 
   return (
     <>
-      <Button
-        size="sm"
-        className="shadow-lg"
-        aria-label="Add a subshell to this workspace"
-        onClick={() => setOpen(true)}
-      >
-        <Plus className="h-3.5 w-3.5" /> Add subshell
-      </Button>
+      {stacked ? (
+        <TippedIconButton tooltip="Add a subshell to this workspace" size="icon" onClick={() => setOpen(true)}>
+          <Plus className="h-3.5 w-3.5" />
+        </TippedIconButton>
+      ) : (
+        <Button
+          size="sm"
+          className="shadow-lg"
+          aria-label="Add a subshell to this workspace"
+          onClick={() => setOpen(true)}
+        >
+          <Plus className="h-3.5 w-3.5" /> Add subshell
+        </Button>
+      )}
       <AddSubshellDialog
         open={open}
         onOpenChange={setOpen}

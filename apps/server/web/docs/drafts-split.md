@@ -15,9 +15,12 @@ add run one code path, and the picker's direction is honoured.
 Three rules keep a draft honest, and each is load-bearing:
 
 - **Drafts are absent from `GET /api/workspaces`**, so `/workspaces`, the
-  sidebar recents and the cards need no draft awareness. The only read that
-  returns them is `?subshellId=`, which feeds the subshell page's workspace
-  control (`components/subshell-workspace-link.tsx`). A subshell can sit on
+  sidebar's Saved list and the cards need no draft awareness. The two opt-in
+  reads are `?subshellId=`, which feeds the subshell page's workspace control
+  (`components/subshell-workspace-link.tsx`), and `?drafts=only`, which feeds
+  the rail's Drafts section (`components/sidebar/workspaces-section.tsx`); the
+  trashcan there sweeps them through `DELETE /api/workspaces/drafts?except=`.
+  A subshell can sit on
   any number of workspaces, so that control has two shapes, decided by the
   pure `workspaceLinkView`: ONE is a direct link naming it, SEVERAL is
   "In N workspaces" opening a menu of all of them. Drafts lead and read

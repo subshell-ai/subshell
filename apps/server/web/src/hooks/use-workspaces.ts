@@ -15,6 +15,19 @@ export function useWorkspaces() {
 }
 
 /**
+ * The caller's UNSAVED draft workspaces, for the sidebar's "Drafts" section. A
+ * child of the workspaces key, so the shared invalidator refreshes it with the
+ * list. Kept separate from `useWorkspaces` because the Workspaces PAGE wants the
+ * default (saved-only) read and must not start seeing drafts.
+ */
+export function useDraftWorkspaces() {
+  return useQuery({
+    queryKey: [...WORKSPACES_QUERY_KEY, "drafts"],
+    queryFn: () => apiFetch<WorkspaceRow[]>("/api/workspaces?drafts=only"),
+  });
+}
+
+/**
  * Invalidates the workspace list AND every per-subshell membership query
  * (`useSubshellWorkspaces`). Both read the same table, and every act that
  * changes it — create, promote, discard, the auto-discard of a thin draft —

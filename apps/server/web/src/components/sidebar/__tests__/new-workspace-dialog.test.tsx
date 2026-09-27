@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -37,7 +37,7 @@ interface Call {
  * `failPaneAdds`: how many POST …/panes calls answer 500 (the partial-pane
  * failure branch). Serves two subshells so checkbox clicks are real.
  */
-function mockFetch(opts: { failPaneAdds?: number } = {}) {
+function mockFetch(opts: { failPaneAdds?: number; takenWorkspaces?: { id: string; name: string }[] } = {}) {
   const calls: Call[] = [];
   let paneFailsLeft = opts.failPaneAdds ?? 0;
   const original = globalThis.fetch;
@@ -47,6 +47,12 @@ function mockFetch(opts: { failPaneAdds?: number } = {}) {
     calls.push({ method, url: url.pathname, body: init?.body as string | undefined });
     if (method === "GET" && url.pathname === "/api/subshells") {
       return new Response(JSON.stringify([subshell("s1", "One"), subshell("s2", "Two")]), { status: 200 });
+    }
+    if (method === "GET" && url.pathname === "/api/workspaces") {
+      // The dialog reads this to de-dupe its default name; the tests drive it
+      // with the `takenWorkspaces` list so a same-minute second create is
+      // provably disambiguated rather than 409-ing.
+      return new Response(JSON.stringify(opts.takenWorkspaces ?? []), { status: 200 });
     }
     if (method === "POST" && url.pathname === "/api/workspaces") {
       return new Response(JSON.stringify({ id: "ws-new" }), { status: 200 });
@@ -135,6 +141,29 @@ describe("NewWorkspaceDialog", () => {
       expect(await screen.findByText(/but 1 subshell could not be added/i)).toBeDefined();
       expect(screen.getByRole("button", { name: /Enter workspace/i })).toBeDefined();
     } finally {
+      restore();
+    }
+  });
+
+  it("disambiguates a same-minute second create instead of sending a colliding name", async () => {
+    // The bug (operator 2026-09-27): the default name is a MINUTE stamp, so two
+    // creates in one minute sent the identical name and the second died a 409.
+    // `toLocaleString` is pinned so the stamp is a fixed string the create call
+    // reproduces — otherwise the test would straddle a minute boundary at random.
+    const stamp = "Sep 27, 7:37 AM";
+    const timeSpy = spyOn(Date.prototype, "toLocaleString").mockReturnValue(stamp);
+    const { calls, restore } = mockFetch({ takenWorkspaces: [{ id: "w1", name: stamp }] });
+    try {
+      await renderDialog();
+      fireEvent.click(await screen.findByRole("button", { name: /Create workspace/i }));
+      let post: Call | undefined;
+      await waitFor(() => {
+        post = calls.find((c) => c.method === "POST" && c.url === "/api/workspaces");
+        expect(post).toBeDefined();
+      });
+      expect(JSON.parse(post?.body ?? "{}").name).toBe(`${stamp} (2)`);
+    } finally {
+      timeSpy.mockRestore();
       restore();
     }
   });

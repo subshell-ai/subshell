@@ -37,6 +37,7 @@ export function SubshellRecentRow({
   agentLabel,
   presetLabel,
   subline,
+  nodeLine,
 }: {
   subshell: SubshellView;
   /** The pane is open in the current workspace (or is the viewed page) → the
@@ -67,6 +68,15 @@ export function SubshellRecentRow({
    * than the machine. Every other rail row leaves it undefined (the path).
    */
   subline?: string;
+  /**
+   * A THIRD muted line, shown in addition to the working directory. The
+   * "Workspace" section uses it to name each row's MACHINE: those rows sit under
+   * a Workspace header that spans every machine, so (like comms rows) the header
+   * cannot say which host a row is on — but unlike comms rows they keep the
+   * directory, so this rides BELOW it rather than replacing it (operator
+   * 2026-09-27). Every other row leaves it undefined.
+   */
+  nodeLine?: string;
 }) {
   // `render`, not a wrapper: the Link below is simultaneously the nav, the
   // drag source and the context-menu subject, and the tooltip had to attach
@@ -132,6 +142,7 @@ export function SubshellRecentRow({
             {(subline ?? subshell.workingDir) ? (
               <span className="block truncate text-detail opacity-70">{subline ?? subshell.workingDir}</span>
             ) : null}
+            {nodeLine ? <span className="block truncate text-detail opacity-60">{nodeLine}</span> : null}
           </span>
         </TooltipTrigger>
         <TooltipContent side="right" arrow className="whitespace-pre-line break-words">

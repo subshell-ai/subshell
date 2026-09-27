@@ -19,9 +19,9 @@ import {
 import { Segmented } from "@/components/ui/segmented";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { useSubshellsList } from "@/hooks/use-subshells";
-import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
+import { useInvalidateWorkspaces, useWorkspaces } from "@/hooks/use-workspaces";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
-import { defaultWorkspaceName } from "@/lib/workspace-name";
+import { defaultWorkspaceName, uniqueWorkspaceName } from "@/lib/workspace-name";
 
 /** Which half of the dialog is showing (same shape as the add-subshell dialog). */
 type Mode = "existing" | "new";
@@ -51,6 +51,9 @@ export function NewWorkspaceDialog({
   const navigate = useNavigate();
   const invalidate = useInvalidateWorkspaces();
   const { data: subshells, isError: loadFailed, isLoading: loading } = useSubshellsList();
+  // Names already taken, so a same-minute second create does not send the
+  // identical default and eat the server's unique-name 409.
+  const { data: workspaces } = useWorkspaces();
   const create = useCreateSubshell();
 
   const [mode, setMode] = useState<Mode>("existing");
@@ -108,7 +111,10 @@ export function NewWorkspaceDialog({
     setCreating(true);
     let id: string;
     try {
-      const created = await apiPost<{ id: string }>("/api/workspaces", { name: defaultWorkspaceName() });
+      const taken = Array.isArray(workspaces) ? workspaces.map((w) => w.name) : [];
+      const created = await apiPost<{ id: string }>("/api/workspaces", {
+        name: uniqueWorkspaceName(defaultWorkspaceName(), taken),
+      });
       id = created.id;
     } catch (err) {
       setError(errMessage(err, "Failed to create workspace"));
