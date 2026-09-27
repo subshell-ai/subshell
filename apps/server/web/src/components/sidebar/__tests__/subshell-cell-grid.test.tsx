@@ -295,9 +295,12 @@ describe("SubshellCell", () => {
       // A border COLOR alone paints nothing: Tailwind v4's preflight resets
       // every element to `border: 0 solid`, so without a width utility on the
       // span the ring is zero-width and the whole pulse is invisible (the
-      // blocker this pins). The word boundary is load-bearing — `border-success`
-      // must NOT satisfy it, or the assertion would pass on the broken markup.
-      expect(ring?.className).toMatch(/\bborder\b/);
+      // blocker this pins). Matched as a WHOLE CLASS TOKEN, not a substring or
+      // `\bborder\b`: a hyphen is a non-word char, so that regex matches the
+      // "border" inside "border-success" and PASSES on the color-only broken
+      // markup (reviewer-web proved the false-pass by mutation). Splitting on
+      // spaces and testing set membership is the null on that string.
+      expect(ring?.className.split(" ")).toContain("border");
       expect(ring?.className).toContain("absolute");
       expect(ring?.className).toContain("inset-0");
       expect(ring?.getAttribute("aria-hidden")).toBe("true");
