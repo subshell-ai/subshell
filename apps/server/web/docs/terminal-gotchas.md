@@ -135,16 +135,3 @@ real (2026-09-04):
   here?" she was). The strip still must never write `layout_json` and still
   has no drag: on a finger, dockview drags no better, so the phone keeps the
   presentation that matches its input.
-- **xterm's overlay scrollbar is repaired by a guarded private path, and
-  xterm work must know it exists.** The 6.1.0-beta scroller (adopted upstream
-  in PR 5096, our pin 6.1.0-beta.304) desyncs after a resize: `queueSync`
-  re-syncs the extent but its `_latestYDisp` guard skips the position, so the
-  thumb strands while the buffer moved (upstream issue 6172, filed against
-  this exact build; also issue 6117 for the resize-while-renderer-paused
-  variant). The public `scrollToLine`/`scrollLines` are relative and cannot
-  correct a strayed thumb; `lib/terminal-scrollbar.ts` re-asserts it after
-  every resize the app applies through the guarded `_core._viewport` call
-  (the `rowHeightPx` precedent: a renamed private is a no-op, never a throw;
-  the rAF body catches because a disposed terminal throws INSIDE xterm,
-  measured). Any `@xterm/*` upgrade must re-verify that private path and the
-  signature `scrollToLine(line, disableSmoothScroll)` it relies on.
