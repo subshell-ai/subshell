@@ -16,6 +16,19 @@
  */
 @source "../../../../packages/node-admin/src";
 
+/*
+ * A class the scanner cannot see, so it has to be named.
+ *
+ * The rail's blinking cell derives its border tone at RUNTIME from
+ * `DOT_CLASS.active` (a `bg-` swapped to its `border-` sibling), so the shipped
+ * `border-success` string never appears in source and automatic detection
+ * would not generate it. Same shape of failure as the symlink note above: the
+ * colour rule is simply absent, and the ring renders invisible. Naming it here
+ * puts it in the built stylesheet on its own merits, independent of anything a
+ * test happens to assert.
+ */
+@source inline("border-success");
+
 @custom-variant dark (&:is(.dark *));
 
 /*
