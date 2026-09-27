@@ -294,10 +294,11 @@ describe("the cell modes keep the row tree's facts", () => {
 describe("a workspace's selection (operator ask 2026-09-27)", () => {
   const nodeOf = (header: HTMLElement | undefined) => header?.getAttribute("aria-controls") ?? "";
 
-  it("soft-rings every open pane and white-rings only the dock-focused one", async () => {
+  it("soft-rings every open pane, focused included, at one width", async () => {
     // Standing in /workspaces/w1 with a AND b open. Both are SELECTED (the set)
-    // so both soft-ring; the dock has focused `a`, so only `a` upgrades to the
-    // bold white ring (operator 2026-09-27). Focus arrives through the
+    // so both wear the soft ring; the dock-focused `a` wears the SAME ring — the
+    // `ring-2` focus upgrade was retired the same day it arrived (operator
+    // 2026-09-27: too heavy at cell size). Focus arrives through the
     // workspace-focus store the dock publishes — the rail cannot see dockview.
     setWorkspaceFocusedId("a");
     await withRail(
@@ -316,9 +317,14 @@ describe("a workspace's selection (operator ask 2026-09-27)", () => {
             .slice(0, 2)
             .map((l) => l.getAttribute("href")),
         ).toEqual(["/subshells/a", "/subshells/b"]);
-        expect(tok("a")).toContain("ring-2"); // focused → white
-        expect(tok("b")).toContain("ring-foreground/70"); // set → soft
-        expect(tok("b")).not.toContain("ring-2"); // only the focused pane is bold
+        // One ring, one width, the whole set — the bare `ring-1` token is the
+        // selection (hover adds only the prefixed `hover:ring-1`), and the
+        // retired `ring-2` must be gone from both.
+        for (const id of ["a", "b"]) {
+          expect(tok(id)).toContain("ring-1");
+          expect(tok(id)).toContain("ring-foreground/70");
+          expect(tok(id)).not.toContain("ring-2");
+        }
       },
       { path: "/workspaces/w1", panes: [{ subshellId: "a" }, { subshellId: "b" }] },
     );

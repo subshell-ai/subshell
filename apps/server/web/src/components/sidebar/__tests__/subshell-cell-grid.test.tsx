@@ -259,13 +259,15 @@ describe("SubshellCell", () => {
       const link = await screen.findByRole("link");
       expect(link.className).toContain("bg-destructive");
       // The "you are here" ring is the theme ink (`--foreground`: frost on the
-      // void) at FULL brightness, width 2 — the operator's ask (2026-09-27) was
-      // a WHITE ring around the open pane. Asserted as bare TOKENS: the focus
-      // variant is `focus-visible:ring-2`/`ring-ring` and hover is
-      // `hover:ring-1`/`hover:ring-foreground`, all prefixed, so a bare `ring-2`
+      // void) at 70, width 1 — the operator's ruling (2026-09-27): ONE soft
+      // ring for the whole open set, the `ring-2` focus bump retired the same
+      // day as too heavy. Asserted as bare TOKENS: the focus variant is
+      // `focus-visible:ring-2`/`ring-ring` and hover is
+      // `hover:ring-1`/`hover:ring-foreground`, all prefixed, so a bare `ring-1`
       // or `ring-foreground/70` can only be the (soft) selection.
       const toks = link.className.split(/\s+/);
-      expect(toks).toContain("ring-2");
+      expect(toks).toContain("ring-1");
+      expect(toks).not.toContain("ring-2");
       expect(toks).toContain("ring-foreground/70");
       expect(link.className).toContain("focus-visible:ring-ring");
       // Hover answers "which one am I on" with the same INK at full
@@ -326,7 +328,7 @@ describe("SubshellCell", () => {
     }
   });
 
-  it("the blinking cell is a two-state tile: active/idle pulses, a legible letter every beat (operator ask 2026-09-27)", async () => {
+  it("the working cell pulses its fill only: no solid-green beat, one white initial (operator ruling 2026-09-27)", async () => {
     const restore = mockFetch();
     try {
       renderCell(
@@ -338,54 +340,78 @@ describe("SubshellCell", () => {
         />,
       );
       const link = await screen.findByRole("link");
-      // A cell cannot blink to nothing the way the dot does (no letter to
-      // strand, no outline to empty), so it blinks BETWEEN two states: a full
-      // green ACTIVE tile with a dark initial pulsing over a half-green IDLE
-      // tile with a white initial on the opposite beat. Exactly one tile is
-      // opaque at any moment, so a box with a readable letter is always there.
-      // The anchor carries only posture: relative, a transparent field, and
-      // NEITHER a fill nor a pulse of its own (both live on the two child
-      // tiles). The interim "green survives as an edge" reading (the ring) and
-      // the single-fade reading (empty tile / stranded letter) are both dead.
+      // The blink lives on the FILL alone: a half-green (`bg-success/50`, the
+      // idle fill) tile pulsing on the plain `subshell-dot-blink` over the
+      // bare rail, with a constant white initial above it. The retired shape
+      // blinked full-green + dark-knockout over half-green + white so no beat
+      // lacked a box; the operator killed the solid-green beat the same day
+      // (transparent background, white letter). The anchor carries posture
+      // only: relative, transparent, NO fill and NO pulse of its own.
       const has = (el: Element | undefined, tok: string) => !!el && el.className.split(/\s+/).includes(tok);
       expect(link.className).toContain("relative");
       expect(link.className).toContain("bg-transparent");
-      expect(link.className).not.toContain("bg-success");
-      expect(link.className).not.toContain("subshell-dot-blink");
+      // Exact tokens: a solid `bg-success` (the retired ACTIVE fill) must be
+      // gone while `bg-success/50` is its own token and still present.
+      const linkToks = link.className.split(/\s+/);
+      expect(linkToks).not.toContain("bg-success");
+      expect(linkToks).not.toContain("subshell-dot-blink");
       expect(link.className).not.toContain("border-success");
 
       const spans = [...link.querySelectorAll("span")];
       expect(spans.find((s) => s.className.includes("bg-muted"))).toBeUndefined();
 
-      // The IDLE tile (under): half green, white initial, complementary pulse.
-      const idle = spans.find((s) => has(s, "bg-success/50"));
-      expect(idle).toBeTruthy();
-      expect(has(idle, "subshell-dot-blink-alt")).toBe(true);
-      expect(has(idle, "text-foreground")).toBe(true);
-      expect(has(idle, "absolute") && has(idle, "inset-0") && has(idle, "rounded-md")).toBe(true);
-      expect(idle?.getAttribute("aria-hidden")).toBe("true");
-      expect(idle?.textContent).toBe("A");
+      // The FILL: half green, pulsing, aria-hidden, and it carries NO letter
+      // (the retired `blink-alt` complement and the dark knockout are gone
+      // with the solid-green beat).
+      const fill = spans.find((s) => has(s, "subshell-dot-blink"));
+      expect(fill).toBeTruthy();
+      expect(has(fill, "bg-success/50")).toBe(true);
+      expect(spans.filter((s) => s.className.includes("subshell-dot-blink"))).toHaveLength(1);
+      expect(spans.find((s) => s.className.includes("blink-alt"))).toBeUndefined();
+      expect(has(fill, "absolute") && has(fill, "inset-0") && has(fill, "rounded-md")).toBe(true);
+      expect(fill?.getAttribute("aria-hidden")).toBe("true");
+      expect(fill?.textContent).toBe("");
 
-      // The ACTIVE tile (over): full green, dark initial, the plain pulse.
-      const activeTile = spans.find((s) => has(s, "bg-success") && has(s, "subshell-dot-blink"));
-      expect(activeTile).toBeTruthy();
-      expect(has(activeTile, "subshell-dot-blink-alt")).toBe(false);
-      expect(has(activeTile, "text-background")).toBe(true);
-      expect(has(activeTile, "absolute") && has(activeTile, "inset-0") && has(activeTile, "rounded-md")).toBe(true);
-      expect(activeTile?.getAttribute("aria-hidden")).toBe("true");
-      expect(activeTile?.textContent).toBe("A");
-
-      // Exactly one pulse of each kind across the cell, and both carry the
-      // initial — so the link's own text reads the letter twice even though a
-      // viewer only ever sees one (the visible half differs by opacity, not DOM).
-      expect(spans.filter((s) => s.className.includes("subshell-dot-blink-alt"))).toHaveLength(1);
-      expect(
-        spans.filter((s) => s.className.includes("subshell-dot-blink") && !s.className.includes("-alt")),
-      ).toHaveLength(1);
-      expect(link.textContent).toBe("AA");
-      // The viewed pane still rings on the anchor (the soft white selection ring).
-      expect(has(link, "ring-2")).toBe(true);
+      // The LETTER: exactly one, white, positioned above the fill.
+      expect(link.textContent).toBe("A");
+      const letter = fill?.nextElementSibling ?? undefined;
+      expect(has(letter, "relative")).toBe(true);
+      expect(has(letter, "text-foreground")).toBe(true);
+      expect(has(letter, "text-background")).toBe(false);
+      expect(letter?.textContent).toBe("A");
+      // The viewed pane still rings on the anchor (the soft 1px selection ring).
+      // The ring IS the frame here, so no border rides along with it.
+      expect(has(link, "ring-1")).toBe(true);
       expect(has(link, "ring-foreground/70")).toBe(true);
+      expect(has(link, "ring-2")).toBe(false);
+      expect(has(link, "border-border")).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("an un-ringed working cell keeps the dark frame the fill blinks inside (operator 2026-09-27)", async () => {
+    const restore = mockFetch();
+    try {
+      renderCell(
+        <SubshellCell
+          subshell={sub({ id: "w", activity: "active", lastOutputAt: null })}
+          selected={false}
+          focused={false}
+          labels={{ nodeLabel: "mbp", agentLabel: "Claude Code", initial: "W" }}
+        />,
+      );
+      const link = await screen.findByRole("link");
+      const has2 = (el: Element | undefined, tok: string) => !!el && el.className.split(/\s+/).includes(tok);
+      // The transparent half must not be a letter floating on bare rail: the
+      // anchor carries a static `--border` frame the fill pulses inside. Only
+      // where there is no ring — a selected/focused cell's frame is the ring.
+      expect(has2(link, "border")).toBe(true);
+      expect(has2(link, "border-border")).toBe(true);
+      expect(has2(link, "ring-foreground/70")).toBe(false);
+      // And it does NOT blink: the frame is on the anchor, the pulse stays on
+      // the fill child.
+      expect(has2(link, "subshell-dot-blink")).toBe(false);
     } finally {
       restore();
     }
@@ -641,7 +667,7 @@ describe("SubshellCellGrid", () => {
       // GROUPED view's cell-to-cell exactly (operator: "we should have the
       // same gap as we do in the grouped view"), and a 4px tint gutter on ALL
       // sides — the selection ring paints OUTSIDE the cell box, so p-0.5 left
-      // it touching the plate edge (p-1 clears the ring-2 selection on every side).
+      // it touching the plate edge (p-1 clears the ring-1 selection on every side).
       expect(plateA?.className).toContain("p-1");
       expect(plateA?.className).toContain("gap-1.5");
       expect(plateA?.className).toContain("rounded-lg");
@@ -683,7 +709,7 @@ describe("SubshellCellGrid", () => {
     }
   });
 
-  it("soft-rings the open SET and white-rings only the focused pane", async () => {
+  it("soft-rings every open pane, focused included, at one width", async () => {
     const restore = mockFetch();
     try {
       const rows = [sub({ id: "a", name: "one" }), sub({ id: "b", name: "two" }), sub({ id: "c", name: "three" })];
@@ -701,13 +727,15 @@ describe("SubshellCellGrid", () => {
           (screen.getAllByRole("link") as HTMLElement[]).find((l) => l.getAttribute("href") === `/subshells/${id}`)
             ?.className ?? ""
         ).split(/\s+/);
-      // (operator 2026-09-27): the SET (a, c) wears the soft `ring-foreground/70`;
-      // only the focused pane (c) upgrades to the bold `ring-2`. Bare tokens —
+      // (operator 2026-09-27): ONE ring for the open set — a, c and the focused
+      // c alike wear the soft `ring-1 ring-foreground/70`. Bare tokens:
       // hover/focus add only prefixed variants, so a lone `b` carries none.
-      expect(toks("a")).toContain("ring-foreground/70");
-      expect(toks("a")).not.toContain("ring-2");
-      expect(toks("c")).toContain("ring-2");
-      expect(toks("b")).not.toContain("ring-2");
+      for (const id of ["a", "c"]) {
+        expect(toks(id)).toContain("ring-1");
+        expect(toks(id)).toContain("ring-foreground/70");
+        expect(toks(id)).not.toContain("ring-2");
+      }
+      expect(toks("b")).not.toContain("ring-1");
       expect(toks("b")).not.toContain("ring-foreground/70");
     } finally {
       restore();
