@@ -1,6 +1,6 @@
 import { apiFetch } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
 import type { SubshellView } from "@/types/subshell";
 
@@ -50,15 +50,31 @@ export function useSubshellMutations(
     void queryClient.invalidateQueries({ queryKey: SUBSHELL_QUERY_KEY });
   };
 
+  /** Also re-reads every open workspace's detail: a pane row COPIES this
+   * subshell's name/status/alive (exactly what `SubshellPane` renders and
+   * what the dock's vanish-the-panel reconcile effect counts on), and
+   * workspace detail has NO poll of its own — an act done from outside the
+   * dock that skips this leaves the tile standing forever (operator bug
+   * 2026-09-27: a sidebar Close never closed the workspace tab). The rename
+   * dialog has invalidated `WORKSPACE_QUERY_KEY` for the same reason
+   * all along; this is the same fact for status and existence. */
+  const refreshWithPanes = () => {
+    refresh();
+    void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
+  };
+
   const restart = useMutation({
     mutationFn: () => apiFetch<{ id: string }>(`/api/subshells/${id}/restart`, { method: "POST" }),
-    // Revival keeps the id: the refreshed queries ARE the whole sync story.
-    onSuccess: refresh,
+    // Revival keeps the id; the refreshed queries ARE the whole sync story —
+    // pane rows included, since they copied the running/alive the flip moved.
+    onSuccess: refreshWithPanes,
   });
   const remove = useMutation({
     mutationFn: () => apiFetch<{ ok: boolean }>(`/api/subshells/${id}`, { method: "DELETE" }),
     onSuccess: () => {
-      refresh();
+      // The pane CASCADE goes through the workspace read too: closing from
+      // anywhere must close the dock tab, not just the card.
+      refreshWithPanes();
       onDeleted?.();
     },
   });

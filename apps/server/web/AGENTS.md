@@ -79,7 +79,9 @@ must not clobber a newer event; a broadcast carries no per-viewer `access`
 stamp (the client keeps the access it holds); pane previews are PULLED by the
 surfaces that draw them. The feed writes exactly `SUBSHELLS_QUERY_KEY`, plus
 the per-id `["subshell", id]` entry only when it already exists; removals and
-access changes INVALIDATE it instead. Pages must follow the CACHE, not the
+access changes INVALIDATE it instead, and a removal also INVALIDATES the
+`["workspace"]` detail (a close cascades the pane rows; the dock tiles render
+from that read and nothing else wakes it). Pages must follow the CACHE, not the
 feed's own copy; activity derives from `lastOutputAt` against a clock
 (`hooks/use-clock-tick.ts`), and any NEW surface rendering `subshellIndicator`
 needs its own tick.

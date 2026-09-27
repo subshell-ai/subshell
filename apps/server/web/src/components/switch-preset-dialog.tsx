@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { usePresets } from "@/hooks/use-presets";
-import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
 /** The select's sentinel for "no preset" — the wire carries null instead
@@ -74,9 +74,14 @@ export function SwitchPresetDialog({
         body: JSON.stringify({ presetId: selection === NONE ? null : selection }),
       }),
     onSuccess: () => {
-      // Same refresh the plain restart does — revival keeps the id.
+      // Same refresh the plain restart does — this IS that POST plus a
+      // `presetId`, so it re-reads the same three keys, workspace detail
+      // included (a pane row copies the running/alive this flips; see
+      // `useSubshellMutations`' refreshWithPanes for why the workspace read
+      // is load-bearing for the dock's tiles).
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: SUBSHELL_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: WORKSPACE_QUERY_KEY });
       onOpenChange(false);
     },
   });
