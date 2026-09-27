@@ -1,13 +1,17 @@
 /**
  * Minimal ANSI SGR parser for terminal previews.
  *
- * Scoped deliberately to SGR (colour and attribute) sequences, because that
- * is all the server sends: previews come from `tmux capture-pane -p -e`,
- * which renders the pane's *current screen* and emits styling only — never
- * cursor movement, scroll regions or erases. A general terminal emulator
- * would be the wrong tool here; xterm already fills that role on the pages
- * that need a real terminal, at a cost (a socket and a WebGL context each)
- * that a wall of preview cards cannot pay.
+ * Previews come from `tmux capture-pane -p -e`, which renders the pane's
+ * *current screen* in styling; since 2026-09-27 the capture result also
+ * LEADS with the pane's input-mode statement (`?1049h`-class private
+ * sequences, pane-runtime's `paneModePreamble`); still no cursor movement,
+ * scroll regions or erases, but NOT styling-only. So this parser applies
+ * SGR and CONSUMES everything else: any CSI it failed to recognize would
+ * surface as visible junk in every card, which is why the grammar is the
+ * full ECMA-48 form and not just `[0-9;]` parameters. A general
+ * terminal emulator would still be the wrong tool here; xterm already
+ * fills that role on the pages that need a real terminal, at a cost (a
+ * socket and a WebGL context each) that a wall of preview cards cannot pay.
  */
 
 /** One run of text sharing the same styling. */
@@ -194,11 +198,17 @@ function spanFrom(state: SgrState, text: string): AnsiSpan {
 }
 
 /**
- * Matches any CSI sequence. Only the SGR ones (final byte `m`) change
- * styling; the rest are dropped so their bytes never reach the page.
+ * Matches any CSI sequence in its full ECMA-48 grammar: parameter bytes
+ * (including the private-range `?` through `/` starts and `:`
+ * sub-separators), intermediate bytes, final byte. Only plain SGR (final
+ * `m`, no private start, no intermediates) changes styling; everything
+ * else is CONSUMED so its bytes never reach the page, including the mode
+ * statement every capture now leads with, whose `?1049h`-class sequences
+ * a `[0-9;]*`-only grammar would let through as visible junk (the
+ * 2026-09-27 regression this grammar closes).
  */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ESC is the sequence being matched, not a stray byte
-const CSI = /\x1b\[([0-9;]*)([a-zA-Z])/g;
+const CSI = /\x1b\[([0-9:;<=>?]*)([ -/]*)([@-~])/g;
 
 /**
  * Parses a captured screen into styled spans, one array per line.
@@ -216,10 +226,14 @@ export function parseAnsi(screen: string): AnsiSpan[][] {
     let match = CSI.exec(line);
     while (match !== null) {
       if (match.index > last) spans.push(spanFrom(state, line.slice(last, match.index)));
-      if (match[2] === "m") {
+      const params = match[1];
+      // Private (`?`, `<`, `=`, `>`) and intermediates-disambiguated CSIs
+      // share `m` final bytes with SGR (DECSTR `?…$p` etc. never reach
+      // here, but a `CSI ? … m` must not masquerade as a style change).
+      if (match[3] === "m" && match[2] === "" && !/^[<=>?]/.test(params)) {
         // An empty parameter list means SGR 0 (`ESC[m` is a reset).
-        const params = match[1] === "" ? [0] : match[1].split(";").map((n) => Number.parseInt(n, 10) || 0);
-        applySgr(state, params);
+        const parsed = params === "" ? [0] : params.split(";").map((n) => Number.parseInt(n, 10) || 0);
+        applySgr(state, parsed);
       }
       last = match.index + match[0].length;
       match = CSI.exec(line);

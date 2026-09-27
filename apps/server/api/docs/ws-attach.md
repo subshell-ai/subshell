@@ -84,7 +84,7 @@ attach, both under `journalctl --user -u subshell-server.service | grep "ws atta
 grid as the viewer found it vs. the exact bytes sent. **Off by default: the
 dumps are real screen contents, which can include secrets.**
 
-Three invariants on that path are load-bearing and easy to regress:
+Four invariants on that path are load-bearing and easy to regress:
 
 - Capture text (`replay`, pane-poll deltas) goes through
   `ws/capture-text.ts`; `capture-pane -p` emits **bare LFs**, and a bare LF

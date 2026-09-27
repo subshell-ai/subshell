@@ -987,7 +987,7 @@ echo "server exited unexpectedly" >&2; exit 1
      * A tmux stub that answers exactly the two commands `capturePane` issues
      * (`display-message` for the mode flags, `capture-pane` for the grid),
      * each body deciding that command's stdout and exit. `echo` adds the
-     * trailing newline real tmux adds; the preamble reads trims it.
+     * trailing newline real tmux adds, which the preamble's read trims.
      */
     function modeStub(displayBody: string, captureBody: string): { dir: string; path: string } {
       const dir = mkdtempSync(join(tmpdir(), "subshell-mode-"));
@@ -1015,13 +1015,13 @@ echo "server exited unexpectedly" >&2; exit 1
     };
 
     it("states all five modes, in order, as h or l per flag", async () => {
-      // The mapping was verified live on tmux 3.7c; this is the pin that
-      // keeps a refactor of capturePane from dropping the statement or
-      // reordering it. `1:0:0:1:1` = alt ON, standard OFF, drag OFF,
-      // any-motion ON, SGR ON: exactly what a Claude Code 2.1.283 pane
-      // measured.
-      expect(await run(answer("1:0:0:1:1"), GRID)).toBe(
-        "\x1b[?1049h\x1b[?1000l\x1b[?1002l\x1b[?1003h\x1b[?1006hgrid\n",
+      // The mapping was verified live on tmux 3.7c. `1:0:1:0:1` is chosen
+      // so EVERY adjacent pair differs: any swap of two flags in the
+      // format string, or of two entries in the decsets array, changes
+      // this exact string (a `1:0:0:1:1` vector, the shape a Claude Code
+      // 2.1.283 pane measured, cannot see a standard/button swap).
+      expect(await run(answer("1:0:1:0:1"), GRID)).toBe(
+        "\x1b[?1049h\x1b[?1000l\x1b[?1002h\x1b[?1003l\x1b[?1006hgrid\n",
       );
     });
 
@@ -1036,20 +1036,24 @@ echo "server exited unexpectedly" >&2; exit 1
     it("stays SILENT, not all-off, when a flag did not answer", async () => {
       // A tmux too old for one variable yields an empty token; inventing an
       // OFF there would let a poll re-send CLEAR a mode the client learned
-      // from live bytes. Unknown must mean no statement at all.
+      // from live bytes. Unknown must mean no statement at all. `"01"`
+      // pins strict equality over truthiness: a `tokens[i] &&`-style
+      // refactor would read it as ON.
       expect(await run(answer("1::0:1:1"), GRID)).toBe("grid\n");
+      expect(await run(answer("1:01:0:1:1"), GRID)).toBe("grid\n");
       expect(await run(answer("garbage"), GRID)).toBe("grid\n");
     });
 
     it("a display-message failure costs the statement, never the capture", async () => {
-      // The capture contract stands unchanged: tmux ANSWERING "no" (or
-      // nothing usable) about modes still ships the grid byte-for-byte.
+      // tmux ANSWERING "no" (or nothing usable) about modes still ships the
+      // grid byte-for-byte: losing the decoration is no reason to lose the
+      // capture it decorates.
       expect(await run("echo 'no pane' >&2; exit 1;", GRID)).toBe("grid\n");
     });
 
     it("capture-pane still throws when IT fails", async () => {
-      // paneModePreamble swallows; capturePane must not — captureStable's
-      // null handling and the booting attach's 4004 refusal read that throw.
+      // paneModePreamble swallows; capturePane must not. captureStable's
+      // null handling and the booting attach's 4004 refusal read the throw.
       await expect(run(answer("0:0:0:0:0"), "echo 'no server' >&2; exit 1;")).rejects.toThrow(/no server/);
     });
 

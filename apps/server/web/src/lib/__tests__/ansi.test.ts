@@ -17,6 +17,34 @@ describe("parseAnsi", () => {
     expect(parseAnsi("[INFO] ready [1]")).toEqual([[{ text: "[INFO] ready [1]" }]]);
   });
 
+  /**
+   * Every capture has led with the pane's input-mode statement since
+   * 2026-09-27 (pane-runtime's `paneModePreamble`): private-parameter CSIs
+   * (`?1049h` class) that a `[0-9;]`-only grammar renders as visible junk
+   * at the head of every preview card. This grammar is the regression fix.
+   */
+  const MODE_STATEMENT = "\x1b[?1049h\x1b[?1000l\x1b[?1002l\x1b[?1003h\x1b[?1006h";
+
+  it("consumes the capture's leading mode statement", () => {
+    expect(parseAnsi(`${MODE_STATEMENT}grid line`)).toEqual([[{ text: "grid line" }]]);
+  });
+
+  it("still applies SGR that follows the statement", () => {
+    const [line] = parseAnsi(`${MODE_STATEMENT}${sgr("1")}bold${sgr("0")} plain`);
+    expect(line).toEqual([{ text: "bold", bold: true }, { text: " plain" }]);
+  });
+
+  it("consumes a private-prefixed CSI that ends in m instead of styling it", () => {
+    // DEC private sequences can share the `m` final byte; only plain SGR
+    // may change styling.
+    const [line] = parseAnsi(`a${sgr("?1")}b`);
+    expect(line).toEqual([{ text: "a" }, { text: "b" }]);
+  });
+
+  it("consumes cursor addressing too, though capture -e never emits it", () => {
+    expect(parseAnsi("a\x1b[34;1Hb")).toEqual([[{ text: "a" }, { text: "b" }]]);
+  });
+
   it("splits a line into styled runs", () => {
     const [line] = parseAnsi(`plain ${sgr("31")}red${sgr("0")} plain`);
     expect(line).toEqual([{ text: "plain " }, { text: "red", color: "#cd3131" }, { text: " plain" }]);
