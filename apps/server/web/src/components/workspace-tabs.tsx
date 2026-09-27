@@ -3,10 +3,12 @@ import { useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
+import { SubshellDot } from "@/components/subshell-dot";
 import { SubshellPane } from "@/components/subshell-pane";
 import { SubshellPicker } from "@/components/subshell-picker";
 import { TabWaitingMarker } from "@/components/workspace-dock/subshell-tab";
 import { WorkspaceHeader } from "@/components/workspace-header";
+import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useWorkspacePaneMutations } from "@/hooks/use-workspace-pane-mutations";
 import { isPaneWaiting } from "@/lib/subshell-order";
 import { onWorkspacePaneFocusRequest, setWorkspaceFocusedId } from "@/lib/workspace-focus";
@@ -31,8 +33,17 @@ export interface WorkspaceTabProps {
  * One entry in the scrollable tab strip. Both the label and the × are sized
  * to a 44px touch target — the desktop's dense dockview tab (a small label
  * plus a ~12px close glyph) is not reusable here, it is built for a mouse.
+ *
+ * The dot is the rail's own `<SubshellDot>` reading the SAME list cache
+ * (`useSubshellRow`), so a tab's state — working blink, waiting, dead,
+ * offline — speaks the one state language every other subshell surface
+ * uses (the rail's cells' rule, applied to tabs). The raw `data-status`/
+ * `data-alive` pair rides the dot and the e2e liveness assertions read it.
+ * No row cached yet (list still loading) draws no dot — a missing dot is
+ * honest, a wrong one is not.
  */
 export function WorkspaceTab({ pane, active, onSelect, onRemove, waiting }: WorkspaceTabProps): JSX.Element {
+  const subshell = useSubshellRow(pane.subshellId);
   return (
     <div
       className={cn(
@@ -49,6 +60,7 @@ export function WorkspaceTab({ pane, active, onSelect, onRemove, waiting }: Work
           active ? "text-foreground" : "text-muted-foreground",
         )}
       >
+        {subshell && <SubshellDot subshell={subshell} className="mt-0" />}
         <span className="truncate">{pane.subshellName}</span>
         {waiting && <TabWaitingMarker />}
       </button>
