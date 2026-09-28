@@ -480,26 +480,29 @@ git commit -m "feat(install): agent-command kinds with a shared per-id single fl
 
 ---
 
-### Task 4: `POST /api/setup/agents/:pluginId/update`
+### Task 4: `POST /api/setup/agents/:pluginId/update`, with the streaming core shared (operator ruling 2026-09-28: extract, do not mirror)
 
 **Files:**
-- Create: `apps/server/api/src/api/setup-agent-update.route.ts`
-- Modify: `apps/server/api/src/api/routes.ts` (mount, after `.use(setupAgentInstallRoute)` at ~line 50)
+- Create: `apps/server/api/src/api/setup-agent-command.route.ts` (carries BOTH endpoints; `setup-agent-install.route.ts` is deleted after its contents move)
+- Delete: `apps/server/api/src/api/setup-agent-install.route.ts`
+- Modify: `apps/server/api/src/api/routes.ts` (imports move to the new module; add `.use(setupAgentUpdateRoute)` beside the existing install mount)
+- Modify: `apps/server/api/src/api/__tests__/setup-agent-install.route.test.ts` (import path only: `@/api/setup-agent-command.route.js`; the seam name `setAgentInstallDepsForTests` is kept, now per-kind)
 - Modify: `.claude/rules/security-context.md` and `docs/security.md` §10 audit list (add `agent.update` beside `agent.install`)
-- Test: `apps/server/api/src/api/__tests__/setup-agent-update.route.test.ts` (new), `setup-agent-install.route.test.ts` (unchanged, rerun)
+- Test: `apps/server/api/src/api/__tests__/setup-agent-update.route.test.ts` (new)
 
 **Interfaces:**
 - Consumes: Task 3's `refuseAgentCommand` / `runBuiltInAgentCommand`, Task 2's `harnessInfo` payload.
-- Produces: the endpoint Task 8's web card POSTs; audit action `agent.update` with metadata `{ok, exitCode, durationMs}`.
+- Produces: `setupAgentInstallRoute` and `setupAgentUpdateRoute` (both from the new module), `setAgentInstallDepsForTests(deps|null)` / `setAgentUpdateDepsForTests(deps|null)` (test-only seams, per kind, refusing outside the suite); the update endpoint Task 8's web card POSTs; audit action `agent.update` with metadata `{ok, exitCode, durationMs}`. The endpoint path pattern is `/api/setup/agents/:pluginId/{install|update}` (Task 8 relies on it).
 
 - [ ] **Step 1: Write the failing test**
 
-Create `apps/server/api/src/api/__tests__/setup-agent-update.route.test.ts`. Copy the fixture machinery from `setup-agent-install.route.test.ts` VERBATIM (the app build, `bearerRequest`, `install()` helper renamed to `update(pluginId)` hitting `/api/setup/agents/${pluginId}/update`, `authedRequest`/`signIn` helpers, the audit reader renamed to `agentUpdateAudit` matching on `action === "agent.update"`), but import the seam + route from the new module:
+Create `apps/server/api/src/api/__tests__/setup-agent-update.route.test.ts`. Copy the fixture machinery from `setup-agent-install.route.test.ts` VERBATIM (the app build, `bearerRequest`, `install()` helper renamed to `update(pluginId)` hitting `/api/setup/agents/${pluginId}/update`, `authedRequest`/`signIn` helpers, the audit reader renamed to `agentUpdateAudit` matching on `action === "agent.update"`), importing from the new combined module:
 
 ```ts
-import { setAgentUpdateDepsForTests, setupAgentUpdateRoute } from "@/api/setup-agent-update.route.js";
+import { setAgentUpdateDepsForTests, setupAgentInstallRoute, setupAgentUpdateRoute } from "@/api/setup-agent-command.route.js";
 
-const app = new Elysia().use(errorHandlerPlugin).use(setupAgentUpdateRoute);
+// Both routes on one app so the cross-kind single-flight case can POST both.
+const app = new Elysia().use(errorHandlerPlugin).use(setupAgentInstallRoute).use(setupAgentUpdateRoute);
 ```
 
 `setAgentUpdateDepsForTests` takes the SAME `AgentInstallDeps` type; use the same fake shape the install test uses. Cases to assert (each mirroring a case that exists in the install route's test; keep that file's auth helpers):
@@ -531,132 +534,142 @@ Replace `"demo-harness-id"` / the fake `commandFor` with whatever built-in id + 
 Run: `bun test apps/server/api/src/api/__tests__/setup-agent-update.route.test.ts`
 Expected: import fails (module missing).
 
-- [ ] **Step 3: Implement the route**
+- [ ] **Step 3: Implement**
 
-Create `apps/server/api/src/api/setup-agent-update.route.ts`. It mirrors `setup-agent-install.route.ts` structure for structure (read it once as the template; keep its comment load in spirit, but the module doc names the differences). Full body:
+Create `apps/server/api/src/api/setup-agent-command.route.ts`: the install route's module, moved and generalized to serve both kinds from one streaming core. Copy `setup-agent-install.route.ts` over as the base (keeping its comment load), then apply these changes:
+
+- The module doc: one paragraph saying this module owns BOTH built-in agent commands on the install rails (spec 2026-09-11 §7 + spec 2026-09-28 §2), why they are one module (the whole body except the kind word is one protocol: gate, pre-stream refusal, NDJSON framing, audit, re-probe; two copies of it is exactly the drift the file ledger warns about), and that the RCE argument (admin cookie only, never public) is what forced the separate module in 2026-09-11 and still rules both endpoints.
+- Deps seams become per-kind:
 
 ```ts
-import { BackendErrorCodes } from "@internal/backend-errors";
-import { Elysia, t } from "elysia";
-import { ForbiddenError } from "@/api/auth-guard.js";
-import { harnessInfo } from "@/api/harness-utils.js";
-import { resolveSetupActor } from "@/api/setup.route.js";
-import { IS_TEST } from "@/constants.js";
-import { apiErrorBody } from "@/lib/api-error.js";
-import { resolveCookieSession } from "@/lib/session-cookie.js";
-import { apiModels } from "@/schema/index.js";
-import {
-  type AgentInstallDeps,
-  refuseAgentCommand,
-  runBuiltInAgentCommand,
-} from "@/services/agent-install.service.js";
-import { audit } from "@/services/audit.js";
-import { localPluginReports } from "@/services/nodes/local-plugins.js";
-
-let depsOverride: AgentInstallDeps | undefined;
+const depsOverrides = new Map<AgentInstallKind, AgentInstallDeps>();
 
 /**
- * Test seam, same discipline as `setAgentInstallDepsForTests`: refuses outside
- * the suite; a mis-wired production import must not be able to redirect what
- * this route runs on the host.
+ * Test seam (install), same discipline as before: refuses outside the suite.
  * @internal
  */
+export function setAgentInstallDepsForTests(deps: AgentInstallDeps | null): void {
+  if (!IS_TEST) throw new Error("setAgentInstallDepsForTests is a test-only seam");
+  if (deps) depsOverrides.set("install", deps);
+  else depsOverrides.delete("install");
+}
+
+/** Test seam (update), twin of the above. @internal */
 export function setAgentUpdateDepsForTests(deps: AgentInstallDeps | null): void {
   if (!IS_TEST) throw new Error("setAgentUpdateDepsForTests is a test-only seam");
-  depsOverride = deps ?? undefined;
+  if (deps) depsOverrides.set("update", deps);
+  else depsOverrides.delete("update");
 }
-
-/** Mirror of the install route's `codeForRefusalStatus` (see its comment). */
-function codeForRefusalStatus(status: 400 | 409): BackendErrorCodes {
-  return status === 409 ? BackendErrorCodes.EXISTS_ERROR : BackendErrorCodes.INPUT_VALIDATION_ERROR;
-}
-
-/**
- * `POST /api/setup/agents/:pluginId/update` (spec 2026-09-28 §2). The update
- * twin of the install route and bound by the same rules: admin COOKIE only,
- * built-in id allowlist, what-runs fixed by this repo, every 4xx decided
- * before the NDJSON body opens, single flight SHARED with install through the
- * id (one binary, one filesystem, one run at a time).
- *
- * The command is the plugin's manifest `update.command` when declared, else
- * a re-run of its install command; on an enrolled NODE nothing here can run
- * (the route acts on the control-plane host only, like install), which is why
- * the card shows a copy line, not a button, for agent nodes.
- */
-export const setupAgentUpdateRoute = new Elysia({ prefix: "/api/setup/agents" }).use(apiModels).post(
-  "/:pluginId/update",
-  async ({ request, params, status }) => {
-    if ((await resolveSetupActor(request)) !== "admin") throw new ForbiddenError();
-    const refusal = await refuseAgentCommand(params.pluginId, "update", depsOverride);
-    if (refusal) {
-      return status(
-        refusal.status,
-        apiErrorBody({ code: codeForRefusalStatus(refusal.status), message: refusal.message }),
-      );
-    }
-
-    const encoder = new TextEncoder();
-    const body = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        /** One NDJSON frame; a gone reader must not throw into the run. */
-        const send = (frame: unknown) => {
-          try {
-            controller.enqueue(encoder.encode(`${JSON.stringify(frame)}\n`));
-          } catch {
-            // The page navigated. The update carries on; abandoning a binary
-            // swap half-done is worse than finishing unobserved.
-          }
-        };
-        try {
-          const result = await runBuiltInAgentCommand(params.pluginId, "update", depsOverride, (line) =>
-            send({ type: "line", text: line }),
-          );
-          const actor = await resolveCookieSession(request.headers.get("cookie") ?? "");
-          await audit({
-            actorUserId: actor?.user.id ?? null,
-            action: "agent.update",
-            targetType: "plugin",
-            targetId: params.pluginId,
-            metadataJson: JSON.stringify({ ok: result.ok, exitCode: result.exitCode, durationMs: result.durationMs }),
-          });
-          const installedHere = (await localPluginReports()).some((r) => r.id === params.pluginId && !r.broken);
-          send({ type: "done", ...result, harness: await harnessInfo(params.pluginId, installedHere) });
-        } catch (err) {
-          send({ type: "error", message: err instanceof Error ? err.message : "The update failed." });
-        } finally {
-          controller.close();
-        }
-      },
-    });
-    return new Response(body, {
-      headers: {
-        "content-type": "application/x-ndjson; charset=utf-8",
-        "cache-control": "no-store, no-transform",
-        "x-accel-buffering": "no",
-      },
-    });
-  },
-  {
-    params: t.Object({ pluginId: t.String({ description: "Built-in plugin id whose harness CLI to update" }) }),
-    response: {
-      400: "ApiErrorResponse",
-      401: "ApiErrorResponse",
-      403: "ApiErrorResponse",
-      409: "ApiErrorResponse",
-    },
-    detail: {
-      operationId: "updateSetupAgent",
-      tags: ["setup"],
-      description:
-        "Runs the vendor update command of one built-in agent CLI on the control-plane host, as the server's own user (falling back to re-running its install command). Admin cookie only, never public, audited. STREAMS application/x-ndjson: a {type:line,text} per command line, then one terminal {type:done,...} with ok/exitCode/harness, or {type:error,message}.",
-    },
-  },
-);
 ```
 
-In `apps/server/api/src/api/routes.ts`, after `.use(setupAgentInstallRoute)`, add `.use(setupAgentUpdateRoute)` and the matching import (same style as the install route's import line).
+- The shared stream builder (what the old inline `ReadableStream` becomes), with kind choosing the audit action and the run function:
 
-Audit docs: in `.claude/rules/security-context.md`, the audit-names line for plugins/installers contains "`agent.install`, `tmux.install`": so it becomes "`agent.install`, `agent.update`, `tmux.install`". Do the same addition in `docs/security.md` §10 where `agent.install` is listed (grep it).
+```ts
+/** The one streaming body both endpoints return once their refusal passed. */
+function agentCommandStream(kind: AgentInstallKind, pluginId: string, request: Request): Response {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      /** One NDJSON frame. A closed reader (the page navigated) must not throw into the command. */
+      const send = (frame: unknown) => {
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(frame)}\n`));
+        } catch {
+          // The reader is gone. The command carries on regardless - it is
+          // changing this machine, and abandoning it half-done because nobody
+          // is watching would be worse than finishing unobserved.
+        }
+      };
+      try {
+        const result = await runBuiltInAgentCommand(pluginId, kind, depsOverrides.get(kind), (line) =>
+          send({ type: "line", text: line }),
+        );
+        // Best-effort actor id for the audit row; the gate above already
+        // proved a valid admin cookie, so this just reads it back out.
+        const actor = await resolveCookieSession(request.headers.get("cookie") ?? "");
+        await audit({
+          actorUserId: actor?.user.id ?? null,
+          action: kind === "update" ? "agent.update" : "agent.install",
+          targetType: "plugin",
+          targetId: pluginId,
+          metadataJson: JSON.stringify({ ok: result.ok, exitCode: result.exitCode, durationMs: result.durationMs }),
+        });
+        const installedHere = (await localPluginReports()).some((r) => r.id === pluginId && !r.broken);
+        send({ type: "done", ...result, harness: await harnessInfo(pluginId, installedHere) });
+      } catch (err) {
+        // The status line is long gone, so a failure has to arrive as a
+        // FRAME. A client that sees neither `done` nor `error` before the
+        // stream ends treats that as a failure too - see the web hook.
+        send({ type: "error", message: err instanceof Error ? err.message : `The ${kind} failed.` });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+  return new Response(body, {
+    headers: {
+      "content-type": "application/x-ndjson; charset=utf-8",
+      // Nothing between here and the page may hold these frames back: the
+      // whole point is that they arrive while the command is still going.
+      "cache-control": "no-store, no-transform",
+      "x-accel-buffering": "no",
+    },
+  });
+}
+```
+
+- One endpoint factory, both exports:
+
+```ts
+/** One of the two built-in-agent commands, same rails, different kind word. */
+function agentCommandEndpoint(kind: AgentInstallKind) {
+  return new Elysia({ prefix: "/api/setup/agents" })
+    .use(apiModels)
+    .post(
+      `/:pluginId/${kind}`,
+      async ({ request, params, status }) => {
+        if ((await resolveSetupActor(request)) !== "admin") throw new ForbiddenError();
+        // REFUSALS ARE DECIDED BEFORE A BYTE IS STREAMED. Once the body opens
+        // the status is 200 and cannot be taken back - see the module doc.
+        const refusal = await refuseAgentCommand(params.pluginId, kind, depsOverrides.get(kind));
+        if (refusal) {
+          return status(refusal.status, apiErrorBody({ code: codeForRefusalStatus(refusal.status), message: refusal.message }));
+        }
+        return agentCommandStream(kind, params.pluginId, request);
+      },
+      {
+        params: t.Object({
+          pluginId: t.String({
+            description: kind === "update"
+              ? "Built-in plugin id whose harness CLI to update"
+              : "Built-in plugin id whose agent CLI to install",
+          }),
+        }),
+        // NO typed 200: this route streams; the 4xx shapes and the frame
+        // protocol are exactly as documented on each endpoint below.
+        response: { 400: "ApiErrorResponse", 401: "ApiErrorResponse", 403: "ApiErrorResponse", 409: "ApiErrorResponse" },
+        detail: {
+          operationId: kind === "update" ? "updateSetupAgent" : "installSetupAgent",
+          tags: ["setup"],
+          description:
+            kind === "update"
+              ? "Runs the vendor update command of one built-in agent CLI on the control-plane host, as the server's own user (falling back to re-running its install command). Admin cookie only, never public, audited as agent.update. STREAMS application/x-ndjson: a {type:line,text} per command line, then one terminal {type:done,...} with ok/exitCode/harness, or {type:error,message}."
+              : "Runs the official installer of one built-in agent CLI on the control-plane host, as the server's own user. Admin cookie only, never public, audited. STREAMS application/x-ndjson while it runs: a {type:line,text} per line of installer output, then one terminal {type:done,...} carrying ok/exitCode/output/harness, or {type:error,message}. ok:false inside a done frame is a run that failed; a 4xx is a refusal decided before the body opened and before anything ran.",
+        },
+      },
+    );
+}
+
+/** `POST /api/setup/agents/:pluginId/install` (spec 2026-09-11 §7). */
+export const setupAgentInstallRoute = agentCommandEndpoint("install");
+
+/** `POST /api/setup/agents/:pluginId/update` (spec 2026-09-28 §2). */
+export const setupAgentUpdateRoute = agentCommandEndpoint("update");
+```
+
+Keep `codeForRefusalStatus` (with its existing comment) in the moved file. Delete `apps/server/api/src/api/setup-agent-install.route.ts`. In `apps/server/api/src/api/routes.ts`: point the install route import at `@/api/setup-agent-command.route.js`, import `setupAgentUpdateRoute` from the same module, and add `.use(setupAgentUpdateRoute)` right after the existing `.use(setupAgentInstallRoute)`. In `setup-agent-install.route.test.ts` change only the module path of its import (`@/api/setup-agent-command.route.js`); every case and assertion stays.
+
+Audit docs: in `.claude/rules/security-context.md`, the plugins/installers audit-names list contains "`agent.install`, `tmux.install`"; make it "`agent.install`, `agent.update`, `tmux.install`". Same addition in `docs/security.md` where `agent.install` is listed (grep it).
 
 - [ ] **Step 4: Run tests**
 
