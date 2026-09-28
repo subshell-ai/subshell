@@ -410,6 +410,35 @@ describe("parseManifest (network)", () => {
   });
 });
 
+describe("subshell.update", () => {
+  it("accepts a vendor update command", () => {
+    const m = parseManifest(pkg({ update: { command: "claude update" } }));
+    expect("error" in m).toBe(false);
+    if (!("error" in m)) expect(m.update?.command).toBe("claude update");
+  });
+
+  it("omits update when the block is absent", () => {
+    const m = parseManifest(pkg());
+    expect("error" in m).toBe(false);
+    if (!("error" in m)) expect(m.update).toBeUndefined();
+  });
+
+  it("refuses an update command that needs privilege at ANY boundary", () => {
+    // The line runs through `sh -c`, so a boundary hides a second command.
+    const m = parseManifest(pkg({ update: { command: "curl -fsSL https://x/install | sudo tee /dev/null" } }));
+    expect("error" in m).toBe(true);
+    if ("error" in m) expect(m.error).toContain("sudo");
+  });
+
+  it("refuses a non-object update block", () => {
+    expect("error" in parseManifest(pkg({ update: "claude update" }))).toBe(true);
+  });
+
+  it("refuses an empty command (a heading with no words)", () => {
+    expect("error" in parseManifest(pkg({ update: { command: "  " } }))).toBe(true);
+  });
+});
+
 describe("isDocsUrl", () => {
   it("accepts the two schemes a browser navigates to", () => {
     expect(isDocsUrl("https://tailscale.com/kb/1080/cli")).toBe(true);

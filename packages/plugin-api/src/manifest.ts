@@ -69,6 +69,19 @@ export interface InstallSpec {
   docsUrl: string;
 }
 
+/** How to move an already-installed program to a newer version, when the vendor ships one. */
+export interface UpdateSpec {
+  /**
+   * The vendor's own update command, e.g. `claude update`.
+   *
+   * Like {@link InstallSpec.command}, this is a field a host RUNS through a
+   * shell, so the same privilege refusal applies at parse time. It is separate
+   * from `install` because for several vendors re-running the installer is
+   * ALSO the update, and a plugin may honestly declare nothing here.
+   */
+  command: string;
+}
+
 /** One step an operator must run themselves, because the host may not. */
 export interface PrivilegedStep {
   /** What it does, in a few words: "Install the daemon" */
@@ -215,6 +228,8 @@ export interface SubshellManifest {
   detect?: DetectSpec;
   /** Install guidance shown when the binary is missing */
   install?: InstallSpec;
+  /** The vendor's self-update command; absent when updating is a re-run of {@link install} */
+  update?: UpdateSpec;
   /**
    * Environment variables this plugin computes against (spec 2026-09-10 §5).
    *
@@ -436,6 +451,25 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     install = { command: i.command, docsUrl: i.docsUrl };
   }
 
+  // A SECOND field a host will RUN (`sh -c`), so the same boundary-aware
+  // privilege refusal lands here as on `install.command`. An empty command is
+  // refused, not dropped: a row that offers "Update" must have something to
+  // run, and a plugin that ships `update: {}` is a plugin that means to.
+  let update: UpdateSpec | undefined;
+  if (block.update !== undefined) {
+    const u = block.update;
+    if (!isRecord(u) || typeof u.command !== "string" || u.command.trim() === "") {
+      return { error: "`subshell.update` needs a non-empty command" };
+    }
+    if (needsPrivileges(u.command)) {
+      return {
+        error:
+          "`subshell.update.command` must not need sudo, doas or pkexec — the host runs it through a shell and has no terminal for a password prompt",
+      };
+    }
+    update = { command: u.command };
+  }
+
   // Names, not values: the package.json is checked in, the values are what
   // the node reads off its own machine at `ready`. An empty name would make
   // the node read `process.env[""]`, so it is refused here rather than
@@ -462,6 +496,7 @@ export function parseManifest(pkgJson: unknown): SubshellManifest | ManifestErro
     entry: block.entry,
     ...(detect ? { detect } : {}),
     ...(install ? { install } : {}),
+    ...(update ? { update } : {}),
     ...(hostEnv ? { hostEnv } : {}),
     ...(parsedNetwork ? { network: parsedNetwork } : {}),
   };
