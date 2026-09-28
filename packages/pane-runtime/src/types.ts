@@ -106,6 +106,15 @@ export interface HarnessPlugin {
   icon?: string;
   /** Official install instructions, shown when detection fails */
   installHint: InstallHint;
+  /**
+   * The vendor's own self-update command from the manifest's `update` block,
+   * or absent when the plugin declares none. Absent-not-undefined, like
+   * {@link detectSpec}: a surface reading `in` must be able to tell "the
+   * vendor ships an updater" from "updating here is a re-run of
+   * {@link installHint}'s command" (that fallback decision lives in the
+   * install service, and the copy line shows whichever string it picked).
+   */
+  updateHint?: string;
   /** Whether the harness ships enabled out of the box */
   enabledByDefault: boolean;
   /** Whether the harness binary is currently installed/usable. */

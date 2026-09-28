@@ -74,6 +74,9 @@ export async function harnessInfo(id: string, installedHere: boolean): Promise<S
     checkedAt: entry.checkedAt,
     installedHere,
     install: h.installHint,
+    // Optional, not null: "no vendor updater" and "an updater whose text is
+    // empty" are the same nothing, and the surface falls back either way.
+    ...(h.updateHint ? { update: h.updateHint } : {}),
   };
 }
 

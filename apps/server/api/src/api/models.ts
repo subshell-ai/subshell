@@ -198,6 +198,12 @@ export const HarnessInfoSchema = t.Object({
     command: t.String({ description: "Official install command" }),
     docsUrl: t.String({ description: "Installation documentation URL" }),
   }),
+  update: t.Optional(
+    t.String({
+      description:
+        "Vendor self-update command (e.g. `claude update`); absent when the plugin declares none, which makes updating a re-run of the install command",
+    }),
+  ),
 });
 
 /** One option in a harness's settings editor schema. */
