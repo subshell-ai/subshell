@@ -15,7 +15,8 @@ import {
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
-import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
+import { publishLive } from "@/services/live-bus.js";
 import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
@@ -456,7 +457,12 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
       const pane = await subshells.findById(deps.reStamp.subshellId);
       const entry = pane ? merged.get(pane.harnessId) : undefined;
       if (pane && pane.status === "running" && entry?.installed && entry.version) {
-        await subshells.casHarnessVersion(pane.id, deps.reStamp.expected, entry.version);
+        // The stamp is user-visible on the view (spec 2026-09-28 §4), so the
+        // standing publish rule binds this write: a landed CAS announces, a
+        // no-write path stays silent.
+        if (await subshells.casHarnessVersion(pane.id, deps.reStamp.expected, entry.version)) {
+          publishLive({ kind: "subshell.changed", id: pane.id });
+        }
       }
     } catch (err: unknown) {
       logger.withError(err).debug(`node ${nodeId}: harness version re-stamp failed`);
@@ -483,4 +489,18 @@ export function detectOnNodeBestEffort(nodeId: string, opts: { reStamp?: DetectO
   void detectOnNode(nodeId, opts).catch((err: unknown) => {
     logger.debug(`detect for node ${nodeId} failed: ${err instanceof Error ? err.message : String(err)}`);
   });
+}
+
+/**
+ * Probe THIS host's harnesses and store the answer in the local node's
+ * `inventory_json` (spec 2026-09-28 §4). The local node's own VIEWS keep
+ * probing live (`effectiveHarnessStates` never reads this column for local);
+ * the snapshot exists so the cheap per-read question a pane asks, "what does
+ * this node's harness hold now?", has a stored answer at all. Freshness
+ * matches the agent pass: one probe per refresh cycle.
+ */
+export async function recordLocalInventorySnapshot(): Promise<void> {
+  const catalog = await enabledHarnessPlugins();
+  const probe = await probeLocally(catalog);
+  await new NodesRepository(db).applyInventory(LOCAL_NODE_ID, JSON.stringify([...probe.entries.values()]));
 }

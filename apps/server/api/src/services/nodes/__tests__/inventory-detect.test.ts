@@ -6,6 +6,7 @@ import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import { type LiveEvent, subscribeLive } from "@/services/live-bus.js";
 import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 import type { sendCommand } from "@/services/nodes/node-rpc.js";
 import {
@@ -443,17 +444,26 @@ describe("detectOnNode", () => {
       results: [{ harnessId: "claude-code", installed, ...(installed ? { binaryPath: "/x/claude" } : {}), rawVersion }],
       env: {},
     });
+    // The stamp is user-visible on the view since Task 7, so the standing
+    // publish rule binds this write too: the row changed, so the live feed
+    // must be told (controller ruling on the Task 6 review). Subscribed
+    // through the bus itself — the same emitter the real feeds consume.
+    const published: LiveEvent[] = [];
+    const off = subscribeLive((e) => published.push(e));
+    const changedFor = () => published.filter((e) => e.kind === "subshell.changed" && e.id === subshellId).length;
     try {
       // The positive: a fresh row holds null (the create wrote no stamp yet),
       // the kick's expected is null, and the fresh answer lands whole.
       await detectOnNode(node.id, { send: fakeSend(answer("2.1.284"), []), reStamp: { subshellId, expected: null } });
       expect((await subshells.findById(subshellId))?.harnessVersion).toBe("2.1.284");
+      expect(changedFor()).toBe(1); // the landed write published
       // The CAS miss: a kick still expecting null (its launch stamp has since
       // been replaced) writes NOTHING — not even the fresher 9.9.9 this
       // detect happens to cache. A stale writer must never launder a fresh
       // stamp (a racing restart always wins).
       await detectOnNode(node.id, { send: fakeSend(answer("9.9.9"), []), reStamp: { subshellId, expected: null } });
       expect((await subshells.findById(subshellId))?.harnessVersion).toBe("2.1.284");
+      expect(changedFor()).toBe(1); // a no-write path publishes nothing
       // The never-erase rule: a matching expected value but a NEGATIVE fresh
       // answer (installed: false) leaves the launch stamp standing.
       await detectOnNode(node.id, {
@@ -461,13 +471,16 @@ describe("detectOnNode", () => {
         reStamp: { subshellId, expected: "2.1.284" },
       });
       expect((await subshells.findById(subshellId))?.harnessVersion).toBe("2.1.284");
+      expect(changedFor()).toBe(1); // ...and neither does this one
       // A matching expected with a positive answer DOES land (the fresh-after-update case).
       await detectOnNode(node.id, {
         send: fakeSend(answer("9.9.9"), []),
         reStamp: { subshellId, expected: "2.1.284" },
       });
       expect((await subshells.findById(subshellId))?.harnessVersion).toBe("9.9.9");
+      expect(changedFor()).toBe(2); // landed, published
     } finally {
+      off();
       await subshells.delete(subshellId);
     }
   });

@@ -19,6 +19,8 @@ import {
   parseNodeProbeEntries,
 } from "@internal/subshell-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
+import { db } from "@/db/index.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import type { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
@@ -41,6 +43,7 @@ import {
   subshellMcpEnv,
 } from "@/services/mcp-launch.js";
 import { probeReporterLaunch } from "@/services/mcp-resolve.js";
+import { readAgentInventory } from "@/services/nodes/inventory.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
@@ -638,6 +641,34 @@ export class SubshellManagerService {
   }
 
   /**
+   * Current-version snapshots for every node the given rows live on, one read
+   * per distinct node (spec 2026-09-28 §4). The snapshot is a decoration: an
+   * absent node row, a junk payload, or a throwing read all answer as an empty
+   * map, which `toSubshellView` renders as the honest unknown.
+   */
+  async #harnessVersionMaps(rows: { nodeId: string }[]): Promise<Map<string, ReadonlyMap<string, string>>> {
+    const out = new Map<string, ReadonlyMap<string, string>>();
+    for (const nodeId of new Set(rows.map((r) => r.nodeId))) {
+      try {
+        const node = await new NodesRepository(db).findById(nodeId);
+        if (!node) {
+          out.set(nodeId, new Map());
+          continue;
+        }
+        const m = new Map<string, string>();
+        for (const [harnessId, entry] of readAgentInventory(node).entries) {
+          if (entry.installed && entry.version) m.set(harnessId, entry.version);
+        }
+        out.set(nodeId, m);
+      } catch {
+        // A snapshot read is a decoration: unknown is fine, a crashed list is not.
+        out.set(nodeId, new Map());
+      }
+    }
+    return out;
+  }
+
+  /**
    * Maps already-fetched rows to client views (reconciled preview per row).
    * Exposed so a caller that resolved its OWN row set — e.g. the sharing-aware
    * visible list — can reuse the exact same preview/`#` capture path. Views
@@ -656,10 +687,15 @@ export class SubshellManagerService {
     // (spec 2026-09-19 §4.4). REST keeps them — the mobile card renders the
     // last preview line and reads this list over HTTP.
     const withPreviews = opts.previews ?? true;
+    // ONE snapshot read per distinct node per call (not per row): the version
+    // maps are computed up front, the loop stays capture-paced.
+    const versions = await this.#harnessVersionMaps(rows);
     const views: ReturnType<typeof toSubshellView>[] = [];
     for (const row of rows) {
       const preview = withPreviews ? await this.#preview(row) : [];
-      views.push(toSubshellView(row, row.status, preview, "owner", isNodeOffline(row.nodeId)));
+      views.push(
+        toSubshellView(row, row.status, preview, "owner", isNodeOffline(row.nodeId), versions.get(row.nodeId)),
+      );
     }
     return views;
   }
@@ -691,7 +727,15 @@ export class SubshellManagerService {
   async getSubshell(userId: string, id: string): Promise<ReturnType<typeof toSubshellView> | undefined> {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return undefined;
-    return toSubshellView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row.nodeId));
+    const versions = await this.#harnessVersionMaps([row]);
+    return toSubshellView(
+      row,
+      row.status,
+      await this.#preview(row),
+      "owner",
+      isNodeOffline(row.nodeId),
+      versions.get(row.nodeId),
+    );
   }
 
   /**
@@ -2098,6 +2142,12 @@ export function toSubshellView(
     waitingSince: string | null;
     lastPushUrgency: number | null;
     crossAgent: number;
+    /**
+     * The harness CLI version this pane's current process started on (Task 5's
+     * column; optional so pre-column row literals and legacy callers stay
+     * valid and read `null`).
+     */
+    harnessVersion?: string | null;
   },
   status: string,
   /** The subshell's current screen, bottom-first-trimmed; empty when not running. */
@@ -2116,11 +2166,26 @@ export function toSubshellView(
    * and read false.
    */
   nodeOffline = false,
+  /**
+   * The node's CURRENT harness versions (harnessId to version), from its
+   * inventory snapshot. Absent map = nothing known, which is every unknown
+   * reading this function returns: never a stale claim, only ever a fact.
+   */
+  nodeHarnessVersions?: ReadonlyMap<string, string>,
 ) {
+  const harnessCurrentVersion = nodeHarnessVersions?.get(row.harnessId) ?? null;
   return {
     id: row.id,
     presetId: row.presetId,
     harnessId: row.harnessId,
+    // issue #250: the version this pane's process started on, the version the
+    // node now reports, and the ONE derived comparison between them. Clients
+    // render; none of them decides. Two nulls are an absence, not a
+    // disagreement, so an unprobed pair never raises the flag.
+    harnessVersion: row.harnessVersion ?? null,
+    harnessCurrentVersion,
+    harnessStale:
+      row.harnessVersion != null && harnessCurrentVersion != null && row.harnessVersion !== harnessCurrentVersion,
     nodeId: row.nodeId,
     name: row.name,
     workingDir: row.workingDir,

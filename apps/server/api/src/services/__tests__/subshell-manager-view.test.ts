@@ -58,3 +58,33 @@ describe("toSubshellView notification fields", () => {
     expect(toSubshellView(row(), "running", [], "edit").access).toBe("edit");
   });
 });
+
+describe("toSubshellView harness staleness (spec 2026-09-28 §4)", () => {
+  it("stale only when stamp and current are both known and differ", () => {
+    const versions = new Map([["claude", "2.1.284"]]);
+    const stale = toSubshellView({ ...row(), harnessVersion: "2.1.283" }, "running", [], "owner", false, versions);
+    expect(stale.harnessStale).toBe(true);
+    expect(stale.harnessVersion).toBe("2.1.283");
+    expect(stale.harnessCurrentVersion).toBe("2.1.284");
+    // No stamp (never launched under a version, or pre-column row): unknown.
+    expect(
+      toSubshellView({ ...row(), harnessVersion: null }, "running", [], "owner", false, versions).harnessStale,
+    ).toBe(false);
+    // Node snapshot unknown (no map at all — every legacy call site — or no
+    // entry for this harness): unknown. Two nulls are an absence, not a
+    // disagreement, so an unprobed pair never raises the flag.
+    expect(toSubshellView({ ...row(), harnessVersion: "2.1.283" }, "running", [], "owner", false).harnessStale).toBe(
+      false,
+    );
+    expect(
+      toSubshellView({ ...row(), harnessVersion: "2.1.283" }, "running", [], "owner", false, new Map()).harnessStale,
+    ).toBe(false);
+    // Current version read through even when they agree (the UI line needs both
+    // strings, and "up to date" has to be derivable without a second field).
+    const same = toSubshellView({ ...row(), harnessVersion: "2.1.284" }, "running", [], "owner", false, versions);
+    expect(same.harnessStale).toBe(false);
+    expect(same.harnessCurrentVersion).toBe("2.1.284");
+    // The stamp passes through as read, null becoming an explicit null.
+    expect(toSubshellView(row(), "running").harnessVersion).toBeNull();
+  });
+});

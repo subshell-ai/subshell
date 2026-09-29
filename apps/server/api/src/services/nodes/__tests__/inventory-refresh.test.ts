@@ -22,6 +22,8 @@ import {
 interface Rec {
   /** Node ids the pass kicked, in order. */
   asked: string[];
+  /** Times the local-snapshot seam was called. */
+  localPasses: number;
   /** Tick callbacks the schedule seam was handed. */
   ticks: (() => void)[];
   /** Periods the schedule seam was handed. */
@@ -31,7 +33,7 @@ interface Rec {
 }
 
 function rec(): Rec {
-  return { asked: [], ticks: [], every: [], stopped: 0 };
+  return { asked: [], localPasses: 0, ticks: [], every: [], stopped: 0 };
 }
 
 function deps(r: Rec, online: string[], throwsFor: string[] = []): InventoryRefreshDeps {
@@ -40,6 +42,9 @@ function deps(r: Rec, online: string[], throwsFor: string[] = []): InventoryRefr
     detect: (nodeId) => {
       if (throwsFor.includes(nodeId)) throw new Error(`detect seam blew up for ${nodeId}`);
       r.asked.push(nodeId);
+    },
+    detectLocal: async () => {
+      r.localPasses++;
     },
     schedule: (tick, everyMs) => {
       r.ticks.push(tick);
@@ -134,6 +139,35 @@ describe("startInventoryRefresh", () => {
     expect(r.asked).toEqual(["n1", "n2"]);
     r.ticks[0]?.();
     expect(r.asked).toEqual(["n1", "n2", "n1", "n2"]);
+  });
+
+  it("the tick also takes the local host's snapshot, once per pass", async () => {
+    // The host the plane CAN probe deserves an answer at least as fresh as the
+    // agents it has to ask (spec 2026-09-28 §4): the same timer drives both.
+    const r = rec();
+    setInventoryRefreshDepsForTests(deps(r, ["n1"]));
+    startInventoryRefresh();
+    r.ticks[0]?.();
+    r.ticks[0]?.();
+    // The kick is fire-and-forget on the tick, so let the microtask land.
+    await Promise.resolve();
+    expect(r.localPasses).toBe(2);
+  });
+
+  it("a rejecting snapshot does not kill the tick", async () => {
+    // Same containment as the pass: an uncaught throw (or rejection escaping
+    // the tick) reaches the process-level handlers; a failed snapshot just
+    // leaves the last one standing.
+    const r = rec();
+    const broken: InventoryRefreshDeps = {
+      ...deps(r, ["n1"]),
+      detectLocal: () => Promise.reject(new Error("snapshot seam blew up")),
+    };
+    setInventoryRefreshDepsForTests(broken);
+    startInventoryRefresh();
+    expect(() => r.ticks[0]?.()).not.toThrow();
+    await Promise.resolve();
+    expect(r.asked).toEqual(["n1"]);
   });
 
   it("a failing pass does not kill the timer — an uncaught throw here would exit the process", () => {

@@ -29,6 +29,18 @@ export const SubshellSchema = t.Object({
   id: t.String({ description: "Subshell id" }),
   presetId: t.Nullable(t.String({ description: "Preset launched with (null = presetless launch)" })),
   harnessId: t.String({ description: "Harness plugin id" }),
+  harnessVersion: t.Union([
+    t.String({ description: "Harness CLI version this pane's current process started on (null = unknown)" }),
+    t.Null(),
+  ]),
+  harnessCurrentVersion: t.Union([
+    t.String({ description: "The node's current inventory version for this pane's harness (null = unknown)" }),
+    t.Null(),
+  ]),
+  harnessStale: t.Boolean({
+    description:
+      "True when the pane started on a different harness version than the node now reports; the operator's existing Restart (which resumes) is the remedy",
+  }),
   nodeId: t.String({ description: "Node the subshell runs on ('local' = control-plane host)" }),
   name: t.String({ description: "Subshell display name" }),
   workingDir: t.String({ description: "Absolute working directory" }),
