@@ -100,6 +100,24 @@ describe("POST /api/admin/server/restart", () => {
     expect(events.some((e) => e.action === "server.restart")).toBe(true);
   });
 
+  it("the unsupervised refusal NAMES the image-pull remedy when the container marker is set", async () => {
+    restartSeams.deployment = () => ({
+      ...viewWith({ supervised: false, paneSafety: "keeps" }),
+      containerized: true,
+      restart: {
+        available: false,
+        reason:
+          "This server runs inside a container, where the image is the unit of update. Pull a new image and recreate the container; from the Proxmox helper install, that is: bash proxmox.sh update on the host.",
+      },
+    });
+    const res = await app.fetch(post(fx.adminCookie, {}));
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("RESTART_UNAVAILABLE");
+    expect(body.message).toContain("proxmox.sh update");
+    expect(performed).toBe(0);
+  });
+
   it("bearer 403, non-admin 403, and neither restarts anything", async () => {
     restartSeams.deployment = () => viewWith({ supervised: true, paneSafety: "keeps" });
     const asBearer = await app.fetch(

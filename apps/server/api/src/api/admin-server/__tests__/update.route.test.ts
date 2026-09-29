@@ -141,6 +141,22 @@ describe("POST /api/admin/server/update", () => {
     expect(started).toEqual([]);
   });
 
+  it("409 UPDATE_CONTAINERIZED when the image marker says the container is the unit of update", async () => {
+    updateSeams.deployment = () => ({
+      ...viewWith({ supervised: false, paneSafety: "keeps" }),
+      containerized: true,
+      restart: {
+        available: false,
+        reason: "This server runs inside a container, where the image is the unit of update.",
+      },
+    });
+    const res = await app.fetch(post(fx.adminCookie, {}));
+    expect(await code(res)).toBe("UPDATE_CONTAINERIZED");
+    expect(started).toEqual([]);
+  });
+  // (The route's message flows from restart.reason - Task 1 set that string;
+  // this test pins the CODE swap.)
+
   it("409 UPDATE_BINARY_UNKNOWN for a checkout and for an unwritable path", async () => {
     updateSeams.installed = () => ({
       kind: "source",
