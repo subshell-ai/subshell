@@ -192,7 +192,7 @@ describe("PromptPickerDialog", () => {
   it("a bare visit to the step saves NO draft (no reopen hijack)", async () => {
     // The round-8 MEDIUM pin: curiosity click on "Write your own...",
     // close without typing; the NEXT open must be the list, not an empty
-    // editor, and there must be no way back to the list from one.
+    // editor the person has to step back out of every time.
     restore = mockFetch([], []).restore;
     renderPicker({ onPick: () => {} });
     await settle();

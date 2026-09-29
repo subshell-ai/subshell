@@ -293,8 +293,10 @@ export function SubshellActionsMenu({
       {/* Same mount-while-open posture: every open starts from an unset
           selection and a cleared POST error. */}
       {switchPresetOpen && <SwitchPresetDialog subshell={subshell} open onOpenChange={setSwitchPresetOpen} />}
-      {/* Mount-while-open, the same posture as every dialog behind this menu:
-          a reopen starts at the picker, not at a half-typed custom block. */}
+      {/* Mount-while-open, the same posture as every dialog behind this
+          menu: the selection and the POST error reset every open. The
+          half-typed custom TEXT deliberately outlives the unmount (the
+          picker's sessionStorage draft, ruling 2026-09-29). */}
       {injectOpen && (
         <InjectPromptDialog subshellId={subshell.id} subshellName={subshell.name} open onOpenChange={setInjectOpen} />
       )}
