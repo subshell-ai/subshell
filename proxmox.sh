@@ -13,7 +13,7 @@ set -u
 
 APP="Subshell"
 IMG="ghcr.io/subshell-ai/subshell:latest"
-CT_ID=""
+CT_ID="${CT_ID:-}"
 CT_HOSTNAME="${CT_HOSTNAME:-subshell}"
 CT_CORES="${CT_CORES:-1}"
 CT_RAM_MB="${CT_RAM_MB:-2048}"
@@ -171,6 +171,10 @@ update_app() {
     # container here would strand the instance on a registry hiccup
     # (review finding, operator ruling 2026-09-29).
     docker pull "$IMAGE" || { echo "pull failed: the running container was left alone" >&2; exit 1; }
+    # Clear a stale -old from an interrupted earlier run first: the rollback
+    # below rm -f's $NAME to resurrect $NAME-old, so a leftover -old would
+    # make it destroy the HEALTHY container to resurrect garbage.
+    docker rm -f "$NAME-old" >/dev/null 2>&1 || true
     docker rename "$NAME" "$NAME-old" || rollback
     docker stop "$NAME-old" >/dev/null || rollback
     docker run -d --name "$NAME" --restart unless-stopped \

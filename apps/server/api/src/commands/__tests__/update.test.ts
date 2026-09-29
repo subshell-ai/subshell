@@ -252,6 +252,25 @@ describe("update --check", () => {
       delete process.env.SUBSHELL_CONTAINER;
     }
   });
+
+  it("names the container remedy when a locate refusal lands non-json inside the image", async () => {
+    // The prose form must be as honest as the json one: in the image the
+    // binary's directory is not writable, locate refuses, and the refusal
+    // alone would never name the pull-and-recreate that IS the update.
+    process.env.SUBSHELL_CONTAINER = "1";
+    try {
+      expect(
+        await run(
+          { check: true },
+          { installed: () => ({ kind: "compiled", path: "/nowhere/subshell-server", source: "this process" }) },
+        ),
+      ).toBe(1);
+      expect(errors.join("\n")).toMatch(/cannot replace/);
+      expect(errors.join("\n")).toContain("updates happen by pulling a new image");
+    } finally {
+      delete process.env.SUBSHELL_CONTAINER;
+    }
+  });
 });
 
 describe("update --rollback", () => {

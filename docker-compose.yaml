@@ -65,7 +65,9 @@ services:
       # No secret needed: first boot mints a unique one into
       # $SUBSHELL_SERVER_CONFIG_DIR/config.env on the data volume. To pin one
       # explicitly (moving an existing instance's sessions), uncomment the next
-      # line - init persists a supplied value verbatim - and set it in .env:
+      # line - init persists a supplied value verbatim - and set it in .env.
+      # At boot the env value takes precedence over the file, and an existing
+      # config.env is kept as-is:
       # BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       NODE_ENV: production
     # The service comes back with the Docker daemon — i.e. on boot.

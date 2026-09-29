@@ -128,6 +128,7 @@ export enum BackendErrorCodes {
    * installed one. The message carries the reason.
    */
   UPDATE_BINARY_UNKNOWN = "UPDATE_BINARY_UNKNOWN",
+  /** `POST /api/admin/server/update`: the image marker says this install updates by pulling a new image, not by swapping a binary; the message names the image as the unit of update (spec 2026-09-28 § 6). */
   UPDATE_CONTAINERIZED = "UPDATE_CONTAINERIZED",
   /** `POST /api/admin/server/update`: a marker is already on disk, or a job is running. */
   UPDATE_IN_PROGRESS = "UPDATE_IN_PROGRESS",

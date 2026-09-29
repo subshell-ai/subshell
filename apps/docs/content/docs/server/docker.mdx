@@ -14,7 +14,7 @@ The image is packaging, not compiling. It carries the published, signature-verif
 Everything persistent lives under `/data`, so the container needs exactly one volume:
 
 ```bash
-docker run -d -p 3080:3080 -v subshell-data:/data ghcr.io/subshell-ai/subshell:latest
+docker run -d --name subshell -p 3080:3080 -v subshell-data:/data ghcr.io/subshell-ai/subshell:latest
 ```
 
 No environment is required. On a fresh volume the entrypoint runs `subshell-server init` and mints a unique `BETTER_AUTH_SECRET` into `/data/config.env` at `0600`, so each install signs its own sessions, and the file stays on the volume through every later update. The image sets `NODE_ENV=production`, where a boot would refuse to run on the public placeholder secret; the per-install minting is what a fresh container does instead. Pass `APP_BASE_URL` when people open the instance at a URL other than the host address, as covered on [Networking and addresses](/server/networking). Then open the address and create the admin account.
@@ -59,7 +59,7 @@ Three details that were measured in the field rather than assumed:
 
 `3080:3080` is published, not loopback-bound: remote access runs through a reverse proxy that connects to this host's reachable IP, and a `127.0.0.1` publish makes every proxied request a 502. `APP_BASE_URL` (from `.env`, or `-e` on a plain `docker run`) should be the URL people actually open, with any other names they browse on added as trusted origins; a container is no exception. `restart: unless-stopped` brings the compose service back with the Docker daemon, which assumes the daemon itself is enabled. Firewall and port specifics are on [Ports and firewalls](/reference/ports).
 
-To move an existing host-run instance in, stop the old server and copy the database and the pane-log directory into the host directory that will mount at `/data`. Bring the old instance's `config.env` (or its `BETTER_AUTH_SECRET` line) along too: the same secret is what lets existing browser sessions continue on the container, and a supplied value is persisted verbatim. New `ssh` hosts need an `ssh-keyscan` on the host first, since the mounted `known_hosts` is all the container trusts.
+To move an existing host-run instance in, stop the old server and copy the database and the pane-log directory into the host directory that will mount at `/data`. An instance installed with `subshell-server service install` already keeps its database and pane logs inside `~/.config/subshell-server/`, the default host side of that mount, so for it there is nothing to copy. Bring the old instance's `config.env` (or its `BETTER_AUTH_SECRET` line) along too: the same secret is what lets existing browser sessions continue on the container, and a supplied value is persisted verbatim. New `ssh` hosts need an `ssh-keyscan` on the host first, since the mounted `known_hosts` is all the container trusts.
 
 Two file-level details: after editing `docker/gitconfig`, recreate the container. A single-file bind mount pins the inode, so edits to the file never arrive. Host-specific extras (a `gh` config, say) belong in `docker-compose.override.yaml` beside the base file: it is gitignored and merged automatically by every `docker compose` command.
 

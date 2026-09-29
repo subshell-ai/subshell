@@ -128,7 +128,9 @@ function defaultProbeVersion(file: string): string | null {
  * Run the verb.
  *
  * @returns the process exit code — 0 for a completed (or already-current)
- *   update, 1 for every refusal and every failure
+ *   update, 1 for every refusal and every failure, EXCEPT the two `--check
+ *   --json` refusal paths (locate and release pick), which exit 0 with the
+ *   refusal carried as `reason` in the JSON: a check reports, it does not fail.
  */
 export async function runUpdate(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
   return opts.rollback ? runRollback(opts, deps) : runInstall(opts, deps);
@@ -209,6 +211,12 @@ async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
       return 0;
     }
     error(`subshell-server: ${located.refusal}`);
+    // Inside the image the locate ALWAYS refuses (the binary's directory is
+    // not writable), and the refusal alone never names the remedy. The json
+    // branch carries `containerized`; the prose branch must be as honest.
+    if (isContainerized()) {
+      error("This install runs in a container; updates happen by pulling a new image, not with this verb.");
+    }
     return 1;
   }
   const { path: binary, dir: binaryDir } = located;
