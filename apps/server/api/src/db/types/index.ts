@@ -13,6 +13,7 @@ import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import type { NotificationSubscriptionTable } from "@/db/types/notification-subscriptions.db-types.js";
 import type { PluginStateTable } from "@/db/types/plugin-state.db-types.js";
 import type { PresetTable } from "@/db/types/presets.db-types.js";
+import type { PromptTable } from "@/db/types/prompts.db-types.js";
 import type { RecentPathTable } from "@/db/types/recent-paths.db-types.js";
 import type { SettingTable } from "@/db/types/settings.db-types.js";
 import type { SubshellShareTable } from "@/db/types/subshell-shares.db-types.js";
@@ -31,6 +32,7 @@ export interface Database {
   auditEvents: AuditEventsTable;
   authProviders: AuthProviderTable;
   presets: PresetTable;
+  prompts: PromptTable;
   pluginState: PluginStateTable;
   subshells: SubshellTable;
   subshellShares: SubshellShareTable;
