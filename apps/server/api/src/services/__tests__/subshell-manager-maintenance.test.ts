@@ -271,8 +271,14 @@ describe("harness version stamping on launch (spec 2026-09-28 §3)", () => {
         nodeId,
       });
       try {
-        expect((await subshellsRepo.findById(created.id))?.harnessVersion).toBe("2.1.283");
-        expect(fake.refreshKicks).toEqual([{ subshellId: created.id, expected: "2.1.283" }]);
+        const stamped = await subshellsRepo.findById(created.id);
+        expect(stamped?.harnessVersion).toBe("2.1.283");
+        // The kick carries the version AND the row's start time for this
+        // launch (spec §3 guard): the guard rejects answers from a kick whose
+        // startedAt no longer matches the row.
+        expect(fake.refreshKicks).toEqual([
+          { subshellId: created.id, expected: "2.1.283", startedAt: stamped?.startedAt ?? null },
+        ]);
       } finally {
         await subshellsRepo.delete(created.id);
       }
@@ -295,8 +301,11 @@ describe("harness version stamping on launch (spec 2026-09-28 §3)", () => {
         nodeId,
       });
       try {
-        expect((await subshellsRepo.findById(created.id))?.harnessVersion).toBeNull();
-        expect(fake.refreshKicks).toEqual([{ subshellId: created.id, expected: null }]);
+        const stamped = await subshellsRepo.findById(created.id);
+        expect(stamped?.harnessVersion).toBeNull();
+        expect(fake.refreshKicks).toEqual([
+          { subshellId: created.id, expected: null, startedAt: stamped?.startedAt ?? null },
+        ]);
       } finally {
         await subshellsRepo.delete(created.id);
       }
@@ -339,8 +348,14 @@ describe("harness version stamping on launch (spec 2026-09-28 §3)", () => {
     try {
       const row = await parkedRow(nodeId); // harnessVersion null at seed
       expect(await attempt(manager, row)).toBe(true);
-      expect((await subshellsRepo.findById(row.id))?.harnessVersion).toBe("2.1.284");
-      expect(fake.refreshKicks).toEqual([{ subshellId: row.id, expected: "2.1.284" }]);
+      const revived = await subshellsRepo.findById(row.id);
+      expect(revived?.harnessVersion).toBe("2.1.284");
+      // The kick carries the REVIVAL's startedAt (the value `updateIfRunning`
+      // just wrote), not the parked row's — that is the launch this stamp is
+      // for, and the guard compares against it.
+      expect(fake.refreshKicks).toEqual([
+        { subshellId: row.id, expected: "2.1.284", startedAt: revived?.startedAt ?? null },
+      ]);
     } finally {
       off();
     }

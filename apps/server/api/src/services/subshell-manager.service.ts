@@ -471,7 +471,7 @@ export class SubshellManagerService {
       // running (spec §3). Compare-and-set against the row's pre-launch value,
       // so a racing restart's fresh stamp always wins; a throw here can never
       // fail the launch (the helper is total, debug-only on failure).
-      await this.#stampHarnessVersion(row, launcher, harness, binary);
+      await this.#stampHarnessVersion(row, launcher, harness, binary, row.startedAt);
       if (prompt?.trim()) {
         promptDelivered = await this.#deliverPrompt(
           launcher,
@@ -1192,19 +1192,24 @@ export class SubshellManagerService {
    * so a racing restart always wins; when this writer lands, it hands off the
    * scoped re-stamp kick (a no-op on `local`). Failures are debug-only: the
    * pane is RUNNING and correct; a missing annotation is never a launch
-   * failure.
+   * failure. `startedAt` must be the row's start time FOR THIS LAUNCH (what
+   * the re-stamp guard compares against): callers pass the value the row
+   * carries at kick time — the create row's own, and the revive's freshly
+   * written one (the parked row's in-memory `startedAt` was replaced by the
+   * revival's `updateIfRunning`).
    */
   async #stampHarnessVersion(
     row: SubshellTable,
     launcher: NodeLauncher,
     harness: HarnessPlugin,
     binary: string | null,
+    startedAt: string | null,
   ): Promise<void> {
     try {
       const before = row.harnessVersion ?? null;
       const stamp = await launcher.launchedHarnessVersion(harness, binary);
       if (await this.#subshells.casHarnessVersion(row.id, before, stamp)) {
-        launcher.kickHarnessVersionRefresh(row.id, stamp);
+        launcher.kickHarnessVersionRefresh(row.id, stamp, startedAt);
         publishLive({ kind: "subshell.changed", id: row.id });
       }
     } catch (err: unknown) {
@@ -1306,6 +1311,10 @@ export class SubshellManagerService {
       reporter,
       bestEffortLog: true,
     });
+    // The start time this revival writes AND the version stamp's re-stamp
+    // guard carries (spec §3): one value, so the kick on the row this spawn
+    // started can never be answered as the dead predecessor's.
+    const revivedStartedAt = new Date().toISOString();
     // Conditional revival: a terminate that landed after the pre-spawn
     // check (between it and this write) must not resurrect the row — the
     // guard makes this a no-op and the orphan below is cleaned up instead.
@@ -1314,7 +1323,7 @@ export class SubshellManagerService {
       exitCode: null,
       endedAt: null,
       tmuxSocket: socket,
-      startedAt: new Date().toISOString(),
+      startedAt: revivedStartedAt,
       backoffCount,
       nextRestartAt: null,
       // A restart opens a FRESH unseen interval (spec 2026-09-23 §3, amended
@@ -1338,8 +1347,10 @@ export class SubshellManagerService {
     // The revive SUCCEEDED (the row is alive again): re-stamp the version this
     // fresh process started on (spec §3). CAS against the parked row's value,
     // so a launch that resolved a newer version replaces the stale one and a
-    // concurrent writer racing this flip is never clobbered.
-    await this.#stampHarnessVersion(row, launcher, harness, binary);
+    // concurrent writer racing this flip is never clobbered. The kick carries
+    // the revival's OWN startedAt, not the parked row's — that is what the row
+    // holds now, and the guard compares against it.
+    await this.#stampHarnessVersion(row, launcher, harness, binary, revivedStartedAt);
     return true;
   }
 

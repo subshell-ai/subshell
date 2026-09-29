@@ -48,7 +48,11 @@ export class LocalLauncher implements NodeLauncher {
     return binary ? harness.versionAt(binary) : null;
   }
 
-  /** `local` stamped from a live probe; there is nothing fresher to ask. */
+  /**
+   * `local` stamped from a live probe; there is nothing fresher to ask, so
+   * none of the interface's arguments (`subshellId`, `expected`, `startedAt`,
+   * spec §3) matter here — the no-arg shape is the whole implementation.
+   */
   kickHarnessVersionRefresh(): void {}
 
   /**

@@ -236,12 +236,17 @@ export class RemoteLauncher implements NodeLauncher {
    * One scoped detect kick after a remote launch (spec §3): the cached entry
    * can predate a manual update by up to the TTL, so a pane born seconds after
    * one is born with a stale-looking stamp. The re-stamp rides the SAME detect
-   * driver as every other kick, compare-and-set guarded so only THIS pane and
-   * only its just-written value are touched.
+   * driver as every other kick, guarded so only THIS pane is touched: the
+   * value CAS against `expected` plus the row's `startedAt` still matching
+   * what this launch wrote — a plain value equality cannot tell a restart back
+   * to an equal version, and the dead predecessor's in-flight answer must not
+   * reach the successor pane.
    */
-  kickHarnessVersionRefresh(subshellId: string, expected: string | null): void {
+  kickHarnessVersionRefresh(subshellId: string, expected: string | null, startedAt: string | null): void {
     try {
-      (this.#deps.detect ?? detectOnNodeBestEffort)(this.#nodeId, { reStamp: { subshellId, expected } });
+      (this.#deps.detect ?? detectOnNodeBestEffort)(this.#nodeId, {
+        reStamp: { subshellId, expected, startedAt },
+      });
     } catch (err: unknown) {
       logger.withError(err).debug(`node ${this.#nodeId}: version re-stamp kick failed`);
     }

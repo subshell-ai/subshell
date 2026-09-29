@@ -252,8 +252,9 @@ describe("LocalLauncher.launch bestEffortLog (scripted tmux — no real spawn)",
 describe("LocalLauncher.launchedHarnessVersion + kickHarnessVersionRefresh (spec 2026-09-28 §3)", () => {
   // Bound through the interface: `local`'s `kickHarnessVersionRefresh` needs
   // NO argument (there is nothing fresher to ask), so the concrete class
-  // declares none — but the interface method the manager calls takes two, and
-  // that is the contract under test.
+  // declares none — but the interface method the manager calls takes three
+  // (`subshellId`, `expected`, `startedAt`), and that is the contract under
+  // test.
   const asLauncher: NodeLauncher = launcher;
   it("PROBES the just-used binary via the plugin's versionAt when there is a path", async () => {
     const calls: string[] = [];
@@ -282,7 +283,7 @@ describe("LocalLauncher.launchedHarnessVersion + kickHarnessVersionRefresh (spec
   });
 
   it("kickHarnessVersionRefresh is a no-op that does not throw (local stamped from a live probe)", () => {
-    expect(() => asLauncher.kickHarnessVersionRefresh("sub-1", "1.2.3")).not.toThrow();
+    expect(() => asLauncher.kickHarnessVersionRefresh("sub-1", "1.2.3", "2026-09-28T00:00:00.000Z")).not.toThrow();
   });
 });
 

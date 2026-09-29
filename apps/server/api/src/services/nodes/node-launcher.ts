@@ -82,8 +82,13 @@ export interface NodeLauncher {
    * once (no-op on `local`, whose stamp came from a live probe). `expected`
    * is the value just written: the re-stamp is compare-and-set against it,
    * so a restart that has since re-stamped the row is never laundered.
+   * `startedAt` is the row's start time AT KICK TIME (the spawn this stamp
+   * belongs to): the guard also requires it to still match, because a value
+   * CAS alone cannot tell a restart back to an equal version — without the
+   * start-time fact, the DEAD predecessor's in-flight detect answer could
+   * stamp the successor pane with a version it never launched (spec §3).
    */
-  kickHarnessVersionRefresh(subshellId: string, expected: string | null): void;
+  kickHarnessVersionRefresh(subshellId: string, expected: string | null, startedAt: string | null): void;
   /** Starts one harness from a plan; throws on failure unless plan.bestEffortLog covers a step. */
   launch(plan: LaunchPlan): Promise<void>;
   /** Strict kill of the tmux subshell — throws when tmux refuses (unlike {@link killSubshell}). */

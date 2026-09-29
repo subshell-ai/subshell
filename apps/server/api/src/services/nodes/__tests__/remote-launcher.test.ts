@@ -333,16 +333,18 @@ describe("launchedHarnessVersion", () => {
 describe("kickHarnessVersionRefresh", () => {
   it("rides the injected detect seam carrying the scoped reStamp", () => {
     const h = makeHarness();
-    h.launcher.kickHarnessVersionRefresh("sub-1", "1.2.3");
+    h.launcher.kickHarnessVersionRefresh("sub-1", "1.2.3", "2026-09-28T00:00:00.000Z");
     expect(h.detects).toEqual(["node-1"]);
-    expect(h.detectOpts).toEqual([{ reStamp: { subshellId: "sub-1", expected: "1.2.3" } }]);
+    expect(h.detectOpts).toEqual([
+      { reStamp: { subshellId: "sub-1", expected: "1.2.3", startedAt: "2026-09-28T00:00:00.000Z" } },
+    ]);
   });
 
   it("a throwing detect seam is swallowed (the kick is total)", () => {
     const h = makeHarness();
     h.failDetect();
     // Must not throw — the pane launched fine, the re-stamp is a bonus.
-    expect(() => h.launcher.kickHarnessVersionRefresh("sub-1", null)).not.toThrow();
+    expect(() => h.launcher.kickHarnessVersionRefresh("sub-1", null, null)).not.toThrow();
     expect(h.detects).toEqual([]);
   });
 });

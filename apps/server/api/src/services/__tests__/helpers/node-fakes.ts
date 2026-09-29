@@ -40,8 +40,8 @@ export class FakeNodeLauncher implements NodeLauncher {
    * row honestly keeps then.
    */
   harnessVersionToReport: string | null = null;
-  /** Recorded `kickHarnessVersionRefresh` calls, in order. */
-  readonly refreshKicks: Array<{ subshellId: string; expected: string | null }> = [];
+  /** Recorded `kickHarnessVersionRefresh` calls, in order (spec §3 guard args). */
+  readonly refreshKicks: Array<{ subshellId: string; expected: string | null; startedAt: string | null }> = [];
 
   constructor(readonly testDir: string) {}
 
@@ -54,8 +54,8 @@ export class FakeNodeLauncher implements NodeLauncher {
   async launchedHarnessVersion(): Promise<string | null> {
     return this.harnessVersionToReport;
   }
-  kickHarnessVersionRefresh(subshellId: string, expected: string | null): void {
-    this.refreshKicks.push({ subshellId, expected });
+  kickHarnessVersionRefresh(subshellId: string, expected: string | null, startedAt: string | null): void {
+    this.refreshKicks.push({ subshellId, expected, startedAt });
   }
   async launch(plan: LaunchPlan): Promise<void> {
     if (this.launchError) throw this.launchError;

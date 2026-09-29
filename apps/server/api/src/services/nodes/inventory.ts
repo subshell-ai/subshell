@@ -334,11 +334,12 @@ export interface DetectOnNodeDeps {
   envHarnesses?: () => Promise<HarnessPlugin[]>;
   /**
    * Re-stamp ONE pane with the version this answer reports (spec 2026-09-28
-   * §3): the pane that kicked the detect after its launch, and the stamp
-   * value that launch wrote (the compare-and-set expectation). Absent for
+   * §3): the pane that kicked the detect after its launch, the stamp value
+   * that launch wrote (the compare-and-set expectation), and the row's
+   * `startedAt` at kick time — the launch this stamp belongs to. Absent for
    * every other caller. @internal paired with `RemoteLauncher.kickHarnessVersionRefresh`.
    */
-  reStamp?: { subshellId: string; expected: string | null };
+  reStamp?: { subshellId: string; expected: string | null; startedAt: string | null };
 }
 
 /**
@@ -448,15 +449,25 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
   const conn = getLive(nodeId);
   if (conn?.agent) conn.agent.env = answer.env;
   // The scoped re-stamp (spec §3): only the pane that kicked, only while its
-  // just-written stamp still matches, and only a POSITIVE fresh answer. A
-  // missing entry, an `installed: false`, or a version-less probe leaves the
-  // launch stamp standing: this pass corrects staleness, it never erases.
+  // just-written stamp still matches AND the row's `startedAt` still names the
+  // launch that kicked, and only a POSITIVE fresh answer. The startedAt check
+  // is what closes the equal-version restart: a kick from a DEAD process whose
+  // successor re-stamped the SAME value would otherwise pass the value CAS and
+  // stamp the new pane with a version it never launched. A missing entry, an
+  // `installed: false`, or a version-less probe leaves the launch stamp
+  // standing: this pass corrects staleness, it never erases.
   if (deps.reStamp) {
     try {
       const subshells = new SubshellsRepository(db);
       const pane = await subshells.findById(deps.reStamp.subshellId);
       const entry = pane ? merged.get(pane.harnessId) : undefined;
-      if (pane && pane.status === "running" && entry?.installed && entry.version) {
+      if (
+        pane &&
+        pane.status === "running" &&
+        pane.startedAt === deps.reStamp.startedAt &&
+        entry?.installed &&
+        entry.version
+      ) {
         // The stamp is user-visible on the view (spec 2026-09-28 §4), so the
         // standing publish rule binds this write: a landed CAS announces, a
         // no-write path stays silent.
