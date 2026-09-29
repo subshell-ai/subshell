@@ -1210,6 +1210,10 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
       await settle();
       expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff"]);
       expect(latest().promptBlocks[0].promptId).toBe("pr1");
+      // The pick CLOSED the picker (the decisive action, 2026-09-29): the
+      // list's step is gone from the DOM, only the stack remains. Without
+      // this assertion the close could silently regress (review round 5).
+      expect(screen.queryByText("Write your own...")).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
       await settle();
       fireEvent.click(screen.getByText("Review"));

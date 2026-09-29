@@ -64,10 +64,9 @@ export function PromptPickerDialog({
       body: row.body,
     });
     // Close on the pick, BOTH modes (live report 2026-09-29): a pick that
-    // kept the dialog open showed nothing changing, the stack is behind the
-    // modal, and the popup floated over "Write your own..." so the dialog
-    // read as a gap. One press, one decisive action; "Add prompt" is one
-    // click away for the next one.
+    // kept the dialog open showed nothing changing, because the block stack
+    // is behind the modal. One press, one decisive action; "Add prompt" is
+    // one click away for the next one.
     onOpenChange(false);
   }
 
@@ -106,7 +105,7 @@ export function PromptPickerDialog({
         <DialogHeader>
           <DialogTitle>{customBody === null ? "Add a prompt" : "Write your own"}</DialogTitle>
           <DialogDescription>
-            {mode === "multi" ? "Pick one or more; you can reorder them next." : "One prompt, typed into the pane."}
+            {mode === "multi" ? "Pick one; press Add prompt again for the next." : "One prompt, typed into the pane."}
           </DialogDescription>
         </DialogHeader>
 
@@ -144,7 +143,11 @@ export function PromptPickerDialog({
               <div className="max-h-64 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
                 {rows.length === 0 && (
                   <p className="px-2 py-1.5 text-detail text-muted-foreground">
-                    {view.own.length + view.shared.length === 0 ? "No prompts yet." : "No matches."}
+                    {query.trim() === ""
+                      ? tab === "own"
+                        ? "No prompts yet"
+                        : "No shared prompts yet"
+                      : "No prompts match the search."}
                   </p>
                 )}
                 {rows.map((p) => (
@@ -154,7 +157,7 @@ export function PromptPickerDialog({
                     className="flex w-full items-center gap-3 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
                     onClick={() => pick(p)}
                   >
-                    <span className="min-w-0 shrink truncate font-strong">{p.description}</span>
+                    <span className="min-w-0 shrink truncate font-strong text-label">{p.description}</span>
                     <span className="ml-auto min-w-0 max-w-[45%] truncate text-detail text-muted-foreground">
                       {p.body.split("\n", 1)[0]}
                     </span>
@@ -195,7 +198,7 @@ export function PromptPickerDialog({
               <Input
                 value={customDescription}
                 maxLength={120}
-                placeholder="Short description"
+                placeholder="Short label for discoverability"
                 aria-label="Prompt description"
                 onChange={(e) => setCustomDescription(e.target.value)}
               />

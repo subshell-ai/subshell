@@ -1,5 +1,5 @@
 import { apiPost, Button, errMessage } from "@internal/node-admin";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PromptPickerDialog } from "@/components/prompts/prompt-picker-dialog";
 import {
   Dialog,
@@ -34,6 +34,13 @@ export function InjectPromptDialog({
   const [picked, setPicked] = useState<PromptBlock | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The picker closes itself on a pick (decisive action, live report
+  // 2026-09-29), and this component's owner unmounts it when `open` flips
+  // false — so a pick-driven close must ADVANCE here, never reach the
+  // owner, or the selection dies with the subtree before the confirm step
+  // can render (round-5 review: the inject path had no test and broke).
+  // A close that was NOT a pick (Done, Escape) is the person leaving.
+  const justPicked = useRef(false);
 
   async function send() {
     if (!picked) return;
@@ -52,12 +59,28 @@ export function InjectPromptDialog({
   }
 
   if (!picked) {
-    return <PromptPickerDialog open={open} onOpenChange={onOpenChange} mode="single" onPick={setPicked} />;
+    return (
+      <PromptPickerDialog
+        open={open}
+        mode="single"
+        onPick={(block) => {
+          justPicked.current = true;
+          setPicked(block);
+        }}
+        onOpenChange={(next) => {
+          if (!next && justPicked.current) {
+            justPicked.current = false;
+            return;
+          }
+          onOpenChange(next);
+        }}
+      />
+    );
   }
 
-  // The confirm step is the SAME Dialog component (the picker closed, this
-  // one opens; the menu caller keeps `open` true across both): name, body,
-  // what the button does, send.
+  // The confirm step is the SAME Dialog component (the picker's pick-close
+  // was absorbed above; the menu caller keeps `open` true across both):
+  // name, body, what the button does, send.
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
