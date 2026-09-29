@@ -75,7 +75,7 @@ export function PromptFormDialog({
               id="prompt-description"
               value={draft.description}
               maxLength={120}
-              placeholder="Short label for the list"
+              placeholder="Short label for discoverability"
               onChange={(e) => setDraft({ ...draft, description: e.target.value })}
             />
           </div>
