@@ -56,3 +56,19 @@ export function promptLaunchMissed(
 ): boolean {
   return promptDelivered === false && promptEnabled === true && (promptBlocks?.length ?? 0) > 0;
 }
+
+/**
+ * A localId for a stacked block. NOT a bare `crypto.randomUUID()`: that
+ * method exists only in secure contexts, and this app is legitimately
+ * served over plain http on a LAN address (operator's dev box, live report
+ * 2026-09-29) — there, `randomUUID` is undefined and a plain call THROWS
+ * inside the pick handler, which reads as "clicking a prompt does
+ * nothing". The picker is a UX action, so the id only needs to be unique
+ * among the few blocks one form stacks: the fallback is good enough for
+ * that, and it never throws.
+ */
+export function newPromptLocalId(): string {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}

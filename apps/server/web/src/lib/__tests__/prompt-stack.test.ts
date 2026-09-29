@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { joinPromptBlocks, movePromptBlock, type PromptBlock, removePromptBlock } from "../prompt-stack";
+import {
+  joinPromptBlocks,
+  movePromptBlock,
+  newPromptLocalId,
+  type PromptBlock,
+  removePromptBlock,
+} from "../prompt-stack";
 import { matchesPromptQuery } from "../prompts";
 
 const block = (id: string, body = `body of ${id}`): PromptBlock => ({
@@ -54,5 +60,32 @@ describe("matchesPromptQuery", () => {
   it("an empty or whitespace query matches everything", () => {
     expect(matchesPromptQuery({ description: "x", body: "y" }, "")).toBe(true);
     expect(matchesPromptQuery({ description: "x", body: "y" }, "   ")).toBe(true);
+  });
+});
+
+describe("newPromptLocalId", () => {
+  it("answers in a NON-secure context, where crypto.randomUUID is absent", () => {
+    // The operator's LAN http origin (live report 2026-09-29): browsers
+    // delete randomUUID outside secure contexts, and the picker's pick
+    // handler must not throw there. Shadow the method the way the browser
+    // un-provides it.
+    const cryptoAny = globalThis.crypto as { randomUUID?: unknown };
+    const real = cryptoAny.randomUUID;
+    Object.defineProperty(cryptoAny, "randomUUID", { value: undefined, configurable: true });
+    try {
+      const id = newPromptLocalId();
+      expect(id.startsWith("p-")).toBe(true);
+      expect(id.length > 4).toBe(true);
+      const a = newPromptLocalId();
+      const b = newPromptLocalId();
+      expect(a === b).toBe(false);
+    } finally {
+      delete cryptoAny.randomUUID;
+      if (real !== undefined) Object.defineProperty(cryptoAny, "randomUUID", { value: real, configurable: true });
+    }
+  });
+
+  it("uses the real uuid where the platform provides one", () => {
+    expect(newPromptLocalId().length).toBeGreaterThanOrEqual(36);
   });
 });

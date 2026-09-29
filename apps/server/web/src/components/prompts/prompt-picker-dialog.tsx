@@ -12,7 +12,7 @@ import {
 import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreatePrompt, usePrompts } from "@/hooks/use-prompts";
-import type { PromptBlock } from "@/lib/prompt-stack";
+import { newPromptLocalId, type PromptBlock } from "@/lib/prompt-stack";
 import { matchesPromptQuery, type PromptsView } from "@/lib/prompts";
 
 /**
@@ -57,7 +57,7 @@ export function PromptPickerDialog({
 
   function pick(row: { id: string; description: string; body: string }) {
     onPick({
-      localId: crypto.randomUUID(),
+      localId: newPromptLocalId(),
       kind: "saved",
       promptId: row.id,
       description: row.description,
@@ -91,7 +91,7 @@ export function PromptPickerDialog({
       }
     }
     onPick({
-      localId: crypto.randomUUID(),
+      localId: newPromptLocalId(),
       kind: "custom",
       description: description === "" ? "Untitled" : description,
       body,
