@@ -37,6 +37,9 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
   // Remote + no live node: everything "exited" would claim is unknowable
   // right now (spec §5.6), so the offline reading supersedes it everywhere.
   const nodeOffline = subshell.nodeOffline === true;
+  // One fact, already derived server-side: this pane is running an older
+  // harness than its node now has. Restart (which resumes) is the remedy.
+  const staleHarness = subshell.harnessStale && subshell.status === "running";
 
   return (
     <EntityCard
@@ -51,9 +54,16 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
       // purely about output. (The machine used to sit here as a pill; the
       // grid's section header carries that now.)
       headerExtra={
-        <p className="truncate font-mono text-detail text-muted-foreground" title={subshell.workingDir}>
-          {subshell.workingDir}
-        </p>
+        <>
+          <p className="truncate font-mono text-detail text-muted-foreground" title={subshell.workingDir}>
+            {subshell.workingDir}
+          </p>
+          {staleHarness && subshell.harnessVersion && subshell.harnessCurrentVersion && (
+            <p className="truncate text-detail text-muted-foreground">
+              Harness {subshell.harnessVersion} · node now on {subshell.harnessCurrentVersion}
+            </p>
+          )}
+        </>
       }
     >
       {/* Fixed height whatever the state, so cards in a row stay the

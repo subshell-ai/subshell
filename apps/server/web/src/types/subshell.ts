@@ -26,6 +26,12 @@ export interface SubshellView {
   presetId: string | null;
   /** Harness the subshell runs on (e.g. claude/agent) */
   harnessId: string;
+  /** Harness CLI version this pane's process started on; null = unknown */
+  harnessVersion: string | null;
+  /** The node's current inventory version for this pane's harness; null = unknown */
+  harnessCurrentVersion: string | null;
+  /** Server-derived: started on a different harness version than the node now reports */
+  harnessStale: boolean;
   /**
    * Node the subshell runs on ("local" = control-plane host). The backend now
    * always sends it; optional so older cached payloads keep typechecking
