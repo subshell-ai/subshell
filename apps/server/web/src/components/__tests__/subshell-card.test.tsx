@@ -230,6 +230,36 @@ describe("SubshellCard stale-harness line (spec 2026-09-28)", () => {
     }
   });
 
+  it("says nothing for a running pane that is NOT stale", async () => {
+    // The gate is `harnessStale` itself, not merely "versions are present":
+    // an up-to-date running pane carries both strings and must stay quiet,
+    // or the line would read as a bug report about a healthy pane.
+    const restore = mockNodes([agent()]);
+    try {
+      renderCard(makeSubshell({ harnessStale: false, harnessVersion: "1.2.0", harnessCurrentVersion: "1.2.0" }));
+      await screen.findByRole("img", { name: "idle" });
+      expect(screen.queryByText(/node now on/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("says nothing for a running pane whose version was never stamped", async () => {
+    // A pre-column row, or one launched by a build that stamped nothing:
+    // the stamp is null, so there is no "started on" to name. The server
+    // never sets the flag for this shape (staleness needs two known
+    // strings); this pins the card's own half of not rendering it.
+    const restore = mockNodes([agent()]);
+    try {
+      renderCard(makeSubshell({ harnessStale: true, harnessVersion: null, harnessCurrentVersion: "1.3.0" }));
+      await screen.findByRole("img", { name: "idle" });
+      expect(screen.queryByText(/node now on/)).toBeNull();
+      expect(screen.queryByText(/Harness/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
   it("says nothing once the pane is no longer running", async () => {
     const restore = mockNodes([agent()]);
     try {

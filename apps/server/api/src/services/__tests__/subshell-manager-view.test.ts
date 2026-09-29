@@ -84,7 +84,12 @@ describe("toSubshellView harness staleness (spec 2026-09-28 §4)", () => {
     const same = toSubshellView({ ...row(), harnessVersion: "2.1.284" }, "running", [], "owner", false, versions);
     expect(same.harnessStale).toBe(false);
     expect(same.harnessCurrentVersion).toBe("2.1.284");
-    // The stamp passes through as read, null becoming an explicit null.
-    expect(toSubshellView(row(), "running").harnessVersion).toBeNull();
+    // The both-unknown cell: no stamp AND no map. Two absences are nothing
+    // to compare, so nothing is stale — and both fields come back as explicit
+    // nulls, never undefined, so the view's shape is stable for the client.
+    const unknown = toSubshellView(row(), "running");
+    expect(unknown.harnessVersion).toBeNull();
+    expect(unknown.harnessCurrentVersion).toBeNull();
+    expect(unknown.harnessStale).toBe(false);
   });
 });

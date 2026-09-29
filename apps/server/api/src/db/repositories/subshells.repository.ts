@@ -203,7 +203,12 @@ export class SubshellsRepository extends BaseRepository {
       // null on the create path, and the create path is the common one.
       .where("harnessVersion", "is", expected)
       .executeTakeFirst();
-    return (res?.numUpdatedRows ?? 0n) > 0n;
+    // The same double read as {@link updateIfAlive}: the dialect answers
+    // `numUpdatedRows` today and Kysely's type says `numUpdated`, and a claim
+    // that false-negatives its own write is the bug this shape exists to
+    // keep out of every CAS in this file.
+    const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
+    return Number(counts.numUpdatedRows ?? counts.numUpdated ?? 0) > 0;
   }
 
   /**

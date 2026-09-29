@@ -333,8 +333,9 @@ describe("harness version stamping on launch (spec 2026-09-28 §3)", () => {
       expect(fake.plans).toEqual([]); // the launch itself was refused
       expect(fake.refreshKicks).toEqual([]); // …so no stamp landed and no kick fired
       // The rolled-back row (terminated by the create catch) holds no stamp.
-      const row = fake.kills.length > 0 ? await subshellsRepo.findById(fake.kills[0]) : undefined;
-      expect(row?.harnessVersion ?? null).toBeNull();
+      expect(fake.kills).toHaveLength(1);
+      const row = await subshellsRepo.findById(fake.kills[0]);
+      expect(row?.harnessVersion).toBeNull();
     } finally {
       off();
     }

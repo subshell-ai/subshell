@@ -63,6 +63,7 @@ describe("casHarnessVersion", () => {
     const repo = new SubshellsRepository(db);
     expect(await repo.casHarnessVersion("s1", null, "2.1.283")).toBe(true);
     expect((await repo.findById("s1"))?.harnessVersion).toBe("2.1.283");
+    await db.destroy();
   });
 
   it("a stale expected value loses the race and writes nothing", async () => {
@@ -76,6 +77,7 @@ describe("casHarnessVersion", () => {
     expect((await repo.findById("s1"))?.harnessVersion).toBe("283");
     // And the true owner can still move it.
     expect(await repo.casHarnessVersion("s1", "283", "284")).toBe(true);
+    await db.destroy();
   });
 
   it("a terminated row is not stamped", async () => {
@@ -84,11 +86,13 @@ describe("casHarnessVersion", () => {
     const repo = new SubshellsRepository(db);
     await repo.markTerminated("s1", new Date().toISOString());
     expect(await repo.casHarnessVersion("s1", null, "283")).toBe(false);
+    await db.destroy();
   });
 
   it("a seeded row reads back with an unknown (null) version", async () => {
     const db = await freshDb();
     await seed(db, "s1", null);
     expect((await new SubshellsRepository(db).findById("s1"))?.harnessVersion).toBeNull();
+    await db.destroy();
   });
 });

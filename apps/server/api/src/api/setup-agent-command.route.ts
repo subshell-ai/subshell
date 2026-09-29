@@ -112,6 +112,10 @@ function agentCommandEndpoint(kind: AgentInstallKind) {
       // `{"type":"error","message":…}`. `AgentInstallResultSchema` still
       // describes the `done` frame's payload and is where that shape lives; it
       // is simply no longer the shape of the whole body.
+      // The two NOs are told apart by where they land: `ok:false` inside a
+      // 200's `done` frame is a run that FAILED (it ran and exited non-zero,
+      // or could not start); a 4xx is a REFUSAL, decided before the body
+      // opened and before anything ran.
       response: {
         400: "ApiErrorResponse",
         401: "ApiErrorResponse",

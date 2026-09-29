@@ -431,11 +431,23 @@ describe("subshell.update", () => {
   });
 
   it("refuses a non-object update block", () => {
-    expect("error" in parseManifest(pkg({ update: "claude update" }))).toBe(true);
+    // `null` is its own case worth pinning: `typeof null === "object"`, so a
+    // parser written as a bare typeof check would wave it through to a
+    // property read of `null.command`.
+    const str = parseManifest(pkg({ update: "claude update" }));
+    expect("error" in str).toBe(true);
+    if ("error" in str) expect(str.error).toContain("non-empty");
+    const nul = parseManifest(pkg({ update: null }));
+    expect("error" in nul).toBe(true);
+    if ("error" in nul) expect(nul.error).toContain("non-empty");
   });
 
   it("refuses an empty command (a heading with no words)", () => {
-    expect("error" in parseManifest(pkg({ update: { command: "  " } }))).toBe(true);
+    const m = parseManifest(pkg({ update: { command: "  " } }));
+    expect("error" in m).toBe(true);
+    // The shape error, not the privilege one: the sentence a plugin author
+    // reads must name what they got wrong.
+    if ("error" in m) expect(m.error).toContain("non-empty");
   });
 });
 

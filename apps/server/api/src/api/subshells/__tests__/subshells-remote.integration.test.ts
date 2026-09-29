@@ -168,6 +168,11 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
       // Per-connection monotonic from 1: every frame the connection emitted
       // (detect kicks included) was captured, in wire order, unskipped.
       expect(sim.seqs()).toEqual(Array.from({ length: sim.wire.length }, (_, i) => i + 1));
+      // The foreground filter is a timing device, not a denial: the
+      // version-refresh kick (spec 2026-09-28 §3) is EXACTLY one detect frame
+      // for the one launch. Drained here so the detach/re-attach below starts
+      // with nothing of this test's still riding the wire.
+      expect(await sim.waitUntilAtLeast("detect", 1)).toBe(1);
 
       const launch = launches(sim)[0];
       expect(launch.subshellId).toBe(id);
@@ -258,6 +263,8 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
       // Leave the row terminated for a tidy afterAll.
       expect((await post(`/api/subshells/${id}/terminate`)).status).toBe(200);
       expect(sim2.countOf("kill")).toBe(1);
+      // Only launches kick detects: the sweep's probe and this kill fired none.
+      expect(sim2.countOf("detect")).toBe(0);
     } finally {
       sim.detach();
       sim2?.detach();
@@ -276,6 +283,10 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
 
       expect(sim.foregroundTypes().slice(before)).toEqual(["kill"]);
       expect(sim.cmdsOf("kill")).toEqual([{ type: "kill", subshellId: body.id }]);
+      // One launch (the create) ⇒ exactly one refresh-kick detect; terminate
+      // is a kill, which produces none. Drained before detach so it cannot
+      // bleed onto the next test's connection under the shared node id.
+      expect(await sim.waitUntilAtLeast("detect", 1)).toBe(1);
 
       const row = await subshellsRepo.findById(body.id);
       expect(row?.status).toBe("terminated");
@@ -306,9 +317,12 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
       // transcript path the CONTROL PLANE computed, relaunch. (Binary resolve
       // + MCP compose are cache/compute-only; NO inventory round trip
       // mid-restart. The launches' unawaited detect kicks ride wherever
-      // their DB reads finish — foregroundTypes filters them; the kick
-      // itself is pinned by `remote-launcher.test.ts`.)
+      // their DB reads finish — foregroundTypes filters them, and their exact
+      // count is pinned just below; the kick's own behavior is pinned by
+      // `remote-launcher.test.ts`.)
       expect(sim.foregroundTypes()).toEqual(["stat_dir", "launch", "kill", "stat_dir", "path_exists", "launch"]);
+      // Exactly one refresh kick per SUCCESSFUL launch: create + restart.
+      expect(await sim.waitUntilAtLeast("detect", 2)).toBe(2);
 
       const second = launches(sim)[1];
       // Revive parity: a pane this live must survive a lost replay-log pipe.
@@ -347,6 +361,9 @@ describe("remote subshells over real routes (Task 14 lock-step)", () => {
       // the replay artifact, the mcp config the shipped registration, the meta
       // the agent's own record a deliberate kill leaves behind on purpose).
       expect(sim.foregroundTypes().slice(before)).toEqual(["kill", "remove_paths"]);
+      // The create's one launch is the one detect; delete kills and unlinks,
+      // it launches nothing.
+      expect(await sim.waitUntilAtLeast("detect", 1)).toBe(1);
       expect(sim.cmdsOf("remove_paths")).toEqual([
         {
           type: "remove_paths",

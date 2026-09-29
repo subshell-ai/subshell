@@ -154,20 +154,32 @@ describe("startInventoryRefresh", () => {
     expect(r.localPasses).toBe(2);
   });
 
-  it("a rejecting snapshot does not kill the tick", async () => {
+  it("a rejecting snapshot does not kill the tick, nor the next pass", async () => {
     // Same containment as the pass: an uncaught throw (or rejection escaping
     // the tick) reaches the process-level handlers; a failed snapshot just
-    // leaves the last one standing.
+    // leaves the last one standing. Pinned the way "the tick IS the pass"
+    // pins a healthy cycle — the tick run TWICE: the rejection must not
+    // poison the schedule, and the agent pass of the next tick must still
+    // ride (the snapshot kick trails it in the tick body, so a rejection
+    // escaping there is exactly what would take the timer down).
     const r = rec();
+    let localAttempts = 0;
     const broken: InventoryRefreshDeps = {
       ...deps(r, ["n1"]),
-      detectLocal: () => Promise.reject(new Error("snapshot seam blew up")),
+      detectLocal: () => {
+        localAttempts++;
+        return Promise.reject(new Error("snapshot seam blew up"));
+      },
     };
     setInventoryRefreshDepsForTests(broken);
     startInventoryRefresh();
     expect(() => r.ticks[0]?.()).not.toThrow();
     await Promise.resolve();
     expect(r.asked).toEqual(["n1"]);
+    expect(() => r.ticks[0]?.()).not.toThrow();
+    await Promise.resolve();
+    expect(r.asked).toEqual(["n1", "n1"]); // the next tick still asks its agents
+    expect(localAttempts).toBe(2); // …and still tries its own snapshot
   });
 
   it("a failing pass does not kill the timer — an uncaught throw here would exit the process", () => {
