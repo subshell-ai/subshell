@@ -1606,3 +1606,18 @@ does; the task text above is left as written so the reasoning survives.
 - **Task 4 shipped as the combined `setup-agent-command.route.ts`** per the
   operator amendment, and its per-kind test seams are now the single
   `setAgentCommandDepsForTests(kind, deps | null)`.
+- **Task 3's names dropped "install" where the layer serves both kinds.**
+  `AgentCommandKind/Deps/Refused/Result` shipped (not `AgentInstall*`), and
+  the `refuseInstall` / `installBuiltInAgent` wrappers were deleted once
+  nothing called them; the stream reader became `readCommandStream`. The
+  service file keeps its name; `useInstallAgent` and
+  `setupAgentInstallRoute` stay, because each is honestly the INSTALL-only
+  surface.
+- **Task 7's `toSubshellView` lives in `services/subshell-view.ts`.** The
+  pure mapper (with `computeActivity`) was extracted from the manager file,
+  which keeps the snapshot map and stamp helpers that need its dependencies.
+- **Task 6's publishes ride value moves, and the re-stamp is node-scoped.**
+  The landing CAS always fires the refresh kick, but `subshell.changed` is
+  announced only when the version actually changed, and the re-stamp refuses
+  a pane whose `nodeId` is not the node that answered (review hardening on
+  top of the shipped snippets above).

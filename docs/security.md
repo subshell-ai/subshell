@@ -2409,7 +2409,12 @@ plugin code IN-PROCESS (§6, §11.9); measured against that baseline, this
 route grants an admin no capability they did not already have. The id is the
 only input; the route is admin-cookie-only, never public in the no-users
 window, single-flight per id, 10-minute bounded, and audited as
-`agent.install` without the output. The output itself is not silent, though:
+`agent.install` without the output. Its twin
+`POST /api/setup/agents/:id/update` (spec 2026-09-28) makes the host run the
+manifest's `update.command` where a plugin declares one and re-runs the
+install line otherwise, under these same bounds; the single flight is shared
+per id across the two, so an update cannot run beside an install of the same
+binary, and its run is audited as `agent.update`. The output itself is not silent, though:
 it is returned over the wire to the admin's own browser and rendered there
 (the installer's stdout can legitimately carry a token or a path, which is
 why it is not also written to a log). The child's environment is an
@@ -3394,9 +3399,10 @@ holds and the following are prerequisites, not improvements:
       other account.
 - [ ] **Clear `SUBSHELL_EMERGENCY_PASSWORD`** and verify it is unset in every
       environment file and unit.
-- [ ] **Add an operator switch for `POST /api/setup/agents/:id/install`** (§11.10)
-      or disable it outright: it runs a vendor's install script as the
-      server's own OS user on request from any admin.
+- [ ] **Add an operator switch for the agent install/update routes**
+      (`POST /api/setup/agents/:id/{install|update}`, §11.10) or disable them
+      outright: they run a vendor's script as the server's own OS user on
+      request from any admin.
 - [ ] **If a `public-with-gate` network plugin is published, the guard IS the
       perimeter** (§11.13). Verify that the Access application covers the whole
       hostname rather than a path prefix, that its `aud` matches the one
