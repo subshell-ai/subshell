@@ -3,7 +3,9 @@
 # Subshell - Proxmox VE LXC helper (spec 2026-09-28 section 5), the
 # community-scripts convention: run on the PROXMOX HOST as root. Creates an
 # unprivileged Debian trixie container with Docker inside it, runs the official
-# Subshell image from GHCR, and updates it later with: bash proxmox.sh update
+# Subshell image from GHCR, and updates it later with: bash /root/proxmox.sh
+# update (the install saves itself there; a copy you kept works too). Pin the
+# image with SUBSHELL_VERSION=<tag> or by setting IMG yourself.
 #
 # Data (database, config.env with its minted secret, plugins, backups) lives on
 # the CT's /var/lib/subshell, so updates never touch it. Running panes do not
@@ -12,7 +14,7 @@
 set -u
 
 APP="Subshell"
-IMG="ghcr.io/subshell-ai/subshell:latest"
+IMG="${IMG:-ghcr.io/subshell-ai/subshell:${SUBSHELL_VERSION:-latest}}"
 CT_ID="${CT_ID:-}"
 CT_HOSTNAME="${CT_HOSTNAME:-subshell}"
 CT_CORES="${CT_CORES:-1}"
@@ -146,8 +148,19 @@ REMOTE
   wait_up "$APP_PORT" || msg_err "the container never answered inside the CT (check: pct exec $CT_ID -- docker logs subshell)"
   local ip
   ip=$(pct exec "$CT_ID" -- hostname -I | awk '{print $1}')
+  # A `curl | bash` install leaves no file to re-run for the update verb, so
+  # save our own copy best-effort (the network this needs is a precondition of
+  # the install anyway; a failure only warns). Held as a string so the URL
+  # block still prints first.
+  local update_hint=""
+  if curl -fsSL https://subshell.sh/proxmox.sh -o /root/proxmox.sh && chmod 755 /root/proxmox.sh; then
+    update_hint="Update later with: bash /root/proxmox.sh update (a copy you kept works too: bash proxmox.sh update)"
+  else
+    update_hint="WARN: could not save /root/proxmox.sh - update later with your own copy: bash proxmox.sh update"
+  fi
   msg_ok "${APP} is up: http://${ip}:${APP_PORT}"
   echo "Register the first account there - it becomes the admin."
+  echo "$update_hint"
 }
 
 # ---------- update ----------
@@ -200,6 +213,7 @@ remove_ct() {
   need_ct_id
   if [[ "${PVE_NO_PROMPT:-0}" != "1" ]]; then
     echo "This DESTROYS CT $CT_ID and everything in it."
+    local a=""
     read -rp "Type yes to confirm: " a < /dev/tty
     [[ "$a" == "yes" ]] || msg_err "cancelled"
   fi
@@ -232,6 +246,7 @@ case "${1:-}" in
   "")
     header "Menu"
     echo " 1) install   2) update   3) backup   4) restore help   5) remove"
+    sel=""
     read -rp "Select: " sel < /dev/tty
     case "$sel" in
       1) install_ct; install_docker_in_ct ;;

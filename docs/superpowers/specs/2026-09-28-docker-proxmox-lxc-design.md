@@ -147,6 +147,9 @@ but not helpful to someone reading a container. Small rail change:
   so acceptance includes one documented manual pass on Theo's Proxmox box (install,
   open first run, create a pane, `update`, pane dies, data survives) before docs
   point at it.
+- Recorded 2026-09-29: the scenario asserts the `update --check --json`
+  `containerized` field, and the route refusals are pinned by the unit tests above,
+  so the "the update route answers `CONTAINERIZED`" wording is superseded by this.
 
 ## 9. Out of scope
 
