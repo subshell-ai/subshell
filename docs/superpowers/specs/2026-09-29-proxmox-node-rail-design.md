@@ -6,15 +6,15 @@ Builds on: `2026-09-28-docker-proxmox-lxc-design.md` (the server rail this mirro
 
 ## 1. Problem
 
-The product has three installable things (Server, Client, node), but a public install story for only two. The node install command is per-instance by design: the server renders `/install.sh?setup_key=...` with a single-use 24 h key from the app's add-node flow, so there is nothing public to publish. A Proxmox operator who wants a machine (or LXC) running panes as a node finds no docs page for the headless node install at all (the Docker/Proxmox page covers the server; headless.mdx is server-scoped; Client ships the agent only for macOS).
+The public site's install column already carries the general node story (the add-a-machine line and page), but the Proxmox rail is server-only end to end: an operator who wants a second LXC running panes as a NODE finds no Proxmox-shaped path, and the server page never says how its container relates to the node concept. The node install command stays per-instance by design (the server renders `/install.sh?setup_key=...` with a single-use key), so what can be published is the PROXMOX SHAPE of that install, not a global command.
 
 ## 2. Decisions
 
 | question | ruling |
 |---|---|
 | Public one-liner for nodes? | NO. A key-less public node installer would weaken the enrollment gate. The command's home stays the app. |
-| Docs | New `server/nodes.mdx`: what a node is, the add-node flow as the source of the command, the Client-app route, plain-LXC note for Proxmox people, tmux requirement, retention/service facts at pointer depth. |
-| Website | One line under the install column pointing at the node docs. No command-shaped string is published; the no-hardcoded-artifact rule stays intact. |
+| Docs | Already exist: `get-started/add-a-machine.mdx` is the node install page and the website's install column already links it ("Already running Subshell? Add another machine...") - verified during planning, so this spec's original "new nodes page + new site line" scope collapsed to cross-links. Remaining: a plain-LXC note in add-a-machine, and a "node on Proxmox" section in `server/proxmox.mdx` covering the helper. |
+| Website | Nothing to build (the line exists); verified `add-a-machine` is its target. |
 | Helper script | `proxmox-node.sh`: an unprivileged Debian 13 LXC that enrolls as a node. The operator pastes the per-instance install URL (with its key) once at install; nothing else about the node is invented by the script. |
 
 ## 3. proxmox-node.sh
@@ -33,9 +33,9 @@ Under both install kinds (it is equally true from either tab): one sentence, `de
 
 ## 5. Docs
 
-- `server/nodes.mdx` (new, meta.json after "proxmox"): what a node is (one paragraph, pointer-depth), the add-node flow as the only public entry to the command, the Client-app alternative, requirements (tmux, linux/macos), the Proxmox note (plain LXC + the app's command, or the helper), node self-update and retention at link depth. Voice: neutral, one-sentence openers, no em dashes.
-- `server/proxmox.mdx` gains two sentences: the server container runs panes on its own host (in-process `local` node); a second machine or LXC as a node goes through the node docs.
-- `server/index.mdx` / headless.mdx: cross-links only if their existing structure expects a sibling list (check meta and links, no restructures).
+- `get-started/add-a-machine.mdx`: one short Proxmox note (a plain LXC is a fine target machine: `pct create` unprivileged, run the pasted command inside; the helper automates this) pointing at the server's Proxmox page.
+- `server/proxmox.mdx`: a "As a node" section: the server container runs panes on its own host (in-process `local` node); another LXC as a node uses `proxmox-node.sh` (or the plain-LXC path via add-a-machine). Update the page opener so the page is still honestly about the server rail.
+- No new page, no meta.json change, no website change (the site line and add-a-machine already cover the general node story).
 
 ## 6. Error handling
 
@@ -47,7 +47,7 @@ Under both install kinds (it is equally true from either tab): one sentence, `de
 
 - shellcheck + `bash -n` in the existing lint.yml step (file list grows).
 - Unit-level: the setup-URL validator is a shell function; a small bats-free check is out of convention here - the validator is pinned instead by a documented manual matrix in the PR (valid, no key param, non-http, wrong path). CI cannot run PVE; same acceptance posture as the server rail.
-- Docs: content tests for the docs package (existing shipped-copy/voice tests must stay green); website tests for the new copy (install.test.ts patterns); lint:prose.
+- Docs: content tests for the docs package (existing shipped-copy/voice tests must stay green); lint:prose.
 - Manual acceptance (operator, one box): install a node CT against a live instance, see it online in the app, run a pane on it, `subshell update` via the helper.
 
 ## 8. Out of scope
