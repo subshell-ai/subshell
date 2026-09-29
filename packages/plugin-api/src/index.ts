@@ -9,6 +9,7 @@ export {
   type PrivilegedStep,
   parseManifest,
   type SubshellManifest,
+  type UpdateSpec,
 } from "./manifest.js";
 export {
   type BuildCommandInput,

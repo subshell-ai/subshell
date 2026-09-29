@@ -67,6 +67,7 @@
     "install": {
       "command": "curl -fsSL https://claude.ai/install.sh | bash",
       "docsUrl": "https://code.claude.com/docs/en/setup"
-    }
+    },
+    "update": { "command": "claude update" }
   }
 }

@@ -748,6 +748,10 @@ with, not only to the owner. Device names are chosen client-side and
 re-normalized server-side (`normalizeDeviceLabel`), so a name cannot carry
 control characters into another user's screen or a log line.
 
+The row view carries the same kind of metadata to the same audience: the harness
+version the pane started on, the node's current inventory version for it, and
+the derived stale flag ride to everyone who can see the row (spec 2026-09-28).
+
 Revoke by clearing the grant: the sharing dialog, or an empty `PUT`.
 
 ### Notifications do not follow shares
@@ -2133,7 +2137,7 @@ Audit events are written, grouped by family:
 - **Plugins, networks and installers**: `plugin.install`, `plugin.enable`,
   `plugin.disable`, `plugin.uninstall`, `plugin.unpublish`,
   `network.configure`, `network.install`, `network.join`, `network.publish`,
-  `network.unpublish`, `network.leave`, `agent.install`, `tmux.install`.
+  `network.unpublish`, `network.leave`, `agent.install`, `agent.update`, `tmux.install`.
 - **Auth providers** (spec 2026-09-24 §8): `auth_provider.create`,
   `auth_provider.update`, `auth_provider.delete`, with metadata naming the
   fields changed and the issuer, never the client secret (the never-values
@@ -2405,7 +2409,12 @@ plugin code IN-PROCESS (§6, §11.9); measured against that baseline, this
 route grants an admin no capability they did not already have. The id is the
 only input; the route is admin-cookie-only, never public in the no-users
 window, single-flight per id, 10-minute bounded, and audited as
-`agent.install` without the output. The output itself is not silent, though:
+`agent.install` without the output. Its twin
+`POST /api/setup/agents/:id/update` (spec 2026-09-28) makes the host run the
+manifest's `update.command` where a plugin declares one and re-runs the
+install line otherwise, under these same bounds; the single flight is shared
+per id across the two, so an update cannot run beside an install of the same
+binary, and its run is audited as `agent.update`. The output itself is not silent, though:
 it is returned over the wire to the admin's own browser and rendered there
 (the installer's stdout can legitimately carry a token or a path, which is
 why it is not also written to a log). The child's environment is an
@@ -3092,7 +3101,7 @@ this project did not write.
   prompt would go to the child's own tty, not to a pipe the server holds),
   the 64 KiB output cap PER STREAM (stdout and stderr each, so joined
   installer output can reach ~128 KiB, `run-bounded.ts:40,310-312`,
-  `agent-install.service.ts:163-169`), a 30 s default deadline capped at ten
+  `agent-install.service.ts:189-194`), a 30 s default deadline capped at ten
   minutes, and a refusal of any `argv[0]`
   that is not absolute or whose basename is `sudo`, `doas` or `pkexec`.
 - **Plugins now make outbound requests from the control plane.** §11.9 already
@@ -3390,9 +3399,10 @@ holds and the following are prerequisites, not improvements:
       other account.
 - [ ] **Clear `SUBSHELL_EMERGENCY_PASSWORD`** and verify it is unset in every
       environment file and unit.
-- [ ] **Add an operator switch for `POST /api/setup/agents/:id/install`** (§11.10)
-      or disable it outright: it runs a vendor's install script as the
-      server's own OS user on request from any admin.
+- [ ] **Add an operator switch for the agent install/update routes**
+      (`POST /api/setup/agents/:id/{install|update}`, §11.10) or disable them
+      outright: they run a vendor's script as the server's own OS user on
+      request from any admin.
 - [ ] **If a `public-with-gate` network plugin is published, the guard IS the
       perimeter** (§11.13). Verify that the Access application covers the whole
       hostname rather than a path prefix, that its `aud` matches the one

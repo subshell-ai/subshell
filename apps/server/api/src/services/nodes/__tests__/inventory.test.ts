@@ -6,10 +6,15 @@ import { harnessUsable, usableHarnessIds } from "@/api/harness-utils.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
-import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { localPluginsDir, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
 import { seedLocalPluginsForTests, setupAuthTables } from "../../../api/__tests__/helpers/auth-tables.js";
-import { effectiveHarnessStates, INVENTORY_TTL_MS, readAgentInventory } from "../inventory.js";
+import {
+  effectiveHarnessStates,
+  INVENTORY_TTL_MS,
+  readAgentInventory,
+  recordLocalInventorySnapshot,
+} from "../inventory.js";
 
 /**
  * The one usability rule (spec 2026-09-10, Task 9): the INSTANCE has the
@@ -399,6 +404,28 @@ describe("services/nodes/inventory", () => {
       inv = readAgentInventory(mk({ inventoryJson: JSON.stringify([{ installed: true }]), inventoryAt: "not-a-date" }));
       expect(inv.entries.size).toBe(0); // entry without harnessId dropped
       expect(inv.fresh).toBe(false); // unparseable timestamp → treat as aged
+    });
+  });
+
+  describe("recordLocalInventorySnapshot", () => {
+    it("probes this host and stores the answer on the local node's inventory_json", async () => {
+      // The snapshot exists so the per-read question a pane asks ("what does
+      // this node's harness hold NOW?") has a stored answer on the machine the
+      // plane CAN probe, same as on one it has to ask (spec 2026-09-28 §4).
+      // `setupAuthTables` guarantees the `local` row exists (seedLocalPlugins).
+      await withStubs({ [H0]: true, [H1]: false }, async () => {
+        await recordLocalInventorySnapshot();
+      });
+      const node = (await nodes.findById(LOCAL_NODE_ID)) as NodeTable;
+      const inv = readAgentInventory(node);
+      expect(inv.fresh).toBe(true); // applyInventory stamped inventoryAt
+      expect(inv.entries.get(H0)).toMatchObject({ installed: true, version: "7.7.7" });
+      expect(inv.entries.get(H1)?.installed).toBe(false);
+      // Stored as the same entry-array shape every agent snapshot uses, so
+      // `readAgentInventory` (the shared parser above) reads it for free.
+      const raw = JSON.parse(node.inventoryJson ?? "") as { harnessId: string }[];
+      expect(Array.isArray(raw)).toBe(true);
+      expect(raw.map((e) => e.harnessId)).toContain(H0);
     });
   });
 });

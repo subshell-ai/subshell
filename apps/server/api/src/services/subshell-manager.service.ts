@@ -19,12 +19,13 @@ import {
   parseNodeProbeEntries,
 } from "@internal/subshell-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
+import { db } from "@/db/index.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import type { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
-import type { Access } from "@/lib/subshell-access.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { publishLive } from "@/services/live-bus.js";
 // Value cycle with `lockdown.js` (it imports THIS module for the kill loop):
@@ -41,6 +42,7 @@ import {
   subshellMcpEnv,
 } from "@/services/mcp-launch.js";
 import { probeReporterLaunch } from "@/services/mcp-resolve.js";
+import { readAgentInventory } from "@/services/nodes/inventory.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
@@ -58,6 +60,7 @@ import { getNotifyService, type NotifyKind } from "@/services/notify.service.js"
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
+import { toSubshellView } from "@/services/subshell-view.js";
 import { logger } from "@/utils/logger.js";
 
 /** The subshell-token lifecycle operations the manager triggers. Injectable
@@ -400,7 +403,7 @@ export class SubshellManagerService {
     // Record intent in the DB first so the row exists even if tmux errors.
     // The preset's auto-restart policy is inherited at creation time; a
     // presetless launch inherits nothing (0 = no auto-restart).
-    await this.#subshells.create({
+    const row = await this.#subshells.create({
       id,
       userId,
       presetId: presetRow?.id ?? null,
@@ -464,6 +467,11 @@ export class SubshellManagerService {
         harnessSession,
         reporter,
       });
+      // The launch SUCCEEDED: record the version the just-started process is
+      // running (spec §3). Compare-and-set against the row's pre-launch value,
+      // so a racing restart's fresh stamp always wins; a throw here can never
+      // fail the launch (the helper is total, debug-only on failure).
+      await this.#stampHarnessVersion(row, launcher, harness, binary, row.startedAt);
       if (prompt?.trim()) {
         promptDelivered = await this.#deliverPrompt(
           launcher,
@@ -633,6 +641,34 @@ export class SubshellManagerService {
   }
 
   /**
+   * Current-version snapshots for every node the given rows live on, one read
+   * per distinct node (spec 2026-09-28 §4). The snapshot is a decoration: an
+   * absent node row, a junk payload, or a throwing read all answer as an empty
+   * map, which `toSubshellView` renders as the honest unknown.
+   */
+  async #harnessVersionMaps(rows: { nodeId: string }[]): Promise<Map<string, ReadonlyMap<string, string>>> {
+    const out = new Map<string, ReadonlyMap<string, string>>();
+    for (const nodeId of new Set(rows.map((r) => r.nodeId))) {
+      try {
+        const node = await new NodesRepository(db).findById(nodeId);
+        if (!node) {
+          out.set(nodeId, new Map());
+          continue;
+        }
+        const m = new Map<string, string>();
+        for (const [harnessId, entry] of readAgentInventory(node).entries) {
+          if (entry.installed && entry.version) m.set(harnessId, entry.version);
+        }
+        out.set(nodeId, m);
+      } catch {
+        // A snapshot read is a decoration: unknown is fine, a crashed list is not.
+        out.set(nodeId, new Map());
+      }
+    }
+    return out;
+  }
+
+  /**
    * Maps already-fetched rows to client views (reconciled preview per row).
    * Exposed so a caller that resolved its OWN row set — e.g. the sharing-aware
    * visible list — can reuse the exact same preview/`#` capture path. Views
@@ -651,10 +687,15 @@ export class SubshellManagerService {
     // (spec 2026-09-19 §4.4). REST keeps them — the mobile card renders the
     // last preview line and reads this list over HTTP.
     const withPreviews = opts.previews ?? true;
+    // ONE snapshot read per distinct node per call (not per row): the version
+    // maps are computed up front, the loop stays capture-paced.
+    const versions = await this.#harnessVersionMaps(rows);
     const views: ReturnType<typeof toSubshellView>[] = [];
     for (const row of rows) {
       const preview = withPreviews ? await this.#preview(row) : [];
-      views.push(toSubshellView(row, row.status, preview, "owner", isNodeOffline(row.nodeId)));
+      views.push(
+        toSubshellView(row, row.status, preview, "owner", isNodeOffline(row.nodeId), versions.get(row.nodeId)),
+      );
     }
     return views;
   }
@@ -686,7 +727,15 @@ export class SubshellManagerService {
   async getSubshell(userId: string, id: string): Promise<ReturnType<typeof toSubshellView> | undefined> {
     const row = await this.#subshells.findById(id);
     if (!row || row.userId !== userId) return undefined;
-    return toSubshellView(row, row.status, await this.#preview(row), "owner", isNodeOffline(row.nodeId));
+    const versions = await this.#harnessVersionMaps([row]);
+    return toSubshellView(
+      row,
+      row.status,
+      await this.#preview(row),
+      "owner",
+      isNodeOffline(row.nodeId),
+      versions.get(row.nodeId),
+    );
   }
 
   /**
@@ -1138,6 +1187,43 @@ export class SubshellManagerService {
   }
 
   /**
+   * Records the harness version the just-launched process started on
+   * (spec 2026-09-28 §3). Compare-and-set against the row's pre-launch value,
+   * so a racing restart always wins; when this writer lands, it hands off the
+   * scoped re-stamp kick (a no-op on `local`). Failures are debug-only: the
+   * pane is RUNNING and correct; a missing annotation is never a launch
+   * failure. `startedAt` must be the row's start time FOR THIS LAUNCH — the
+   * CAS guard and the re-stamp kick both carry exactly this value: the create
+   * caller passes the row's own value, and the revive caller the fresh one its
+   * `updateIfRunning` has just written (the parked row's in-memory `startedAt`
+   * is stale by then).
+   */
+  async #stampHarnessVersion(
+    row: SubshellTable,
+    launcher: NodeLauncher,
+    harness: HarnessPlugin,
+    binary: string | null,
+    startedAt: string | null,
+  ): Promise<void> {
+    try {
+      const before = row.harnessVersion ?? null;
+      const stamp = await launcher.launchedHarnessVersion(harness, binary);
+      // The CAS and the kick carry the SAME startedAt from the SAME read of
+      // the launch, so the guard the writer sets and the guard the later
+      // re-stamp checks name one process (spec §3).
+      if (await this.#subshells.casHarnessVersion(row.id, before, startedAt, stamp)) {
+        // The kick rides every landing: the null-stamp kick is what arms the
+        // re-stamp chain, landing or not. The publish announces a MOVE only —
+        // a CAS that wrote the same value changed nothing the view shows.
+        launcher.kickHarnessVersionRefresh(row.id, stamp, startedAt);
+        if (stamp !== before) publishLive({ kind: "subshell.changed", id: row.id });
+      }
+    } catch (err: unknown) {
+      logger.withError(err).debug(`subshell ${row.id}: harness version stamp failed`);
+    }
+  }
+
+  /**
    * Revive a parked row (`status: "running"`, `alive: 0`) in place: rotate
    * credentials, re-register MCP, resume the conversation when its transcript
    * survived, respawn the pane, and conditionally flip the row back alive.
@@ -1231,6 +1317,10 @@ export class SubshellManagerService {
       reporter,
       bestEffortLog: true,
     });
+    // The start time this revival writes AND the version stamp's re-stamp
+    // guard carries (spec §3): one value, so the kick on the row this spawn
+    // started can never be answered as the dead predecessor's.
+    const revivedStartedAt = new Date().toISOString();
     // Conditional revival: a terminate that landed after the pre-spawn
     // check (between it and this write) must not resurrect the row — the
     // guard makes this a no-op and the orphan below is cleaned up instead.
@@ -1239,7 +1329,7 @@ export class SubshellManagerService {
       exitCode: null,
       endedAt: null,
       tmuxSocket: socket,
-      startedAt: new Date().toISOString(),
+      startedAt: revivedStartedAt,
       backoffCount,
       nextRestartAt: null,
       // A restart opens a FRESH unseen interval (spec 2026-09-23 §3, amended
@@ -1260,6 +1350,13 @@ export class SubshellManagerService {
       await this.#revokeTokenOrUnlink(row.id);
       return false;
     }
+    // The revive SUCCEEDED (the row is alive again): re-stamp the version this
+    // fresh process started on (spec §3). CAS against the parked row's value,
+    // so a launch that resolved a newer version replaces the stale one and a
+    // concurrent writer racing this flip is never clobbered. The kick carries
+    // the revival's OWN startedAt, not the parked row's — that is what the row
+    // holds now, and the guard compares against it.
+    await this.#stampHarnessVersion(row, launcher, harness, binary, revivedStartedAt);
     return true;
   }
 
@@ -1799,23 +1896,6 @@ export async function readSubshellLogTail(
   return launcherFor(nodeId).readLogTail(subshellId);
 }
 
-/** Rough liveness state of a subshell, derived from output recency. */
-export type Activity = "active" | "idle" | "terminated";
-
-/**
- * Rough activity: running + output within 60s = active, else idle.
- *
- * Known limitation (plan property, accepted): a subshell that is working but
- * quiet for >60s (e.g. an agent "thinking") shows as idle. A future round
- * could add a progress-aware signal (harness heartbeat or an adaptive
- * window) to avoid false-idle for slow-but-working agents.
- */
-export function computeActivity(lastOutputAt: string | null, status: string, now = Date.now()): Activity {
-  if (status !== "running") return "terminated";
-  if (!lastOutputAt) return "active"; // just started
-  return now - new Date(lastOutputAt).getTime() <= 60_000 ? "active" : "idle";
-}
-
 /** How many lines of a subshell's screen a preview carries. */
 export const PREVIEW_LINES = 20;
 
@@ -2036,92 +2116,4 @@ function normalizePaneTitle(raw: string): string {
   // PROTOCOL_PAYLOAD. "" makes the caller keep the name it already had.
   if (PROTOCOL_PAYLOAD.test(trimmed)) return "";
   return trimmed.slice(0, 120);
-}
-
-export function toSubshellView(
-  row: {
-    id: string;
-    userId: string;
-    presetId: string | null;
-    harnessId: string;
-    nodeId: string;
-    name: string;
-    workingDir: string;
-    status: string;
-    createdAt: string;
-    endedAt: string | null;
-    lastOutputAt: string | null;
-    alive: number;
-    exitCode: number | null;
-    startedAt: string | null;
-    backoffCount: number;
-    restartOnExit: number;
-    nextRestartAt: string | null;
-    nameLocked: number;
-    notify: number;
-    waitingSince: string | null;
-    lastPushUrgency: number | null;
-    crossAgent: number;
-  },
-  status: string,
-  /** The subshell's current screen, bottom-first-trimmed; empty when not running. */
-  preview: string[] = [],
-  /**
-   * Viewer-relative access to attach to the view. A returned row is always
-   * visible to *someone*, so this is never `"none"`. Defaults to `"owner"` so
-   * the many owner-keyed direct callers stay valid; the sharing service
-   * overrides it per-viewer.
-   */
-  access: Exclude<Access, "none"> = "owner",
-  /**
-   * The row's agent node has no live connection (spec §5.6) — the subshell
-   * may still be running there. Computed by the caller via
-   * {@link isNodeOffline}; local rows (and every legacy caller) pass nothing
-   * and read false.
-   */
-  nodeOffline = false,
-) {
-  return {
-    id: row.id,
-    presetId: row.presetId,
-    harnessId: row.harnessId,
-    nodeId: row.nodeId,
-    name: row.name,
-    workingDir: row.workingDir,
-    status,
-    createdAt: row.createdAt,
-    endedAt: row.endedAt,
-    lastOutputAt: row.lastOutputAt,
-    activity: computeActivity(row.lastOutputAt, status),
-    // The manager is OWNER-KEYED and knows nothing about grants, so it reports
-    // the private shape. `subshells.service.ts` — the sharing-aware layer that
-    // already loads the grant map to resolve `access` — overrides both.
-    shareCount: 0,
-    sharedWithEveryone: false,
-    // The subshell's current screen, captured by the caller (see
-    // SubshellManagerService#preview). Passed in rather than read here so this
-    // stays a pure mapping and the tmux call has one home.
-    preview,
-    alive: row.alive === 1,
-    exitCode: row.exitCode,
-    startedAt: row.startedAt,
-    backoffCount: row.backoffCount,
-    restartOnExit: row.restartOnExit === 1,
-    nextRestartAt: row.nextRestartAt,
-    nameLocked: row.nameLocked === 1,
-    notify: row.notify === 1,
-    // How this pane was OPENED: an agent over MCP, not a human at the UI. The
-    // rail files these under "Cross-agent comms" and their bell defaults off.
-    crossAgent: row.crossAgent === 1,
-    // ISO ts of the attention event that put this subshell in waiting-for-you
-    // state (null = not waiting); cleared by the watcher on output-resume/death.
-    waitingSince: row.waitingSince,
-    // "A delivered push the owner has not answered by opening the pane"
-    // (spec 2026-09-23) — what turns the rail's dot into a bell.
-    unseenPush: row.lastPushUrgency !== null,
-    access,
-    // Agent node unreachable right now (see the param doc) — the UI's
-    // "node offline" chip; false for every local subshell.
-    nodeOffline,
-  };
 }

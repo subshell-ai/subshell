@@ -36,6 +36,8 @@ export interface HarnessInfo {
   installedHere: boolean;
   /** Official install instructions, shown when detection fails */
   install: { command: string; docsUrl: string };
+  /** Vendor self-update command; when absent, updating re-runs `install.command` */
+  update?: string;
 }
 
 /**

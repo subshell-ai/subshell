@@ -17,7 +17,7 @@ import { apiModels } from "@/schema/index.js";
  * `POST /api/network/:id/install` — runs the vendor's own installer for one
  * network plugin's CLI, on the control-plane host, as the server's user.
  *
- * A near-copy of `setup-agent-install.route.ts`, and deliberately so: the two
+ * A near-copy of `setup-agent-command.route.ts`, and deliberately so: the two
  * are the same act on the same machine with the same gate, differing only in
  * where the command comes from. This one reads it from the network plugin's
  * `subshell.install` manifest block.

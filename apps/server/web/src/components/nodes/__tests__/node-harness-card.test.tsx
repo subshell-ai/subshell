@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { NodeDetail, NodeHarness } from "@internal/node-admin";
+import { NODE_QUERY_KEY } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -8,7 +9,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
 
 /**
@@ -49,11 +50,16 @@ interface CardOpts {
    */
   infos?: unknown[];
   /**
-   * NDJSON frames the install stream emits, in order. `null` inside the list
-   * means "stop here and hold the stream open", which is how the in-flight
-   * rendering is asserted without racing a close.
+   * NDJSON frames the install/update stream emits, in order (one mock feeds
+   * both verbs; `updateFrames` overrides for the update half). `null` inside
+   * the list means "stop here and hold the stream open", which is how the
+   * in-flight rendering is asserted without racing a close.
    */
   installFrames?: (string | null)[];
+  /** Frames for the UPDATE verb specifically; falls back to `installFrames`. */
+  updateFrames?: (string | null)[];
+  /** Status the update POST answers with WITHOUT opening a stream (a refusal). */
+  updateStatus?: number;
 }
 
 /** A `HarnessInfo` as `/api/setup/harnesses` sends it. */
@@ -106,8 +112,14 @@ function view(over: Partial<NodeDetail>): NodeDetail {
 
 /** Render the card under a query client and a minimal router (its Link
  * targets `/settings/plugins`, and `RouterProvider` paints nothing until the
- * router has loaded once). Resolves once the node view has been fetched. */
-async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; url: string }[]; restore: () => void }> {
+ * router has loaded once). Resolves once the node view has been fetched. The
+ * query client rides back so a test can write the cache the way a poll's
+ * refetch would (flipping a row's detection between commands). */
+async function mount(opts: CardOpts = {}): Promise<{
+  calls: { method: string; url: string }[];
+  queryClient: QueryClient;
+  restore: () => void;
+}> {
   const calls: { method: string; url: string }[] = [];
   const original = globalThis.fetch;
   const data = view({
@@ -140,9 +152,23 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
         new Response(JSON.stringify(opts.infos ?? [{ id: "gone", name: "Gone", description: "", binary: "gone" }])),
       );
     }
-    const agentInstall = /^\/api\/setup\/agents\/([^/]+)\/install$/.exec(url.pathname);
-    if (agentInstall && method === "POST") {
-      const frames = opts.installFrames ?? [`${JSON.stringify({ type: "done", ...DONE })}\n`];
+    // The install and update routes stream the same protocol, so one mock
+    // answers both verbs; a test that needs the two to differ (the
+    // cross-kind failure-state tests) supplies `updateFrames`.
+    const agentCommand = /^\/api\/setup\/agents\/([^/]+)\/(install|update)$/.exec(url.pathname);
+    if (agentCommand && method === "POST") {
+      // A refusal happens before any stream opens: status + JSON body, the
+      // shape `useAgentCommand` throws as an ApiError (a CALL failure, not a
+      // failed run).
+      if (agentCommand[2] === "update" && opts.updateStatus !== undefined) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ errId: "e2", code: "FORBIDDEN", message: "updater refused by policy" }), {
+            status: opts.updateStatus,
+          }),
+        );
+      }
+      const frames = (agentCommand[2] === "update" ? opts.updateFrames : undefined) ??
+        opts.installFrames ?? [`${JSON.stringify({ type: "done", ...DONE })}\n`];
       return Promise.resolve(
         new Response(
           new ReadableStream<Uint8Array>({
@@ -165,11 +191,10 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
 
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const rootRoute = createRootRoute({
     component: () => (
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}
-      >
+      <QueryClientProvider client={queryClient}>
         <NodeHarnessCard nodeId={NODE_ID} />
       </QueryClientProvider>
     ),
@@ -185,7 +210,7 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
   // Wait out the node-view fetch so tests query loaded content directly.
   await waitFor(() => expect(calls.some((c) => c.url === `/api/nodes/${NODE_ID}` && c.method === "GET")).toBe(true));
   await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-  return { calls, restore: () => (globalThis.fetch = original) };
+  return { calls, queryClient, restore: () => (globalThis.fetch = original) };
 }
 
 describe("NodeHarnessCard", () => {
@@ -465,6 +490,224 @@ describe("NodeHarnessCard", () => {
       try {
         expect(await screen.findByText((c) => c === "Quiet")).toBeDefined();
         expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+  });
+
+  describe("Update (spec 2026-09-28 § 2)", () => {
+    /** `local` + a manager, with the agent CLI already present. */
+    const readyLocal = {
+      kind: "local" as const,
+      canManage: true,
+      harnesses: [{ harnessId: "claude", name: "Claude", installed: true, version: "1.0.0" }],
+    };
+
+    it("offers Update on a ready row on the control-plane host, naming the vendor command", async () => {
+      const { restore } = await mount({ ...readyLocal, infos: [info({ update: "claude update" })] });
+      try {
+        expect(await screen.findByRole("button", { name: "Update" })).toBeDefined();
+        // The statement line names what the press will run, like the install
+        // line does; and exactly one such line shows (never both twins).
+        expect(screen.getByText("claude update")).toBeDefined();
+        expect(screen.getAllByText(/on this machine/)).toHaveLength(1);
+        expect(screen.queryByText(/can't do it on a node yet/)).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("falls back to re-running the installer when no vendor command is declared", async () => {
+      const { restore } = await mount({ ...readyLocal, infos: [info()] });
+      try {
+        expect(await screen.findByRole("button", { name: "Update" })).toBeDefined();
+        expect(screen.getByText(/curl -fsSL https:\/\/example\.test\/install\.sh \| bash/)).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("POSTs the update once, to this harness's id, and shows the command's own line", async () => {
+      const { calls, restore } = await mount({
+        ...readyLocal,
+        infos: [info({ update: "claude update" })],
+        installFrames: [`${JSON.stringify({ type: "line", text: "updating claude" })}\n`, null],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Update" }));
+        expect(await screen.findByText("updating claude")).toBeDefined();
+        expect(screen.getByRole("button", { name: /updating/i })).toBeDefined();
+        expect(calls.filter((c) => c.method === "POST" && c.url === "/api/setup/agents/claude/update")).toHaveLength(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it("never offers Update to a non-admin on the control-plane host", async () => {
+      const { restore } = await mount({
+        ...readyLocal,
+        canManage: false,
+        access: "edit",
+        infos: [info({ update: "claude update" })],
+      });
+      try {
+        expect(await screen.findByText((c) => c === "Claude")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /update/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("an enrolled node shows the command as a copy line, and no button", async () => {
+      // The server cannot run a command on an enrolled node yet, so the card
+      // prints the exact command instead of pretending it can press it.
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true, version: "1.0.0" }],
+        infos: [info({ update: "claude update" })],
+      });
+      try {
+        expect(await screen.findByText(/can't do it on a node yet/)).toBeDefined();
+        expect(screen.getByText("claude update")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /update/i })).toBeNull();
+        // Never both copy lines for the same row: the local statement is
+        // gated on `local` and cannot ride here.
+        expect(screen.queryByText(/as the user the server runs as/)).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("an enrolled node with a MISSING program shows no copy line", async () => {
+      // Nothing to update there; the row stays detection-only.
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: false, reason: "not-on-path" as const }],
+        infos: [info({ update: "claude update" })],
+      });
+      try {
+        expect(await screen.findByText((c) => c === "Claude")).toBeDefined();
+        expect(screen.queryByText(/can't do it on a node yet/)).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("a ready terminal row gets no button and no copy line", async () => {
+      // `updateCommandFor` mirrors the route's "nothing to update" refusal:
+      // a program-less plugin has no command to run OR print.
+      const { restore } = await mount({
+        ...readyLocal,
+        harnesses: [{ harnessId: "terminal", name: "Terminal", installed: true, reason: "no-binary" as const }],
+        infos: [info({ id: "terminal", name: "Terminal", type: "terminal" })],
+      });
+      try {
+        expect(await screen.findByText((c) => c === "Terminal")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /update/i })).toBeNull();
+        expect(screen.queryByText(/on this machine/)).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("a refused update call fails under the row as a CALL failure, with no output", async () => {
+      // The two failures said differently (the card's own comment): a refusal
+      // answers before any stream opens, so there is no exit code and no
+      // printed output to disclose - only the call's error text under the
+      // row that pressed. The exit-code twin and its disclosure are pinned in
+      // the cross-kind suite; the CALL half was never rendered on camera.
+      const { restore } = await mount({
+        ...readyLocal,
+        infos: [info({ update: "claude update" })],
+        updateStatus: 403,
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Update" }));
+        expect(await screen.findByText(/updater refused by policy/)).toBeDefined();
+        expect(screen.queryByText("What the command printed")).toBeNull();
+        expect(screen.queryByText(/exited with code/i)).toBeNull();
+        // The button returns: the mutation settled failed, so the row is
+        // pressable again rather than stuck on "Updating…".
+        expect(screen.getByRole("button", { name: "Update" })).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+  });
+
+  describe("Cross-kind failure state", () => {
+    // The two commands are TWO mutations, and the card's `failure` reads
+    // both. TanStack v5 clears a mutation's own error/data when that same
+    // mutation runs again, but nothing clears the OTHER kind's - so an
+    // install that failed under a row kept rendering its failure (and
+    // masking the update's own) once the row flipped to installed and the
+    // press moved to Update. The fix: each button resets the other kind
+    // first; the streaming line survives because `cmdLines` is component
+    // state keyed `kind:id`, not mutation state.
+
+    /** `local` + a manager, with the agent CLI not here yet. */
+    const missingLocal = {
+      kind: "local" as const,
+      canManage: true,
+      harnesses: [{ harnessId: "claude", name: "Claude", installed: false, reason: "not-on-path" as const }],
+      infos: [info()],
+    };
+
+    /** The refetch's answer after a settled command: the program IS here. */
+    function installedView(): NodeDetail {
+      return view({
+        kind: "local",
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true, version: "2.0.0" }],
+      });
+    }
+
+    const FAILED_INSTALL = `${JSON.stringify({ type: "done", ok: false, exitCode: 7, output: "apt exploded", harness: { id: "claude", installed: true } })}\n`;
+    const FAILED_UPDATE = `${JSON.stringify({ type: "done", ok: false, exitCode: 9, output: "updater said no", harness: { id: "claude", installed: true } })}\n`;
+
+    it("a failed install does not ride under a later update of the same row", async () => {
+      const { queryClient, restore } = await mount({
+        ...missingLocal,
+        installFrames: [FAILED_INSTALL],
+        updateFrames: [`${JSON.stringify({ type: "line", text: "updating claude" })}\n`, null],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        expect(await screen.findByText(/exited with code 7/)).toBeDefined();
+        // The re-probe lands the program even though the command reported
+        // failure, so the row now offers Update while the install's failure
+        // still stands.
+        act(() => {
+          queryClient.setQueryData([...NODE_QUERY_KEY, NODE_ID], installedView());
+        });
+        fireEvent.click(await screen.findByRole("button", { name: "Update" }));
+        expect(await screen.findByText("updating claude")).toBeDefined();
+        // The stale failure must clear with the press: what failed was the
+        // OTHER command, and the update is running now.
+        expect(screen.queryByText(/exited with code 7/)).toBeNull();
+        expect(screen.queryByText("apt exploded")).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("a failing update shows its own message and output, not the install's", async () => {
+      const { queryClient, restore } = await mount({
+        ...missingLocal,
+        installFrames: [FAILED_INSTALL],
+        updateFrames: [FAILED_UPDATE],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        expect(await screen.findByText(/exited with code 7/)).toBeDefined();
+        act(() => {
+          queryClient.setQueryData([...NODE_QUERY_KEY, NODE_ID], installedView());
+        });
+        fireEvent.click(await screen.findByRole("button", { name: "Update" }));
+        // The update's OWN failure surfaces - the leaked install state
+        // would otherwise render code 7 and hide the code 9 and its output.
+        expect(await screen.findByText(/exited with code 9/)).toBeDefined();
+        expect(screen.getByText("updater said no")).toBeDefined();
+        expect(screen.queryByText(/exited with code 7/)).toBeNull();
+        expect(screen.queryByText("apt exploded")).toBeNull();
       } finally {
         restore();
       }

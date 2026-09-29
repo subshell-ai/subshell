@@ -9,6 +9,9 @@ function makeSubshell(overrides: Partial<SubshellView> & { id: string }): Subshe
   return {
     presetId: null,
     harnessId: "claude-code",
+    harnessVersion: null,
+    harnessCurrentVersion: null,
+    harnessStale: false,
     nodeId: "local",
     name: overrides.id,
     nameLocked: false,

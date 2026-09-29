@@ -75,6 +75,16 @@ describe("adaptPlugin: identity comes from the manifest", () => {
     const { install: _drop, ...noInstall } = MANIFEST;
     expect(adaptPlugin(noInstall, minimal()).installHint).toEqual({ command: "", docsUrl: "" });
   });
+
+  it("carries the manifest update command as updateHint, and only when declared", () => {
+    // Absent-not-undefined, like detectSpec: `updateHint in plugin` is how a
+    // surface tells "the vendor ships an updater" from "updating here is a
+    // re-run of install" (the fallback decision lives in the install service).
+    expect("updateHint" in adaptPlugin(MANIFEST, minimal())).toBe(false);
+    expect(adaptPlugin(MANIFEST, minimal()).updateHint).toBeUndefined();
+    const a = adaptPlugin({ ...MANIFEST, update: { command: "claude update" } }, minimal());
+    expect(a.updateHint).toBe("claude update");
+  });
 });
 
 describe("adaptPlugin: optional members are present only when implemented", () => {

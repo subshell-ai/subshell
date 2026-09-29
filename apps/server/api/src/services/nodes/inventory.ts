@@ -14,7 +14,9 @@ import {
 } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
+import { publishLive } from "@/services/live-bus.js";
 import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
@@ -330,6 +332,14 @@ export interface DetectOnNodeDeps {
    * registry). @internal test seam.
    */
   envHarnesses?: () => Promise<HarnessPlugin[]>;
+  /**
+   * Re-stamp ONE pane with the version this answer reports (spec 2026-09-28
+   * §3): the pane that kicked the detect after its launch, the stamp value
+   * that launch wrote (the compare-and-set expectation), and the row's
+   * `startedAt` at kick time — the launch this stamp belongs to. Absent for
+   * every other caller. @internal paired with `RemoteLauncher.kickHarnessVersionRefresh`.
+   */
+  reStamp?: { subshellId: string; expected: string | null; startedAt: string | null };
 }
 
 /**
@@ -438,6 +448,37 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
   // before `ready` lands, and there is then no facts object to update.
   const conn = getLive(nodeId);
   if (conn?.agent) conn.agent.env = answer.env;
+  // The scoped re-stamp (spec §3): only the pane that kicked, only while its
+  // just-written stamp still matches, and only a POSITIVE fresh answer. The
+  // launch guard lives in the CAS itself (`startedAt` in its WHERE): a kick
+  // from a DEAD process whose successor re-stamped the SAME value cannot pass
+  // it, so the answer for a dead launch is refused atomically rather than
+  // read-checked. The row must also live ON this node: the kick was raised by
+  // this node's detect, and a pane moved elsewhere must not be stamped from
+  // an inventory its current host never answered. A missing entry, an
+  // `installed: false`, or a version-less probe leaves the launch stamp
+  // standing: this pass corrects staleness, it never erases.
+  if (deps.reStamp) {
+    try {
+      const subshells = new SubshellsRepository(db);
+      const pane = await subshells.findById(deps.reStamp.subshellId);
+      const entry = pane ? merged.get(pane.harnessId) : undefined;
+      if (pane && pane.nodeId === nodeId && pane.status === "running" && entry?.installed && entry.version) {
+        // The stamp is user-visible on the view (spec 2026-09-28 §4), so the
+        // standing publish rule binds this write: a CAS that MOVES the value
+        // announces; a no-write path and a same-value landing (a restart on
+        // an unchanged binary) both stay silent.
+        if (
+          (await subshells.casHarnessVersion(pane.id, deps.reStamp.expected, deps.reStamp.startedAt, entry.version)) &&
+          entry.version !== deps.reStamp.expected
+        ) {
+          publishLive({ kind: "subshell.changed", id: pane.id });
+        }
+      }
+    } catch (err: unknown) {
+      logger.withError(err).debug(`node ${nodeId}: harness version re-stamp failed`);
+    }
+  }
 }
 
 /**
@@ -455,8 +496,22 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
  * Re-check is the one caller that does NOT use this — it is a person pressing
  * a button and waiting, so it awaits {@link detectOnNode} and reports.
  */
-export function detectOnNodeBestEffort(nodeId: string): void {
-  void detectOnNode(nodeId).catch((err: unknown) => {
+export function detectOnNodeBestEffort(nodeId: string, opts: { reStamp?: DetectOnNodeDeps["reStamp"] } = {}): void {
+  void detectOnNode(nodeId, opts).catch((err: unknown) => {
     logger.debug(`detect for node ${nodeId} failed: ${err instanceof Error ? err.message : String(err)}`);
   });
+}
+
+/**
+ * Probe THIS host's harnesses and store the answer in the local node's
+ * `inventory_json` (spec 2026-09-28 §4). The local node's own VIEWS keep
+ * probing live (`effectiveHarnessStates` never reads this column for local);
+ * the snapshot exists so the cheap per-read question a pane asks, "what does
+ * this node's harness hold now?", has a stored answer at all. Freshness
+ * matches the agent pass: one probe per refresh cycle.
+ */
+export async function recordLocalInventorySnapshot(): Promise<void> {
+  const catalog = await enabledHarnessPlugins();
+  const probe = await probeLocally(catalog);
+  await new NodesRepository(db).applyInventory(LOCAL_NODE_ID, JSON.stringify([...probe.entries.values()]));
 }

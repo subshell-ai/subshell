@@ -85,6 +85,7 @@ export function adaptPlugin(manifest: SubshellManifest, plugin: SubshellPlugin):
     description: manifest.description,
     icon: manifest.icon,
     installHint: manifest.install ?? { command: "", docsUrl: "" },
+    ...(manifest.update ? { updateHint: manifest.update.command } : {}),
     // A legacy field the plugin model replaces: "enabled by default" becomes
     // "installed" once the node owns its plugin set. Not worth a manifest
     // field with one possible value. (`ttyRequired` was the same, and is gone:

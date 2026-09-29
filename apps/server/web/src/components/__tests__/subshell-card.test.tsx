@@ -55,6 +55,9 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
     id: "s1",
     presetId: "p1",
     harnessId: "claude",
+    harnessVersion: null,
+    harnessCurrentVersion: null,
+    harnessStale: false,
     nodeId: "local",
     nodeOffline: false,
     name: "subshell",
@@ -205,6 +208,95 @@ describe("SubshellCard node-offline precedence", () => {
       // the dot BEFORE the name. DOCUMENT_POSITION_FOLLOWING (bit 4) on
       // `dot`'s view of `title` is exactly that.
       expect(dot.compareDocumentPosition(title) & 4).toBe(4);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("SubshellCard stale-harness line (spec 2026-09-28)", () => {
+  // One detail line under the working dir, gated server-side: the pane
+  // started on a different harness version than its node now reports. It
+  // speaks only while the pane is RUNNING — a dead pane's versions are
+  // history, and restarting it (which resumes) is itself the remedy.
+  it("names both versions on a stale RUNNING pane", async () => {
+    const restore = mockNodes([agent()]);
+    try {
+      renderCard(makeSubshell({ harnessStale: true, harnessVersion: "1.2.0", harnessCurrentVersion: "1.3.0" }));
+      await screen.findByRole("img", { name: "idle" });
+      expect(screen.getByText(/Harness 1\.2\.0 · node now on 1\.3\.0/)).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("says nothing for a running pane that is NOT stale", async () => {
+    // The gate is `harnessStale` itself, not merely "versions are present":
+    // an up-to-date running pane carries both strings and must stay quiet,
+    // or the line would read as a bug report about a healthy pane.
+    const restore = mockNodes([agent()]);
+    try {
+      renderCard(makeSubshell({ harnessStale: false, harnessVersion: "1.2.0", harnessCurrentVersion: "1.2.0" }));
+      await screen.findByRole("img", { name: "idle" });
+      expect(screen.queryByText(/node now on/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("says nothing for a running pane whose version was never stamped", async () => {
+    // A pre-column row, or one launched by a build that stamped nothing:
+    // the stamp is null, so there is no "started on" to name. The server
+    // never sets the flag for this shape (staleness needs two known
+    // strings); this pins the card's own half of not rendering it.
+    const restore = mockNodes([agent()]);
+    try {
+      renderCard(makeSubshell({ harnessStale: true, harnessVersion: null, harnessCurrentVersion: "1.3.0" }));
+      await screen.findByRole("img", { name: "idle" });
+      expect(screen.queryByText(/node now on/)).toBeNull();
+      expect(screen.queryByText(/Harness/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("says nothing for a running-status pane whose process has exited", async () => {
+    // status `running` with `alive: false` is the exited-parked shape the
+    // sweep has not retired yet: its versions are history, and the stale
+    // line would claim an old harness is RUNNING when nothing runs at all.
+    const restore = mockNodes([agent()]);
+    try {
+      renderCard(
+        makeSubshell({
+          alive: false,
+          exitCode: 0,
+          harnessStale: true,
+          harnessVersion: "1.2.0",
+          harnessCurrentVersion: "1.3.0",
+        }),
+      );
+      await screen.findByRole("img", { name: "exited" });
+      expect(screen.queryByText(/node now on/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("says nothing once the pane is no longer running", async () => {
+    const restore = mockNodes([agent()]);
+    try {
+      renderCard(
+        makeSubshell({
+          status: "terminated",
+          activity: "terminated",
+          alive: false,
+          harnessStale: true,
+          harnessVersion: "1.2.0",
+          harnessCurrentVersion: "1.3.0",
+        }),
+      );
+      await screen.findByRole("img", { name: "ended" });
+      expect(screen.queryByText(/node now on/)).toBeNull();
     } finally {
       restore();
     }

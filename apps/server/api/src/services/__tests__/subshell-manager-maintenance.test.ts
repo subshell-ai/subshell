@@ -22,6 +22,7 @@ import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.j
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgency.js";
 import * as crossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
+import * as harnessVersionMigration from "@/db/migrations/0040-subshell-harness-version.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -32,6 +33,7 @@ import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-fakes.js";
 import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
+import { type LiveEvent, subscribeLive } from "@/services/live-bus.js";
 import { LOCKDOWN_KEY } from "@/services/lockdown.js";
 import type { LaunchPlan } from "@/services/nodes/node-launcher.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
@@ -181,6 +183,7 @@ beforeAll(async () => {
   await presetsMigration.up(dbHandle);
   await pushUrgencyMigration.up(dbHandle); // last_push_urgency — #reviveRow clears it on revival (spec 2026-09-23)
   await crossAgentMigration.up(dbHandle); // subshells.cross_agent — SubshellsRepository.create writes it (2026-09-25)
+  await harnessVersionMigration.up(dbHandle); // subshells.harness_version — SubshellsRepository.create writes it (2026-09-28)
   presetsRepo = new PresetsRepository(dbHandle);
   subshellsRepo = new SubshellsRepository(dbHandle);
   presetId = await seedPreset(presetsRepo);
@@ -243,6 +246,171 @@ describe("createSubshell — the post-spawn re-read", () => {
       expect(fake.kills).toEqual([]);
       expect((await subshellsRepo.findById(created.id))?.status).toBe("running");
       await subshellsRepo.delete(created.id);
+    } finally {
+      off();
+    }
+  });
+});
+
+describe("harness version stamping on launch (spec 2026-09-28 §3)", () => {
+  /** `maybeAutoRestart` is the sweep's own guard; the sweep calls it privately. */
+  const attempt = (manager: SubshellManagerService, row: SubshellTable): Promise<boolean> =>
+    (manager as unknown as { maybeAutoRestart(r: SubshellTable): Promise<boolean> }).maybeAutoRestart(row);
+
+  it("a create stamps the version the launcher reported and hands it to the refresh kick", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    fake.harnessVersionToReport = "2.1.283";
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const created = await manager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: "/tmp",
+        nodeId,
+      });
+      try {
+        const stamped = await subshellsRepo.findById(created.id);
+        expect(stamped?.harnessVersion).toBe("2.1.283");
+        // The kick carries the version AND the row's start time for this
+        // launch (spec §3 guard): the guard rejects answers from a kick whose
+        // startedAt no longer matches the row.
+        expect(fake.refreshKicks).toEqual([
+          { subshellId: created.id, expected: "2.1.283", startedAt: stamped?.startedAt ?? null },
+        ]);
+      } finally {
+        await subshellsRepo.delete(created.id);
+      }
+    } finally {
+      off();
+    }
+  });
+
+  it("an unknown version keeps the row null; the kick still rides with null", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir); // reports null (the default)
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const created = await manager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: "/tmp",
+        nodeId,
+      });
+      try {
+        const stamped = await subshellsRepo.findById(created.id);
+        expect(stamped?.harnessVersion).toBeNull();
+        expect(fake.refreshKicks).toEqual([
+          { subshellId: created.id, expected: null, startedAt: stamped?.startedAt ?? null },
+        ]);
+      } finally {
+        await subshellsRepo.delete(created.id);
+      }
+    } finally {
+      off();
+    }
+  });
+
+  it("a REFUSED launch stamps nothing: the row rolls back with its version untouched", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    fake.harnessVersionToReport = "2.1.283"; // the stamp MUST NOT run: launch throws first
+    fake.launchError = new NodeRpcError("failed", "node refused", nodeId);
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const err = await manager
+        .createSubshell({ userId: "u1", harnessId: "claude-code", presetId, workingDir: "/tmp", nodeId })
+        .then(
+          () => null,
+          (e: unknown) => e,
+        );
+      expect(err).toBeInstanceOf(NodeRpcError);
+      expect(fake.plans).toEqual([]); // the launch itself was refused
+      expect(fake.refreshKicks).toEqual([]); // …so no stamp landed and no kick fired
+      // The rolled-back row (terminated by the create catch) holds no stamp.
+      expect(fake.kills).toHaveLength(1);
+      const row = await subshellsRepo.findById(fake.kills[0]);
+      expect(row?.harnessVersion).toBeNull();
+    } finally {
+      off();
+    }
+  });
+
+  it("a revive re-stamps the parked row through the SAME seam (auto-restart)", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    fake.harnessVersionToReport = "2.1.284";
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const row = await parkedRow(nodeId); // harnessVersion null at seed
+      expect(await attempt(manager, row)).toBe(true);
+      const revived = await subshellsRepo.findById(row.id);
+      expect(revived?.harnessVersion).toBe("2.1.284");
+      // The kick carries the REVIVAL's startedAt (the value `updateIfRunning`
+      // just wrote), not the parked row's — that is the launch this stamp is
+      // for, and the guard compares against it.
+      expect(fake.refreshKicks).toEqual([
+        { subshellId: row.id, expected: "2.1.284", startedAt: revived?.startedAt ?? null },
+      ]);
+    } finally {
+      off();
+    }
+  });
+
+  it("a same-value stamp landing keeps the kick and stays silent on the bus", async () => {
+    // A restart on an unchanged binary: the parked row already carries the
+    // version the launcher reports, so the CAS lands by rewriting the SAME
+    // value. The kick must still ride (a landing arms the re-stamp chain even
+    // when it announces nothing), but a write that moves nothing visible
+    // publishes nothing (spec §4's publish rule, Task 10 review item 1).
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    fake.harnessVersionToReport = "2.1.284";
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    const published: LiveEvent[] = [];
+    const sub = subscribeLive((e) => published.push(e));
+    let rowId = "";
+    try {
+      const parked = await parkedRow(nodeId);
+      await dbHandle.updateTable("subshells").set({ harnessVersion: "2.1.284" }).where("id", "=", parked.id).execute();
+      rowId = parked.id;
+      const stamped = (await subshellsRepo.findById(parked.id)) as SubshellTable;
+      expect(await attempt(manager, stamped)).toBe(true);
+      const revived = await subshellsRepo.findById(parked.id);
+      // The kick carries the REVIVAL's startedAt, as in the moving-value case
+      // above; only the announced publish is withheld here.
+      expect(fake.refreshKicks).toEqual([
+        { subshellId: parked.id, expected: "2.1.284", startedAt: revived?.startedAt ?? null },
+      ]);
+      expect(published.filter((e) => e.kind === "subshell.changed" && e.id === rowId)).toHaveLength(0);
+    } finally {
+      sub();
+      if (rowId) await subshellsRepo.delete(rowId);
+      off();
+    }
+  });
+
+  it("a failing revive never stamps: a launch throw leaves the parked row's version alone", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    fake.harnessVersionToReport = "2.1.284";
+    fake.launchError = new Error("spawn refused");
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const row = await parkedRow(nodeId);
+      // maybeAutoRestart swallows the revive throw (the backoff advance is its
+      // recovery), so the observable facts are: false, and NO stamp landed.
+      expect(await attempt(manager, row)).toBe(false);
+      expect((await subshellsRepo.findById(row.id))?.harnessVersion).toBeNull();
+      expect(fake.refreshKicks).toEqual([]);
     } finally {
       off();
     }

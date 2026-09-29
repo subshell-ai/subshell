@@ -18,7 +18,7 @@ import { presetRoutes } from "@/api/presets.route.js";
 import { settingsRoutes } from "@/api/settings.route.js";
 import { instancePublicRoutes } from "@/api/settings-public.route.js";
 import { setupRoutes } from "@/api/setup.route.js";
-import { setupAgentInstallRoute } from "@/api/setup-agent-install.route.js";
+import { setupAgentInstallRoute, setupAgentUpdateRoute } from "@/api/setup-agent-command.route.js";
 import { setupTmuxInstallRoute } from "@/api/setup-tmux-install.route.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { systemKeysRoutes } from "@/api/system-keys.route.js";
@@ -48,6 +48,7 @@ const coreRoutes = new Elysia()
   .use(settingsRoutes)
   .use(setupRoutes)
   .use(setupAgentInstallRoute)
+  .use(setupAgentUpdateRoute)
   .use(setupTmuxInstallRoute)
   .use(pluginsRoutes)
   .use(metaRoutes)

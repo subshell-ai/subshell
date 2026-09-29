@@ -278,7 +278,9 @@ Two triggers were added, and they answer different questions:
   (`services/nodes/inventory-refresh.ts`, armed by `index.ts` beside the other
   timers). The online set comes from the REGISTRY, like the offline sweep's,
   never a DB scan; `local` is skipped by name (its view probes live on every
-  read).
+  read). The pass also probes the control-plane host itself into the local
+  node's inventory snapshot, which is what the pane-side stale-harness flag
+  compares against (`local`'s own views still probe live as before).
 
 **`NODE_INVENTORY_REFRESH_MS` is DERIVED as `INVENTORY_TTL_MS / 2`, not chosen
 beside it.** The launch gate counts a node's cached answer only while it is

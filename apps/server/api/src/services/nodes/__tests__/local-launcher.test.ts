@@ -2,11 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getHarness, TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
+import { getHarness, type HarnessPlugin, TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
 import { TRUE_BINARY } from "@/__tests__/helpers/true-binary.js";
 import { TAIL_POLL_MS } from "@/services/nodes/log-tail.js";
 import { LocalLauncher } from "../local-launcher.js";
-import type { LaunchPlan } from "../node-launcher.js";
+import type { LaunchPlan, NodeLauncher } from "../node-launcher.js";
 import { subshellLogPath } from "../subshell-paths.js";
 
 const tmux = new TmuxRunner();
@@ -246,6 +246,44 @@ describe("LocalLauncher.launch bestEffortLog (scripted tmux — no real spawn)",
     await expect(launcher2.launch(plan(false))).rejects.toThrow(/pipe-pane/);
     expect(scripted.spawns).toBe(2);
     expect(scripted.pipes).toBe(2);
+  });
+});
+
+describe("LocalLauncher.launchedHarnessVersion + kickHarnessVersionRefresh (spec 2026-09-28 §3)", () => {
+  // Bound through the interface: `local`'s `kickHarnessVersionRefresh` needs
+  // NO argument (there is nothing fresher to ask), so the concrete class
+  // declares none — but the interface method the manager calls takes three
+  // (`subshellId`, `expected`, `startedAt`), and that is the contract under
+  // test.
+  const asLauncher: NodeLauncher = launcher;
+  it("PROBES the just-used binary via the plugin's versionAt when there is a path", async () => {
+    const calls: string[] = [];
+    const h = {
+      id: "probe",
+      versionAt: async (p: string) => {
+        calls.push(p);
+        return "7.7.7";
+      },
+    } as unknown as HarnessPlugin;
+    expect(await asLauncher.launchedHarnessVersion(h, "/p/bin")).toBe("7.7.7");
+    expect(calls).toEqual(["/p/bin"]);
+  });
+
+  it("resolves null with no path to probe, and never calls versionAt", async () => {
+    let called = false;
+    const h = {
+      id: "probe",
+      versionAt: async () => {
+        called = true;
+        return "x";
+      },
+    } as unknown as HarnessPlugin;
+    expect(await asLauncher.launchedHarnessVersion(h, null)).toBeNull();
+    expect(called).toBe(false);
+  });
+
+  it("kickHarnessVersionRefresh is a no-op that does not throw (local stamped from a live probe)", () => {
+    expect(() => asLauncher.kickHarnessVersionRefresh("sub-1", "1.2.3", "2026-09-28T00:00:00.000Z")).not.toThrow();
   });
 });
 

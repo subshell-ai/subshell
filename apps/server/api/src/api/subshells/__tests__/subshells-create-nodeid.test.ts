@@ -52,6 +52,14 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/
 
 const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes);
 
+/**
+ * The 200-path stand-in harness: sleeps as the pane, and answers `--version`
+ * like a real CLI. Without that arm every successful local create pays the
+ * launch stamp's version probe (spec 2026-09-28 §3) as its full 4 s timeout;
+ * the same shape the manager suites' stubs adopted.
+ */
+const STUB_HARNESS = '#!/bin/sh\nif [ "$1" = "--version" ]; then echo 9.9.9; exit 0; fi\nexec sleep 300\n';
+
 describe("POST /api/subshells node resolution (phase 2)", () => {
   const pw = "cnode-pass-1";
   const email = `cnode-${crypto.randomUUID()}@subshell.local`;
@@ -247,7 +255,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     // was never reported → strict gate says no. If the local probe were used,
     // this would proceed to a real launch instead of the 409.
     const stub = join(testDir, "claude-stub");
-    writeFileSync(stub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+    writeFileSync(stub, STUB_HARNESS, { mode: 0o755 });
     const prev = process.env.CLAUDE_PATH;
     process.env.CLAUDE_PATH = stub;
     const nodeId = crypto.randomUUID();
@@ -413,7 +421,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
 
   it("200 happy path: cookie actor, local, stubbed harness → real launch, unchanged response shape, row + view carry nodeId/nodeOffline", async () => {
     const stub = join(testDir, "claude-stub2");
-    writeFileSync(stub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+    writeFileSync(stub, STUB_HARNESS, { mode: 0o755 });
     const prev = process.env.CLAUDE_PATH;
     process.env.CLAUDE_PATH = stub;
     try {
@@ -469,7 +477,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     // the row; the route-level one is what keeps the RAW string out of the
     // recent-path label.
     const stub = join(testDir, "claude-stub-name");
-    writeFileSync(stub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+    writeFileSync(stub, STUB_HARNESS, { mode: 0o755 });
     const prev = process.env.CLAUDE_PATH;
     process.env.CLAUDE_PATH = stub;
     try {
@@ -519,7 +527,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
   });
   it("presetless launch: no presetId → 200, row presetId null + restartOnExit 0, view echoes presetId null", async () => {
     const stub = join(testDir, "claude-stub3");
-    writeFileSync(stub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+    writeFileSync(stub, STUB_HARNESS, { mode: 0o755 });
     const prev = process.env.CLAUDE_PATH;
     process.env.CLAUDE_PATH = stub;
     try {
@@ -556,7 +564,7 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
 
   it("preset with restartOnExit: 1 → the row inherits the policy (preset path unchanged)", async () => {
     const stub = join(testDir, "claude-stub4");
-    writeFileSync(stub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+    writeFileSync(stub, STUB_HARNESS, { mode: 0o755 });
     const prev = process.env.CLAUDE_PATH;
     process.env.CLAUDE_PATH = stub;
     try {

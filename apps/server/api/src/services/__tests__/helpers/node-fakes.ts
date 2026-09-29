@@ -34,6 +34,14 @@ export class FakeNodeLauncher implements NodeLauncher {
    */
   launchError: Error | undefined;
   revokes = 0;
+  /**
+   * Answer for `launchedHarnessVersion` (spec 2026-09-28 §3) — null means
+   * "the launch could not say what version it started on", which is what the
+   * row honestly keeps then.
+   */
+  harnessVersionToReport: string | null = null;
+  /** Recorded `kickHarnessVersionRefresh` calls, in order (spec §3 guard args). */
+  readonly refreshKicks: Array<{ subshellId: string; expected: string | null; startedAt: string | null }> = [];
 
   constructor(readonly testDir: string) {}
 
@@ -42,6 +50,12 @@ export class FakeNodeLauncher implements NodeLauncher {
   }
   async resolveBinary(): Promise<string | null> {
     return "/bin/stub";
+  }
+  async launchedHarnessVersion(): Promise<string | null> {
+    return this.harnessVersionToReport;
+  }
+  kickHarnessVersionRefresh(subshellId: string, expected: string | null, startedAt: string | null): void {
+    this.refreshKicks.push({ subshellId, expected, startedAt });
   }
   async launch(plan: LaunchPlan): Promise<void> {
     if (this.launchError) throw this.launchError;

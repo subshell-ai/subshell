@@ -60,10 +60,32 @@ export interface ScriptedNode {
   readonly wire: readonly ScriptedWireFrame[];
   /** Command types in wire order — for exact-sequence assertions. */
   cmdTypes(): NodeCommandBody["type"][];
+  /**
+   * `cmdTypes()` without the un-awaited `detect` background frames. After
+   * every successful remote launch the version-refresh kick (spec
+   * 2026-09-28 §3) fires its detect without awaiting it, so the frame rides
+   * the wire whenever its DB reads finish — which is a TIMING hazard for
+   * sequence assertions, not a license to ignore the frames: exact-sequence
+   * assertions use this filter, and the kick's COUNT is pinned with
+   * {@link waitUntilAtLeast} plus an exact `countOf`, with every test
+   * draining its own kicks before detaching so none bleeds onto the next
+   * connection under the same node id. The kick's own behavior is pinned in
+   * `remote-launcher.test.ts` / `inventory-detect.test.ts`. The filter
+   * pattern is the ws suite's `viewers`-frame filter.
+   */
+  foregroundTypes(): NodeCommandBody["type"][];
   /** All commands of one type, in wire order, narrowed to that variant. */
   cmdsOf<T extends NodeCommandBody["type"]>(type: T): Extract<NodeCommandBody, { type: T }>[];
   /** How many frames of `type` arrived. */
   countOf(type: NodeCommandBody["type"]): number;
+  /**
+   * Poll until at least `n` frames of `type` have arrived and answer the
+   * count then — the un-awaited `detect` kicks (spec 2026-09-28 §3) ride the
+   * wire whenever their DB reads finish, so an exact-count assertion has to
+   * wait for the frames it counts. At the timeout it answers whatever came,
+   * so a missing frame fails with a number instead of hanging the suite.
+   */
+  waitUntilAtLeast(type: NodeCommandBody["type"], n: number, timeoutMs?: number): Promise<number>;
   /** The seq numbers seen, in wire order. */
   seqs(): number[];
   /** Evict the connection from the registry (idempotent — identity-guarded). */
@@ -172,8 +194,16 @@ export function attachScriptedNode(
     conn,
     wire,
     cmdTypes: () => wire.map((w) => w.cmd.type),
+    foregroundTypes: () => wire.filter((w) => w.cmd.type !== "detect").map((w) => w.cmd.type),
     cmdsOf: (type) => wire.filter((w) => w.cmd.type === type).map((w) => w.cmd) as never,
     countOf: (type) => wire.filter((w) => w.cmd.type === type).length,
+    waitUntilAtLeast: async (type, n, timeoutMs = 3000) => {
+      const deadline = Date.now() + timeoutMs;
+      while (wire.filter((w) => w.cmd.type === type).length < n && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      return wire.filter((w) => w.cmd.type === type).length;
+    },
     seqs: () => wire.map((w) => w.seq),
     detach: () => {
       detachConnection(nodeId, ws);

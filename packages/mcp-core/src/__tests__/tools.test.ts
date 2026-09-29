@@ -387,6 +387,10 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
       id: "s-1",
       presetId: "pre-1",
       harnessId: "claude-code",
+      // The server always sends all three harness-version fields (spec §4).
+      harnessVersion: "2.1.283",
+      harnessCurrentVersion: "2.1.284",
+      harnessStale: true,
       nodeId: "n-1",
       name: "worker",
       workingDir: "/srv/app",
@@ -421,7 +425,10 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     "alive",
     "crossAgent",
     "exitCode",
+    "harnessCurrentVersion",
     "harnessId",
+    "harnessStale",
+    "harnessVersion",
     "id",
     "lastOutputAt",
     "name",
@@ -553,7 +560,16 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     expect(Object.keys(row).sort()).toEqual(SUBSHELL_VIEW_KEYS);
     const one = await getSubshell(deps, { id: "s-1" });
     expect(Object.keys(one).sort()).toEqual(SUBSHELL_VIEW_KEYS);
-    expect(one).toMatchObject({ id: "s-1", nodeId: "n-1", nodeOffline: false, preview: ["hi"] });
+    expect(one).toMatchObject({
+      id: "s-1",
+      nodeId: "n-1",
+      nodeOffline: false,
+      preview: ["hi"],
+      // The harness-version trio rides the MCP view verbatim (spec §4).
+      harnessVersion: "2.1.283",
+      harnessCurrentVersion: "2.1.284",
+      harnessStale: true,
+    });
     // UI noise an agent has no surface for never rides along.
     const wire = JSON.stringify(await listSubshells(deps));
     for (const dropped of ["shareCount", "sharedWithEveryone", "unseenPush", "backoffCount", "notify", "presetId"]) {

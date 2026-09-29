@@ -29,6 +29,18 @@ export const SubshellSchema = t.Object({
   id: t.String({ description: "Subshell id" }),
   presetId: t.Nullable(t.String({ description: "Preset launched with (null = presetless launch)" })),
   harnessId: t.String({ description: "Harness plugin id" }),
+  harnessVersion: t.Union([
+    t.String({ description: "Harness CLI version this pane's current process started on (null = unknown)" }),
+    t.Null(),
+  ]),
+  harnessCurrentVersion: t.Union([
+    t.String({ description: "The node's current inventory version for this pane's harness (null = unknown)" }),
+    t.Null(),
+  ]),
+  harnessStale: t.Boolean({
+    description:
+      "True when the pane started on a different harness version than the node now reports; the operator's existing Restart (which resumes) is the remedy",
+  }),
   nodeId: t.String({ description: "Node the subshell runs on ('local' = control-plane host)" }),
   name: t.String({ description: "Subshell display name" }),
   workingDir: t.String({ description: "Absolute working directory" }),
@@ -198,6 +210,12 @@ export const HarnessInfoSchema = t.Object({
     command: t.String({ description: "Official install command" }),
     docsUrl: t.String({ description: "Installation documentation URL" }),
   }),
+  update: t.Optional(
+    t.String({
+      description:
+        "Vendor self-update command (e.g. `claude update`); absent when the plugin declares none, which makes updating a re-run of the install command",
+    }),
+  ),
 });
 
 /** One option in a harness's settings editor schema. */
@@ -260,7 +278,7 @@ export const HarnessSchemaResponseSchema = t.Object({
  * is re-probed AFTER the installer exits so one round trip reports both the
  * run's own log and the resulting detection state.
  */
-export const AgentInstallResultSchema = t.Object({
+export const AgentCommandResultSchema = t.Object({
   ok: t.Boolean({ description: "Whether the installer exited 0 within the time limit" }),
   exitCode: t.Nullable(t.Number({ description: "The installer's exit code; null when it was killed" })),
   output: t.String({ description: "The installer's stdout then stderr, each capped at 64 KiB" }),

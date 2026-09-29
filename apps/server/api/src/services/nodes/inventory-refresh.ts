@@ -1,6 +1,6 @@
 import { IS_TEST } from "@/constants.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { detectOnNodeBestEffort, INVENTORY_TTL_MS } from "@/services/nodes/inventory.js";
+import { detectOnNodeBestEffort, INVENTORY_TTL_MS, recordLocalInventorySnapshot } from "@/services/nodes/inventory.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
 import { logger } from "@/utils/logger.js";
 
@@ -52,6 +52,8 @@ export interface InventoryRefreshDeps {
   online(): string[];
   /** Kick one node's detection, fire-and-forget. Production: {@link detectOnNodeBestEffort}. */
   detect(nodeId: string): void;
+  /** The control-plane host's own snapshot pass. Production: {@link recordLocalInventorySnapshot}. */
+  detectLocal(): Promise<void>;
   /** The clock. Production: an unref'd `setInterval`, so a pending tick never holds the process open. */
   schedule(tick: () => void, everyMs: number): { stop(): void };
 }
@@ -59,6 +61,7 @@ export interface InventoryRefreshDeps {
 const defaultDeps: InventoryRefreshDeps = {
   online: listOnline,
   detect: detectOnNodeBestEffort,
+  detectLocal: recordLocalInventorySnapshot,
   schedule: (tick, everyMs) => {
     const timer = setInterval(tick, everyMs);
     timer.unref?.();
@@ -138,5 +141,13 @@ export function startInventoryRefresh(): { stop(): void } {
       // handler, which exits the process.
       logger.withError(err).warn("the node inventory refresh pass failed; the last known inventories stand");
     }
+    // The host's own snapshot rides the same cadence: a pane asking "is my
+    // node's harness newer now?" deserves an answer at least as fresh on the
+    // machine the plane CAN probe as on one it has to ask.
+    void deps()
+      .detectLocal()
+      .catch((err: unknown) => {
+        logger.withError(err).debug("local harness inventory snapshot failed; the last one stands");
+      });
   }, NODE_INVENTORY_REFRESH_MS);
 }

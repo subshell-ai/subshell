@@ -19,6 +19,7 @@ import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.j
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgency.js";
 import * as crossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
+import * as harnessVersionMigration from "@/db/migrations/0040-subshell-harness-version.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -105,8 +106,13 @@ let presetId: string;
 let previousClaudePath: string | undefined;
 
 beforeAll(async () => {
+  // The `--version` arm answers the launch stamp's version probe (spec
+  // 2026-09-28 §3) like a real CLI; a bare `exec sleep 300` would make every
+  // create pay the probe's 4 s timeout. The pane still runs the sleep tail.
   const harnessStub = join(testDir, "claude-stub");
-  writeFileSync(harnessStub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+  writeFileSync(harnessStub, '#!/bin/sh\nif [ "$1" = "--version" ]; then echo 9.9.9; exit 0; fi\nexec sleep 300\n', {
+    mode: 0o755,
+  });
   previousClaudePath = process.env.CLAUDE_PATH;
   process.env.CLAUDE_PATH = harnessStub;
 
@@ -128,6 +134,7 @@ beforeAll(async () => {
   await presetsMigration.up(db); // profiles → presets (spec 2026-09-13 §6)
   await pushUrgencyMigration.up(db); // last_push_urgency — #reviveRow clears it on revival (spec 2026-09-23)
   await crossAgentMigration.up(db); // subshells.cross_agent — SubshellsRepository.create writes it (2026-09-25)
+  await harnessVersionMigration.up(db); // subshells.harness_version — SubshellsRepository.create writes it (2026-09-28)
   presets = new PresetsRepository(db);
   subshells = new SubshellsRepository(db);
   presetId = await seedPreset(presets);

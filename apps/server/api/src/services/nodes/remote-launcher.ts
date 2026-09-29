@@ -89,9 +89,11 @@ export interface RemoteLauncherDeps {
   /**
    * Launch-driven detection kick (default {@link detectOnNodeBestEffort}).
    * Test seam: production passes nothing. Synchronous-throwing seams are
-   * caught by the caller — the kick is total.
+   * caught by the caller — the kick is total. The second argument carries the
+   * scoped `reStamp` for the version-refresh kick (spec 2026-09-28 §3); a
+   * plain kick passes nothing.
    */
-  detect?: (nodeId: string) => void;
+  detect?: (nodeId: string, opts?: Parameters<typeof detectOnNodeBestEffort>[1]) => void;
 }
 
 /**
@@ -220,6 +222,34 @@ export class RemoteLauncher implements NodeLauncher {
     const inv = readAgentInventory(node);
     if (inv.stale) this.#kickDetect();
     return inv.entries.get(harness.id)?.binaryPath ?? null;
+  }
+
+  /** The version the cached inventory says this harness holds; null with no entry. */
+  async launchedHarnessVersion(harness: HarnessPlugin): Promise<string | null> {
+    const nodes = this.#deps.nodes ?? getRequestlessContext().repos.nodes;
+    const node = await nodes.findById(this.#nodeId);
+    if (!node) return null;
+    return readAgentInventory(node).entries.get(harness.id)?.version ?? null;
+  }
+
+  /**
+   * One scoped detect kick after a remote launch (spec §3): the cached entry
+   * can predate a manual update by up to the TTL, so a pane born seconds after
+   * one is born with a stale-looking stamp. The re-stamp rides the SAME detect
+   * driver as every other kick, guarded so only THIS pane is touched: the
+   * value CAS against `expected` plus the row's `startedAt` still matching
+   * what this launch wrote — a plain value equality cannot tell a restart back
+   * to an equal version, and the dead predecessor's in-flight answer must not
+   * reach the successor pane.
+   */
+  kickHarnessVersionRefresh(subshellId: string, expected: string | null, startedAt: string | null): void {
+    try {
+      (this.#deps.detect ?? detectOnNodeBestEffort)(this.#nodeId, {
+        reStamp: { subshellId, expected, startedAt },
+      });
+    } catch (err: unknown) {
+      logger.withError(err).debug(`node ${this.#nodeId}: version re-stamp kick failed`);
+    }
   }
 
   /**

@@ -12,6 +12,12 @@ interface SubshellWireRow {
   id: string;
   name: string;
   harnessId: string;
+  /** The harness CLI version this pane's process started on; null = never stamped (spec 2026-09-28 §4). */
+  harnessVersion: string | null;
+  /** The node's CURRENT version of this pane's harness; null = nothing known. */
+  harnessCurrentVersion: string | null;
+  /** Server-derived: the two versions are both known and differ. Clients render; none of them decides. */
+  harnessStale: boolean;
   nodeId: string;
   nodeOffline: boolean;
   status: string;
@@ -31,6 +37,12 @@ export interface SubshellView {
   id: string;
   name: string;
   harnessId: string;
+  /** The harness CLI version this pane's process started on; null = never stamped (spec 2026-09-28 §4). */
+  harnessVersion: string | null;
+  /** The node's CURRENT version of this pane's harness; null = nothing known. */
+  harnessCurrentVersion: string | null;
+  /** True = the two versions above are both known and differ; the server decides, the agent reads. */
+  harnessStale: boolean;
   /** Machine the pane runs on ("local" = the control-plane host). */
   nodeId: string;
   /** True when that machine has no live connection; the pane may still run there. */
@@ -54,6 +66,9 @@ function toSubshellView(row: SubshellWireRow): SubshellView {
     id: row.id,
     name: row.name,
     harnessId: row.harnessId,
+    harnessVersion: row.harnessVersion,
+    harnessCurrentVersion: row.harnessCurrentVersion,
+    harnessStale: row.harnessStale,
     nodeId: row.nodeId,
     nodeOffline: row.nodeOffline,
     status: row.status,

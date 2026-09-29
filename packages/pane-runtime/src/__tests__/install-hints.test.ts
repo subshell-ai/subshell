@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { builtInIds, readBuiltIn } from "../builtin-source.js";
-import { allHarnesses } from "../index.js";
+import { allHarnesses, builtInHarnesses } from "../index.js";
 
 /**
  * A missing harness is only useful if the UI can say how to get it, so every
@@ -26,5 +26,19 @@ describe("install hints", () => {
       expect(install?.docsUrl, id).toMatch(/^https:\/\//);
     }
     expect(harnessesChecked).toBe(5);
+  });
+
+  it("claude-code declares the vendor's own update; the others lean on the install fallback", () => {
+    const byId = new Map(builtInHarnesses().map((h) => [h.id, h]));
+    expect(byId.get("claude-code")?.updateHint).toBe("claude update");
+    for (const id of ["codex", "opencode", "hermes", "pi"]) {
+      // Declared or not, an installed row of these must have SOMETHING to run:
+      // the update falls back to the install command, which these all have.
+      const h = byId.get(id);
+      expect(h).toBeDefined();
+      expect((h?.updateHint ?? h?.installHint.command ?? "").trim()).not.toBe("");
+    }
+    // terminal drives a program with no install and no update at all.
+    expect(byId.get("terminal")?.updateHint).toBeUndefined();
   });
 });

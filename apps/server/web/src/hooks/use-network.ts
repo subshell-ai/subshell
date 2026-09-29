@@ -1,6 +1,6 @@
 import { ApiError, apiFetch, NetworkError, parseErrorBody } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { readInstallStream } from "@/hooks/use-install-agent";
+import { readCommandStream } from "@/hooks/use-install-agent";
 import { PUBLIC_SETTINGS_QUERY_KEY } from "@/hooks/use-public-settings";
 import type {
   NetworkInstallResult,
@@ -143,7 +143,7 @@ export function useUpdateNetworkSettings() {
  * POSTs to an NDJSON route and reads it to its terminal frame.
  *
  * The protocol, the stall bound and the "ended without saying" failure are
- * {@link readInstallStream}'s, shared with the agent and tmux installers —
+ * {@link readCommandStream}'s, shared with the agent and tmux installers —
  * these routes stream the same frames for the same reason, and a second copy
  * of that reader would be a second place for them to drift.
  *
@@ -172,7 +172,7 @@ async function streamPost<TDone>(path: string, body: unknown, onLine?: (line: st
     throw new ApiError(res.status, message, { code, errId });
   }
   if (!res.body) throw new ApiError(res.status, "The server sent no output.");
-  return await readInstallStream<TDone>(res.body, onLine);
+  return await readCommandStream<TDone>(res.body, onLine);
 }
 
 /**

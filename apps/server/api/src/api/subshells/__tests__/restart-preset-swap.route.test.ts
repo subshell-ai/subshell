@@ -197,6 +197,10 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
       expect(emptyObj.status).toBe(200);
       expect(await rowPreset(id)).toBe(presetA); // byte-identical through all three
       expect(sim.countOf("kill")).toBe(3); // all three actually restarted it
+      // Four successful launches (the create + three restarts) ⇒ exactly four
+      // version-refresh detect kicks (spec 2026-09-28 §3), and this drains
+      // them onto THIS wire so none can bleed onto the next test's attach.
+      expect(await sim.waitUntilAtLeast("detect", 4)).toBe(4);
     } finally {
       sim.detach();
     }
@@ -220,6 +224,8 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
       const switchRow = rows.find((r) => r.action === "subshell.preset_switch");
       expect(JSON.parse(switchRow?.metadataJson ?? "null")).toEqual({ name: "swap-to-b", presetId: presetB });
       expect(rows.some((r) => r.action === "subshell.restart")).toBe(true);
+      // create + one restart = two launches = exactly two detect kicks.
+      expect(await sim.waitUntilAtLeast("detect", 2)).toBe(2);
     } finally {
       sim.detach();
     }
@@ -236,6 +242,8 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
       const switchRow = rows.find((r) => r.action === "subshell.preset_switch");
       expect(JSON.parse(switchRow?.metadataJson ?? "undefined")).toEqual({ name: "swap-to-null", presetId: null });
       expect(rows.some((r) => r.action === "subshell.restart")).toBe(true);
+      // create + one restart = two launches = exactly two detect kicks.
+      expect(await sim.waitUntilAtLeast("detect", 2)).toBe(2);
     } finally {
       sim.detach();
     }
@@ -268,6 +276,8 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
       const restartRows = rows.filter((r) => r.action === "subshell.restart");
       expect(restartRows.length).toBe(1);
       expect(restartRows[0]?.actorUserId).toBe(granteeId);
+      // create + one grantee restart = two launches = exactly two detect kicks.
+      expect(await sim.waitUntilAtLeast("detect", 2)).toBe(2);
     } finally {
       sim.detach();
     }
@@ -284,7 +294,16 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
         expect(await rowPreset(id)).toBe(presetA); // untouched by every refusal
       }
       expect(sim.countOf("kill")).toBe(0); // nothing was even attempted
-      expect(sim.cmdTypes()).toEqual(["stat_dir", "launch"]); // the create pair only
+      // The create pair only; the create's unawaited detect kick (spec
+      // 2026-09-28 §3) is background traffic, filtered. (It used to hedge
+      // that a PRECEDING test's kick could ride here too — every launch-
+      // generating test now drains its kicks before detaching, so the bleed
+      // window is gone and the count below is exact.)
+      expect(sim.foregroundTypes()).toEqual(["stat_dir", "launch"]);
+      // ONE detect: the create's launch. The three INVALID_PRESET refusals
+      // died before the manager — a refused restart launches nothing and
+      // kicks nothing.
+      expect(await sim.waitUntilAtLeast("detect", 1)).toBe(1);
     } finally {
       sim.detach();
     }
@@ -322,6 +341,10 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
       expect(await rowPreset(id)).toBe(presetA); // byte-identical: refused, never joined
       releaseKill();
       expect((await first).status).toBe(200); // the first restart lands untouched
+      // Exactly two detects: the create's and the FIRST restart's landing.
+      // The 409 refusal joined nothing, so it launched nothing and kicked
+      // nothing.
+      expect(await sim.waitUntilAtLeast("detect", 2)).toBe(2);
     } finally {
       // An earlier throw must not strand the gate (which would leave the
       // first POST hanging) — releasing a settled gate is a no-op.
@@ -342,6 +365,9 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
       expect((await restart(id, { cookie: granteeCookie, body: { presetId: presetForeign } })).status).toBe(403);
       expect(await rowPreset(id)).toBe(presetA);
       expect(sim.countOf("kill")).toBe(0);
+      // ONE detect — the create's launch. Both 403 refusals died at the gate,
+      // so neither launched nor kicked.
+      expect(await sim.waitUntilAtLeast("detect", 1)).toBe(1);
     } finally {
       sim.detach();
     }
@@ -357,6 +383,8 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
       const rows = await audits(id);
       expect(rows.some((r) => r.action === "subshell.restart")).toBe(true);
       expect(rows.some((r) => r.action === "subshell.preset_switch")).toBe(false);
+      // create + one restart = two launches = exactly two detect kicks.
+      expect(await sim.waitUntilAtLeast("detect", 2)).toBe(2);
     } finally {
       sim.detach();
     }
@@ -372,6 +400,8 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
       expect(await res.json()).toMatchObject({ id, promptDelivered: false });
       expect(await rowPreset(id)).toBe(presetA);
       expect(sim.countOf("kill")).toBe(1);
+      // create + one bearer-key restart = two launches = exactly two detects.
+      expect(await sim.waitUntilAtLeast("detect", 2)).toBe(2);
     } finally {
       sim.detach();
     }
@@ -404,11 +434,17 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
     const sim = attachScriptedNode(nodeLive, LIFECYCLE);
     try {
       const id = await createOnLive("swap-offline");
+      // Drain the create's refresh-kick detect onto this wire BEFORE the
+      // detach (an undrained kick finds no connection after it and is
+      // dropped): exactly one detect rides the create's one launch.
+      expect(await sim.waitUntilAtLeast("detect", 1)).toBe(1);
       sim.detach(); // no live connection: the service refuses a swap-carrying restart before the manager
       const res = await restart(id, { cookie: ownerCookie, body: { presetId: presetB } });
       expect(res.status).toBe(409);
       expect((await errorBody(res)).code).toBe("NODE_OFFLINE");
       expect(await rowPreset(id)).toBe(presetA);
+      // The offline refusal launched nothing: still exactly the create's one.
+      expect(sim.countOf("detect")).toBe(1);
     } finally {
       // The detach above is the mechanism of the test, but an expect that
       // throws before it would leave the sim attached for the whole suite;

@@ -17,7 +17,7 @@ import { IS_TEST, SERVER_PORT } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
-import { type AgentInstallResult, runInstaller } from "@/services/agent-install.service.js";
+import { type AgentCommandResult, runInstaller } from "@/services/agent-install.service.js";
 import { audit } from "@/services/audit.js";
 import { observeNetworkStatus } from "@/services/network/origins.js";
 import { networkContext } from "@/services/network/state.js";
@@ -88,7 +88,7 @@ export interface NetworkDeps {
    * body contributes nothing to it. Production wraps `runInstaller` with this
    * host's deadline and login-shell PATH.
    */
-  runInstall: (argv: readonly string[], onLine: (line: string) => void) => Promise<AgentInstallResult>;
+  runInstall: (argv: readonly string[], onLine: (line: string) => void) => Promise<AgentCommandResult>;
 }
 
 /**

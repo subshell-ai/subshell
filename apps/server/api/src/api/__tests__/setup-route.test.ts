@@ -158,6 +158,21 @@ describe("/api/setup/harnesses conditional auth", () => {
       expect(rows.find((r) => r.id === "claude-code")?.type).toBe("agent-harness");
       setHasUsersProbeForTests(null);
     });
+
+    it("carries the vendor's own update command on the claude-code row, and no key where none is declared", async () => {
+      // The test above returned the probe to the real DB; a full-suite run has
+      // users by now, so this one drives the seam itself.
+      setHasUsersProbeForTests(async () => false);
+      const res = await anonymousGet("/api/setup/harnesses");
+      const rows = (await res.json()) as { id: string; update?: string }[];
+      expect(rows.find((r) => r.id === "claude-code")?.update).toBe("claude update");
+      // Absent, not empty: "the vendor ships an updater" and "updating here is
+      // a re-run of install" are different answers, and the surface renders
+      // whichever it got. A key holding "" would blur them.
+      const terminalRow = rows.find((r) => r.id === "terminal");
+      expect(terminalRow).toBeDefined();
+      expect(terminalRow && "update" in terminalRow).toBe(false);
+    });
   });
 
   describe("with a user present (real has-users probe: anonymous is locked out)", () => {

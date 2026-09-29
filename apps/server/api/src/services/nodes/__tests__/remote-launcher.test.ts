@@ -25,6 +25,7 @@ const defaultLocalLauncher = getDefaultLocalLauncher();
 
 import { planRemoteSubshellMcp } from "@/services/mcp-launch.js";
 import { dispatchOutput, resetNodeEventsForTests } from "@/services/nodes/node-events.js";
+import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import type { NodeFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { NoLiveConnectionError, RemoteLauncher } from "@/services/nodes/remote-launcher.js";
@@ -57,6 +58,8 @@ function makeHarness(facts: NodeFacts | null = testFacts) {
   // the fake node (the default driver's own send is proven below, against
   // `attachScriptedNode`).
   const detects: string[] = [];
+  /** Second-argument opts of each recorded kick, aligned with `detects`. */
+  const detectOpts: unknown[] = [];
   let detectThrows = false;
   // `null` (not `undefined`) means offline — an explicit `undefined` would
   // re-trigger the default-parameter above.
@@ -80,9 +83,10 @@ function makeHarness(facts: NodeFacts | null = testFacts) {
     send,
     nodes: { findById: async () => row },
     facts: () => currentFacts,
-    detect: (nodeId) => {
+    detect: (nodeId: string, opts?: unknown) => {
       if (detectThrows) throw new Error("detect seam exploded");
       detects.push(nodeId);
+      detectOpts.push(opts);
     },
   });
 
@@ -90,6 +94,7 @@ function makeHarness(facts: NodeFacts | null = testFacts) {
     launcher,
     calls,
     detects,
+    detectOpts,
     /** Make the next detect kick throw (the seam, not the default driver). */
     failDetect() {
       detectThrows = true;
@@ -288,6 +293,59 @@ describe("resolveBinary", () => {
     expect(await h.launcher.resolveBinary(harness)).toBe("/usr/bin/claude");
     expect(h.detects).toEqual([]);
     await flush();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Harness-version stamping (spec 2026-09-28 §3).                      */
+/* The remote launcher answers from the SAME cached snapshot the       */
+/* launch's resolveBinary believed in, and the post-launch refresh     */
+/* rides the existing detect kick with a scoped reStamp payload.       */
+/* ------------------------------------------------------------------ */
+describe("launchedHarnessVersion", () => {
+  // Bound through the interface: the concrete `RemoteLauncher` answers from
+  // the cache and ignores the `binary` the manager passes, so its method
+  // declares one parameter — the interface method the manager calls takes two.
+  const asLauncher = (l: RemoteLauncher): NodeLauncher => l;
+  it("reads the version off the cached inventory row (no network)", async () => {
+    const h = makeHarness();
+    h.setRow(inventoryRow(new Date().toISOString())); // claude-code: version "1.2.3"
+    expect(await asLauncher(h.launcher).launchedHarnessVersion(harness, "/usr/bin/claude")).toBe("1.2.3");
+    expect(h.calls).toEqual([]); // cache only — never blocks on the network
+  });
+
+  it("null when there is no entry for the harness, no binaryPath+version, or no node row", async () => {
+    const h = makeHarness();
+    h.setRow(inventoryRow(new Date().toISOString()));
+    // The row's opencode entry has no version.
+    expect(
+      await asLauncher(h.launcher).launchedHarnessVersion({ id: "opencode" } as unknown as HarnessPlugin, null),
+    ).toBeNull();
+    // A harness the cache never mentions.
+    expect(
+      await asLauncher(h.launcher).launchedHarnessVersion({ id: "hermes" } as unknown as HarnessPlugin, null),
+    ).toBeNull();
+    h.setRow(undefined); // absent node row
+    expect(await asLauncher(h.launcher).launchedHarnessVersion(harness, "/usr/bin/claude")).toBeNull();
+  });
+});
+
+describe("kickHarnessVersionRefresh", () => {
+  it("rides the injected detect seam carrying the scoped reStamp", () => {
+    const h = makeHarness();
+    h.launcher.kickHarnessVersionRefresh("sub-1", "1.2.3", "2026-09-28T00:00:00.000Z");
+    expect(h.detects).toEqual(["node-1"]);
+    expect(h.detectOpts).toEqual([
+      { reStamp: { subshellId: "sub-1", expected: "1.2.3", startedAt: "2026-09-28T00:00:00.000Z" } },
+    ]);
+  });
+
+  it("a throwing detect seam is swallowed (the kick is total)", () => {
+    const h = makeHarness();
+    h.failDetect();
+    // Must not throw — the pane launched fine, the re-stamp is a bonus.
+    expect(() => h.launcher.kickHarnessVersionRefresh("sub-1", null, null)).not.toThrow();
+    expect(h.detects).toEqual([]);
   });
 });
 

@@ -66,6 +66,9 @@ export class SubshellsRepository extends BaseRepository {
         nodeId: subshell.nodeId ?? LOCAL_NODE_ID,
         // Cross-agent provenance defaults to "human" (migration 0039); mirror it.
         crossAgent: subshell.crossAgent ?? 0,
+        // The launch stamp lands after a SUCCESSFUL spawn (spec 2026-09-28 §3);
+        // at insert the process has not started, so the honest value is null.
+        harnessVersion: null,
         createdAt: new Date().toISOString(),
       })
       .returningAll()
@@ -181,6 +184,43 @@ export class SubshellsRepository extends BaseRepository {
     // can never false-negative a real write into an orphan-cleanup.
     const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
     return Number(counts.numUpdatedRows ?? counts.numUpdated ?? 0);
+  }
+
+  /**
+   * Compare-and-set `harness_version`: the write lands only while the row is
+   * `running`, still carries `expected`, AND still names the launch it
+   * belongs to (`startedAt`). That guard is the whole contract: a create's
+   * late stamp must never clobber a restart's fresh one, a terminated row
+   * gets no stamp at all, and a kick from a dead process never stamps its
+   * successor — the `startedAt` term is what closes the equal-version
+   * restart, and it sits in the same WHERE as the value so the guard names
+   * the launch atomically: no read-then-write window opens between them.
+   * @returns true when this writer won (exactly one caller ever does per value and launch)
+   */
+  async casHarnessVersion(
+    id: string,
+    expected: string | null,
+    startedAt: string | null,
+    value: string | null,
+  ): Promise<boolean> {
+    const res = await this.db
+      .updateTable("subshells")
+      .set({ harnessVersion: value })
+      .where("id", "=", id)
+      .where("status", "=", "running")
+      // SQLite `IS` compares nulls equal, which `=` never does: `expected` is
+      // null on the create path, and the create path is the common one.
+      .where("harnessVersion", "is", expected)
+      // The launch identity, same null-matching `IS` (a row written before
+      // migration 0003 carries no start time at all).
+      .where("startedAt", "is", startedAt)
+      .executeTakeFirst();
+    // The same double read as {@link updateIfAlive}: the dialect answers
+    // `numUpdatedRows` today and Kysely's type says `numUpdated`, and a claim
+    // that false-negatives its own write is the bug this shape exists to
+    // keep out of every CAS in this file.
+    const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
+    return Number(counts.numUpdatedRows ?? counts.numUpdated ?? 0) > 0;
   }
 
   /**

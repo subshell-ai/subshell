@@ -1,7 +1,7 @@
 import { ApiError, NetworkError, parseErrorBody } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ADMIN_STATUS_QUERY_KEY } from "@/hooks/use-admin-status";
-import { readInstallStream } from "@/hooks/use-install-agent";
+import { readCommandStream } from "@/hooks/use-install-agent";
 
 /** The `done` frame of `POST /api/setup/tmux/install`. */
 export interface TmuxInstallResult {
@@ -63,7 +63,7 @@ export function useInstallTmux(onLine?: (line: string) => void) {
         throw new ApiError(res.status, message, { code, errId });
       }
       if (!res.body) throw new ApiError(res.status, "The server sent no install output.");
-      return await readInstallStream<TmuxInstallResult>(res.body, onLine);
+      return await readCommandStream<TmuxInstallResult>(res.body, onLine);
     },
     onSettled: () => void queryClient.invalidateQueries({ queryKey: ADMIN_STATUS_QUERY_KEY }),
   });

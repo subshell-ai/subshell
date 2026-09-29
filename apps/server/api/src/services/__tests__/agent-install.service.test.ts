@@ -1,18 +1,28 @@
 import { describe, expect, it } from "bun:test";
-import { AgentInstallRefused, installBuiltInAgent } from "@/services/agent-install.service.js";
+import {
+  type AgentCommandDeps,
+  type AgentCommandKind,
+  AgentCommandRefused,
+  refuseAgentCommand,
+  runBuiltInAgentCommand,
+} from "@/services/agent-install.service.js";
 
 function deps(command: string | undefined, timeoutMs = 5_000) {
   return { commandFor: async (_id: string) => command, timeoutMs, extraPath: async () => [] };
 }
 
-describe("installBuiltInAgent", () => {
+/** Every legacy install-wrapper call became this (spec 2026-09-28: one runner, kinds are data). */
+const install = (id: string, d: AgentCommandDeps, onLine?: (l: string) => void) =>
+  runBuiltInAgentCommand(id, "install", d, onLine);
+
+describe("runBuiltInAgentCommand (install kind)", () => {
   it("reports each line as it arrives, and still returns the whole output", async () => {
     // The progress the setup screen shows while an installer runs: without
     // this the page hears nothing until a `curl … | bash` against someone
     // else's host finishes, which is the difference between a slow install
     // and a wedged one.
     const seen: string[] = [];
-    const r = await installBuiltInAgent("claude-code", deps("echo one; echo two >&2; echo three"), (l) => seen.push(l));
+    const r = await install("claude-code", deps("echo one; echo two >&2; echo three"), (l) => seen.push(l));
     expect(r.ok).toBe(true);
     expect(seen.sort()).toEqual(["one", "three", "two"]);
     // The accumulated text is unchanged — a caller that passes no sink gets
@@ -27,9 +37,7 @@ describe("installBuiltInAgent", () => {
     // literal `[0;36m` in front of every step - and the same text is what a
     // failed install discloses, so both halves have to be clean.
     const seen: string[] = [];
-    const r = await installBuiltInAgent("claude-code", deps("printf '\\033[0;36m-> \\033[0mExtracting\\n'"), (l) =>
-      seen.push(l),
-    );
+    const r = await install("claude-code", deps("printf '\\033[0;36m-> \\033[0mExtracting\\n'"), (l) => seen.push(l));
     expect(seen).toEqual(["-> Extracting"]);
     expect(r.output).toContain("-> Extracting");
     expect(r.output).not.toContain("\u001b");
@@ -40,7 +48,7 @@ describe("installBuiltInAgent", () => {
     // An installer killed mid-sentence has usually just said the most useful
     // thing it will say; holding that back because no "\n" followed loses it.
     const seen: string[] = [];
-    await installBuiltInAgent("claude-code", deps("printf 'no newline here'"), (l) => seen.push(l));
+    await install("claude-code", deps("printf 'no newline here'"), (l) => seen.push(l));
     expect(seen).toContain("no newline here");
   });
 
@@ -48,31 +56,31 @@ describe("installBuiltInAgent", () => {
     // Chunks are not lines. A sink fed raw chunks would report "half" and
     // "way" as two steps of an install that only had one.
     const seen: string[] = [];
-    await installBuiltInAgent("claude-code", deps("printf 'half'; sleep 0.2; printf 'way\n'"), (l) => seen.push(l));
+    await install("claude-code", deps("printf 'half'; sleep 0.2; printf 'way\n'"), (l) => seen.push(l));
     expect(seen).toEqual(["halfway"]);
   });
 
   it("runs the command and returns its words", async () => {
-    const r = await installBuiltInAgent("claude-code", deps("echo installed; echo warn >&2"));
+    const r = await install("claude-code", deps("echo installed; echo warn >&2"));
     expect(r.ok).toBe(true);
     expect(r.exitCode).toBe(0);
     expect(r.output).toContain("installed");
     expect(r.output).toContain("warn");
   });
   it("reports a failing installer as ok:false with its exit code", async () => {
-    const r = await installBuiltInAgent("claude-code", deps("echo nope >&2; exit 3"));
+    const r = await install("claude-code", deps("echo nope >&2; exit 3"));
     expect(r.ok).toBe(false);
     expect(r.exitCode).toBe(3);
     expect(r.output).toContain("nope");
   });
   it("kills an installer that outlives the timeout", async () => {
-    const r = await installBuiltInAgent("claude-code", deps("sleep 30", 300));
+    const r = await install("claude-code", deps("sleep 30", 300));
     expect(r.ok).toBe(false);
     expect(r.output).toContain("timed out");
   });
   it("returns on the deadline even for a pipeline, whose children hold the pipe open", async () => {
     const started = Date.now();
-    const r = await installBuiltInAgent("claude-code", deps("sleep 30 | cat", 300));
+    const r = await install("claude-code", deps("sleep 30 | cat", 300));
     expect(r.ok).toBe(false);
     expect(r.output).toContain("timed out");
     // The point of the test: it must return on the deadline, not when the
@@ -80,19 +88,27 @@ describe("installBuiltInAgent", () => {
     expect(Date.now() - started).toBeLessThan(5_000);
   });
   it("refuses an id with no install command as 400", async () => {
-    await expect(installBuiltInAgent("terminal", deps(""))).rejects.toBeInstanceOf(AgentInstallRefused);
-    await expect(installBuiltInAgent("terminal", deps(""))).rejects.toMatchObject({ status: 400 });
+    await expect(install("terminal", deps(""))).rejects.toBeInstanceOf(AgentCommandRefused);
+    await expect(install("terminal", deps(""))).rejects.toMatchObject({ status: 400 });
+    // The route asks the same question EARLIER over the streaming seam, so the
+    // install sentence has to be right in the refuseAgentCommand form too.
+    const refusal = await refuseAgentCommand("terminal", "install", deps(""));
+    expect(refusal?.message).toContain("nothing to install");
+    expect(refusal?.status).toBe(400);
   });
   it("refuses an unknown id as 400", async () => {
-    await expect(installBuiltInAgent("nope", deps(undefined))).rejects.toMatchObject({ status: 400 });
+    await expect(install("nope", deps(undefined))).rejects.toMatchObject({ status: 400 });
+    const refusal = await refuseAgentCommand("nope", "install", deps(undefined));
+    expect(refusal?.message).toContain("not a plugin this build carries");
   });
   it("refuses a second install of the same id while one runs, as 409", async () => {
-    const first = installBuiltInAgent("codex", deps("sleep 0.5"));
-    await expect(installBuiltInAgent("codex", deps("echo x"))).rejects.toMatchObject({ status: 409 });
+    const first = install("codex", deps("sleep 0.5"));
+    await expect(install("codex", deps("echo x"))).rejects.toMatchObject({ status: 409 });
+    await expect(install("codex", deps("echo x"))).rejects.toThrow(/already being installed/);
     await first;
   });
   it("caps runaway output", async () => {
-    const r = await installBuiltInAgent("pi", deps("head -c 200000 /dev/zero | tr '\\0' a"));
+    const r = await install("pi", deps("head -c 200000 /dev/zero | tr '\\0' a"));
     expect(r.output.length).toBeLessThan(70_000);
     expect(r.output).toContain("[truncated]");
   });
@@ -104,7 +120,7 @@ describe("installBuiltInAgent", () => {
     // drains the first 65536 bytes before the rest exists, whatever the
     // chunk granularity. Counting only what is KEPT stalls at the cap, so
     // the marker never fires and 134 KB vanishes silently.
-    const r = await installBuiltInAgent(
+    const r = await install(
       "pi",
       deps("head -c 65536 /dev/zero | tr '\\0' a; sleep 0.2; head -c 100000 /dev/zero | tr '\\0' b"),
     );
@@ -118,10 +134,7 @@ describe("installBuiltInAgent", () => {
     // leave this failing (both would print non-empty).
     process.env.SUBSHELL_TEST_SECRET_MARKER = "must-not-leak";
     try {
-      const r = await installBuiltInAgent(
-        "claude-code",
-        deps('echo "marker=[$SUBSHELL_TEST_SECRET_MARKER]"; echo "home=[$HOME]"'),
-      );
+      const r = await install("claude-code", deps('echo "marker=[$SUBSHELL_TEST_SECRET_MARKER]"; echo "home=[$HOME]"'));
       expect(r.ok).toBe(true);
       // Excluded: a variable this process holds must not reach the child.
       expect(r.output).toContain("marker=[]");
@@ -130,5 +143,62 @@ describe("installBuiltInAgent", () => {
     } finally {
       delete process.env.SUBSHELL_TEST_SECRET_MARKER;
     }
+  });
+});
+
+describe("update kind", () => {
+  it("asks the seam for the update command; install stays on the install command", async () => {
+    const seen: AgentCommandKind[] = [];
+    const deps: AgentCommandDeps = {
+      commandFor: async (_id, kind) => {
+        seen.push(kind);
+        return "true"; // exits 0 in one spawn, like the file's success case
+      },
+      timeoutMs: 30_000,
+      extraPath: async () => [],
+    };
+    const updated = await runBuiltInAgentCommand("demo", "update", deps);
+    const installed = await install("demo", deps);
+    expect(updated.ok).toBe(true);
+    expect(installed.ok).toBe(true);
+    expect(seen).toEqual(["update", "install"]);
+  });
+
+  it("refuses a command that is empty after the fallback, and says update in the sentence", async () => {
+    const deps: AgentCommandDeps = {
+      commandFor: async () => "  ",
+      timeoutMs: 30_000,
+      extraPath: async () => [],
+    };
+    const refusal = await refuseAgentCommand("demo", "update", deps);
+    expect(refusal?.message).toContain("nothing to update");
+    expect(refusal?.status).toBe(400);
+  });
+
+  it("shares the per-id single flight across kinds", async () => {
+    const deps: AgentCommandDeps = {
+      commandFor: async () => "sleep 0.2",
+      timeoutMs: 30_000,
+      extraPath: async () => [],
+    };
+    const running = runBuiltInAgentCommand("demo", "update", deps);
+    const refusal = await refuseAgentCommand("demo", "install", deps);
+    expect(refusal?.message).toContain("already being updated");
+    expect(refusal?.status).toBe(409);
+    await running;
+    // And the Map drains: a second update after completion is allowed.
+    expect(await refuseAgentCommand("demo", "update", deps)).toBeUndefined();
+  });
+
+  it("the default seam refuses an id this build does not carry, both kinds", async () => {
+    // This case pins only the non-built-in arm. defaultDeps is not exported,
+    // and both arms return a non-empty string for a declared plugin, so the
+    // `updateHint ?? install.command` WIN arm cannot be told apart from the
+    // flipped arms without executing the chosen command - an accepted gap
+    // (the manifest side is pinned: claude-code's updateHint is parsed from
+    // its package.json by the adapter tests). An installed third-party id is
+    // NOT a built-in, so BOTH kinds refuse.
+    const refusal = await refuseAgentCommand("definitely-not-a-built-in-plugin-id", "update");
+    expect(refusal?.message).toContain("not a plugin this build carries");
   });
 });

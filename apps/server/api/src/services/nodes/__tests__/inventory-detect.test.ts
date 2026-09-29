@@ -4,7 +4,9 @@ import type { DetectSpecWire, NodeCommandBody } from "@internal/subshell-protoco
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import { type LiveEvent, subscribeLive } from "@/services/live-bus.js";
 import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 import type { sendCommand } from "@/services/nodes/node-rpc.js";
 import {
@@ -415,6 +417,145 @@ describe("detectOnNode", () => {
       expect(getLive(node.id)?.agent?.env).toEqual({});
     } finally {
       resetNodeRegistryForTests();
+    }
+  });
+
+  /**
+   * The scoped re-stamp (spec 2026-09-28 §3): a remote launch stamped from the
+   * CACHED inventory can predate a manual update, so the launch kicks ONE
+   * detect carrying `{ subshellId, expected, startedAt }` and only that pane,
+   * only while its just-written stamp still matches AND the row's `startedAt`
+   * still names the kick's launch (the CAS carries that guard, in its WHERE),
+   * and only a POSITIVE fresh answer, moves the row. This pass corrects
+   * staleness; it never erases.
+   */
+  it("re-stamps the one pane that kicked the detect, and only while its stamp still matches", async () => {
+    const node = await mkNode();
+    const subshells = new SubshellsRepository(db);
+    const subshellId = crypto.randomUUID();
+    await subshells.create({
+      id: subshellId,
+      userId: OWNER,
+      harnessId: "claude-code",
+      name: "restamp",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+      nodeId: node.id,
+    });
+    // A real launch writes a start time before the kick carries it (spec §3);
+    // a bare insert leaves the column NULL, so seed one and kick with it.
+    const launchStartedAt = "2026-09-28T00:00:00.000Z";
+    await db.updateTable("subshells").set({ startedAt: launchStartedAt }).where("id", "=", subshellId).execute();
+    const answer = (rawVersion: string, installed = true) => ({
+      results: [{ harnessId: "claude-code", installed, ...(installed ? { binaryPath: "/x/claude" } : {}), rawVersion }],
+      env: {},
+    });
+    // The stamp is user-visible on the view since Task 7, so the standing
+    // publish rule binds this write too: the row changed, so the live feed
+    // must be told (controller ruling on the Task 6 review). Subscribed
+    // through the bus itself — the same emitter the real feeds consume.
+    const published: LiveEvent[] = [];
+    const off = subscribeLive((e) => published.push(e));
+    const changedFor = () => published.filter((e) => e.kind === "subshell.changed" && e.id === subshellId).length;
+    try {
+      // The positive: a fresh row holds null (the create wrote no stamp yet),
+      // the kick's expected is null, and the fresh answer lands whole.
+      await detectOnNode(node.id, {
+        send: fakeSend(answer("2.1.284"), []),
+        reStamp: { subshellId, expected: null, startedAt: launchStartedAt },
+      });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBe("2.1.284");
+      expect(changedFor()).toBe(1); // the landed write published
+      // The CAS miss: a kick still expecting null (its launch stamp has since
+      // been replaced) writes NOTHING — not even the fresher 9.9.9 this
+      // detect happens to cache. A stale writer must never launder a fresh
+      // stamp (a racing restart always wins).
+      await detectOnNode(node.id, {
+        send: fakeSend(answer("9.9.9"), []),
+        reStamp: { subshellId, expected: null, startedAt: launchStartedAt },
+      });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBe("2.1.284");
+      expect(changedFor()).toBe(1); // a no-write path publishes nothing
+      // The never-erase rule: a matching expected value but a NEGATIVE fresh
+      // answer (installed: false) leaves the launch stamp standing.
+      await detectOnNode(node.id, {
+        send: fakeSend(answer("nope", false), []),
+        reStamp: { subshellId, expected: "2.1.284", startedAt: launchStartedAt },
+      });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBe("2.1.284");
+      expect(changedFor()).toBe(1); // ...and neither does this one
+      // A matching expected with a positive answer DOES land (the fresh-after-update case).
+      await detectOnNode(node.id, {
+        send: fakeSend(answer("9.9.9"), []),
+        reStamp: { subshellId, expected: "2.1.284", startedAt: launchStartedAt },
+      });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBe("9.9.9");
+      expect(changedFor()).toBe(2); // landed, published
+      // The same-value landing: a restart on an unchanged binary re-kicks with
+      // the CURRENT stamp as its expectation and the fresh answer repeats it.
+      // The CAS lands (it must stay armed for the chain), but nothing visible
+      // moved, so the announce stays silent — Task 10 review, item 1.
+      await detectOnNode(node.id, {
+        send: fakeSend(answer("9.9.9"), []),
+        reStamp: { subshellId, expected: "9.9.9", startedAt: launchStartedAt },
+      });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBe("9.9.9");
+      expect(changedFor()).toBe(2); // landed, announced nothing
+      // The startedAt guard — the equal-version restart the value CAS cannot
+      // see: a restart re-spawned the pane and wrote a fresh start time, and
+      // this in-flight answer belongs to the DEAD predecessor's kick. Expected
+      // still matches (the revival wrote the same version) and the answer is
+      // positive, yet the row's startedAt no longer names the kick's launch,
+      // so the successor pane must keep the stamp its own spawn wrote.
+      await db
+        .updateTable("subshells")
+        .set({ startedAt: "2099-01-01T00:00:00.000Z" })
+        .where("id", "=", subshellId)
+        .execute();
+      await detectOnNode(node.id, {
+        send: fakeSend(answer("8.8.8"), []),
+        reStamp: { subshellId, expected: "9.9.9", startedAt: launchStartedAt },
+      });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBe("9.9.9");
+      expect(changedFor()).toBe(2); // ...and publishes nothing
+    } finally {
+      off();
+      await subshells.delete(subshellId);
+    }
+  });
+
+  it("a pane on ANOTHER node gets nothing from this node's re-stamp kick", async () => {
+    // The kick was raised by THIS node's detect; a pane that lives elsewhere
+    // must not be stamped from an inventory its own host never answered.
+    const node = await mkNode();
+    const otherNode = await mkNode();
+    const subshells = new SubshellsRepository(db);
+    const subshellId = crypto.randomUUID();
+    await subshells.create({
+      id: subshellId,
+      userId: OWNER,
+      harnessId: "claude-code",
+      name: "restamp-wrong-node",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+      nodeId: otherNode.id,
+    });
+    const launchStartedAt = "2026-09-28T00:00:00.000Z";
+    await db.updateTable("subshells").set({ startedAt: launchStartedAt }).where("id", "=", subshellId).execute();
+    try {
+      await detectOnNode(node.id, {
+        send: fakeSend(
+          {
+            results: [{ harnessId: "claude-code", installed: true, binaryPath: "/x/claude", rawVersion: "2.1.284" }],
+            env: {},
+          },
+          [],
+        ),
+        reStamp: { subshellId, expected: null, startedAt: launchStartedAt },
+      });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBeNull();
+    } finally {
+      await subshells.delete(subshellId);
     }
   });
 

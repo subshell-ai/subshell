@@ -6,6 +6,7 @@ import * as sharingMigration from "@/db/migrations/0016-session-sharing.js";
 import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.js";
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import * as crossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
+import * as harnessVersionMigration from "@/db/migrations/0040-subshell-harness-version.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -78,6 +79,7 @@ describe("loadSubshellAccess", () => {
     await subshellRenameMigration.up(db as Kysely<any>); // renamed schema the code sees
     await presetsMigration.up(db as Kysely<any>); // profiles → presets (spec 2026-09-13 §6)
     await crossAgentMigration.up(db as Kysely<any>); // subshells.cross_agent — repo create writes it (2026-09-25)
+    await harnessVersionMigration.up(db as Kysely<any>); // subshells.harness_version — SubshellsRepository.create writes it (2026-09-28)
     return db;
   }
 
