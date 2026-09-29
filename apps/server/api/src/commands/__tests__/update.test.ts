@@ -237,6 +237,21 @@ describe("update --check", () => {
     expect(await run({ from: incoming, check: true })).toBe(0);
     expect(logs.join("\n")).toContain("9.9.9 is available");
   });
+
+  it("marks check output containerized when the image marker is set", async () => {
+    process.env.SUBSHELL_CONTAINER = "1";
+    try {
+      expect(await run({ from: incoming, check: true, json: true })).toBe(0);
+      expect(JSON.parse(logs[0] ?? "{}")).toEqual({
+        installed: SERVER_VERSION,
+        latest: "9.9.9",
+        updateAvailable: true,
+        containerized: true,
+      });
+    } finally {
+      delete process.env.SUBSHELL_CONTAINER;
+    }
+  });
 });
 
 describe("update --rollback", () => {
