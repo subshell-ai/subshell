@@ -56,9 +56,16 @@ function PromptsPage() {
   const shared = useMemo(() => view.shared.filter((p) => matchesPromptQuery(p, query)), [view.shared, query]);
 
   async function copyBody(body: string) {
-    // Silent-but-honest (spec §Error handling): a denied clipboard simply
-    // does nothing; it must not strand an unhandled rejection behind `void`.
-    await navigator.clipboard.writeText(body).catch(() => {});
+    // Silent-but-honest (spec §Error handling), and the guard has to cover
+    // the WHOLE access: on a plain-http LAN deployment (a posture §0
+    // endorses) `navigator.clipboard` is undefined and the property read
+    // throws synchronously, which a `.catch` on the result never sees
+    // (round-2 review fix).
+    try {
+      await navigator.clipboard.writeText(body);
+    } catch {
+      /* no confirmation available; do nothing, and say nothing */
+    }
   }
 
   async function toggleShared(row: OwnPromptRow) {

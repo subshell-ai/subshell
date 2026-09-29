@@ -1,6 +1,6 @@
 import { Badge, Button, relativeElapsed } from "@internal/node-admin";
 import { Check, ChevronDown, ChevronRight, Copy } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 
 /**
@@ -25,6 +25,11 @@ export function PromptPageRow({
   items: ActionItem[];
 }) {
   const [open, setOpen] = useState(false);
+  // useId, not the description: two rows may legally share one label (no
+  // uniqueness on the column), and a description with a space would split
+  // an id into two IDREF tokens and silently unlink aria-controls
+  // (round-2 review fix).
+  const bodyId = useId();
   const [copied, setCopied] = useState(false);
   // One live timer, cleared on unmount and by a second press (review fix):
   // an unclean 1500 ms reset outlives a row that closed, and a plain-http
@@ -56,7 +61,7 @@ export function PromptPageRow({
         <button
           type="button"
           aria-expanded={open}
-          aria-controls={`prompt-body-${description}`}
+          aria-controls={bodyId}
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left hover:bg-accent/40"
           onClick={() => setOpen((v) => !v)}
         >
@@ -86,7 +91,7 @@ export function PromptPageRow({
           not sit in the DOM for find-in-page to trip over. */}
       {open && (
         <pre
-          id={`prompt-body-${description}`}
+          id={bodyId}
           className="whitespace-pre-wrap break-words border-t bg-muted/40 px-4 py-2 font-mono text-sm leading-relaxed"
         >
           {body}
