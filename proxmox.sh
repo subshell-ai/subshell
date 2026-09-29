@@ -37,7 +37,7 @@ fn_prompt() {
     eval "$var=\"\$def\""
     return
   fi
-  read -rp "${question} [${def}]: " answer || answer=""
+  read -rp "${question} [${def}]: " answer < /dev/tty || answer=""
   eval "$var=\"${answer:-$def}\""
 }
 
@@ -47,7 +47,7 @@ preflight() {
 }
 
 need_ct_id() {
-  [[ -n "$CT_ID" ]] || read -rp "Container ID: " CT_ID
+  [[ -n "$CT_ID" ]] || read -rp "Container ID: " CT_ID < /dev/tty
   [[ -n "$CT_ID" ]] || msg_err "no container id given"
   pct status "$CT_ID" >/dev/null 2>&1 || msg_err "no CT $CT_ID on this host"
 }
@@ -166,7 +166,11 @@ update_app() {
       echo "update failed: the previous container is restored" >&2
       exit 1
     }
-    docker pull "$IMAGE" || rollback
+    # A failed pull changed NOTHING yet - the rollback below is for the
+    # post-rename steps, where it restores correctly. Deleting the running
+    # container here would strand the instance on a registry hiccup
+    # (review finding, operator ruling 2026-09-29).
+    docker pull "$IMAGE" || { echo "pull failed: the running container was left alone" >&2; exit 1; }
     docker rename "$NAME" "$NAME-old" || rollback
     docker stop "$NAME-old" >/dev/null || rollback
     docker run -d --name "$NAME" --restart unless-stopped \
@@ -190,7 +194,7 @@ remove_ct() {
   need_ct_id
   if [[ "${PVE_NO_PROMPT:-0}" != "1" ]]; then
     echo "This DESTROYS CT $CT_ID and everything in it."
-    read -rp "Type yes to confirm: " a
+    read -rp "Type yes to confirm: " a < /dev/tty
     [[ "$a" == "yes" ]] || msg_err "cancelled"
   fi
   pct shutdown "$CT_ID" 2>/dev/null || true
@@ -222,7 +226,7 @@ case "${1:-}" in
   "")
     header "Menu"
     echo " 1) install   2) update   3) backup   4) restore help   5) remove"
-    read -rp "Select: " sel
+    read -rp "Select: " sel < /dev/tty
     case "$sel" in
       1) install_ct; install_docker_in_ct ;;
       2) update_app ;;
