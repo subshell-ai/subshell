@@ -39,7 +39,9 @@ export function SubshellCard({ subshell }: { subshell: SubshellView }) {
   const nodeOffline = subshell.nodeOffline === true;
   // One fact, already derived server-side: this pane is running an older
   // harness than its node now has. Restart (which resumes) is the remedy.
-  const staleHarness = subshell.harnessStale && subshell.status === "running";
+  // `alive` must say LIVE PROCESS too: a running-status row whose process
+  // exited is parked history, not a pane running an outdated harness.
+  const staleHarness = subshell.harnessStale && subshell.status === "running" && subshell.alive === true;
 
   return (
     <EntityCard

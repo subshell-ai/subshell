@@ -260,6 +260,28 @@ describe("SubshellCard stale-harness line (spec 2026-09-28)", () => {
     }
   });
 
+  it("says nothing for a running-status pane whose process has exited", async () => {
+    // status `running` with `alive: false` is the exited-parked shape the
+    // sweep has not retired yet: its versions are history, and the stale
+    // line would claim an old harness is RUNNING when nothing runs at all.
+    const restore = mockNodes([agent()]);
+    try {
+      renderCard(
+        makeSubshell({
+          alive: false,
+          exitCode: 0,
+          harnessStale: true,
+          harnessVersion: "1.2.0",
+          harnessCurrentVersion: "1.3.0",
+        }),
+      );
+      await screen.findByRole("img", { name: "exited" });
+      expect(screen.queryByText(/node now on/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
   it("says nothing once the pane is no longer running", async () => {
     const restore = mockNodes([agent()]);
     try {
