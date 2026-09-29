@@ -73,12 +73,16 @@ function renderPicker(props: {
 function openSearch(): void {
   const input = document.getElementById("prompt-picker-search");
   if (!input) return;
-  for (const type of ["pointerdown", "pointerup"]) {
-    input.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse" }));
-  }
-  for (const type of ["mousedown", "mouseup", "click"]) {
-    input.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
-  }
+  // Inside act(): Base UI updates on the pointer events, and the bare
+  // dispatch floods "not wrapped in act" noise (the ffe50bc rule).
+  act(() => {
+    for (const type of ["pointerdown", "pointerup"]) {
+      input.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse" }));
+    }
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      input.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+    }
+  });
 }
 
 const settle = async () => {
@@ -88,7 +92,10 @@ const settle = async () => {
 };
 
 beforeEach(() => sessionStorage.clear());
-afterEach(() => cleanup());
+afterEach(() => {
+  sessionStorage.clear();
+  cleanup();
+});
 
 describe("PromptPickerDialog", () => {
   let restore: (() => void) | undefined;

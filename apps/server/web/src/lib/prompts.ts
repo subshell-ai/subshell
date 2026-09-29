@@ -33,8 +33,10 @@ export interface PromptsView {
 }
 
 /**
- * The filter used by the page and by the picker: case-insensitive, matches
- * the description OR the body, a blank query keeps everything.
+ * The page's filter: case-insensitive, matches the description OR the
+ * body, a blank query keeps everything. The picker filters inside the
+ * shared combobox, whose filter carries the same per-field, trimmed
+ * semantics (ui/combobox.tsx).
  */
 export function matchesPromptQuery(p: { description: string; body: string }, query: string): boolean {
   const q = query.trim().toLowerCase();

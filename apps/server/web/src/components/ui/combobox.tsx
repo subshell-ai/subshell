@@ -44,16 +44,17 @@ export interface SearchableSelectProps {
    */
   describedBy?: string;
   /** Shown by the popup when the query matches nothing (and the list is empty) */
-  emptyText?: string;
+  emptyText?: ReactNode;
 }
 
 /**
  * Searchable single-select on Base UI Combobox — the launch pickers'
  * primitive (spec 2026-09-02 §1). Unlike `select.tsx` the closed state is a
  * real <input> (type-to-filter), so callers pass their e2e-pinned id there.
- * Options are `{ value, label, disabled?, reason? }`; the Root filters by
- * label (case-insensitive contains), disabled rows stay listed with their
- * muted reason — greying out explains rather than hides.
+ * Options are `{ value, label, searchText?, disabled?, reason? }`; the Root
+ * filters label and searchText (case-insensitive contains, trimmed),
+ * disabled rows stay listed with their muted reason — greying out explains
+ * rather than hides.
  */
 export function SearchableSelect({
   id,
@@ -91,9 +92,15 @@ export function SearchableSelect({
         scrollerRef.current = null;
         if (saved?.el.isConnected && saved.el.scrollTop !== saved.top) saved.el.scrollTop = saved.top;
       }}
-      filter={(item: ComboboxOption, query: string) =>
-        `${item.label} ${item.searchText ?? ""}`.toLowerCase().includes(query.toLowerCase())
-      }
+      filter={(item: ComboboxOption, query: string) => {
+        // Per-field, trimmed: the same semantics the Prompts page filter
+        // (matchesPromptQuery) has, so the picker and the page answer a
+        // query identically. Joining the fields would match ACROSS the
+        // label/body boundary the page never matches.
+        const q = query.trim().toLowerCase();
+        if (q === "") return true;
+        return item.label.toLowerCase().includes(q) || (item.searchText ?? "").toLowerCase().includes(q);
+      }}
     >
       <ComboboxPrimitive.Input
         id={id}

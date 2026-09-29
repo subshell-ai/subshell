@@ -400,8 +400,12 @@ export function NewSubshellForm({
               <Plus /> Add prompt
             </Button>
             <p className="text-detail text-muted-foreground">Typed into the pane when the subshell starts.</p>
-            {/* Mounted only while open (the clone-dialog posture): a reopen
-                must not remember a half-typed custom block. */}
+            {/* Mounted only while open (the clone-dialog posture). The
+                half-typed CUSTOM text outlives this unmount on purpose:
+                the picker keeps it in sessionStorage until it is
+                submitted (operator ruling 2026-09-29), so the dialog
+                itself holding no memory is what makes that durable, not
+                lost. */}
             {pickerOpen && (
               <PromptPickerDialog
                 open

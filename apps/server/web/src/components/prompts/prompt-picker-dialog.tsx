@@ -86,27 +86,41 @@ export function PromptPickerDialog({
   const create = useCreatePrompt();
 
   useEffect(() => {
+    // null = the list step: leave the stored draft ALONE (Back to list
+    // keeps it; that is the point of the ruling). "" = the person opened
+    // the step and erased it (or never typed): there is no draft, and a
+    // stale key must not hijack the next open into an empty editor.
     if (customBody === null) return;
     try {
-      sessionStorage.setItem(
-        draftKey(mode),
-        JSON.stringify({ body: customBody, description: customDescription, saveToLibrary } satisfies PickerDraft),
-      );
+      if (customBody === "") {
+        sessionStorage.removeItem(draftKey(mode));
+      } else {
+        sessionStorage.setItem(
+          draftKey(mode),
+          JSON.stringify({ body: customBody, description: customDescription, saveToLibrary } satisfies PickerDraft),
+        );
+      }
     } catch {
       // Storage full or blocked: the draft just is not durable this time.
     }
   }, [mode, customBody, customDescription, saveToLibrary]);
 
   const rows = tab === "own" ? view.own : view.shared;
-  const emptyText = isLoading
-    ? "Loading…"
-    : isError
-      ? "The prompts could not be loaded."
-      : rows.length === 0
-        ? tab === "own"
-          ? "No prompts yet"
-          : "No shared prompts yet"
-        : "No prompts match the search.";
+  const emptyText = isLoading ? (
+    "Loading…"
+  ) : isError ? (
+    // The one sentence that is not neutral: the page's rule (a failure
+    // never reads as "none yet") keeps the destructive colour too.
+    <span className="text-destructive">The prompts could not be loaded.</span>
+  ) : rows.length === 0 ? (
+    tab === "own" ? (
+      "No prompts yet"
+    ) : (
+      "No shared prompts yet"
+    )
+  ) : (
+    "No prompts match the search."
+  );
 
   function pick(row: { id: string; description: string; body: string }) {
     onPick({

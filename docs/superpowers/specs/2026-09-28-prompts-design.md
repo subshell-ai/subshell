@@ -201,3 +201,22 @@ the thing that failed.
 Mobile UI; named-user shares; prompt variables/templating; audit trail rows;
 MCP prompt recommendations or auto-injection; changing the create/restart
 prompt delivery seam itself.
+
+## Amendment (2026-09-29, operator live-testing)
+
+Rulings from testing the branch over plain http on the LAN, in order:
+
+- The picker's search IS the shared searchable dropdown (combobox),
+  filtering description OR body; the page's empty sentences ride its
+  empty state, the failure one staying destructive.
+- A pick CLOSES the picker in both modes: one press, one decisive action.
+  In the inject flow the pick-close ADVANCES to the confirm step (the
+  wrapper absorbs it; a menu-driven close would unmount the pick).
+- The stacked block shows its full text COLLAPSED by default, one click
+  to read (the page row's shape).
+- "Write your own..." keeps its draft in sessionStorage until it is
+  SUBMITTED: a refresh mid-edit reopens the step with the text intact;
+  submitting spends the draft.
+- Non-secure origins matter: `crypto.randomUUID` is absent over plain
+  http on a LAN address, and a click handler that assumes it reads as a
+  dead control. Stack ids come from `newPromptLocalId`, which falls back.
