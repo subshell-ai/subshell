@@ -175,7 +175,9 @@ update_app() {
     # below rm -f's $NAME to resurrect $NAME-old, so a leftover -old would
     # make it destroy the HEALTHY container to resurrect garbage.
     docker rm -f "$NAME-old" >/dev/null 2>&1 || true
-    docker rename "$NAME" "$NAME-old" || rollback
+    # With any stale -old cleared above, a failed rename means nothing changed
+    # - the rollback would destroy the healthy container to restore nothing.
+    docker rename "$NAME" "$NAME-old" || { echo "rename failed: the running container was left alone" >&2; exit 1; }
     docker stop "$NAME-old" >/dev/null || rollback
     docker run -d --name "$NAME" --restart unless-stopped \
       -p "$APP_PORT:3080" -v "$DATA:/data" "$IMAGE" >/dev/null || rollback
