@@ -1,0 +1,132 @@
+name: docker-image
+
+# Package the published cli-server release into the GHCR image (spec
+# 2026-09-28 § 4). The release shards are the input: this workflow downloads,
+# signature-verifies, bakes, and pushes. It never compiles the server.
+# Dispatchable with a version to rebuild an older release into a new image.
+
+on:
+  release:
+    types: [published]
+    tags: ["cli-server-v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "cli-server version to package (e.g. 2.3.1)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-image
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/subshell-ai/subshell
+
+jobs:
+  build:
+    # One job per architecture, each on a NATIVE runner: the harness installers
+    # run inside the image build and must execute real arm64/amd64 code.
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            asset: linux-x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            asset: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - name: Resolve the version
+        id: plan
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            TAG="cli-server-v${{ inputs.version }}"
+          fi
+          VERSION="${TAG#cli-server-v}"
+          printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::not a semver: $VERSION"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Download the release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p docker/dl docker/bin
+          gh release download "${{ steps.plan.outputs.tag }}" -R subshell-ai/subshell \
+            -p 'release-manifest.json' -p 'release-manifest.json.sig' \
+            -p "subshell-server-cli-${{ matrix.asset }}" -D docker/dl
+      - name: Verify signature and digests (refused by name on anything else)
+        run: bun run scripts/docker-release-verify.ts docker/dl "${{ steps.plan.outputs.version }}"
+      - name: Stage the verified binary
+        run: cp "docker/dl/subshell-server-cli-${{ matrix.asset }}" "docker/bin/subshell-server-${{ matrix.arch }}"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: true
+          platforms: linux/${{ matrix.arch }}
+          tags: ${{ env.IMAGE }}:${{ steps.plan.outputs.version }}-${{ matrix.arch }}
+          provenance: false
+          cache-from: type=gha,scope=docker-image-${{ matrix.arch }}
+          cache-to: type=gha,scope=docker-image-${{ matrix.arch }},mode=max
+
+  manifest:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # same pin as above
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compose and push the multi-arch tags
+        run: |
+          V="${{ needs.build.outputs.version }}"
+          docker buildx imagetools create \
+            -t "$IMAGE:$V" -t "$IMAGE:latest" \
+            "$IMAGE:$V-amd64" "$IMAGE:$V-arm64"
+        env:
+          IMAGE: ${{ env.IMAGE }}
+      - name: Ensure the package is public (idempotent; first push would otherwise land private)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api -X PATCH /orgs/subshell-ai/packages/container/subshell -f visibility=public \
+            || echo "::warning::could not flip package visibility - set it once at https://github.com/orgs/subshell-ai/packages"
+
+  smoke:
+    needs: [build, manifest]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Logged in even though the package ends up public: the FIRST run pushes
+      # before visibility is confirmed flipped, and a private package is
+      # otherwise unreadable here.
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # same pin as above
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Drive the container scenario against the pushed image
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          V: ${{ needs.build.outputs.version }}
+        run: bash scripts/cli-e2e/docker-image.sh "$IMAGE:$V" "$V"
