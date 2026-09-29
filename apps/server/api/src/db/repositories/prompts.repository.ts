@@ -29,12 +29,17 @@ export class PromptsRepository extends BaseRepository {
 
   /** The owner's own prompts, newest-updated first (the page's default order). */
   async listOwn(userId: string): Promise<PromptTable[]> {
-    return this.db
-      .selectFrom("prompts")
-      .selectAll()
-      .where("userId", "=", userId)
-      .orderBy("updatedAt", "desc")
-      .execute();
+    return (
+      this.db
+        .selectFrom("prompts")
+        .selectAll()
+        .where("userId", "=", userId)
+        // id as a tiebreak: two writes in one millisecond share an updatedAt
+        // string, and an unordered tie swaps between refetches.
+        .orderBy("updatedAt", "desc")
+        .orderBy("id", "asc")
+        .execute()
+    );
   }
 
   /**
@@ -45,13 +50,17 @@ export class PromptsRepository extends BaseRepository {
    * same composition `#shareViews` uses, so this stays a single-table read.
    */
   async listShared(excludingUserId: string): Promise<PromptTable[]> {
-    return this.db
-      .selectFrom("prompts")
-      .selectAll()
-      .where("shared", "=", 1)
-      .where("userId", "!=", excludingUserId)
-      .orderBy("updatedAt", "desc")
-      .execute();
+    return (
+      this.db
+        .selectFrom("prompts")
+        .selectAll()
+        .where("shared", "=", 1)
+        .where("userId", "!=", excludingUserId)
+        // Same-millisecond ties ride the id, the way listOwn does.
+        .orderBy("updatedAt", "desc")
+        .orderBy("id", "asc")
+        .execute()
+    );
   }
 
   async update(id: string, update: PromptUpdate): Promise<PromptTable | undefined> {

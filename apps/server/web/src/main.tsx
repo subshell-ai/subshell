@@ -6,6 +6,9 @@ import { desktopShell } from "@/lib/desktop";
 import { installDesktopLinkHandling } from "@/lib/desktop-links";
 import { routeTree } from "./routeTree.gen";
 import "./styles.css";
+// sonner renders from a CSS sidecar (dist/styles.css); without it the toaster
+// mounts but every toast is an unpositioned list at the end of body.
+import "sonner/dist/styles.css";
 
 const router = createRouter({ routeTree, defaultNotFoundComponent: NotFoundPage });
 

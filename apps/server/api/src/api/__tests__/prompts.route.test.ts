@@ -7,7 +7,6 @@ import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
@@ -239,8 +238,6 @@ describe("/api/prompts (spec 2026-09-28)", () => {
     expect((owners.json as unknown as { own: PromptView[] }).own.map((p) => p.id)).toContain(id);
     expect((await call(`/${id}`, { bearer: key, method: "PUT", body: { body: "edited" } })).status).toBe(200);
     expect((await call(`/${id}`, { bearer: key, method: "DELETE" })).status).toBe(200);
-    // And the cookie owner sees the row through the same scope the next mint uses:
-    void issueSubshellToken; // (the standard mint carries prompts; this test mints shapes explicitly)
   });
 
   it("a pre-prompts legacy map passes (absence predates the gate)", async () => {
