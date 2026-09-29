@@ -33,6 +33,7 @@ import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-fakes.js";
 import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
+import { type LiveEvent, subscribeLive } from "@/services/live-bus.js";
 import { LOCKDOWN_KEY } from "@/services/lockdown.js";
 import type { LaunchPlan } from "@/services/nodes/node-launcher.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
@@ -357,6 +358,40 @@ describe("harness version stamping on launch (spec 2026-09-28 §3)", () => {
         { subshellId: row.id, expected: "2.1.284", startedAt: revived?.startedAt ?? null },
       ]);
     } finally {
+      off();
+    }
+  });
+
+  it("a same-value stamp landing keeps the kick and stays silent on the bus", async () => {
+    // A restart on an unchanged binary: the parked row already carries the
+    // version the launcher reports, so the CAS lands by rewriting the SAME
+    // value. The kick must still ride (a landing arms the re-stamp chain even
+    // when it announces nothing), but a write that moves nothing visible
+    // publishes nothing (spec §4's publish rule, Task 10 review item 1).
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    fake.harnessVersionToReport = "2.1.284";
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    const published: LiveEvent[] = [];
+    const sub = subscribeLive((e) => published.push(e));
+    let rowId = "";
+    try {
+      const parked = await parkedRow(nodeId);
+      await dbHandle.updateTable("subshells").set({ harnessVersion: "2.1.284" }).where("id", "=", parked.id).execute();
+      rowId = parked.id;
+      const stamped = (await subshellsRepo.findById(parked.id)) as SubshellTable;
+      expect(await attempt(manager, stamped)).toBe(true);
+      const revived = await subshellsRepo.findById(parked.id);
+      // The kick carries the REVIVAL's startedAt, as in the moving-value case
+      // above; only the announced publish is withheld here.
+      expect(fake.refreshKicks).toEqual([
+        { subshellId: parked.id, expected: "2.1.284", startedAt: revived?.startedAt ?? null },
+      ]);
+      expect(published.filter((e) => e.kind === "subshell.changed" && e.id === rowId)).toHaveLength(0);
+    } finally {
+      sub();
+      if (rowId) await subshellsRepo.delete(rowId);
       off();
     }
   });

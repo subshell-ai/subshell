@@ -1193,10 +1193,9 @@ export class SubshellManagerService {
    * scoped re-stamp kick (a no-op on `local`). Failures are debug-only: the
    * pane is RUNNING and correct; a missing annotation is never a launch
    * failure. `startedAt` must be the row's start time FOR THIS LAUNCH (what
-   * the re-stamp guard compares against): callers pass the value the row
-   * carries at kick time — the create row's own, and the revive's freshly
-   * written one (the parked row's in-memory `startedAt` was replaced by the
-   * revival's `updateIfRunning`).
+   * the re-stamp guard compares against): the create caller passes the row's
+   * own value, and the revive caller the fresh one its `updateIfRunning` has
+   * just written (the parked row's in-memory `startedAt` is stale by then).
    */
   async #stampHarnessVersion(
     row: SubshellTable,
@@ -1209,8 +1208,11 @@ export class SubshellManagerService {
       const before = row.harnessVersion ?? null;
       const stamp = await launcher.launchedHarnessVersion(harness, binary);
       if (await this.#subshells.casHarnessVersion(row.id, before, stamp)) {
+        // The kick rides every landing: the null-stamp kick is what arms the
+        // re-stamp chain, landing or not. The publish announces a MOVE only —
+        // a CAS that wrote the same value changed nothing the view shows.
         launcher.kickHarnessVersionRefresh(row.id, stamp, startedAt);
-        publishLive({ kind: "subshell.changed", id: row.id });
+        if (stamp !== before) publishLive({ kind: "subshell.changed", id: row.id });
       }
     } catch (err: unknown) {
       logger.withError(err).debug(`subshell ${row.id}: harness version stamp failed`);

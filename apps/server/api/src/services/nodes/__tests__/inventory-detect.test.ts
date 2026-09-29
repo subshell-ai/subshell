@@ -490,6 +490,16 @@ describe("detectOnNode", () => {
       });
       expect((await subshells.findById(subshellId))?.harnessVersion).toBe("9.9.9");
       expect(changedFor()).toBe(2); // landed, published
+      // The same-value landing: a restart on an unchanged binary re-kicks with
+      // the CURRENT stamp as its expectation and the fresh answer repeats it.
+      // The CAS lands (it must stay armed for the chain), but nothing visible
+      // moved, so the announce stays silent — Task 10 review, item 1.
+      await detectOnNode(node.id, {
+        send: fakeSend(answer("9.9.9"), []),
+        reStamp: { subshellId, expected: "9.9.9", startedAt: launchStartedAt },
+      });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBe("9.9.9");
+      expect(changedFor()).toBe(2); // landed, announced nothing
       // The startedAt guard — the equal-version restart the value CAS cannot
       // see: a restart re-spawned the pane and wrote a fresh start time, and
       // this in-flight answer belongs to the DEAD predecessor's kick. Expected

@@ -469,9 +469,13 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
         entry.version
       ) {
         // The stamp is user-visible on the view (spec 2026-09-28 §4), so the
-        // standing publish rule binds this write: a landed CAS announces, a
-        // no-write path stays silent.
-        if (await subshells.casHarnessVersion(pane.id, deps.reStamp.expected, entry.version)) {
+        // standing publish rule binds this write: a CAS that MOVES the value
+        // announces; a no-write path and a same-value landing (a restart on
+        // an unchanged binary) both stay silent.
+        if (
+          (await subshells.casHarnessVersion(pane.id, deps.reStamp.expected, entry.version)) &&
+          entry.version !== deps.reStamp.expected
+        ) {
           publishLive({ kind: "subshell.changed", id: pane.id });
         }
       }
