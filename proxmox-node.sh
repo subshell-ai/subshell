@@ -69,16 +69,22 @@ latest_template() {
 # The exact shape the app renders: http(s) origin, /install.sh, one
 # setup_key=nsk_... param. The trailing &server=<origin> clause the app adds
 # when you picked a non-canonical address is part of the pasted command and
-# passes through to curl untouched, so it is accepted here. A loopback origin
-# is refused at the same point: a CT curl-ing localhost reaches the CT, not
-# the instance. Validated before anything is created; the key value is never
-# echoed.
+# passes through to curl untouched, so it is accepted here. Loopback is
+# refused at the same point in EITHER position: a CT curl-ing localhost
+# reaches the CT, not the instance, and the carried clause bakes the node's
+# dial-home URL - loopback there leaves the node dialing its own container.
+# Validated before anything is created; the key value is never echoed.
 validate_setup_url() {
   local url="$1"
   [[ "$url" =~ ^https?://[^/[:space:]]+/install\.sh\?setup_key=nsk_[A-Za-z0-9_-]{8,}(&server=[^?#[:space:]]*)?$ ]] || return 1
   local origin="${url%%/install.sh*}"
   origin="${origin,,}"
-  [[ "$origin" != *"://localhost"* && "$origin" != *"://127."* && "$origin" != *"://[::1]"* ]]
+  [[ "$origin" != *"://localhost"* && "$origin" != *"://127."* && "$origin" != *"://[::1]"* ]] || return 1
+  if [[ "$url" == *"&server="* ]]; then
+    local carried="${url#*&server=}"
+    carried="${carried,,}"
+    [[ "$carried" != *"://localhost"* && "$carried" != *"://127."* && "$carried" != *"://[::1]"* ]]
+  fi
 }
 
 # ---------- install ----------
