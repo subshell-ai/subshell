@@ -51,9 +51,10 @@ refuses the plugin at load), because this is the second manifest field a host
 will RUN.
 
 The pane-runtime adapter carries it as `updateHint` beside `installHint`, and
-`GET /api/setup/harnesses` gains `update: string | null` on `HarnessInfo` so a
-card can say what it will run before it is pressed, and print the same text as a
-copy line where it cannot run it.
+`GET /api/setup/harnesses` gains an optional `update?: string` on `HarnessInfo`,
+absent (not null, not empty) when the plugin declares none, so a card can say
+what it will run before it is pressed, and print the same text as a copy line
+where it cannot run it.
 
 Built-in plugins: `claude-code` declares `claude update`. `codex`, `opencode`,
 `hermes`, and `pi` declare nothing, and their Update action re-runs their install

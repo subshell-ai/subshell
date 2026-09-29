@@ -99,10 +99,11 @@ export interface NodeHarnessRowProps {
  * One row of {@link NodeHarnessCard}: the four grid cells (name, detection
  * badge, version, action) plus the full-width explanation lines under them.
  * Dumb by construction — it reads its scoped command state off props and
- * presses callbacks, owning no hook, no mutation, no card-level gate. The
- * gates themselves (`canInstallHere`, the copy-line kind check) arrive as
- * booleans already derived from the node view, so what the row mirrors is the
- * card's reading of the server, not a second copy of the server's rules.
+ * presses callbacks, owning no hook, no mutation, no card-level gate. The row
+ * derives `installableHere` and `updateCommandFor` from the registry row, the
+ * documented client mirror of the route's pre-stream refusals; what arrives
+ * pre-derived from the card are the node-view gates (`canInstallHere`, the
+ * copy-line kind check).
  *
  * Every explanation it renders is `detail` on the grid's `col-span-full`: the
  * `checked …` stamp left the action cell on 2026-09-22 (the install button

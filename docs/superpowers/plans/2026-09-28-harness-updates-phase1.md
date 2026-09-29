@@ -1589,3 +1589,20 @@ gh pr create --title "Harness updates phase 1: update action, version stamping, 
 ```
 
 Per repo memory: do NOT use `gh pr merge --auto` (it merges immediately, not wait-for-green); watch CI with `gh run watch` and merge by hand.
+
+## Deviations made while building (what shipped, not the task text)
+
+Each of these was found by the phase that built it and is now what the code
+does; the task text above is left as written so the reasoning survives.
+
+- **Task 3's single flight is a `Map<string, AgentCommandKind>`, not a Set.**
+  The map names the kind that is running, because the refusal sentence names
+  which kind runs ("already being updated"), and a Set could only say that
+  something was running.
+- **The re-stamp guard is atomic.** `casHarnessVersion(id, expected, startedAt,
+  value)` carries `startedAt` in the WHERE clause and the re-stamp payload
+  carries it end to end, so the guard names the launch in the same statement
+  that writes the version; there is no read-check left to race.
+- **Task 4 shipped as the combined `setup-agent-command.route.ts`** per the
+  operator amendment, and its per-kind test seams are now the single
+  `setAgentCommandDepsForTests(kind, deps | null)`.
