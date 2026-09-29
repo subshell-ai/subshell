@@ -25,8 +25,9 @@ import type { PromptsView } from "@/lib/prompts";
  * with an optional save into the library that is OFF by default, because a
  * prompt used once has not earned a row.
  *
- * `mode` is the whole difference between the two callers: "multi" (launch)
- * adds and stays open, "single" (inject) hands one block back and closes.
+ * `mode` survives as the COPY difference between the two callers (the saved
+ * pick closes the dialog in both; the custom step names its button for the
+ * flow it belongs to).
  */
 export function PromptPickerDialog({
   open,
@@ -61,7 +62,12 @@ export function PromptPickerDialog({
       description: row.description,
       body: row.body,
     });
-    if (mode === "single") onOpenChange(false);
+    // Close on the pick, BOTH modes (live report 2026-09-29): a pick that
+    // kept the dialog open showed nothing changing, the stack is behind the
+    // modal, and the popup floated over "Write your own..." so the dialog
+    // read as a gap. One press, one decisive action; "Add prompt" is one
+    // click away for the next one.
+    onOpenChange(false);
   }
 
   async function submitCustom() {

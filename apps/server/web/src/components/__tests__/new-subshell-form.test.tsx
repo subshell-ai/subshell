@@ -1209,9 +1209,10 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
       await settle();
       expect(screen.getByRole("button", { name: "Add prompt" })).toBeDefined();
 
-      // Open the picker; multi mode stays open after each pick. The list is
-      // the shared SearchableSelect combobox (operator ask 2026-09-29), so a
-      // pick needs the popup opened first and reopens after each consumed.
+      // Open the picker; a pick closes it (decisive-action redesign,
+      // operator report 2026-09-29), so the second add reopens. The list is
+      // the shared SearchableSelect combobox, whose popup opens on a real
+      // pointer, not a bare click.
       fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
       await settle();
       openPickerSearch();
@@ -1220,13 +1221,13 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
       await settle();
       expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff"]);
       expect(latest().promptBlocks[0].promptId).toBe("pr1");
+      fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
+      await settle();
       openPickerSearch();
       await settle();
       fireEvent.click(screen.getByText("Review"));
       await settle();
       expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff", "Review"]);
-      fireEvent.click(screen.getByRole("button", { name: "Done" }));
-      await settle();
 
       // Stack controls: reorder the second up (row 2's button, the first is
       // already disabled at the top), then remove the first.
