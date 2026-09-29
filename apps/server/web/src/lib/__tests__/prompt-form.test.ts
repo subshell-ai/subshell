@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { promptDraftFromRow, suggestCloneDescription, validatePromptDraft } from "../prompt-form";
+import { promptDraftFromRow, promptDraftSchema, suggestCloneDescription } from "../prompt-form";
 import type { OwnPromptRow } from "../prompts";
 
 const row = (over: Partial<OwnPromptRow> = {}): OwnPromptRow => ({
@@ -45,13 +45,18 @@ describe("suggestCloneDescription", () => {
   });
 });
 
-describe("validatePromptDraft", () => {
+describe("promptDraftSchema", () => {
+  const messages = (draft: { description: string; body: string; shared: boolean }) =>
+    promptDraftSchema.safeParse(draft).error?.issues.map((issue) => issue.message) ?? [];
+
   it("requires a non-blank description and body", () => {
-    expect(validatePromptDraft({ description: "  ", body: "b", shared: false })).toMatch(/description/i);
-    expect(validatePromptDraft({ description: "d", body: "", shared: false })).toMatch(/prompt/i);
-    expect(validatePromptDraft({ description: "d", body: "b", shared: false })).toBeNull();
+    expect(messages({ description: "  ", body: "b", shared: false })).toContain("A short description is required");
+    expect(messages({ description: "d", body: "", shared: false })).toContain("The prompt text is required");
+    expect(promptDraftSchema.safeParse({ description: "d", body: "b", shared: false }).success).toBe(true);
   });
   it("caps the description at 120 chars (the server refuses past it)", () => {
-    expect(validatePromptDraft({ description: "x".repeat(121), body: "b", shared: false })).toMatch(/120/);
+    expect(messages({ description: "x".repeat(121), body: "b", shared: false })).toContain(
+      "The description must be 120 characters or fewer",
+    );
   });
 });

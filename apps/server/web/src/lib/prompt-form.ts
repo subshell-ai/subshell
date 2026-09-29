@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { OwnPromptRow } from "./prompts";
 
 /**
@@ -43,10 +44,25 @@ export function suggestCloneDescription(existing: { description: string }[], sou
   return `${stem.slice(0, budget)}${suffix}`;
 }
 
-/** The inline error sentence, or null when the draft is submittable. */
-export function validatePromptDraft(draft: PromptDraft): string | null {
-  if (draft.description.trim() === "") return "A short description is required";
-  if (draft.description.trim().length > 120) return "The description must be 120 characters or fewer";
-  if (draft.body.trim() === "") return "The prompt text is required";
-  return null;
-}
+/**
+ * The ONE submittable-draft rule (substrate spec 2026-09-29): the dialog's
+ * disabled gate and its submit guard read this schema, so they cannot drift.
+ * The sentences are the old `validatePromptDraft` copy, moved verbatim; the
+ * 120-char cap is the server's own refusal, mirrored client-side.
+ */
+export const promptDraftSchema = z
+  .object({ description: z.string(), body: z.string(), shared: z.boolean() })
+  .superRefine((draft, ctx) => {
+    if (draft.description.trim() === "") {
+      ctx.addIssue({ code: "custom", path: ["description"], message: "A short description is required" });
+    } else if (draft.description.trim().length > 120) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["description"],
+        message: "The description must be 120 characters or fewer",
+      });
+    }
+    if (draft.body.trim() === "") {
+      ctx.addIssue({ code: "custom", path: ["body"], message: "The prompt text is required" });
+    }
+  });
