@@ -1,88 +1,11 @@
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-  errMessage,
-} from "@internal/node-admin";
+import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, errMessage } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
-import { LoaderCircle, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { useState } from "react";
-import { PluginIcon } from "@/components/plugin-icon";
+import { NodeHarnessRow } from "@/components/nodes/node-harness-row";
 import { useHarnesses, useNodeHarnesses } from "@/hooks/use-harnesses";
 import { type AgentCommandKind, type AgentInstallResult, useAgentCommand } from "@/hooks/use-install-agent";
 import { useRecheckNode } from "@/hooks/use-nodes";
-import type { HarnessInfo } from "@/types/harness";
-
-/** What a row of {@link NodeHarnessCard} knows about one program on this machine. */
-interface DetectionRow {
-  /** The node's answer: the program was found here */
-  installed: boolean;
-  /** Why the lookup failed, when it ran and failed. Absent when it never ran. */
-  reason?: string;
-  /** When the probe ran. Absent when no probe has covered this plugin yet. */
-  checkedAt?: string;
-}
-
-/**
- * The row's one-word detection verdict — and one of the four is "we do not
- * know", which is NOT the same claim as "not found".
- *
- * A row carries no `reason` only when nothing looked: either no detection has
- * covered this plugin on this node at all (no `checkedAt` either — a node
- * enrolled but never probed, or one offline since the plugin was installed),
- * or a probe ran and threw, which `scanOne` records deliberately without a
- * reason because "the probe failed" is different from "we looked and it was
- * not there". Every real miss travels with a reason (`binary-lookup.ts` gives
- * one on every `path: null` path), so reading its absence as a missing program
- * asserted a negative nothing had established — the card said "program not
- * found" about a machine that may well have the CLI.
- */
-function badgeLabel(h: DetectionRow): string {
-  if (h.installed || h.reason === "no-binary") return "ready";
-  if (h.reason) return "program not found";
-  return h.checkedAt ? "check failed" : "not checked";
-}
-
-/** The tone that verdict carries: found, definitely missing, or unknown. */
-function badgeVariant(h: DetectionRow): "success" | "muted" | "outline" {
-  if (h.installed || h.reason === "no-binary") return "success";
-  return h.reason ? "muted" : "outline";
-}
-
-/**
- * Whether this row's program can be installed from here — the client half of
- * `POST /api/setup/agents/:pluginId/install`'s own refusals.
- *
- * It needs the HARNESS REGISTRY, not the node view, and that is the whole
- * reason this card reads a second endpoint: a node's row carries detection
- * (is the program here?) and no manifest, so the install COMMAND and the
- * agent/terminal type live only on `GET /api/setup/harnesses`. Both of the
- * route's pre-stream refusals are mirrored — `terminal` drives no program, and
- * an empty command 400s — because a button that always fails is worse than no
- * button.
- *
- * @param info - the registry row for this plugin, absent when the registry has
- *   no such id (a registry-installed plugin the built-in catalog never lists)
- */
-function installableHere(info: HarnessInfo | undefined): boolean {
-  return info !== undefined && info.type === "agent-harness" && info.install.command.trim() !== "";
-}
-
-/**
- * The command an Update affordance would run for this plugin: the vendor's
- * own if declared, else a re-run of the installer, exactly the service's
- * fallback. Undefined when neither exists (terminal): no button, no copy
- * line, mirroring the route's own "nothing to update" refusal.
- */
-function updateCommandFor(info: HarnessInfo | undefined): string | undefined {
-  if (info?.type !== "agent-harness") return undefined;
-  const cmd = info.update ?? info.install.command;
-  return cmd.trim() !== "" ? cmd : undefined;
-}
 
 /** A run that RAN and said no: it either never started or exited non-zero. */
 function runFailure(data: AgentInstallResult): { message: string; output: string } {
@@ -142,7 +65,7 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   // which rides a node view. Read unconditionally rather than only on
   // `local`: the hook takes no `enabled`, the key is shared with the launch
   // form and the preset editor so a warm cache costs nothing, and gating it
-  // would mean two copies of the row renderer below.
+  // would mean two copies of what the row component is handed.
   const { data: registry } = useHarnesses();
   /** The running command's own line, keyed `kind:id`. */
   const [cmdLines, setCmdLines] = useState<Record<string, string>>({});
@@ -266,159 +189,44 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto_auto_auto]">
           {harnesses.map((h) => {
             const info = registry?.find((r) => r.id === h.harnessId);
-            // Only what is MISSING is offered: a program already here has
-            // nothing to install, and `installableHere` holds the route's own
-            // two refusals.
-            const offerInstall = canInstallHere && !h.installed && installableHere(info);
-            const cmdText = updateCommandFor(info);
-            // Update is for a program that IS here (unlike Install, which is
-            // for one that is not); gate-mirrored like install: local + admin.
-            const offerUpdate = h.installed && canInstallHere && cmdText !== undefined;
-            // The honest half on a node the server cannot drive: the exact
-            // command to run there, printed, never run (spec 2026-09-28 §2;
-            // Phase 2 turns this line into a button via a signed command).
-            const showCopyLine = h.installed && data?.kind === "agent" && cmdText !== undefined;
+            // The card owns the hooks, the gates and the two mutations; the
+            // row gets its OWN slice of the command state, scoped here so the
+            // row never re-derives which row a running or failed command
+            // belongs to. The `kind` on `failure` is unused by the row's
+            // rendering and rides along because the card's failure object is
+            // what the id match selects.
+            const mine = active?.id === h.harnessId ? active : undefined;
+            const mineFailure = failure?.id === h.harnessId ? failure : undefined;
             return (
-              <div key={h.harnessId} className="contents">
-                {/* Named by the node view itself: every row carries the display
-                  name from the instance store's manifest (spec 2026-09-10
-                  follow-ups), so the page needs no second registry read and a
-                  registry-installed plugin is named exactly like a built-in. */}
-                <div className="flex min-w-0 items-center gap-3">
-                  <PluginIcon pluginId={h.harnessId} name={h.name} />
-                  <span className="truncate font-strong">{h.name}</span>
-                </div>
-                {/* The badge is the detection answer: whether the program this
-                  plugin drives was found on this machine. `no-binary` reads
-                  ready because a plugin that declares no program is not one
-                  whose program is missing. */}
-                <Badge variant={badgeVariant(h)} className="justify-self-start">
-                  {badgeLabel(h)}
-                </Badge>
-                <span className="font-mono text-detail text-muted-foreground">{h.version ?? ""}</span>
-                {/* The action cell, ALWAYS rendered — the grid rule above says
-                  a skipped cell slides the rest of the row one column left.
-                  This is where the `checked …` stamp sat until 2026-09-22,
-                  when the operator asked for the install button on the
-                  harness's own line instead; the stamp came off, not the
-                  data (the detection `checkedAt` still drives the unknown
-                  states below, and Re-check still says when in its own
-                  line). */}
-                {offerInstall && info ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    // One at a time, either kind: the routes answer a second
-                    // concurrent command 409, so a second button that could
-                    // be pressed would only produce a refusal.
-                    disabled={active !== undefined}
-                    onClick={() => {
-                      // A fresh command clears the OTHER kind's failure
-                      // first: `failure` below reads both mutations, and
-                      // TanStack resets only a mutation's own state on its
-                      // next mutate - without this, an install that failed
-                      // under this row keeps showing while the update runs
-                      // and masks the update's own failure. `cmdLines` is
-                      // component state keyed `kind:id`, not mutation state,
-                      // so a reset never blanks a still-streaming line.
-                      update.reset();
-                      install.mutate(h.harnessId);
-                    }}
-                  >
-                    {active?.kind === "install" && active.id === h.harnessId && (
-                      <LoaderCircle aria-hidden className="motion-safe:animate-spin" />
-                    )}
-                    {active?.kind === "install" && active.id === h.harnessId ? "Installing…" : "Install"}
-                  </Button>
-                ) : offerUpdate && cmdText !== undefined ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={active !== undefined}
-                    onClick={() => {
-                      // The mirror of the install button's reset: this
-                      // mutation's own state is cleared by mutate, the
-                      // other kind's only by this call.
-                      install.reset();
-                      update.mutate(h.harnessId);
-                    }}
-                  >
-                    {active?.kind === "update" && active.id === h.harnessId && (
-                      <LoaderCircle aria-hidden className="motion-safe:animate-spin" />
-                    )}
-                    {active?.kind === "update" && active.id === h.harnessId ? "Updating…" : "Update"}
-                  </Button>
-                ) : (
-                  <span aria-hidden />
-                )}
-                {h.reason === "override-invalid" && (
-                  <p className="col-span-full text-detail text-muted-foreground">
-                    An environment variable overrides where this program is looked for, and it doesn't point at an
-                    executable file on this node.
-                  </p>
-                )}
-                {h.reason === "no-binary" && (
-                  <p className="col-span-full text-detail text-muted-foreground">No separate program is needed here.</p>
-                )}
-                {/* The unknown states, spelled out: neither says anything about
-                  whether the program is here, because nothing established it. */}
-                {!h.installed && !h.reason && h.checkedAt === undefined && (
-                  <p className="col-span-full text-detail text-muted-foreground">
-                    No detection has covered this plugin here yet. Opening this page asks for one; an offline node
-                    cannot answer.
-                  </p>
-                )}
-                {!h.installed && !h.reason && h.checkedAt !== undefined && (
-                  <p className="col-span-full text-detail text-muted-foreground">
-                    The probe did not complete, so whether this program is here is unknown.
-                  </p>
-                )}
-                {offerInstall && info && (
-                  /* What the button above will do, without a click. This runs
-                    a vendor's script on the control-plane host as the
-                    server's own user, which should not take a press to
-                    find out. */
-                  <p className="col-span-full text-detail text-muted-foreground">
-                    Runs <code className="font-mono">{info.install.command}</code> on this machine, as the user the
-                    server runs as.
-                  </p>
-                )}
-                {offerUpdate && cmdText !== undefined && (
-                  <p className="col-span-full text-detail text-muted-foreground">
-                    Runs <code className="font-mono">{cmdText}</code> on this machine, as the user the server runs as.
-                  </p>
-                )}
-                {showCopyLine && cmdText !== undefined && (
-                  <p className="col-span-full text-detail text-muted-foreground">
-                    Run <code className="font-mono">{cmdText}</code> on this machine. The server can't do it on a node
-                    yet.
-                  </p>
-                )}
-                {active?.id === h.harnessId && (
-                  // The command's own words, one line, verbatim (unchanged
-                  // rule): there is no percentage to derive from `curl … | bash`.
-                  <p aria-live="polite" className="col-span-full truncate font-mono text-detail text-muted-foreground">
-                    {cmdLines[`${active.kind}:${h.harnessId}`] ??
-                      (active.kind === "update" ? "Running the update…" : "Starting the installer…")}
-                  </p>
-                )}
-                {failure?.id === h.harnessId && (
-                  // Under the row that failed, never under the list: a failure
-                  // on the fourth of five agents rendered at the bottom of the
-                  // card names none of them.
-                  <div className="col-span-full space-y-1">
-                    <p className="text-destructive text-detail">{failure.message}</p>
-                    {failure.output !== undefined && failure.output.trim() !== "" && (
-                      <details className="text-sm">
-                        <summary className="cursor-pointer text-detail text-muted-foreground">
-                          What the command printed
-                        </summary>
-                        <pre className="mt-1 max-h-48 overflow-auto text-detail">{failure.output}</pre>
-                      </details>
-                    )}
-                  </div>
-                )}
-              </div>
+              <NodeHarnessRow
+                key={h.harnessId}
+                harness={h}
+                info={info}
+                nodeKind={data?.kind ?? "agent"}
+                canInstallHere={canInstallHere}
+                commandRunning={active !== undefined}
+                activeKind={mine?.kind}
+                cmdLine={mine ? cmdLines[`${mine.kind}:${h.harnessId}`] : undefined}
+                failure={mineFailure}
+                // A fresh command clears the OTHER kind's failure first:
+                // `failure` above reads both mutations, and TanStack resets
+                // only a mutation's own state on its next mutate - without
+                // this, an install that failed under this row keeps showing
+                // while the update runs and masks the update's own failure.
+                // `cmdLines` is component state keyed `kind:id`, not mutation
+                // state, so a reset never blanks a still-streaming line.
+                onInstall={() => {
+                  update.reset();
+                  install.mutate(h.harnessId);
+                }}
+                onUpdate={() => {
+                  // The mirror of the install button's reset: this
+                  // mutation's own state is cleared by mutate, the other
+                  // kind's only by this call.
+                  install.reset();
+                  update.mutate(h.harnessId);
+                }}
+              />
             );
           })}
         </div>

@@ -58,6 +58,8 @@ interface CardOpts {
   installFrames?: (string | null)[];
   /** Frames for the UPDATE verb specifically; falls back to `installFrames`. */
   updateFrames?: (string | null)[];
+  /** Status the update POST answers with WITHOUT opening a stream (a refusal). */
+  updateStatus?: number;
 }
 
 /** A `HarnessInfo` as `/api/setup/harnesses` sends it. */
@@ -155,6 +157,16 @@ async function mount(opts: CardOpts = {}): Promise<{
     // cross-kind failure-state tests) supplies `updateFrames`.
     const agentCommand = /^\/api\/setup\/agents\/([^/]+)\/(install|update)$/.exec(url.pathname);
     if (agentCommand && method === "POST") {
+      // A refusal happens before any stream opens: status + JSON body, the
+      // shape `useAgentCommand` throws as an ApiError (a CALL failure, not a
+      // failed run).
+      if (agentCommand[2] === "update" && opts.updateStatus !== undefined) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ errId: "e2", code: "FORBIDDEN", message: "updater refused by policy" }), {
+            status: opts.updateStatus,
+          }),
+        );
+      }
       const frames = (agentCommand[2] === "update" ? opts.updateFrames : undefined) ??
         opts.installFrames ?? [`${JSON.stringify({ type: "done", ...DONE })}\n`];
       return Promise.resolve(
@@ -592,6 +604,30 @@ describe("NodeHarnessCard", () => {
         expect(await screen.findByText((c) => c === "Terminal")).toBeDefined();
         expect(screen.queryByRole("button", { name: /update/i })).toBeNull();
         expect(screen.queryByText(/on this machine/)).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("a refused update call fails under the row as a CALL failure, with no output", async () => {
+      // The two failures said differently (the card's own comment): a refusal
+      // answers before any stream opens, so there is no exit code and no
+      // printed output to disclose - only the call's error text under the
+      // row that pressed. The exit-code twin and its disclosure are pinned in
+      // the cross-kind suite; the CALL half was never rendered on camera.
+      const { restore } = await mount({
+        ...readyLocal,
+        infos: [info({ update: "claude update" })],
+        updateStatus: 403,
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Update" }));
+        expect(await screen.findByText(/updater refused by policy/)).toBeDefined();
+        expect(screen.queryByText("What the command printed")).toBeNull();
+        expect(screen.queryByText(/exited with code/i)).toBeNull();
+        // The button returns: the mutation settled failed, so the row is
+        // pressable again rather than stuck on "Updating…".
+        expect(screen.getByRole("button", { name: "Update" })).toBeDefined();
       } finally {
         restore();
       }
