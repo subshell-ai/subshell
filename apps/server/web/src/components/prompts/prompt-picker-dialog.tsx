@@ -1,6 +1,8 @@
 import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
+import { useStore } from "@tanstack/react-form";
 import { PenLine } from "lucide-react";
 import { useEffect, useState } from "react";
+import { z } from "zod";
 import { SearchableSelect } from "@/components/ui/combobox";
 import {
   Dialog,
@@ -13,6 +15,7 @@ import {
 import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreatePrompt, usePrompts } from "@/hooks/use-prompts";
+import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
 import { newPromptLocalId, type PromptBlock } from "@/lib/prompt-stack";
 import type { PromptsView } from "@/lib/prompts";
 
@@ -45,6 +48,21 @@ function loadDraft(mode: "multi" | "single"): PickerDraft | null {
   }
 }
 
+/** The ONE validity rule for the custom step (substrate spec 2026-09-29):
+ *  the button's `disabled` and the submit guard read this same schema, so
+ *  they cannot drift. The description is required only while the save
+ *  switch is ON — the conditional a hand-rolled disabled could forget. */
+const customStepSchema = z
+  .object({ body: z.string(), description: z.string(), saveToLibrary: z.boolean() })
+  .superRefine((values, ctx) => {
+    if (values.body.trim() === "") {
+      ctx.addIssue({ code: "custom", path: ["body"], message: "The prompt text is required" });
+    }
+    if (values.saveToLibrary && values.description.trim() === "") {
+      ctx.addIssue({ code: "custom", path: ["description"], message: "A saved prompt needs a short description" });
+    }
+  });
+
 /**
  * The shared prompt picker (spec 2026-09-28): the launch form's block stack
  * and the subshell menu's inject action both open THIS dialog, so "choose a
@@ -55,7 +73,9 @@ function loadDraft(mode: "multi" | "single"): PickerDraft | null {
  * the library that is OFF by default, because a prompt used once has not
  * earned a row. That step is durable (operator ruling 2026-09-29): the
  * draft rides sessionStorage until it is submitted, so a refresh mid-edit
- * loses nothing.
+ * loses nothing. Since the gating sweep (spec 2026-09-29) its submit is
+ * DISABLED until the step's schema is satisfied — the guard in onSubmit
+ * stays as the guarantee behind the explanation.
  *
  * `mode` survives as the COPY and STORAGE difference between the two
  * callers (a pick closes the dialog in both; the custom step names its
@@ -75,35 +95,81 @@ export function PromptPickerDialog({
   const { data, isLoading, isError } = usePrompts();
   const view: PromptsView = data ?? { own: [], shared: [] };
   const [tab, setTab] = useState<"own" | "shared">("own");
-  // The custom step: null = the list, set = the editor for one free-text
-  // block. A stored draft means the person was mid-edit when the page went
-  // away: reopen THERE, with the text, not at the list.
+  // The custom step: "list" = the list, "custom" = the editor for one
+  // free-text block. A stored draft means the person was mid-edit when the
+  // page went away: reopen THERE, with the text, not at the list.
   const [draft] = useState(() => loadDraft(mode));
-  const [customBody, setCustomBody] = useState<string | null>(draft?.body ?? null);
-  const [customDescription, setCustomDescription] = useState(draft?.description ?? "");
-  const [saveToLibrary, setSaveToLibrary] = useState(draft?.saveToLibrary ?? false);
-  const [customError, setCustomError] = useState<string | null>(null);
+  const [step, setStep] = useState<"list" | "custom">(draft === null ? "list" : "custom");
+  const [serverError, setServerError] = useState<string | null>(null);
   const create = useCreatePrompt();
 
+  const form = makeForm({
+    defaultValues: {
+      body: draft?.body ?? "",
+      description: draft?.description ?? "",
+      saveToLibrary: draft?.saveToLibrary ?? false,
+    },
+    validator: customStepSchema,
+    onSubmit: async ({ body, description, saveToLibrary }) => {
+      // The guard behind the gate (Enter-key paths, races): the button
+      // already refuses this draft, but the guarantee lives here.
+      if (body.trim() === "" || (saveToLibrary && description.trim() === "")) return;
+      setServerError(null);
+      const trimmed = { description: description.trim(), body, shared: false };
+      if (saveToLibrary) {
+        try {
+          await create.mutateAsync(trimmed);
+        } catch (err) {
+          setServerError(errMessage(err, "The prompt could not be saved"));
+          return;
+        }
+      }
+      // Submitted: the draft is spent, and the next "Write your own..." starts
+      // clean (the durability covers accidents, not a second copy of a sent
+      // prompt).
+      try {
+        sessionStorage.removeItem(draftKey(mode));
+      } catch {
+        // Nothing to do if even the removal fails.
+      }
+      onPick({
+        localId: newPromptLocalId(),
+        kind: "custom",
+        description: trimmed.description === "" ? "Untitled" : trimmed.description,
+        body,
+      });
+      onOpenChange(false);
+    },
+  });
+  const customDisabled = useSubmitDisabled(form, create.isPending);
+  // The draft-ruling effect writes what the person TYPES, so this component
+  // subscribes to the step's values — the same re-render `customBody` state
+  // produced before the substrate (spec 2026-09-29).
+  const customValues = useStore(form.store, (state) => state.values);
+
   useEffect(() => {
-    // null = the list step: leave the stored draft ALONE (Back to list
-    // keeps it; that is the point of the ruling). "" = the person opened
-    // the step and erased it (or never typed): there is no draft, and a
-    // stale key must not hijack the next open into an empty editor.
-    if (customBody === null) return;
+    // The list step: leave the stored draft ALONE (Back to list keeps it;
+    // that is the point of the ruling). On the step, an empty body (opened
+    // fresh, or erased) means there is no draft, and a stale key must not
+    // hijack the next open into an empty editor.
+    if (step !== "custom") return;
     try {
-      if (customBody === "") {
+      if (customValues.body === "") {
         sessionStorage.removeItem(draftKey(mode));
       } else {
         sessionStorage.setItem(
           draftKey(mode),
-          JSON.stringify({ body: customBody, description: customDescription, saveToLibrary } satisfies PickerDraft),
+          JSON.stringify({
+            body: customValues.body,
+            description: customValues.description,
+            saveToLibrary: customValues.saveToLibrary,
+          } satisfies PickerDraft),
         );
       }
     } catch {
       // Storage full or blocked: the draft just is not durable this time.
     }
-  }, [mode, customBody, customDescription, saveToLibrary]);
+  }, [mode, step, customValues]);
 
   const rows = tab === "own" ? view.own : view.shared;
   const emptyText = isLoading ? (
@@ -137,54 +203,17 @@ export function PromptPickerDialog({
     onOpenChange(false);
   }
 
-  async function submitCustom() {
-    const body = customBody ?? "";
-    if (body.trim() === "") {
-      setCustomError("The prompt text is required");
-      return;
-    }
-    const description = customDescription.trim();
-    if (saveToLibrary && description === "") {
-      setCustomError("A saved prompt needs a short description");
-      return;
-    }
-    setCustomError(null);
-    if (saveToLibrary) {
-      try {
-        await create.mutateAsync({ description, body, shared: false });
-      } catch (err) {
-        setCustomError(errMessage(err, "The prompt could not be saved"));
-        return;
-      }
-    }
-    // Submitted: the draft is spent, and the next "Write your own..." starts
-    // clean (the durability covers accidents, not a second copy of a sent
-    // prompt).
-    try {
-      sessionStorage.removeItem(draftKey(mode));
-    } catch {
-      // Nothing to do if even the removal fails.
-    }
-    onPick({
-      localId: newPromptLocalId(),
-      kind: "custom",
-      description: description === "" ? "Untitled" : description,
-      body,
-    });
-    onOpenChange(false);
-  }
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{customBody === null ? "Add a prompt" : "Write your own"}</DialogTitle>
+          <DialogTitle>{step === "custom" ? "Write your own" : "Add a prompt"}</DialogTitle>
           <DialogDescription>
             {mode === "multi" ? "Pick one; press Add prompt again for the next." : "One prompt, typed into the pane."}
           </DialogDescription>
         </DialogHeader>
 
-        {customBody === null ? (
+        {step === "list" ? (
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <Segmented
@@ -229,11 +258,10 @@ export function PromptPickerDialog({
               type="button"
               className="flex w-full items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-left text-label hover:bg-accent/40"
               onClick={() => {
-                // Resume a stored draft if one exists (the ruling is
-                // "until submission"): a list->step->list->step walk must
-                // not discard half-typed text.
-                setCustomBody(loadDraft(mode)?.body ?? "");
-                setCustomError(null);
+                // The form already holds the draft (or an empty body): the
+                // step just becomes visible. Resume-a-stored-draft is the
+                // mount seeding above.
+                setStep("custom");
               }}
             >
               <PenLine className="h-4 w-4 text-muted-foreground" />
@@ -242,52 +270,80 @@ export function PromptPickerDialog({
           </div>
         ) : (
           <div className="space-y-3">
-            <Textarea
-              value={customBody}
-              rows={6}
-              autoFocus
-              placeholder="The text to type into the pane"
-              onChange={(e) => setCustomBody(e.target.value)}
-            />
-            <div className="flex items-center gap-3">
-              <Switch
-                id="prompt-picker-save-switch"
-                checked={saveToLibrary}
-                onCheckedChange={(checked) => setSaveToLibrary(checked === true)}
-              />
-              <Label htmlFor="prompt-picker-save-switch">Save to my prompts</Label>
-            </div>
-            {saveToLibrary && (
-              <Input
-                value={customDescription}
-                maxLength={120}
-                placeholder="Short label for discoverability"
-                aria-label="Prompt description"
-                onChange={(e) => setCustomDescription(e.target.value)}
-              />
+            <form.Field name="body">
+              {(field) => (
+                <>
+                  <Textarea
+                    value={field.state.value}
+                    rows={6}
+                    autoFocus
+                    placeholder="The text to type into the pane"
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                  />
+                  {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
+                    <p role="alert" className="text-destructive text-detail">
+                      {fieldError(field.state.meta.errors)}
+                    </p>
+                  )}
+                </>
+              )}
+            </form.Field>
+            <form.Field name="saveToLibrary">
+              {(field) => (
+                <div className="flex items-center gap-3">
+                  <Switch
+                    id="prompt-picker-save-switch"
+                    checked={field.state.value}
+                    onCheckedChange={(checked) => field.handleChange(checked === true)}
+                  />
+                  <Label htmlFor="prompt-picker-save-switch">Save to my prompts</Label>
+                </div>
+              )}
+            </form.Field>
+            {customValues.saveToLibrary && (
+              <form.Field name="description">
+                {(field) => (
+                  <>
+                    <Input
+                      value={field.state.value}
+                      maxLength={120}
+                      placeholder="Short label for discoverability"
+                      aria-label="Prompt description"
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                    />
+                    {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
+                      <p role="alert" className="text-destructive text-detail">
+                        {fieldError(field.state.meta.errors)}
+                      </p>
+                    )}
+                  </>
+                )}
+              </form.Field>
             )}
-            {customError && (
+            {serverError && (
               <p role="alert" className="text-destructive text-detail">
-                {customError}
+                {serverError}
               </p>
             )}
           </div>
         )}
 
         <DialogFooter>
-          {customBody !== null && (
+          {step === "custom" && (
             <Button
               variant="outline"
               onClick={() => {
-                setCustomBody(null);
-                setCustomError(null);
+                setStep("list");
+                setServerError(null);
               }}
             >
               Back to list
             </Button>
           )}
-          {customBody !== null ? (
-            <Button onClick={() => void submitCustom()} disabled={create.isPending}>
+          {step === "custom" ? (
+            <Button onClick={() => void form.handleSubmit()} disabled={customDisabled}>
               {create.isPending ? "Saving…" : mode === "multi" ? "Add to stack" : "Use prompt"}
             </Button>
           ) : (

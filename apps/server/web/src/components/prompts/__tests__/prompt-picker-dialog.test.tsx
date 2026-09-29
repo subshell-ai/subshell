@@ -149,6 +149,23 @@ describe("PromptPickerDialog", () => {
     expect(screen.getByText(/No shared prompts yet/)).toBeDefined();
   });
 
+  const addStackButton = () => screen.getByRole("button", { name: "Add to stack" }) as HTMLButtonElement;
+
+  it("the step's submit is DISABLED until its requirements are filled (gating sweep 2026-09-29)", async () => {
+    restore = mockFetch([], []).restore;
+    renderPicker({ onPick: () => {} });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
+    // Pristine: the body is empty, so the button is born dead — and quiet
+    // (no red sentence on a field nobody touched).
+    expect(addStackButton().disabled).toBe(true);
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("The text to type into the pane"), {
+      target: { value: "do the thing" },
+    });
+    expect(addStackButton().disabled).toBe(false);
+  });
+
   it("Write your own saves only with the switch on, and needs a description then", async () => {
     const m = mockFetch([], []);
     restore = m.restore;
@@ -160,12 +177,13 @@ describe("PromptPickerDialog", () => {
       target: { value: "do the thing" },
     });
     // No switch: a one-off, nothing hits the library.
-    fireEvent.click(screen.getByRole("button", { name: "Add to stack" }));
-    expect(picked.map((b) => b.kind)).toEqual(["custom"]);
+    fireEvent.click(addStackButton());
+    await waitFor(() => expect(picked.length).toBe(1)); // handleSubmit is async
+    expect(picked[0].kind).toBe("custom");
     expect(m.posts.length).toBe(0);
   });
 
-  it("with the save switch on a description is required, then the POST rides", async () => {
+  it("with the save switch on a description is required: the gate closes BEFORE any click", async () => {
     const m = mockFetch([], []);
     restore = m.restore;
     const picked: PromptBlock[] = [];
@@ -175,14 +193,23 @@ describe("PromptPickerDialog", () => {
     fireEvent.change(screen.getByPlaceholderText("The text to type into the pane"), {
       target: { value: "do the thing" },
     });
+    expect(addStackButton().disabled).toBe(false);
     // getByLabelText misses the Base UI switch under happy-dom; the role is
-    // unique here.
+    // unique here. Flipping it makes the empty description required — the
+    // gate closes on the SWITCH, not on a click.
     fireEvent.click(screen.getByRole("switch"));
-    fireEvent.click(screen.getByRole("button", { name: "Add to stack" }));
+    expect(addStackButton().disabled).toBe(true);
+    // The sentence explains once the field has been touched (blur), not
+    // before: the disabled button never has to throw away its press.
+    const desc = screen.getByLabelText("Prompt description") as HTMLInputElement;
+    fireEvent.change(desc, { target: { value: " " } });
+    fireEvent.blur(desc);
     expect(screen.getByRole("alert").textContent).toContain("short description");
+    fireEvent.click(addStackButton()); // disabled: inert even if reached
     expect(picked.length).toBe(0);
-    fireEvent.change(screen.getByLabelText("Prompt description"), { target: { value: "The thing" } });
-    fireEvent.click(screen.getByRole("button", { name: "Add to stack" }));
+    fireEvent.change(desc, { target: { value: "The thing" } });
+    expect(addStackButton().disabled).toBe(false);
+    fireEvent.click(addStackButton());
     await waitFor(() => expect(m.posts.length).toBe(1));
     expect(m.posts[0].body).toEqual({ description: "The thing", body: "do the thing", shared: false });
     await waitFor(() => expect(picked.length).toBe(1));
@@ -225,8 +252,10 @@ describe("PromptPickerDialog", () => {
     expect((screen.getByPlaceholderText("The text to type into the pane") as HTMLTextAreaElement).value).toBe(
       "half an idea",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Add to stack" }));
-    expect(picked.length).toBe(1);
+    // The seeded draft satisfies the gate: the restored step is submittable.
+    expect(addStackButton().disabled).toBe(false);
+    fireEvent.click(addStackButton());
+    await waitFor(() => expect(picked.length).toBe(1)); // handleSubmit is async
 
     // Submitted: spent. The next open starts at the list, not the draft.
     cleanup();
