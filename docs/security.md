@@ -574,7 +574,8 @@ also visible to any local process that can read `/proc/<pid>/environ`, `ps`
 output, or tmux pane metadata. Accepted (§11).
 
 **What that token actually carries.** `permissions: { channels: ["read",
-"write"], subshells: ["read", "write"] }` (`services/subshell-tokens.ts:31`):
+"write"], subshells: ["read", "write"], prompts: ["read", "write"] }`
+(`services/subshell-tokens.ts:31`):
 the map is a coarse scope gate, not a row fence. The MCP tools self-restrict
 the pane to its own row for reporting, but the raw REST surface resolves the
 token as its OWNER with the boost and shares switched off (§3), which means a
@@ -585,6 +586,20 @@ written accounting of the sibling surface the "other panes are agents"
 coordination posture rests on, and it is stated plainly for that reason:
 intra-instance coordination is trusted at the same altitude as the harness
 itself (§11).
+
+**Prompts: the bearer gets full CRUD, the share flip included** (operator
+ruling, spec 2026-09-28). `/api/prompts` writes are NOT cookie-only, unlike
+preset writes: a prompt body is plain text with no credential layer behind
+it, and the ruling gave panes the whole surface. The disclosure that follows
+is bounded and stated: a `shared: true` row becomes readable by every signed
+in account, which widens exposure only to accounts the operator already
+admitted to a trusted-network instance (§0). A foreign prompt is 404 on every
+path, and the list read never returns another owner's unshared rows. The one
+backward-compat concession lives in `requirePerm`: a bearer map carrying
+`channels` but no `prompts` key was minted before the feature and passes the
+prompts check (self-extension never re-mints the map); any map carrying the
+key is gated verbatim, and a map that is not a recognizable legacy shape
+denies.
 
 **The harness self-report class.** A handful of routes exist for the pane to
 report its OWN state, and each accepts only that pane's own key: `POST
