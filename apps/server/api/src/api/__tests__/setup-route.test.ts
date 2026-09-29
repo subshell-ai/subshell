@@ -160,6 +160,9 @@ describe("/api/setup/harnesses conditional auth", () => {
     });
 
     it("carries the vendor's own update command on the claude-code row, and no key where none is declared", async () => {
+      // The test above returned the probe to the real DB; a full-suite run has
+      // users by now, so this one drives the seam itself.
+      setHasUsersProbeForTests(async () => false);
       const res = await anonymousGet("/api/setup/harnesses");
       const rows = (await res.json()) as { id: string; update?: string }[];
       expect(rows.find((r) => r.id === "claude-code")?.update).toBe("claude update");
