@@ -203,6 +203,35 @@ export function PromptPickerBody({
     // confirm.
   }
 
+  // The buttons as a VALUE, not a nested component: a function defined
+  // inside the body would get a fresh identity every render, remounting
+  // the Buttons on every keystroke and dropping a keyboard user's focus
+  // exactly when a save error appears (round-11 review).
+  const actions = (
+    <>
+      {step === "custom" && (
+        <Button
+          variant="outline"
+          onClick={() => {
+            setStep("list");
+            setServerError(null);
+          }}
+        >
+          Back to list
+        </Button>
+      )}
+      {step === "custom" ? (
+        <Button onClick={() => void form.handleSubmit()} disabled={customDisabled}>
+          {create.isPending ? "Saving…" : mode === "multi" ? "Add to stack" : "Use prompt"}
+        </Button>
+      ) : (
+        <Button variant="outline" onClick={onExit}>
+          Done
+        </Button>
+      )}
+    </>
+  );
+
   const heading = step === "custom" ? "Write your own" : "Add a prompt";
   const blurb =
     mode === "multi" ? "Pick one; press Add prompt again for the next." : "One prompt, typed into the pane.";
@@ -339,41 +368,10 @@ export function PromptPickerBody({
       )}
 
       {surface === "dialog" ? (
-        <DialogFooter>
-          <Actions />
-        </DialogFooter>
+        <DialogFooter>{actions}</DialogFooter>
       ) : (
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <Actions />
-        </div>
+        <div className="flex items-center justify-end gap-2 pt-1">{actions}</div>
       )}
     </div>
   );
-
-  function Actions() {
-    return (
-      <>
-        {step === "custom" && (
-          <Button
-            variant="outline"
-            onClick={() => {
-              setStep("list");
-              setServerError(null);
-            }}
-          >
-            Back to list
-          </Button>
-        )}
-        {step === "custom" ? (
-          <Button onClick={() => void form.handleSubmit()} disabled={customDisabled}>
-            {create.isPending ? "Saving…" : mode === "multi" ? "Add to stack" : "Use prompt"}
-          </Button>
-        ) : (
-          <Button variant="outline" onClick={onExit}>
-            Done
-          </Button>
-        )}
-      </>
-    );
-  }
 }
