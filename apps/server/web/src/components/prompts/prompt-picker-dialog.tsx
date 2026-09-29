@@ -1,7 +1,6 @@
 import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
 import { PenLine } from "lucide-react";
-import { useState } from "react";
-import { SearchableSelect } from "@/components/ui/combobox";
+import { useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +13,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreatePrompt, usePrompts } from "@/hooks/use-prompts";
 import type { PromptBlock } from "@/lib/prompt-stack";
-import type { PromptsView } from "@/lib/prompts";
+import { matchesPromptQuery, type PromptsView } from "@/lib/prompts";
 
 /**
  * The shared prompt picker (spec 2026-09-28): the launch form's block stack
@@ -43,6 +42,7 @@ export function PromptPickerDialog({
   const { data } = usePrompts();
   const view: PromptsView = data ?? { own: [], shared: [] };
   const [tab, setTab] = useState<"own" | "shared">("own");
+  const [query, setQuery] = useState("");
   // The custom step: null = the list, set = the editor for one free-text block.
   const [customBody, setCustomBody] = useState<string | null>(null);
   const [customDescription, setCustomDescription] = useState("");
@@ -50,9 +50,10 @@ export function PromptPickerDialog({
   const [customError, setCustomError] = useState<string | null>(null);
   const create = useCreatePrompt();
 
-  // The combobox owns the filtering now (label + searchText, which carries
-  // the body); this list is just the active tab.
-  const rows = tab === "own" ? view.own : view.shared;
+  const rows = useMemo(
+    () => (tab === "own" ? view.own : view.shared).filter((p) => matchesPromptQuery(p, query)),
+    [view, tab, query],
+  );
 
   function pick(row: { id: string; description: string; body: string }) {
     onPick({
@@ -127,24 +128,39 @@ export function PromptPickerDialog({
               <Label htmlFor="prompt-picker-search" className="sr-only">
                 Search prompts
               </Label>
-              {/* The consumed posture, shared with "Copy settings from": the
-                  pick is an action, so the input returns to its placeholder
-                  and the next pick starts fresh. */}
-              <SearchableSelect
+              <Input
                 id="prompt-picker-search"
-                value=""
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search prompts"
-                options={rows.map((p) => ({
-                  value: p.id,
-                  label: p.description,
-                  searchText: p.body,
-                  reason: p.body.split("\n", 1)[0],
-                }))}
-                onValueChange={(id) => {
-                  const row = rows.find((p) => p.id === id);
-                  if (row) pick(row);
-                }}
               />
+              {/* The picker's list IN FLOW, styled like the combobox popup.
+                  A real Base UI Combobox popup portals to the document body;
+                  inside a dialog-on-a-dialog (this dialog sits on the launch
+                  dialog) its rows never committed a click in the operator's
+                  browser (2026-09-29), while in-flow rows had worked all
+                  along. The look is the same; the DOM stays inside the
+                  dialog, where focus has nothing to fight over. */}
+              <div className="max-h-64 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
+                {rows.length === 0 && (
+                  <p className="px-2 py-1.5 text-detail text-muted-foreground">
+                    {view.own.length + view.shared.length === 0 ? "No prompts yet." : "No matches."}
+                  </p>
+                )}
+                {rows.map((p) => (
+                  <button
+                    type="button"
+                    key={p.id}
+                    className="flex w-full items-center gap-3 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                    onClick={() => pick(p)}
+                  >
+                    <span className="min-w-0 shrink truncate font-strong">{p.description}</span>
+                    <span className="ml-auto min-w-0 max-w-[45%] truncate text-detail text-muted-foreground">
+                      {p.body.split("\n", 1)[0]}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
             <button
               type="button"

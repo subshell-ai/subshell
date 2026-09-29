@@ -13,13 +13,6 @@ export interface ComboboxOption {
   reason?: string;
   /** Node shown before the label (aria-hidden — the accessible name stays the label) */
   icon?: ReactNode;
-  /**
-   * Extra text the query is matched against, NOT shown on the row. Exists
-   * for callers whose search is broader than the label (the prompt picker
-   * matches description OR body, spec 2026-09-28) — without it the shared
-   * filter would silently narrow those fields to label-only.
-   */
-  searchText?: string;
 }
 
 export interface SearchableSelectProps {
@@ -88,9 +81,7 @@ export function SearchableSelect({
         scrollerRef.current = null;
         if (saved?.el.isConnected && saved.el.scrollTop !== saved.top) saved.el.scrollTop = saved.top;
       }}
-      filter={(item: ComboboxOption, query: string) =>
-        `${item.label} ${item.searchText ?? ""}`.toLowerCase().includes(query.toLowerCase())
-      }
+      filter={(item: ComboboxOption, query: string) => item.label.toLowerCase().includes(query.toLowerCase())}
     >
       <ComboboxPrimitive.Input
         id={id}

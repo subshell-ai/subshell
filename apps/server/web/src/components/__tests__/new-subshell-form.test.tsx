@@ -190,15 +190,6 @@ function mockFetch(
 /** Flush pending query/effect updates inside act() — 50 ms is generous for
  *  these Promise.resolve-backed mocks, and it keeps "not wrapped in act" out
  *  of the log (see the ffe50bc warning-flood fix). */
-function openPickerSearch(): void {
-  const input = document.querySelector("#prompt-picker-search") as Element;
-  fireEvent.pointerDown(input);
-  fireEvent.pointerUp(input);
-  fireEvent.mouseDown(input);
-  fireEvent.mouseUp(input);
-  fireEvent.click(input);
-}
-
 async function settle(): Promise<void> {
   await act(async () => {
     await new Promise((r) => setTimeout(r, 50));
@@ -1211,19 +1202,15 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
 
       // Open the picker; a pick closes it (decisive-action redesign,
       // operator report 2026-09-29), so the second add reopens. The list is
-      // the shared SearchableSelect combobox, whose popup opens on a real
-      // pointer, not a bare click.
+      // in-flow inside the dialog (the portal popup failed the operator's
+      // browser), so a bare click commits.
       fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
-      await settle();
-      openPickerSearch();
       await settle();
       fireEvent.click(await screen.findByText("Kickoff"));
       await settle();
       expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff"]);
       expect(latest().promptBlocks[0].promptId).toBe("pr1");
       fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
-      await settle();
-      openPickerSearch();
       await settle();
       fireEvent.click(screen.getByText("Review"));
       await settle();
