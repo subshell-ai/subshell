@@ -20,7 +20,7 @@ import { matchesPromptQuery, type PromptsView } from "@/lib/prompts";
  * and the subshell menu's inject action both open THIS dialog, so "choose a
  * prompt" looks and behaves the same in both. Search matches description or
  * body; the own/shared tabs are the same question the page answers.
- * "Write your own..." is the pinned first row: a one-off typed right here,
+ * "Write your own..." sits under the list: a one-off typed right here,
  * with an optional save into the library that is OFF by default, because a
  * prompt used once has not earned a row.
  *
@@ -39,7 +39,7 @@ export function PromptPickerDialog({
   mode: "multi" | "single";
   onPick: (block: PromptBlock) => void;
 }) {
-  const { data } = usePrompts();
+  const { data, isLoading } = usePrompts();
   const view: PromptsView = data ?? { own: [], shared: [] };
   const [tab, setTab] = useState<"own" | "shared">("own");
   const [query, setQuery] = useState("");
@@ -141,7 +141,9 @@ export function PromptPickerDialog({
                   along. The look is the same; the DOM stays inside the
                   dialog, where focus has nothing to fight over. */}
               <div className="max-h-64 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
-                {rows.length === 0 && (
+                {/* The page's rule (routes/prompts.tsx): the empty sentence
+                    answers a LOADED library, never a request in flight. */}
+                {rows.length === 0 && !isLoading && (
                   <p className="px-2 py-1.5 text-detail text-muted-foreground">
                     {query.trim() === ""
                       ? tab === "own"

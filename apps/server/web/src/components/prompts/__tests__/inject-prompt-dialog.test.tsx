@@ -14,18 +14,24 @@ import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
  */
 
 function Harness({ onClosed }: { onClosed: (v: boolean) => void }) {
-  // The menu's real posture: mount-while-open, close unmounts.
+  // The menu's real posture (subshell-actions-menu.tsx:298): mount-while-
+  // open, close UNMOUNTS, so a close that reaches here really does discard
+  // the subtree's state.
   const [open, setOpen] = useState(true);
   return (
-    <InjectPromptDialog
-      subshellId="s1"
-      subshellName="Pane"
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        onClosed(next);
-      }}
-    />
+    <>
+      {open && (
+        <InjectPromptDialog
+          subshellId="s1"
+          subshellName="Pane"
+          open
+          onOpenChange={(next) => {
+            setOpen(next);
+            onClosed(next);
+          }}
+        />
+      )}
+    </>
   );
 }
 
@@ -114,6 +120,22 @@ describe("InjectPromptDialog", () => {
     await waitFor(() => expect(m.inputPosts.length).toBe(1));
     expect(m.inputPosts[0]).toEqual({ text: "start the task", submit: false });
     await waitFor(() => expect(closes).toEqual([false]));
+  });
+
+  it("after a pick and Back, the NEXT Done still reaches the owner", async () => {
+    // Pins the justPicked flag's CLEARING: a wrapper that absorbs the
+    // pick-close but stays armed would swallow this dismissal (the flow
+    // could never be left again), and nothing else in the suite fails.
+    const m = mockFetch();
+    restore = m.restore;
+    const { closes } = renderDialog();
+    await settle();
+    fireEvent.click(screen.getByText("Kickoff"));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(closes).toEqual([false]);
   });
 
   it("a non-pick close (Done) reaches the owner and ends the flow", async () => {
