@@ -5,7 +5,7 @@ import { restartSeams } from "@/api/admin-server/restart.route.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import type { DeploymentView } from "@/services/server-deployment.js";
+import { type DeploymentView, RESTART_CONTAINERIZED_REASON } from "@/services/server-deployment.js";
 import { authedRequest } from "../../__tests__/helpers/auth-tables.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "./fixture.js";
 
@@ -104,11 +104,7 @@ describe("POST /api/admin/server/restart", () => {
     restartSeams.deployment = () => ({
       ...viewWith({ supervised: false, paneSafety: "keeps" }),
       containerized: true,
-      restart: {
-        available: false,
-        reason:
-          "This server runs inside a container, where the image is the unit of update. Pull a new image and recreate the container; from the Proxmox helper install, that is: bash proxmox.sh update on the host.",
-      },
+      restart: { available: false, reason: RESTART_CONTAINERIZED_REASON },
     });
     const res = await app.fetch(post(fx.adminCookie, {}));
     expect(res.status).toBe(409);

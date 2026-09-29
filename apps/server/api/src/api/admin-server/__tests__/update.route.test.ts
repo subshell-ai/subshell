@@ -10,7 +10,7 @@ import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import type { CliReleaseCheck, ResolvedRelease } from "@/services/releases.js";
 import { setReleaseUrlForTests } from "@/services/releases.js";
-import type { DeploymentView } from "@/services/server-deployment.js";
+import { type DeploymentView, RESTART_CONTAINERIZED_REASON } from "@/services/server-deployment.js";
 import { resetUpdateJobForTests } from "@/services/server-update.js";
 import { clearPending, updateDir } from "@/services/update-transaction.js";
 import { SERVER_VERSION } from "@/version.js";
@@ -145,10 +145,7 @@ describe("POST /api/admin/server/update", () => {
     updateSeams.deployment = () => ({
       ...viewWith({ supervised: false, paneSafety: "keeps" }),
       containerized: true,
-      restart: {
-        available: false,
-        reason: "This server runs inside a container, where the image is the unit of update.",
-      },
+      restart: { available: false, reason: RESTART_CONTAINERIZED_REASON },
     });
     const res = await app.fetch(post(fx.adminCookie, {}));
     expect(await code(res)).toBe("UPDATE_CONTAINERIZED");

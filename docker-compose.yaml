@@ -21,7 +21,9 @@ services:
       # recent paths and session paths stored in the DB resolve unchanged.
       - ${PROJECTS_DIR:-$HOME/projects}:${PROJECTS_DIR:-$HOME/projects}:rw
       # The image now bakes harness CLIs; these mounts OVERRIDE them with the
-      # host's binaries/state when that is what you want.
+      # host's binaries/state when that is what you want. The baked CLIs live
+      # under uid 1000's home: running as a different host UID, mount your own
+      # CLIs the way CLAUDE_BIN below does.
       #
       # DESTINATIONS ARE THE CONTAINER'S HOME (/home/subshell), not the host's:
       # the Dockerfile pins HOME=/home/subshell (the runtime uid has no passwd

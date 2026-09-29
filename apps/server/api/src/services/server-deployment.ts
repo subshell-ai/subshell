@@ -193,8 +193,13 @@ export function settingSource(
 const RESTART_UNSUPERVISED_REASON =
   "This server is not running under a service manager; restart it where you started it.";
 
-/** Why the image, not this process, is the unit of update (spec 2026-09-28 § 6). */
-const RESTART_CONTAINERIZED_REASON =
+/**
+ * Why the image, not this process, is the unit of update (spec 2026-09-28 § 6).
+ *
+ * Exported so the route tests build their fixtures FROM the string the route
+ * produces: a hand-copied reason drifts and the test passes silently.
+ */
+export const RESTART_CONTAINERIZED_REASON =
   "This server runs inside a container, where the image is the unit of update. Pull a new image and recreate the container; from the Proxmox helper install, that is: bash proxmox.sh update on the host.";
 
 /**

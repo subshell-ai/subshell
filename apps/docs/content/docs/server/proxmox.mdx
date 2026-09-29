@@ -15,7 +15,7 @@ curl -fsSL https://subshell.sh/proxmox.sh | bash
 
 With no argument the script opens a menu; with the file saved on the host, `bash proxmox.sh install` runs the install directly. The prompts ask for the container ID (the next free one is suggested), the hostname, cores (default 1), memory in MB (default 2048), disk in GB (default 8), the network bridge (default `vmbr0`), and the port the web UI maps on the container (default 3080). Set `PVE_NO_PROMPT=1` to take every default for an unattended run.
 
-The script fetches the newest Debian 13 standard template if the host does not already have one, creates the container unprivileged with the `nesting=1` feature, copies in the host's SSH public key when one exists, and installs Docker inside the container through the vendor script. The container's root password is generated on the way and printed once at install; note it down.
+The script fetches the newest Debian 13 standard template if the host does not already have one, creates the container unprivileged with the `nesting=1` feature, copies in the host's ed25519 or rsa public key when one exists, and installs Docker inside the container through the vendor script. The container's root password is generated on the way and printed once at install; note it down.
 
 ## First run
 
@@ -24,8 +24,10 @@ When the install finishes it prints an address like `http://10.0.0.5:3080`. Open
 ## Updating
 
 ```bash
-bash proxmox.sh update
+bash /root/proxmox.sh update
 ```
+
+A successful install saves the script to `/root/proxmox.sh` for exactly this, because a `curl | bash` install leaves no file on the host. A copy you kept works the same (`bash proxmox.sh update`), and so does re-running the one-liner with the verb: `curl -fsSL https://subshell.sh/proxmox.sh | bash -s -- update`.
 
 The script asks which container to update, pulls the new image inside it, renames the old container aside, and starts the new one. If the new container does not answer the server's setup status within two minutes, the old one is restored and the failure is reported; a pull that fails changes nothing at all. Data survives every update, running panes do not: the Subshell container owns its tmux server, and recreating it ends that process. [Run in Docker](/server/docker) covers the same shape in the plain-container spelling, and the dashboard's update card on a containerized install names this remedy.
 

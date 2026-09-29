@@ -44,6 +44,9 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     outputs:
+      # Both matrix legs validate the same event-derived version with the same
+      # guard, so they emit the identical string and last-finisher-wins here
+      # is by construction, not a race.
       version: ${{ steps.plan.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -65,9 +68,9 @@ jobs:
             TAG="cli-server-v$DISPATCH_VERSION"
           fi
           VERSION="${TAG#cli-server-v}"
-          # A pre-release tag (1.6.0-rc.1) fails this grep on purpose: the
+          # A pre-release tag (1.6.0-rc.1) fails this guard on purpose: the
           # image rail packages full releases only.
-          printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::not a semver: $VERSION"; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a semver: $VERSION"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Download the release assets
