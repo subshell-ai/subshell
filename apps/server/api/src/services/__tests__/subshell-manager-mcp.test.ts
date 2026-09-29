@@ -106,8 +106,13 @@ let presetId: string;
 let previousClaudePath: string | undefined;
 
 beforeAll(async () => {
+  // The `--version` arm answers the launch stamp's version probe (spec
+  // 2026-09-28 §3) like a real CLI; a bare `exec sleep 300` would make every
+  // create pay the probe's 4 s timeout. The pane still runs the sleep tail.
   const harnessStub = join(testDir, "claude-stub");
-  writeFileSync(harnessStub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+  writeFileSync(harnessStub, '#!/bin/sh\nif [ "$1" = "--version" ]; then echo 9.9.9; exit 0; fi\nexec sleep 300\n', {
+    mode: 0o755,
+  });
   previousClaudePath = process.env.CLAUDE_PATH;
   process.env.CLAUDE_PATH = harnessStub;
 

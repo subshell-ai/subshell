@@ -129,8 +129,14 @@ beforeAll(async () => {
   // findBinary() consults, so point it at a stub that merely stays alive long
   // enough for the tmux liveness assertions. This also stops the suite from
   // spawning the operator's actual agent.
+  // The `--version` arm answers the launch stamp's version probe (spec
+  // 2026-09-28 §3) like a real CLI would — print and exit — instead of
+  // `exec sleep 300` (which would make every create pay the probe's 4 s
+  // timeout before returning). The pane itself still runs the sleep tail.
   const harnessStub = join(testDir, "claude-stub");
-  writeFileSync(harnessStub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+  writeFileSync(harnessStub, '#!/bin/sh\nif [ "$1" = "--version" ]; then echo 9.9.9; exit 0; fi\nexec sleep 300\n', {
+    mode: 0o755,
+  });
   previousClaudePath = process.env.CLAUDE_PATH;
   process.env.CLAUDE_PATH = harnessStub;
 
@@ -1055,7 +1061,18 @@ describe("SubshellManagerService restart-resume", () => {
   }> {
     const argFile = join(testDir, `${name}-argv.txt`);
     const stub = join(testDir, `${name}-stub`);
-    writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argFile}'\nexec sleep 300\n`, { mode: 0o755 });
+    // The `--version` guard keeps the launch stamp's version probe (spec
+    // 2026-09-28 §3) from clobbering the recorded LAUNCH argv: a probe writes
+    // a version and exits without touching argFile, so argv() can only ever
+    // resolve to the pane's real command line. Without the guard the probe
+    // also hangs the 4 s timeout (its `exec sleep` never prints a version).
+    writeFileSync(
+      stub,
+      `#!/bin/sh\nif [ "$1" = "--version" ]; then echo 9.9.9; exit 0; fi\nprintf '%s\\n' "$@" > '${argFile}'\nexec sleep 300\n`,
+      {
+        mode: 0o755,
+      },
+    );
     const savedClaudePath = process.env.CLAUDE_PATH;
     const savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
     const configDir = mkdtempSync(join(testDir, `${name}-claudecfg-`));

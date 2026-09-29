@@ -69,6 +69,21 @@ export interface NodeLauncher {
   validateWorkingDir(raw: string): Promise<string>;
   /** Absolute path of the harness binary on the target machine, null if absent. */
   resolveBinary(harness: HarnessPlugin): Promise<string | null>;
+  /**
+   * The version string to stamp the row with after a successful launch
+   * (spec 2026-09-28 §3). `local` PROBES the binary it just used (exact);
+   * the remote launcher answers from the node's cached inventory, which is
+   * the same snapshot the launch's binary resolution believed in. Null means
+   * "unknown" and the row says so.
+   */
+  launchedHarnessVersion(harness: HarnessPlugin, binary: string | null): Promise<string | null>;
+  /**
+   * After a stamp lands, ask the node to re-detect and re-stamp THIS pane
+   * once (no-op on `local`, whose stamp came from a live probe). `expected`
+   * is the value just written: the re-stamp is compare-and-set against it,
+   * so a restart that has since re-stamped the row is never laundered.
+   */
+  kickHarnessVersionRefresh(subshellId: string, expected: string | null): void;
   /** Starts one harness from a plan; throws on failure unless plan.bestEffortLog covers a step. */
   launch(plan: LaunchPlan): Promise<void>;
   /** Strict kill of the tmux subshell — throws when tmux refuses (unlike {@link killSubshell}). */

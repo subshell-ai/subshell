@@ -251,6 +251,121 @@ describe("createSubshell — the post-spawn re-read", () => {
   });
 });
 
+describe("harness version stamping on launch (spec 2026-09-28 §3)", () => {
+  /** `maybeAutoRestart` is the sweep's own guard; the sweep calls it privately. */
+  const attempt = (manager: SubshellManagerService, row: SubshellTable): Promise<boolean> =>
+    (manager as unknown as { maybeAutoRestart(r: SubshellTable): Promise<boolean> }).maybeAutoRestart(row);
+
+  it("a create stamps the version the launcher reported and hands it to the refresh kick", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    fake.harnessVersionToReport = "2.1.283";
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const created = await manager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: "/tmp",
+        nodeId,
+      });
+      try {
+        expect((await subshellsRepo.findById(created.id))?.harnessVersion).toBe("2.1.283");
+        expect(fake.refreshKicks).toEqual([{ subshellId: created.id, expected: "2.1.283" }]);
+      } finally {
+        await subshellsRepo.delete(created.id);
+      }
+    } finally {
+      off();
+    }
+  });
+
+  it("an unknown version keeps the row null; the kick still rides with null", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir); // reports null (the default)
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const created = await manager.createSubshell({
+        userId: "u1",
+        harnessId: "claude-code",
+        presetId,
+        workingDir: "/tmp",
+        nodeId,
+      });
+      try {
+        expect((await subshellsRepo.findById(created.id))?.harnessVersion).toBeNull();
+        expect(fake.refreshKicks).toEqual([{ subshellId: created.id, expected: null }]);
+      } finally {
+        await subshellsRepo.delete(created.id);
+      }
+    } finally {
+      off();
+    }
+  });
+
+  it("a REFUSED launch stamps nothing: the row rolls back with its version untouched", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    fake.harnessVersionToReport = "2.1.283"; // the stamp MUST NOT run: launch throws first
+    fake.launchError = new NodeRpcError("failed", "node refused", nodeId);
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const err = await manager
+        .createSubshell({ userId: "u1", harnessId: "claude-code", presetId, workingDir: "/tmp", nodeId })
+        .then(
+          () => null,
+          (e: unknown) => e,
+        );
+      expect(err).toBeInstanceOf(NodeRpcError);
+      expect(fake.plans).toEqual([]); // the launch itself was refused
+      expect(fake.refreshKicks).toEqual([]); // …so no stamp landed and no kick fired
+      // The rolled-back row (terminated by the create catch) holds no stamp.
+      const row = fake.kills.length > 0 ? await subshellsRepo.findById(fake.kills[0]) : undefined;
+      expect(row?.harnessVersion ?? null).toBeNull();
+    } finally {
+      off();
+    }
+  });
+
+  it("a revive re-stamps the parked row through the SAME seam (auto-restart)", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    fake.harnessVersionToReport = "2.1.284";
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const row = await parkedRow(nodeId); // harnessVersion null at seed
+      expect(await attempt(manager, row)).toBe(true);
+      expect((await subshellsRepo.findById(row.id))?.harnessVersion).toBe("2.1.284");
+      expect(fake.refreshKicks).toEqual([{ subshellId: row.id, expected: "2.1.284" }]);
+    } finally {
+      off();
+    }
+  });
+
+  it("a failing revive never stamps: a launch throw leaves the parked row's version alone", async () => {
+    const nodeId = await sharedNode(false);
+    const fake = new FakeNodeLauncher(testDir);
+    fake.harnessVersionToReport = "2.1.284";
+    fake.launchError = new Error("spawn refused");
+    const manager = makeManager(fake);
+    const off = nodeOnline(nodeId, ["mcp"]);
+    try {
+      const row = await parkedRow(nodeId);
+      // maybeAutoRestart swallows the revive throw (the backoff advance is its
+      // recovery), so the observable facts are: false, and NO stamp landed.
+      expect(await attempt(manager, row)).toBe(false);
+      expect((await subshellsRepo.findById(row.id))?.harnessVersion).toBeNull();
+      expect(fake.refreshKicks).toEqual([]);
+    } finally {
+      off();
+    }
+  });
+});
+
 describe("auto-restart while the node is in maintenance", () => {
   /** `maybeAutoRestart` is the sweep's own guard; the sweep calls it privately. */
   const attempt = (manager: SubshellManagerService, row: SubshellTable): Promise<boolean> =>

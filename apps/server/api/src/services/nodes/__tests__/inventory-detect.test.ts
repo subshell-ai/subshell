@@ -4,6 +4,7 @@ import type { DetectSpecWire, NodeCommandBody } from "@internal/subshell-protoco
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 import type { sendCommand } from "@/services/nodes/node-rpc.js";
@@ -415,6 +416,59 @@ describe("detectOnNode", () => {
       expect(getLive(node.id)?.agent?.env).toEqual({});
     } finally {
       resetNodeRegistryForTests();
+    }
+  });
+
+  /**
+   * The scoped re-stamp (spec 2026-09-28 §3): a remote launch stamped from the
+   * CACHED inventory can predate a manual update, so the launch kicks ONE
+   * detect carrying `{ subshellId, expected }` and only that pane, only while
+   * its just-written stamp still matches, and only a POSITIVE fresh answer,
+   * moves the row. This pass corrects staleness; it never erases.
+   */
+  it("re-stamps the one pane that kicked the detect, and only while its stamp still matches", async () => {
+    const node = await mkNode();
+    const subshells = new SubshellsRepository(db);
+    const subshellId = crypto.randomUUID();
+    await subshells.create({
+      id: subshellId,
+      userId: OWNER,
+      harnessId: "claude-code",
+      name: "restamp",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+      nodeId: node.id,
+    });
+    const answer = (rawVersion: string, installed = true) => ({
+      results: [{ harnessId: "claude-code", installed, ...(installed ? { binaryPath: "/x/claude" } : {}), rawVersion }],
+      env: {},
+    });
+    try {
+      // The positive: a fresh row holds null (the create wrote no stamp yet),
+      // the kick's expected is null, and the fresh answer lands whole.
+      await detectOnNode(node.id, { send: fakeSend(answer("2.1.284"), []), reStamp: { subshellId, expected: null } });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBe("2.1.284");
+      // The CAS miss: a kick still expecting null (its launch stamp has since
+      // been replaced) writes NOTHING — not even the fresher 9.9.9 this
+      // detect happens to cache. A stale writer must never launder a fresh
+      // stamp (a racing restart always wins).
+      await detectOnNode(node.id, { send: fakeSend(answer("9.9.9"), []), reStamp: { subshellId, expected: null } });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBe("2.1.284");
+      // The never-erase rule: a matching expected value but a NEGATIVE fresh
+      // answer (installed: false) leaves the launch stamp standing.
+      await detectOnNode(node.id, {
+        send: fakeSend(answer("nope", false), []),
+        reStamp: { subshellId, expected: "2.1.284" },
+      });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBe("2.1.284");
+      // A matching expected with a positive answer DOES land (the fresh-after-update case).
+      await detectOnNode(node.id, {
+        send: fakeSend(answer("9.9.9"), []),
+        reStamp: { subshellId, expected: "2.1.284" },
+      });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBe("9.9.9");
+    } finally {
+      await subshells.delete(subshellId);
     }
   });
 

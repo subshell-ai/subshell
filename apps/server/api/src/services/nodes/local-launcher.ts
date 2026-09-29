@@ -43,6 +43,14 @@ export class LocalLauncher implements NodeLauncher {
     return harness.findBinary();
   }
 
+  /** Probes the resolved binary; null when there is no path to probe. */
+  async launchedHarnessVersion(harness: HarnessPlugin, binary: string | null): Promise<string | null> {
+    return binary ? harness.versionAt(binary) : null;
+  }
+
+  /** `local` stamped from a live probe; there is nothing fresher to ask. */
+  kickHarnessVersionRefresh(): void {}
+
   /**
    * One harness start, verbatim from the pre-seam `createSubshell` sequence:
    * compose the pane command (throws on a bad env key — before anything

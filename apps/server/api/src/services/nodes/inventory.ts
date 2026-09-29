@@ -14,6 +14,7 @@ import {
 } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 import { getLive } from "@/services/nodes/node-registry.js";
@@ -330,6 +331,13 @@ export interface DetectOnNodeDeps {
    * registry). @internal test seam.
    */
   envHarnesses?: () => Promise<HarnessPlugin[]>;
+  /**
+   * Re-stamp ONE pane with the version this answer reports (spec 2026-09-28
+   * §3): the pane that kicked the detect after its launch, and the stamp
+   * value that launch wrote (the compare-and-set expectation). Absent for
+   * every other caller. @internal paired with `RemoteLauncher.kickHarnessVersionRefresh`.
+   */
+  reStamp?: { subshellId: string; expected: string | null };
 }
 
 /**
@@ -438,6 +446,22 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
   // before `ready` lands, and there is then no facts object to update.
   const conn = getLive(nodeId);
   if (conn?.agent) conn.agent.env = answer.env;
+  // The scoped re-stamp (spec §3): only the pane that kicked, only while its
+  // just-written stamp still matches, and only a POSITIVE fresh answer. A
+  // missing entry, an `installed: false`, or a version-less probe leaves the
+  // launch stamp standing: this pass corrects staleness, it never erases.
+  if (deps.reStamp) {
+    try {
+      const subshells = new SubshellsRepository(db);
+      const pane = await subshells.findById(deps.reStamp.subshellId);
+      const entry = pane ? merged.get(pane.harnessId) : undefined;
+      if (pane && pane.status === "running" && entry?.installed && entry.version) {
+        await subshells.casHarnessVersion(pane.id, deps.reStamp.expected, entry.version);
+      }
+    } catch (err: unknown) {
+      logger.withError(err).debug(`node ${nodeId}: harness version re-stamp failed`);
+    }
+  }
 }
 
 /**
@@ -455,8 +479,8 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
  * Re-check is the one caller that does NOT use this — it is a person pressing
  * a button and waiting, so it awaits {@link detectOnNode} and reports.
  */
-export function detectOnNodeBestEffort(nodeId: string): void {
-  void detectOnNode(nodeId).catch((err: unknown) => {
+export function detectOnNodeBestEffort(nodeId: string, opts: { reStamp?: DetectOnNodeDeps["reStamp"] } = {}): void {
+  void detectOnNode(nodeId, opts).catch((err: unknown) => {
     logger.debug(`detect for node ${nodeId} failed: ${err instanceof Error ? err.message : String(err)}`);
   });
 }

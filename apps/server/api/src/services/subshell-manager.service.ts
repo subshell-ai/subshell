@@ -400,7 +400,7 @@ export class SubshellManagerService {
     // Record intent in the DB first so the row exists even if tmux errors.
     // The preset's auto-restart policy is inherited at creation time; a
     // presetless launch inherits nothing (0 = no auto-restart).
-    await this.#subshells.create({
+    const row = await this.#subshells.create({
       id,
       userId,
       presetId: presetRow?.id ?? null,
@@ -464,6 +464,11 @@ export class SubshellManagerService {
         harnessSession,
         reporter,
       });
+      // The launch SUCCEEDED: record the version the just-started process is
+      // running (spec §3). Compare-and-set against the row's pre-launch value,
+      // so a racing restart's fresh stamp always wins; a throw here can never
+      // fail the launch (the helper is total, debug-only on failure).
+      await this.#stampHarnessVersion(row, launcher, harness, binary);
       if (prompt?.trim()) {
         promptDelivered = await this.#deliverPrompt(
           launcher,
@@ -1138,6 +1143,32 @@ export class SubshellManagerService {
   }
 
   /**
+   * Records the harness version the just-launched process started on
+   * (spec 2026-09-28 §3). Compare-and-set against the row's pre-launch value,
+   * so a racing restart always wins; when this writer lands, it hands off the
+   * scoped re-stamp kick (a no-op on `local`). Failures are debug-only: the
+   * pane is RUNNING and correct; a missing annotation is never a launch
+   * failure.
+   */
+  async #stampHarnessVersion(
+    row: SubshellTable,
+    launcher: NodeLauncher,
+    harness: HarnessPlugin,
+    binary: string | null,
+  ): Promise<void> {
+    try {
+      const before = row.harnessVersion ?? null;
+      const stamp = await launcher.launchedHarnessVersion(harness, binary);
+      if (await this.#subshells.casHarnessVersion(row.id, before, stamp)) {
+        launcher.kickHarnessVersionRefresh(row.id, stamp);
+        publishLive({ kind: "subshell.changed", id: row.id });
+      }
+    } catch (err: unknown) {
+      logger.withError(err).debug(`subshell ${row.id}: harness version stamp failed`);
+    }
+  }
+
+  /**
    * Revive a parked row (`status: "running"`, `alive: 0`) in place: rotate
    * credentials, re-register MCP, resume the conversation when its transcript
    * survived, respawn the pane, and conditionally flip the row back alive.
@@ -1260,6 +1291,11 @@ export class SubshellManagerService {
       await this.#revokeTokenOrUnlink(row.id);
       return false;
     }
+    // The revive SUCCEEDED (the row is alive again): re-stamp the version this
+    // fresh process started on (spec §3). CAS against the parked row's value,
+    // so a launch that resolved a newer version replaces the stale one and a
+    // concurrent writer racing this flip is never clobbered.
+    await this.#stampHarnessVersion(row, launcher, harness, binary);
     return true;
   }
 
