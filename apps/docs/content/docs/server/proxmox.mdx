@@ -41,6 +41,12 @@ The data sits at `/var/lib/subshell` inside the LXC, mounted into the Subshell c
 
 Docker inside an LXC needs the `nesting=1` container feature; the container stays unprivileged, and the instance follows the same trusted-network posture as any other deployment, described on the [security model](/concepts/security-model).
 
+## As a node
+
+The container above is the control plane, and it runs panes on its own host: the server hosts subshells through its in-process `local` node, no agent involved. A second machine - or a second LXC - that runs panes for your instance enrolls as a node, and [add-a-machine](/get-started/add-a-machine) is the path.
+
+On Proxmox the shape is a plain unprivileged Debian 13 container (no Docker, no nesting) running that same install command inside; `proxmox-node.sh` automates exactly that: paste your instance's install URL once at install, and the container enrolls, names itself after the CT hostname, and runs the agent as its `subshell` user. Updating the agent is the product's own rail - the in-app node update, or `bash /root/proxmox-node.sh update`.
+
 ## See also
 
 - [Run in Docker](/server/docker): the image, the volume, and the compose rail
