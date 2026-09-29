@@ -7,3 +7,4 @@ out/
 public/install-server.sh
 public/install-client.sh
 public/proxmox.sh
+public/proxmox-node.sh

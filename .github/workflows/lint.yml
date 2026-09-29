@@ -116,7 +116,7 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q shellcheck
-          shellcheck -S warning proxmox.sh docker-entrypoint.sh scripts/cli-e2e/docker-image.sh
+          shellcheck -S warning proxmox.sh proxmox-node.sh docker-entrypoint.sh scripts/cli-e2e/docker-image.sh
 
   # Dependency advisories, gated. `bun audit` on its own is informational: it
   # prints advisories and would have left this file green through every one of
