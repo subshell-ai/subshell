@@ -112,7 +112,7 @@ jobs:
       - name: Run linting
         run: bun run lint:check
 
-      - name: "shellcheck (new shell surfaces: Proxmox helper, image entrypoint, docker scenario)"
+      - name: "shellcheck (Proxmox helpers, image entrypoint, docker scenario)"
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q shellcheck

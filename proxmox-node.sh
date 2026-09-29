@@ -146,7 +146,7 @@ install_node_in_ct() {
     runuser -u subshell -- env HOME=/home/subshell USER=subshell LOGNAME=subshell \
       XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
       SUBSHELL_NO_SERVICE=1 SUBSHELL_NODE_NAME="$name" \
-      bash -c 'curl -fsSL "$1" | bash' _ "$url"
+      bash -c 'set -o pipefail; curl -fsSL "$1" | bash' _ "$url"
     runuser -u subshell -- env HOME=/home/subshell USER=subshell LOGNAME=subshell \
       PATH="/home/subshell/.local/bin:/usr/local/bin:/usr/bin:/bin" \
       XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
