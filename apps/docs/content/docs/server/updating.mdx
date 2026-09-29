@@ -53,7 +53,7 @@ The whole verb is ten steps, and nine of them are refusals: a checkout-run serve
 
 ## Inside a container
 
-A server running in the Subshell Docker image updates by pull, not by self-swap: the image is the unit of update. The dashboard refuses there with exactly that spelled out, and `subshell-server update --check` inside the container prints the same answer, that updates happen by pulling a new image rather than with that verb. A Proxmox helper install automates the pair: `bash proxmox.sh update` on the Proxmox host pulls, recreates, and rolls the old container back if the new one fails its health check ([Install on Proxmox](/server/proxmox)).
+A server running in the Subshell Docker image updates by pull, not by self-swap: the image is the unit of update. The dashboard refuses there with exactly that spelled out, and `subshell-server update --check` inside the container prints the same answer, that updates happen by pulling a new image rather than with that verb. A Proxmox helper install automates the pair: `bash proxmox-server.sh update` on the Proxmox host pulls, recreates, and rolls the old container back if the new one fails its health check ([Install on Proxmox](/server/proxmox)).
 
 ## What the trust actually is, and the air gap
 

@@ -115,7 +115,7 @@ describe("collectDeployment", () => {
     expect(view.containerized).toBe(true);
     expect(view.restart.available).toBe(false);
     expect(view.restart.reason).toContain("container");
-    expect(view.restart.reason).toContain("proxmox.sh update");
+    expect(view.restart.reason).toContain("proxmox-server.sh update");
   });
 
   it("reads the container fact from the marker only, not from anything else in the env", () => {

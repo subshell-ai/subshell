@@ -110,7 +110,7 @@ describe("POST /api/admin/server/restart", () => {
     expect(res.status).toBe(409);
     const body = (await res.json()) as { code: string; message: string };
     expect(body.code).toBe("RESTART_UNAVAILABLE");
-    expect(body.message).toContain("proxmox.sh update");
+    expect(body.message).toContain("proxmox-server.sh update");
     expect(performed).toBe(0);
   });
 

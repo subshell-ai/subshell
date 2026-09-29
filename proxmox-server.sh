@@ -3,7 +3,7 @@
 # Subshell - Proxmox VE LXC helper (spec 2026-09-28 section 5), the
 # community-scripts convention: run on the PROXMOX HOST as root. Creates an
 # unprivileged Debian trixie container with Docker inside it, runs the official
-# Subshell image from GHCR, and updates it later with: bash /root/proxmox.sh
+# Subshell image from GHCR, and updates it later with: bash /root/proxmox-server.sh
 # update (the install saves itself there; a copy you kept works too). Pin at
 # install with SUBSHELL_VERSION=<tag> (or set IMG); updates re-pull the tag the
 # install recorded in /etc/default/subshell-docker - repin by editing that
@@ -159,10 +159,10 @@ REMOTE
   # the install anyway; a failure only warns). Held as a string so the URL
   # block still prints first.
   local update_hint=""
-  if curl -fsSL https://subshell.sh/proxmox.sh -o /root/proxmox.sh && chmod 755 /root/proxmox.sh; then
-    update_hint="Update later with: bash /root/proxmox.sh update (a copy you kept works too: bash proxmox.sh update)"
+  if curl -fsSL https://subshell.sh/proxmox-server.sh -o /root/proxmox-server.sh && chmod 755 /root/proxmox-server.sh; then
+    update_hint="Update later with: bash /root/proxmox-server.sh update (a copy you kept works too: bash proxmox-server.sh update)"
   else
-    update_hint="WARN: could not save /root/proxmox.sh - update later with your own copy: bash proxmox.sh update"
+    update_hint="WARN: could not save /root/proxmox-server.sh - update later with your own copy: bash proxmox-server.sh update"
   fi
   msg_ok "${APP} is up: http://${ip}:${APP_PORT}"
   echo "Register the first account there - it becomes the admin."
@@ -263,5 +263,5 @@ case "${1:-}" in
       *) msg_err "no such option" ;;
     esac
     ;;
-  *) msg_err "usage: proxmox.sh [install|update|remove|backup|restore]" ;;
+  *) msg_err "usage: proxmox-server.sh [install|update|remove|backup|restore]" ;;
 esac

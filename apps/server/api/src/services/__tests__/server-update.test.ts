@@ -501,7 +501,9 @@ describe("collectServerUpdateView", () => {
     try {
       const view = await collectServerUpdateView(true);
       expect(view.canApply.ok).toBe(false);
-      expect(view.canApply.reasons.some((r) => r.includes("container") && r.includes("proxmox.sh update"))).toBe(true);
+      expect(view.canApply.reasons.some((r) => r.includes("container") && r.includes("proxmox-server.sh update"))).toBe(
+        true,
+      );
     } finally {
       delete process.env.SUBSHELL_CONTAINER;
       resetDeploymentCache();

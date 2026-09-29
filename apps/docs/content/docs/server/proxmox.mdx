@@ -5,15 +5,15 @@ description: "Create an unprivileged LXC running Subshell Server on a Proxmox VE
 
 One command on the Proxmox host creates an unprivileged LXC container with Docker inside it and runs the official Subshell image.
 
-The helper script follows the Proxmox community-scripts convention: it runs on the host as root, asks its questions in the terminal, and offers the standard verbs `install`, `update`, `remove`, `backup`, and `restore`. The script at the repository root ([proxmox.sh](https://github.com/subshell-ai/subshell/blob/main/proxmox.sh)) is the source; the site serves the same file.
+The helper script follows the Proxmox community-scripts convention: it runs on the host as root, asks its questions in the terminal, and offers the standard verbs `install`, `update`, `remove`, `backup`, and `restore`. The script at the repository root ([proxmox-server.sh](https://github.com/subshell-ai/subshell/blob/main/proxmox-server.sh)) is the source; the site serves the same file.
 
 ## Install
 
 ```bash
-curl -fsSL https://subshell.sh/proxmox.sh | bash
+curl -fsSL https://subshell.sh/proxmox-server.sh | bash
 ```
 
-With no argument the script opens a menu; with the file saved on the host, `bash proxmox.sh install` runs the install directly. The prompts ask for the container ID (the next free one is suggested), the hostname, cores (default 1), memory in MB (default 2048), disk in GB (default 8), the network bridge (default `vmbr0`), and the port the web UI maps on the container (default 3080). Set `PVE_NO_PROMPT=1` to take every default for an unattended run.
+With no argument the script opens a menu; with the file saved on the host, `bash proxmox-server.sh install` runs the install directly. The prompts ask for the container ID (the next free one is suggested), the hostname, cores (default 1), memory in MB (default 2048), disk in GB (default 8), the network bridge (default `vmbr0`), and the port the web UI maps on the container (default 3080). Set `PVE_NO_PROMPT=1` to take every default for an unattended run.
 
 The script fetches the newest Debian 13 standard template if the host does not already have one, creates the container unprivileged with the `nesting=1` feature, copies in the host's ed25519 or rsa public key when one exists, and installs Docker inside the container through the vendor script. The container's root password is generated on the way and printed once at install; note it down.
 
@@ -24,10 +24,10 @@ When the install finishes it prints an address like `http://10.0.0.5:3080`. Open
 ## Updating
 
 ```bash
-bash /root/proxmox.sh update
+bash /root/proxmox-server.sh update
 ```
 
-A successful install saves the script to `/root/proxmox.sh` for exactly this, because a `curl | bash` install leaves no file on the host. A copy you kept works the same (`bash proxmox.sh update`), and so does re-running the one-liner with the verb: `curl -fsSL https://subshell.sh/proxmox.sh | bash -s -- update`. An update re-pulls the tag the install recorded; to change it, edit the `IMAGE=` line in `/etc/default/subshell-docker` inside the LXC and run the update, or reinstall with a new pin.
+A successful install saves the script to `/root/proxmox-server.sh` for exactly this, because a `curl | bash` install leaves no file on the host. A copy you kept works the same (`bash proxmox-server.sh update`), and so does re-running the one-liner with the verb: `curl -fsSL https://subshell.sh/proxmox-server.sh | bash -s -- update`. An update re-pulls the tag the install recorded; to change it, edit the `IMAGE=` line in `/etc/default/subshell-docker` inside the LXC and run the update, or reinstall with a new pin.
 
 The script asks which container to update, pulls the new image inside it, renames the old container aside, and starts the new one. If the new container does not answer the server's setup status within two minutes, the old one is restored and the failure is reported; a pull that fails changes nothing at all. Data survives every update, running panes do not: the Subshell container owns its tmux server, and recreating it ends that process. [Run in Docker](/server/docker) covers the same shape in the plain-container spelling, and the dashboard's update card on a containerized install names this remedy.
 
@@ -35,7 +35,7 @@ The script asks which container to update, pulls the new image inside it, rename
 
 The data sits at `/var/lib/subshell` inside the LXC, mounted into the Subshell container as `/data`: the database, `config.env` with its minted sign-in secret, plugins, and backups. An update replaces only the image and the container; nothing in that directory is touched. The image itself is disposable.
 
-`bash proxmox.sh backup` takes a whole-container snapshot with `vzdump` (snapshot mode, zstd compression). Restore is Proxmox's own flow, Datacenter → Backup → the saved snapshot; because a backup is a full-CT snapshot, it brings back the container, its Docker, and the data directory as one. `bash proxmox.sh remove` destroys the container after a typed confirmation, data included. An unattended run with `PVE_NO_PROMPT=1` skips that confirmation.
+`bash proxmox-server.sh backup` takes a whole-container snapshot with `vzdump` (snapshot mode, zstd compression). Restore is Proxmox's own flow, Datacenter → Backup → the saved snapshot; because a backup is a full-CT snapshot, it brings back the container, its Docker, and the data directory as one. `bash proxmox-server.sh remove` destroys the container after a typed confirmation, data included. An unattended run with `PVE_NO_PROMPT=1` skips that confirmation.
 
 ## Security note
 

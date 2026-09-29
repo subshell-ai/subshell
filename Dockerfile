@@ -36,7 +36,7 @@ RUN useradd --create-home --uid 1000 --shell /bin/bash subshell \
  && chown subshell:subshell /data \
  # A NAMED volume initializes from this dir's ownership AND mode, so 777
  # here lets any --user write it. Docker reaches no bind mount from the
- # image: there the host dir's owner decides (proxmox.sh chowns
+ # image: there the host dir's owner decides (proxmox-server.sh chowns
  # /var/lib/subshell to 1000:1000, compose users own theirs).
  && chmod 777 /data
 
