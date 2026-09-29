@@ -104,14 +104,6 @@ export async function refuseAgentCommand(
   return undefined;
 }
 
-/** @deprecated spelling kept for the install route and the wizard tests; equals `refuseAgentCommand(id, "install")`. */
-export async function refuseInstall(
-  id: string,
-  deps: AgentInstallDeps = defaultDeps,
-): Promise<AgentInstallRefused | undefined> {
-  return refuseAgentCommand(id, "install", deps);
-}
-
 /**
  * Runs one kind of a built-in agent CLI's own vendor command on this host —
  * its installer (`"install"`) or its updater (`"update"`, falling back to the
@@ -147,15 +139,6 @@ export async function runBuiltInAgentCommand(
   } finally {
     inFlight.delete(id);
   }
-}
-
-/** Equals `runBuiltInAgentCommand(id, "install", …)`; the name the install route and the wizard speak. */
-export async function installBuiltInAgent(
-  id: string,
-  deps: AgentInstallDeps = defaultDeps,
-  onLine?: (line: string) => void,
-): Promise<AgentInstallResult> {
-  return runBuiltInAgentCommand(id, "install", deps, onLine);
 }
 
 /** What {@link runInstaller} needs from its caller. */

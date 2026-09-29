@@ -71,7 +71,7 @@ id allowlist, every 4xx decided before the NDJSON body opens, `{ type: "line" }`
 streaming of installer output (ANSI-stripped, blank lines dropped), one terminal
 `{ type: "done", ok, exitCode, output, durationMs, harness }` with the harness
 re-probed after the run. Single-flight is SHARED per plugin id across install and
-update (one `inFlight` set): one person re-running an installer while an update
+update (one per-id registry naming the running kind): one person re-running an installer while an update
 streams is the same race wearing different clothes.
 
 `services/agent-install.service.ts` grows a `kind: "install" | "update"` axis.
@@ -132,9 +132,10 @@ snapshot in `inventory_json` once per cycle. The node page keeps its live probe
 and remains truth for that page; the snapshot only feeds the pane-side
 comparison, and it lags by at most the cycle.
 
-`SubshellView` gains `harnessVersion: string | null` and `harnessStale: boolean`;
-they ride list, detail, and the MCP views. Additive fields on existing schemas
-only; no new route module.
+`SubshellView` gains `harnessVersion: string | null`,
+`harnessCurrentVersion: string | null` and `harnessStale: boolean`; they ride
+list, detail, and the MCP views. Additive fields on existing schemas only; no
+new route module.
 
 UI (web SPA in Phase 1): a stale running pane's card shows one `detail` line,
 `Harness 2.1.283 · node now on 2.1.284`. No new control. The existing Restart,

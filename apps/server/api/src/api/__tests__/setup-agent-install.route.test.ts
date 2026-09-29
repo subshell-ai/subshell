@@ -151,11 +151,12 @@ describe("POST /api/setup/agents/:pluginId/install", () => {
     // chains, so the first request only USUALLY wins the race, and the loser
     // gets the 200. Gate on the service actually being entered instead.
     //
-    // `commandFor` is awaited immediately inside `installBuiltInAgent`, and
-    // everything from there to `inFlight.add(id)` is synchronous - so once the
-    // microtask queue has drained, the slot is taken. A `setTimeout` callback
-    // runs only after that drain, which is what makes this ordering exact
-    // rather than merely likely.
+    // `commandFor` is awaited immediately inside `refuseAgentCommand` (the
+    // route's pre-stream probe), and from there to `inFlight.set(id, kind)`
+    // inside `runBuiltInAgentCommand` everything is synchronous or an
+    // already-resolved await - so once the microtask queue has drained, the
+    // slot is taken. A `setTimeout` callback runs only after that drain, which
+    // is what makes this ordering exact rather than merely likely.
     let entered!: () => void;
     const firstIsInside = new Promise<void>((resolve) => {
       entered = resolve;

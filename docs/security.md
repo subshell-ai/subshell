@@ -748,6 +748,10 @@ with, not only to the owner. Device names are chosen client-side and
 re-normalized server-side (`normalizeDeviceLabel`), so a name cannot carry
 control characters into another user's screen or a log line.
 
+The row view carries the same kind of metadata to the same audience: the harness
+version the pane started on, the node's current inventory version for it, and
+the derived stale flag ride to everyone who can see the row (spec 2026-09-28).
+
 Revoke by clearing the grant: the sharing dialog, or an empty `PUT`.
 
 ### Notifications do not follow shares

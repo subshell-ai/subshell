@@ -119,7 +119,7 @@ export function refuseTmuxInstall(deps: TmuxInstallDeps): { installer: TmuxInsta
 /**
  * `POST /api/setup/tmux/install` (spec 2026-09-15 § 5.1, accounted § 6).
  *
- * Its own module for the reason `setup-agent-install.route.ts` is: the GATE
+ * Its own module for the reason `setup-agent-command.route.ts` is: the GATE
  * differs from the rest of `/api/setup`. Every other setup write is public
  * while no user exists, because the wizard runs before an admin does — but
  * THIS route runs a package manager on the control-plane host, so it follows
