@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import type { NodeDetail, NodeHarness } from "@internal/node-admin";
+import { NODE_QUERY_KEY } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -8,7 +9,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
 
 /**
@@ -50,11 +51,13 @@ interface CardOpts {
   infos?: unknown[];
   /**
    * NDJSON frames the install/update stream emits, in order (one mock feeds
-   * both verbs). `null` inside the list means "stop here and hold the stream
-   * open", which is how the in-flight rendering is asserted without racing a
-   * close.
+   * both verbs; `updateFrames` overrides for the update half). `null` inside
+   * the list means "stop here and hold the stream open", which is how the
+   * in-flight rendering is asserted without racing a close.
    */
   installFrames?: (string | null)[];
+  /** Frames for the UPDATE verb specifically; falls back to `installFrames`. */
+  updateFrames?: (string | null)[];
 }
 
 /** A `HarnessInfo` as `/api/setup/harnesses` sends it. */
@@ -107,8 +110,14 @@ function view(over: Partial<NodeDetail>): NodeDetail {
 
 /** Render the card under a query client and a minimal router (its Link
  * targets `/settings/plugins`, and `RouterProvider` paints nothing until the
- * router has loaded once). Resolves once the node view has been fetched. */
-async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; url: string }[]; restore: () => void }> {
+ * router has loaded once). Resolves once the node view has been fetched. The
+ * query client rides back so a test can write the cache the way a poll's
+ * refetch would (flipping a row's detection between commands). */
+async function mount(opts: CardOpts = {}): Promise<{
+  calls: { method: string; url: string }[];
+  queryClient: QueryClient;
+  restore: () => void;
+}> {
   const calls: { method: string; url: string }[] = [];
   const original = globalThis.fetch;
   const data = view({
@@ -142,10 +151,12 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
       );
     }
     // The install and update routes stream the same protocol, so one mock
-    // answers both verbs with the same frames.
+    // answers both verbs; a test that needs the two to differ (the
+    // cross-kind failure-state tests) supplies `updateFrames`.
     const agentCommand = /^\/api\/setup\/agents\/([^/]+)\/(install|update)$/.exec(url.pathname);
     if (agentCommand && method === "POST") {
-      const frames = opts.installFrames ?? [`${JSON.stringify({ type: "done", ...DONE })}\n`];
+      const frames = (agentCommand[2] === "update" ? opts.updateFrames : undefined) ??
+        opts.installFrames ?? [`${JSON.stringify({ type: "done", ...DONE })}\n`];
       return Promise.resolve(
         new Response(
           new ReadableStream<Uint8Array>({
@@ -168,11 +179,10 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
 
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const rootRoute = createRootRoute({
     component: () => (
-      <QueryClientProvider
-        client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}
-      >
+      <QueryClientProvider client={queryClient}>
         <NodeHarnessCard nodeId={NODE_ID} />
       </QueryClientProvider>
     ),
@@ -188,7 +198,7 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
   // Wait out the node-view fetch so tests query loaded content directly.
   await waitFor(() => expect(calls.some((c) => c.url === `/api/nodes/${NODE_ID}` && c.method === "GET")).toBe(true));
   await waitFor(() => expect(screen.queryByText("Loading…")).toBeNull());
-  return { calls, restore: () => (globalThis.fetch = original) };
+  return { calls, queryClient, restore: () => (globalThis.fetch = original) };
 }
 
 describe("NodeHarnessCard", () => {
@@ -582,6 +592,86 @@ describe("NodeHarnessCard", () => {
         expect(await screen.findByText((c) => c === "Terminal")).toBeDefined();
         expect(screen.queryByRole("button", { name: /update/i })).toBeNull();
         expect(screen.queryByText(/on this machine/)).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+  });
+
+  describe("Cross-kind failure state", () => {
+    // The two commands are TWO mutations, and the card's `failure` reads
+    // both. TanStack v5 clears a mutation's own error/data when that same
+    // mutation runs again, but nothing clears the OTHER kind's - so an
+    // install that failed under a row kept rendering its failure (and
+    // masking the update's own) once the row flipped to installed and the
+    // press moved to Update. The fix: each button resets the other kind
+    // first; the streaming line survives because `cmdLines` is component
+    // state keyed `kind:id`, not mutation state.
+
+    /** `local` + a manager, with the agent CLI not here yet. */
+    const missingLocal = {
+      kind: "local" as const,
+      canManage: true,
+      harnesses: [{ harnessId: "claude", name: "Claude", installed: false, reason: "not-on-path" as const }],
+      infos: [info()],
+    };
+
+    /** The refetch's answer after a settled command: the program IS here. */
+    function installedView(): NodeDetail {
+      return view({
+        kind: "local",
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true, version: "2.0.0" }],
+      });
+    }
+
+    const FAILED_INSTALL = `${JSON.stringify({ type: "done", ok: false, exitCode: 7, output: "apt exploded", harness: { id: "claude", installed: true } })}\n`;
+    const FAILED_UPDATE = `${JSON.stringify({ type: "done", ok: false, exitCode: 9, output: "updater said no", harness: { id: "claude", installed: true } })}\n`;
+
+    it("a failed install does not ride under a later update of the same row", async () => {
+      const { queryClient, restore } = await mount({
+        ...missingLocal,
+        installFrames: [FAILED_INSTALL],
+        updateFrames: [`${JSON.stringify({ type: "line", text: "updating claude" })}\n`, null],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        expect(await screen.findByText(/exited with code 7/)).toBeDefined();
+        // The re-probe lands the program even though the command reported
+        // failure, so the row now offers Update while the install's failure
+        // still stands.
+        act(() => {
+          queryClient.setQueryData([...NODE_QUERY_KEY, NODE_ID], installedView());
+        });
+        fireEvent.click(await screen.findByRole("button", { name: "Update" }));
+        expect(await screen.findByText("updating claude")).toBeDefined();
+        // The stale failure must clear with the press: what failed was the
+        // OTHER command, and the update is running now.
+        expect(screen.queryByText(/exited with code 7/)).toBeNull();
+        expect(screen.queryByText("apt exploded")).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("a failing update shows its own message and output, not the install's", async () => {
+      const { queryClient, restore } = await mount({
+        ...missingLocal,
+        installFrames: [FAILED_INSTALL],
+        updateFrames: [FAILED_UPDATE],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Install" }));
+        expect(await screen.findByText(/exited with code 7/)).toBeDefined();
+        act(() => {
+          queryClient.setQueryData([...NODE_QUERY_KEY, NODE_ID], installedView());
+        });
+        fireEvent.click(await screen.findByRole("button", { name: "Update" }));
+        // The update's OWN failure surfaces - the leaked install state
+        // would otherwise render code 7 and hide the code 9 and its output.
+        expect(await screen.findByText(/exited with code 9/)).toBeDefined();
+        expect(screen.getByText("updater said no")).toBeDefined();
+        expect(screen.queryByText(/exited with code 7/)).toBeNull();
+        expect(screen.queryByText("apt exploded")).toBeNull();
       } finally {
         restore();
       }

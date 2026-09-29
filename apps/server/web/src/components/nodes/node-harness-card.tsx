@@ -312,7 +312,18 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                     // concurrent command 409, so a second button that could
                     // be pressed would only produce a refusal.
                     disabled={active !== undefined}
-                    onClick={() => install.mutate(h.harnessId)}
+                    onClick={() => {
+                      // A fresh command clears the OTHER kind's failure
+                      // first: `failure` below reads both mutations, and
+                      // TanStack resets only a mutation's own state on its
+                      // next mutate - without this, an install that failed
+                      // under this row keeps showing while the update runs
+                      // and masks the update's own failure. `cmdLines` is
+                      // component state keyed `kind:id`, not mutation state,
+                      // so a reset never blanks a still-streaming line.
+                      update.reset();
+                      install.mutate(h.harnessId);
+                    }}
                   >
                     {active?.kind === "install" && active.id === h.harnessId && (
                       <LoaderCircle aria-hidden className="motion-safe:animate-spin" />
@@ -324,7 +335,13 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                     type="button"
                     size="sm"
                     disabled={active !== undefined}
-                    onClick={() => update.mutate(h.harnessId)}
+                    onClick={() => {
+                      // The mirror of the install button's reset: this
+                      // mutation's own state is cleared by mutate, the
+                      // other kind's only by this call.
+                      install.reset();
+                      update.mutate(h.harnessId);
+                    }}
                   >
                     {active?.kind === "update" && active.id === h.harnessId && (
                       <LoaderCircle aria-hidden className="motion-safe:animate-spin" />
