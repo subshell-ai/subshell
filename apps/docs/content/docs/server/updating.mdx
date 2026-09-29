@@ -51,6 +51,10 @@ The whole verb is ten steps, and nine of them are refusals: a checkout-run serve
 - Audited twice: once when you press it, with you as the actor, and once at the completing boot with no human actor: the row records the new binary's boot, not a person. A download that dies mid-flight still leaves the first half.
 - It answers 202 and a job, because the last thing the job does is exit the process serving the request. The page watches the phases and then waits for the server to come back. And there is a refusal for exactly the host this fails on: with no service manager to respawn the process, the swap would leave an old server running beside a new file, so the route says no rather than exit into nothing.
 
+## Inside a container
+
+A server running in the Subshell Docker image updates by pull, not by self-swap: the image is the unit of update. The dashboard refuses there with exactly that spelled out, and `subshell-server update --check` inside the container prints the same answer, that updates happen by pulling a new image rather than with that verb. A Proxmox helper install automates the pair: `bash proxmox.sh update` on the Proxmox host pulls, recreates, and rolls the old container back if the new one fails its health check ([Install on Proxmox](/server/proxmox)).
+
 ## What the trust actually is, and the air gap
 
 The plane downloads and executes code from the release source, but it no longer has to believe it. Every release carries `release-manifest.json` and a detached minisign signature over its exact bytes (`release-manifest.json.sig`), made with the publisher keypair, the same one the desktop apps' updater uses, so one key guards all four components. Every update path verifies that signature against a public key compiled into the product, and the digest your bytes are compared against comes from that signed manifest's `assets` map, never from the `.sha256` sidecar the release host serves beside the file.

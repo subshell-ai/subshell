@@ -65,8 +65,9 @@ open the server in any browser or use the
 - [Server](https://docs.subshell.sh/server): install, configuration, service,
   networking, users, backups, updates
 
-Everything this README used to carry (the desktop apps, Docker, the env-var
-tables, the security and remote-operation notes) lives on the site now.
+Everything this README used to carry (the desktop apps, the env-var tables, the
+security and remote-operation notes) moved to the site. Docker and Proxmox LXC
+setup live in the docs (docs.subshell.sh).
 
 ## Contributing
 
