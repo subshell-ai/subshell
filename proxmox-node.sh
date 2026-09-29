@@ -67,11 +67,18 @@ latest_template() {
 }
 
 # The exact shape the app renders: http(s) origin, /install.sh, one
-# setup_key=nsk_... param. Validated before anything is created; the key
-# value is never echoed.
+# setup_key=nsk_... param. The trailing &server=<origin> clause the app adds
+# when you picked a non-canonical address is part of the pasted command and
+# passes through to curl untouched, so it is accepted here. A loopback origin
+# is refused at the same point: a CT curl-ing localhost reaches the CT, not
+# the instance. Validated before anything is created; the key value is never
+# echoed.
 validate_setup_url() {
   local url="$1"
-  [[ "$url" =~ ^https?://[^/[:space:]]+/install\.sh\?setup_key=nsk_[A-Za-z0-9_-]{8,}$ ]]
+  [[ "$url" =~ ^https?://[^/[:space:]]+/install\.sh\?setup_key=nsk_[A-Za-z0-9_-]{8,}(&server=[^?#[:space:]]*)?$ ]] || return 1
+  local origin="${url%%/install.sh*}"
+  origin="${origin,,}"
+  [[ "$origin" != *"://localhost"* && "$origin" != *"://127."* && "$origin" != *"://[::1]"* ]]
 }
 
 # ---------- install ----------
@@ -97,7 +104,7 @@ install_ct() {
     read -rsp "Install URL: " SETUP_URL < /dev/tty || SETUP_URL=""
     echo
   fi
-  validate_setup_url "$SETUP_URL" || msg_err "not an install URL from the app (expected http(s)://host/install.sh?setup_key=nsk_...); nothing was created"
+  validate_setup_url "$SETUP_URL" || msg_err "not a usable install URL from the app (expected http(s)://<reachable-host>/install.sh?setup_key=nsk_...[&server=...]); nothing was created"
 
   local tmpl st rootpass
   st=$(default_storage)
@@ -146,7 +153,7 @@ install_node_in_ct() {
     runuser -u subshell -- env HOME=/home/subshell USER=subshell LOGNAME=subshell \
       XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
       SUBSHELL_NO_SERVICE=1 SUBSHELL_NODE_NAME="$name" \
-      bash -c 'set -o pipefail; curl -fsSL "$1" | bash' _ "$url"
+      bash -c 'set -o pipefail; curl -fsSLg "$1" | bash' _ "$url"
     runuser -u subshell -- env HOME=/home/subshell USER=subshell LOGNAME=subshell \
       PATH="/home/subshell/.local/bin:/usr/local/bin:/usr/bin:/bin" \
       XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \

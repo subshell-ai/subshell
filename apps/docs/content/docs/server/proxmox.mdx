@@ -45,7 +45,13 @@ Docker inside an LXC needs the `nesting=1` container feature; the container stay
 
 The container above is the control plane, and it runs panes on its own host: the server hosts subshells through its in-process `local` node, no agent involved. A second machine - or a second LXC - that runs panes for your instance enrolls as a node, and [add-a-machine](/get-started/add-a-machine) is the path.
 
-On Proxmox the shape is a plain unprivileged Debian 13 container (no Docker, no nesting) running that same install command inside; `proxmox-node.sh` automates exactly that: paste your instance's install URL once at install, and the container enrolls, names itself after the CT hostname, and runs the agent as its `subshell` user. Updating the agent is the product's own rail - the in-app node update, or `bash /root/proxmox-node.sh update`.
+On Proxmox the shape is a plain unprivileged Debian 13 container (no Docker, no nesting) running that same install command inside, and `proxmox-node.sh` automates exactly that. Run it on the Proxmox host as root:
+
+```bash
+curl -fsSL https://subshell.sh/proxmox-node.sh | bash
+```
+
+Paste your instance's install URL once at install, and the container enrolls, names itself after the CT hostname, and runs the agent as its `subshell` user. Updating the agent is the product's own rail - the in-app node update, or `bash /root/proxmox-node.sh update`. Destroying the CT does not remove the node from the instance: delete it in the app (the node's manage page) as well.
 
 ## See also
 
