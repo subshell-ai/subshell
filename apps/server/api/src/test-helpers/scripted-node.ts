@@ -60,6 +60,17 @@ export interface ScriptedNode {
   readonly wire: readonly ScriptedWireFrame[];
   /** Command types in wire order — for exact-sequence assertions. */
   cmdTypes(): NodeCommandBody["type"][];
+  /**
+   * `cmdTypes()` without the un-awaited `detect` background frames. After
+   * every successful remote launch the version-refresh kick (spec
+   * 2026-09-28 §3) fires its detect without awaiting it, so the frame rides
+   * the wire whenever its DB reads finish — possibly even onto the NEXT
+   * connection after a detach/attach swap. Exact-sequence assertions use
+   * this and stay silent about the kick; the kick's own behavior is pinned
+   * in `remote-launcher.test.ts` / `inventory-detect.test.ts`. The pattern
+   * is the ws suite's `viewers`-frame filter.
+   */
+  foregroundTypes(): NodeCommandBody["type"][];
   /** All commands of one type, in wire order, narrowed to that variant. */
   cmdsOf<T extends NodeCommandBody["type"]>(type: T): Extract<NodeCommandBody, { type: T }>[];
   /** How many frames of `type` arrived. */
@@ -172,6 +183,7 @@ export function attachScriptedNode(
     conn,
     wire,
     cmdTypes: () => wire.map((w) => w.cmd.type),
+    foregroundTypes: () => wire.filter((w) => w.cmd.type !== "detect").map((w) => w.cmd.type),
     cmdsOf: (type) => wire.filter((w) => w.cmd.type === type).map((w) => w.cmd) as never,
     countOf: (type) => wire.filter((w) => w.cmd.type === type).length,
     seqs: () => wire.map((w) => w.seq),

@@ -284,7 +284,10 @@ describe("preset swap inside POST /api/subshells/:id/restart (spec 2026-09-23)",
         expect(await rowPreset(id)).toBe(presetA); // untouched by every refusal
       }
       expect(sim.countOf("kill")).toBe(0); // nothing was even attempted
-      expect(sim.cmdTypes()).toEqual(["stat_dir", "launch"]); // the create pair only
+      // The create pair only — plus the create's unawaited detect kicks
+      // (spec 2026-09-28 §3), which may ride this wire from a preceding
+      // test's launch too; they are background traffic, filtered.
+      expect(sim.foregroundTypes()).toEqual(["stat_dir", "launch"]);
     } finally {
       sim.detach();
     }
