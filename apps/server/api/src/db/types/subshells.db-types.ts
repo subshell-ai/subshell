@@ -18,6 +18,12 @@ export interface SubshellTable {
   presetId: string | null;
   /** Harness plugin id used to launch this subshell */
   harnessId: string;
+  /**
+   * Harness CLI version this pane's current process started on (null =
+   * unknown). Written only by the post-launch stamp (compare-and-set), and
+   * overwritten by every restart: it describes the running process.
+   */
+  harnessVersion: string | null;
   /** Human-friendly subshell name (defaults to the created timestamp) */
   name: string;
   /** Absolute working directory the harness runs in */
@@ -94,6 +100,7 @@ export interface SubshellTable {
 export type NewSubshell = Omit<
   SubshellTable,
   | "presetId"
+  | "harnessVersion"
   | "createdAt"
   | "endedAt"
   | "status"

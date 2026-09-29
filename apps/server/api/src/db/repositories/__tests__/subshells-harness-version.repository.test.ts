@@ -15,13 +15,12 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { Database } from "@/db/types/index.js";
 
 /**
- * `clearWaitingIfSet` is a CLAIM, and a claim's contract is the number it
- * answers with: 1 for whoever moved the row, 0 for everyone who arrived after.
- * The service publishes the live change only on the 1, so a repository that
- * answered 1 twice would double-announce a single clear — and a test on the
- * route alone cannot see that, because by the time the second request lands
- * the stamp is already gone either way. Scratch DB (same chain as
- * subshells-visible) so the schema is this file's own, not another suite's.
+ * `casHarnessVersion` is a CLAIM, and a claim's contract is the boolean it
+ * answers with: true for the one writer whose expected value still matches the
+ * row while it is running, false for everyone who arrived after (spec
+ * 2026-09-28: a create's late stamp must never clobber a restart's fresh one).
+ * Scratch DB (same chain as subshells-waiting) so the schema is this file's
+ * own, not another suite's.
  */
 async function freshDb(): Promise<Kysely<Database>> {
   const db = new Kysely<Database>({
@@ -57,46 +56,39 @@ async function seed(db: Kysely<Database>, id: string, waitingSince: string | nul
     .execute();
 }
 
-async function waitingOf(db: Kysely<Database>, id: string): Promise<string | null> {
-  const row = await (db as Kysely<any>)
-    .selectFrom("subshells")
-    .select("waitingSince")
-    .where("id", "=", id)
-    .executeTakeFirst();
-  if (!row) throw new Error(`fixture row ${id} is gone`);
-  return row.waitingSince as string | null;
-}
-
-describe("SubshellsRepository.clearWaitingIfSet", () => {
-  it("clears a set stamp and answers 1 to the caller that moved it", async () => {
+describe("casHarnessVersion", () => {
+  it("writes while the row is running and still carries the expected value", async () => {
     const db = await freshDb();
-    await seed(db, "stamped", "2026-09-24T08:27:09.000Z");
+    await seed(db, "s1", null); // copied seeder: id, userId "u", presetId "p", harnessId "h", /tmp, running
     const repo = new SubshellsRepository(db);
-
-    expect(await repo.clearWaitingIfSet("stamped")).toBe(1);
-    expect(await waitingOf(db, "stamped")).toBeNull();
-    await db.destroy();
+    expect(await repo.casHarnessVersion("s1", null, "2.1.283")).toBe(true);
+    expect((await repo.findById("s1"))?.harnessVersion).toBe("2.1.283");
   });
 
-  it("answers 0 to every caller after the mover, leaving the row untouched", async () => {
+  it("a stale expected value loses the race and writes nothing", async () => {
     const db = await freshDb();
-    await seed(db, "stamped", "2026-09-24T08:27:09.000Z");
-    await seed(db, "unstamped", null);
+    await seed(db, "s1", null);
     const repo = new SubshellsRepository(db);
-
-    expect(await repo.clearWaitingIfSet("stamped")).toBe(1);
-    // The racing `resumed` (every tool call posts one): the second caller must
-    // answer 0, which is the service's cue to publish nothing.
-    expect(await repo.clearWaitingIfSet("stamped")).toBe(0);
-    expect(await repo.clearWaitingIfSet("unstamped")).toBe(0);
-    expect(await waitingOf(db, "unstamped")).toBeNull();
-    await db.destroy();
+    expect(await repo.casHarnessVersion("s1", null, "283")).toBe(true);
+    // A second writer that still believes the pre-283 value cannot land: a
+    // launch's late stamp must never clobber a restart's fresh one.
+    expect(await repo.casHarnessVersion("s1", null, "284")).toBe(false);
+    expect((await repo.findById("s1"))?.harnessVersion).toBe("283");
+    // And the true owner can still move it.
+    expect(await repo.casHarnessVersion("s1", "283", "284")).toBe(true);
   });
 
-  it("answers 0 for a row that does not exist", async () => {
+  it("a terminated row is not stamped", async () => {
     const db = await freshDb();
+    await seed(db, "s1", null);
     const repo = new SubshellsRepository(db);
-    expect(await repo.clearWaitingIfSet("nope")).toBe(0);
-    await db.destroy();
+    await repo.markTerminated("s1", new Date().toISOString());
+    expect(await repo.casHarnessVersion("s1", null, "283")).toBe(false);
+  });
+
+  it("a seeded row reads back with an unknown (null) version", async () => {
+    const db = await freshDb();
+    await seed(db, "s1", null);
+    expect((await new SubshellsRepository(db).findById("s1"))?.harnessVersion).toBeNull();
   });
 });

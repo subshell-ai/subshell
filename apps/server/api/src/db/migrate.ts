@@ -39,6 +39,7 @@ import * as nodeEncryptPublicKeyMigration from "@/db/migrations/0036-node-encryp
 import * as authProvidersMigration from "@/db/migrations/0037-auth-providers.js";
 import * as approvalStateMigration from "@/db/migrations/0038-approval-state.js";
 import * as subshellCrossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
+import * as subshellHarnessVersionMigration from "@/db/migrations/0040-subshell-harness-version.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -113,6 +114,9 @@ export async function runMigrations(): Promise<void> {
           // every pre-existing account (spec 2026-09-24 §6).
           "0038-approval-state": approvalStateMigration,
           "0039-subshell-cross-agent": subshellCrossAgentMigration,
+          // Which harness build each pane's running process started on; the
+          // stale comparison is derived at read, stored nowhere (spec 2026-09-28).
+          "0040-subshell-harness-version": subshellHarnessVersionMigration,
         };
       },
     },
