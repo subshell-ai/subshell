@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import {
-  type AgentInstallDeps,
-  type AgentInstallKind,
-  AgentInstallRefused,
+  type AgentCommandDeps,
+  type AgentCommandKind,
+  AgentCommandRefused,
   refuseAgentCommand,
   runBuiltInAgentCommand,
 } from "@/services/agent-install.service.js";
@@ -12,7 +12,7 @@ function deps(command: string | undefined, timeoutMs = 5_000) {
 }
 
 /** Every legacy install-wrapper call became this (spec 2026-09-28: one runner, kinds are data). */
-const install = (id: string, d: AgentInstallDeps, onLine?: (l: string) => void) =>
+const install = (id: string, d: AgentCommandDeps, onLine?: (l: string) => void) =>
   runBuiltInAgentCommand(id, "install", d, onLine);
 
 describe("runBuiltInAgentCommand (install kind)", () => {
@@ -88,7 +88,7 @@ describe("runBuiltInAgentCommand (install kind)", () => {
     expect(Date.now() - started).toBeLessThan(5_000);
   });
   it("refuses an id with no install command as 400", async () => {
-    await expect(install("terminal", deps(""))).rejects.toBeInstanceOf(AgentInstallRefused);
+    await expect(install("terminal", deps(""))).rejects.toBeInstanceOf(AgentCommandRefused);
     await expect(install("terminal", deps(""))).rejects.toMatchObject({ status: 400 });
     // The route asks the same question EARLIER over the streaming seam, so the
     // install sentence has to be right in the refuseAgentCommand form too.
@@ -148,8 +148,8 @@ describe("runBuiltInAgentCommand (install kind)", () => {
 
 describe("update kind", () => {
   it("asks the seam for the update command; install stays on the install command", async () => {
-    const seen: AgentInstallKind[] = [];
-    const deps: AgentInstallDeps = {
+    const seen: AgentCommandKind[] = [];
+    const deps: AgentCommandDeps = {
       commandFor: async (_id, kind) => {
         seen.push(kind);
         return "true"; // exits 0 in one spawn, like the file's success case
@@ -165,7 +165,7 @@ describe("update kind", () => {
   });
 
   it("refuses a command that is empty after the fallback, and says update in the sentence", async () => {
-    const deps: AgentInstallDeps = {
+    const deps: AgentCommandDeps = {
       commandFor: async () => "  ",
       timeoutMs: 30_000,
       extraPath: async () => [],
@@ -176,7 +176,7 @@ describe("update kind", () => {
   });
 
   it("shares the per-id single flight across kinds", async () => {
-    const deps: AgentInstallDeps = {
+    const deps: AgentCommandDeps = {
       commandFor: async () => "sleep 0.2",
       timeoutMs: 30_000,
       extraPath: async () => [],

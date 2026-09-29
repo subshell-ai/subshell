@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { stripAnsi } from "@internal/backend-errors";
-import { computeActivity, PREVIEW_LINES, screenTail } from "@/services/subshell-manager.service.js";
+import { PREVIEW_LINES, screenTail } from "@/services/subshell-manager.service.js";
+import { computeActivity } from "@/services/subshell-view.js";
 
 describe("subshell activity heuristics", () => {
   const now = 1_000_000;

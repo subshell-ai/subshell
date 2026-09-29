@@ -8,8 +8,8 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
 import {
-  type AgentInstallDeps,
-  type AgentInstallKind,
+  type AgentCommandDeps,
+  type AgentCommandKind,
   refuseAgentCommand,
   runBuiltInAgentCommand,
 } from "@/services/agent-install.service.js";
@@ -17,32 +17,23 @@ import { audit } from "@/services/audit.js";
 import { localPluginReports } from "@/services/nodes/local-plugins.js";
 
 /** The seam each kind runs against; a test installs one per kind, never both by accident. */
-const depsOverrides = new Map<AgentInstallKind, AgentInstallDeps>();
+const depsOverrides = new Map<AgentCommandKind, AgentCommandDeps>();
 
 /**
- * Test seam (install): swap the command lookup, timeout and PATH probe so a
- * test never spawns a login shell or shells out for a compiled-in plugin's
- * real command. Refuses outside the suite, the same `setHasUsersProbeForTests`
- * pattern (`setup.route.ts`): a mis-wired production import must not be able
- * to redirect what this route runs on the host.
+ * Test seam: swap one kind's command lookup, timeout and PATH probe so a test
+ * never spawns a login shell or shells out for a compiled-in plugin's real
+ * command. The kinds are set independently because the cross-kind
+ * single-flight test gives them different commands, and one function carries
+ * the kind rather than two near-twins that could drift from the map's rules.
+ * Refuses outside the suite, the same `setHasUsersProbeForTests` pattern
+ * (`setup.route.ts`): a mis-wired production import must not be able to
+ * redirect what this route runs on the host.
  * @internal
  */
-export function setAgentInstallDepsForTests(deps: AgentInstallDeps | null): void {
-  if (!IS_TEST) throw new Error("setAgentInstallDepsForTests is a test-only seam");
-  if (deps) depsOverrides.set("install", deps);
-  else depsOverrides.delete("install");
-}
-
-/**
- * Test seam (update), twin of the above, and per-kind: the two kinds are set
- * independently because the cross-kind single-flight test gives them
- * different commands.
- * @internal
- */
-export function setAgentUpdateDepsForTests(deps: AgentInstallDeps | null): void {
-  if (!IS_TEST) throw new Error("setAgentUpdateDepsForTests is a test-only seam");
-  if (deps) depsOverrides.set("update", deps);
-  else depsOverrides.delete("update");
+export function setAgentCommandDepsForTests(kind: AgentCommandKind, deps: AgentCommandDeps | null): void {
+  if (!IS_TEST) throw new Error("setAgentCommandDepsForTests is a test-only seam");
+  if (deps) depsOverrides.set(kind, deps);
+  else depsOverrides.delete(kind);
 }
 
 /**
@@ -78,7 +69,7 @@ function codeForRefusalStatus(status: 400 | 409): BackendErrorCodes {
  * the wizard because the Add an Agent screen runs AFTER Create Your Account,
  * so the first person through already holds that cookie.
  */
-function agentCommandEndpoint(kind: AgentInstallKind) {
+function agentCommandEndpoint(kind: AgentCommandKind) {
   return new Elysia({ prefix: "/api/setup/agents" }).use(apiModels).post(
     `/:pluginId/${kind}`,
     async ({ request, params, status }) => {
@@ -108,8 +99,8 @@ function agentCommandEndpoint(kind: AgentInstallKind) {
       }),
       // NO typed 200: this route streams. The body is NDJSON — one
       // `{"type":"line","text":…}` per line the command prints, then exactly
-      // one `{"type":"done", …AgentInstallResult, harness}` or
-      // `{"type":"error","message":…}`. `AgentInstallResultSchema` still
+      // one `{"type":"done", …AgentCommandResult, harness}` or
+      // `{"type":"error","message":…}`. `AgentCommandResultSchema` still
       // describes the `done` frame's payload and is where that shape lives; it
       // is simply no longer the shape of the whole body.
       // The two NOs are told apart by where they land: `ok:false` inside a
@@ -139,7 +130,7 @@ function agentCommandEndpoint(kind: AgentInstallKind) {
  * `harness` is re-probed AFTER the command exits so one round trip reports
  * both the run's log and the new detection state.
  */
-function agentCommandStream(kind: AgentInstallKind, pluginId: string, request: Request): Response {
+function agentCommandStream(kind: AgentCommandKind, pluginId: string, request: Request): Response {
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({
     async start(controller) {

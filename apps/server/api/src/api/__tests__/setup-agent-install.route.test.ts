@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { setHasUsersProbeForTests } from "@/api/setup.route.js";
-import { setAgentInstallDepsForTests, setupAgentInstallRoute } from "@/api/setup-agent-command.route.js";
+import { setAgentCommandDepsForTests, setupAgentInstallRoute } from "@/api/setup-agent-command.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
@@ -97,7 +97,7 @@ describe("POST /api/setup/agents/:pluginId/install", () => {
 
   afterAll(async () => {
     setHasUsersProbeForTests(null);
-    setAgentInstallDepsForTests(null);
+    setAgentCommandDepsForTests("install", null);
     if (subshellId) await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
     if (apiKeyId) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [apiKeyId]);
     if (userId) await db.deleteFrom("userMeta").where("userId", "=", userId).execute();
@@ -162,7 +162,7 @@ describe("POST /api/setup/agents/:pluginId/install", () => {
       entered = resolve;
     });
     let calls = 0;
-    setAgentInstallDepsForTests({
+    setAgentCommandDepsForTests("install", {
       commandFor: async () => {
         if (++calls === 1) entered();
         return "sleep 0.5";
@@ -183,14 +183,22 @@ describe("POST /api/setup/agents/:pluginId/install", () => {
     // Once a stream starts the status line is sent and 200 cannot be taken
     // back — so every refusal has to be decided while a code is still
     // available. An id this build does not carry is the cheapest one to prove.
-    setAgentInstallDepsForTests({ commandFor: async () => undefined, timeoutMs: 5_000, extraPath: async () => [] });
+    setAgentCommandDepsForTests("install", {
+      commandFor: async () => undefined,
+      timeoutMs: 5_000,
+      extraPath: async () => [],
+    });
     const res = await app.fetch(authedRequest("/api/setup/agents/nope/install", adminCookie, { method: "POST" }));
     expect(res.status).toBe(400);
     expect(res.headers.get("content-type")).toContain("application/json");
   });
 
   it("200s for the admin, running the fake installer and re-probing the harness", async () => {
-    setAgentInstallDepsForTests({ commandFor: async () => "echo ok", timeoutMs: 5_000, extraPath: async () => [] });
+    setAgentCommandDepsForTests("install", {
+      commandFor: async () => "echo ok",
+      timeoutMs: 5_000,
+      extraPath: async () => [],
+    });
     const req = authedRequest(`/api/setup/agents/claude-code/install`, adminCookie, { method: "POST" });
     const res = await app.fetch(req);
     expect(res.status).toBe(200);

@@ -278,7 +278,7 @@ export const HarnessSchemaResponseSchema = t.Object({
  * is re-probed AFTER the installer exits so one round trip reports both the
  * run's own log and the resulting detection state.
  */
-export const AgentInstallResultSchema = t.Object({
+export const AgentCommandResultSchema = t.Object({
   ok: t.Boolean({ description: "Whether the installer exited 0 within the time limit" }),
   exitCode: t.Nullable(t.Number({ description: "The installer's exit code; null when it was killed" })),
   output: t.String({ description: "The installer's stdout then stderr, each capped at 64 KiB" }),

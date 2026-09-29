@@ -4,7 +4,7 @@ import { HARNESS_QUERY_KEY } from "@/hooks/use-harnesses";
 import type { HarnessInfo } from "@/types/harness";
 
 /** The `done` frame of `POST /api/setup/agents/:id/install` and its `…/update` twin. */
-export interface AgentInstallResult {
+export interface AgentCommandResult {
   /** Whether the installer command itself exited zero */
   ok: boolean;
   /** The installer's exit code, or null when it could not be run */
@@ -32,7 +32,7 @@ export type AgentCommandKind = "install" | "update";
 /**
  * Runs one built-in agent command on the control-plane host (admin only),
  * streaming its output; shared by the Install and Update buttons, which post
- * to `/{kind}` and read the same frame protocol `readInstallStream` exists for.
+ * to `/{kind}` and read the same frame protocol `readCommandStream` exists for.
  *
  * **Read with `fetch`, not `EventSource`.** The route streams NDJSON from the
  * ordinary POST, so the HttpOnly cookie goes with it and the admin gate is the
@@ -44,7 +44,7 @@ export type AgentCommandKind = "install" | "update";
 export function useAgentCommand(kind: AgentCommandKind, onLine?: (id: string, line: string) => void) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string): Promise<AgentInstallResult> => {
+    mutationFn: async (id: string): Promise<AgentCommandResult> => {
       let res: Response;
       try {
         res = await fetch(`/api/setup/agents/${id}/${kind}`, {
@@ -62,7 +62,7 @@ export function useAgentCommand(kind: AgentCommandKind, onLine?: (id: string, li
         throw new ApiError(res.status, message, { code, errId });
       }
       if (!res.body) throw new ApiError(res.status, "The server sent no output.");
-      return await readInstallStream(res.body, (line) => onLine?.(id, line));
+      return await readCommandStream(res.body, (line) => onLine?.(id, line));
     },
     onSettled: () => void queryClient.invalidateQueries({ queryKey: HARNESS_QUERY_KEY }),
   });
@@ -118,7 +118,7 @@ export const STALLED_MESSAGE =
  * @param onLine - Called with each `line` frame's text as it arrives
  * @param stallMs - Silence allowed before giving up
  */
-export async function readInstallStream<TDone = AgentInstallResult>(
+export async function readCommandStream<TDone = AgentCommandResult>(
   body: ReadableStream<Uint8Array>,
   onLine?: (line: string) => void,
   stallMs: number = INSTALL_STALL_MS,

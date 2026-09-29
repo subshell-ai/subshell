@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { toSubshellView } from "@/services/subshell-manager.service.js";
+import { toSubshellView } from "@/services/subshell-view.js";
 
 /**
  * Pins the notification fields of the subshell view mapping. The frontend

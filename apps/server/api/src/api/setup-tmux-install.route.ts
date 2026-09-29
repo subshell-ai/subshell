@@ -50,7 +50,7 @@ let depsOverride: TmuxInstallDeps | undefined;
 /**
  * Test seam: swap the installer table, the re-probe and the PATH lookup so a
  * suite never runs a real package manager. Refuses outside the suite, the same
- * `setAgentInstallDepsForTests` pattern: a mis-wired production import must not
+ * `setAgentCommandDepsForTests` pattern: a mis-wired production import must not
  * be able to redirect what this route runs on the host.
  * @internal
  */

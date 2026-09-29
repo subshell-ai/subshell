@@ -13,7 +13,7 @@ import type {
 } from "@internal/pane-runtime";
 import type { PluginReportWire } from "@internal/subshell-protocol";
 import type { NetworkDeps } from "@/api/network/network-gate.js";
-import type { AgentInstallResult } from "@/services/agent-install.service.js";
+import type { AgentCommandResult } from "@/services/agent-install.service.js";
 
 /**
  * A network plugin the suites drive, and the deps that make it the only one
@@ -193,7 +193,7 @@ export interface InstallRecorder {
   /** Lines the fake runner emits before it reports. */
   lines: string[];
   /** What it reports. */
-  result: AgentInstallResult;
+  result: AgentCommandResult;
 }
 
 /** An install recorder whose runner succeeds, printing one line. */

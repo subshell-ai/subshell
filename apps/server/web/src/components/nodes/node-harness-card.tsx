@@ -4,11 +4,11 @@ import { RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { NodeHarnessRow } from "@/components/nodes/node-harness-row";
 import { useHarnesses, useNodeHarnesses } from "@/hooks/use-harnesses";
-import { type AgentCommandKind, type AgentInstallResult, useAgentCommand } from "@/hooks/use-install-agent";
+import { type AgentCommandKind, type AgentCommandResult, useAgentCommand } from "@/hooks/use-install-agent";
 import { useRecheckNode } from "@/hooks/use-nodes";
 
 /** A run that RAN and said no: it either never started or exited non-zero. */
-function runFailure(data: AgentInstallResult): { message: string; output: string } {
+function runFailure(data: AgentCommandResult): { message: string; output: string } {
   return {
     message:
       data.exitCode === null ? "The command could not be started." : `The command exited with code ${data.exitCode}.`,

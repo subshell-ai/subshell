@@ -3,8 +3,7 @@ import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { setHasUsersProbeForTests } from "@/api/setup.route.js";
 import {
-  setAgentInstallDepsForTests,
-  setAgentUpdateDepsForTests,
+  setAgentCommandDepsForTests,
   setupAgentInstallRoute,
   setupAgentUpdateRoute,
 } from "@/api/setup-agent-command.route.js";
@@ -107,8 +106,8 @@ describe("POST /api/setup/agents/:pluginId/update", () => {
 
   afterAll(async () => {
     setHasUsersProbeForTests(null);
-    setAgentUpdateDepsForTests(null);
-    setAgentInstallDepsForTests(null);
+    setAgentCommandDepsForTests("update", null);
+    setAgentCommandDepsForTests("install", null);
     if (subshellId) await db.deleteFrom("subshells").where("id", "=", subshellId).execute();
     if (apiKeyId) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [apiKeyId]);
     if (userId) await db.deleteFrom("userMeta").where("userId", "=", userId).execute();
@@ -170,7 +169,7 @@ describe("POST /api/setup/agents/:pluginId/update", () => {
       entered = resolve;
     });
     let calls = 0;
-    setAgentUpdateDepsForTests({
+    setAgentCommandDepsForTests("update", {
       commandFor: async () => {
         if (++calls === 1) entered();
         return "sleep 0.2";
@@ -178,7 +177,7 @@ describe("POST /api/setup/agents/:pluginId/update", () => {
       timeoutMs: 5_000,
       extraPath: async () => [],
     });
-    setAgentInstallDepsForTests({
+    setAgentCommandDepsForTests("install", {
       commandFor: async () => "sleep 99",
       timeoutMs: 5_000,
       extraPath: async () => [],
@@ -201,12 +200,12 @@ describe("POST /api/setup/agents/:pluginId/update", () => {
     } finally {
       // The install seam must not leak: the install route's own file expects
       // the real manifest when it runs after this one.
-      setAgentInstallDepsForTests(null);
+      setAgentCommandDepsForTests("install", null);
     }
   });
 
   it("200s for the admin, running the fake updater and re-probing the harness", async () => {
-    setAgentUpdateDepsForTests({
+    setAgentCommandDepsForTests("update", {
       commandFor: async (_id, kind) => (kind === "update" ? "echo up" : "sleep 99"),
       timeoutMs: 5_000,
       extraPath: async () => [],
@@ -233,7 +232,7 @@ describe("POST /api/setup/agents/:pluginId/update", () => {
   it("audits exactly one agent.update row and no agent.install row", async () => {
     // A fresh id: the rows for ids used above are that run's, and this case
     // asks "exactly one" about a command that ran nowhere else.
-    setAgentUpdateDepsForTests({
+    setAgentCommandDepsForTests("update", {
       commandFor: async () => "true",
       timeoutMs: 5_000,
       extraPath: async () => [],

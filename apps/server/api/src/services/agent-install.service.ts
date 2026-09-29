@@ -1,7 +1,7 @@
 import { builtInIds, getHarness, loginPathEntries, runBounded } from "@internal/pane-runtime";
 
 /** What one install run produced. `ok:false` is a result, not an error: the installer ran and said no. */
-export interface AgentInstallResult {
+export interface AgentCommandResult {
   ok: boolean;
   exitCode: number | null;
   /** stdout then stderr, each capped at OUTPUT_CAP bytes. */
@@ -13,30 +13,30 @@ export interface AgentInstallResult {
  * A refusal BEFORE anything ran: an unknown id, an id with no command for
  * the asked kind, or one already running a command of any kind. Distinct
  * from a failing installer
- * ({@link AgentInstallResult} with `ok:false`), which did run and reported a
+ * ({@link AgentCommandResult} with `ok:false`), which did run and reported a
  * result — this is a rejected promise so the route can answer with the right
  * status before spawning anything.
  */
-export class AgentInstallRefused extends Error {
+export class AgentCommandRefused extends Error {
   readonly status: 400 | 409;
   constructor(message: string, status: 400 | 409) {
     super(message);
-    this.name = "AgentInstallRefused";
+    this.name = "AgentCommandRefused";
     this.status = status;
   }
 }
 
 /** Which manifest command this run executes: the installer, or the vendor's updater. */
-export type AgentInstallKind = "install" | "update";
+export type AgentCommandKind = "install" | "update";
 
 /**
  * Test seams. Production callers pass nothing and get the real manifest, the
  * real timeout and the real login-shell PATH probe — the fake in tests never
  * touches a compiled-in plugin or spawns a login shell.
  */
-export interface AgentInstallDeps {
+export interface AgentCommandDeps {
   /** The command for a BUILT-IN id and kind, or undefined for an id this build does not carry. */
-  commandFor: (id: string, kind: AgentInstallKind) => Promise<string | undefined>;
+  commandFor: (id: string, kind: AgentCommandKind) => Promise<string | undefined>;
   timeoutMs: number;
   /** Directories to append to PATH: a service-run server carries only its baked PATH. */
   extraPath: () => Promise<string[]>;
@@ -49,7 +49,7 @@ export interface AgentInstallDeps {
  */
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
-const defaultDeps: AgentInstallDeps = {
+const defaultDeps: AgentCommandDeps = {
   commandFor: async (id, kind) => {
     if (!(await builtInIds()).includes(id)) return undefined;
     const h = getHarness(id);
@@ -71,10 +71,10 @@ const defaultDeps: AgentInstallDeps = {
  * remembers WHICH kind is running, because the "already running" sentence
  * names the work under way, not the kind being refused.
  */
-const inFlight = new Map<string, AgentInstallKind>();
+const inFlight = new Map<string, AgentCommandKind>();
 
 /** Past-tense verb for the "already running" sentence, per kind. */
-const RUNNING_WORD: Record<AgentInstallKind, string> = { install: "installed", update: "updated" };
+const RUNNING_WORD: Record<AgentCommandKind, string> = { install: "installed", update: "updated" };
 
 /**
  * The refusal {@link runBuiltInAgentCommand} would raise for `kind` before
@@ -93,14 +93,14 @@ const RUNNING_WORD: Record<AgentInstallKind, string> = { install: "installed", u
  */
 export async function refuseAgentCommand(
   id: string,
-  kind: AgentInstallKind,
-  deps: AgentInstallDeps = defaultDeps,
-): Promise<AgentInstallRefused | undefined> {
+  kind: AgentCommandKind,
+  deps: AgentCommandDeps = defaultDeps,
+): Promise<AgentCommandRefused | undefined> {
   const command = await deps.commandFor(id, kind);
-  if (command === undefined) return new AgentInstallRefused(`"${id}" is not a plugin this build carries`, 400);
-  if (command.trim() === "") return new AgentInstallRefused(`"${id}" has nothing to ${kind}`, 400);
+  if (command === undefined) return new AgentCommandRefused(`"${id}" is not a plugin this build carries`, 400);
+  if (command.trim() === "") return new AgentCommandRefused(`"${id}" has nothing to ${kind}`, 400);
   const running = inFlight.get(id);
-  if (running !== undefined) return new AgentInstallRefused(`"${id}" is already being ${RUNNING_WORD[running]}`, 409);
+  if (running !== undefined) return new AgentCommandRefused(`"${id}" is already being ${RUNNING_WORD[running]}`, 409);
   return undefined;
 }
 
@@ -116,15 +116,15 @@ export async function refuseAgentCommand(
  */
 export async function runBuiltInAgentCommand(
   id: string,
-  kind: AgentInstallKind,
-  deps: AgentInstallDeps = defaultDeps,
+  kind: AgentCommandKind,
+  deps: AgentCommandDeps = defaultDeps,
   onLine?: (line: string) => void,
-): Promise<AgentInstallResult> {
+): Promise<AgentCommandResult> {
   const command = await deps.commandFor(id, kind);
-  if (command === undefined) throw new AgentInstallRefused(`"${id}" is not a plugin this build carries`, 400);
-  if (command.trim() === "") throw new AgentInstallRefused(`"${id}" has nothing to ${kind}`, 400);
+  if (command === undefined) throw new AgentCommandRefused(`"${id}" is not a plugin this build carries`, 400);
+  if (command.trim() === "") throw new AgentCommandRefused(`"${id}" has nothing to ${kind}`, 400);
   const running = inFlight.get(id);
-  if (running !== undefined) throw new AgentInstallRefused(`"${id}" is already being ${RUNNING_WORD[running]}`, 409);
+  if (running !== undefined) throw new AgentCommandRefused(`"${id}" is already being ${RUNNING_WORD[running]}`, 409);
   inFlight.set(id, kind);
   try {
     // A plugin's install/update hint is a SHELL LINE (`curl … | bash`, or a
@@ -153,7 +153,7 @@ export interface InstallerRunOptions {
 
 /**
  * Runs one installer argv to completion, streaming its output a line at a time
- * and reporting it as an {@link AgentInstallResult}.
+ * and reporting it as an {@link AgentCommandResult}.
  *
  * The argv is the CALLER's — this function decides nothing about what runs,
  * only how it is reported. Both callers supply something fixed by this repo
@@ -178,7 +178,7 @@ export interface InstallerRunOptions {
 export async function runInstaller(
   argv: readonly string[],
   { timeoutMs, extraPath, onLine }: InstallerRunOptions,
-): Promise<AgentInstallResult> {
+): Promise<AgentCommandResult> {
   const result = await runBounded(argv, { timeoutMs, extraPath, onLine });
   // Joined, unlike every other caller of the shared core, because this one's
   // `output` is a DISCLOSURE rather than something to parse: it is shown to an

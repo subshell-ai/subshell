@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readInstallStream, STALLED_MESSAGE } from "@/hooks/use-install-agent";
+import { readCommandStream, STALLED_MESSAGE } from "@/hooks/use-install-agent";
 
 /** A body that emits the given chunks, then optionally never ends. */
 function bodyOf(frames: string[], { hang = false } = {}): ReadableStream<Uint8Array> {
@@ -20,10 +20,10 @@ const DONE = JSON.stringify({
   harness: { id: "hermes", installed: true },
 });
 
-describe("readInstallStream", () => {
+describe("readCommandStream", () => {
   it("reports each line and resolves on the done frame", async () => {
     const lines: string[] = [];
-    const result = await readInstallStream(
+    const result = await readCommandStream(
       bodyOf([JSON.stringify({ type: "line", text: "→ Existing installation found, updating..." }), DONE]),
       (line) => lines.push(line),
     );
@@ -32,7 +32,7 @@ describe("readInstallStream", () => {
   });
 
   it("refuses a stream that ended without saying how it went", async () => {
-    await expect(readInstallStream(bodyOf([JSON.stringify({ type: "line", text: "…" })]))).rejects.toThrow(
+    await expect(readCommandStream(bodyOf([JSON.stringify({ type: "line", text: "…" })]))).rejects.toThrow(
       /without saying whether it worked/,
     );
   });
@@ -43,7 +43,7 @@ describe("readInstallStream", () => {
   it("gives up when the body goes silent and never closes", async () => {
     const started = Date.now();
     await expect(
-      readInstallStream(bodyOf([JSON.stringify({ type: "line", text: "working…" })], { hang: true }), undefined, 40),
+      readCommandStream(bodyOf([JSON.stringify({ type: "line", text: "working…" })], { hang: true }), undefined, 40),
     ).rejects.toThrow(STALLED_MESSAGE);
     // It waited rather than failing instantly on the first quiet moment.
     expect(Date.now() - started).toBeGreaterThanOrEqual(30);
@@ -62,7 +62,7 @@ describe("readInstallStream", () => {
       },
     });
     // 60ms of total work against a 40ms silence bound that is reset each frame.
-    const result = await readInstallStream(body, undefined, 40);
+    const result = await readCommandStream(body, undefined, 40);
     expect(result.ok).toBe(true);
   });
 });
