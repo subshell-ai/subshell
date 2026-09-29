@@ -425,8 +425,9 @@ describe("detectOnNode", () => {
    * CACHED inventory can predate a manual update, so the launch kicks ONE
    * detect carrying `{ subshellId, expected, startedAt }` and only that pane,
    * only while its just-written stamp still matches AND the row's `startedAt`
-   * still names the kick's launch, and only a POSITIVE fresh answer, moves the
-   * row. This pass corrects staleness; it never erases.
+   * still names the kick's launch (the CAS carries that guard, in its WHERE),
+   * and only a POSITIVE fresh answer, moves the row. This pass corrects
+   * staleness; it never erases.
    */
   it("re-stamps the one pane that kicked the detect, and only while its stamp still matches", async () => {
     const node = await mkNode();
@@ -519,6 +520,41 @@ describe("detectOnNode", () => {
       expect(changedFor()).toBe(2); // ...and publishes nothing
     } finally {
       off();
+      await subshells.delete(subshellId);
+    }
+  });
+
+  it("a pane on ANOTHER node gets nothing from this node's re-stamp kick", async () => {
+    // The kick was raised by THIS node's detect; a pane that lives elsewhere
+    // must not be stamped from an inventory its own host never answered.
+    const node = await mkNode();
+    const otherNode = await mkNode();
+    const subshells = new SubshellsRepository(db);
+    const subshellId = crypto.randomUUID();
+    await subshells.create({
+      id: subshellId,
+      userId: OWNER,
+      harnessId: "claude-code",
+      name: "restamp-wrong-node",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+      nodeId: otherNode.id,
+    });
+    const launchStartedAt = "2026-09-28T00:00:00.000Z";
+    await db.updateTable("subshells").set({ startedAt: launchStartedAt }).where("id", "=", subshellId).execute();
+    try {
+      await detectOnNode(node.id, {
+        send: fakeSend(
+          {
+            results: [{ harnessId: "claude-code", installed: true, binaryPath: "/x/claude", rawVersion: "2.1.284" }],
+            env: {},
+          },
+          [],
+        ),
+        reStamp: { subshellId, expected: null, startedAt: launchStartedAt },
+      });
+      expect((await subshells.findById(subshellId))?.harnessVersion).toBeNull();
+    } finally {
       await subshells.delete(subshellId);
     }
   });

@@ -449,11 +449,13 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
   const conn = getLive(nodeId);
   if (conn?.agent) conn.agent.env = answer.env;
   // The scoped re-stamp (spec §3): only the pane that kicked, only while its
-  // just-written stamp still matches AND the row's `startedAt` still names the
-  // launch that kicked, and only a POSITIVE fresh answer. The startedAt check
-  // is what closes the equal-version restart: a kick from a DEAD process whose
-  // successor re-stamped the SAME value would otherwise pass the value CAS and
-  // stamp the new pane with a version it never launched. A missing entry, an
+  // just-written stamp still matches, and only a POSITIVE fresh answer. The
+  // launch guard lives in the CAS itself (`startedAt` in its WHERE): a kick
+  // from a DEAD process whose successor re-stamped the SAME value cannot pass
+  // it, so the answer for a dead launch is refused atomically rather than
+  // read-checked. The row must also live ON this node: the kick was raised by
+  // this node's detect, and a pane moved elsewhere must not be stamped from
+  // an inventory its current host never answered. A missing entry, an
   // `installed: false`, or a version-less probe leaves the launch stamp
   // standing: this pass corrects staleness, it never erases.
   if (deps.reStamp) {
@@ -461,19 +463,13 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
       const subshells = new SubshellsRepository(db);
       const pane = await subshells.findById(deps.reStamp.subshellId);
       const entry = pane ? merged.get(pane.harnessId) : undefined;
-      if (
-        pane &&
-        pane.status === "running" &&
-        pane.startedAt === deps.reStamp.startedAt &&
-        entry?.installed &&
-        entry.version
-      ) {
+      if (pane && pane.nodeId === nodeId && pane.status === "running" && entry?.installed && entry.version) {
         // The stamp is user-visible on the view (spec 2026-09-28 §4), so the
         // standing publish rule binds this write: a CAS that MOVES the value
         // announces; a no-write path and a same-value landing (a restart on
         // an unchanged binary) both stay silent.
         if (
-          (await subshells.casHarnessVersion(pane.id, deps.reStamp.expected, entry.version)) &&
+          (await subshells.casHarnessVersion(pane.id, deps.reStamp.expected, deps.reStamp.startedAt, entry.version)) &&
           entry.version !== deps.reStamp.expected
         ) {
           publishLive({ kind: "subshell.changed", id: pane.id });

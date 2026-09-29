@@ -39,7 +39,13 @@ async function freshDb(): Promise<Kysely<Database>> {
   return db;
 }
 
-async function seed(db: Kysely<Database>, id: string, waitingSince: string | null) {
+/**
+ * Inserts a bare running row and reads back the value a CAS must name: the
+ * insert leaves `started_at` NULL, and the real launch paths (create/revive)
+ * pass the row's own `startedAt`, so every case here threads the read-back
+ * value exactly as those callers do.
+ */
+async function seed(db: Kysely<Database>, id: string, waitingSince: string | null): Promise<string | null> {
   await (db as Kysely<any>)
     .insertInto("subshells")
     .values({
@@ -54,38 +60,57 @@ async function seed(db: Kysely<Database>, id: string, waitingSince: string | nul
       waitingSince,
     })
     .execute();
+  const row = await (db as Kysely<any>)
+    .selectFrom("subshells")
+    .select("startedAt")
+    .where("id", "=", id)
+    .executeTakeFirstOrThrow();
+  return (row.startedAt as string | null) ?? null;
 }
 
 describe("casHarnessVersion", () => {
   it("writes while the row is running and still carries the expected value", async () => {
     const db = await freshDb();
-    await seed(db, "s1", null); // copied seeder: id, userId "u", presetId "p", harnessId "h", /tmp, running
+    const startedAt = await seed(db, "s1", null); // copied seeder: id, userId "u", presetId "p", harnessId "h", /tmp, running
     const repo = new SubshellsRepository(db);
-    expect(await repo.casHarnessVersion("s1", null, "2.1.283")).toBe(true);
+    expect(await repo.casHarnessVersion("s1", null, startedAt, "2.1.283")).toBe(true);
     expect((await repo.findById("s1"))?.harnessVersion).toBe("2.1.283");
     await db.destroy();
   });
 
   it("a stale expected value loses the race and writes nothing", async () => {
     const db = await freshDb();
-    await seed(db, "s1", null);
+    const startedAt = await seed(db, "s1", null);
     const repo = new SubshellsRepository(db);
-    expect(await repo.casHarnessVersion("s1", null, "283")).toBe(true);
+    expect(await repo.casHarnessVersion("s1", null, startedAt, "283")).toBe(true);
     // A second writer that still believes the pre-283 value cannot land: a
     // launch's late stamp must never clobber a restart's fresh one.
-    expect(await repo.casHarnessVersion("s1", null, "284")).toBe(false);
+    expect(await repo.casHarnessVersion("s1", null, startedAt, "284")).toBe(false);
     expect((await repo.findById("s1"))?.harnessVersion).toBe("283");
     // And the true owner can still move it.
-    expect(await repo.casHarnessVersion("s1", "283", "284")).toBe(true);
+    expect(await repo.casHarnessVersion("s1", "283", startedAt, "284")).toBe(true);
+    await db.destroy();
+  });
+
+  it("the right value with the WRONG startedAt loses, and the row is unchanged", async () => {
+    // The equal-version restart the value CAS cannot see: a kick naming a
+    // dead launch passes the expected check yet must write nothing, because
+    // the guard in the WHERE names the launch as well as the value.
+    const db = await freshDb();
+    const startedAt = await seed(db, "s1", null);
+    const repo = new SubshellsRepository(db);
+    expect(await repo.casHarnessVersion("s1", null, startedAt, "283")).toBe(true);
+    expect(await repo.casHarnessVersion("s1", "283", "2099-01-01T00:00:00.000Z", "284")).toBe(false);
+    expect((await repo.findById("s1"))?.harnessVersion).toBe("283");
     await db.destroy();
   });
 
   it("a terminated row is not stamped", async () => {
     const db = await freshDb();
-    await seed(db, "s1", null);
+    const startedAt = await seed(db, "s1", null);
     const repo = new SubshellsRepository(db);
     await repo.markTerminated("s1", new Date().toISOString());
-    expect(await repo.casHarnessVersion("s1", null, "283")).toBe(false);
+    expect(await repo.casHarnessVersion("s1", null, startedAt, "283")).toBe(false);
     await db.destroy();
   });
 

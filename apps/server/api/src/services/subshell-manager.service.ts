@@ -1192,10 +1192,11 @@ export class SubshellManagerService {
    * so a racing restart always wins; when this writer lands, it hands off the
    * scoped re-stamp kick (a no-op on `local`). Failures are debug-only: the
    * pane is RUNNING and correct; a missing annotation is never a launch
-   * failure. `startedAt` must be the row's start time FOR THIS LAUNCH (what
-   * the re-stamp guard compares against): the create caller passes the row's
-   * own value, and the revive caller the fresh one its `updateIfRunning` has
-   * just written (the parked row's in-memory `startedAt` is stale by then).
+   * failure. `startedAt` must be the row's start time FOR THIS LAUNCH — the
+   * CAS guard and the re-stamp kick both carry exactly this value: the create
+   * caller passes the row's own value, and the revive caller the fresh one its
+   * `updateIfRunning` has just written (the parked row's in-memory `startedAt`
+   * is stale by then).
    */
   async #stampHarnessVersion(
     row: SubshellTable,
@@ -1207,7 +1208,10 @@ export class SubshellManagerService {
     try {
       const before = row.harnessVersion ?? null;
       const stamp = await launcher.launchedHarnessVersion(harness, binary);
-      if (await this.#subshells.casHarnessVersion(row.id, before, stamp)) {
+      // The CAS and the kick carry the SAME startedAt from the SAME read of
+      // the launch, so the guard the writer sets and the guard the later
+      // re-stamp checks name one process (spec §3).
+      if (await this.#subshells.casHarnessVersion(row.id, before, startedAt, stamp)) {
         // The kick rides every landing: the null-stamp kick is what arms the
         // re-stamp chain, landing or not. The publish announces a MOVE only —
         // a CAS that wrote the same value changed nothing the view shows.
