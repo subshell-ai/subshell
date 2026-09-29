@@ -1,94 +1,68 @@
 # syntax=docker/dockerfile:1
 
-# Subshell — agent harness manager
+# Subshell Server - the release image (spec 2026-09-28 § 3).
 #
-# Multi-stage build: stage 1 installs deps + builds all workspace packages,
-# stage 2 is a slim runtime with tmux. The app serves API + WS + built
-# frontend on a single port (default 127.0.0.1:3080).
+# PACKAGING, not compiling: docker/bin/subshell-server-<arch> is the published,
+# signature-verified cli-server release binary, staged by docker-image.yml
+# (scripts/docker-release-verify.ts refuses bad bytes). This image therefore
+# carries the same artifact the install one-liner installs, and
+# `subshell-server version` answers identically inside Docker and outside it.
+#
+# debian:trixie-slim: the Linux release floor is glibc 2.39 (the ubuntu-24.04
+# build shards) and trixie carries 2.41; trixie is also what the Proxmox
+# helper script's LXCs run, so host and container agree on the distro.
+#
+# The five harness CLIs are baked with the vendor one-liners the product's own
+# install rails offer. Their versions float with build day; refreshing one
+# inside a RUNNING container works through the admin UI's agent-install route
+# without an image rebuild.
 
-FROM oven/bun:1.4 AS base
-WORKDIR /app
+FROM debian:trixie-slim
 
-# ---- Dependencies (workspace manifests only, for layer caching) ----
-# The list must cover every workspace the root package.json globs
-# (apps/*, apps/*/*, packages/*, e2e, brand) — `--frozen-lockfile` fails on a
-# missing one. It is already short of that, and only ONE absence matters: a
-# retained workspace (@internal/server) depends on @internal/mcp-core, so this
-# stage fails with "listed in bun.lock but not on disk" until
-# `COPY packages/mcp-core/package.json packages/mcp-core/` is added. The others
-# (apps/mobile, apps/client/*, apps/server/desktop, brand) are inert — nothing
-# kept here depends on them. Pre-existing: this image predates those workspaces
-# and is not built in CI, so fixing it is its own change rather than part of
-# the apps/ taxonomy move.
-FROM base AS deps
-COPY package.json bun.lock turbo.json ./
-COPY apps/server/api/package.json apps/server/api/
-COPY apps/server/web/package.json apps/server/web/
-COPY e2e/package.json e2e/
-COPY packages/harnesses/package.json packages/harnesses/
-COPY packages/subshell-protocol/package.json packages/subshell-protocol/
-COPY packages/backend-client/package.json packages/backend-client/
-COPY packages/backend-errors/package.json packages/backend-errors/
-COPY packages/tsconfig/package.json packages/tsconfig/
-# --ignore-scripts: bun would run the root `prepare` (lefthook install) here —
-# dev tooling that needs git and a .git dir, neither of which exists in the
-# image (dependency lifecycle scripts are not affected by this flag in bun).
-RUN bun install --frozen-lockfile --ignore-scripts
-
-# ---- Build all workspace code ----
-FROM deps AS build
-COPY . .
-# Workspace packages must build first (backend imports their dist output).
-RUN bun run --cwd packages/subshell-protocol build \
- && bun run --cwd packages/harnesses build \
- && bun run --cwd packages/backend-errors build \
- && bun run --cwd packages/backend-client build \
- && bun run --cwd apps/server/web build \
- && bun run --cwd apps/server/api build
-
-# ---- Runtime (slim) ----
-FROM oven/bun:1.4-slim AS runtime
-WORKDIR /app
-
-# tmux backs sessions (per-session socket, pipe-pane streaming); git is what
-# the harnesses run against the mounted projects; openssh-client provides
-# ssh (for git push over ssh remotes with the mounted ~/.ssh) and ssh-keygen
-# (for git's ssh-format commit signing).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends tmux git ca-certificates openssh-client \
+ && apt-get install -y --no-install-recommends tmux git openssh-client ca-certificates curl unzip libatomic1 \
  && rm -rf /var/lib/apt/lists/*
 
-# Non-root by default. Compose normally overrides `user:` with the host uid,
-# so /home/subshell and /data are world-writable; HOME is pinned because the
-# numeric host uid has no passwd entry of its own and the claude CLI writes
-# under $HOME. When the host uid IS in passwd (1000 = the base image's `bun`
-# user) its home is repointed at /home/subshell too — ssh resolves ~/.ssh and
-# ssh_config via the passwd entry, not $HOME, so a mismatch there silently
-# defeats the mounted keys.
-RUN useradd --create-home --uid 1001 subshell \
- && usermod -d /home/subshell bun \
- && mkdir -p /data /home/subshell \
- && chown subshell:subshell /data /home/subshell \
- && chmod 777 /data /home/subshell
-ENV HOME=/home/subshell
+# The pi vendor installer (and any npm-routed agent-install/update rail run
+# inside the container) hard-requires Node >= 22.19; trixie's nodejs is 20.x
+# (spec 2026-09-28 § 3, operator ruling 2026-09-29). NodeSource covers both
+# shipped architectures.
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --create-home --uid 1000 --shell /bin/bash subshell \
+ && mkdir -p /data \
+ && chown subshell:subshell /data \
+ # 777 so a bind mount whose host dir arrives root-owned (a fresh
+ # /var/lib/subshell, say) still becomes writable after docker chowns the
+ # MOUNT, not the image dir. Named volumes inherit the image's ownership.
+ && chmod 777 /data
+
+COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+
+ARG TARGETARCH
+COPY docker/bin/subshell-server-${TARGETARCH} /usr/local/bin/subshell-server
+RUN chmod 0755 /usr/local/bin/subshell-server
+
 USER subshell
+ENV HOME=/home/subshell
+ENV PATH="/home/subshell/.npm-global/bin:/home/subshell/.local/bin:/home/subshell/.opencode/bin:/home/subshell/.bun/bin:/usr/local/bin:/usr/bin:/bin"
 
-# Install production deps from the same manifest snapshot as the build stage
-# (this recreates the full bun workspace layout — including the top-level
-# @internal/* and hoisted symlinks that bun's installer creates — which a
-# COPY of node_modules breaks). Runs as root, then drops to `subshell`.
-COPY --from=deps /app/. ./
+RUN set -eux; \
+    curl -fsSL https://claude.ai/install.sh | bash; \
+    curl -fsSL https://chatgpt.com/codex/install.sh | sh; \
+    curl -fsSL https://opencode.ai/install | bash; \
+    curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash; \
+    curl -fsSL https://pi.dev/install.sh | sh; \
+    command -v claude codex opencode hermes pi
 
-# Built artifacts (backend imports @internal/* from the workspace root).
-COPY --from=build /app/apps/server/api/dist ./apps/server/api/dist
-COPY --from=build /app/apps/server/web/dist ./apps/server/web/dist
-COPY --from=build /app/packages ./packages
-
-# SQLite + session logs live here (mount a volume).
-ENV DATABASE_PATH=/data/subshell.db
-ENV HOST=0.0.0.0
-ENV NODE_ENV=production
+ENV HOST=0.0.0.0 \
+    NODE_ENV=production \
+    DATABASE_PATH=/data/subshell.db \
+    SUBSHELL_SERVER_CONFIG_DIR=/data \
+    SUBSHELL_CONTAINER=1
 
 EXPOSE 3080
 
-CMD ["bun", "run", "./apps/server/api/dist/index.js"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
