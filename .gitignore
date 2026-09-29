@@ -186,3 +186,4 @@ crates/desktop-core/target/
 
 # Staged release binaries for the image build (docker-image.yml stages these)
 docker/bin/
+docker/dl/

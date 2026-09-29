@@ -4,8 +4,10 @@
 # community-scripts convention: run on the PROXMOX HOST as root. Creates an
 # unprivileged Debian trixie container with Docker inside it, runs the official
 # Subshell image from GHCR, and updates it later with: bash /root/proxmox.sh
-# update (the install saves itself there; a copy you kept works too). Pin the
-# image with SUBSHELL_VERSION=<tag> or by setting IMG yourself.
+# update (the install saves itself there; a copy you kept works too). Pin at
+# install with SUBSHELL_VERSION=<tag> (or set IMG); updates re-pull the tag the
+# install recorded in /etc/default/subshell-docker - repin by editing that
+# file's IMAGE= line (or reinstalling).
 #
 # Data (database, config.env with its minted secret, plugins, backups) lives on
 # the CT's /var/lib/subshell, so updates never touch it. Running panes do not
@@ -86,7 +88,11 @@ install_ct() {
   header "Create the ${APP} container"
   local last
   last=$(pct list 2>/dev/null | tail -n +2 | awk '{print $1}' | sort -n | tail -1)
-  fn_prompt CT_ID "Container ID" "$(( ${last:-100} + 1 ))"
+  if [[ -n "$CT_ID" ]]; then
+    msg_ok "Container ID ${CT_ID} from the environment"
+  else
+    fn_prompt CT_ID "Container ID" "$(( ${last:-100} + 1 ))"
+  fi
   fn_prompt CT_HOSTNAME "Hostname" "$CT_HOSTNAME"
   fn_prompt CT_CORES "Cores" "$CT_CORES"
   fn_prompt CT_RAM_MB "Memory MB" "$CT_RAM_MB"

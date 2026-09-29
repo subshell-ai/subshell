@@ -27,7 +27,7 @@ When the install finishes it prints an address like `http://10.0.0.5:3080`. Open
 bash /root/proxmox.sh update
 ```
 
-A successful install saves the script to `/root/proxmox.sh` for exactly this, because a `curl | bash` install leaves no file on the host. A copy you kept works the same (`bash proxmox.sh update`), and so does re-running the one-liner with the verb: `curl -fsSL https://subshell.sh/proxmox.sh | bash -s -- update`.
+A successful install saves the script to `/root/proxmox.sh` for exactly this, because a `curl | bash` install leaves no file on the host. A copy you kept works the same (`bash proxmox.sh update`), and so does re-running the one-liner with the verb: `curl -fsSL https://subshell.sh/proxmox.sh | bash -s -- update`. An update re-pulls the tag the install recorded; to change it, edit the `IMAGE=` line in `/etc/default/subshell-docker` inside the LXC and run the update, or reinstall with a new pin.
 
 The script asks which container to update, pulls the new image inside it, renames the old container aside, and starts the new one. If the new container does not answer the server's setup status within two minutes, the old one is restored and the failure is reported; a pull that fails changes nothing at all. Data survives every update, running panes do not: the Subshell container owns its tmux server, and recreating it ends that process. [Run in Docker](/server/docker) covers the same shape in the plain-container spelling, and the dashboard's update card on a containerized install names this remedy.
 

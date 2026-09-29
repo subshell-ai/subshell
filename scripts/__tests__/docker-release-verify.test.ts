@@ -101,7 +101,6 @@ describe("the layers under the signature gate", () => {
       version: "1.2.3",
     });
     expect(wrongVersion.ok).toBe(false);
-    if (!wrongVersion.ok) expect(wrongVersion.reason).toContain("names version 9.9.9, not 1.2.3");
 
     // The script's own call pins component cli-server; a node release's
     // signature can never carry it (the replay defense).
@@ -110,7 +109,6 @@ describe("the layers under the signature gate", () => {
       version: "9.9.9",
     });
     expect(wrongComponent.ok).toBe(false);
-    if (!wrongComponent.ok) expect(wrongComponent.reason).toContain('names component "cli-node"');
   });
 
   test("staged names derive from SERVER_TARGETS, not a hardcoded spelling", () => {

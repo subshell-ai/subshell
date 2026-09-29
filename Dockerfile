@@ -34,9 +34,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 RUN useradd --create-home --uid 1000 --shell /bin/bash subshell \
  && mkdir -p /data \
  && chown subshell:subshell /data \
- # 777 so a bind mount whose host dir arrives root-owned (a fresh
- # /var/lib/subshell, say) still becomes writable after docker chowns the
- # MOUNT, not the image dir. Named volumes inherit the image's ownership.
+ # 777 so a bind mount whose host dir arrives root-owned still lands
+ # writable. Docker copies the image's ownership into NAMED volumes only;
+ # a bind mount is handled by whoever creates the host dir (proxmox.sh
+ # chowns /var/lib/subshell to 1000:1000, compose users own theirs).
  && chmod 777 /data
 
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
