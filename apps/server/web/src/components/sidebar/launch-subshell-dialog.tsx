@@ -36,16 +36,28 @@ export function LaunchSubshellDialog({
   const create = useCreateSubshell();
   const [form, setForm] = useState<NewSubshellFormValue>(emptyNewSubshellForm);
   const [error, setError] = useState<string | null>(null);
+  // Set when the launch succeeded but the prompt did not land; the id is the
+  // only way back to that pane from here.
+  const [promptMissedId, setPromptMissedId] = useState<string | null>(null);
 
   function reset() {
     setForm(emptyNewSubshellForm());
     setError(null);
+    setPromptMissedId(null);
   }
 
   async function submit() {
     setError(null);
     try {
       const created = await create.mutateAsync(form);
+      // Honest partial success (spec 2026-09-28): the pane started, but the
+      // prompt did not land. The subshell is real and the form would only
+      // double-create if it stayed live, so the footer flips to the one true
+      // next step instead of silently navigating away from the miss.
+      if (created.promptDelivered === false) {
+        setPromptMissedId(created.id);
+        return;
+      }
       onOpenChange(false);
       reset();
       void navigate({ to: "/subshells/$id", params: { id: created.id } });
@@ -71,13 +83,31 @@ export function LaunchSubshellDialog({
         </DialogHeader>
         <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
         {error && <p className="text-destructive text-detail">{error}</p>}
+        {promptMissedId && (
+          <p className="text-detail text-muted-foreground">
+            The subshell started, but the prompt did not land. Open it and use "Inject prompt" to type it in.
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={create.isPending}>
             Cancel
           </Button>
-          <Button onClick={() => void submit()} disabled={create.isPending || !canSubmit(form)}>
-            {create.isPending ? "Starting…" : "Start subshell"}
-          </Button>
+          {promptMissedId ? (
+            <Button
+              onClick={() => {
+                const id = promptMissedId;
+                onOpenChange(false);
+                reset();
+                void navigate({ to: "/subshells/$id", params: { id } });
+              }}
+            >
+              Open subshell
+            </Button>
+          ) : (
+            <Button onClick={() => void submit()} disabled={create.isPending || !canSubmit(form)}>
+              {create.isPending ? "Starting…" : "Start subshell"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

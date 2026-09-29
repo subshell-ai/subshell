@@ -256,7 +256,16 @@ describe("NewSubshellForm agent/preset defaults", () => {
       const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
       expect(labels.indexOf("Agent")).toBeLessThan(labels.indexOf("Preset"));
       expect(labels.indexOf("Preset")).toBeLessThan(labels.indexOf("Node"));
-      expect(canSubmit({ harnessId: "claude-code", presetId: null, workingDir: "/tmp/x", nodeId: "local" })).toBe(true);
+      expect(
+        canSubmit({
+          harnessId: "claude-code",
+          presetId: null,
+          workingDir: "/tmp/x",
+          nodeId: "local",
+          promptEnabled: false,
+          promptBlocks: [],
+        }),
+      ).toBe(true);
       // Wire pin: ONE list for every surface. The store-scoped server
       // already answers for agents that run only on another node, so the
       // launch form reads the plain URL the /presets page does — no query,
@@ -420,6 +429,8 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-pi",
         workingDir: "/x",
         nodeId: "local",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       await waitFor(() => expect(latest().presetId).toBeNull());
       // And the picker stands at None (Base UI prints the mapped label).
@@ -455,6 +466,8 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "a1",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       await settle();
       expect(latest().nodeId).toBe("a1");
@@ -473,6 +486,8 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "local",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       await settle();
       expect(latest().presetId).toBe("p-claude");
@@ -503,6 +518,8 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "local",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       const input = screen.getByPlaceholderText("Choose an agent") as HTMLInputElement;
       // Keyboard-open the picker (happy-dom cannot emulate the pointer path
@@ -540,6 +557,8 @@ describe("NewSubshellForm preset row", () => {
         presetId: null,
         workingDir: "/x",
         nodeId: "local",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       fireEvent.click(screen.getByRole("button", { name: "New preset" }));
       const dialog = await screen.findByRole("dialog", { name: "New preset for Claude Code" });
@@ -586,7 +605,14 @@ describe("NewSubshellForm honest hints", () => {
   it("nothing on the picked node can run an agent → the hint, with a node link", async () => {
     const restore = mockFetch([node({ id: "a1", name: "bare", harnesses: [] })], [CLAUDE]);
     try {
-      await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a1" });
+      await renderForm({
+        harnessId: "",
+        presetId: null,
+        workingDir: "/tmp/x",
+        nodeId: "a1",
+        promptEnabled: false,
+        promptBlocks: [],
+      });
       // The node name sits inside the hint's <Link>, so the sentence spans
       // multiple nodes — match the paragraph on its full textContent.
       const hint = await screen.findByText(
@@ -602,7 +628,14 @@ describe("NewSubshellForm honest hints", () => {
   it("loaded-zero plugins on the picked node → the hint still shows (empty ≠ loading)", async () => {
     const restore = mockFetch([node({ id: "a1", name: "bare", harnesses: [] })], []);
     try {
-      await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a1" });
+      await renderForm({
+        harnessId: "",
+        presetId: null,
+        workingDir: "/tmp/x",
+        nodeId: "a1",
+        promptEnabled: false,
+        promptBlocks: [],
+      });
       expect(
         await screen.findByText(
           (_text, el) => el?.tagName === "P" && /Nothing installed on bare can run an agent/.test(el.textContent ?? ""),
@@ -619,7 +652,10 @@ describe("NewSubshellForm honest hints", () => {
       // holdValue pins the pick on the offline node — the live form re-homes
       // it — so this probes the gate itself: the row reasons already say
       // "node offline"; the hint must not claim the node holds no plugins.
-      await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a2" }, true);
+      await renderForm(
+        { harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a2", promptEnabled: false, promptBlocks: [] },
+        true,
+      );
       expect(
         screen.queryByText((_text, el) => el?.tagName === "P" && /Nothing installed on/.test(el.textContent ?? "")),
       ).toBeNull();
@@ -631,7 +667,14 @@ describe("NewSubshellForm honest hints", () => {
   it("chosen agent runnable on no visible node → the mirror hint", async () => {
     const restore = mockFetch([ENROLLED_INCOMPAT], [CLAUDE]);
     try {
-      await renderForm({ harnessId: "claude-code", presetId: null, workingDir: "/tmp/x", nodeId: "a3" });
+      await renderForm({
+        harnessId: "claude-code",
+        presetId: null,
+        workingDir: "/tmp/x",
+        nodeId: "a3",
+        promptEnabled: false,
+        promptBlocks: [],
+      });
       expect(await screen.findByText(/No available node can run Claude Code/)).toBeDefined();
     } finally {
       restore();
@@ -829,6 +872,8 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
         presetId: null,
         workingDir: "/keep/me",
         nodeId: "local",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       await settle();
       expect(latest().nodeId).toBe("local");

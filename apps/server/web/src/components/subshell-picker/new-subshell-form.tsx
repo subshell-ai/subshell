@@ -5,6 +5,8 @@ import { Plus } from "lucide-react";
 import type { JSX } from "react";
 import { useMemo, useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
+import { PromptPickerDialog } from "@/components/prompts/prompt-picker-dialog";
+import { PromptStackList } from "@/components/prompts/prompt-stack-list";
 import {
   DIALOG_IDS,
   hideMachineField,
@@ -25,6 +27,7 @@ import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { copySettingsOptions } from "@/lib/launch-defaults";
 import { isOfflineAgent } from "@/lib/node-label";
+import { movePromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import { buildAgentOptions, buildNodeOptions } from "@/lib/subshell-compat";
 
 // The pure half of this form — the value contract, the submit gate, the
@@ -148,6 +151,7 @@ export function NewSubshellForm({
   const agentPresets = presets.filter((p) => p.harnessId === value.harnessId);
 
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const targets = launchableNodes(nodes ?? []);
   const agentOptions = buildAgentOptions(plugins ?? [], selectedNode);
@@ -360,6 +364,54 @@ export function NewSubshellForm({
           nodeId={value.nodeId !== "local" ? value.nodeId : undefined}
           nodeName={selectedNode?.name}
         />
+      </div>
+
+      {/* Prompts (spec 2026-09-28): one checkbox when untouched, so a launch
+          that does not use a prompt pays nothing in screen. Checked, the
+          stack and its Add button appear; the joined text rides the create
+          body's existing `prompt` field and is typed once the harness
+          settles. The section lives HERE so all four launch surfaces get
+          it; the clone dialog copies settings, never a prompt. */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            id={ids.prompt}
+            checked={value.promptEnabled}
+            onChange={(e) => onChange({ ...value, promptEnabled: e.target.checked })}
+            className="h-4 w-4 rounded border border-input bg-background accent-primary"
+          />
+          <Label htmlFor={ids.prompt}>Add a prompt</Label>
+        </div>
+        {value.promptEnabled && (
+          <>
+            {value.promptBlocks.length > 0 && (
+              <PromptStackList
+                blocks={value.promptBlocks}
+                onReorder={(localId, dir) =>
+                  onChange({ ...value, promptBlocks: movePromptBlock(value.promptBlocks, localId, dir) })
+                }
+                onRemove={(localId) =>
+                  onChange({ ...value, promptBlocks: removePromptBlock(value.promptBlocks, localId) })
+                }
+              />
+            )}
+            <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
+              <Plus /> Add prompt
+            </Button>
+            <p className="text-detail text-muted-foreground">Typed into the pane when the subshell starts.</p>
+            {/* Mounted only while open (the clone-dialog posture): a reopen
+                must not remember a half-typed custom block. */}
+            {pickerOpen && (
+              <PromptPickerDialog
+                open
+                mode="multi"
+                onOpenChange={(next) => !next && setPickerOpen(false)}
+                onPick={(block) => onChange({ ...value, promptBlocks: [...value.promptBlocks, block] })}
+              />
+            )}
+          </>
+        )}
       </div>
     </div>
   );

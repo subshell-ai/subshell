@@ -1,5 +1,6 @@
 import type { Node } from "@internal/node-admin";
 import { isOfflineAgent } from "@/lib/node-label";
+import type { PromptBlock } from "@/lib/prompt-stack";
 
 /**
  * The launch form's pure contract: the value the caller owns, the submit
@@ -22,10 +23,21 @@ export interface NewSubshellFormValue {
    */
   nodeId: string;
   workingDir: string;
+  /**
+   * The "Add a prompt" checkbox (spec 2026-09-28): untouched, the prompt
+   * section renders nothing and the create body carries no `prompt` field,
+   * so the dialog's footprint grows only when the user asks for it.
+   */
+  promptEnabled: boolean;
+  /**
+   * The picked/written prompt blocks, in the order they will be typed.
+   * Always starts empty; a clone copies settings, not prompts.
+   */
+  promptBlocks: PromptBlock[];
 }
 
 export function emptyNewSubshellForm(): NewSubshellFormValue {
-  return { harnessId: "", presetId: null, workingDir: "", nodeId: "local" };
+  return { harnessId: "", presetId: null, workingDir: "", nodeId: "local", promptEnabled: false, promptBlocks: [] };
 }
 
 /** True once the form has everything the create call requires. */
@@ -129,6 +141,8 @@ export interface NewSubshellFormIds {
   workingDir: string;
   /** Node combobox input */
   node: string;
+  /** "Add a prompt" checkbox input */
+  prompt: string;
 }
 
 /** The `picker-*` set every launch dialog gets by default. */
@@ -138,4 +152,5 @@ export const DIALOG_IDS: NewSubshellFormIds = {
   preset: "picker-preset",
   workingDir: "picker-working-dir",
   node: "picker-node",
+  prompt: "picker-prompt-add",
 };

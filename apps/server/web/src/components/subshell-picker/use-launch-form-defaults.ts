@@ -262,7 +262,17 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): (subshellId: st
     // node it was copied with, and the recents seed stands aside for it.
     dirNodeRef.current = t.nodeId;
     prefillDoneRef.current = t.workingDir !== "";
-    onChange({ harnessId: t.harnessId, presetId: t.presetId, nodeId: t.nodeId, workingDir: t.workingDir });
+    // The prompt section is NOT copy settings (spec 2026-09-28): a copy
+    // carries agent, preset, node and directory, and leaves whatever the
+    // user already stacked right where it is.
+    onChange({
+      harnessId: t.harnessId,
+      presetId: t.presetId,
+      nodeId: t.nodeId,
+      workingDir: t.workingDir,
+      promptEnabled: value.promptEnabled,
+      promptBlocks: value.promptBlocks,
+    });
   }
 
   return applyCopy;

@@ -73,7 +73,12 @@ export function isUntouchedForm(value: NewSubshellFormValue, empty: NewSubshellF
     value.harnessId === empty.harnessId &&
     value.presetId === empty.presetId &&
     value.nodeId === empty.nodeId &&
-    value.workingDir === empty.workingDir
+    value.workingDir === empty.workingDir &&
+    // A ticked "Add a prompt" (or a block already picked) is an edit: the
+    // prior-launch default must not apply over a section the user opened
+    // while the node list was still loading (spec 2026-09-28).
+    value.promptEnabled === empty.promptEnabled &&
+    value.promptBlocks.length === empty.promptBlocks.length
   );
 }
 

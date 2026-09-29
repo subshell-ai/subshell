@@ -1,5 +1,6 @@
 import { apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { joinPromptBlocks, type PromptBlock } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
 /** The fields the shared new-subshell form collects. */
@@ -24,6 +25,10 @@ export interface CreateSubshellInput {
    * Node picked in the form; "" = no valid choice yet (blocks submit upstream).
    */
   nodeId?: string;
+  /** The launch form's "Add a prompt" checkbox (spec 2026-09-28). */
+  promptEnabled?: boolean;
+  /** The block stack joined into `prompt` when the checkbox is on. */
+  promptBlocks?: PromptBlock[];
 }
 
 /**
@@ -39,19 +44,34 @@ export interface CreateSubshellInput {
  * @param input - The collected form values
  * @returns The JSON body for `POST /api/subshells`
  */
-export function toSubshellCreateBody({ harnessId, presetId, workingDir, name, nodeId }: CreateSubshellInput): {
+export function toSubshellCreateBody({
+  harnessId,
+  presetId,
+  workingDir,
+  name,
+  nodeId,
+  promptEnabled,
+  promptBlocks,
+}: CreateSubshellInput): {
   harnessId: string;
   presetId?: string;
   workingDir: string;
   name?: string;
   nodeId?: string;
+  prompt?: string;
 } {
+  // The joined stack, and ONLY when the section is on and non-empty: an
+  // untouched form must send no `prompt` field at all (the wire treats an
+  // empty string as text to type, and the delivery probe would report on
+  // nothing).
+  const prompt = promptEnabled && promptBlocks && promptBlocks.length > 0 ? joinPromptBlocks(promptBlocks) : undefined;
   return {
     harnessId,
     presetId: presetId ?? undefined,
     workingDir,
     name: name?.trim() || undefined,
     nodeId: nodeId ? nodeId : undefined,
+    prompt,
   };
 }
 
@@ -66,7 +86,10 @@ export function toSubshellCreateBody({ harnessId, presetId, workingDir, name, no
 export function useCreateSubshell() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: CreateSubshellInput) => apiPost<{ id: string }>("/api/subshells", toSubshellCreateBody(input)),
+    // `promptDelivered: false` is honest "started, prompt did not land": the
+    // caller can point at the inject action instead of assuming the task went in.
+    mutationFn: (input: CreateSubshellInput) =>
+      apiPost<{ id: string; promptDelivered?: boolean }>("/api/subshells", toSubshellCreateBody(input)),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
       // The create touched the recent-paths row for its launch node — every
