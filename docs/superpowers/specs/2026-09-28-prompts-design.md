@@ -228,7 +228,10 @@ Rulings from testing the branch over plain http on the LAN, in order:
   SUBMITTED: a refresh mid-edit loses nothing; submitting spends the
   draft. The picker always OPENS at the list (second-pass ruling the
   same day: reopening straight into the editor read as a bug); the
-  stored text resumes on entering the step.
+  stored text resumes on entering the step; the "Save to my prompts"
+  switch is NOT part of the draft and is OFF on every entry (a prompt
+  used once has not earned a row, so the choice is re-declared each
+  time).
 - The picker is ONE body in two surfaces (dialog-on-dialog-on-dialog
   read as unwieldy): INLINE in the launch form (it replaces the "Add
   prompt" button while open), and the same body on a Dialog for the

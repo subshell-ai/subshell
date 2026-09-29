@@ -225,6 +225,24 @@ describe("PromptPickerBody", () => {
     expect(picked[0].description).toBe("The thing");
   });
 
+  it("the save switch is OFF on every entry, draft or not", async () => {
+    // Operator ruling 2026-09-29: "save to my prompts" is never restored
+    // ON from a draft; a prompt used once has not earned a row, and the
+    // person re-declares that every time.
+    restore = mockFetch([], []).restore;
+    sessionStorage.setItem(
+      "subshell/prompt-picker-draft/multi",
+      JSON.stringify({ body: "kept text", description: "kept label", saveToLibrary: true }),
+    );
+    renderPicker({ onPick: () => {} });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
+    expect((screen.getByRole("switch") as HTMLElement).getAttribute("aria-checked")).toBe("false");
+    expect((screen.getByPlaceholderText("The text to type into the pane") as HTMLTextAreaElement).value).toBe(
+      "kept text",
+    );
+  });
+
   it("a bare visit to the step saves NO draft (no reopen hijack)", async () => {
     // The round-8 MEDIUM pin: curiosity click on "Write your own...",
     // close without typing; the NEXT open must be the list, not an empty

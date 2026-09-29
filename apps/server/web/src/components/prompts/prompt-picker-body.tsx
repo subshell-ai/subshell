@@ -18,7 +18,6 @@ import type { PromptsView } from "@/lib/prompts";
 interface PickerDraft {
   body: string;
   description: string;
-  saveToLibrary: boolean;
 }
 
 function draftKey(mode: "multi" | "single"): string {
@@ -34,10 +33,12 @@ function loadDraft(mode: "multi" | "single"): PickerDraft | null {
     // restoring "" would reopen the picker AT an empty editor (the round-8
     // hijack, dead-lettered here so stale entries cannot revive it).
     if (typeof parsed?.body !== "string" || parsed.body === "") return null;
+    // saveToLibrary is deliberately NOT part of the draft (operator ruling
+    // 2026-09-29): the switch is OFF every time the step is entered, so a
+    // saved draft must never carry a stale toggle back in.
     return {
       body: parsed.body,
       description: typeof parsed.description === "string" ? parsed.description : "",
-      saveToLibrary: parsed.saveToLibrary === true,
     };
   } catch {
     return null;
@@ -112,7 +113,7 @@ export function PromptPickerBody({
     defaultValues: {
       body: draft?.body ?? "",
       description: draft?.description ?? "",
-      saveToLibrary: draft?.saveToLibrary ?? false,
+      saveToLibrary: false,
     },
     validator: customStepSchema,
     onSubmit: async ({ body, description, saveToLibrary }) => {
@@ -165,11 +166,7 @@ export function PromptPickerBody({
       } else {
         sessionStorage.setItem(
           draftKey(mode),
-          JSON.stringify({
-            body: customValues.body,
-            description: customValues.description,
-            saveToLibrary: customValues.saveToLibrary,
-          } satisfies PickerDraft),
+          JSON.stringify({ body: customValues.body, description: customValues.description } satisfies PickerDraft),
         );
       }
     } catch {
