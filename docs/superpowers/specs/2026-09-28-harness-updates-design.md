@@ -69,7 +69,8 @@ else.
 A sibling route `POST /api/setup/agents/:pluginId/update` beside the install
 route, sharing its shape: admin cookie session only (bearer refused), built-in
 id allowlist, every 4xx decided before the NDJSON body opens, `{ type: "line" }`
-streaming of installer output (ANSI-stripped, blank lines dropped), one terminal
+streaming of installer output (each line ANSI-stripped at the source; blank
+lines ride the wire and are dropped by the surfaces when rendering), one terminal
 `{ type: "done", ok, exitCode, output, durationMs, harness }` with the harness
 re-probed after the run. Single-flight is SHARED per plugin id across install and
 update (one per-id registry naming the running kind): one person re-running an installer while an update
