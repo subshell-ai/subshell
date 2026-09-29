@@ -13,7 +13,7 @@ import { LoaderCircle, RefreshCw } from "lucide-react";
 import { useState } from "react";
 import { PluginIcon } from "@/components/plugin-icon";
 import { useHarnesses, useNodeHarnesses } from "@/hooks/use-harnesses";
-import { useInstallAgent } from "@/hooks/use-install-agent";
+import { type AgentCommandKind, type AgentInstallResult, useAgentCommand } from "@/hooks/use-install-agent";
 import { useRecheckNode } from "@/hooks/use-nodes";
 import type { HarnessInfo } from "@/types/harness";
 
@@ -73,6 +73,27 @@ function installableHere(info: HarnessInfo | undefined): boolean {
 }
 
 /**
+ * The command an Update affordance would run for this plugin: the vendor's
+ * own if declared, else a re-run of the installer, exactly the service's
+ * fallback. Undefined when neither exists (terminal): no button, no copy
+ * line, mirroring the route's own "nothing to update" refusal.
+ */
+function updateCommandFor(info: HarnessInfo | undefined): string | undefined {
+  if (info?.type !== "agent-harness") return undefined;
+  const cmd = info.update ?? info.install.command;
+  return cmd.trim() !== "" ? cmd : undefined;
+}
+
+/** A run that RAN and said no: it either never started or exited non-zero. */
+function runFailure(data: AgentInstallResult): { message: string; output: string } {
+  return {
+    message:
+      data.exitCode === null ? "The command could not be started." : `The command exited with code ${data.exitCode}.`,
+    output: data.output,
+  };
+}
+
+/**
  * Which harnesses this machine can RUN (spec 2026-09-10): detection output,
  * not a plugin manager. The rows are the node view's — one per plugin the
  * INSTANCE has installed and enabled, crossed with this machine's binary
@@ -109,7 +130,10 @@ function installableHere(info: HarnessInfo | undefined): boolean {
  * route applies; an enrolled node never offers it, because the route can only
  * install on the control-plane host (installing on a remote node is out of
  * scope, spec 2026-09-11 § 11) and a button naming the wrong machine is worse
- * than no button.
+ * than no button. A ready row on `local` offers Update the same way: the
+ * vendor's own update command when the plugin declares one, else a re-run of
+ * the installer (spec 2026-09-28 § 2). On an enrolled node the server cannot
+ * run the command yet, so a ready row shows it as a copy line instead.
  */
 export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   const { harnesses, data, isLoading } = useNodeHarnesses(nodeId);
@@ -120,13 +144,16 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   // form and the preset editor so a warm cache costs nothing, and gating it
   // would mean two copies of the row renderer below.
   const { data: registry } = useHarnesses();
-  /** The installer's latest line, per plugin id — see the render below. */
-  const [installLines, setInstallLines] = useState<Record<string, string>>({});
-  const install = useInstallAgent((id, line) => {
-    // A blank line is spacing in an installer's output, not progress; showing
-    // one would blank the only thing on screen that is saying anything.
-    if (line.trim() !== "") setInstallLines((prev) => ({ ...prev, [id]: line }));
-  });
+  /** The running command's own line, keyed `kind:id`. */
+  const [cmdLines, setCmdLines] = useState<Record<string, string>>({});
+  // A blank line is spacing in a command's output, not progress; showing one
+  // would blank the only thing on screen that is saying anything. (Same rule
+  // the install button had; it now serves both kinds.)
+  const noteLine = (kind: AgentCommandKind) => (id: string, line: string) => {
+    if (line.trim() !== "") setCmdLines((prev) => ({ ...prev, [`${kind}:${id}`]: line }));
+  };
+  const install = useAgentCommand("install", noteLine("install"));
+  const update = useAgentCommand("update", noteLine("update"));
 
   if (isLoading) return <p className="text-muted-foreground text-sm">Loading…</p>;
 
@@ -141,30 +168,36 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   // `canManage` is server-derived and, on `local`, resolves to admin — the
   // same answer the install route's own cookie gate gives.
   const canInstallHere = data?.kind === "local" && data.canManage;
-  /** The id currently installing, so only its own row spins. */
-  const installingId = install.isPending ? install.variables : undefined;
-  /** The id whose last install ended, so a failure renders under the row that failed. */
-  const settledId = install.isPending ? undefined : install.variables;
-  /**
-   * Why the last install did not work, or undefined when it did.
-   *
-   * Two different failures said differently, as on the wizard's screen: the
-   * CALL failing (the server refused, the network went) is `install.error`,
-   * while a command that RAN and exited non-zero comes back `ok: false` with
-   * the installer's own output — which is the case worth showing, and the one
-   * a bare error line would have hidden.
-   */
-  const installFailure = install.error
-    ? { message: errMessage(install.error, "Couldn't run the installer.") }
-    : install.data && !install.data.ok
-      ? {
-          message:
-            install.data.exitCode === null
-              ? "The installer could not be started."
-              : `The installer exited with code ${install.data.exitCode}.`,
-          output: install.data.output,
-        }
+  /** Whichever command is running, so exactly one row spins. */
+  const active = install.isPending
+    ? { kind: "install" as const, id: install.variables }
+    : update.isPending
+      ? { kind: "update" as const, id: update.variables }
       : undefined;
+  /**
+   * Why the last command did not work, under whichever row ran it. The two
+   * different failures said differently, as before: the CALL failing is
+   * `.error`, while a command that RAN and exited non-zero is `data.ok:false`
+   * carrying its own output.
+   */
+  const failure: { id: string; kind: AgentCommandKind; message: string; output?: string } | undefined =
+    install.error && install.variables
+      ? {
+          id: install.variables,
+          kind: "install" as const,
+          message: errMessage(install.error, "Couldn't run the installer."),
+        }
+      : update.error && update.variables
+        ? {
+            id: update.variables,
+            kind: "update" as const,
+            message: errMessage(update.error, "Couldn't run the updater."),
+          }
+        : install.data && !install.data.ok && install.variables
+          ? { id: install.variables, kind: "install" as const, ...runFailure(install.data) }
+          : update.data && !update.data.ok && update.variables
+            ? { id: update.variables, kind: "update" as const, ...runFailure(update.data) }
+            : undefined;
 
   return (
     <Card>
@@ -237,6 +270,14 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
             // nothing to install, and `installableHere` holds the route's own
             // two refusals.
             const offerInstall = canInstallHere && !h.installed && installableHere(info);
+            const cmdText = updateCommandFor(info);
+            // Update is for a program that IS here (unlike Install, which is
+            // for one that is not); gate-mirrored like install: local + admin.
+            const offerUpdate = h.installed && canInstallHere && cmdText !== undefined;
+            // The honest half on a node the server cannot drive: the exact
+            // command to run there, printed, never run (spec 2026-09-28 §2;
+            // Phase 2 turns this line into a button via a signed command).
+            const showCopyLine = h.installed && data?.kind === "agent" && cmdText !== undefined;
             return (
               <div key={h.harnessId} className="contents">
                 {/* Named by the node view itself: every row carries the display
@@ -267,14 +308,28 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   <Button
                     type="button"
                     size="sm"
-                    // One at a time: the route answers a second concurrent
-                    // install 409, so a second button that could be pressed
-                    // would only produce a refusal.
-                    disabled={install.isPending}
+                    // One at a time, either kind: the routes answer a second
+                    // concurrent command 409, so a second button that could
+                    // be pressed would only produce a refusal.
+                    disabled={active !== undefined}
                     onClick={() => install.mutate(h.harnessId)}
                   >
-                    {installingId === h.harnessId && <LoaderCircle aria-hidden className="motion-safe:animate-spin" />}
-                    {installingId === h.harnessId ? "Installing…" : "Install"}
+                    {active?.kind === "install" && active.id === h.harnessId && (
+                      <LoaderCircle aria-hidden className="motion-safe:animate-spin" />
+                    )}
+                    {active?.kind === "install" && active.id === h.harnessId ? "Installing…" : "Install"}
+                  </Button>
+                ) : offerUpdate && cmdText !== undefined ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={active !== undefined}
+                    onClick={() => update.mutate(h.harnessId)}
+                  >
+                    {active?.kind === "update" && active.id === h.harnessId && (
+                      <LoaderCircle aria-hidden className="motion-safe:animate-spin" />
+                    )}
+                    {active?.kind === "update" && active.id === h.harnessId ? "Updating…" : "Update"}
                   </Button>
                 ) : (
                   <span aria-hidden />
@@ -311,27 +366,37 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                     server runs as.
                   </p>
                 )}
-                {installingId === h.harnessId && (
-                  // The installer's own words, one line, verbatim: there is no
-                  // percentage to derive from `curl … | bash`, and inventing
-                  // stages it does not report would be worse than showing what
-                  // it says.
-                  <p aria-live="polite" className="col-span-full truncate font-mono text-detail text-muted-foreground">
-                    {installLines[h.harnessId] ?? "Starting the installer…"}
+                {offerUpdate && cmdText !== undefined && (
+                  <p className="col-span-full text-detail text-muted-foreground">
+                    Runs <code className="font-mono">{cmdText}</code> on this machine, as the user the server runs as.
                   </p>
                 )}
-                {settledId === h.harnessId && installFailure && (
+                {showCopyLine && cmdText !== undefined && (
+                  <p className="col-span-full text-detail text-muted-foreground">
+                    Run <code className="font-mono">{cmdText}</code> on this machine. The server can't do it on a node
+                    yet.
+                  </p>
+                )}
+                {active?.id === h.harnessId && (
+                  // The command's own words, one line, verbatim (unchanged
+                  // rule): there is no percentage to derive from `curl … | bash`.
+                  <p aria-live="polite" className="col-span-full truncate font-mono text-detail text-muted-foreground">
+                    {cmdLines[`${active.kind}:${h.harnessId}`] ??
+                      (active.kind === "update" ? "Running the update…" : "Starting the installer…")}
+                  </p>
+                )}
+                {failure?.id === h.harnessId && (
                   // Under the row that failed, never under the list: a failure
                   // on the fourth of five agents rendered at the bottom of the
                   // card names none of them.
                   <div className="col-span-full space-y-1">
-                    <p className="text-destructive text-detail">{installFailure.message}</p>
-                    {installFailure.output !== undefined && installFailure.output.trim() !== "" && (
+                    <p className="text-destructive text-detail">{failure.message}</p>
+                    {failure.output !== undefined && failure.output.trim() !== "" && (
                       <details className="text-sm">
                         <summary className="cursor-pointer text-detail text-muted-foreground">
-                          What the installer printed
+                          What the command printed
                         </summary>
-                        <pre className="mt-1 max-h-48 overflow-auto text-detail">{installFailure.output}</pre>
+                        <pre className="mt-1 max-h-48 overflow-auto text-detail">{failure.output}</pre>
                       </details>
                     )}
                   </div>

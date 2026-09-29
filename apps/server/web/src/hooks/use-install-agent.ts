@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { HARNESS_QUERY_KEY } from "@/hooks/use-harnesses";
 import type { HarnessInfo } from "@/types/harness";
 
-/** The `done` frame of `POST /api/setup/agents/:id/install`. */
+/** The `done` frame of `POST /api/setup/agents/:id/install` and its `…/update` twin. */
 export interface AgentInstallResult {
   /** Whether the installer command itself exited zero */
   ok: boolean;
@@ -26,10 +26,13 @@ type InstallFrame<TDone> =
   | ({ type: "done" } & TDone)
   | { type: "error"; message: string };
 
+/** Which built-in-agent command a stream runs: the installer or the vendor's updater. */
+export type AgentCommandKind = "install" | "update";
+
 /**
- * Runs a built-in agent's installer on the control-plane host (admin only),
- * reporting the installer's own output as it arrives; refetches detection
- * afterwards.
+ * Runs one built-in agent command on the control-plane host (admin only),
+ * streaming its output; shared by the Install and Update buttons, which post
+ * to `/{kind}` and read the same frame protocol `readInstallStream` exists for.
  *
  * **Read with `fetch`, not `EventSource`.** The route streams NDJSON from the
  * ordinary POST, so the HttpOnly cookie goes with it and the admin gate is the
@@ -38,13 +41,13 @@ type InstallFrame<TDone> =
  * in, on a surface whose whole job is running a remote script as the server's
  * user. Not worth it for a progress line.
  */
-export function useInstallAgent(onLine?: (id: string, line: string) => void) {
+export function useAgentCommand(kind: AgentCommandKind, onLine?: (id: string, line: string) => void) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: string): Promise<AgentInstallResult> => {
       let res: Response;
       try {
-        res = await fetch(`/api/setup/agents/${id}/install`, {
+        res = await fetch(`/api/setup/agents/${id}/${kind}`, {
           method: "POST",
           credentials: "include",
           headers: { "content-type": "application/json" },
@@ -58,11 +61,16 @@ export function useInstallAgent(onLine?: (id: string, line: string) => void) {
         const { message, code, errId } = parseErrorBody(await res.text().catch(() => ""));
         throw new ApiError(res.status, message, { code, errId });
       }
-      if (!res.body) throw new ApiError(res.status, "The server sent no install output.");
+      if (!res.body) throw new ApiError(res.status, "The server sent no output.");
       return await readInstallStream(res.body, (line) => onLine?.(id, line));
     },
     onSettled: () => void queryClient.invalidateQueries({ queryKey: HARNESS_QUERY_KEY }),
   });
+}
+
+/** The install spelling every existing caller keeps. */
+export function useInstallAgent(onLine?: (id: string, line: string) => void) {
+  return useAgentCommand("install", onLine);
 }
 
 /**

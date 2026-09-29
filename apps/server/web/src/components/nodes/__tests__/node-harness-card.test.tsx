@@ -49,9 +49,10 @@ interface CardOpts {
    */
   infos?: unknown[];
   /**
-   * NDJSON frames the install stream emits, in order. `null` inside the list
-   * means "stop here and hold the stream open", which is how the in-flight
-   * rendering is asserted without racing a close.
+   * NDJSON frames the install/update stream emits, in order (one mock feeds
+   * both verbs). `null` inside the list means "stop here and hold the stream
+   * open", which is how the in-flight rendering is asserted without racing a
+   * close.
    */
   installFrames?: (string | null)[];
 }
@@ -140,8 +141,10 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
         new Response(JSON.stringify(opts.infos ?? [{ id: "gone", name: "Gone", description: "", binary: "gone" }])),
       );
     }
-    const agentInstall = /^\/api\/setup\/agents\/([^/]+)\/install$/.exec(url.pathname);
-    if (agentInstall && method === "POST") {
+    // The install and update routes stream the same protocol, so one mock
+    // answers both verbs with the same frames.
+    const agentCommand = /^\/api\/setup\/agents\/([^/]+)\/(install|update)$/.exec(url.pathname);
+    if (agentCommand && method === "POST") {
       const frames = opts.installFrames ?? [`${JSON.stringify({ type: "done", ...DONE })}\n`];
       return Promise.resolve(
         new Response(
@@ -465,6 +468,120 @@ describe("NodeHarnessCard", () => {
       try {
         expect(await screen.findByText((c) => c === "Quiet")).toBeDefined();
         expect(screen.queryByRole("button", { name: /install/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+  });
+
+  describe("Update (spec 2026-09-28 § 2)", () => {
+    /** `local` + a manager, with the agent CLI already present. */
+    const readyLocal = {
+      kind: "local" as const,
+      canManage: true,
+      harnesses: [{ harnessId: "claude", name: "Claude", installed: true, version: "1.0.0" }],
+    };
+
+    it("offers Update on a ready row on the control-plane host, naming the vendor command", async () => {
+      const { restore } = await mount({ ...readyLocal, infos: [info({ update: "claude update" })] });
+      try {
+        expect(await screen.findByRole("button", { name: "Update" })).toBeDefined();
+        // The statement line names what the press will run, like the install
+        // line does; and exactly one such line shows (never both twins).
+        expect(screen.getByText("claude update")).toBeDefined();
+        expect(screen.getAllByText(/on this machine/)).toHaveLength(1);
+        expect(screen.queryByText(/can't do it on a node yet/)).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("falls back to re-running the installer when no vendor command is declared", async () => {
+      const { restore } = await mount({ ...readyLocal, infos: [info()] });
+      try {
+        expect(await screen.findByRole("button", { name: "Update" })).toBeDefined();
+        expect(screen.getByText(/curl -fsSL https:\/\/example\.test\/install\.sh \| bash/)).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("POSTs the update once, to this harness's id, and shows the command's own line", async () => {
+      const { calls, restore } = await mount({
+        ...readyLocal,
+        infos: [info({ update: "claude update" })],
+        installFrames: [`${JSON.stringify({ type: "line", text: "updating claude" })}\n`, null],
+      });
+      try {
+        fireEvent.click(await screen.findByRole("button", { name: "Update" }));
+        expect(await screen.findByText("updating claude")).toBeDefined();
+        expect(screen.getByRole("button", { name: /updating/i })).toBeDefined();
+        expect(calls.filter((c) => c.method === "POST" && c.url === "/api/setup/agents/claude/update")).toHaveLength(1);
+      } finally {
+        restore();
+      }
+    });
+
+    it("never offers Update to a non-admin on the control-plane host", async () => {
+      const { restore } = await mount({
+        ...readyLocal,
+        canManage: false,
+        access: "edit",
+        infos: [info({ update: "claude update" })],
+      });
+      try {
+        expect(await screen.findByText((c) => c === "Claude")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /update/i })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("an enrolled node shows the command as a copy line, and no button", async () => {
+      // The server cannot run a command on an enrolled node yet, so the card
+      // prints the exact command instead of pretending it can press it.
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: true, version: "1.0.0" }],
+        infos: [info({ update: "claude update" })],
+      });
+      try {
+        expect(await screen.findByText(/can't do it on a node yet/)).toBeDefined();
+        expect(screen.getByText("claude update")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /update/i })).toBeNull();
+        // Never both copy lines for the same row: the local statement is
+        // gated on `local` and cannot ride here.
+        expect(screen.queryByText(/as the user the server runs as/)).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("an enrolled node with a MISSING program shows no copy line", async () => {
+      // Nothing to update there; the row stays detection-only.
+      const { restore } = await mount({
+        harnesses: [{ harnessId: "claude", name: "Claude", installed: false, reason: "not-on-path" as const }],
+        infos: [info({ update: "claude update" })],
+      });
+      try {
+        expect(await screen.findByText((c) => c === "Claude")).toBeDefined();
+        expect(screen.queryByText(/can't do it on a node yet/)).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    it("a ready terminal row gets no button and no copy line", async () => {
+      // `updateCommandFor` mirrors the route's "nothing to update" refusal:
+      // a program-less plugin has no command to run OR print.
+      const { restore } = await mount({
+        ...readyLocal,
+        harnesses: [{ harnessId: "terminal", name: "Terminal", installed: true, reason: "no-binary" as const }],
+        infos: [info({ id: "terminal", name: "Terminal", type: "terminal" })],
+      });
+      try {
+        expect(await screen.findByText((c) => c === "Terminal")).toBeDefined();
+        expect(screen.queryByRole("button", { name: /update/i })).toBeNull();
+        expect(screen.queryByText(/on this machine/)).toBeNull();
       } finally {
         restore();
       }
