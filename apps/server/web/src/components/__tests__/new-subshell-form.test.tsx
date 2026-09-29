@@ -187,6 +187,19 @@ function mockFetch(
   return () => (globalThis.fetch = original);
 }
 
+/** The combobox popup in the prompt picker opens on a real pointer
+ *  gesture; a bare click does not reach Base UI's trigger in happy-dom. */
+function openPickerSearch(): void {
+  const input = document.getElementById("prompt-picker-search");
+  if (!input) return;
+  for (const type of ["pointerdown", "pointerup"]) {
+    input.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse" }));
+  }
+  for (const type of ["mousedown", "mouseup", "click"]) {
+    input.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+  }
+}
+
 /** Flush pending query/effect updates inside act() — 50 ms is generous for
  *  these Promise.resolve-backed mocks, and it keeps "not wrapped in act" out
  *  of the log (see the ffe50bc warning-flood fix). */
@@ -1209,9 +1222,11 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
 
       // Open the picker; a pick closes it (decisive-action redesign,
       // operator report 2026-09-29), so the second add reopens. The list is
-      // in-flow inside the dialog (the portal popup failed the operator's
-      // browser), so a bare click commits.
+      // the searchable combobox, whose popup opens on a real POINTER
+      // gesture, not a bare click (happy-dom quirk).
       fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
+      await settle();
+      openPickerSearch();
       await settle();
       fireEvent.click(await screen.findByText("Kickoff"));
       await settle();
@@ -1222,6 +1237,8 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
       // this assertion the close could silently regress (review round 5).
       expect(screen.queryByText("Write your own...")).toBeNull();
       fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
+      await settle();
+      openPickerSearch();
       await settle();
       fireEvent.click(screen.getByText("Review"));
       await settle();

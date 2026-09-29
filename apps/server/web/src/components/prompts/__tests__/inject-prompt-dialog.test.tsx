@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
@@ -46,12 +46,26 @@ function renderDialog() {
   return { closes };
 }
 
+/** The combobox popup opens on a real pointer gesture, not a bare click
+ *  (happy-dom); every row pick below is preceded by this. */
+function openSearch(): void {
+  const input = document.getElementById("prompt-picker-search");
+  if (!input) return;
+  for (const type of ["pointerdown", "pointerup"]) {
+    input.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse" }));
+  }
+  for (const type of ["mousedown", "mouseup", "click"]) {
+    input.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+  }
+}
+
 const settle = async () => {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 };
 
+beforeEach(() => sessionStorage.clear());
 afterEach(() => cleanup());
 
 describe("InjectPromptDialog", () => {
@@ -100,6 +114,8 @@ describe("InjectPromptDialog", () => {
     restore = m.restore;
     const { closes } = renderDialog();
     await settle();
+    openSearch();
+    await settle();
     fireEvent.click(screen.getByText("Kickoff"));
     await settle();
     // The pick-close never reached the owner (that would unmount the
@@ -113,6 +129,8 @@ describe("InjectPromptDialog", () => {
     const m = mockFetch();
     restore = m.restore;
     const { closes } = renderDialog();
+    await settle();
+    openSearch();
     await settle();
     fireEvent.click(screen.getByText("Kickoff"));
     await settle();
@@ -129,6 +147,8 @@ describe("InjectPromptDialog", () => {
     const m = mockFetch();
     restore = m.restore;
     const { closes } = renderDialog();
+    await settle();
+    openSearch();
     await settle();
     fireEvent.click(screen.getByText("Kickoff"));
     await settle();

@@ -1,6 +1,7 @@
 import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
 import { PenLine } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { SearchableSelect } from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -13,20 +14,52 @@ import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreatePrompt, usePrompts } from "@/hooks/use-prompts";
 import { newPromptLocalId, type PromptBlock } from "@/lib/prompt-stack";
-import { matchesPromptQuery, type PromptsView } from "@/lib/prompts";
+import type { PromptsView } from "@/lib/prompts";
+
+/** What "Write your own..." keeps across an accidental reload (operator
+ *  ruling 2026-09-29): the draft lives in sessionStorage (so a closed tab
+ *  discards it) and is removed the moment the draft is SUBMITTED. */
+interface PickerDraft {
+  body: string;
+  description: string;
+  saveToLibrary: boolean;
+}
+
+function draftKey(mode: "multi" | "single"): string {
+  return `subshell/prompt-picker-draft/${mode}`;
+}
+
+function loadDraft(mode: "multi" | "single"): PickerDraft | null {
+  try {
+    const raw = sessionStorage.getItem(draftKey(mode));
+    if (raw === null) return null;
+    const parsed = JSON.parse(raw) as Partial<PickerDraft>;
+    if (typeof parsed?.body !== "string") return null;
+    return {
+      body: parsed.body,
+      description: typeof parsed.description === "string" ? parsed.description : "",
+      saveToLibrary: parsed.saveToLibrary === true,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The shared prompt picker (spec 2026-09-28): the launch form's block stack
  * and the subshell menu's inject action both open THIS dialog, so "choose a
- * prompt" looks and behaves the same in both. Search matches description or
- * body; the own/shared tabs are the same question the page answers.
- * "Write your own..." sits under the list: a one-off typed right here,
- * with an optional save into the library that is OFF by default, because a
- * prompt used once has not earned a row.
+ * prompt" looks and behaves the same in both. The search is the shared
+ * searchable dropdown, filtering description OR body; the own/shared tabs
+ * are the same question the page answers. "Write your own..." is the step
+ * under the list: a one-off typed right here, with an optional save into
+ * the library that is OFF by default, because a prompt used once has not
+ * earned a row. That step is durable (operator ruling 2026-09-29): the
+ * draft rides sessionStorage until it is submitted, so a refresh mid-edit
+ * loses nothing.
  *
- * `mode` survives as the COPY difference between the two callers (the saved
- * pick closes the dialog in both; the custom step names its button for the
- * flow it belongs to).
+ * `mode` survives as the COPY and STORAGE difference between the two
+ * callers (a pick closes the dialog in both; the custom step names its
+ * button for the flow it belongs to).
  */
 export function PromptPickerDialog({
   open,
@@ -42,18 +75,38 @@ export function PromptPickerDialog({
   const { data, isLoading, isError } = usePrompts();
   const view: PromptsView = data ?? { own: [], shared: [] };
   const [tab, setTab] = useState<"own" | "shared">("own");
-  const [query, setQuery] = useState("");
-  // The custom step: null = the list, set = the editor for one free-text block.
-  const [customBody, setCustomBody] = useState<string | null>(null);
-  const [customDescription, setCustomDescription] = useState("");
-  const [saveToLibrary, setSaveToLibrary] = useState(false);
+  // The custom step: null = the list, set = the editor for one free-text
+  // block. A stored draft means the person was mid-edit when the page went
+  // away: reopen THERE, with the text, not at the list.
+  const [draft] = useState(() => loadDraft(mode));
+  const [customBody, setCustomBody] = useState<string | null>(draft?.body ?? null);
+  const [customDescription, setCustomDescription] = useState(draft?.description ?? "");
+  const [saveToLibrary, setSaveToLibrary] = useState(draft?.saveToLibrary ?? false);
   const [customError, setCustomError] = useState<string | null>(null);
   const create = useCreatePrompt();
 
-  const rows = useMemo(
-    () => (tab === "own" ? view.own : view.shared).filter((p) => matchesPromptQuery(p, query)),
-    [view, tab, query],
-  );
+  useEffect(() => {
+    if (customBody === null) return;
+    try {
+      sessionStorage.setItem(
+        draftKey(mode),
+        JSON.stringify({ body: customBody, description: customDescription, saveToLibrary } satisfies PickerDraft),
+      );
+    } catch {
+      // Storage full or blocked: the draft just is not durable this time.
+    }
+  }, [mode, customBody, customDescription, saveToLibrary]);
+
+  const rows = tab === "own" ? view.own : view.shared;
+  const emptyText = isLoading
+    ? "Loading…"
+    : isError
+      ? "The prompts could not be loaded."
+      : rows.length === 0
+        ? tab === "own"
+          ? "No prompts yet"
+          : "No shared prompts yet"
+        : "No prompts match the search.";
 
   function pick(row: { id: string; description: string; body: string }) {
     onPick({
@@ -89,6 +142,14 @@ export function PromptPickerDialog({
         setCustomError(errMessage(err, "The prompt could not be saved"));
         return;
       }
+    }
+    // Submitted: the draft is spent, and the next "Write your own..." starts
+    // clean (the durability covers accidents, not a second copy of a sent
+    // prompt).
+    try {
+      sessionStorage.removeItem(draftKey(mode));
+    } catch {
+      // Nothing to do if even the removal fails.
     }
     onPick({
       localId: newPromptLocalId(),
@@ -127,50 +188,28 @@ export function PromptPickerDialog({
               <Label htmlFor="prompt-picker-search" className="sr-only">
                 Search prompts
               </Label>
-              <Input
+              {/* The consumed posture, shared with "Copy settings from": the
+                  pick is an action, so the input returns to its placeholder
+                  and the next pick starts fresh. (The row clicks that failed
+                  in the operator's browser on 2026-09-29 were the absent
+                  crypto.randomUUID throwing in the pick handler, fixed at
+                  its source, not the dropdown.) */}
+              <SearchableSelect
                 id="prompt-picker-search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                value=""
                 placeholder="Search prompts"
+                emptyText={emptyText}
+                options={rows.map((p) => ({
+                  value: p.id,
+                  label: p.description,
+                  searchText: p.body,
+                  reason: p.body.split("\n", 1)[0],
+                }))}
+                onValueChange={(id) => {
+                  const row = rows.find((p) => p.id === id);
+                  if (row) pick(row);
+                }}
               />
-              {/* The picker's list IN FLOW, styled like the combobox popup.
-                  A real Base UI Combobox popup portals to the document body;
-                  inside a dialog-on-a-dialog (this dialog sits on the launch
-                  dialog) its rows never committed a click in the operator's
-                  browser (2026-09-29), while in-flow rows had worked all
-                  along. The look is the same; the DOM stays inside the
-                  dialog, where focus has nothing to fight over. */}
-              <div className="max-h-64 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
-                {/* The page's rule, in full (routes/prompts.tsx): Loading,
-                    then the empty sentence only for a LOADED library, and a
-                    failure never reads as "none yet". */}
-                {isLoading && <p className="px-2 py-1.5 text-detail text-muted-foreground">Loading…</p>}
-                {isError && (
-                  <p className="px-2 py-1.5 text-destructive text-detail">The prompts could not be loaded.</p>
-                )}
-                {rows.length === 0 && !isLoading && !isError && (
-                  <p className="px-2 py-1.5 text-detail text-muted-foreground">
-                    {query.trim() === ""
-                      ? tab === "own"
-                        ? "No prompts yet"
-                        : "No shared prompts yet"
-                      : "No prompts match the search."}
-                  </p>
-                )}
-                {rows.map((p) => (
-                  <button
-                    type="button"
-                    key={p.id}
-                    className="flex w-full items-center gap-3 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
-                    onClick={() => pick(p)}
-                  >
-                    <span className="min-w-0 shrink truncate font-strong text-label">{p.description}</span>
-                    <span className="ml-auto min-w-0 max-w-[45%] truncate text-detail text-muted-foreground">
-                      {p.body.split("\n", 1)[0]}
-                    </span>
-                  </button>
-                ))}
-              </div>
             </div>
             <button
               type="button"

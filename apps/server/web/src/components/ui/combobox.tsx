@@ -13,6 +13,13 @@ export interface ComboboxOption {
   reason?: string;
   /** Node shown before the label (aria-hidden — the accessible name stays the label) */
   icon?: ReactNode;
+  /**
+   * Extra text the query is matched against, NOT shown on the row. Exists
+   * for callers whose search is broader than the label (the prompt picker
+   * matches description OR body, spec 2026-09-28) — without it the shared
+   * filter would silently narrow those fields to label-only.
+   */
+  searchText?: string;
 }
 
 export interface SearchableSelectProps {
@@ -36,6 +43,8 @@ export interface SearchableSelectProps {
    * unless it is told.
    */
   describedBy?: string;
+  /** Shown by the popup when the query matches nothing (and the list is empty) */
+  emptyText?: string;
 }
 
 /**
@@ -53,6 +62,7 @@ export function SearchableSelect({
   placeholder,
   options,
   describedBy,
+  emptyText = "No matches",
 }: SearchableSelectProps): JSX.Element {
   // Item values are the option objects; the external contract stays the
   // plain id string. Object identity would break under rebuilt arrays, so
@@ -81,7 +91,9 @@ export function SearchableSelect({
         scrollerRef.current = null;
         if (saved?.el.isConnected && saved.el.scrollTop !== saved.top) saved.el.scrollTop = saved.top;
       }}
-      filter={(item: ComboboxOption, query: string) => item.label.toLowerCase().includes(query.toLowerCase())}
+      filter={(item: ComboboxOption, query: string) =>
+        `${item.label} ${item.searchText ?? ""}`.toLowerCase().includes(query.toLowerCase())
+      }
     >
       <ComboboxPrimitive.Input
         id={id}
@@ -127,8 +139,8 @@ export function SearchableSelect({
                 </ComboboxPrimitive.Item>
               )}
             </ComboboxPrimitive.List>
-            <ComboboxPrimitive.Empty className="px-2 py-1.5 text-muted-foreground text-sm">
-              No matches
+            <ComboboxPrimitive.Empty className="px-2 py-1.5 text-detail text-muted-foreground">
+              {emptyText}
             </ComboboxPrimitive.Empty>
           </ComboboxPrimitive.Popup>
         </ComboboxPrimitive.Positioner>

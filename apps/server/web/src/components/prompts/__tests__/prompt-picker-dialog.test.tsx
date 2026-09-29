@@ -1,15 +1,17 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PromptPickerDialog } from "@/components/prompts/prompt-picker-dialog";
 import type { PromptBlock } from "@/lib/prompt-stack";
 
 /**
- * The shared prompt picker (spec 2026-09-28), pinned at the level the
- * operator's browser broke at: clicking a list row must COMMIT the pick and
- * close the dialog. The list is in-flow inside the dialog (the portal
- * popup never committed clicks inside a dialog-on-a-dialog, live report
- * 2026-09-29), so a plain click is the real interaction under test here.
+ * The shared prompt picker (spec 2026-09-28). The list is the searchable
+ * combobox, whose Base UI popup opens on a real POINTER gesture, not a bare
+ * click (happy-dom quirk pinned below in openSearch) so the tests lead with
+ * pointer/mouse events the way the operator's mouse does. The pick must
+ * COMMIT and close (decisive-action redesign, live report 2026-09-29), and
+ * the custom draft must survive a reload until submitted (operator ruling
+ * 2026-09-29).
  */
 
 const ownRow = {
@@ -66,12 +68,26 @@ function renderPicker(props: {
   );
 }
 
+/** The combobox popup opens on a real pointer gesture; a bare click does
+ *  not reach Base UI's trigger in happy-dom. */
+function openSearch(): void {
+  const input = document.getElementById("prompt-picker-search");
+  if (!input) return;
+  for (const type of ["pointerdown", "pointerup"]) {
+    input.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse" }));
+  }
+  for (const type of ["mousedown", "mouseup", "click"]) {
+    input.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+  }
+}
+
 const settle = async () => {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 };
 
+beforeEach(() => sessionStorage.clear());
 afterEach(() => cleanup());
 
 describe("PromptPickerDialog", () => {
@@ -81,11 +97,13 @@ describe("PromptPickerDialog", () => {
     restore = undefined;
   });
 
-  it("clicking a row picks it AND closes the dialog (the decisive action)", async () => {
+  it("picking a row commits AND closes the dialog (the decisive action)", async () => {
     restore = mockFetch().restore;
     const picked: PromptBlock[] = [];
     const changes: boolean[] = [];
     renderPicker({ onPick: (b) => picked.push(b), onOpenChange: (n) => changes.push(n) });
+    await settle();
+    openSearch();
     await settle();
     fireEvent.click(screen.getByText("Kickoff"));
     expect(picked.map((b) => [b.kind, b.promptId, b.description])).toEqual([["saved", "pr1", "Kickoff"]]);
@@ -93,28 +111,35 @@ describe("PromptPickerDialog", () => {
   });
 
   it("search matches the body, not just the label", async () => {
-    restore = mockFetch().restore;
+    // Two OWN rows, and only the second's BODY carries "verify": the label
+    // filter alone could not find it, which is the whole point.
+    restore = mockFetch([ownRow, { ...ownRow, id: "pr9", description: "Notes", body: "please verify notes" }]).restore;
     renderPicker({ onPick: () => {} });
     await settle();
-    fireEvent.change(screen.getByPlaceholderText("Search prompts"), { target: { value: "check the diff" } });
+    openSearch();
+    await settle();
+    const input = document.getElementById("prompt-picker-search") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "verify" } });
     await settle();
     expect(screen.queryByText("Kickoff")).toBeNull();
-    fireEvent.change(screen.getByPlaceholderText("Search prompts"), { target: { value: "task" } });
+    expect(screen.getByText("Notes")).toBeDefined();
+    fireEvent.change(input, { target: { value: "task" } });
     await settle();
     expect(screen.getByText("Kickoff")).toBeDefined();
   });
 
-  it("the shared tab lists shared rows, and an empty tab without a query reads honestly", async () => {
+  it("the shared tab answers its own question when empty", async () => {
     restore = mockFetch([ownRow], []).restore;
     renderPicker({ onPick: () => {} });
     await settle();
     fireEvent.click(screen.getByRole("button", { name: "Shared" }));
     await settle();
-    expect(screen.queryByText("Kickoff")).toBeNull();
-    expect(screen.getByText("No shared prompts yet")).toBeDefined();
-    fireEvent.change(screen.getByPlaceholderText("Search prompts"), { target: { value: "zzz" } });
+    openSearch();
     await settle();
-    expect(screen.getByText(/No prompts match/)).toBeDefined();
+    expect(screen.queryByText("Kickoff")).toBeNull();
+    // Regex, not exact: Base UI's Empty node carries a word-joiner
+    // (U+2060) that defeats the exact string matcher.
+    expect(screen.getByText(/No shared prompts yet/)).toBeDefined();
   });
 
   it("Write your own saves only with the switch on, and needs a description then", async () => {
@@ -155,5 +180,36 @@ describe("PromptPickerDialog", () => {
     expect(m.posts[0].body).toEqual({ description: "The thing", body: "do the thing", shared: false });
     await waitFor(() => expect(picked.length).toBe(1));
     expect(picked[0].description).toBe("The thing");
+  });
+
+  it("the custom draft SURVIVES a reload and is spent on submit", async () => {
+    const m = mockFetch([], []);
+    restore = m.restore;
+    renderPicker({ onPick: () => {} });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
+    fireEvent.change(screen.getByPlaceholderText("The text to type into the pane"), {
+      target: { value: "half an idea" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Back to list" }));
+    await settle();
+    cleanup();
+
+    // The page came back: the picker reopens AT the draft, text intact.
+    const picked: PromptBlock[] = [];
+    renderPicker({ onPick: (b) => picked.push(b) });
+    await settle();
+    expect(screen.getByPlaceholderText("The text to type into the pane")).toBeDefined();
+    expect((screen.getByPlaceholderText("The text to type into the pane") as HTMLTextAreaElement).value).toBe(
+      "half an idea",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add to stack" }));
+    expect(picked.length).toBe(1);
+
+    // Submitted: spent. The next open starts at the list, not the draft.
+    cleanup();
+    renderPicker({ onPick: () => {} });
+    await settle();
+    expect(screen.getByRole("button", { name: /Write your own/ })).toBeDefined();
   });
 });
