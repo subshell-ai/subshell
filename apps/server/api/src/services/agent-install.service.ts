@@ -10,8 +10,9 @@ export interface AgentInstallResult {
 }
 
 /**
- * A refusal BEFORE anything ran: an unknown id, an id with no install
- * command, or one already installing. Distinct from a failing installer
+ * A refusal BEFORE anything ran: an unknown id, an id with no command for
+ * the asked kind, or one already running a command of any kind. Distinct
+ * from a failing installer
  * ({@link AgentInstallResult} with `ok:false`), which did run and reported a
  * result — this is a rejected promise so the route can answer with the right
  * status before spawning anything.
@@ -25,14 +26,17 @@ export class AgentInstallRefused extends Error {
   }
 }
 
+/** Which manifest command this run executes: the installer, or the vendor's updater. */
+export type AgentInstallKind = "install" | "update";
+
 /**
  * Test seams. Production callers pass nothing and get the real manifest, the
  * real timeout and the real login-shell PATH probe — the fake in tests never
  * touches a compiled-in plugin or spawns a login shell.
  */
 export interface AgentInstallDeps {
-  /** The install command for a BUILT-IN id, or undefined for an id this build does not carry. */
-  commandFor: (id: string) => Promise<string | undefined>;
+  /** The command for a BUILT-IN id and kind, or undefined for an id this build does not carry. */
+  commandFor: (id: string, kind: AgentInstallKind) => Promise<string | undefined>;
   timeoutMs: number;
   /** Directories to append to PATH: a service-run server carries only its baked PATH. */
   extraPath: () => Promise<string[]>;
@@ -46,66 +50,95 @@ export interface AgentInstallDeps {
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 
 const defaultDeps: AgentInstallDeps = {
-  commandFor: async (id) => ((await builtInIds()).includes(id) ? getHarness(id)?.installHint.command : undefined),
+  commandFor: async (id, kind) => {
+    if (!(await builtInIds()).includes(id)) return undefined;
+    const h = getHarness(id);
+    if (!h) return undefined;
+    // The fallback IS the update story for most vendors: their install
+    // one-liner installs the latest, so a plugin that declares no `update`
+    // re-runs what the Install button would.
+    return kind === "update" ? (h.updateHint ?? h.installHint.command) : h.installHint.command;
+  },
   timeoutMs: DEFAULT_TIMEOUT_MS,
   extraPath: loginPathEntries,
 };
 
 /**
- * One install per id at a time, instance-wide. The target is one filesystem
- * (this host), so a second concurrent install of the same id would race the
- * first rather than usefully parallelize with it.
+ * One command per id at a time, instance-wide. The target is one filesystem
+ * (this host), so a second concurrent command of the same id would race the
+ * first rather than usefully parallelize with it — and that holds ACROSS the
+ * kinds: an update may not run beside an install of the same id. The map
+ * remembers WHICH kind is running, because the "already running" sentence
+ * names the work under way, not the kind being refused.
  */
-const inFlight = new Set<string>();
+const inFlight = new Map<string, AgentInstallKind>();
+
+/** Past-tense verb for the "already running" sentence, per kind. */
+const RUNNING_WORD: Record<AgentInstallKind, string> = { install: "installed", update: "updated" };
 
 /**
- * The refusal {@link installBuiltInAgent} would raise before running anything,
- * or undefined when it would proceed.
+ * The refusal {@link runBuiltInAgentCommand} would raise for `kind` before
+ * running anything, or undefined when it would proceed.
  *
  * Exported for the STREAMING caller. Once a response body opens, the status
  * line is already sent and 200 cannot be taken back — so a refusal has to be
  * decided while a status code is still available, and the checks cannot be
  * left to discover themselves inside the stream.
  *
- * The checks are not duplicated here: `installBuiltInAgent` runs them again
- * on its own, which is what still makes it safe to call directly. This is the
- * same question asked earlier, not a second answer to it — and `inFlight` in
- * particular MUST be re-checked there, since the gap between these two calls
- * is exactly where a second request would slip in.
+ * The checks are not duplicated here: `runBuiltInAgentCommand` runs them
+ * again on its own, which is what still makes it safe to call directly. This
+ * is the same question asked earlier, not a second answer to it — and
+ * `inFlight` in particular MUST be re-checked there, since the gap between
+ * these two calls is exactly where a second request would slip in.
  */
+export async function refuseAgentCommand(
+  id: string,
+  kind: AgentInstallKind,
+  deps: AgentInstallDeps = defaultDeps,
+): Promise<AgentInstallRefused | undefined> {
+  const command = await deps.commandFor(id, kind);
+  if (command === undefined) return new AgentInstallRefused(`"${id}" is not a plugin this build carries`, 400);
+  if (command.trim() === "") return new AgentInstallRefused(`"${id}" has nothing to ${kind}`, 400);
+  const running = inFlight.get(id);
+  if (running !== undefined) return new AgentInstallRefused(`"${id}" is already being ${RUNNING_WORD[running]}`, 409);
+  return undefined;
+}
+
+/** @deprecated spelling kept for the install route and the wizard tests; equals `refuseAgentCommand(id, "install")`. */
 export async function refuseInstall(
   id: string,
   deps: AgentInstallDeps = defaultDeps,
 ): Promise<AgentInstallRefused | undefined> {
-  const command = await deps.commandFor(id);
-  if (command === undefined) return new AgentInstallRefused(`"${id}" is not a plugin this build carries`, 400);
-  if (command.trim() === "") return new AgentInstallRefused(`"${id}" has nothing to install`, 400);
-  if (inFlight.has(id)) return new AgentInstallRefused(`"${id}" is already being installed`, 409);
-  return undefined;
+  return refuseAgentCommand(id, "install", deps);
 }
 
 /**
- * Runs a built-in agent CLI's own installer on this host, as this process's
- * OS user (spec 2026-09-11 § 7). The command comes from the plugin manifest
- * compiled into THIS binary — the id is the only input a caller supplies, so
- * what may run is changed by editing this repo, never by anything a request
- * sends. How it runs — the allowlisted environment, the cap, the deadline —
- * is {@link runInstaller}'s.
+ * Runs one kind of a built-in agent CLI's own vendor command on this host —
+ * its installer (`"install"`) or its updater (`"update"`, falling back to the
+ * installer when the plugin declares no update command) — as this process's
+ * OS user (spec 2026-09-11 § 7, extended by spec 2026-09-28). The command
+ * comes from the plugin manifest compiled into THIS binary — the id is the
+ * only input a caller supplies, so what may run is changed by editing this
+ * repo, never by anything a request sends. How it runs — the allowlisted
+ * environment, the cap, the deadline — is {@link runInstaller}'s.
  */
-export async function installBuiltInAgent(
+export async function runBuiltInAgentCommand(
   id: string,
+  kind: AgentInstallKind,
   deps: AgentInstallDeps = defaultDeps,
   onLine?: (line: string) => void,
 ): Promise<AgentInstallResult> {
-  const command = await deps.commandFor(id);
+  const command = await deps.commandFor(id, kind);
   if (command === undefined) throw new AgentInstallRefused(`"${id}" is not a plugin this build carries`, 400);
-  if (command.trim() === "") throw new AgentInstallRefused(`"${id}" has nothing to install`, 400);
-  if (inFlight.has(id)) throw new AgentInstallRefused(`"${id}" is already being installed`, 409);
-  inFlight.add(id);
+  if (command.trim() === "") throw new AgentInstallRefused(`"${id}" has nothing to ${kind}`, 400);
+  const running = inFlight.get(id);
+  if (running !== undefined) throw new AgentInstallRefused(`"${id}" is already being ${RUNNING_WORD[running]}`, 409);
+  inFlight.set(id, kind);
   try {
-    // A plugin's install hint is a SHELL LINE (`curl … | bash`), so it is run
-    // through `sh -c`. Callers with a fixed argv — the tmux installer — hand
-    // {@link runInstaller} the argv directly and never grow a shell.
+    // A plugin's install/update hint is a SHELL LINE (`curl … | bash`, or a
+    // plain `claude update`), so it is run through `sh -c`. Callers with a
+    // fixed argv — the tmux installer — hand {@link runInstaller} the argv
+    // directly and never grow a shell.
     return await runInstaller(["sh", "-c", command], {
       timeoutMs: deps.timeoutMs,
       extraPath: deps.extraPath,
@@ -114,6 +147,15 @@ export async function installBuiltInAgent(
   } finally {
     inFlight.delete(id);
   }
+}
+
+/** Equals `runBuiltInAgentCommand(id, "install", …)`; the name the install route and the wizard speak. */
+export async function installBuiltInAgent(
+  id: string,
+  deps: AgentInstallDeps = defaultDeps,
+  onLine?: (line: string) => void,
+): Promise<AgentInstallResult> {
+  return runBuiltInAgentCommand(id, "install", deps, onLine);
 }
 
 /** What {@link runInstaller} needs from its caller. */

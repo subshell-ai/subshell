@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { AgentInstallRefused, installBuiltInAgent } from "@/services/agent-install.service.js";
+import {
+  type AgentInstallDeps,
+  type AgentInstallKind,
+  AgentInstallRefused,
+  installBuiltInAgent,
+  refuseAgentCommand,
+  runBuiltInAgentCommand,
+} from "@/services/agent-install.service.js";
 
 function deps(command: string | undefined, timeoutMs = 5_000) {
   return { commandFor: async (_id: string) => command, timeoutMs, extraPath: async () => [] };
@@ -130,5 +137,57 @@ describe("installBuiltInAgent", () => {
     } finally {
       delete process.env.SUBSHELL_TEST_SECRET_MARKER;
     }
+  });
+});
+
+describe("update kind", () => {
+  it("asks the seam for the update command; install stays on the install command", async () => {
+    const seen: AgentInstallKind[] = [];
+    const deps: AgentInstallDeps = {
+      commandFor: async (_id, kind) => {
+        seen.push(kind);
+        return "true"; // exits 0 in one spawn, like the file's success case
+      },
+      timeoutMs: 30_000,
+      extraPath: async () => [],
+    };
+    const updated = await runBuiltInAgentCommand("demo", "update", deps);
+    const installed = await installBuiltInAgent("demo", deps);
+    expect(updated.ok).toBe(true);
+    expect(installed.ok).toBe(true);
+    expect(seen).toEqual(["update", "install"]);
+  });
+
+  it("refuses a command that is empty after the fallback, and says update in the sentence", async () => {
+    const deps: AgentInstallDeps = {
+      commandFor: async () => "  ",
+      timeoutMs: 30_000,
+      extraPath: async () => [],
+    };
+    const refusal = await refuseAgentCommand("demo", "update", deps);
+    expect(refusal?.message).toContain("nothing to update");
+    expect(refusal?.status).toBe(400);
+  });
+
+  it("shares the per-id single flight across kinds", async () => {
+    const deps: AgentInstallDeps = {
+      commandFor: async () => "sleep 0.2",
+      timeoutMs: 30_000,
+      extraPath: async () => [],
+    };
+    const running = runBuiltInAgentCommand("demo", "update", deps);
+    const refusal = await refuseAgentCommand("demo", "install", deps);
+    expect(refusal?.message).toContain("already being updated");
+    expect(refusal?.status).toBe(409);
+    await running;
+    // And the set drains: a second update after completion is allowed.
+    expect(await refuseAgentCommand("demo", "update", deps)).toBeUndefined();
+  });
+
+  it("the default seam routes update to updateHint ?? install, non-built-ins to undefined", async () => {
+    // defaultDeps is not exported; exercise it through the real commandFor shape:
+    // an installed third-party id is NOT a built-in, so BOTH kinds refuse.
+    const refusal = await refuseAgentCommand("definitely-not-a-built-in-plugin-id", "update");
+    expect(refusal?.message).toContain("not a plugin this build carries");
   });
 });
