@@ -1,6 +1,7 @@
 import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
 import { PenLine } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import { SearchableSelect } from "@/components/ui/combobox";
 import {
   Dialog,
   DialogContent,
@@ -13,7 +14,7 @@ import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreatePrompt, usePrompts } from "@/hooks/use-prompts";
 import type { PromptBlock } from "@/lib/prompt-stack";
-import { matchesPromptQuery, type PromptsView } from "@/lib/prompts";
+import type { PromptsView } from "@/lib/prompts";
 
 /**
  * The shared prompt picker (spec 2026-09-28): the launch form's block stack
@@ -41,7 +42,6 @@ export function PromptPickerDialog({
   const { data } = usePrompts();
   const view: PromptsView = data ?? { own: [], shared: [] };
   const [tab, setTab] = useState<"own" | "shared">("own");
-  const [query, setQuery] = useState("");
   // The custom step: null = the list, set = the editor for one free-text block.
   const [customBody, setCustomBody] = useState<string | null>(null);
   const [customDescription, setCustomDescription] = useState("");
@@ -49,10 +49,9 @@ export function PromptPickerDialog({
   const [customError, setCustomError] = useState<string | null>(null);
   const create = useCreatePrompt();
 
-  const rows = useMemo(() => {
-    const source = tab === "own" ? view.own : view.shared;
-    return source.filter((p) => matchesPromptQuery(p, query));
-  }, [view, tab, query]);
+  // The combobox owns the filtering now (label + searchText, which carries
+  // the body); this list is just the active tab.
+  const rows = tab === "own" ? view.own : view.shared;
 
   function pick(row: { id: string; description: string; body: string }) {
     onPick({
@@ -118,12 +117,29 @@ export function PromptPickerDialog({
                 fill={false}
               />
             </div>
-            <Input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search prompts"
-              aria-label="Search prompts"
-            />
+            <div className="space-y-1">
+              <Label htmlFor="prompt-picker-search" className="sr-only">
+                Search prompts
+              </Label>
+              {/* The consumed posture, shared with "Copy settings from": the
+                  pick is an action, so the input returns to its placeholder
+                  and the next pick starts fresh. */}
+              <SearchableSelect
+                id="prompt-picker-search"
+                value=""
+                placeholder="Search prompts"
+                options={rows.map((p) => ({
+                  value: p.id,
+                  label: p.description,
+                  searchText: p.body,
+                  reason: p.body.split("\n", 1)[0],
+                }))}
+                onValueChange={(id) => {
+                  const row = rows.find((p) => p.id === id);
+                  if (row) pick(row);
+                }}
+              />
+            </div>
             <button
               type="button"
               className="flex w-full items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-left text-label hover:bg-accent/40"
@@ -135,20 +151,6 @@ export function PromptPickerDialog({
               <PenLine className="h-4 w-4 text-muted-foreground" />
               Write your own...
             </button>
-            <div className="max-h-64 space-y-1 overflow-y-auto">
-              {rows.length === 0 && <p className="px-1 text-detail text-muted-foreground">Nothing matches.</p>}
-              {rows.map((p) => (
-                <button
-                  type="button"
-                  key={p.id}
-                  className="flex w-full flex-col gap-0.5 rounded-lg px-3 py-2 text-left hover:bg-accent/60"
-                  onClick={() => pick(p)}
-                >
-                  <span className="truncate font-strong text-label">{p.description}</span>
-                  <span className="truncate text-detail text-muted-foreground">{p.body.split("\n", 1)[0]}</span>
-                </button>
-              ))}
-            </div>
           </div>
         ) : (
           <div className="space-y-3">
