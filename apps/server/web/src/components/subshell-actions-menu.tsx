@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import {
   Activity,
+  ArrowDownToLine,
   ArrowLeftRight,
   Bell,
   BellOff,
@@ -17,6 +18,7 @@ import {
 import { type ReactNode, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CloneSubshellDialog } from "@/components/clone-subshell-dialog";
+import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { QrLinkDialog } from "@/components/qr-link-dialog";
 import { SharingDialog } from "@/components/sharing-dialog";
 import { SwitchPresetDialog } from "@/components/switch-preset-dialog";
@@ -78,6 +80,7 @@ export function SubshellActionsMenu({
   const [shareOpen, setShareOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
   const [switchPresetOpen, setSwitchPresetOpen] = useState(false);
+  const [injectOpen, setInjectOpen] = useState(false);
   const navigate = useNavigate();
   const { data: presets } = usePresets();
   const { restart, remove, toggleNotify, busy } = useSubshellMutations(subshell.id, subshell, {
@@ -202,6 +205,18 @@ export function SubshellActionsMenu({
     // 2026-09-23): a running pane is revived from the new preset, a dead one
     // is started with it. It replaces nothing; "Edit preset …" edits the
     // DEFINITION, this changes which one the row uses.
+    // Inject prompt (spec 2026-09-28): the terminal-input gate (an `edit`
+    // act, foreign rows never reach the menu), and only a live pane takes
+    // typed text, so a dead row does not offer it.
+    ...(canEdit && subshell.alive
+      ? [
+          {
+            icon: ArrowDownToLine,
+            label: "Inject prompt...",
+            onSelect: () => setInjectOpen(true),
+          },
+        ]
+      : []),
     ...(canEdit
       ? [
           {
@@ -278,6 +293,11 @@ export function SubshellActionsMenu({
       {/* Same mount-while-open posture: every open starts from an unset
           selection and a cleared POST error. */}
       {switchPresetOpen && <SwitchPresetDialog subshell={subshell} open onOpenChange={setSwitchPresetOpen} />}
+      {/* Mount-while-open, the same posture as every dialog behind this menu:
+          a reopen starts at the picker, not at a half-typed custom block. */}
+      {injectOpen && (
+        <InjectPromptDialog subshellId={subshell.id} subshellName={subshell.name} open onOpenChange={setInjectOpen} />
+      )}
       <QrLinkDialog
         open={qrOpen}
         onOpenChange={setQrOpen}
