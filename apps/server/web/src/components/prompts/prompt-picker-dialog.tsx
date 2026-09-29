@@ -39,7 +39,7 @@ export function PromptPickerDialog({
   mode: "multi" | "single";
   onPick: (block: PromptBlock) => void;
 }) {
-  const { data, isLoading } = usePrompts();
+  const { data, isLoading, isError } = usePrompts();
   const view: PromptsView = data ?? { own: [], shared: [] };
   const [tab, setTab] = useState<"own" | "shared">("own");
   const [query, setQuery] = useState("");
@@ -141,9 +141,14 @@ export function PromptPickerDialog({
                   along. The look is the same; the DOM stays inside the
                   dialog, where focus has nothing to fight over. */}
               <div className="max-h-64 overflow-y-auto rounded-md border bg-popover p-1 text-popover-foreground shadow-md">
-                {/* The page's rule (routes/prompts.tsx): the empty sentence
-                    answers a LOADED library, never a request in flight. */}
-                {rows.length === 0 && !isLoading && (
+                {/* The page's rule, in full (routes/prompts.tsx): Loading,
+                    then the empty sentence only for a LOADED library, and a
+                    failure never reads as "none yet". */}
+                {isLoading && <p className="px-2 py-1.5 text-detail text-muted-foreground">Loading…</p>}
+                {isError && (
+                  <p className="px-2 py-1.5 text-destructive text-detail">The prompts could not be loaded.</p>
+                )}
+                {rows.length === 0 && !isLoading && !isError && (
                   <p className="px-2 py-1.5 text-detail text-muted-foreground">
                     {query.trim() === ""
                       ? tab === "own"
