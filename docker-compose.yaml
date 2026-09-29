@@ -68,7 +68,7 @@ services:
       # line - init persists a supplied value verbatim - and set it in .env.
       # At boot the env value takes precedence over the file, and an existing
       # config.env is kept as-is:
-      # BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      # BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set it in .env or delete this line}
       NODE_ENV: production
     # The service comes back with the Docker daemon — i.e. on boot.
     restart: unless-stopped
