@@ -110,7 +110,12 @@ export const updateRoute = new Elysia()
         return status(
           409,
           apiErrorBody({
-            code: BackendErrorCodes.RESTART_UNAVAILABLE,
+            // Inside the image the swap itself is the wrong act, not just the
+            // missing restart; the container's name replaces the manager's
+            // absence (spec 2026-09-28 § 6).
+            code: deployment.containerized
+              ? BackendErrorCodes.UPDATE_CONTAINERIZED
+              : BackendErrorCodes.RESTART_UNAVAILABLE,
             message: deployment.restart.reason ?? "This server is not running under a service manager",
           }),
         );

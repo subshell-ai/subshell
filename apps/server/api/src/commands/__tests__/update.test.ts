@@ -237,6 +237,40 @@ describe("update --check", () => {
     expect(await run({ from: incoming, check: true })).toBe(0);
     expect(logs.join("\n")).toContain("9.9.9 is available");
   });
+
+  it("marks check output containerized when the image marker is set", async () => {
+    process.env.SUBSHELL_CONTAINER = "1";
+    try {
+      expect(await run({ from: incoming, check: true, json: true })).toBe(0);
+      expect(JSON.parse(logs[0] ?? "{}")).toEqual({
+        installed: SERVER_VERSION,
+        latest: "9.9.9",
+        updateAvailable: true,
+        containerized: true,
+      });
+    } finally {
+      delete process.env.SUBSHELL_CONTAINER;
+    }
+  });
+
+  it("names the container remedy when a locate refusal lands non-json inside the image", async () => {
+    // The prose form must be as honest as the json one: in the image the
+    // binary's directory is not writable, locate refuses, and the refusal
+    // alone would never name the pull-and-recreate that IS the update.
+    process.env.SUBSHELL_CONTAINER = "1";
+    try {
+      expect(
+        await run(
+          { check: true },
+          { installed: () => ({ kind: "compiled", path: "/nowhere/subshell-server", source: "this process" }) },
+        ),
+      ).toBe(1);
+      expect(errors.join("\n")).toMatch(/cannot replace/);
+      expect(errors.join("\n")).toContain("updates happen by pulling a new image");
+    } finally {
+      delete process.env.SUBSHELL_CONTAINER;
+    }
+  });
 });
 
 describe("update --rollback", () => {

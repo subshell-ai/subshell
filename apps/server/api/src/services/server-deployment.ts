@@ -99,6 +99,8 @@ export interface DeploymentView {
   service: DeploymentService;
   /** Whether `POST /api/admin/server/restart` would work, and why not when it would not. */
   restart: { available: boolean; reason: string | null };
+  /** True when this process runs inside the Subshell release image (`SUBSHELL_CONTAINER=1`). */
+  containerized: boolean;
   /** § 3.4: the effective debug state, where it comes from, and the file it writes. */
   logging: DeploymentLogging;
   /** Absolute path to tmux, or null when it is not on PATH. */
@@ -192,6 +194,15 @@ const RESTART_UNSUPERVISED_REASON =
   "This server is not running under a service manager; restart it where you started it.";
 
 /**
+ * Why the image, not this process, is the unit of update (spec 2026-09-28 § 6).
+ *
+ * Exported so the route tests build their fixtures FROM the string the route
+ * produces: a hand-copied reason drifts and the test passes silently.
+ */
+export const RESTART_CONTAINERIZED_REASON =
+  "This server runs inside a container, where the image is the unit of update. Pull a new image and recreate the container; from the Proxmox helper install, that is: bash proxmox-server.sh update on the host.";
+
+/**
  * The value THIS process runs with, per key: the boot-time constant for the
  * four keys really read at boot, and the LIVE registry's operator list for
  * `TRUSTED_ORIGINS` — which is why that key never asks for a restart.
@@ -254,6 +265,19 @@ export const SUPERVISOR_PID_ENV = "SUBSHELL_SUPERVISOR_PID";
 export const SUPERVISOR_LOG_ENV = "SUBSHELL_SUPERVISOR_LOG";
 /** The only value of {@link SUPERVISOR_ENV} this server recognises. */
 export const DESKTOP_SUPERVISOR = "subshell-desktop-server";
+
+/**
+ * The Subshell release image bakes this (spec 2026-09-28 § 3). It is the
+ * server's only containerization signal: a marker the image sets, not a
+ * guessed heuristic, because the fact it gates ("is the image the unit of
+ * update?") is true exactly where our image said it was.
+ */
+export const CONTAINER_ENV = "SUBSHELL_CONTAINER";
+
+/** Whether this process runs inside the Subshell release image. */
+export function isContainerized(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env[CONTAINER_ENV] === "1";
+}
 
 /**
  * Whether the Subshell Server app is running this process — a claim in the
@@ -383,6 +407,7 @@ function buildDeployment(deps: DeploymentDeps): DeploymentView {
   const manager = byApp ? "app" : platform === "darwin" ? "launchd" : platform === "linux" ? "systemd" : null;
   /** Everything that does not depend on WHO supervises this process. */
   const base = {
+    containerized: isContainerized(env),
     configEnv: status.configEnv,
     settings,
     restartRequired: DEPLOYMENT_SETTING_KEYS.some((key) => settings[key].saved !== settings[key].running),
@@ -445,6 +470,9 @@ function buildDeployment(deps: DeploymentDeps): DeploymentView {
       logHint: manager === "systemd" ? `journalctl --user -u ${SYSTEMD_UNIT_NAME} -f` : null,
       supervised,
     },
-    restart: { available: supervised, reason: supervised ? null : RESTART_UNSUPERVISED_REASON },
+    restart: {
+      available: supervised,
+      reason: supervised ? null : isContainerized(env) ? RESTART_CONTAINERIZED_REASON : RESTART_UNSUPERVISED_REASON,
+    },
   };
 }

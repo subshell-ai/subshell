@@ -112,6 +112,12 @@ jobs:
       - name: Run linting
         run: bun run lint:check
 
+      - name: "shellcheck (Proxmox helpers, image entrypoint, docker scenario)"
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q shellcheck
+          shellcheck -S warning proxmox-server.sh proxmox-node.sh docker-entrypoint.sh scripts/cli-e2e/docker-image.sh
+
   # Dependency advisories, gated. `bun audit` on its own is informational: it
   # prints advisories and would have left this file green through every one of
   # them. dep-audit requires the live advisory set to be a subset of

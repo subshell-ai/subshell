@@ -13,6 +13,7 @@ import { backupsDir } from "@/services/db-backup.js";
 import { readView, resetForTests } from "@/services/nodes/update-tracker.js";
 import type { ResolvedRelease } from "@/services/releases.js";
 import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
+import { resetDeploymentCache } from "@/services/server-deployment.js";
 import {
   collectServerUpdateView,
   currentUpdateJob,
@@ -492,6 +493,21 @@ describe("collectServerUpdateView", () => {
     );
     const view = await collectServerUpdateView();
     expect(view.canApply.reasons).toContain("an update is already in progress");
+  });
+
+  it("lists the image-pull remedy among the blockers inside a container (spec 2026-09-28 § 6)", async () => {
+    process.env.SUBSHELL_CONTAINER = "1";
+    resetDeploymentCache();
+    try {
+      const view = await collectServerUpdateView(true);
+      expect(view.canApply.ok).toBe(false);
+      expect(view.canApply.reasons.some((r) => r.includes("container") && r.includes("proxmox-server.sh update"))).toBe(
+        true,
+      );
+    } finally {
+      delete process.env.SUBSHELL_CONTAINER;
+      resetDeploymentCache();
+    }
   });
 
   /**

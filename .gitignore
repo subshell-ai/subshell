@@ -183,3 +183,7 @@ apps/client/desktop/src-tauri/gen/
 apps/client/desktop/ui/dist/
 apps/server/desktop/ui/dist/
 crates/desktop-core/target/
+
+# Staged release binaries for the image build (docker-image.yml stages these)
+docker/bin/
+docker/dl/

@@ -52,6 +52,7 @@ If the machine has no terminal, the dialog's reveal switches from **Terminal** t
 - A node started by hand with `subshell run` dies when you close the SSH session: that is the foreground daemon. Install the background service, as step 3 describes.
 - Re-enrolling an already enrolled machine is destructive: a second enrollment overwrites the node's saved configuration, registers a second node row, and discards the current node key. Reaching a plane that moved to a different address is repointing, which keeps the machine's identity ([Manage a node](/nodes/manage)).
 - Two fleet decisions are worth making deliberately: [who may launch on it](/nodes/sharing), and whether to [restrict its directories](/nodes/directory-allowlist).
+- On a Proxmox VE host the target machine may be a plain unprivileged LXC instead of a VM or a bare host: [Install on Proxmox](/server/proxmox) documents a helper (`proxmox-node.sh`) that automates the create-and-enroll shape.
 
 ## Next steps
 

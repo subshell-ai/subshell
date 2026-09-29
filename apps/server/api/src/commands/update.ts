@@ -37,6 +37,7 @@ import {
   releaseSourceUrl,
   signedAssetDigest,
 } from "@/services/releases.js";
+import { isContainerized } from "@/services/server-deployment.js";
 import {
   beginUpdate,
   clearPending,
@@ -127,7 +128,9 @@ function defaultProbeVersion(file: string): string | null {
  * Run the verb.
  *
  * @returns the process exit code — 0 for a completed (or already-current)
- *   update, 1 for every refusal and every failure
+ *   update, 1 for every refusal and every failure, EXCEPT the two `--check
+ *   --json` refusal paths (locate and release pick), which exit 0 with the
+ *   refusal carried as `reason` in the JSON: a check reports, it does not fail.
  */
 export async function runUpdate(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
   return opts.rollback ? runRollback(opts, deps) : runInstall(opts, deps);
@@ -182,7 +185,12 @@ export interface UpdateCheck {
   updateAvailable: boolean;
   /** Why `latest` is null; absent when it is not. */
   reason?: string;
+  /** Present-when-true: this binary lives in an image and updates by pull, not swap (spec 2026-09-28 § 6). */
+  containerized?: true;
 }
+
+/** The marker every --check JSON gains inside the image; absent elsewhere (no key churn outside). */
+const CONTAINER_FLAG = (): { containerized?: true } => (isContainerized() ? { containerized: true as const } : {});
 
 async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
   const { log, error } = deps;
@@ -190,7 +198,25 @@ async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
   // 1. Where is the installed binary.
   const located = locate(deps);
   if ("refusal" in located) {
+    if (opts.check && opts.json) {
+      log(
+        JSON.stringify({
+          installed: SERVER_VERSION,
+          latest: null,
+          updateAvailable: false,
+          reason: located.refusal,
+          ...CONTAINER_FLAG(),
+        } satisfies UpdateCheck),
+      );
+      return 0;
+    }
     error(`subshell-server: ${located.refusal}`);
+    // Inside the image the locate ALWAYS refuses (the binary's directory is
+    // not writable), and the refusal alone never names the remedy. The json
+    // branch carries `containerized`; the prose branch must be as honest.
+    if (isContainerized()) {
+      error("This install runs in a container; updates happen by pulling a new image, not with this verb.");
+    }
     return 1;
   }
   const { path: binary, dir: binaryDir } = located;
@@ -224,7 +250,13 @@ async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
     if ("refusal" in picked) {
       if (opts.check && opts.json) {
         log(
-          JSON.stringify({ installed: SERVER_VERSION, latest: null, updateAvailable: false, reason: picked.refusal }),
+          JSON.stringify({
+            installed: SERVER_VERSION,
+            latest: null,
+            updateAvailable: false,
+            reason: picked.refusal,
+            ...CONTAINER_FLAG(),
+          } satisfies UpdateCheck),
         );
         return 0;
       }
@@ -268,11 +300,17 @@ async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
     installed: SERVER_VERSION,
     latest: target.version,
     updateAvailable: semverLt(SERVER_VERSION, target.version),
+    ...CONTAINER_FLAG(),
   };
   if (opts.check) {
     if (opts.json) log(JSON.stringify(check));
-    else if (check.updateAvailable) log(`${target.version} is available. Running ${SERVER_VERSION}.`);
-    else log(`Running ${SERVER_VERSION}, the newest release.`);
+    else {
+      if (check.updateAvailable) log(`${target.version} is available. Running ${SERVER_VERSION}.`);
+      else log(`Running ${SERVER_VERSION}, the newest release.`);
+      if (isContainerized()) {
+        log("This install runs in a container; updates happen by pulling a new image, not with this verb.");
+      }
+    }
     return 0;
   }
   if (target.version === SERVER_VERSION) {

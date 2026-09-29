@@ -6,3 +6,5 @@ out/
 # the repo root is the source.
 public/install-server.sh
 public/install-client.sh
+public/proxmox-server.sh
+public/proxmox-node.sh
