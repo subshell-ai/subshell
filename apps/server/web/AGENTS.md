@@ -135,6 +135,16 @@ read on tab activity for that reason. `/settings/logs` is one tabbed page
 on a `(createdAt, id)` PAIR, because two events can share a millisecond.
 **Working on either page: read apps/server/web/docs/settings-status-logs.md first.**
 
+**A form with required input runs through the substrate, `src/lib/form.ts`
+(spec 2026-09-29).** One structural validator (a zod schema, or the existing
+field-problem function where rules shadow the server's) feeds BOTH the submit
+button's `disabled` (`useSubmitDisabled`) and the handler's guard, so they
+cannot drift; sentences show once a field is touched and never while the caret
+is in the box. A new hand-rolled `disabled={...}` on a required form is the
+defect this replaces.
+**Working on any form's submit gating or validation: read
+apps/server/web/docs/form-substrate.md first.**
+
 **The launch form asks Agent → Preset → Node → Working directory and asks
 nothing it cannot answer.** The dialog opens on your last launch (node and
 directory pre-filled from the newest prior subshell), and a **Copy settings

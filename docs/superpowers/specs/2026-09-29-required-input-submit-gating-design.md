@@ -33,9 +33,13 @@ The audited set (submit handler validates, `disabled` omits it):
   implements the Standard Schema spec, so it plugs into the form's structural
   validation without a bespoke adapter. Bundle cost is nil: the SPA is a single
   Vite chunk (no route code-splitting, measured 2026-09-29).
-- **Uncontrolled forms** (`defaultProviders: { form: "uncontrolled" }`): every
-  control is a Base UI primitive already; controller wiring is the fragile
-  seam, and uncontrolled keeps existing inputs untouched.
+- **Controlled fields (amended at implementation 2026-09-29):** the
+  uncontrolled mode the design first named never shipped in
+  `@tanstack/react-form` 1.x stable (verified absent from the installed
+  1.33.5 types). It is not needed: every swept form already holds its values
+  in React state, so `form.Field` swaps `useState` for form-owned state at
+  the same wiring the code already does. Zod plugs in as a Standard Schema —
+  v1.33 auto-detects it (`isStandardSchemaValidator`), no adapter package.
 - **Sync-with-server validators are reused, not re-expressed.** #5 and #6 keep
   their existing validators (`formProblems` from
   `@internal/server/config-values`; the card's required/secret rules) as the
