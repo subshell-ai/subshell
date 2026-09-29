@@ -253,11 +253,13 @@ describe("PromptPickerBody", () => {
     await settle();
     cleanup();
 
-    // The page came back: the picker reopens AT the draft, text intact.
+    // The page came back: the picker opens at the LIST (the front door),
+    // and the draft waits in storage for whoever enters the step.
     const picked: PromptBlock[] = [];
     renderPicker({ onPick: (b) => picked.push(b) });
     await settle();
-    expect(screen.getByPlaceholderText("The text to type into the pane")).toBeDefined();
+    expect(screen.queryByPlaceholderText("The text to type into the pane")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
     expect((screen.getByPlaceholderText("The text to type into the pane") as HTMLTextAreaElement).value).toBe(
       "half an idea",
     );
@@ -266,10 +268,11 @@ describe("PromptPickerBody", () => {
     fireEvent.click(addStackButton());
     await waitFor(() => expect(picked.length).toBe(1)); // handleSubmit is async
 
-    // Submitted: spent. The next open starts at the list, not the draft.
+    // Submitted: spent. The step now opens EMPTY, not on the old text.
     cleanup();
     renderPicker({ onPick: () => {} });
     await settle();
-    expect(screen.getByRole("button", { name: /Write your own/ })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
+    expect((screen.getByPlaceholderText("The text to type into the pane") as HTMLTextAreaElement).value).toBe("");
   });
 });

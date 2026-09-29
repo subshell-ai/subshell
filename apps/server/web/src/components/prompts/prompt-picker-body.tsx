@@ -71,7 +71,9 @@ const customStepSchema = z
  * one-off typed right here, with an optional save into the library that is
  * OFF by default, because a prompt used once has not earned a row. That
  * step is durable (operator ruling 2026-09-29): the draft rides
- * sessionStorage until it is submitted, so a reload mid-edit loses nothing.
+ * sessionStorage until it is submitted, so a reload mid-edit loses
+ * nothing - but it resumes only when the person ENTERS the step; the
+ * picker itself always opens at the list.
  * Since the gating sweep (spec 2026-09-29) its submit is DISABLED until
  * the step's schema is satisfied - the guard in onSubmit stays as the
  * guarantee behind the explanation.
@@ -96,10 +98,13 @@ export function PromptPickerBody({
   const view: PromptsView = data ?? { own: [], shared: [] };
   const [tab, setTab] = useState<"own" | "shared">("own");
   // The custom step: "list" = the list, "custom" = the editor for one
-  // free-text block. A stored draft means the person was mid-edit when the
-  // page went away: reopen THERE, with the text, not at the list.
+  // free-text block. The LIST is always the front door (operator ruling
+  // 2026-09-29, second pass: reopening AT a stored draft read as the
+  // picker "going directly to write" and skipping the pick). The draft
+  // still survives in sessionStorage and seeds the form below, so the
+  // text resumes the moment the person enters the step.
   const [draft] = useState(() => loadDraft(mode));
-  const [step, setStep] = useState<"list" | "custom">(draft === null ? "list" : "custom");
+  const [step, setStep] = useState<"list" | "custom">("list");
   const [serverError, setServerError] = useState<string | null>(null);
   const create = useCreatePrompt();
 
