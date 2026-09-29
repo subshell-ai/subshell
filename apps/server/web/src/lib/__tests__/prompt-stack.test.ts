@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { joinPromptBlocks, movePromptBlock, type PromptBlock, removePromptBlock } from "../prompt-stack.ts";
-import { matchesPromptQuery } from "../prompts.ts";
+import { joinPromptBlocks, movePromptBlock, type PromptBlock, removePromptBlock } from "../prompt-stack";
+import { matchesPromptQuery } from "../prompts";
 
 const block = (id: string, body = `body of ${id}`): PromptBlock => ({
   localId: id,
