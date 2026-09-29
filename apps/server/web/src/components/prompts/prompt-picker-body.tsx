@@ -81,7 +81,8 @@ const customStepSchema = z
  *
  * The body never closes anything: a pick and a dismissal are REPORTED
  * (onPick / onExit) and each surface decides what leaving means. `mode`
- * survives as the COPY and STORAGE difference between the two callers.
+ * survives as the COPY and STORAGE difference between the two callers: inline multi speaks the form (Cancel, Add prompt), the inject
+ * dialog speaks a dialog (Back to list, Use prompt, Done).
  */
 export function PromptPickerBody({
   mode,
@@ -215,20 +216,29 @@ export function PromptPickerBody({
         <Button
           variant="outline"
           onClick={() => {
-            setStep("list");
+            // Multi (the inline launch surface) says Cancel and MEANS it:
+            // the picker closes; the draft stays stored for the next
+            // "Write your own..." (ruling 2026-09-29). In the inject
+            // dialog "Back to list" steps back to the list, which is
+            // live behind the same chrome.
+            if (mode === "multi") {
+              onExit();
+            } else {
+              setStep("list");
+            }
             setServerError(null);
           }}
         >
-          Back to list
+          {mode === "multi" ? "Cancel" : "Back to list"}
         </Button>
       )}
       {step === "custom" ? (
         <Button onClick={() => void form.handleSubmit()} disabled={customDisabled}>
-          {create.isPending ? "Saving…" : mode === "multi" ? "Add to stack" : "Use prompt"}
+          {create.isPending ? "Saving…" : mode === "multi" ? "Add prompt" : "Use prompt"}
         </Button>
       ) : (
         <Button variant="outline" onClick={onExit}>
-          Done
+          {mode === "multi" ? "Cancel" : "Done"}
         </Button>
       )}
     </>

@@ -114,16 +114,16 @@ describe("PromptPickerBody", () => {
     expect(exits).toBe(0);
   });
 
-  it("Done exits; Back to list does not", async () => {
+  it("Cancel exits on BOTH steps (multi speaks the form, not the dialog)", async () => {
     restore = mockFetch().restore;
     let exits = 0;
     renderPicker({ onPick: () => {}, onExit: () => exits++ });
     await settle();
-    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Back to list" }));
-    expect(exits).toBe(0);
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(exits).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(exits).toBe(2);
   });
 
   it("search matches the body, not just the label", async () => {
@@ -158,7 +158,7 @@ describe("PromptPickerBody", () => {
     expect(screen.getByText(/No shared prompts yet/)).toBeDefined();
   });
 
-  const addStackButton = () => screen.getByRole("button", { name: "Add to stack" }) as HTMLButtonElement;
+  const addStackButton = () => screen.getByRole("button", { name: "Add prompt" }) as HTMLButtonElement;
 
   it("the step's submit is DISABLED until its requirements are filled (gating sweep 2026-09-29)", async () => {
     restore = mockFetch([], []).restore;
@@ -267,7 +267,6 @@ describe("PromptPickerBody", () => {
     fireEvent.change(screen.getByPlaceholderText("The text to type into the pane"), {
       target: { value: "half an idea" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Back to list" }));
     await settle();
     cleanup();
 
