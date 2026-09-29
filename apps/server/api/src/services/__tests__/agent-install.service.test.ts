@@ -186,13 +186,18 @@ describe("update kind", () => {
     expect(refusal?.message).toContain("already being updated");
     expect(refusal?.status).toBe(409);
     await running;
-    // And the set drains: a second update after completion is allowed.
+    // And the Map drains: a second update after completion is allowed.
     expect(await refuseAgentCommand("demo", "update", deps)).toBeUndefined();
   });
 
-  it("the default seam routes update to updateHint ?? install, non-built-ins to undefined", async () => {
-    // defaultDeps is not exported; exercise it through the real commandFor shape:
-    // an installed third-party id is NOT a built-in, so BOTH kinds refuse.
+  it("the default seam refuses an id this build does not carry, both kinds", async () => {
+    // This case pins only the non-built-in arm. defaultDeps is not exported,
+    // and both arms return a non-empty string for a declared plugin, so the
+    // `updateHint ?? install.command` WIN arm cannot be told apart from the
+    // flipped arms without executing the chosen command - an accepted gap
+    // (the manifest side is pinned: claude-code's updateHint is parsed from
+    // its package.json by the adapter tests). An installed third-party id is
+    // NOT a built-in, so BOTH kinds refuse.
     const refusal = await refuseAgentCommand("definitely-not-a-built-in-plugin-id", "update");
     expect(refusal?.message).toContain("not a plugin this build carries");
   });
