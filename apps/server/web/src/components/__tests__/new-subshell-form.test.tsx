@@ -1185,7 +1185,14 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
   it("the checkbox reveals the stack; the picker adds, reorders, and removes blocks", async () => {
     const prompts = {
       own: [
-        { id: "pr1", description: "Kickoff", body: "start the task", shared: false, createdAt: "t", updatedAt: "t" },
+        {
+          id: "pr1",
+          description: "Kickoff",
+          body: "start the task\nsecond line",
+          shared: false,
+          createdAt: "t",
+          updatedAt: "t",
+        },
         { id: "pr2", description: "Review", body: "check the diff", shared: false, createdAt: "t", updatedAt: "t" },
       ],
       shared: [],
@@ -1219,6 +1226,12 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
       fireEvent.click(screen.getByText("Review"));
       await settle();
       expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff", "Review"]);
+
+      // The full text is COLLAPSED by default (operator ruling 2026-09-29)
+      // and one click on the row opens it, the page row's shape.
+      expect(screen.queryByText(/second line/)).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /Kickoff/ }));
+      expect(screen.getByText(/second line/)).toBeDefined();
 
       // Stack controls: reorder the second up (row 2's button, the first is
       // already disabled at the top), then remove the first.
