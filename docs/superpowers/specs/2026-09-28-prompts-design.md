@@ -145,13 +145,17 @@ on every open including clone.
 - **Expanded:** the block rows (description as `label`, truncated body as
   `detail`, up/down/remove icon buttons; no drag dependency), then a
   "+ Add prompt" button opening the **picker dialog**.
-- **Picker dialog** (`components/prompts/prompt-picker-dialog.tsx`, shared
-  with inject): the searchable dropdown (description + body matching,
+- **Picker** (`components/prompts/prompt-picker-body.tsx`, ONE component
+  in two surfaces, amended 2026-09-29 after dialog-on-dialog proved
+  unwieldy): the searchable dropdown (description + body matching,
   one-line preview per row), own/shared `Segmented`, and a dashed
   **"Write your own..."** button under the list that swaps to a textarea
   with a "Save to my prompts" switch (off) plus its description field.
-  A pick closes the dialog in both modes (amended 2026-09-29); in the
-  inject flow the close ADVANCES to the confirm step.
+  The launch form renders the body INLINE (it replaces the "Add prompt"
+  button while open; a pick lands the block and collapses back to the
+  button); the inject action puts the same body on a Dialog, where a pick
+  advances to the confirm step by unmount swap. The body closes nothing
+  itself - it reports picks and exits.
 - **Launch:** `toSubshellCreateBody` adds `prompt` = blocks joined with
   `"\n\n"`, only when the stack is non-empty and the section is on. The
   server types it once the harness settles (existing seam).

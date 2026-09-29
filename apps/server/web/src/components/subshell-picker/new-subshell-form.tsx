@@ -5,7 +5,7 @@ import { Plus } from "lucide-react";
 import type { JSX } from "react";
 import { useMemo, useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
-import { PromptPickerDialog } from "@/components/prompts/prompt-picker-dialog";
+import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
 import { PromptStackList } from "@/components/prompts/prompt-stack-list";
 import {
   DIALOG_IDS,
@@ -396,24 +396,31 @@ export function NewSubshellForm({
                 }
               />
             )}
-            <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
-              <Plus /> Add prompt
-            </Button>
-            <p className="text-detail text-muted-foreground">Typed into the pane when the subshell starts.</p>
-            {/* Mounted only while open (the clone-dialog posture). The
-                half-typed CUSTOM text outlives this unmount on purpose:
-                the picker keeps it in sessionStorage until it is
-                submitted (operator ruling 2026-09-29), so the dialog
-                itself holding no memory is what makes that durable, not
-                lost. */}
-            {pickerOpen && (
-              <PromptPickerDialog
-                open
-                mode="multi"
-                onOpenChange={(next) => !next && setPickerOpen(false)}
-                onPick={(block) => onChange({ ...value, promptBlocks: [...value.promptBlocks, block] })}
-              />
+            {/* The picker INLINE (operator ruling 2026-09-29: the dialog-
+                on-dialog-on-dialog stack read as weird; this is the same
+                BODY the inject action puts on a Dialog, so "choose a
+                prompt" is one component in both places). A pick lands the
+                block and collapses back to the button; the half-typed
+                CUSTOM text outlives the collapse on purpose (the picker's
+                sessionStorage draft, durable until submitted). */}
+            {pickerOpen ? (
+              <div className="rounded-lg border p-3">
+                <PromptPickerBody
+                  surface="inline"
+                  mode="multi"
+                  onPick={(block) => {
+                    onChange({ ...value, promptBlocks: [...value.promptBlocks, block] });
+                    setPickerOpen(false);
+                  }}
+                  onExit={() => setPickerOpen(false)}
+                />
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
+                <Plus /> Add prompt
+              </Button>
             )}
+            <p className="text-detail text-muted-foreground">Typed into the pane when the subshell starts.</p>
           </>
         )}
       </div>

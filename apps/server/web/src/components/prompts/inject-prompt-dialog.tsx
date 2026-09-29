@@ -1,6 +1,6 @@
 import { apiPost, Button, errMessage } from "@internal/node-admin";
-import { useRef, useState } from "react";
-import { PromptPickerDialog } from "@/components/prompts/prompt-picker-dialog";
+import { useState } from "react";
+import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
 import {
   Dialog,
   DialogContent,
@@ -13,12 +13,17 @@ import type { PromptBlock } from "@/lib/prompt-stack";
 
 /**
  * The subshell menu's "Inject prompt..." (spec 2026-09-28): the shared
- * picker in single-select, then a confirm step that says exactly what the
- * button does. The text is TYPED, never submitted: a submitted line can
- * corrupt a harness mid-turn, so the person reviews it at the prompt and
- * presses Enter themselves. This is the browser's first consumer of
- * `POST /api/subshells/:id/input`; the server answers the running/offline
- * facts, so failures render here and keep the dialog open.
+ * picker BODY on a Dialog in single-select, then a confirm step that says
+ * exactly what the button does. The text is TYPED, never submitted: a
+ * submitted line can corrupt a harness mid-turn, so the person reviews it
+ * at the prompt and presses Enter themselves. This is the browser's first
+ * consumer of `POST /api/subshells/:id/input`; the server answers the
+ * running/offline facts, so failures render here and keep the dialog open.
+ *
+ * The pick ADVANCES by unmount swap (the picker branch is replaced by the
+ * confirm), never by closing: the only close that reaches the menu caller
+ * is a real dismissal (Done/Escape/success), so the old pick-close
+ * absorption hack is gone.
  */
 export function InjectPromptDialog({
   subshellId,
@@ -34,13 +39,6 @@ export function InjectPromptDialog({
   const [picked, setPicked] = useState<PromptBlock | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // The picker closes itself on a pick (decisive action, live report
-  // 2026-09-29), and this component's owner unmounts it when `open` flips
-  // false — so a pick-driven close must ADVANCE here, never reach the
-  // owner, or the selection dies with the subtree before the confirm step
-  // can render (round-5 review: the inject path had no test and broke).
-  // A close that was NOT a pick (Done, Escape) is the person leaving.
-  const justPicked = useRef(false);
 
   async function send() {
     if (!picked) return;
@@ -60,27 +58,16 @@ export function InjectPromptDialog({
 
   if (!picked) {
     return (
-      <PromptPickerDialog
-        open={open}
-        mode="single"
-        onPick={(block) => {
-          justPicked.current = true;
-          setPicked(block);
-        }}
-        onOpenChange={(next) => {
-          if (!next && justPicked.current) {
-            justPicked.current = false;
-            return;
-          }
-          onOpenChange(next);
-        }}
-      />
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-lg">
+          <PromptPickerBody surface="dialog" mode="single" onPick={setPicked} onExit={() => onOpenChange(false)} />
+        </DialogContent>
+      </Dialog>
     );
   }
 
-  // The confirm step is the SAME Dialog component (the picker's pick-close
-  // was absorbed above; the menu caller keeps `open` true across both):
-  // name, body, what the button does, send.
+  // The confirm step is the SAME Dialog component: name, body, what the
+  // button does, send.
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">

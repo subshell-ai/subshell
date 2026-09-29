@@ -18,7 +18,7 @@ The audited set (submit handler validates, `disabled` omits it):
 
 | # | Form | Missing from `disabled` |
 |---|------|-------------------------|
-| 1 | `components/prompts/prompt-picker-dialog.tsx:290` | body non-empty; description required only while save-to-library is ON |
+| 1 | `components/prompts/prompt-picker-body.tsx` (`submitCustom`) | body non-empty; description required only while save-to-library is ON |
 | 2 | `components/prompts/prompt-form-dialog.tsx:113` | description non-empty, body non-empty, description ≤ 120 (`validatePromptDraft`) |
 | 3 | `components/change-password-card.tsx:102` | min length; new === confirm |
 | 4 | `components/plugins/install-by-name-form.tsx:140` | derived-or-typed plugin id passes `isSafePluginId` (empty-spec case already hides the button) |

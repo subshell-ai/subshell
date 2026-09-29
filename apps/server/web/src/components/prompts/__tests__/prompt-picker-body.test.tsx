@@ -1,17 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { PromptPickerDialog } from "@/components/prompts/prompt-picker-dialog";
+import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
 import type { PromptBlock } from "@/lib/prompt-stack";
 
 /**
- * The shared prompt picker (spec 2026-09-28). The list is the searchable
+ * The shared picker BODY (spec 2026-09-28), the component the launch form
+ * renders inline and the inject action puts on a Dialog (ruling 2026-09-29
+ * after dialog-on-dialog proved unwieldy). The list is the searchable
  * combobox, whose Base UI popup opens on a real POINTER gesture, not a bare
  * click (happy-dom quirk pinned below in openSearch) so the tests lead with
- * pointer/mouse events the way the operator's mouse does. The pick must
- * COMMIT and close (decisive-action redesign, live report 2026-09-29), and
- * the custom draft must survive a reload until submitted (operator ruling
- * 2026-09-29).
+ * pointer/mouse events the way the operator's mouse does. The BODY reports
+ * picks and exits and closes nothing itself (the surfaces pin what leaving
+ * means); the custom draft survives a reload until submitted.
  */
 
 const ownRow = {
@@ -50,18 +51,14 @@ function mockFetch(own: unknown[] = [ownRow], shared: unknown[] = [sharedRow]) {
   return { posts, restore: () => (globalThis.fetch = realFetch) };
 }
 
-function renderPicker(props: {
-  onPick: (block: PromptBlock) => void;
-  onOpenChange?: (next: boolean) => void;
-  mode?: "multi" | "single";
-}) {
+function renderPicker(props: { onPick: (block: PromptBlock) => void; onExit?: () => void; mode?: "multi" | "single" }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <PromptPickerDialog
-        open
+      <PromptPickerBody
+        surface="inline"
         mode={props.mode ?? "multi"}
-        onOpenChange={props.onOpenChange ?? (() => {})}
+        onExit={props.onExit ?? (() => {})}
         onPick={props.onPick}
       />
     </QueryClientProvider>,
@@ -97,24 +94,36 @@ afterEach(() => {
   cleanup();
 });
 
-describe("PromptPickerDialog", () => {
+describe("PromptPickerBody", () => {
   let restore: (() => void) | undefined;
   afterEach(() => {
     restore?.();
     restore = undefined;
   });
 
-  it("picking a row commits AND closes the dialog (the decisive action)", async () => {
+  it("picking a row reports ONE pick and nothing else (surfaces decide)", async () => {
     restore = mockFetch().restore;
     const picked: PromptBlock[] = [];
-    const changes: boolean[] = [];
-    renderPicker({ onPick: (b) => picked.push(b), onOpenChange: (n) => changes.push(n) });
+    let exits = 0;
+    renderPicker({ onPick: (b) => picked.push(b), onExit: () => exits++ });
     await settle();
     openSearch();
     await settle();
     fireEvent.click(screen.getByText("Kickoff"));
     expect(picked.map((b) => [b.kind, b.promptId, b.description])).toEqual([["saved", "pr1", "Kickoff"]]);
-    expect(changes).toEqual([false]);
+    expect(exits).toBe(0);
+  });
+
+  it("Done exits; Back to list does not", async () => {
+    restore = mockFetch().restore;
+    let exits = 0;
+    renderPicker({ onPick: () => {}, onExit: () => exits++ });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to list" }));
+    expect(exits).toBe(0);
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(exits).toBe(1);
   });
 
   it("search matches the body, not just the label", async () => {

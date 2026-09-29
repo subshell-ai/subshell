@@ -5,12 +5,13 @@ import { useState } from "react";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 
 /**
- * The menu's inject path (spec 2026-09-28), pinned at the exact shape the
- * round-5 review found broken: the menu unmounts this component when the
- * close reaches it, so the picker's pick-close must be ABSORBED here (the
- * confirm step renders), and only a non-pick close may reach the owner.
- * The confirm's send is typed-not-submitted: `submit: false`, the server's
- * own ruling.
+ * The menu's inject path (spec 2026-09-28), pinned at the shape the
+ * round-5 review found broken and the inline rebuild (2026-09-29) keeps:
+ * the menu unmounts this component when a close reaches it, so a PICK
+ * must never close anything - it advances by the unmount swap from the
+ * picker body to the confirm step, and only a real dismissal (Done,
+ * Escape, a successful send) reaches the owner. The confirm's send is
+ * typed-not-submitted: `submit: false`, the server's own ruling.
  */
 
 function Harness({ onClosed }: { onClosed: (v: boolean) => void }) {
@@ -125,9 +126,9 @@ describe("InjectPromptDialog", () => {
     await settle();
     fireEvent.click(screen.getByText("Kickoff"));
     await settle();
-    // The pick-close never reached the owner (that would unmount the
-    // subtree and discard the pick — the round-5 critical), and the
-    // confirm step named the prompt and the pane.
+    // No close reached the owner (the round-5 critical: one would
+    // unmount the subtree and discard the pick), and the confirm step
+    // named the prompt and the pane.
     expect(closes).toEqual([]);
     expect(screen.getByText(/Inject "Kickoff" into "Pane"/)).toBeDefined();
   });
@@ -148,9 +149,8 @@ describe("InjectPromptDialog", () => {
   });
 
   it("after a pick and Back, the NEXT Done still reaches the owner", async () => {
-    // Pins the justPicked flag's CLEARING: a wrapper that absorbs the
-    // pick-close but stays armed would swallow this dismissal (the flow
-    // could never be left again), and nothing else in the suite fails.
+    // Pins the ADVANCE-leaves-no-lingering-state rule: after a pick and
+    // Back, the picker is live again and its Done must reach the owner.
     const m = mockFetch();
     restore = m.restore;
     const { closes } = renderDialog();

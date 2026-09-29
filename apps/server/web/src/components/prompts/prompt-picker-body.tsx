@@ -4,14 +4,7 @@ import { PenLine } from "lucide-react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import { SearchableSelect } from "@/components/ui/combobox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreatePrompt, usePrompts } from "@/hooks/use-prompts";
@@ -37,7 +30,10 @@ function loadDraft(mode: "multi" | "single"): PickerDraft | null {
     const raw = sessionStorage.getItem(draftKey(mode));
     if (raw === null) return null;
     const parsed = JSON.parse(raw) as Partial<PickerDraft>;
-    if (typeof parsed?.body !== "string") return null;
+    // An empty body is no draft, whatever an older tab left in storage:
+    // restoring "" would reopen the picker AT an empty editor (the round-8
+    // hijack, dead-lettered here so stale entries cannot revive it).
+    if (typeof parsed?.body !== "string" || parsed.body === "") return null;
     return {
       body: parsed.body,
       description: typeof parsed.description === "string" ? parsed.description : "",
@@ -64,33 +60,37 @@ const customStepSchema = z
   });
 
 /**
- * The shared prompt picker (spec 2026-09-28): the launch form's block stack
- * and the subshell menu's inject action both open THIS dialog, so "choose a
- * prompt" looks and behaves the same in both. The search is the shared
- * searchable dropdown, filtering description OR body; the own/shared tabs
- * are the same question the page answers. "Write your own..." is the step
- * under the list: a one-off typed right here, with an optional save into
- * the library that is OFF by default, because a prompt used once has not
- * earned a row. That step is durable (operator ruling 2026-09-29): the
- * draft rides sessionStorage until it is submitted, so a refresh mid-edit
- * loses nothing. Since the gating sweep (spec 2026-09-29) its submit is
- * DISABLED until the step's schema is satisfied — the guard in onSubmit
- * stays as the guarantee behind the explanation.
+ * The WHOLE prompt picker (spec 2026-09-28), one component in two surfaces
+ * (operator ruling 2026-09-29, after dialog-on-dialog-on-dialog proved
+ * unwieldy): the launch form renders it INLINE where "Add prompt" was, and
+ * the subshell menu's inject action puts it on a Dialog, so "choose a
+ * prompt" is one set of controls, copy, drafts, and empty/loading/failure
+ * sentences in both. The search is the shared searchable dropdown,
+ * filtering description OR body; the own/shared tabs are the same question
+ * the page answers. "Write your own..." is the step under the list: a
+ * one-off typed right here, with an optional save into the library that is
+ * OFF by default, because a prompt used once has not earned a row. That
+ * step is durable (operator ruling 2026-09-29): the draft rides
+ * sessionStorage until it is submitted, so a reload mid-edit loses nothing.
+ * Since the gating sweep (spec 2026-09-29) its submit is DISABLED until
+ * the step's schema is satisfied - the guard in onSubmit stays as the
+ * guarantee behind the explanation.
  *
- * `mode` survives as the COPY and STORAGE difference between the two
- * callers (a pick closes the dialog in both; the custom step names its
- * button for the flow it belongs to).
+ * The body never closes anything: a pick and a dismissal are REPORTED
+ * (onPick / onExit) and each surface decides what leaving means. `mode`
+ * survives as the COPY and STORAGE difference between the two callers.
  */
-export function PromptPickerDialog({
-  open,
-  onOpenChange,
+export function PromptPickerBody({
   mode,
+  surface,
   onPick,
+  onExit,
 }: {
-  open: boolean;
-  onOpenChange: (next: boolean) => void;
   mode: "multi" | "single";
+  /** dialog: header and actions ride the dialog primitives; inline: plain boxes */
+  surface: "dialog" | "inline";
   onPick: (block: PromptBlock) => void;
+  onExit: () => void;
 }) {
   const { data, isLoading, isError } = usePrompts();
   const view: PromptsView = data ?? { own: [], shared: [] };
@@ -138,7 +138,8 @@ export function PromptPickerDialog({
         description: trimmed.description === "" ? "Untitled" : trimmed.description,
         body,
       });
-      onOpenChange(false);
+      // The surface closes or collapses on the report; the body holds no
+      // open-state of its own.
     },
   });
   const customDisabled = useSubmitDisabled(form, create.isPending);
@@ -196,88 +197,127 @@ export function PromptPickerDialog({
       description: row.description,
       body: row.body,
     });
-    // Close on the pick, BOTH modes (live report 2026-09-29): a pick that
-    // kept the dialog open showed nothing changing, because the block stack
-    // is behind the modal. One press, one decisive action; "Add prompt" is
-    // one click away for the next one.
-    onOpenChange(false);
+    // One press, one decisive action: the SURFACE decides what the pick
+    // means (live report 2026-09-29) - the launch form lands the block and
+    // collapses back to "Add prompt", the inject dialog swaps to its
+    // confirm.
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{step === "custom" ? "Write your own" : "Add a prompt"}</DialogTitle>
-          <DialogDescription>
-            {mode === "multi" ? "Pick one; press Add prompt again for the next." : "One prompt, typed into the pane."}
-          </DialogDescription>
-        </DialogHeader>
+  const heading = step === "custom" ? "Write your own" : "Add a prompt";
+  const blurb =
+    mode === "multi" ? "Pick one; press Add prompt again for the next." : "One prompt, typed into the pane.";
 
-        {step === "list" ? (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Segmented
-                ariaLabel="Prompt source"
-                options={[
-                  { value: "own", label: "Yours" },
-                  { value: "shared", label: "Shared" },
-                ]}
-                value={tab}
-                onChange={setTab}
-                fill={false}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="prompt-picker-search" className="sr-only">
-                Search prompts
-              </Label>
-              {/* The consumed posture, shared with "Copy settings from": the
+  return (
+    <div className="space-y-3">
+      {surface === "dialog" ? (
+        <DialogHeader>
+          <DialogTitle>{heading}</DialogTitle>
+          <DialogDescription>{blurb}</DialogDescription>
+        </DialogHeader>
+      ) : (
+        <div className="space-y-0.5">
+          <p className="font-strong text-label">{heading}</p>
+          <p className="text-detail text-muted-foreground">{blurb}</p>
+        </div>
+      )}
+
+      {step === "list" ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Segmented
+              ariaLabel="Prompt source"
+              options={[
+                { value: "own", label: "Yours" },
+                { value: "shared", label: "Shared" },
+              ]}
+              value={tab}
+              onChange={setTab}
+              fill={false}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="prompt-picker-search" className="sr-only">
+              Search prompts
+            </Label>
+            {/* The consumed posture, shared with "Copy settings from": the
                   pick is an action, so the input returns to its placeholder
                   and the next pick starts fresh. (The row clicks that failed
                   in the operator's browser on 2026-09-29 were the absent
                   crypto.randomUUID throwing in the pick handler, fixed at
                   its source, not the dropdown.) */}
-              <SearchableSelect
-                id="prompt-picker-search"
-                value=""
-                placeholder="Search prompts"
-                emptyText={emptyText}
-                options={rows.map((p) => ({
-                  value: p.id,
-                  label: p.description,
-                  searchText: p.body,
-                  reason: p.body.split("\n", 1)[0],
-                }))}
-                onValueChange={(id) => {
-                  const row = rows.find((p) => p.id === id);
-                  if (row) pick(row);
-                }}
-              />
-            </div>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-left text-label hover:bg-accent/40"
-              onClick={() => {
-                // The form already holds the draft (or an empty body): the
-                // step just becomes visible. Resume-a-stored-draft is the
-                // mount seeding above.
-                setStep("custom");
+            <SearchableSelect
+              id="prompt-picker-search"
+              value=""
+              placeholder="Search prompts"
+              emptyText={emptyText}
+              options={rows.map((p) => ({
+                value: p.id,
+                label: p.description,
+                searchText: p.body,
+                reason: p.body.split("\n", 1)[0],
+              }))}
+              onValueChange={(id) => {
+                const row = rows.find((p) => p.id === id);
+                if (row) pick(row);
               }}
-            >
-              <PenLine className="h-4 w-4 text-muted-foreground" />
-              Write your own...
-            </button>
+            />
           </div>
-        ) : (
-          <div className="space-y-3">
-            <form.Field name="body">
+          <button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-left text-label hover:bg-accent/40"
+            onClick={() => {
+              // The form already holds the draft (or an empty body): the
+              // step just becomes visible. Resume-a-stored-draft is the
+              // mount seeding above.
+              setStep("custom");
+            }}
+          >
+            <PenLine className="h-4 w-4 text-muted-foreground" />
+            Write your own...
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <form.Field name="body">
+            {(field) => (
+              <>
+                <Textarea
+                  value={field.state.value}
+                  rows={6}
+                  autoFocus
+                  placeholder="The text to type into the pane"
+                  onChange={(e) => field.handleChange(e.target.value)}
+                  onBlur={field.handleBlur}
+                />
+                {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
+                  <p role="alert" className="text-destructive text-detail">
+                    {fieldError(field.state.meta.errors)}
+                  </p>
+                )}
+              </>
+            )}
+          </form.Field>
+          <form.Field name="saveToLibrary">
+            {(field) => (
+              <div className="flex items-center gap-3">
+                <Switch
+                  id="prompt-picker-save-switch"
+                  checked={field.state.value}
+                  onCheckedChange={(checked) => field.handleChange(checked === true)}
+                />
+                <Label htmlFor="prompt-picker-save-switch">Save to my prompts</Label>
+              </div>
+            )}
+          </form.Field>
+          {customValues.saveToLibrary && (
+            <form.Field name="description">
               {(field) => (
                 <>
-                  <Textarea
+                  <Input
                     value={field.state.value}
-                    rows={6}
-                    autoFocus
-                    placeholder="The text to type into the pane"
+                    maxLength={120}
+                    placeholder="Short label for discoverability"
+                    aria-label="Prompt description"
                     onChange={(e) => field.handleChange(e.target.value)}
                     onBlur={field.handleBlur}
                   />
@@ -289,70 +329,51 @@ export function PromptPickerDialog({
                 </>
               )}
             </form.Field>
-            <form.Field name="saveToLibrary">
-              {(field) => (
-                <div className="flex items-center gap-3">
-                  <Switch
-                    id="prompt-picker-save-switch"
-                    checked={field.state.value}
-                    onCheckedChange={(checked) => field.handleChange(checked === true)}
-                  />
-                  <Label htmlFor="prompt-picker-save-switch">Save to my prompts</Label>
-                </div>
-              )}
-            </form.Field>
-            {customValues.saveToLibrary && (
-              <form.Field name="description">
-                {(field) => (
-                  <>
-                    <Input
-                      value={field.state.value}
-                      maxLength={120}
-                      placeholder="Short label for discoverability"
-                      aria-label="Prompt description"
-                      onChange={(e) => field.handleChange(e.target.value)}
-                      onBlur={field.handleBlur}
-                    />
-                    {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                      <p role="alert" className="text-destructive text-detail">
-                        {fieldError(field.state.meta.errors)}
-                      </p>
-                    )}
-                  </>
-                )}
-              </form.Field>
-            )}
-            {serverError && (
-              <p role="alert" className="text-destructive text-detail">
-                {serverError}
-              </p>
-            )}
-          </div>
-        )}
+          )}
+          {serverError && (
+            <p role="alert" className="text-destructive text-detail">
+              {serverError}
+            </p>
+          )}
+        </div>
+      )}
 
+      {surface === "dialog" ? (
         <DialogFooter>
-          {step === "custom" && (
-            <Button
-              variant="outline"
-              onClick={() => {
-                setStep("list");
-                setServerError(null);
-              }}
-            >
-              Back to list
-            </Button>
-          )}
-          {step === "custom" ? (
-            <Button onClick={() => void form.handleSubmit()} disabled={customDisabled}>
-              {create.isPending ? "Saving…" : mode === "multi" ? "Add to stack" : "Use prompt"}
-            </Button>
-          ) : (
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Done
-            </Button>
-          )}
+          <Actions />
         </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      ) : (
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <Actions />
+        </div>
+      )}
+    </div>
   );
+
+  function Actions() {
+    return (
+      <>
+        {step === "custom" && (
+          <Button
+            variant="outline"
+            onClick={() => {
+              setStep("list");
+              setServerError(null);
+            }}
+          >
+            Back to list
+          </Button>
+        )}
+        {step === "custom" ? (
+          <Button onClick={() => void form.handleSubmit()} disabled={customDisabled}>
+            {create.isPending ? "Saving…" : mode === "multi" ? "Add to stack" : "Use prompt"}
+          </Button>
+        ) : (
+          <Button variant="outline" onClick={onExit}>
+            Done
+          </Button>
+        )}
+      </>
+    );
+  }
 }
