@@ -119,8 +119,31 @@ describe("invalidField", () => {
 });
 
 describe("form validation", () => {
-  const edit = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  // change + blur: a finished thought. The live sentence (gating sweep
+  // 2026-09-29) appears when the caret LEAVES, and Save gates live.
+  const edit = (label: string, value: string) => {
+    const field = screen.getByLabelText(label);
+    fireEvent.change(field, { target: { value } });
+    fireEvent.blur(field);
+  };
   const save = () => fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+
+  it("is quiet WHILE the caret is in the box, and explains the greyed Save once it leaves", () => {
+    const sent = stubPatch();
+    renderCard();
+    const port = screen.getByLabelText("Port") as HTMLInputElement;
+    fireEvent.focus(port); // the caret is in the box: nobody types unfocused
+    fireEvent.change(port, { target: { value: "99999" } });
+    // Mid-thought: no complaint (the 2026-09-16 ruling), but the gate has
+    // already closed.
+    expect((screen.getByRole("button", { name: /^Save/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText(/expected an integer/)).toBeNull();
+    // The thought is finished: the greyed button now has its reason.
+    fireEvent.blur(port);
+    expect(screen.getByText(/expected an integer/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Save/ }));
+    expect(sent).toEqual([]);
+  });
 
   it("refuses a bad value before the request, under the field it is about", () => {
     const sent = stubPatch();
@@ -213,7 +236,7 @@ describe("form validation", () => {
     expect(screen.getByText(/expected a full http\(s\) URL/)).toBeTruthy();
 
     edit("Port", "3081");
-    // Being worked on, so its complaint goes; the other is still true.
+    // Corrected, so its complaint goes; the other is still true.
     expect(screen.queryByText(/expected an integer 1-65535/)).toBeNull();
     expect(screen.getByText(/expected a full http\(s\) URL/)).toBeTruthy();
   });

@@ -42,8 +42,8 @@ function savedBoolean(row: NetworkRow, field: SettingsFieldWire): boolean {
  * performed WITH — an auth key, a hostname, a region — so a person reads them
  * before pressing the thing that uses them.
  *
- * Two rules the form keeps, both borrowed from `AddressesCard` because they
- * are the same two problems:
+ * Three rules the form keeps, the first two borrowed from `AddressesCard`
+ * because they are the same problems:
  *
  * - **Drafts seed from saved only while untouched**, so a poll landing
  *   underneath an edit never overwrites it. This list polls in seconds while
@@ -52,6 +52,11 @@ function savedBoolean(row: NetworkRow, field: SettingsFieldWire): boolean {
  *   `issues: [{ field, message }]`, and a settings form with four inputs
  *   whose complaint appears at the bottom leaves the reader to guess which
  *   one it is about.
+ * - **Save is disabled until every requirement is met** (gating sweep, spec
+ *   2026-09-29). The requirement is `connectBlocker`'s own rule — required,
+ *   non-secret, empty over drafts — so the form and the card's Connect gate
+ *   cannot disagree about what a row is missing; the reason shows under the
+ *   box, once the caret leaves it.
  */
 export function NetworkSettingsForm({
   row,
@@ -110,6 +115,9 @@ export function NetworkSettingsForm({
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const update = useUpdateNetworkSettings();
   const touched = Object.keys(drafts);
+  // The box the caret is in right now; the required sentence waits for it to
+  // leave, exactly as in `AddressesCard` (no complaint mid-thought).
+  const [focusedKey, setFocusedKey] = useState<string | null>(null);
   const issues: NetworkSettingsIssue[] = update.error instanceof NetworkSettingsError ? update.error.issues : [];
   const issueFor = (key: string) => issues.find((issue) => issue.field === key)?.message;
   // A form-level failure is one that named no field: a 403, an unreadable
@@ -120,6 +128,18 @@ export function NetworkSettingsForm({
 
   const set = (key: string, value: string) => setDrafts((prev) => ({ ...prev, [key]: value }));
 
+  // The gate's rule is `connectBlocker`'s, verbatim — required, non-secret, and
+  // empty once drafts overlay saved — so Save can never light up on a draft the
+  // card's own Connect gate refuses. Booleans always have a value; secrets are
+  // exempt for the same two-doors reason the blocker exempts them (the card's
+  // needs-login box is where a required secret is delivered, not this form).
+  const isRequiredMissing = (field: SettingsFieldWire): boolean => {
+    if (!field.required || field.type === "secret" || field.type === "boolean") return false;
+    const effective = drafts[field.key] ?? savedValue(row, field);
+    return effective.trim() === "";
+  };
+  const missingRequired = fields.some(isRequiredMissing);
+
   // Mirrored upward on every change of the flag, never inside `save`: a
   // mutation that settles through an error path would otherwise leave the
   // card believing a write is still running.
@@ -129,6 +149,11 @@ export function NetworkSettingsForm({
   }, [update.isPending]);
 
   function save(): void {
+    // The disabled gate already refuses a draft with a required field empty;
+    // this is the guarantee behind the explanation (a disabled button is not
+    // a precondition guard). A required-and-empty save would only earn the
+    // route's 400, so it never fires.
+    if (missingRequired) return;
     update.mutate(
       { id: row.id, settings: drafts },
       // The answer is the list refetch, which re-seeds every field from what
@@ -211,6 +236,8 @@ export function NetworkSettingsForm({
                 value={drafts[field.key] ?? savedValue(row, field)}
                 disabled={disabled || update.isPending}
                 onChange={(event) => set(field.key, event.target.value)}
+                onFocus={() => setFocusedKey(field.key)}
+                onBlur={() => setFocusedKey(null)}
               />
             )}
             {field.description && <p className="text-detail text-muted-foreground">{field.description}</p>}
@@ -232,6 +259,14 @@ export function NetworkSettingsForm({
                 again.
               </p>
             )}
+            {/* The reason Save is grey, beside the box it is about. A required
+                field left empty is the one thing this form will not save; it
+                waits for the caret to leave, exactly as `AddressesCard`'s
+                complaints do. Named for the visible label so the sentence ties
+                back to the control on screen. */}
+            {isRequiredMissing(field) && focusedKey !== field.key && !problem && (
+              <p className="text-destructive text-detail">{field.label} is required.</p>
+            )}
             {problem && <p className="text-destructive text-detail">{problem}</p>}
           </div>
         );
@@ -240,7 +275,7 @@ export function NetworkSettingsForm({
         <Button
           variant="outline"
           size="sm"
-          disabled={disabled || touched.length === 0 || update.isPending}
+          disabled={disabled || touched.length === 0 || missingRequired || update.isPending}
           onClick={save}
         >
           {update.isPending ? "Saving…" : "Save settings"}

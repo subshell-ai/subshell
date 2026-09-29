@@ -232,29 +232,34 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
   // there is nothing to apply.
   const canRestart = view.restart.available;
 
-  // Checked on SAVE, not on every keystroke: a reason appearing under a field
-  // while someone is halfway through typing a URL reads as being told off for
-  // an unfinished thought. Held in state rather than recomputed, so it clears
-  // on the next attempt instead of following a field that has since been
-  // corrected.
-  const [problems, setProblems] = useState<Partial<Record<EditableKey, string>>>({});
+  // Validated on the string the ROUTE will see (`wireValue`), DERIVED per
+  // render — the substrate sweep (spec 2026-09-29) gates Save on it: the
+  // button is disabled while any touched field is invalid. The card's old
+  // checked-only-on-SAVE ruling stands where it actually lived: no complaint
+  // appears WHILE the caret is in the box ("being told off for an unfinished
+  // thought", 2026-09-16). A field's sentence renders whenever the field is
+  // NOT focused, so the moment the thought is finished the greyed button has
+  // its reason beside the field it belongs to — a grey button with no way to
+  // learn why is the defect `lib/password` was born from. The rules are
+  // still the server's, imported (see `lib/config-validation.ts`); nothing
+  // here decides what a value may be.
+  const wire = Object.fromEntries(touched.map((key) => [key, wireValue(key, drafts[key] ?? "")])) as Partial<
+    Record<EditableKey, string>
+  >;
+  const problems = formProblems(wire);
+  const invalid = Object.keys(problems).length > 0;
+  // The box the caret is in right now; null between fields.
+  const [focusedKey, setFocusedKey] = useState<EditableKey | null>(null);
 
   function save(): void {
-    // Validated as the ROUTE will see it, not as it was typed — see
-    // `wireValue`. The rules themselves are the server's, imported (see
-    // `lib/config-validation.ts`): nothing here decides what a value may be.
-    const wire = Object.fromEntries(touched.map((key) => [key, wireValue(key, drafts[key] ?? "")])) as Partial<
-      Record<EditableKey, string>
-    >;
-    const found = formProblems(wire);
-    setProblems(found);
-    if (Object.keys(found).length > 0) {
-      // The previous SERVER refusal is no longer about what is on screen.
-      // Without this, a click that never reaches the route leaves the last
-      // 400 rendered under a field the person has since corrected — so the
-      // page says the server rejects a value that is not there any more.
-      // Before this early return existed, every Save reached `mutate`, which
-      // cleared it; the guard is what made a stale one reachable.
+    // The gate already refuses an invalid touched value; this guard is the
+    // guarantee behind the explanation, kept because a disabled button is
+    // not a guarantee of this function's preconditions.
+    if (invalid) {
+      // A click that never reaches the route must still clear a stale SERVER
+      // refusal: without this, the last 400 renders under a field the person
+      // has since corrected, so the page claims the server rejects a value
+      // that is no longer there.
       update.reset();
       return;
     }
@@ -268,7 +273,6 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
       // — including anything it canonicalized on the way in.
       onSuccess: () => {
         setDrafts({});
-        setProblems({});
         if (canRestart && needsRestart) setConfirming(true);
       },
     });
@@ -315,11 +319,13 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
                 disabled={update.isPending}
                 className={fromEnv ? "text-muted-foreground" : undefined}
                 onChange={(event) => {
+                  // The complaint recomputes from the draft with the keystroke
+                  // (see `problems` above): a field corrected loses its
+                  // sentence, fields left broken keep theirs.
                   setDrafts((prev) => ({ ...prev, [key]: event.target.value }));
-                  // This field's complaint goes as soon as it is being worked
-                  // on; the others stay, because they are still true.
-                  setProblems((prev) => (key in prev ? { ...prev, [key]: undefined } : prev));
                 }}
+                onFocus={() => setFocusedKey(key)}
+                onBlur={() => setFocusedKey(null)}
               />
               {fromEnv && (
                 <p className="text-detail text-muted-foreground">Set by the environment ({key}); change it there.</p>
@@ -347,9 +353,15 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
                   Saved {setting.saved || "(blank)"} · running {setting.running || "(blank)"}
                 </p>
               )}
-              {(problems[key] ?? (fieldFailure?.key === key ? fieldFailure.reason : null)) && (
-                <p className="text-destructive text-detail">{problems[key] ?? fieldFailure?.reason}</p>
-              )}
+              {/* The live sentence waits for the caret to leave (the ruling
+                  above); the SERVER's refusal is about a value that already
+                  went out, so it says itself whenever it is true. */}
+              {(() => {
+                const live = focusedKey === key ? null : (problems[key] ?? null);
+                const refusal = fieldFailure?.key === key ? fieldFailure.reason : null;
+                const sentence = live ?? refusal;
+                return sentence ? <p className="text-destructive text-detail">{sentence}</p> : null;
+              })()}
               {setting.problems?.map((problem) => (
                 <p key={problem.entry} className="text-destructive text-detail">
                   {problem.entry}: {problem.reason}
@@ -366,7 +378,7 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
           <Button
             variant="outline"
             size="sm"
-            disabled={touched.length === 0 || update.isPending}
+            disabled={touched.length === 0 || invalid || update.isPending}
             title={canRestart || !needsRestart ? undefined : (view.restart.reason ?? undefined)}
             onClick={save}
           >
