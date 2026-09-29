@@ -2133,7 +2133,7 @@ Audit events are written, grouped by family:
 - **Plugins, networks and installers**: `plugin.install`, `plugin.enable`,
   `plugin.disable`, `plugin.uninstall`, `plugin.unpublish`,
   `network.configure`, `network.install`, `network.join`, `network.publish`,
-  `network.unpublish`, `network.leave`, `agent.install`, `tmux.install`.
+  `network.unpublish`, `network.leave`, `agent.install`, `agent.update`, `tmux.install`.
 - **Auth providers** (spec 2026-09-24 §8): `auth_provider.create`,
   `auth_provider.update`, `auth_provider.delete`, with metadata naming the
   fields changed and the issuer, never the client secret (the never-values

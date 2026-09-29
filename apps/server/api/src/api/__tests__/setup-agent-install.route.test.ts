@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { setHasUsersProbeForTests } from "@/api/setup.route.js";
-import { setAgentInstallDepsForTests, setupAgentInstallRoute } from "@/api/setup-agent-install.route.js";
+import { setAgentInstallDepsForTests, setupAgentInstallRoute } from "@/api/setup-agent-command.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
