@@ -859,7 +859,7 @@ The `<PIN-FULL-SHA>` markers are the plan's ONLY discovery work, and it is exact
 
 - [ ] **Step 4: Land it**
 
-The workflow triggers on `release: published` - it cannot be dry-run on a PR. Verification available here: `bun run scripts/docker-release-verify.ts` (Step 2) covers the trust gate; the build itself is proven by Task 4's local `docker build`. Push the branch, open the PR, and record in the PR body that the first real run is the next `cli-server` release (or a dispatch with the current newest version, which is sanctioned and equivalent).
+The workflow triggers on `release: published` - it cannot be dry-run on a PR. Verification available here: `bun run scripts/docker-release-verify.ts` (Step 2) covers the trust gate; the build itself is proven by Task 4's local `docker build`. Push the branch, open the PR, and record in the PR body that the first FULLY GREEN smoke requires a `cli-server` release cut from the merged branch: Task 5 measured that the published `cli-server-v1.5.0` binary predates the containerized `--check` code by ~20 hours, so a dispatch on the current newest version legitimately passes build+verify but fails the scenario's section 4. A dispatch on the newest version stays sanctioned as a partial (build+verify+boot) check.
 
 - [ ] **Step 5: Commit**
 
