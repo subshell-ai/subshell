@@ -4,6 +4,8 @@ name: docker-image
 # 2026-09-28 § 4). The release shards are the input: this workflow downloads,
 # signature-verifies, bakes, and pushes. It never compiles the server.
 # Dispatchable with a version to rebuild an older release into a new image.
+# :latest is NOT part of that rebuild: only a release event whose smoke job
+# passed moves the floating tag (the `latest` job, the run's last step).
 
 on:
   release:
@@ -50,13 +52,21 @@ jobs:
           bun-version: 1.4.2
       - name: Resolve the version
         id: plan
+        # Both values arrive from the event payload, so they cross into the
+        # script as env (the docs.yml / website.yml / release.yml convention),
+        # never as interpolated text the shell would then parse.
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          DISPATCH_VERSION: ${{ inputs.version }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "release" ]; then
-            TAG="${{ github.event.release.tag_name }}"
+            TAG="$RELEASE_TAG"
           else
-            TAG="cli-server-v${{ inputs.version }}"
+            TAG="cli-server-v$DISPATCH_VERSION"
           fi
           VERSION="${TAG#cli-server-v}"
+          # A pre-release tag (1.6.0-rc.1) fails this grep on purpose: the
+          # image rail packages full releases only.
           printf '%s\n' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::not a semver: $VERSION"; exit 1; }
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -97,11 +107,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Compose and push the multi-arch tags
+      - name: Compose and push the multi-arch version tag
+        # :latest is deliberately NOT one of these tags: it moves only in the
+        # `latest` job, after the smoke job has run this exact version.
         run: |
           V="${{ needs.build.outputs.version }}"
           docker buildx imagetools create \
-            -t "$IMAGE:$V" -t "$IMAGE:latest" \
+            -t "$IMAGE:$V" \
             "$IMAGE:$V-amd64" "$IMAGE:$V-arm64"
         env:
           IMAGE: ${{ env.IMAGE }}
@@ -130,3 +142,24 @@ jobs:
           IMAGE: ${{ env.IMAGE }}
           V: ${{ needs.build.outputs.version }}
         run: bash scripts/cli-e2e/docker-image.sh "$IMAGE:$V" "$V"
+
+  latest:
+    # Last, and only for release events: :latest moves to bytes the smoke job
+    # just passed. A dispatch rebuild of an OLDER release repoints the version
+    # tag it names but must never regress the floating tag.
+    needs: [manifest, smoke]
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # same pin as above
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Move :latest to the smoke-tested version
+        env:
+          IMAGE: ${{ env.IMAGE }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          V="${RELEASE_TAG#cli-server-v}"
+          docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:$V"

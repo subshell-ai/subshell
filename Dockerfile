@@ -41,13 +41,12 @@ RUN useradd --create-home --uid 1000 --shell /bin/bash subshell \
 
 COPY --chmod=0755 docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
-ARG TARGETARCH
-COPY docker/bin/subshell-server-${TARGETARCH} /usr/local/bin/subshell-server
-RUN chmod 0755 /usr/local/bin/subshell-server
-
 USER subshell
 ENV HOME=/home/subshell
-ENV PATH="/home/subshell/.npm-global/bin:/home/subshell/.local/bin:/home/subshell/.opencode/bin:/home/subshell/.bun/bin:/usr/local/bin:/usr/bin:/bin"
+# System dirs FIRST so a host bind-mount at /usr/local/bin/claude (the compose
+# rail's CLAUDE_BIN override) shadows the baked CLI. The harnesses live in the
+# home dirs, which stay on PATH, so the gate below still passes.
+ENV PATH="/usr/local/bin:/usr/bin:/bin:/home/subshell/.npm-global/bin:/home/subshell/.local/bin:/home/subshell/.opencode/bin:/home/subshell/.bun/bin"
 
 RUN set -eux; \
     curl -fsSL https://claude.ai/install.sh | bash; \
@@ -56,6 +55,12 @@ RUN set -eux; \
     curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash; \
     curl -fsSL https://pi.dev/install.sh | sh; \
     command -v claude codex opencode hermes pi
+
+# The server binary lands LAST: a release refresh must not bust the five
+# installer layers above it. --chmod does in the COPY what the old RUN chmod
+# did as a layer of its own.
+ARG TARGETARCH
+COPY --chmod=0755 docker/bin/subshell-server-${TARGETARCH} /usr/local/bin/subshell-server
 
 ENV HOST=0.0.0.0 \
     NODE_ENV=production \
