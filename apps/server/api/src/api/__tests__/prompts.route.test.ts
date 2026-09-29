@@ -183,6 +183,9 @@ describe("/api/prompts (spec 2026-09-28)", () => {
     expect((await call(`/${id}`, { cookie: readerCookie, method: "PUT", body: { body: "hijacked" } })).status).toBe(
       404,
     );
+    // Ownership answers BEFORE the empty-patch 400: a stranger's probe is
+    // the same 404 whatever the body (the axis is never an oracle).
+    expect((await call(`/${id}`, { cookie: readerCookie, method: "PUT", body: {} })).status).toBe(404);
     expect((await call(`/${id}`, { cookie: readerCookie, method: "DELETE" })).status).toBe(404);
     // The PUT did not touch it:
     const detail = await call(`/${id}`, { cookie: ownerCookie });
@@ -204,6 +207,10 @@ describe("/api/prompts (spec 2026-09-28)", () => {
     const stray = await call(`/${id}`, { cookie: ownerCookie, method: "PUT", body: { harnessId: "x" } });
     expect(stray.status).toBe(400);
     expect(stray.json.message).toContain("harnessId");
+    // An empty patch would only bump updatedAt and reshuffle the list.
+    const empty = await call(`/${id}`, { cookie: ownerCookie, method: "PUT", body: {} });
+    expect(empty.status).toBe(400);
+    expect(empty.json.message).toContain("no field");
   });
 
   it("DELETE removes the row for everyone and answers 404 twice", async () => {

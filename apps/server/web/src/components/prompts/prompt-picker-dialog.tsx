@@ -161,11 +161,11 @@ export function PromptPickerDialog({
             />
             <div className="flex items-center gap-3">
               <Switch
+                id="prompt-picker-save-switch"
                 checked={saveToLibrary}
                 onCheckedChange={(checked) => setSaveToLibrary(checked === true)}
-                aria-label="Save to my prompts"
               />
-              <Label>Save to my prompts</Label>
+              <Label htmlFor="prompt-picker-save-switch">Save to my prompts</Label>
             </div>
             {saveToLibrary && (
               <Input

@@ -42,3 +42,17 @@ export function movePromptBlock(blocks: PromptBlock[], localId: string, dir: -1 
 export function removePromptBlock(blocks: PromptBlock[], localId: string): PromptBlock[] {
   return blocks.filter((b) => b.localId !== localId);
 }
+
+/**
+ * Whether the server's `promptDelivered: false` means a MISSED prompt.
+ * The wire field is false for "no prompt at all" too (the create route's
+ * documented default), so the toast may only fire when the caller actually
+ * stacked one (review fix, spec 2026-09-28).
+ */
+export function promptLaunchMissed(
+  promptEnabled: boolean | undefined,
+  promptBlocks: { length: number } | undefined,
+  promptDelivered: boolean | undefined,
+): boolean {
+  return promptDelivered === false && promptEnabled === true && (promptBlocks?.length ?? 0) > 0;
+}

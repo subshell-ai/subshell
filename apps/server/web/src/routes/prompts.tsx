@@ -56,7 +56,9 @@ function PromptsPage() {
   const shared = useMemo(() => view.shared.filter((p) => matchesPromptQuery(p, query)), [view.shared, query]);
 
   async function copyBody(body: string) {
-    await navigator.clipboard.writeText(body);
+    // Silent-but-honest (spec §Error handling): a denied clipboard simply
+    // does nothing; it must not strand an unhandled rejection behind `void`.
+    await navigator.clipboard.writeText(body).catch(() => {});
   }
 
   async function toggleShared(row: OwnPromptRow) {
@@ -85,7 +87,10 @@ function PromptsPage() {
   }
 
   const emptyList = active === "own" ? view.own.length === 0 : view.shared.length === 0;
-  const emptyFiltered = (active === "own" ? own : shared).length === 0 && query.trim() !== "";
+  // The "no matches" line belongs to a list that HAS rows and hides them all;
+  // with a zero library the "No prompts yet" card already answers the screen,
+  // and the spec wants the two states to distinguish each other (review fix).
+  const emptyFiltered = !emptyList && (active === "own" ? own : shared).length === 0 && query.trim() !== "";
 
   return (
     <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
@@ -120,7 +125,11 @@ function PromptsPage() {
         className="max-w-sm"
       />
 
-      {actionError && <p className="text-destructive text-detail">{actionError}</p>}
+      {actionError && (
+        <p role="alert" className="text-destructive text-detail">
+          {actionError}
+        </p>
+      )}
 
       {showCreate && <PromptFormDialog open onOpenChange={(next) => !next && setShowCreate(false)} />}
       {editSource && (

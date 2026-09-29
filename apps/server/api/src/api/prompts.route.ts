@@ -202,6 +202,13 @@ export const promptsRoutes = new Elysia({ prefix: "/api/prompts" })
       // Foreign AND absent answer the same 404: the id is not an existence
       // oracle (the ownership axis, docs/security.md §3).
       if (!existing || existing.userId !== user.id) throw new PromptError("not_found", "Prompt not found");
+      // A patch naming NO updatable field would only re-stamp updatedAt and
+      // reshuffle the newest-first list for nothing; the honest answer is a
+      // 400 (Review fix: the MCP schema's "at least one field" refine does
+      // not survive JSON-Schema conversion, so the SERVER enforces it).
+      if (body.description === undefined && body.body === undefined && body.shared === undefined) {
+        throw new PromptError("bad_request", "The update body names no field to change", 400);
+      }
       const row = await repo.update(params.id, {
         description: body.description !== undefined ? cleanDescription(body.description) : existing.description,
         body: body.body ?? existing.body,
@@ -227,7 +234,8 @@ export const promptsRoutes = new Elysia({ prefix: "/api/prompts" })
       detail: {
         operationId: "updatePrompt",
         tags: ["prompts"],
-        description: "Applies a partial update (description, body, shared) to a prompt owned by the caller",
+        description:
+          "Applies a partial update (description, body, shared) to a prompt owned by the caller; a patch naming no field is a 400",
       },
     },
   )

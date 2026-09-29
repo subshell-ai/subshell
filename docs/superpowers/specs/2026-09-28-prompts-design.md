@@ -63,8 +63,8 @@ module mounts fine there).
   ordered newest-updated. Available to every authenticated actor; a bearer
   sees its owner's rows. Shared rows carry `ownerName`; own rows carry
   `shared`.
-- `POST /api/prompts` `{ description, body, shared? }` → 201 view.
-- `PUT /api/prompts/:id` partial `{ description?, body?, shared? }` → view.
+- `POST /api/prompts` `{ description, body, shared? }` → 200 view (Elysia's POST default, the presets precedent).
+- `PUT /api/prompts/:id` partial `{ description?, body?, shared? }` → view; a patch naming NO field is a 400.
   Stray keys refused in the route `transform`, the presets posture (Elysia
   strips silently, so the transform is the enforcement, not the schema).
 - `DELETE /api/prompts/:id` → `{ ok: true }`.

@@ -91,12 +91,12 @@ export function PromptFormDialog({
           </div>
           <div className="flex items-center gap-4">
             <Switch
+              id="prompt-shared-switch"
               checked={draft.shared}
               onCheckedChange={(checked) => setDraft({ ...draft, shared: checked === true })}
-              aria-label="Share with everyone"
             />
             <div>
-              <Label>Share with everyone</Label>
+              <Label htmlFor="prompt-shared-switch">Share with everyone</Label>
               <p className="text-detail text-muted-foreground">Every account on this instance can read it.</p>
             </div>
           </div>

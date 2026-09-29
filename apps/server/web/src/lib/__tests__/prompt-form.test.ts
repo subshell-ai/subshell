@@ -32,6 +32,17 @@ describe("suggestCloneDescription", () => {
   it("walks the suffix when the plain copy name is taken", () => {
     expect(suggestCloneDescription(rows, rows[0])).toBe("Copy of Kickoff (2)");
   });
+  it("clamps a long source so the seed still passes the 120-char validation", () => {
+    const long = "x".repeat(120);
+    const seed = suggestCloneDescription([], { description: long });
+    expect(seed.length).toBeLessThanOrEqual(120);
+    expect(seed.startsWith("Copy of xxx")).toBe(true);
+    // The (2) suffix reserves its own room too.
+    const taken = [{ description: `Copy of ${long.slice(0, 112)}` }];
+    const second = suggestCloneDescription(taken, { description: long.slice(0, 112) });
+    expect(second.length).toBeLessThanOrEqual(120);
+    expect(second.endsWith("(2)")).toBe(true);
+  });
 });
 
 describe("validatePromptDraft", () => {

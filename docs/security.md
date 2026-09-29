@@ -575,7 +575,7 @@ output, or tmux pane metadata. Accepted (§11).
 
 **What that token actually carries.** `permissions: { channels: ["read",
 "write"], subshells: ["read", "write"], prompts: ["read", "write"] }`
-(`services/subshell-tokens.ts:31`):
+(`services/subshell-tokens.ts:33`):
 the map is a coarse scope gate, not a row fence. The MCP tools self-restrict
 the pane to its own row for reporting, but the raw REST surface resolves the
 token as its OWNER with the boost and shares switched off (§3), which means a

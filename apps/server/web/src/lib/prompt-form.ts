@@ -27,11 +27,20 @@ export function promptDraftFromRow(row: Pick<OwnPromptRow, "description" | "body
  */
 export function suggestCloneDescription(existing: { description: string }[], source: { description: string }): string {
   const taken = new Set(existing.map((p) => p.description));
-  const base = `Copy of ${source.description}`;
-  if (!taken.has(base)) return base;
-  let n = 2;
-  while (taken.has(`${base} (${n})`)) n++;
-  return `${base} (${n})`;
+  // Clamp first, then walk: the seed must pass the dialog's own 120-char
+  // validation, so the SUFFIX reserves room before the name is trimmed
+  // (review fix; a 120-char source used to seed an instantly-invalid draft).
+  const stem = `Copy of ${source.description}`;
+  let n: number | undefined;
+  let candidate = stem;
+  while (taken.has(candidate)) {
+    n = (n ?? 1) + 1;
+    candidate = `${stem} (${n})`;
+  }
+  const suffix = n === undefined ? "" : ` (${n})`;
+  const budget = 120 - suffix.length;
+  if (stem.length <= budget) return candidate;
+  return `${stem.slice(0, budget)}${suffix}`;
 }
 
 /** The inline error sentence, or null when the draft is submittable. */

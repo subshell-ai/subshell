@@ -115,6 +115,8 @@ let lastPresetsUrl: string | null = null;
 type RecentStub = { paths: { path: string; label: string | null }[]; home: string | null };
 
 interface MockOpts {
+  /** Answer GET /api/prompts (the launch picker's list, spec 2026-09-28). */
+  prompts?: { own: unknown[]; shared: unknown[] };
   /** Answer GET /api/nodes this many ms late — the ordering where recents
    *  resolve while the node pick is still unsettled (review round 2). */
   nodesDelayMs?: number;
@@ -171,6 +173,9 @@ function mockFetch(
       // query is not an error and not a value — the exact state the agent
       // default must wait on.
       return opts.subshellsGate ? opts.subshellsGate.then(() => body()) : Promise.resolve(body());
+    }
+    if (path === "/api/prompts") {
+      return Promise.resolve(new Response(JSON.stringify(opts.prompts ?? { own: [], shared: [] })));
     }
     if (path === "/api/files/recent") {
       const scope = url.searchParams.get("node");
@@ -1170,6 +1175,68 @@ describe("nowhere to launch", () => {
       // just denied twice over. (The MANAGER's sharing sentence stays — the
       // card can act on it — pinned in `no-launch-targets.test.tsx`.)
       expect(screen.queryByText(/granted launch access/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
+  it("the checkbox reveals the stack; the picker adds, reorders, and removes blocks", async () => {
+    const prompts = {
+      own: [
+        { id: "pr1", description: "Kickoff", body: "start the task", shared: false, createdAt: "t", updatedAt: "t" },
+        { id: "pr2", description: "Review", body: "check the diff", shared: false, createdAt: "t", updatedAt: "t" },
+      ],
+      shared: [],
+    };
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [], undefined, { prompts });
+    try {
+      const { latest } = await renderForm();
+      // Collapsed: just the checkbox line.
+      const box = screen.getByLabelText("Add a prompt");
+      expect(latest().promptBlocks).toEqual([]);
+      fireEvent.click(box);
+      await settle();
+      expect(screen.getByRole("button", { name: "Add prompt" })).toBeDefined();
+
+      // Open the picker; multi mode stays open after each pick.
+      fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
+      await settle();
+      fireEvent.click(await screen.findByText("Kickoff"));
+      await settle();
+      expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff"]);
+      expect(latest().promptBlocks[0].promptId).toBe("pr1");
+      fireEvent.click(screen.getByText("Review"));
+      await settle();
+      expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff", "Review"]);
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
+      await settle();
+
+      // Stack controls: reorder the second up (row 2's button, the first is
+      // already disabled at the top), then remove the first.
+      const ups = screen.getAllByLabelText("Move prompt up");
+      expect((ups[0] as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(ups[1]);
+      await settle();
+      expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Review", "Kickoff"]);
+      const removes = screen.getAllByLabelText("Remove prompt");
+      fireEvent.click(removes[0]);
+      await settle();
+      expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff"]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("untouched, the create body carries no prompt field", async () => {
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE]);
+    try {
+      const { latest } = await renderForm();
+      fireEvent.change(document.querySelector("#picker-working-dir") as Element, { target: { value: "/x" } });
+      await settle();
+      const body = toSubshellCreateBody({ ...latest(), harnessId: "claude-code" });
+      expect(body.prompt).toBeUndefined();
     } finally {
       restore();
     }

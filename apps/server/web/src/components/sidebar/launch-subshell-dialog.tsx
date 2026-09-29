@@ -1,7 +1,6 @@
 import { Button } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useState } from "react";
-import { toast } from "sonner";
 import {
   canSubmit,
   emptyNewSubshellForm,
@@ -47,13 +46,9 @@ export function LaunchSubshellDialog({
     setError(null);
     try {
       const created = await create.mutateAsync(form);
-      // Honest partial success (spec 2026-09-28): the pane started, but the
-      // prompt did not land. The launch IS a success and the subshell page
-      // is the right destination, so this rides a toast ACROSS the
-      // navigation rather than parking the dialog on a half-true success.
-      if (created.promptDelivered === false) {
-        toast.warning('The prompt did not land. Use "Inject prompt" to type it in.');
-      }
+      // A prompt that did not land announces itself through the hook's
+      // toast, across this navigation (spec 2026-09-28); the launch itself
+      // is a success and the subshell page is the right destination.
       onOpenChange(false);
       reset();
       void navigate({ to: "/subshells/$id", params: { id: created.id } });

@@ -1,6 +1,6 @@
 import { Badge, Button, relativeElapsed } from "@internal/node-admin";
 import { Check, ChevronDown, ChevronRight, Copy } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 
 /**
@@ -26,12 +26,23 @@ export function PromptPageRow({
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  // One live timer, cleared on unmount and by a second press (review fix):
+  // an unclean 1500 ms reset outlives a row that closed, and a plain-http
+  // clipboard rejects on some hosts, where silence means no checkmark, not a
+  // console error.
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   async function copy(e: React.MouseEvent) {
     e.stopPropagation();
-    await navigator.clipboard.writeText(body);
+    try {
+      await navigator.clipboard.writeText(body);
+    } catch {
+      return;
+    }
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(false), 1500);
   }
 
   return (
@@ -45,6 +56,7 @@ export function PromptPageRow({
         <button
           type="button"
           aria-expanded={open}
+          aria-controls={`prompt-body-${description}`}
           className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left hover:bg-accent/40"
           onClick={() => setOpen((v) => !v)}
         >
@@ -73,7 +85,10 @@ export function PromptPageRow({
       {/* Unmounted while closed, the preset row's rule: hidden text should
           not sit in the DOM for find-in-page to trip over. */}
       {open && (
-        <pre className="whitespace-pre-wrap break-words border-t bg-muted/40 px-4 py-2 font-mono text-sm leading-relaxed">
+        <pre
+          id={`prompt-body-${description}`}
+          className="whitespace-pre-wrap break-words border-t bg-muted/40 px-4 py-2 font-mono text-sm leading-relaxed"
+        >
           {body}
         </pre>
       )}

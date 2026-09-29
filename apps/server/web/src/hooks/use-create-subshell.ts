@@ -1,6 +1,7 @@
 import { apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { joinPromptBlocks, type PromptBlock } from "@/lib/prompt-stack";
+import { toast } from "sonner";
+import { joinPromptBlocks, type PromptBlock, promptLaunchMissed } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
 /** The fields the shared new-subshell form collects. */
@@ -90,7 +91,13 @@ export function useCreateSubshell() {
     // caller can point at the inject action instead of assuming the task went in.
     mutationFn: (input: CreateSubshellInput) =>
       apiPost<{ id: string; promptDelivered?: boolean }>("/api/subshells", toSubshellCreateBody(input)),
-    onSuccess: () => {
+    onSuccess: (created, input) => {
+      // One gate for all four launch surfaces (the form is shared): the
+      // server answers `promptDelivered: false` for "no prompt" too, so the
+      // warning may only ride a launch that actually stacked one.
+      if (promptLaunchMissed(input.promptEnabled, input.promptBlocks, created.promptDelivered)) {
+        toast.warning('The prompt did not land. Use "Inject prompt" to type it in.');
+      }
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
       // The create touched the recent-paths row for its launch node — every
       // scoped recents cache (["recent-paths"] and ["recent-paths", nodeId])
