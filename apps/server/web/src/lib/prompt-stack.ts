@@ -1,3 +1,4 @@
+import { newRandomId } from "@/lib/random-id";
 /**
  * The create dialog's prompt stack (spec 2026-09-28): the blocks the user
  * picked or wrote, their reorder/remove transforms, and the join that
@@ -68,7 +69,5 @@ export function promptLaunchMissed(
  * that, and it never throws.
  */
 export function newPromptLocalId(): string {
-  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return newRandomId("p");
 }

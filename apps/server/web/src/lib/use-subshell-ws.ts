@@ -8,6 +8,7 @@ import { deviceName } from "@/lib/device-name";
 import { createInputQueue, type InputQueue } from "@/lib/input-queue";
 import { createMotionThrottle, type MotionThrottle } from "@/lib/mouse-motion-throttle";
 import { motionSampleIntervalMs } from "@/lib/mouse-sampling-pref";
+import { newRandomId } from "@/lib/random-id";
 import { markCborSocket, sendInput, sendResize, sendVisibility } from "@/lib/subshell-frames.js";
 import { dropBrokenMouseReports } from "@/lib/terminal-input";
 
@@ -235,7 +236,10 @@ export function useSubshellWs(
     // serves every connection.
     const existing = ownedQueueRef.current;
     const reused = existing?.subshellId === subshellId;
-    const sessionId = reused ? existing.sessionId : crypto.randomUUID();
+    // newRandomId, not bare crypto.randomUUID: this hook runs on plain-http
+    // LAN origins where randomUUID is absent, and a throw here crashed the
+    // whole subshell page (2026-09-29).
+    const sessionId = reused ? existing.sessionId : newRandomId("s");
     const queue = reused
       ? existing.queue
       : createInputQueue((data, id) => {
