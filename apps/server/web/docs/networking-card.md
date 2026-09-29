@@ -78,7 +78,7 @@ Three rules the card keeps, each with a defect behind it:
   worked correctly and said why not.
 
 `hooks/use-network.ts` holds the query and six mutations; the three streaming
-ones (install, join, publish) reuse `readInstallStream` from
+ones (install, join, publish) reuse `readCommandStream` from
 `use-install-agent.ts` rather than a second NDJSON reader. Every act that
 changes what is trusted (publish, unpublish, leave, and join) invalidates
 `PUBLIC_SETTINGS_QUERY_KEY`, because `GET /api/settings/public → trustedOrigins`

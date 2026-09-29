@@ -3096,7 +3096,7 @@ this project did not write.
   prompt would go to the child's own tty, not to a pipe the server holds),
   the 64 KiB output cap PER STREAM (stdout and stderr each, so joined
   installer output can reach ~128 KiB, `run-bounded.ts:40,310-312`,
-  `agent-install.service.ts:163-169`), a 30 s default deadline capped at ten
+  `agent-install.service.ts:189-194`), a 30 s default deadline capped at ten
   minutes, and a refusal of any `argv[0]`
   that is not absolute or whose basename is `sudo`, `doas` or `pkexec`.
 - **Plugins now make outbound requests from the control plane.** §11.9 already
