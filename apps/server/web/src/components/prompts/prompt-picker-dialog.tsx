@@ -229,7 +229,10 @@ export function PromptPickerDialog({
               type="button"
               className="flex w-full items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-left text-label hover:bg-accent/40"
               onClick={() => {
-                setCustomBody("");
+                // Resume a stored draft if one exists (the ruling is
+                // "until submission"): a list->step->list->step walk must
+                // not discard half-typed text.
+                setCustomBody(loadDraft(mode)?.body ?? "");
                 setCustomError(null);
               }}
             >

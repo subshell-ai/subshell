@@ -43,7 +43,8 @@ export interface SearchableSelectProps {
    * unless it is told.
    */
   describedBy?: string;
-  /** Shown by the popup when the query matches nothing (and the list is empty) */
+  /** Shown by the popup when its list has nothing to show: no matches, or
+   *  the caller's own loading/empty/failure sentence. */
   emptyText?: ReactNode;
 }
 

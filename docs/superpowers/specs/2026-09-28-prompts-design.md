@@ -146,11 +146,12 @@ on every open including clone.
   `detail`, up/down/remove icon buttons; no drag dependency), then a
   "+ Add prompt" button opening the **picker dialog**.
 - **Picker dialog** (`components/prompts/prompt-picker-dialog.tsx`, shared
-  with inject): search input, own/shared `Segmented`, rows (description +
-  one-line preview), pinned first row **"Write your own..."** swaps to a
-  textarea with a "Save to my prompts" switch (off) plus its description
-  field. Multi mode: clicking a row appends a block and stays open; single
-  mode closes on pick.
+  with inject): the searchable dropdown (description + body matching,
+  one-line preview per row), own/shared `Segmented`, and a dashed
+  **"Write your own..."** button under the list that swaps to a textarea
+  with a "Save to my prompts" switch (off) plus its description field.
+  A pick closes the dialog in both modes (amended 2026-09-29); in the
+  inject flow the close ADVANCES to the confirm step.
 - **Launch:** `toSubshellCreateBody` adds `prompt` = blocks joined with
   `"\n\n"`, only when the stack is non-empty and the section is on. The
   server types it once the harness settles (existing seam).

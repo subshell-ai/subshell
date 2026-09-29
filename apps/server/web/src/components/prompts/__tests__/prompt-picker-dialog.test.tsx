@@ -189,6 +189,21 @@ describe("PromptPickerDialog", () => {
     expect(picked[0].description).toBe("The thing");
   });
 
+  it("a bare visit to the step saves NO draft (no reopen hijack)", async () => {
+    // The round-8 MEDIUM pin: curiosity click on "Write your own...",
+    // close without typing; the NEXT open must be the list, not an empty
+    // editor, and there must be no way back to the list from one.
+    restore = mockFetch([], []).restore;
+    renderPicker({ onPick: () => {} });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
+    await settle();
+    cleanup();
+    renderPicker({ onPick: () => {} });
+    await settle();
+    expect(screen.getByRole("button", { name: /Write your own/ })).toBeDefined();
+  });
+
   it("the custom draft SURVIVES a reload and is spent on submit", async () => {
     const m = mockFetch([], []);
     restore = m.restore;
