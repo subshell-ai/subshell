@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
 
 const OPTIONS: ComboboxOption[] = [
@@ -86,6 +86,48 @@ describe("SearchableSelect", () => {
     expect(picked).toEqual([]); // inert: a disabled row never fires onValueChange
     fireEvent.click(alpha);
     expect(picked).toEqual(["a"]);
+  });
+});
+
+describe("SearchableSelect — the popup's bottom edge (uneven-gap report 2026-09-28)", () => {
+  // Base UI's Empty is a live region whose ROOT ELEMENT STAYS MOUNTED while
+  // items render (its own docs forbid removing/hiding it; only children swap
+  // to null). So any padding carried on the Empty element itself is phantom
+  // space under the last row in EVERY non-empty popup — the uneven bottom gap.
+  const openWith = async (options: ComboboxOption[]) => {
+    render(
+      <SearchableSelect
+        id="picker-node"
+        value=""
+        onValueChange={() => {}}
+        placeholder="p"
+        options={options}
+        emptyText="Nothing here"
+      />,
+    );
+    const input = screen.getByPlaceholderText("p");
+    fireEvent.mouseDown(input);
+    fireEvent.click(input);
+    const popup = await waitFor(() => {
+      const el = document.querySelector('[data-slot="combobox-content"]');
+      if (!el) throw new Error("popup did not open");
+      return el as HTMLElement;
+    });
+    return popup.querySelector('[role="status"]') as HTMLElement;
+  };
+
+  it("the mounted Empty region owns no padding box and no text while rows show", async () => {
+    const status = await openWith(OPTIONS);
+    expect(status).not.toBeNull(); // stays mounted — that is Base UI's doctrine, not our bug
+    expect(status.childElementCount).toBe(0); // no sentence while rows exist
+    expect(status.className).not.toMatch(/(^|\s)(p|px|py|pt|pb)-/); // the phantom 12px strip
+  });
+
+  it("still renders the empty sentence inside the live region when there are no rows", async () => {
+    const status = await openWith([]);
+    // contains, not equals: Base UI sprinkles a word-joiner (U+2060) in the
+    // live region so re-setting the same sentence still announces.
+    expect(status.textContent).toContain("Nothing here");
   });
 });
 

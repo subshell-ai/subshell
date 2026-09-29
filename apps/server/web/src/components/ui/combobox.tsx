@@ -147,8 +147,14 @@ export function SearchableSelect({
                 </ComboboxPrimitive.Item>
               )}
             </ComboboxPrimitive.List>
-            <ComboboxPrimitive.Empty className="px-2 py-1.5 text-detail text-muted-foreground">
-              {emptyText}
+            {/* The Empty root stays mounted while rows exist (Base UI's
+                live-region doctrine) — so it carries NO box of its own: padding
+                on the element was a phantom 12px strip under the last row of
+                every non-empty popup (uneven bottom gap, 2026-09-28). The
+                padding lives on the sentence wrapper, which renders only when
+                the list is empty. */}
+            <ComboboxPrimitive.Empty className="text-detail text-muted-foreground">
+              <div className="px-2 py-1.5">{emptyText}</div>
             </ComboboxPrimitive.Empty>
           </ComboboxPrimitive.Popup>
         </ComboboxPrimitive.Positioner>
