@@ -6,6 +6,7 @@ import {
   serverUpdateView,
   updateState,
 } from "@/components/__tests__/helpers/updates-view";
+import { releasePageUrl } from "@/components/updates/row-cells";
 import { jobLine, ServerRow } from "@/components/updates/server-row";
 import type { ServerUpdateView, UpdateJob, UpdateTrackerState } from "@/types/updates";
 
@@ -203,5 +204,29 @@ describe("the boot's own update outcome (server-side tracker, design 2026-09-25)
       updateState({ phase: "done", to: "0.7.0", endedAt: "x" }),
     );
     expect(screen.getAllByText("Updated to 0.7.0.").length).toBe(1);
+  });
+});
+
+describe("the Server row's Notes link", () => {
+  it("links the release page of the version its Newest cell names", () => {
+    renderRow(serverUpdateView());
+    const link = screen.getByRole("link", { name: "Notes" }) as HTMLAnchorElement;
+    expect(link.href).toBe(releasePageUrl("cli-server-v0.7.0"));
+    expect(link.target).toBe("_blank");
+  });
+
+  it("links even when this server is already newest: the notes describe the release, not the act", () => {
+    renderRow(
+      serverUpdateView({
+        updateAvailable: false,
+        latest: { version: "0.6.0", tag: "cli-server-v0.6.0", publishedAt: null },
+      }),
+    );
+    expect(screen.getByRole("link", { name: "Notes" })).toBeTruthy();
+  });
+
+  it("offers no link when the release source named nothing", () => {
+    renderRow(serverUpdateView({ latest: null, updateAvailable: false }));
+    expect(screen.queryByRole("link", { name: "Notes" })).toBeNull();
   });
 });
