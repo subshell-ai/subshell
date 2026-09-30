@@ -80,6 +80,8 @@ export function PresetLaunchFields({
           id="preset-launch-dir"
           value={value.workingDir}
           onChange={(workingDir) => onChange({ ...value, workingDir })}
+          placeholder="Decide at launch"
+          clearOption="Decide at launch"
           nodeId={value.nodeId !== null && value.nodeId !== "local" ? value.nodeId : undefined}
           nodeName={selectedNode?.name}
         />

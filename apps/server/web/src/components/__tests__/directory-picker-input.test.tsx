@@ -19,6 +19,7 @@ function renderField(
     onChange?: (path: string) => void;
     nodeId?: string;
     nodeName?: string;
+    clearOption?: string;
     /** Seeds the admin deployment view the picker reads from cache, never fetches. */
     deployment?: ServerDeployment;
   } = {},
@@ -37,6 +38,8 @@ function renderField(
           opts.onChange?.(p);
           apply(p);
         }}
+        placeholder={opts.clearOption ?? "/home/you/my-project"}
+        clearOption={opts.clearOption}
         nodeId={node}
         nodeName={opts.nodeName}
       />
@@ -189,6 +192,48 @@ describe("DirectoryPickerInput", () => {
     } finally {
       restore();
     }
+  });
+
+  describe("clearOption (the preset editor's empty-is-a-choice row)", () => {
+    it("leads the panel with the label while a path is held; clicking clears the field and closes the panel", async () => {
+      const m = mockExplore({ "/srv/app": exploreBody("/srv/app", ["src"]) });
+      try {
+        const changes: string[] = [];
+        renderField({ value: "/srv/app", clearOption: "Decide at launch", onChange: (p) => changes.push(p) });
+        fireEvent.focus(screen.getByRole("textbox"));
+        const row = await screen.findByRole("button", { name: "Decide at launch" });
+        // FIRST row: before anything the browse lists.
+        const listing = row.parentElement as HTMLElement;
+        expect(listing.firstElementChild).toBe(row);
+        fireEvent.click(row);
+        expect(changes).toEqual([""]);
+        expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("");
+        // The pick is complete: the panel closes the way a select's empty
+        // item closes it (unlike Start over, which keeps browsing).
+        expect(screen.queryByRole("button", { name: "Decide at launch" })).toBeNull();
+        await waitFor(() => expect(screen.queryByText("src")).toBeNull());
+      } finally {
+        m.restore();
+      }
+    });
+
+    it("absent while the field is empty (the placeholder already reads the choice) and when the caller passes no label", async () => {
+      const m = mockExplore({ "/srv": exploreBody("/srv", ["data"]) });
+      try {
+        renderField({ value: "", clearOption: "Decide at launch" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        // An empty field browses from home; the panel has answered.
+        await waitFor(() => expect(m.requested.length).toBeGreaterThan(0));
+        expect(screen.queryByRole("button", { name: "Decide at launch" })).toBeNull();
+        cleanup();
+        renderField({ value: "/srv" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByText("data");
+        expect(screen.queryByText("Decide at launch")).toBeNull();
+      } finally {
+        m.restore();
+      }
+    });
   });
 
   it("threads the selected node through the explore request; 'local' keeps the param off — byte-identical local browse", async () => {

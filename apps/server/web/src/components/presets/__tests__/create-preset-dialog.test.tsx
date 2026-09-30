@@ -300,6 +300,9 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       expect(dialog.querySelector("#preset-launch-node")).toBeDefined();
       expect(within(dialog).getByText("Working directory")).toBeDefined();
       expect(within(dialog).getByText("Add a prompt")).toBeDefined();
+      // The empty directory reads as a choice, exactly like the Machine
+      // select's "Decide at launch" empty state.
+      expect((dialog.querySelector("#preset-launch-dir") as HTMLInputElement).placeholder).toBe("Decide at launch");
       // Nothing set yet: the line invites rather than scolds.
       expect(dialog.textContent).toContain("Optional: set a machine, directory, and prompt");
     } finally {
