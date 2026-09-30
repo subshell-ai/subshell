@@ -39,9 +39,11 @@ import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subs
  *
  * The PRESET leads (operator ruling 2026-09-30): a type-to-filter list of
  * every preset — the last three picked lead under "Recently used", the rest
- * under "Presets" — and picking one COPIES the
- * fields below it (agent, machine, directory, prompt), each still editable,
- * because a preset is a starting point, not a lock. The input returns to its
+ * under "Presets" — and picking one RESETS the
+ * form and COPIES the fields below it (agent, machine, directory, prompt),
+ * each still editable, because a preset is a starting point, not a lock.
+ * The reset makes the copy faithful: a value typed before the pick that
+ * the preset does not name does not survive the pick. The input returns to its
  * placeholder after the pick: the row names an act ("copy this in"), not a
  * held state, so the filled form reads as a copy and edits visibly belong to
  * the launch, not to the preset. Its `+` opens a nested create dialog (the agent locked

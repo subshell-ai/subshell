@@ -1444,7 +1444,12 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
     }
   });
 
-  it("a settings-only preset selects itself and changes nothing else", async () => {
+  it("a preset resets the form before copying: what it does not name goes blank", async () => {
+    // Ruling 2026-09-30, second pass: the filled form must be a FAITHFUL
+    // copy. A directory typed before the pick belongs to the previous
+    // intent; a settings-only preset names none, so the field empties
+    // (then the node's own most-recent seed may fill it - here the stub
+    // answers with nothing).
     const plain = preset({ id: "p-plain", harnessId: "claude-code", name: "Just flags" });
     const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [plain]);
     try {
@@ -1452,10 +1457,11 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
         ...emptyNewSubshellForm(),
         harnessId: "claude-code",
         workingDir: "/typed/by/hand",
+        promptBlocks: [{ localId: "x", kind: "custom", description: "", body: "earlier intent" }],
       });
       await pressPreset("Just flags");
       expect(latest().presetId).toBe("p-plain");
-      expect(latest().workingDir).toBe("/typed/by/hand");
+      expect(latest().workingDir).toBe("");
       expect(latest().promptBlocks).toEqual([]);
     } finally {
       restore();

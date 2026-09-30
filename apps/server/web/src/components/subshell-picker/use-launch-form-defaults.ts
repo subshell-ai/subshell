@@ -241,23 +241,25 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     onChange,
   ]);
 
-  // Choosing a preset is an explicit act, so it applies over whatever the
-  // form holds (and cancels a pending auto-default, the copy's posture).
-  // What the preset NAMES is prefilled - agent, machine, directory, prompt -
-  // and what it leaves blank stays exactly as it was: prefill, never a lock
-  // (ruling 2026-09-29: the values are optional on the preset). The null
-  // arm - the membership guard's exit, dropping a preset that no longer
-  // fits - clears only the link, never the fields a preset filled: the
-  // person still sees what they are about to launch with.
+  // Choosing a preset RESETS the form to a fresh one and then lays down
+  // what the preset names - agent, machine, directory, prompt (operator
+  // ruling 2026-09-30, second pass: "select a preset should reset the form
+  // before copying"). The filled form is a faithful copy: a directory
+  // typed before the pick belongs to the previous intent, and a preset
+  // that names no directory leaves the field blank rather than quietly
+  // keeping that older answer. What is filled stays editable; the preset
+  // itself is never written back. Cancels a pending auto-default (the
+  // copy's posture). The null arm - the membership guard's exit, dropping
+  // a preset that no longer fits - clears only the link, never the fields
+  // a preset filled: the person still sees what they are about to launch
+  // with.
   function applyPreset(preset: PresetRow | null): void {
     pendingTemplateRef.current = null;
     if (preset === null) {
       onChange({ ...value, presetId: null });
       return;
     }
-    // The preset FILLS the form it leads: its agent too, not just the launch
-    // trio (ruling 2026-09-30; every field stays editable afterwards).
-    let next: NewSubshellFormValue = { ...value, presetId: preset.id, harnessId: preset.harnessId };
+    let next: NewSubshellFormValue = { ...emptyNewSubshellForm(), presetId: preset.id, harnessId: preset.harnessId };
     if (preset.nodeId !== null) next = { ...next, nodeId: preset.nodeId };
     if (preset.workingDir !== null) next = { ...next, workingDir: preset.workingDir };
     const blocks = wireToPresetBlocks(preset.promptBlocks);
