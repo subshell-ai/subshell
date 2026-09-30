@@ -6,13 +6,19 @@ import { cn } from "../lib/utils";
  * (not a native input), so disabled styling rides `data-disabled:` instead of
  * the dead `disabled:` variant; state attrs are `data-checked`/`data-unchecked`
  * (Base UI) where Radix used `data-[state=...]`.
+ *
+ * A DISABLED switch must never read as merely OFF (operator ruling
+ * 2026-09-30): "you may not touch this yet" is a different fact from "this is
+ * off", and the old one-step dim blurred exactly there. Disabled therefore
+ * wears a ring in the requirements amber - the same tone the form uses for
+ * what is missing - and keeps enough contrast to be seen as a switch.
  */
 export function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:cursor-not-allowed data-checked:bg-primary data-unchecked:bg-input data-disabled:opacity-50",
+        "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:cursor-not-allowed data-checked:bg-primary data-unchecked:bg-input data-disabled:opacity-70 data-disabled:ring-1 data-disabled:ring-amber-600/70 dark:data-disabled:ring-amber-400/70",
         className,
       )}
       {...props}
