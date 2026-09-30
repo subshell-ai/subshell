@@ -13,6 +13,7 @@ import { loadRecentPicks, type RecentPick, recordRecentPick } from "@/lib/prompt
 import { newPromptLocalId, type PromptBlock } from "@/lib/prompt-stack";
 import { type StackRow, type StacksView, stackJoinedText } from "@/lib/prompt-stacks";
 import type { PromptsView } from "@/lib/prompts";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 
 /** What "Write your own..." keeps across an accidental reload (operator
  *  ruling 2026-09-29): the draft lives in sessionStorage (so a closed tab
@@ -348,21 +349,25 @@ export function PromptPickerBody({
     </>
   );
 
-  const heading = step === "custom" ? "Write your own" : "Add a prompt";
-  const blurb =
-    mode === "multi" ? "Pick one; press Add prompt again for the next." : "One prompt, typed into the pane.";
+  // The single pick IS the inject action, so it is named as one (operator
+  // ruling 2026-09-30); the multi stacker is the "Add prompts" section's own
+  // picker and keeps its heading. The one-shot pick needs no explanatory
+  // subtitle - the title is the whole story; the stacker's sentence says
+  // something true (pick again for the next).
+  const heading = step === "custom" ? "Write your own" : mode === "single" ? "Inject prompt" : "Add a prompt";
+  const blurb = "Pick one; press Add prompt again for the next.";
 
   return (
     <div className="space-y-3">
       {surface === "dialog" ? (
         <DialogHeader>
           <DialogTitle>{heading}</DialogTitle>
-          <DialogDescription>{blurb}</DialogDescription>
+          {mode === "multi" && <DialogDescription>{blurb}</DialogDescription>}
         </DialogHeader>
       ) : (
         <div className="space-y-0.5">
           <p className="font-strong text-label">{heading}</p>
-          <p className="text-detail text-muted-foreground">{blurb}</p>
+          {mode === "multi" && <p className="text-detail text-muted-foreground">{blurb}</p>}
         </div>
       )}
 
@@ -387,8 +392,8 @@ export function PromptPickerBody({
             <Label htmlFor="prompt-picker-search" className="sr-only">
               {offeredStacks.length > 0 ? "Search prompts or stacks" : "Search prompts"}
             </Label>
-            {/* The consumed posture, shared with "Copy settings from": the
-                  pick is an action, so the input returns to its placeholder
+            {/* The consumed posture: the pick is an action, so the input
+                  returns to its placeholder
                   and the next pick starts fresh. (The row clicks that failed
                   in the operator's browser on 2026-09-29 were the absent
                   crypto.randomUUID throwing in the pick handler, fixed at
@@ -445,7 +450,7 @@ export function PromptPickerBody({
                   onBlur={field.handleBlur}
                 />
                 {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className="text-destructive text-detail">
+                  <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
                     {fieldError(field.state.meta.errors)}
                   </p>
                 )}
@@ -477,7 +482,7 @@ export function PromptPickerBody({
                     onBlur={field.handleBlur}
                   />
                   {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                    <p role="alert" className="text-destructive text-detail">
+                    <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
                       {fieldError(field.state.meta.errors)}
                     </p>
                   )}

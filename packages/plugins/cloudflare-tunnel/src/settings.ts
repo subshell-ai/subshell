@@ -27,7 +27,7 @@ export function tunnelSettingsFields(): SettingsField[] {
       key: "teamDomain",
       type: "string",
       required: true,
-      label: "Access team domain",
+      label: "Team domain",
       placeholder: "myteam",
       description: "Your Cloudflare Access team. Assertions are verified against <team>.cloudflareaccess.com.",
     },
@@ -86,7 +86,7 @@ export function validateTunnelSettings(values: Record<string, string>): PresetVa
   if (team !== "" && normalizeTeamDomain(team) === null) {
     issues.push({
       field: "teamDomain",
-      message: "Access team domain should be your team name (myteam) or the full host myteam.cloudflareaccess.com.",
+      message: "Team domain should be your team name (myteam) or the full host myteam.cloudflareaccess.com.",
     });
   }
   return issues;

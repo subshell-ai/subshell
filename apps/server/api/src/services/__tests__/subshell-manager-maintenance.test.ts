@@ -22,6 +22,8 @@ import * as subshellRenameMigration from "@/db/migrations/0019-subshell-rename.j
 import * as presetsMigration from "@/db/migrations/0027-presets.js";
 import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgency.js";
 import * as crossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
+import * as presetLaunchFieldsMigration from "@/db/migrations/0042-preset-launch-fields.js";
+import * as presetCrossCommOptInMigration from "@/db/migrations/0043-preset-cross-comm-opt-in.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -181,6 +183,8 @@ beforeAll(async () => {
   await presetsMigration.up(dbHandle);
   await pushUrgencyMigration.up(dbHandle); // last_push_urgency — #reviveRow clears it on revival (spec 2026-09-23)
   await crossAgentMigration.up(dbHandle); // subshells.cross_agent — SubshellsRepository.create writes it (2026-09-25)
+  await presetLaunchFieldsMigration.up(dbHandle); // presets launch trio (0042) - repository create enumerates it
+  await presetCrossCommOptInMigration.up(dbHandle); // presets.cross_comm_enabled (0043) - same reason
   presetsRepo = new PresetsRepository(dbHandle);
   subshellsRepo = new SubshellsRepository(dbHandle);
   presetId = await seedPreset(presetsRepo);

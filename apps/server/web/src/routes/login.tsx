@@ -12,11 +12,13 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { INSTANCE_NAME_QUERY_KEY } from "@/hooks/use-auth-providers";
 import { getSessionUser, useCurrentUser } from "@/lib/auth";
 import { authClient } from "@/lib/auth-client";
 import { isServerDesktop } from "@/lib/desktop";
 import { safeRedirect } from "@/lib/redirect";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import { mapAuthError, SESSION_CHECK_FAILED, signInButtonLabel, signInDiagnosis } from "@/lib/sign-in-diagnosis";
 import { passkeysSupported } from "@/lib/webauthn";
 import type { InstanceSignInRead } from "@/types/auth-provider";
@@ -73,6 +75,10 @@ function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Blur-gated captions (ruling 2026-09-30): the stars say required at rest,
+  // the sentence arrives once the caret has left an empty field.
+  const [emailTouched, setEmailTouched] = useState(false);
+  const [passwordTouched, setPasswordTouched] = useState(false);
 
   // The failed round trip better-auth returned us to (`?error=…`, spec §4).
   // A pending identity is not an error to print, it is a screen to move to;
@@ -222,29 +228,46 @@ function LoginPage() {
               {emailSignIn && (
                 <form onSubmit={onSubmit} className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="email">E-mail</Label>
+                    <Label htmlFor="email">
+                      E-mail
+                      <RequiredMark />
+                    </Label>
                     <Input
                       id="email"
                       type="email"
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
+                      onBlur={() => setEmailTouched(true)}
                       autoComplete="email"
                     />
+                    {emailTouched && email.trim() === "" && (
+                      <p className={REQUIREMENT_CAPTION_CLASS}>An e-mail address is required.</p>
+                    )}
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="password">Password</Label>
+                    <Label htmlFor="password">
+                      Password
+                      <RequiredMark />
+                    </Label>
                     <Input
                       id="password"
                       type="password"
                       required
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
+                      onBlur={() => setPasswordTouched(true)}
                       autoComplete="current-password"
                     />
+                    {passwordTouched && password === "" && (
+                      <p className={REQUIREMENT_CAPTION_CLASS}>A password is required.</p>
+                    )}
                   </div>
                   {error && <p className="text-destructive text-detail">{error}</p>}
-                  <Button type="submit" className="w-full" disabled={busy}>
+                  {/* The one rule every credential form now shares: a required
+                      field still empty is not a submit. The passkey and
+                      provider buttons below answer on their own, blank-free. */}
+                  <Button type="submit" className="w-full" disabled={busy || email.trim() === "" || password === ""}>
                     {busy ? "Signing in…" : "Sign in"}
                   </Button>
                 </form>

@@ -20,7 +20,7 @@ export function PromptStackList({
   blocks: PromptBlock[];
   onReorder: (localId: string, dir: -1 | 1) => void;
   onRemove: (localId: string) => void;
-  /** Id of the element naming this list (the editor's "Members" label): a
+  /** Id of the element naming this list (the editor's "Prompts" label): a
    *  screen reader tabbing the rows hears the section they belong to (the
    *  round-8 nit: an unassociated Label is stray text to that cursor). */
   labelledBy?: string;

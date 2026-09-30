@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NodeCommandBody } from "@internal/subshell-protocol";
@@ -654,6 +654,132 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
     expect(res.status).toBe(200);
     expect(((await res.json()) as { nodeId: string }).nodeId).toBe("local");
   });
+  describe("POST /api/subshells resolves node/dir/prompt from the preset", () => {
+    /** Preset factory carrying the launch trio (0042 columns). */
+    async function mkLaunchPreset(over: {
+      harnessId?: string;
+      nodeId?: string | null;
+      workingDir?: string | null;
+      promptBlocks?: string | null;
+    }): Promise<string> {
+      const row = await new PresetsRepository(db).create({
+        id: crypto.randomUUID(),
+        userId,
+        harnessId: over.harnessId ?? "claude-code",
+        name: `p-${crypto.randomUUID().slice(0, 8)}`,
+        description: null,
+        envJson: null,
+        flagsJson: null,
+        settingsJson: null,
+        configIsolation: 0,
+        nodeId: over.nodeId ?? null,
+        workingDir: over.workingDir ?? null,
+        promptBlocks: over.promptBlocks ?? null,
+      });
+      createdPresetIds.push(row.id);
+      return row.id;
+    }
+
+    /** Runs one create against the sleeping claude stub; reaps the socket. */
+    async function postWithStub(body: Record<string, unknown>): Promise<Response> {
+      const stub = join(testDir, `claude-stub-${crypto.randomUUID().slice(0, 8)}`);
+      writeFileSync(stub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
+      const prev = process.env.CLAUDE_PATH;
+      process.env.CLAUDE_PATH = stub;
+      try {
+        const res = await post(body);
+        if (res.status === 200) {
+          const ok = (await res.clone().json()) as { id: string; tmuxSocket: string };
+          createdSubshellIds.push(ok.id);
+          sockets.add(ok.tmuxSocket);
+        }
+        return res;
+      } finally {
+        if (prev === undefined) delete process.env.CLAUDE_PATH;
+        else process.env.CLAUDE_PATH = prev;
+      }
+    }
+
+    it("a preset-only working dir launches there; an explicit body dir still wins", async () => {
+      const presetDir = join(testDir, "preset-dir");
+      mkdirSync(presetDir);
+      const presetId = await mkLaunchPreset({ workingDir: presetDir });
+
+      // Request says nothing about the dir: the preset's fills it.
+      const fromPreset = await postWithStub({ harnessId: "claude-code", presetId, name: "res-preset-dir" });
+      expect(fromPreset.status).toBe(200);
+      const created = (await fromPreset.json()) as { id: string };
+      expect((await new SubshellsRepository(db).findById(created.id))?.workingDir).toBe(presetDir);
+
+      // The request speaks: its dir wins over the preset's.
+      const explicit = await postWithStub({
+        harnessId: "claude-code",
+        presetId,
+        workingDir: testDir,
+        name: "res-explicit-dir",
+      });
+      expect(explicit.status).toBe(200);
+      const explicitRow = (await explicit.json()) as { id: string };
+      expect((await new SubshellsRepository(db).findById(explicitRow.id))?.workingDir).toBe(testDir);
+    });
+
+    it("neither the body nor the preset supplies a dir → 400 naming both spellings", async () => {
+      const presetId = await mkLaunchPreset({});
+      const res = await post({ harnessId: "claude-code", presetId });
+      expect(res.status).toBe(400);
+      const message = ((await res.json()) as { message: string }).message;
+      expect(message).toContain("working directory");
+      expect(message).toContain("preset");
+    });
+
+    it("a preset's node hint reaches the SAME gate as an explicit node (offline agent → NODE_OFFLINE)", async () => {
+      // The agent row exists and the caller owns it, but nothing is attached,
+      // so liveness is what refuses - the fact that the refusal is about THAT
+      // node is what proves the hint was consulted. The presetless ladder
+      // would have landed on `local` and answered about the harness instead.
+      const agentId = await mkNode(userId);
+      const presetId = await mkLaunchPreset({ harnessId: "pi", nodeId: agentId, workingDir: testDir });
+      const res = await post({ harnessId: "pi", presetId });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { code: string }).code).toBe("NODE_OFFLINE");
+    });
+
+    it("a preset naming an INVISIBLE node: the 404 says the preset named it (caller never did)", async () => {
+      // The hint-only refusal must be actionable: "pass another nodeId to
+      // override" is the way out for someone who only ever asked for the
+      // preset by name (spec 2026-09-29 review, major 3).
+      const foreign = await mkNode(otherId);
+      const presetId = await mkLaunchPreset({ harnessId: "pi", nodeId: foreign, workingDir: testDir });
+      const res = await post({ harnessId: "pi", presetId });
+      expect(res.status).toBe(404);
+      const message = ((await res.json()) as { message: string }).message;
+      expect(message).toMatch(/node/i);
+      expect(message).toContain("names this machine");
+      expect(message).toContain("override");
+    });
+
+    it("an explicit body nodeId overrides the preset's hint", async () => {
+      // Hint says an offline agent; the body says `local`; the pi-harness
+      // LOCAL wording ("on this machine") answers - the body's node was gated.
+      const agentId = await mkNode(userId);
+      const presetId = await mkLaunchPreset({ harnessId: "pi", nodeId: agentId, workingDir: testDir });
+      const res = await post({ harnessId: "pi", presetId, nodeId: LOCAL_NODE_ID });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { message: string }).message).toBe("That harness is disabled on this machine");
+    });
+
+    it("a preset whose node was deleted-then-nulled behaves like an unnamed one (ladder runs)", async () => {
+      // The 0042 FK rule made this reachable: node_id NULL is indistinguishable
+      // from "never named one", so the launch lands on `local` and answers the
+      // pi harness question, not a node question.
+      const agentId = await mkNode(userId);
+      const presetId = await mkLaunchPreset({ harnessId: "pi", nodeId: agentId, workingDir: testDir });
+      await new NodesRepository(db).deleteById(agentId);
+      const res = await post({ harnessId: "pi", presetId });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { message: string }).message).toBe("That harness is disabled on this machine");
+    });
+  });
 });
 
 describe("POST /api/subshells/:id/restart onto an offline node (spec §5.6)", () => {
@@ -738,4 +864,12 @@ describe("POST /api/subshells/:id/restart onto an offline node (spec §5.6)", ()
     expect(get.status).toBe(200);
     expect(((await get.json()) as { nodeOffline: boolean }).nodeOffline).toBe(true);
   });
+
+  /**
+   * Launch resolution (spec 2026-09-29 preset-launch-fields): the request wins
+   * wherever it speaks, the preset fills every gap it leaves - the one point
+   * where web, mobile, and MCP share the rule. These ride the SAME fixtures as
+   * the node suite above: the claude stub for real launches, the pi harness
+   * stop for resolution outcomes that must not launch anything.
+   */
 });

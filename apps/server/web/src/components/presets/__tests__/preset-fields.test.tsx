@@ -36,11 +36,14 @@ function plugin(p: {
 const CLAUDE = plugin({ id: "claude-code", name: "Claude Code", binary: "claude" });
 const PI = plugin({ id: "pi", name: "Pi" });
 
-function mockFetch(plugins: InstancePluginRow[]) {
+function mockFetch(plugins: InstancePluginRow[], harnessSchema: unknown = {}) {
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown) => {
     const path = new URL(String(input), "http://localhost").pathname;
     if (path === "/api/plugins") return Promise.resolve(new Response(JSON.stringify({ plugins })));
+    if (path.startsWith("/api/presets/harnesses/")) {
+      return Promise.resolve(new Response(JSON.stringify(harnessSchema)));
+    }
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
   return () => (globalThis.fetch = original);
@@ -76,6 +79,47 @@ function renderEditor(
 }
 
 afterEach(cleanup);
+
+describe("PresetFields MCP block gate (review round 3)", () => {
+  // Only MANUAL harnesses get the registration block. An auto harness
+  // wires MCP at launch itself, and its quiet "wires itself" line read as
+  // a second Cross-subshell comms section - so the line was removed and
+  // the gate is `schema?.mcp?.mode === "manual"`. Nothing pinned that
+  // until now: a missing gate rendered steps a user must never run, and
+  // a wrong one hides the commands a manual harness needs.
+  const manualSchema = { mcp: { mode: "manual", steps: [{ label: "Register", command: "subshell mcp register" }] } };
+  const seed = (harnessId: string): PresetFormValue => ({ ...emptyPresetForm(), harnessId, name: "N" });
+
+  it("renders the registration block for a manual harness", async () => {
+    const restore = mockFetch([CLAUDE], manualSchema);
+    try {
+      renderEditor(seed("claude-code"), []);
+      await waitFor(() => expect(screen.getByText(/register subshell once on each node/)).toBeDefined());
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders NO block for an auto harness, and none when the schema has no mcp", async () => {
+    const restore = mockFetch([CLAUDE], { mcp: { mode: "auto" } });
+    try {
+      renderEditor(seed("claude-code"), []);
+      await waitFor(() => expect(screen.getByPlaceholderText(/e\.g\. Fast model/)).toBeDefined());
+      expect(screen.queryByText(/register subshell once on each node/)).toBeNull();
+    } finally {
+      restore();
+    }
+    cleanup();
+    const bare = mockFetch([CLAUDE], {});
+    try {
+      renderEditor(seed("claude-code"), []);
+      await waitFor(() => expect(screen.getByPlaceholderText(/e\.g\. Fast model/)).toBeDefined());
+      expect(screen.queryByText(/register subshell once on each node/)).toBeNull();
+    } finally {
+      bare();
+    }
+  });
+});
 
 describe("PresetFields agent select (unlocked)", () => {
   it("carries the frozen ids and copy, and hides everything else until an agent is chosen", async () => {

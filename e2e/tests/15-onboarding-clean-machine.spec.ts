@@ -205,8 +205,8 @@ test("a machine with no agent CLI reaches a live terminal through the wizard", a
   // WHERE, and the first screen after "Add an Agent" never says "Node" or
   // "Preset" to an account ninety seconds old.
   await expect(page.getByLabel("Agent")).toBeVisible();
-  // Preset row hidden ENTIRELY on first run: a new account has zero presets
-  // and the row would offer only "None" (the spec-04 inline path owns the
+  // Preset row hidden ENTIRELY on first run: a new account has zero presets,
+  // so the row has nothing to offer (the spec-04 inline path owns the
   // row's existence on the regular launch form).
   await expect(page.getByLabel("Preset")).toHaveCount(0);
   // And it does not ask WHERE by machine (2026-09-12). This machine is the

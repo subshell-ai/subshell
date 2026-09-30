@@ -1,5 +1,5 @@
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
-import { Fragment, type JSX, type ReactNode, useMemo, useRef, useState } from "react";
+import { Fragment, type JSX, type ReactNode, useRef, useState } from "react";
 
 /** One row in a {@link SearchableSelect} list. */
 export interface ComboboxOption {
@@ -62,14 +62,6 @@ export interface SearchableSelectProps {
    *  the caller's own loading/empty/failure sentence. */
   emptyText?: ReactNode;
   /**
-   * When set, the UNFILTERED popup shows at most this many rows of each
-   * `group` (the copy picker's "a few each, search to dig deeper"). A typed query
-   * lifts the cap so a search reaches every match, not just the first few —
-   * the cap is a tidy default list, never a search ceiling. Rows carry their
-   * `group`; ungrouped callers pass nothing and are unaffected.
-   */
-  groupPreviewLimit?: number;
-  /**
    * The input is a CONSUMED search (the pick is an action, the closed state is
    * the placeholder, nothing holds a selection): the typed text is owned here
    * and survives a late `items` swap, which an uncontrolled input loses to
@@ -99,7 +91,6 @@ export function SearchableSelect({
   options,
   describedBy,
   emptyText = "No matches",
-  groupPreviewLimit,
   consumed,
 }: SearchableSelectProps): JSX.Element {
   // Item values are the option objects; the external contract stays the
@@ -107,32 +98,12 @@ export function SearchableSelect({
   // equality compares ids.
   const selected = options.find((o) => o.value === value) ?? null;
   // The live query, OWNED here and passed back to Base UI as the controlled
-  // `inputValue`. Two reasons it must be ours: the PREVIEW cap below needs to
-  // know "showing everything" vs "the user is searching", and - measured
-  // 2026-09-29 - an UNcontrolled input whose `items` prop changes mid-typing
+  // `inputValue` when the caller marks the search consumed. Measured
+  // 2026-09-29: an UNcontrolled input whose `items` prop changes mid-typing
   // gets wiped by Base UI's collection reset (it emits an empty
   // onInputValueChange and blanks the field, probe-verified). Controlled text
-  // survives the swap: typing "Alpha4" into a capped list lifted to full
-  // keeps the text and filters deep.
+  // survives the swap.
   const [query, setQuery] = useState("");
-  const previewing = groupPreviewLimit != null && query.trim() === "";
-  // The cap trims the ITEM SET the root navigates, not just what the children
-  // callback paints: a row that stays in the list but renders nothing is a
-  // keyboard stop that highlights invisibly (ArrowDown appears dead, Enter
-  // commits nothing - round-2 review). With no query each group contributes
-  // at most the cap; a typed query lifts it, so search reaches every match.
-  // Ungrouped rows and cap-less callers pass through untouched.
-  const visibleOptions = useMemo(() => {
-    if (!previewing) return options;
-    const used = new Map<string, number>();
-    return options.filter((o) => {
-      if (o.group == null) return true;
-      const n = used.get(o.group) ?? 0;
-      if (n >= (groupPreviewLimit ?? 0)) return false;
-      used.set(o.group, n + 1);
-      return true;
-    });
-  }, [options, previewing, groupPreviewLimit]);
 
   // The phone scroll-back (2026-09-04): focusing the type-to-filter input
   // makes a touch browser scroll it "into view" — inside a dialog that means
@@ -151,26 +122,24 @@ export function SearchableSelect({
   let lastGroup: string | undefined;
   return (
     <ComboboxPrimitive.Root
-      items={visibleOptions}
+      items={options}
       value={selected}
       isItemEqualToValue={(a: ComboboxOption, b: ComboboxOption) => a.value === b.value}
       onValueChange={(opt: ComboboxOption | null) => onValueChange(opt?.value ?? "")}
-      // Control the input when the text is OURS to own: a capped list (the
-      // trim reads the query) or a consumed search (the copy picker, the
-      // prompt picker) whose typed text must survive a late `items` swap,
-      // which an uncontrolled input loses to Base UI's collection reset
+      // Control the input when the text is OURS to own: a consumed search
+      // (the prompt picker) whose typed text must survive a late `items`
+      // swap, which an uncontrolled input loses to Base UI's collection reset
       // (round-5 review). A held picker keeps Base UI's uncontrolled text -
       // the closed state's selected-label echo is its behavior, and pinning
       // it to "" blanks the just-picked selection (caught by the setup
       // wizard when this was keyed on `value === ""`).
-      inputValue={groupPreviewLimit != null || consumed === true ? query : undefined}
+      inputValue={consumed === true ? query : undefined}
       onInputValueChange={(next: string) => setQuery(next)}
       onOpenChange={(open) => {
-        // A reopened capped list starts calm: the query (and with it the trim)
-        // resets on close. A reopened consumed search starts empty for the
-        // same reason (the pick returned the input to its placeholder); a
-        // held picker keeps Base UI's own restore-the-label behavior.
-        if (!open && (groupPreviewLimit != null || consumed === true)) setQuery("");
+        // A reopened consumed search starts empty (the pick returned the
+        // input to its placeholder); a held picker keeps Base UI's own
+        // restore-the-label behavior.
+        if (!open && consumed === true) setQuery("");
         if (open) return;
         const saved = scrollerRef.current;
         scrollerRef.current = null;
@@ -180,9 +149,7 @@ export function SearchableSelect({
         // Per-field, trimmed: the same semantics the Prompts page filter
         // (matchesPromptQuery) has, so the picker and the page answer a
         // query identically. Joining the fields would match ACROSS the
-        // label/body boundary the page never matches. (The PREVIEW cap is NOT
-        // here: Base UI does not call this function at all while the query is
-        // empty, so the cap trims `items` - see visibleOptions.)
+        // label/body boundary the page never matches.
         const q = query.trim().toLowerCase();
         if (q === "") return true;
         return item.label.toLowerCase().includes(q) || (item.searchText ?? "").toLowerCase().includes(q);

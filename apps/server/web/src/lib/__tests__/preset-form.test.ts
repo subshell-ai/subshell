@@ -1,12 +1,16 @@
 import { describe, expect, it } from "bun:test";
+import type { PresetFormValue } from "@/lib/preset-form";
+import type { PromptBlock } from "@/lib/prompt-stack";
 import type { PresetRow } from "@/types/preset";
 import { filterSuggestions } from "../autocomplete";
 import {
+  crossCommSaveBlocked,
   emptyPresetForm,
   flagTokensToRows,
   formToEnv,
   formToFlagTokens,
   presetFormFromRow,
+  presetLaunchGaps,
   suggestCloneName,
   toPresetPayload,
   toPresetUpdatePayload,
@@ -22,6 +26,10 @@ const baseRow: PresetRow = {
   settingsJson: null,
   configIsolation: 0,
   restartOnExit: 0,
+  crossCommEnabled: 0,
+  nodeId: null,
+  workingDir: null,
+  promptBlocks: null,
   createdAt: "2026-09-13T00:00:00.000Z",
   updatedAt: "2026-09-13T00:00:00.000Z",
 };
@@ -36,6 +44,12 @@ describe("emptyPresetForm", () => {
       // Operator's call, 2026-09-18: a preset is a way of running something
       // repeatedly, so recovering from an exit is the expected answer.
       restartOnExit: true,
+      crossCommEnabled: false,
+      // The launch trio starts EMPTY (spec 2026-09-29): a preset is still
+      // just settings until someone says where and with what.
+      nodeId: null,
+      workingDir: "",
+      promptBlocks: [],
     });
   });
 
@@ -68,6 +82,10 @@ describe("presetFormFromRow", () => {
         { flag: "--verbose", value: "" },
       ],
       restartOnExit: true,
+      crossCommEnabled: false,
+      nodeId: null,
+      workingDir: "",
+      promptBlocks: [],
     });
   });
 
@@ -154,6 +172,10 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
     ],
     flagRows: [{ flag: "--model", value: "sonnet" }],
     restartOnExit: true,
+    crossCommEnabled: false,
+    nodeId: null,
+    workingDir: "",
+    promptBlocks: [],
   };
 
   it("builds the POST body: trimmed name, parsed rows, reserved constants", () => {
@@ -165,6 +187,10 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
       settings: {},
       configIsolation: false,
       restartOnExit: true,
+      crossCommEnabled: false,
+      nodeId: null,
+      workingDir: null,
+      promptBlocks: null,
     });
   });
 
@@ -181,6 +207,10 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
       flags: ["--model", "sonnet"],
       configIsolation: false,
       restartOnExit: true,
+      crossCommEnabled: false,
+      nodeId: null,
+      workingDir: null,
+      promptBlocks: null,
     });
     expect(Object.keys(update).sort()).toEqual(
       Object.keys(toPresetPayload(form))
@@ -229,5 +259,86 @@ describe("suggestCloneName", () => {
     expect(suggested.length).toBeLessThanOrEqual(120);
     expect(suggested.startsWith("n".repeat(115))).toBe(true);
     expect(suggested).toBe(`${"n".repeat(116)} (2)`);
+  });
+});
+
+const toPresetForm: PresetFormValue = {
+  harnessId: "pi",
+  name: "Work",
+  envRows: [{ key: "A", value: "1" }],
+  flagRows: [{ flag: "--model", value: "sonnet" }],
+  restartOnExit: true,
+  crossCommEnabled: false,
+  nodeId: null,
+  workingDir: "",
+  promptBlocks: [],
+};
+
+describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
+  const wire = JSON.stringify([
+    { kind: "saved", promptId: "p1", description: "Standup", body: "run it" },
+    { kind: "custom", description: "", body: "and push" },
+  ]);
+
+  it("a stored trio survives row → form → payload unchanged (except fresh localIds)", () => {
+    const form = presetFormFromRow({ ...baseRow, nodeId: "n1", workingDir: "/srv/app", promptBlocks: wire });
+    expect(form.nodeId).toBe("n1");
+    expect(form.workingDir).toBe("/srv/app");
+    // A stored stack opens as a stack: the section is always the stack.
+    expect(form.promptBlocks.length).toBe(2);
+    expect(form.promptBlocks.map(({ localId: _id, ...rest }) => rest)).toEqual(JSON.parse(wire));
+    const payload = toPresetPayload(form);
+    expect(payload.nodeId).toBe("n1");
+    expect(payload.workingDir).toBe("/srv/app");
+    // localIds never cross the wire.
+    expect(JSON.stringify(payload.promptBlocks)).toBe(wire);
+  });
+
+  const blocks: PromptBlock[] = [{ localId: "x", kind: "custom", description: "", body: "hi" }];
+
+  it("the stack is the posture: blocks ride the payload, an empty stack sends null", () => {
+    const withBlocks: PresetFormValue = { ...toPresetForm, promptBlocks: blocks };
+    expect(toPresetPayload(withBlocks).promptBlocks).toEqual([{ kind: "custom", description: "", body: "hi" }]);
+    expect(toPresetPayload({ ...toPresetForm, promptBlocks: [] }).promptBlocks).toBeNull();
+  });
+
+  it("a relative dir saves as-is and the server owns the refusal; blank saves as null", () => {
+    expect(toPresetPayload({ ...toPresetForm, workingDir: "  " }).workingDir).toBeNull();
+    expect(toPresetPayload({ ...toPresetForm, workingDir: " /srv/app " }).workingDir).toBe("/srv/app");
+  });
+
+  it("the cross-comm switch blocks the save exactly when it is ON with gaps (0043)", () => {
+    expect(crossCommSaveBlocked({ ...toPresetForm, crossCommEnabled: false })).toBe(false);
+    expect(crossCommSaveBlocked({ ...toPresetForm, crossCommEnabled: true })).toBe(true);
+    expect(
+      crossCommSaveBlocked({
+        ...toPresetForm,
+        crossCommEnabled: true,
+        nodeId: "n1",
+        workingDir: "/srv",
+        promptBlocks: [{ localId: "b", kind: "custom", description: "", body: "go" }],
+      }),
+    ).toBe(false);
+  });
+
+  it("gaps name what is missing, in machine/directory/prompt order", () => {
+    expect(presetLaunchGaps(toPresetForm)).toEqual(["machine", "directory"]);
+    expect(
+      presetLaunchGaps({
+        ...toPresetForm,
+        nodeId: "n1",
+        workingDir: "/srv",
+        promptBlocks: blocks,
+      }),
+    ).toEqual([]);
+    expect(presetLaunchGaps({ ...toPresetForm, nodeId: "n1" })).toEqual(["directory"]);
+    // The prompt is NOT a gap (re-ruling 2026-09-30): machine + directory
+    // alone close the list, with or without any stack.
+    expect(presetLaunchGaps({ ...toPresetForm, nodeId: "n1", workingDir: "/srv" })).toEqual([]);
+  });
+
+  it("unparseable stored JSON reads as no blocks (opening a preset never throws)", () => {
+    const form = presetFormFromRow({ ...baseRow, promptBlocks: "not json[" });
+    expect(form.promptBlocks).toEqual([]);
   });
 });

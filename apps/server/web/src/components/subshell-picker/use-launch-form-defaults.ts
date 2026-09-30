@@ -1,5 +1,4 @@
 import type { Node } from "@internal/node-admin";
-import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import {
   emptyNewSubshellForm,
@@ -8,13 +7,8 @@ import {
 } from "@/components/subshell-picker/launch-form-rules";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import type { RecentPathsResponse } from "@/hooks/use-recent-paths";
-import {
-  isUntouchedForm,
-  type LaunchTemplate,
-  launchTemplateFromList,
-  launchTemplateFromRow,
-} from "@/lib/launch-defaults";
-import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { isUntouchedForm, type LaunchTemplate, launchTemplateFromList } from "@/lib/launch-defaults";
+import { wireToPresetBlocks } from "@/lib/prompt-stack";
 import { buildAgentOptions, defaultAgentId } from "@/lib/subshell-compat";
 import type { PresetRow } from "@/types/preset";
 import type { SubshellView } from "@/types/subshell";
@@ -48,12 +42,20 @@ export interface LaunchFormDefaults {
 
 /**
  * The launch form's defaults: the ONE effect that composes every automatic
- * correction, and `applyCopy`, the "Copy settings from" picker's explicit
- * act. Split out of `new-subshell-form.tsx` (2026-09-25 file-size split)
- * with the behavior and the ordering rules intact — read the effect's own
- * comments for why each gate waits on what it waits on.
+ * correction, plus the explicit act that outranks it: `applyPreset` (choosing
+ * a preset, which since spec 2026-09-29 carries the preset's own node,
+ * directory, and prompt - and since 2026-09-30 RESETS the form first and
+ * fills the agent too: a faithful copy, still editable everywhere). Split
+ * out of `new-subshell-form.tsx` (2026-09-25 file-size split) with the
+ * behavior and the ordering rules intact - read the effect's own comments for
+ * why each gate waits on what it waits on.
  */
-export function useLaunchFormDefaults(args: LaunchFormDefaults): (subshellId: string) => void {
+export interface LaunchFormActions {
+  /** Choosing a preset: RESETS the form and fills what the preset names */
+  applyPreset: (preset: PresetRow | null) => void;
+}
+
+export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActions {
   const { value, onChange, nodes, nodesPending, plugins, presetRows, recent, subshells, subshellsPending, firstRun } =
     args;
 
@@ -82,8 +84,6 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): (subshellId: st
   // simply no data to fill from — the machine just left cannot answer for
   // the machine arrived at.
   const dirNodeRef = useRef(value.nodeId);
-
-  const queryClient = useQueryClient();
 
   // ONE effect for all automatic corrections (prior-launch node+dir → node
   // re-home → working-dir pre-fill → agent+preset default): composing the
@@ -181,7 +181,7 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): (subshellId: st
     // Default agent, when the user has not chosen one. Reads the same disabled
     // set the dropdown renders — computed against the row this pass holds, so
     // even a same-pass re-home cannot select an agent the server would refuse.
-    // Only ever fills a blank; the "None" preset state needs no default.
+    // Only ever fills a blank; an unmade preset pick needs no default.
     //
     // The subshells list must have ANSWERED before the fill fires: the fill
     // happens once (blank-only), so filling while the list is in flight
@@ -241,39 +241,36 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): (subshellId: st
     onChange,
   ]);
 
-  // The picker's explicit act, unlike the auto tier: it applies over any
-  // edits, and it cancels a pending auto-default. The pair rides the
-  // effect's existing corrections (re-home, preset guard) exactly as a Split
-  // `initialForm` does. The row itself stays unselected — the copy is an
-  // action, not a held value the (re-pickable) fields would then contradict.
-  function applyCopy(subshellId: string): void {
-    const row = Array.isArray(subshells) ? subshells.find((s) => s.id === subshellId) : undefined;
-    if (row === undefined) {
-      // The row died (deleted, or revoked from view) between the option
-      // rendering and the click. Nothing to copy, and the option is now a
-      // lie: re-ask the list so it disappears, rather than letting the press
-      // do nothing twice.
-      void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
+  // Choosing a preset RESETS the form to a fresh one and then lays down
+  // what the preset names - agent, machine, directory, prompt (operator
+  // ruling 2026-09-30, second pass: "select a preset should reset the form
+  // before copying"). The filled form is a faithful copy: a directory
+  // typed before the pick belongs to the previous intent, and a preset
+  // that names no directory leaves the field blank rather than quietly
+  // keeping that older answer. What is filled stays editable; the preset
+  // itself is never written back. Cancels a pending auto-default (the
+  // copy's posture). The null arm - the membership guard's exit, dropping
+  // a preset that no longer fits - clears only the link, never the fields
+  // a preset filled: the person still sees what they are about to launch
+  // with.
+  function applyPreset(preset: PresetRow | null): void {
+    pendingTemplateRef.current = null;
+    if (preset === null) {
+      onChange({ ...value, presetId: null });
       return;
     }
-    const t = launchTemplateFromRow(row);
-    pendingTemplateRef.current = null;
-    // Same copied-pair posture as the auto tier: the directory belongs to the
-    // node it was copied with, and the recents seed stands aside for it.
-    dirNodeRef.current = t.nodeId;
-    prefillDoneRef.current = t.workingDir !== "";
-    // The prompt section is NOT copy settings (spec 2026-09-28): a copy
-    // carries agent, preset, node and directory, and leaves whatever the
-    // user already stacked right where it is.
-    onChange({
-      harnessId: t.harnessId,
-      presetId: t.presetId,
-      nodeId: t.nodeId,
-      workingDir: t.workingDir,
-      promptEnabled: value.promptEnabled,
-      promptBlocks: value.promptBlocks,
-    });
+    let next: NewSubshellFormValue = { ...emptyNewSubshellForm(), presetId: preset.id, harnessId: preset.harnessId };
+    if (preset.nodeId !== null) next = { ...next, nodeId: preset.nodeId };
+    if (preset.workingDir !== null) next = { ...next, workingDir: preset.workingDir };
+    const blocks = wireToPresetBlocks(preset.promptBlocks);
+    if (blocks.length > 0) next = { ...next, promptBlocks: blocks };
+    // The pair rule (2026-09-20): a directory is a claim about ONE machine,
+    // so the node this write settled on owns the bookkeeping - and a preset
+    // that named a dir outranks the per-node recents seed.
+    dirNodeRef.current = next.nodeId;
+    prefillDoneRef.current = next.workingDir !== "";
+    onChange(next);
   }
 
-  return applyCopy;
+  return { applyPreset };
 }

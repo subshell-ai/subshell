@@ -3,12 +3,15 @@ import { useEffect, useMemo, useState } from "react";
 import { McpSetupSection } from "@/components/mcp-setup-section";
 import { type PairRow, PairRowsEditor } from "@/components/pair-rows-editor";
 import { CommandPasteField } from "@/components/presets/command-paste-field";
+import { PresetLaunchFields } from "@/components/presets/preset-launch-fields";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useHarnessSchema } from "@/hooks/use-harness-schema";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { parseEnvPaste, parseFlagsPaste } from "@/lib/preset-command";
 import type { PresetFormValue } from "@/lib/preset-form";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import { buildAgentOptions } from "@/lib/subshell-compat";
 
 /**
@@ -40,15 +43,17 @@ export function PresetFields({
   onChange,
   lockedHarness,
   defaultEntryMode = "paste",
+  draftScope = "preset",
 }: {
   value: PresetFormValue;
   onChange: (value: PresetFormValue) => void;
   /**
    * When set, the agent is this plugin id, fixed: the control renders as
    * static text. True on the edit page (a preset's agent is chosen at
-   * creation and the API does not reassign it) and in the launch dialog's
-   * nested create (the agent was just picked and only its presets make
-   * sense there).
+   * creation and the API does not reassign it) and in the create dialog's
+   * CLONE posture, where the caller passes the lock as the seed's own
+   * harness. (The launch dialog's nested `+` - the third caller - left
+   * with the 2026-09-30 "Save as preset" ruling.)
    */
   lockedHarness?: string;
   /**
@@ -58,6 +63,11 @@ export function PresetFields({
    * preset is reading what it already is, not replacing it.
    */
   defaultEntryMode?: PresetEntryMode;
+  /**
+   * Draft namespace threaded to the launch defaults' prompt picker, so the
+   * create dialog and the edit page never share a half-typed custom block.
+   */
+  draftScope?: string;
 }) {
   // Loading and failure are tracked separately: "No agent installed" is only
   // honest after a load that succeeded with zero rows — claiming it while the
@@ -76,6 +86,7 @@ export function PresetFields({
   // last looked at is not part of the preset, and both views edit one set of
   // rows. The create dialog's mount IS its open, so this resets per open.
   const [entryMode, setEntryMode] = useState<PresetEntryMode>(defaultEntryMode);
+  const [nameTouched, setNameTouched] = useState(false);
 
   // One usable agent is not a decision worth forcing — pick it. The guard on
   // value.harnessId makes this self-disarming after the pick.
@@ -137,7 +148,10 @@ export function PresetFields({
           </>
         ) : (
           <>
-            <Label htmlFor="preset-harness">Agent</Label>
+            <Label htmlFor="preset-harness">
+              Agent
+              <RequiredMark />
+            </Label>
             <Select
               value={value.harnessId}
               // Base UI widens select values to `Value | null` (null = cleared);
@@ -191,13 +205,23 @@ export function PresetFields({
       {value.harnessId && (
         <>
           <div className="space-y-2">
-            <Label htmlFor="preset-name">Name</Label>
+            <Label htmlFor="preset-name">
+              Name
+              <RequiredMark />
+            </Label>
             <Input
               id="preset-name"
               value={value.name}
               onChange={(e) => onChange({ ...value, name: e.target.value })}
+              onBlur={() => setNameTouched(true)}
               placeholder="e.g. Fast model"
+              aria-required
             />
+            {/* The star says required at rest; the sentence waits for the
+                caret to leave an empty field (ruling 2026-09-30). */}
+            {nameTouched && value.name.trim() === "" && (
+              <p className={REQUIREMENT_CAPTION_CLASS}>A name is required.</p>
+            )}
           </div>
           {/* TWO VIEWS OF ONE SET OF VALUES. The rows are the state either
               way, so switching is free and lossless: paste a command and the
@@ -279,7 +303,14 @@ export function PresetFields({
               delay between attempts while it keeps failing. Leave off to decide manually.
             </p>
           </div>
-          {schema?.mcp && <McpSetupSection mcp={schema.mcp} />}
+          {/* The preset's optional launch trio (spec 2026-09-29): hints the
+              launch form prefills and the server resolves when a request
+              leaves a field blank. */}
+          <PresetLaunchFields value={value} onChange={onChange} agent={agent ?? null} draftScope={draftScope} />
+          {/* Only MANUAL harnesses get the registration block; an auto harness
+              has nothing to do, and its quiet "wires itself" line read as a
+              second Cross-subshell comms section (removed 2026-09-30). */}
+          {schema?.mcp?.mode === "manual" && <McpSetupSection mcp={schema.mcp} />}
         </>
       )}
     </div>

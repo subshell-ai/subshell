@@ -11,6 +11,12 @@ import { PromptFormDialog } from "@/components/prompts/prompt-form-dialog";
 import { PromptPageRow } from "@/components/prompts/prompt-page-row";
 import { StackFormDialog } from "@/components/prompts/stack-form-dialog";
 import { StackPageRow } from "@/components/prompts/stack-page-row";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Segmented } from "@/components/ui/segmented";
 import {
   useDeletePrompt,
@@ -456,23 +462,30 @@ function PromptsPage() {
     <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
       <PageHeader
         title="Prompts"
-        subtitle="Saved prompts you can drop into any subshell"
+        subtitle="Saved prompts for subshell injection"
         action={
+          // One "New" (operator ruling 2026-09-29: the two-button pair read
+          // as clutter). The dropdown carries the KIND choice; the per-view
+          // rule survives inside it, and both create dialogs are untouched.
+          // Shared tab renders no create action, as before.
           activeTab === "own" ? (
-            <div className="flex items-center gap-2">
-              {activeView !== "stacked" && (
-                <Button onClick={() => setShowCreate(true)}>
-                  <Plus /> New prompt
-                </Button>
-              )}
-              {activeView !== "single" && (
-                // The lone action on Stacked is primary; next to New prompt in
-                // All it is the secondary of the pair.
-                <Button variant={activeView === "stacked" ? "default" : "outline"} onClick={() => setStackDialog({})}>
-                  <Plus /> New stack
-                </Button>
-              )}
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger render={<Button />}>
+                <Plus /> New
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {activeView !== "stacked" && (
+                  <DropdownMenuItem onSelect={() => setShowCreate(true)}>
+                    <MessageSquareText className="h-4 w-4" /> New prompt
+                  </DropdownMenuItem>
+                )}
+                {activeView !== "single" && (
+                  <DropdownMenuItem onSelect={() => setStackDialog({})}>
+                    <Layers className="h-4 w-4" /> New stack
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : undefined
         }
       />
@@ -624,7 +637,7 @@ function PromptsPage() {
             activeView === "stacked"
               ? "A stack is a named, ordered set of prompts a subshell receives as one text. Deleting a prompt later removes it from the stacks it is in."
               : activeView === "all"
-                ? "A prompt is saved text you can type into a subshell; a stack is an ordered set sent as one text. The description is required; it is what the list shows."
+                ? undefined
                 : "A prompt is saved text you can type into a new subshell or inject into a running one. The description is required; it is what the list shows."
           }
           actionLabel={activeView === "stacked" ? "Create your first stack" : "Create your first prompt"}

@@ -68,6 +68,22 @@ export function DialogContent({ className, children, ...props }: DialogPrimitive
   );
 }
 
+/**
+ * The `onOpenChange` of a NEW/EDIT form dialog: it closes only on a
+ * deliberate act. An outside press or the Escape key would silently discard a
+ * half-filled form (operator ruling 2026-09-30, after a preset's launch
+ * defaults were lost to exactly that), so those reasons are IGNORED here -
+ * the controlled dialog simply stays open. The Close (X) button
+ * (`close-press`), a Cancel button (which calls the owner's setter directly),
+ * and the post-save close all pass through untouched.
+ */
+export function formDialogOpenChange(onOpenChange: (open: boolean) => void) {
+  return (open: boolean, details: { reason: string }): void => {
+    if (!open && (details.reason === "outside-press" || details.reason === "escape-key")) return;
+    onOpenChange(open);
+  };
+}
+
 export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   // Left, always. shadcn centers a dialog header until the 640px viewport
   // breakpoint, but that tests the WINDOW, not the dialog — page zoom or a

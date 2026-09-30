@@ -15,14 +15,13 @@ import {
   emptyNewSubshellForm,
   hideMachineField,
   isSelectable,
-  launchableNodes,
   type NewSubshellFormValue,
   pickNodeDefault,
 } from "@/components/subshell-picker/launch-form-rules";
 import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
 import { toSubshellCreateBody } from "@/hooks/use-create-subshell";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
-import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
+import { launchableNodes } from "@/lib/subshell-compat";
 
 /**
  * The Agent-first launch form (spec 2026-09-13 §5): searchable Agent picker
@@ -78,7 +77,14 @@ function plugin(p: {
   };
 }
 
-function preset(p: { id: string; harnessId: string; name?: string }) {
+function preset(p: {
+  id: string;
+  harnessId: string;
+  name?: string;
+  nodeId?: string | null;
+  workingDir?: string | null;
+  promptBlocks?: string | null;
+}) {
   return {
     id: p.id,
     harnessId: p.harnessId,
@@ -89,6 +95,11 @@ function preset(p: { id: string; harnessId: string; name?: string }) {
     settingsJson: null,
     configIsolation: 0,
     restartOnExit: 0,
+    // The launch trio (spec 2026-09-29): the real row always carries the
+    // columns, nulls included - the fixtures match the server's shape.
+    nodeId: p.nodeId ?? null,
+    workingDir: p.workingDir ?? null,
+    promptBlocks: p.promptBlocks ?? null,
     createdAt: "2026-09-13T00:00:00.000Z",
     updatedAt: "2026-09-13T00:00:00.000Z",
   };
@@ -263,6 +274,18 @@ afterEach(() => {
   cleanup();
 });
 
+function openPresetInRow(): void {
+  const input = screen.getByPlaceholderText("Choose a preset");
+  act(() => {
+    for (const type of ["pointerdown", "pointerup"]) {
+      input.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse" }));
+    }
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      input.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+    }
+  });
+}
+
 describe("pickNodeDefault", () => {
   it("keeps a valid pick and the local default while local is present", () => {
     const nodes = [LOCAL, ENROLLED_ONLINE, ENROLLED_OFFLINE];
@@ -278,7 +301,7 @@ describe("pickNodeDefault", () => {
 });
 
 describe("NewSubshellForm agent/preset defaults", () => {
-  it("defaults to Local, picks an agent, is submittable, and asks Agent before Preset before Node", async () => {
+  it("defaults to Local, picks an agent, is submittable, and asks Preset before Agent before Node", async () => {
     const restore = mockFetch([LOCAL, ENROLLED_ONLINE, ENROLLED_OFFLINE], [CLAUDE]);
     try {
       const { latest } = await renderForm();
@@ -287,15 +310,15 @@ describe("NewSubshellForm agent/preset defaults", () => {
       await waitFor(() => expect(latest().nodeId).toBe("local"));
       await waitFor(() => expect(latest().harnessId).toBe("claude-code"));
       const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
-      expect(labels.indexOf("Agent")).toBeLessThan(labels.indexOf("Preset"));
-      expect(labels.indexOf("Preset")).toBeLessThan(labels.indexOf("Node"));
+      // Preset leads (ruling 2026-09-30): picking one fills the rows below.
+      expect(labels.indexOf("Preset")).toBeLessThan(labels.indexOf("Agent"));
+      expect(labels.indexOf("Agent")).toBeLessThan(labels.indexOf("Node"));
       expect(
         canSubmit({
           harnessId: "claude-code",
           presetId: null,
           workingDir: "/tmp/x",
           nodeId: "local",
-          promptEnabled: false,
           promptBlocks: [],
         }),
       ).toBe(true);
@@ -446,7 +469,7 @@ describe("NewSubshellForm agent/preset defaults", () => {
 });
 
 describe("NewSubshellForm preset row", () => {
-  it("lists None first and keeps a foreign preset from surviving the guard", async () => {
+  it("keeps a foreign preset from surviving the guard", async () => {
     const restore = mockFetch(
       [LOCAL, ENROLLED_ONLINE],
       [CLAUDE, plugin({ id: "pi", name: "Pi", type: "agent-harness" })],
@@ -462,12 +485,12 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-pi",
         workingDir: "/x",
         nodeId: "local",
-        promptEnabled: false,
         promptBlocks: [],
       });
       await waitFor(() => expect(latest().presetId).toBeNull());
-      // And the picker stands at None (Base UI prints the mapped label).
-      await waitFor(() => expect(screen.getByText("None")).toBeDefined());
+      // The row is a COPY, not a tie (ruling 2026-09-30): the input never
+      // wears a preset's name, it asks. What stands is the form value, above.
+      await waitFor(() => expect(screen.getByPlaceholderText("Choose a preset")).toBeDefined());
     } finally {
       restore();
     }
@@ -499,19 +522,19 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "a1",
-        promptEnabled: false,
         promptBlocks: [],
       });
       await settle();
       expect(latest().nodeId).toBe("a1");
+      // The pair survives the guard in the FORM VALUE - the trigger shows
+      // its placeholder either way (the copy posture, not a held selection).
       expect(latest().presetId).toBe("p-claude");
-      expect(screen.getByText("Fast")).toBeDefined();
     } finally {
       restore();
     }
   });
 
-  it("a chosen agent's own preset survives the guard and reads on the trigger", async () => {
+  it("a chosen agent's own preset survives the guard in the form value", async () => {
     const restore = mockFetch([LOCAL], [CLAUDE], [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })]);
     try {
       const { latest } = await renderForm({
@@ -519,12 +542,10 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "local",
-        promptEnabled: false,
         promptBlocks: [],
       });
       await settle();
       expect(latest().presetId).toBe("p-claude");
-      expect(screen.getByText("Fast")).toBeDefined();
     } finally {
       restore();
     }
@@ -551,7 +572,6 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "local",
-        promptEnabled: false,
         promptBlocks: [],
       });
       const input = screen.getByPlaceholderText("Choose an agent") as HTMLInputElement;
@@ -568,50 +588,26 @@ describe("NewSubshellForm preset row", () => {
     }
   });
 
-  it("shows the hint for the agent, appending the zero-presets sentence", async () => {
+  it("shows the fill-hint, agent-agnostic, with the zero-presets sentence", async () => {
     const restore = mockFetch([LOCAL], [CLAUDE], []);
     try {
       await renderForm();
       await waitFor(() =>
-        expect(screen.getByText("Saved flags, env vars and restart policy for Claude Code.")).toBeDefined(),
+        expect(screen.getByText("Picking one copies its launch settings into this form.")).toBeDefined(),
       );
-      expect(screen.getByText("No presets for Claude Code yet.")).toBeDefined();
+      // The row lists EVERY preset now, so emptiness is about the account,
+      // not the agent nobody has picked yet.
+      expect(screen.getByText("No presets yet.")).toBeDefined();
     } finally {
       restore();
     }
   });
 
-  it("+ opens the nested create dialog, and a created preset becomes the selection", async () => {
-    const created = preset({ id: "p-new", harnessId: "claude-code", name: "Brand new" });
-    const restore = mockFetch([LOCAL], [CLAUDE], [], [], undefined, { createdPreset: created });
-    try {
-      const { latest, client } = await renderForm({
-        harnessId: "claude-code",
-        presetId: null,
-        workingDir: "/x",
-        nodeId: "local",
-        promptEnabled: false,
-        promptBlocks: [],
-      });
-      fireEvent.click(screen.getByRole("button", { name: "New preset" }));
-      const dialog = await screen.findByRole("dialog", { name: "New preset for Claude Code" });
-      // Locked posture: the agent is static text, never a second select.
-      expect(dialog.textContent).toContain("Claude Code");
-      expect(dialog.querySelector("#preset-harness")).toBeNull();
-      fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "Brand new" } });
-      fireEvent.click(screen.getByRole("button", { name: "Create preset" }));
-      await waitFor(() =>
-        expect((client.getQueryData<{ id: string }[]>(PRESETS_QUERY_KEY) ?? []).some((r) => r.id === "p-new")).toBe(
-          true,
-        ),
-      );
-      await waitFor(() => expect(latest().presetId).toBe("p-new"));
-      // The trigger reads the new row's name; the dialog is gone.
-      expect(screen.getByText("Brand new")).toBeDefined();
-      expect(screen.queryByRole("dialog", { name: "New preset for Claude Code" })).toBeNull();
-    } finally {
-      restore();
-    }
+  it("canSubmit: a checked Save-as-preset without a name never submits", () => {
+    const base = { harnessId: "claude-code", presetId: null, workingDir: "/x", nodeId: "local", promptBlocks: [] };
+    expect(canSubmit({ ...base })).toBe(true);
+    expect(canSubmit({ ...base, saveAsPreset: true, presetName: "   " })).toBe(false);
+    expect(canSubmit({ ...base, saveAsPreset: true, presetName: "Keeper" })).toBe(true);
   });
 
   it("first run hides the Preset row entirely", async () => {
@@ -643,7 +639,6 @@ describe("NewSubshellForm honest hints", () => {
         presetId: null,
         workingDir: "/tmp/x",
         nodeId: "a1",
-        promptEnabled: false,
         promptBlocks: [],
       });
       // The node name sits inside the hint's <Link>, so the sentence spans
@@ -666,7 +661,6 @@ describe("NewSubshellForm honest hints", () => {
         presetId: null,
         workingDir: "/tmp/x",
         nodeId: "a1",
-        promptEnabled: false,
         promptBlocks: [],
       });
       expect(
@@ -685,10 +679,7 @@ describe("NewSubshellForm honest hints", () => {
       // holdValue pins the pick on the offline node — the live form re-homes
       // it — so this probes the gate itself: the row reasons already say
       // "node offline"; the hint must not claim the node holds no plugins.
-      await renderForm(
-        { harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a2", promptEnabled: false, promptBlocks: [] },
-        true,
-      );
+      await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a2", promptBlocks: [] }, true);
       expect(
         screen.queryByText((_text, el) => el?.tagName === "P" && /Nothing installed on/.test(el.textContent ?? "")),
       ).toBeNull();
@@ -705,7 +696,6 @@ describe("NewSubshellForm honest hints", () => {
         presetId: null,
         workingDir: "/tmp/x",
         nodeId: "a3",
-        promptEnabled: false,
         promptBlocks: [],
       });
       expect(await screen.findByText(/No available node can run Claude Code/)).toBeDefined();
@@ -825,12 +815,13 @@ describe("NewSubshellForm copy", () => {
  */
 /**
  * The prior-launch tier (operator rule, 2026-09-25): the form opens on the
- * newest row's four settings, and "Copy settings from" applies any listed
- * row's settings as an explicit act. The pure selectors are pinned in
+ * newest row's four settings. The pure selectors are pinned in
  * `lib/__tests__/launch-defaults.test.ts`; these pins are the effect's
  * composition — arming, degradation, and the caller/edit disqualifiers.
+ * (The "Copy settings from" picker tests left with its removal under spec
+ * 2026-09-29-preset-launch-fields; preset prefill is pinned below.)
  */
-describe("NewSubshellForm prior-launch defaults + copy picker", () => {
+describe("NewSubshellForm prior-launch defaults", () => {
   const PI_ON = { harnessId: "pi", name: "Pi", installed: true };
   const PI = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
 
@@ -905,7 +896,6 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
         presetId: null,
         workingDir: "/keep/me",
         nodeId: "local",
-        promptEnabled: false,
         promptBlocks: [],
       });
       await settle();
@@ -986,9 +976,9 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
   });
 
   it("a copy from a maintenance node degrades like the offline case", async () => {
-    // The one unlaunchable row the picker KEEPS for its reason (spec
-    // 2026-09-14 §6) must degrade the same way: the pick re-homes, the
-    // copied dir rides the machine-switch clear, the seed refills.
+    // The newest row on a maintenance node must degrade the same way: the
+    // auto pick re-homes, the copied dir rides the machine-switch clear,
+    // and the seed refills (spec 2026-09-14 §6 posture).
     const MAINT = node({ id: "m1", name: "shop", maintenance: true, canLaunch: false });
     const restore = mockFetch([LOCAL, MAINT], [CLAUDE], [], [launchRow({ nodeId: "m1", workingDir: "/srv/on-shop" })], {
       paths: [],
@@ -998,122 +988,6 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().nodeId).toBe("local"));
       await waitFor(() => expect(latest().workingDir).toBe("/home/ada"));
-    } finally {
-      restore();
-    }
-  });
-
-  it("lists prior subshells, applies a pick over the held fields, and resets to placeholder", async () => {
-    const PI_NODE = node({ id: "a1", name: "mac mini", harnesses: [PI_ON] });
-    const restore = mockFetch(
-      [LOCAL, PI_NODE],
-      [CLAUDE, PI],
-      [preset({ id: "p-pi", harnessId: "pi", name: "Pi one" })],
-      [
-        launchRow({
-          id: "s-new",
-          name: "Newest",
-          harnessId: "pi",
-          presetId: "p-pi",
-          nodeId: "a1",
-          workingDir: "/srv/new",
-        }),
-        launchRow({ id: "s-old", name: "Older one", createdAt: "2026-09-02T00:00:00.000Z", workingDir: "/srv/old" }),
-      ],
-      { paths: [], home: "/home/ada" },
-    );
-    try {
-      const { latest } = await renderForm();
-      await waitFor(() => expect(latest().harnessId).toBe("pi"));
-      // The section is a checkbox until asked for: the label is there, the
-      // picker is not, until it is ticked.
-      expect(screen.getByText("Copy settings from a subshell")).toBeDefined();
-      expect(document.getElementById("picker-copy")).toBeNull();
-      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
-      const input = document.getElementById("picker-copy") as HTMLInputElement;
-      fireEvent.focus(input);
-      fireEvent.keyDown(input, { key: "ArrowDown" });
-      fireEvent.click(await screen.findByRole("option", { name: /Older one/ }));
-      // An explicit copy applies over the auto-default's answer…
-      await waitFor(() => expect(latest().harnessId).toBe("claude-code"));
-      expect(latest().presetId).toBeNull();
-      expect(latest().nodeId).toBe("local");
-      expect(latest().workingDir).toBe("/srv/old");
-      // …and the row returns to its placeholder: the copy was an action.
-      await settle();
-      expect(input.value).toBe("");
-    } finally {
-      restore();
-    }
-  });
-
-  it("the picker copies a foreign preset only to lose it to the membership guard", async () => {
-    const restore = mockFetch(
-      [LOCAL],
-      [CLAUDE],
-      [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })],
-      [launchRow({ harnessId: "claude-code", presetId: "p-pi" })],
-    );
-    try {
-      const { latest } = await renderForm();
-      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
-      const input = document.getElementById("picker-copy") as HTMLInputElement;
-      fireEvent.focus(input);
-      fireEvent.keyDown(input, { key: "ArrowDown" });
-      fireEvent.click(await screen.findByRole("option", { name: /Last launch/ }));
-      // The row names a preset that does not belong to any pickable agent —
-      // the guard leaves the launch presetless, never half-copied.
-      await waitFor(() => expect(latest().presetId).toBeNull());
-      expect(latest().harnessId).toBe("claude-code");
-    } finally {
-      restore();
-    }
-  });
-
-  it("leads the picker with a just-terminated subshell, under its own category", async () => {
-    const restore = mockFetch(
-      [LOCAL],
-      [CLAUDE],
-      [],
-      [
-        launchRow({ id: "r-run", name: "Still going", status: "running", createdAt: "2026-09-20T00:00:00.000Z" }),
-        launchRow({
-          id: "r-end",
-          name: "Just ended",
-          status: "terminated",
-          endedAt: "2026-09-25T00:00:00.000Z",
-          createdAt: "2026-09-01T00:00:00.000Z",
-        }),
-      ],
-    );
-    try {
-      await renderForm();
-      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
-      const input = document.getElementById("picker-copy") as HTMLInputElement;
-      fireEvent.focus(input);
-      fireEvent.keyDown(input, { key: "ArrowDown" });
-      await screen.findByRole("option", { name: /Still going/ });
-      // The category header shows, and the ended row LEADS despite the running
-      // row being newer by creation (endedAt, not createdAt, drives the tier).
-      expect(screen.getByText("Recently terminated")).toBeDefined();
-      expect(screen.getAllByRole("option")[0]?.textContent).toContain("Just ended");
-    } finally {
-      restore();
-    }
-  });
-
-  it("absent with nothing to copy, and on first run", async () => {
-    const empty = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE]);
-    try {
-      await renderForm();
-      expect(screen.queryByText("Copy settings from a subshell")).toBeNull();
-    } finally {
-      empty();
-    }
-    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [launchRow({})], undefined, undefined);
-    try {
-      await renderForm(emptyNewSubshellForm(), false, true);
-      expect(screen.queryByText("Copy settings from a subshell")).toBeNull();
     } finally {
       restore();
     }
@@ -1246,8 +1120,8 @@ describe("nowhere to launch", () => {
   });
 });
 
-describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
-  it("the checkbox reveals the stack; the picker adds, reorders, and removes blocks", async () => {
+describe("NewSubshellForm Add prompts (spec 2026-09-28, shared section 2026-09-30)", () => {
+  it("the shared section shows itself; the picker adds, reorders, and removes blocks", async () => {
     const prompts = {
       own: [
         {
@@ -1265,11 +1139,10 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
     const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [], undefined, { prompts });
     try {
       const { latest } = await renderForm();
-      // Collapsed: just the checkbox line.
-      const box = screen.getByLabelText("Add a prompt");
+      // The section shows itself from the first render (ruling 2026-09-30:
+      // the checkbox is gone, the "Add prompts" section is the shared one).
+      expect(screen.getByText("Add prompts")).toBeDefined();
       expect(latest().promptBlocks).toEqual([]);
-      fireEvent.click(box);
-      await settle();
       expect(screen.getByRole("button", { name: "Add prompt" })).toBeDefined();
 
       // Open the picker; a pick closes it (decisive-action redesign,
@@ -1338,8 +1211,6 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
     const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [], undefined, { stacks });
     try {
       const { latest } = await renderForm();
-      fireEvent.click(screen.getByLabelText("Add a prompt"));
-      await settle();
       fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
       await settle();
       openPickerSearch();
@@ -1371,6 +1242,243 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
       await settle();
       const body = toSubshellCreateBody({ ...latest(), harnessId: "claude-code" });
       expect(body.prompt).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
+  // Base UI's press path (same lesson as switch-preset-dialog.test): a bare
+  // click never reaches onValueChange under happy-dom; pointer down/up/click does.
+  // The Preset row is a CONSUMED searchable input (ruling 2026-09-30): the
+  // popup opens on the Base UI pointer path, happy-dom cannot click a bare
+  // input, and the typed text is the picker's own (prompt-picker precedent).
+  const openPresetSearch = openPresetInRow;
+  async function pressPreset(name: string): Promise<void> {
+    openPresetSearch();
+    await settle();
+    const option = await screen.findByText(name);
+    act(() => {
+      fireEvent.click(option);
+    });
+    await settle();
+  }
+  it("choosing a preset applies its machine, directory, and prompt - and they stay editable", async () => {
+    const full = preset({
+      id: "p-full",
+      harnessId: "claude-code",
+      name: "Everywhere",
+      nodeId: "a1",
+      workingDir: "/srv/app",
+      promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
+    });
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [full]);
+    try {
+      const { latest } = await renderForm({ ...emptyNewSubshellForm(), harnessId: "claude-code" });
+      await pressPreset("Everywhere");
+      expect(latest().presetId).toBe("p-full");
+      // A copy, not a tie (ruling 2026-09-30): the TRIGGER does NOT keep
+      // wearing the picked name (the dropdown's own option node stays in
+      // the tree, so ask the trigger element) - the values now live in the
+      // editable rows below, and the preset is not editable from here.
+      const input = screen.getByPlaceholderText("Choose a preset") as HTMLInputElement;
+      expect(input.value).toBe("");
+      expect(latest().nodeId).toBe("a1");
+      expect(latest().workingDir).toBe("/srv/app");
+      // The stored stack lands as blocks (fresh form-local ids, the
+      // snapshot body) - the shared section shows them itself.
+      expect(latest().promptBlocks.map(({ localId: _id, ...rest }) => rest)).toEqual([
+        { kind: "custom", description: "", body: "go" },
+      ]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("a preset fills the agent it belongs to (the row leads the form)", async () => {
+    const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE, pi],
+      [preset({ id: "p-pi", harnessId: "pi", name: "Pi one" })],
+    );
+    try {
+      // Cold form: no agent chosen. The pick below FILLS claude's successor -
+      // the agent is part of what a preset names now, and stays editable.
+      const { latest } = await renderForm(emptyNewSubshellForm());
+      await pressPreset("Pi one");
+      expect(latest().presetId).toBe("p-pi");
+      expect(latest().harnessId).toBe("pi");
+    } finally {
+      restore();
+    }
+  });
+
+  it("lists every agent's presets, shared names disambiguated by agent", async () => {
+    const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE, pi],
+      [
+        preset({ id: "p-a", harnessId: "claude-code", name: "Fast" }),
+        preset({ id: "p-b", harnessId: "pi", name: "Fast" }),
+      ],
+    );
+    try {
+      await renderForm(emptyNewSubshellForm());
+      openPresetInRow();
+      await settle();
+      // A name is unique per agent, so every row carries its agent as the
+      // muted reason (the combobox's detail column): both "Fast" rows say
+      // whose Fast they are.
+      const fasts = screen.getAllByText("Fast");
+      expect(fasts).toHaveLength(2);
+      const owners = fasts.map((el) => el.parentElement?.textContent ?? "");
+      expect(owners.some((t) => t.includes("Claude Code"))).toBe(true);
+      expect(owners.some((t) => t.includes("Pi"))).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("the last picked presets lead under one Recently used header, each once", async () => {
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE],
+      [
+        preset({ id: "p-1", harnessId: "claude-code", name: "One" }),
+        preset({ id: "p-2", harnessId: "claude-code", name: "Two" }),
+        preset({ id: "p-3", harnessId: "claude-code", name: "Three" }),
+      ],
+    );
+    try {
+      const { latest } = await renderForm(emptyNewSubshellForm());
+      await pressPreset("One");
+      await pressPreset("Two");
+      expect(latest().presetId).toBe("p-2");
+      openPresetSearch();
+      await settle();
+      expect(screen.getByText("Recently used")).toBeDefined();
+      // The rest of the list is not a headless run - it answers "and the
+      // others?" with its own label (ruling 2026-09-30).
+      expect(screen.getByText("Presets")).toBeDefined();
+      // Each recent appears ONCE (the rest excludes them), and recents lead
+      // the list in pick order, ahead of the never-picked "Three".
+      expect(screen.getAllByText("Two")).toHaveLength(1);
+      expect(screen.getAllByText("One")).toHaveLength(1);
+      const text = document.body.textContent ?? "";
+      expect(text.indexOf("Two")).toBeLessThan(text.indexOf("One"));
+      expect(text.indexOf("One")).toBeLessThan(text.indexOf("Three"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("a deleted preset drops out of the Recently used section, the older survivor rises", async () => {
+    // The stored list is an ORDERING HINT over the live rows, never a second
+    // source of them: an id whose preset was deleted renders nothing (and
+    // cannot be picked), and the backlog lets an older still-existing pick
+    // fill the header's three.
+    localStorage.setItem("subshell/recent-preset-picks", JSON.stringify(["gone", "p-keep"]));
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE],
+      [preset({ id: "p-keep", harnessId: "claude-code", name: "Survivor" })],
+    );
+    try {
+      await renderForm(emptyNewSubshellForm());
+      openPresetSearch();
+      await settle();
+      // The dead id shows neither as a row nor as a phantom; the survivor
+      // appears exactly once. And because it is now the WHOLE list, the
+      // header says "Presets" - "Recently used" over every row there is
+      // would label nothing.
+      expect(screen.getByText("Presets")).toBeDefined();
+      expect(screen.queryByText("Recently used")).toBeNull();
+      expect(screen.getAllByText("Survivor")).toHaveLength(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("no Recently used header before the first pick", async () => {
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE],
+      [preset({ id: "p-1", harnessId: "claude-code", name: "One" })],
+    );
+    try {
+      await renderForm(emptyNewSubshellForm());
+      openPresetSearch();
+      await settle();
+      // One unsplit list needs no headers at all.
+      expect(screen.queryByText("Recently used")).toBeNull();
+      expect(screen.queryByText("Presets")).toBeNull();
+      expect(screen.getByText("One")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a preset resets the form before copying: what it does not name goes blank", async () => {
+    // Ruling 2026-09-30, second pass: the filled form must be a FAITHFUL
+    // copy. A directory typed before the pick belongs to the previous
+    // intent; a settings-only preset names none, so the field empties
+    // (then the node's own most-recent seed may fill it - here the stub
+    // answers with nothing).
+    const plain = preset({ id: "p-plain", harnessId: "claude-code", name: "Just flags" });
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [plain]);
+    try {
+      const { latest } = await renderForm({
+        ...emptyNewSubshellForm(),
+        harnessId: "claude-code",
+        workingDir: "/typed/by/hand",
+        promptBlocks: [{ localId: "x", kind: "custom", description: "", body: "earlier intent" }],
+      });
+      await pressPreset("Just flags");
+      expect(latest().presetId).toBe("p-plain");
+      expect(latest().workingDir).toBe("");
+      expect(latest().promptBlocks).toEqual([]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("the preset link's exit is an agent change: the link drops, the copied fields stay", async () => {
+    // There is no "None" row (ruling 2026-09-30): a consumed picker holds
+    // nothing to un-select, and the preset belongs to the agent - switching
+    // agents is what drops the link. The copied fields are the form's now.
+    const host = node({
+      id: "local",
+      name: "this host",
+      kind: "local",
+      access: "view",
+      harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }],
+    });
+    const full = preset({
+      id: "p-full",
+      harnessId: "claude-code",
+      name: "Everywhere",
+      workingDir: "/srv/app",
+    });
+    const restore = mockFetch(
+      [host, ENROLLED_ONLINE],
+      [CLAUDE, plugin({ id: "pi", name: "Pi", type: "agent-harness" })],
+      [full],
+    );
+    try {
+      const { latest } = await renderForm({ ...emptyNewSubshellForm(), harnessId: "claude-code" });
+      await pressPreset("Everywhere");
+      expect(latest().workingDir).toBe("/srv/app");
+      const input = screen.getByPlaceholderText("Choose an agent") as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.click(await screen.findByRole("option", { name: "Pi" }));
+      await waitFor(() => expect(latest().harnessId).toBe("pi"));
+      expect(latest().presetId).toBeNull();
+      // The person still sees what they are about to launch with.
+      expect(latest().workingDir).toBe("/srv/app");
     } finally {
       restore();
     }

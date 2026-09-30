@@ -6,8 +6,10 @@ export interface EmptyStateProps {
   icon: LucideIcon;
   /** Headline — "No X yet" wording is e2e-pinned on some pages; pass it verbatim */
   title: string;
-  /** One or two sentences explaining what fills this space */
-  description: string;
+  /** One or two sentences explaining what fills this space; omit it when
+   *  the title and the CTA already say everything (operator ruling
+   *  2026-09-30 on the prompts page: the empty card's essay went). */
+  description?: string;
   /**
    * CTA label, e.g. "Create your first preset".
    *
@@ -51,7 +53,7 @@ export function EmptyState({
         <CardTitle className="flex items-center gap-2">
           <Icon className="h-5 w-5" /> {title}
         </CardTitle>
-        <CardDescription>{description}</CardDescription>
+        {description && <CardDescription>{description}</CardDescription>}
       </CardHeader>
       {/* Both or neither: `onAction` without a label is a nameless button,
           and a label without a handler is a button that does nothing. */}

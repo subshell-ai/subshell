@@ -26,6 +26,14 @@ explanation a control gives about itself is `detail`** (its help text, a
 "set by the environment" note, a saved-vs-running line, a validation error),
 all at one size, the same `detail` that carries metadata (timestamps,
 versions, counts); `body` is running text not attached to a control.
+**A dialog title is static: never interpolate user data into it unless a
+spec says so** - long names wrap the heading and shove the content down;
+name the act ("Send prompt to agent?") and let the body carry the data
+(ruling 2026-09-30).
+**A required input takes a gold `*` at rest and a gold caption once the caret
+leaves it empty; a hard error (a refused value, a server refusal) stays
+`text-destructive` red** (ruling 2026-09-30: gold says "nothing typed yet",
+red says "what you typed is wrong"; `fieldErrorToned` reads the split).
 **There is no 12px**: `detail` (13) is the floor, and `text-xs` /
 `text-caption` are refused by `lint:design`. Long actions show the
 process's own last line; failures render on the thing that failed. The full

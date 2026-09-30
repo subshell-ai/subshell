@@ -1,6 +1,7 @@
 import type { Node } from "@internal/node-admin";
 import { isOfflineAgent } from "@/lib/node-label";
 import type { PromptBlock } from "@/lib/prompt-stack";
+import { launchableNodes } from "@/lib/subshell-compat";
 
 /**
  * The launch form's pure contract: the value the caller owns, the submit
@@ -14,7 +15,9 @@ import type { PromptBlock } from "@/lib/prompt-stack";
 export interface NewSubshellFormValue {
   /** Agent (plugin) to launch — the one required choice */
   harnessId: string;
-  /** Preset to launch from; null = "None", a real presetless launch */
+  /** Preset to launch from; null is a real presetless launch (the picker's
+   *  "None" row retired 2026-09-30 - an untouched consumed input already IS
+   *  the no-preset state) */
   presetId: string | null;
   /**
    * Launch node — defaults to "local" (the control-plane host). "" means no
@@ -24,25 +27,37 @@ export interface NewSubshellFormValue {
   nodeId: string;
   workingDir: string;
   /**
-   * The "Add a prompt" checkbox (spec 2026-09-28): untouched, the prompt
-   * section renders nothing and the create body carries no `prompt` field,
-   * so the dialog's footprint grows only when the user asks for it.
-   */
-  promptEnabled: boolean;
-  /**
-   * The picked/written prompt blocks, in the order they will be typed.
-   * Always starts empty; a clone copies settings, not prompts.
+   * The prompt stack, in the order it will be typed (spec 2026-09-28,
+   * checkbox retired 2026-09-30: the blocks ARE the switch). Empty, the
+   * create body carries no `prompt` field. Always starts empty; a clone
+   * copies settings, not prompts.
    */
   promptBlocks: PromptBlock[];
+  /**
+   * "Save as preset" (operator ruling 2026-09-30, replacing the picker's
+   * `+`): on submit the launch ALSO creates a new preset from the agent,
+   * machine, directory and prompts as filled here, and launches FROM it -
+   * when a preset was already picked, its settings are copied into the new
+   * row first, so nothing about the launch differs either way (review
+   * round 3 made the copy faithful; see use-create-subshell). Optional on
+   * the type - an absent value is the untouched false; no existing caller
+   * literal changes.
+   */
+  saveAsPreset?: boolean;
+  /** The new preset's name; REQUIRED (trimmed) while `saveAsPreset` is checked. */
+  presetName?: string;
 }
 
 export function emptyNewSubshellForm(): NewSubshellFormValue {
-  return { harnessId: "", presetId: null, workingDir: "", nodeId: "local", promptEnabled: false, promptBlocks: [] };
+  return { harnessId: "", presetId: null, workingDir: "", nodeId: "local", promptBlocks: [] };
 }
 
 /** True once the form has everything the create call requires. */
 export function canSubmit(value: NewSubshellFormValue): boolean {
-  return Boolean(value.harnessId) && Boolean(value.workingDir.trim()) && Boolean(value.nodeId);
+  // A checked "Save as preset" without a name is an unnamed promise; the
+  // field is required exactly while the box is checked (ruling 2026-09-30).
+  const presetNamed = value.saveAsPreset !== true || (value.presetName ?? "").trim() !== "";
+  return Boolean(value.harnessId) && Boolean(value.workingDir.trim()) && Boolean(value.nodeId) && presetNamed;
 }
 
 /**
@@ -62,23 +77,6 @@ export function isSelectable(n: Node): boolean {
   // the list keeps, so a payload cached before the flip would otherwise offer
   // a launch the node itself refuses at the pane.
   return !isOfflineAgent(n) && n.canLaunch && !n.maintenance;
-}
-
-/**
- * The machines this picker LISTS — launchable, plus the one unlaunchable kind
- * worth showing.
- *
- * A host narrowed by its shares is FILTERED rather than greyed: a greyed row
- * is a choice with a reason, and "the host you were never granted" is not a
- * choice at all — the empty state says what to do about it, once,
- * instead of every row saying it. A node in MAINTENANCE is kept and greyed
- * (spec 2026-09-14 §6), because it is a choice with a reason and a way back:
- * somebody is working on that machine, it will take subshells again, and
- * whoever manages it can end the window from its page. Hiding it would leave
- * a person hunting for a node that had simply vanished.
- */
-export function launchableNodes(nodes: Node[]): Node[] {
-  return nodes.filter((n) => n.canLaunch || n.maintenance);
 }
 
 /**
@@ -131,8 +129,6 @@ export function pickNodeDefault(nodes: Node[], current: string): string {
  * different moment rather than a second spelling of this one.
  */
 export interface NewSubshellFormIds {
-  /** "Copy settings from" combobox input */
-  copy: string;
   /** Agent combobox input */
   agent: string;
   /** Preset select trigger */
@@ -141,16 +137,21 @@ export interface NewSubshellFormIds {
   workingDir: string;
   /** Node combobox input */
   node: string;
-  /** "Add a prompt" checkbox input */
+  /** Add-prompt button of the shared prompt section */
   prompt: string;
+  /** "Save as preset" checkbox */
+  savePreset: string;
+  /** New-preset name input, shown while the box is checked */
+  presetName: string;
 }
 
 /** The `picker-*` set every launch dialog gets by default. */
 export const DIALOG_IDS: NewSubshellFormIds = {
-  copy: "picker-copy",
   agent: "picker-agent",
   preset: "picker-preset",
   workingDir: "picker-working-dir",
   node: "picker-node",
   prompt: "picker-prompt-add",
+  savePreset: "picker-save-as-preset",
+  presetName: "picker-preset-name",
 };

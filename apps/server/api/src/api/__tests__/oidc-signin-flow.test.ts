@@ -750,7 +750,8 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
     expect(toIdp.status).toBe(302);
     const callbackUrl = toIdp.headers.get("location");
     expect(callbackUrl).toStartWith(`${CANON}/api/auth/callback/${provider}`);
-    const cb = (await app.fetch(new Request(callbackUrl!, { headers: { cookie } }))) as Response;
+    if (callbackUrl === null) throw new Error("the IdP answered 302 with no Location");
+    const cb = (await app.fetch(new Request(callbackUrl, { headers: { cookie } }))) as Response;
     const token = (cb.headers
       .getSetCookie()
       .join("\n")

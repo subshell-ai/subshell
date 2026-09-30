@@ -1,34 +1,30 @@
 import type { Node } from "@internal/node-admin";
-import { Button, Label } from "@internal/node-admin";
+import { Input, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
 import type { JSX } from "react";
-import { useMemo, useState } from "react";
-import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
-import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
-import { PromptStackList } from "@/components/prompts/prompt-stack-list";
+import { useState } from "react";
+import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import {
   DIALOG_IDS,
   hideMachineField,
   isSelectable,
-  launchableNodes,
   type NewSubshellFormIds,
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/launch-form-rules";
 import { NoLaunchTargets } from "@/components/subshell-picker/no-launch-targets";
 import { useLaunchFormDefaults } from "@/components/subshell-picker/use-launch-form-defaults";
-import { SearchableSelect } from "@/components/ui/combobox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { type InstancePluginRow, useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
-import { COPY_CATEGORY_PREVIEW, copySettingsOptions } from "@/lib/launch-defaults";
 import { isOfflineAgent } from "@/lib/node-label";
-import { movePromptBlock, removePromptBlock } from "@/lib/prompt-stack";
-import { buildAgentOptions, buildNodeOptions } from "@/lib/subshell-compat";
+import { loadRecentPresetPicks, recordRecentPresetPick } from "@/lib/preset-recents";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
+import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subshell-compat";
 
 // The pure half of this form — the value contract, the submit gate, the
 // node-pick rules, the field-id sets — is `launch-form-rules.ts`; the ONE
@@ -41,26 +37,34 @@ import { buildAgentOptions, buildNodeOptions } from "@/lib/subshell-compat";
  * screen. State lives in the caller (so each can gate and reset its own
  * submit), this file owns the layout and the pairing (spec 2026-09-13 §5).
  *
- * The AGENT is asked first, directly — the pickers before this design were
- * harness pickers wearing a saved-configuration costume, and making the
- * preset optional deleted the seeded Default that made the row required.
- * Agent options are the whole plugin set, greyed never hidden (the 2026-09-02
- * rule, unchanged; the reasons live in `lib/subshell-compat`), and the
- * server's 409 stays the authoritative backstop for anything the cached views
- * got wrong. Preset lists only the chosen agent's presets with "None" first;
- * its `+` opens a nested create dialog with the agent locked, and a created
- * preset becomes the selection. Changing the agent resets the preset. First
- * run hides the Preset row — a new account has zero presets and the row would
- * offer only "None".
+ * The PRESET leads (operator ruling 2026-09-30): a type-to-filter list of
+ * every preset — the last three picked lead under "Recently used", the rest
+ * under "Presets" — and picking one RESETS the
+ * form and COPIES the fields below it (agent, machine, directory, prompt),
+ * each still editable, because a preset is a starting point, not a lock.
+ * The reset makes the copy faithful: a value typed before the pick that
+ * the preset does not name does not survive the pick. The input returns to its
+ * placeholder after the pick: the row names an act ("copy this in"), not a
+ * held state, so the filled form reads as a copy and edits visibly belong to
+ * the launch, not to the preset. There is no create `+` on the row (ruling
+ * 2026-09-30): a preset worth keeping is MADE from the whole form, by
+ * "Save as preset" at its bottom, which requires a name and saves a NEW
+ * row. The AGENT below it stays a direct question: options
+ * are the whole plugin set, greyed never hidden (the 2026-09-02 rule,
+ * unchanged; the reasons live in `lib/subshell-compat`), and the server's
+ * 409 stays the authoritative backstop for anything the cached views got
+ * wrong. Changing the agent clears the preset pick — the preset belongs to
+ * the agent. First run hides the Preset row — a new account has zero presets
+ * and the row would have nothing to offer.
  *
  * **It opens on your last launch** (operator rule, 2026-09-25): node,
  * directory, agent and preset pre-fill from the newest prior subshell, once,
- * while the form is still untouched — and the "Copy settings from" row on top
- * applies any listed row's settings as an explicit act, after edits included.
- * Both are defaults, never constraints: every field stays re-pickable, and
- * the form's own arms degrade an unsafe copy (an offline source node re-homes
- * and re-seeds the directory exactly like a machine switch; a preset that
- * does not belong to the landed agent is dropped). The wiring is
+ * while the form is still untouched — and choosing a preset re-applies from
+ * ITS stored launch trio (spec 2026-09-29-preset-launch-fields). Both are
+ * defaults, never constraints: every field stays re-pickable, and the form's
+ * own arms degrade an unsafe prefill (an offline source node re-homes and
+ * re-seeds the directory exactly like a machine switch; a preset that does
+ * not belong to the landed agent is dropped). The wiring is
  * `use-launch-form-defaults.ts`; the selectors are `lib/launch-defaults.ts`.
  *
  * **It does not ask for a name.** The server names a new subshell after its
@@ -102,9 +106,9 @@ export function NewSubshellForm({
   // One list, one key: availability is the SERVER's store-scoped question
   // (is the agent installed+enabled on the instance), so a preset whose
   // agent runs only on ANOTHER machine is listed here too — the form reads
-  // the same `["presets"]` every other surface does. Agent-scoping stays
-  // client-side (`p.harnessId === value.harnessId`); per-node fit is the
-  // grey matrix, never a list filter.
+  // the same `["presets"]` every other surface does. The Preset row lists
+  // ALL of them (it leads the form and fills the agent); per-node fit is
+  // the grey matrix, never a list filter.
   const { data: presetRows } = usePresets();
   const presets = presetRows ?? [];
 
@@ -121,9 +125,9 @@ export function NewSubshellForm({
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
 
   // The ONE effect (prior-launch node+dir → re-home → seed → agent+preset)
-  // and `applyCopy`, the picker's explicit act that applies over edits and
-  // cancels a pending auto-default.
-  const applyCopy = useLaunchFormDefaults({
+  // and `applyPreset`, choosing a preset's explicit act (select + prefill its
+  // launch trio), which cancels a pending auto-default.
+  const { applyPreset } = useLaunchFormDefaults({
     value,
     onChange,
     nodes,
@@ -136,27 +140,47 @@ export function NewSubshellForm({
     firstRun,
   });
 
-  // The "Copy settings from" rows, newest first — the same live list, no
-  // second source. Labels resolve against the node registry and the plugin
-  // catalog when those have answered; until then the rows carry their
-  // fallbacks (short id, raw slug), never a name proven by nothing.
-  const copyOptions = useMemo(
-    () => copySettingsOptions(subshells, nodes ?? [], plugins ?? []),
-    [subshells, nodes, plugins],
-  );
-
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
   const selectedAgent: InstancePluginRow | undefined = (plugins ?? []).find((p) => p.id === value.harnessId);
   const agentName = selectedAgent?.name ?? value.harnessId;
-  const agentPresets = presets.filter((p) => p.harnessId === value.harnessId);
+  // The section order re-renders the moment a pick lands, so the pick rides
+  // state as well as the store.
+  const [recentPresetIds, setRecentPresetIds] = useState<string[]>(() => loadRecentPresetPicks());
+  // The blur gate for the new-preset name caption (the preset editors' rule).
+  const [presetNameTouched, setPresetNameTouched] = useState(false);
 
-  const [createPresetOpen, setCreatePresetOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
-  // "Copy settings from" is collapsed until asked for (operator ruling
-  // 2026-09-29): a launch that does not copy pays nothing in screen. This is
-  // pure UI reveal (like `pickerOpen`), NOT form value — it never touches the
-  // wire, the touched-gate, or the prior-launch auto-default.
-  const [copyOpen, setCopyOpen] = useState(false);
+  // The picker's list: the up-to-3 last-picked presets under "Recently
+  // used", the rest under "Presets" (ruling 2026-09-30) - both sections
+  // labelled, so no hairline is needed, and with nothing recent the single
+  // list needs no header at all. There is NO "None" row: a consumed picker
+  // holds nothing to un-select, the untouched form already IS "no preset",
+  // and changing the agent is the documented way to drop a link a copy
+  // left. A name is unique per agent, so each row carries its agent as the
+  // muted reason: two "Fast" rows read Fast  Claude Code / Fast  Pi.
+  const presetList: ComboboxOption[] = (() => {
+    const names = new Map((plugins ?? []).map((p) => [p.id, p.name]));
+    const all: ComboboxOption[] = presets.map((p) => ({
+      value: p.id,
+      label: p.name,
+      reason: names.get(p.harnessId) ?? p.harnessId,
+    }));
+    const recentValues = new Set<string>();
+    const recents: ComboboxOption[] = [];
+    for (const id of recentPresetIds) {
+      if (recents.length >= 3) break;
+      const opt = all.find((o) => o.value === id);
+      if (opt === undefined || recentValues.has(id)) continue;
+      recents.push({ ...opt, group: "Recently used" });
+      recentValues.add(id);
+    }
+    const rest = all.filter((o) => !recentValues.has(o.value));
+    // A header only earns its keep when it SPLITS the list: if the recents
+    // were everything, or there are none, one unlabelled "Presets" list is
+    // the truth - not a header floating above another header.
+    if (recents.length === 0) return rest;
+    if (rest.length === 0) return recents.map((o) => ({ ...o, group: "Presets" }));
+    return [...recents, ...rest.map((o) => ({ ...o, group: "Presets" }))];
+  })();
 
   const targets = launchableNodes(nodes ?? []);
   const agentOptions = buildAgentOptions(plugins ?? [], selectedNode);
@@ -195,50 +219,47 @@ export function NewSubshellForm({
 
   return (
     <div className="space-y-4">
-      {/* First, because it is cause and the four fields below are effect:
-          one pick fills all four, and the row returns to its placeholder the
-          moment it fires. A CHECKBOX until asked for (so a copy-less launch
-          pays nothing in screen), and hidden with nothing to copy (a first
-          account, an unanswered list) and on the setup assistant's first
-          launch. Inside it the list is divided into Active and Recently
-          terminated, at most `COPY_CATEGORY_PREVIEW` of each before you search
-          (see copySettingsOptions + the combobox's preview cap). */}
-      {!firstRun && copyOptions.length > 0 && (
+      {/* Preset leads the form (operator ruling 2026-09-30): picking one
+          FILLS the fields below it - agent, machine, directory, prompt -
+          and everything stays editable, which is the whole point of
+          filling rather than hiding. First run hides the row: a picker
+          whose only offer is emptiness is a control with no choice. */}
+      {!firstRun && (
         <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id={`${ids.copy}-toggle`}
-              checked={copyOpen}
-              onChange={(e) => setCopyOpen(e.target.checked)}
-              className="h-4 w-4 rounded border border-input bg-background accent-primary"
-            />
-            <Label htmlFor={`${ids.copy}-toggle`}>Copy settings from a subshell</Label>
-          </div>
-          {copyOpen && (
-            <>
-              {/* The reveal checkbox is labelled; the input behind it needs its
-                  own association too - a placeholder is the last-resort name. */}
-              <Label htmlFor={ids.copy} className="sr-only">
-                Copy settings from a subshell
-              </Label>
-              <SearchableSelect
-                id={ids.copy}
-                // The consumed posture, pinned: a copy is an action, not a held
-                // selection the re-pickable fields would then contradict.
-                value=""
-                placeholder="Search recent subshells"
-                options={copyOptions}
-                // A few per category in the calm view; a typed query lifts it so
-                // a search reaches every prior subshell, not just the shown few.
-                groupPreviewLimit={COPY_CATEGORY_PREVIEW}
-                onValueChange={(id) => id !== "" && applyCopy(id)}
-              />
-            </>
+          <Label htmlFor={ids.preset}>Preset</Label>
+          <SearchableSelect
+            id={ids.preset}
+            // CONSUMED (the prompt picker's posture, now the ruling's too):
+            // the pick is an action, the closed state is the placeholder,
+            // nothing holds a selection. presetId still rides the launch
+            // (the preset's flags and env come with it); changing the
+            // agent drops it and keeps the filled fields. There is no `+`
+            // beside it any more (ruling 2026-09-30): a preset you want to
+            // keep is MADE from this form, at its bottom - "Save as
+            // preset".
+            consumed
+            value=""
+            placeholder="Choose a preset"
+            options={presetList}
+            describedBy={`${ids.preset}-hint${presets.length === 0 ? ` ${ids.preset}-empty` : ""}`}
+            onValueChange={(v) => {
+              if (v === "") return;
+              const row = presets.find((p) => p.id === v);
+              if (row === undefined) return;
+              applyPreset(row);
+              setRecentPresetIds(recordRecentPresetPick(row.id));
+            }}
+          />
+          <p id={`${ids.preset}-hint`} className="text-detail text-muted-foreground">
+            Picking one copies its launch settings into this form.
+          </p>
+          {presets.length === 0 && (
+            <p id={`${ids.preset}-empty`} className="text-detail text-muted-foreground">
+              No presets yet.
+            </p>
           )}
         </div>
       )}
-
       <div className="space-y-2">
         <Label htmlFor={ids.agent}>Agent</Label>
         {firstRun && (
@@ -262,7 +283,8 @@ export function NewSubshellForm({
           value={value.harnessId}
           placeholder="Choose an agent"
           options={agentOptions}
-          // The preset belongs to the agent, so a new agent starts at None.
+          // The preset belongs to the agent, so a new agent drops the pick
+          // (the copy's fields stay - they are the form's now).
           onValueChange={(harnessId) => harnessId !== "" && onChange({ ...value, harnessId, presetId: null })}
         />
         {noAgentHere && selectedNode ? (
@@ -284,82 +306,6 @@ export function NewSubshellForm({
           </p>
         ) : null}
       </div>
-
-      {/* First run hides the row entirely: a new account has zero presets, and
-          a picker whose only option is "None" is a control with no choice. */}
-      {!firstRun && (
-        <div className="space-y-2">
-          <Label htmlFor={ids.preset}>Preset</Label>
-          <div className="flex items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <Select
-                // "none" is the picker sentinel for "no preset" — the form
-                // state keeps null and the wire omits presetId (see toSubshellCreateBody).
-                value={value.presetId ?? "none"}
-                onValueChange={(v) => v !== null && onChange({ ...value, presetId: v === "none" ? null : v })}
-                // Base UI's Value prints the raw value without this map;
-                // labels must match the item texts below exactly.
-                items={[{ value: "none", label: "None" }, ...agentPresets.map((p) => ({ value: p.id, label: p.name }))]}
-              >
-                <SelectTrigger
-                  id={ids.preset}
-                  // Same association as the Agent field: the lines under this
-                  // select say what a preset IS here and whether this agent
-                  // has any, and only `aria-describedby` puts them in the
-                  // announcement.
-                  aria-describedby={
-                    value.harnessId !== ""
-                      ? `${ids.preset}-hint${agentPresets.length === 0 ? ` ${ids.preset}-empty` : ""}`
-                      : undefined
-                  }
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {agentPresets.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              variant="outline"
-              size="icon"
-              aria-label="New preset"
-              disabled={value.harnessId === ""}
-              onClick={() => setCreatePresetOpen(true)}
-            >
-              <Plus />
-            </Button>
-          </div>
-          {value.harnessId !== "" && (
-            <>
-              <p id={`${ids.preset}-hint`} className="text-detail text-muted-foreground">
-                Saved flags, env vars and restart policy for {agentName}.
-              </p>
-              {agentPresets.length === 0 && (
-                <p id={`${ids.preset}-empty`} className="text-detail text-muted-foreground">
-                  No presets for {agentName} yet.
-                </p>
-              )}
-            </>
-          )}
-          {/* Mounted only while open, so every open starts from a blank form
-              (clone-dialog posture). Base UI nests the dialogs natively:
-              Escape closes this one and the launch dialog stays up. */}
-          {createPresetOpen && value.harnessId !== "" && (
-            <CreatePresetDialog
-              open
-              lockedHarness={value.harnessId}
-              onOpenChange={(next) => !next && setCreatePresetOpen(false)}
-              onCreated={(row) => onChange({ ...value, presetId: row.id })}
-            />
-          )}
-        </div>
-      )}
 
       {/* Hidden when the host is the only place it could run: a picker with
           one option is a control that cannot be used, and on a fresh install
@@ -396,64 +342,64 @@ export function NewSubshellForm({
         />
       </div>
 
-      {/* Prompts (spec 2026-09-28): one checkbox when untouched, so a launch
-          that does not use a prompt pays nothing in screen. Checked, the
-          stack and its Add button appear; the joined text rides the create
-          body's existing `prompt` field and is typed once the harness
-          settles. The section lives HERE so all four launch surfaces get
-          it; the clone dialog copies settings, never a prompt. */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id={ids.prompt}
-            checked={value.promptEnabled}
-            onChange={(e) => onChange({ ...value, promptEnabled: e.target.checked })}
-            className="h-4 w-4 rounded border border-input bg-background accent-primary"
-          />
-          <Label htmlFor={ids.prompt}>Add a prompt</Label>
-        </div>
-        {value.promptEnabled && (
-          <>
-            {value.promptBlocks.length > 0 && (
-              <PromptStackList
-                blocks={value.promptBlocks}
-                onReorder={(localId, dir) =>
-                  onChange({ ...value, promptBlocks: movePromptBlock(value.promptBlocks, localId, dir) })
-                }
-                onRemove={(localId) =>
-                  onChange({ ...value, promptBlocks: removePromptBlock(value.promptBlocks, localId) })
-                }
+      {/* Prompts (spec 2026-09-28, restated 2026-09-30): the SAME section the
+          preset editors show - a divider, "Add prompts", the stack, an
+          always-visible Add button. The checkbox is gone (it hid the add
+          control behind a decision nobody asked for); what you stacked is
+          what rides the create body, typed once the harness settles. The
+          section lives HERE so all four launch surfaces get it; the clone
+          dialog copies settings, never a prompt. */}
+      <PromptStackSection
+        blocks={value.promptBlocks}
+        onBlocksChange={(promptBlocks) => onChange({ ...value, promptBlocks })}
+        addButtonId={ids.prompt}
+      />
+
+      {/* Save as preset (operator ruling 2026-09-30, replacing the picker's
+          `+`): the launch you just assembled can be kept, as a NEW preset
+          holding the agent, machine, directory and prompts as filled here.
+          The name is required exactly while the box is checked (the gold
+          star, the blur caption, and `canSubmit` say so together); a
+          checked box with a blank name never submits. Nothing here edits
+          an existing preset - even a form copied from one saves a new row.
+          Hidden on first run, where the wizard asks nothing it cannot
+          show. */}
+      {!firstRun && (
+        <div className="space-y-2 border-t pt-3">
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id={ids.savePreset}
+              checked={value.saveAsPreset === true}
+              onChange={(e) => onChange({ ...value, saveAsPreset: e.target.checked })}
+              className="h-4 w-4 rounded border border-input bg-background accent-primary"
+            />
+            <Label htmlFor={ids.savePreset}>Save as preset</Label>
+          </div>
+          {value.saveAsPreset === true && (
+            <div className="space-y-2">
+              <Label htmlFor={ids.presetName}>
+                Name
+                <RequiredMark />
+              </Label>
+              <Input
+                id={ids.presetName}
+                value={value.presetName ?? ""}
+                onChange={(e) => onChange({ ...value, presetName: e.target.value })}
+                onBlur={() => setPresetNameTouched(true)}
+                placeholder="e.g. Fast model"
+                aria-required
               />
-            )}
-            {/* The picker INLINE (operator ruling 2026-09-29: the dialog-
-                on-dialog-on-dialog stack read as weird; this is the same
-                BODY the inject action puts on a Dialog, so "choose a
-                prompt" is one component in both places). A pick lands the
-                block and collapses back to the button; the half-typed
-                CUSTOM text outlives the collapse on purpose (the picker's
-                sessionStorage draft, durable until submitted). */}
-            {pickerOpen ? (
-              <div className="rounded-lg border p-3">
-                <PromptPickerBody
-                  surface="inline"
-                  mode="multi"
-                  onPick={(block) => {
-                    onChange({ ...value, promptBlocks: [...value.promptBlocks, block] });
-                    setPickerOpen(false);
-                  }}
-                  onExit={() => setPickerOpen(false)}
-                />
-              </div>
-            ) : (
-              <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
-                <Plus /> Add prompt
-              </Button>
-            )}
-            <p className="text-detail text-muted-foreground">Typed into the pane when the subshell starts.</p>
-          </>
-        )}
-      </div>
+              {presetNameTouched && (value.presetName ?? "").trim() === "" && (
+                <p className={REQUIREMENT_CAPTION_CLASS}>A name is required.</p>
+              )}
+              <p className="text-detail text-muted-foreground">
+                Saves a new preset with the agent, machine, directory and prompts as filled here.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

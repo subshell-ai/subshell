@@ -15,7 +15,7 @@ Cloudflare Tunnel is the one network plugin that inverts the posture: instead of
 The plugin does not create Cloudflare resources: the tunnel, its public hostname, and its Access application are yours, created in the Cloudflare dashboard, and an unpublish will never delete them either. What the plugin needs is four settings that describe what you built:
 
 - **Hostname**: the bare public name the tunnel answers on, like `subshell.example.com`.
-- **Access team domain**: your team, as the slug or the full `myteam.cloudflareaccess.com`.
+- **Team domain**: your team, as the slug or the full `myteam.cloudflareaccess.com`.
 - **Access application Audience tag**: the AUD tag of the application guarding that hostname; every assertion is verified against it.
 - **Tunnel token**: the connector token, pasted from Zero Trust → Networks → Tunnels → the tunnel's connector.
 

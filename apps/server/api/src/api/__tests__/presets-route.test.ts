@@ -316,14 +316,16 @@ describe("preset write routes (cookie only) + env name validation", () => {
 });
 
 /**
- * The pin died with spec 2026-09-13 §2.3: the routes neither read nor store a
- * node. What replaces the pinning suite is the pair of facts the deletion
- * leaves on the wire — a stray `nodeId` in a POST body is stripped and
- * changes nothing (PUT rejects it instead: its body schema is strict, see
- * below), and DELETE NULLS the referencing subshells (their restart falls
- * back to the empty preset instead of erroring).
+ * The preset's node dimension came BACK with spec 2026-09-29 (it died with
+ * 2026-09-13 §2.3): a preset may now NAME an optional launch node, working
+ * dir, and prompt, so the launch form prefills and an MCP launch works from the
+ * preset's name alone. What is unchanged: DELETE still NULLS the referencing
+ * subshells (their restart falls back to the empty preset instead of erroring),
+ * and PUT's body schema is still strict - every field it cannot apply is
+ * refused, now including genuinely unknown properties, no longer the launch
+ * trio.
  */
-describe("preset writes have no node dimension (spec 2026-09-13 §6)", () => {
+describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
   const pw = "nopin-pass-1234";
   const ownerEmail = `nopin-${crypto.randomUUID()}@subshell.local`;
   const repo = new PresetsRepository(db);
@@ -352,34 +354,148 @@ describe("preset writes have no node dimension (spec 2026-09-13 §6)", () => {
     delete process.env.CLAUDE_PATH;
   });
 
-  it("POST body carrying nodeId has no persisted effect", async () => {
+  it("POST carries the three launch fields, all null when the body says none", async () => {
+    // The "no node dimension" posture is reversed by spec 2026-09-29: the row
+    // now NAMES a launch (node, dir, prompt) as optional columns. A body that
+    // names nothing still creates - these are additive; a preset with all NULL
+    // is the ordinary settings-only preset and reads all-null.
     const res = await app.fetch(
       authedRequest("/api/presets", ownerCookie, {
         method: "POST",
-        body: JSON.stringify({ harnessId: "claude-code", name: "stray-node-id", nodeId: crypto.randomUUID() }),
+        body: JSON.stringify({ harnessId: "claude-code", name: "launch-nulls" }),
       }),
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     createdPresetIds.push(body.id as string);
-    // Elysia strips the unknown field; the row shape is exactly the schema's.
+    // The row shape is exactly the schema's, now INCLUDING the three columns.
     expect(Object.keys(body).sort()).toEqual(
       [
         "configIsolation",
         "createdAt",
+        "crossCommEnabled",
         "description",
         "envJson",
         "flagsJson",
         "harnessId",
         "id",
         "name",
+        "nodeId",
+        "promptBlocks",
         "restartOnExit",
         "settingsJson",
         "updatedAt",
         "userId",
+        "workingDir",
       ].sort(),
     );
-    expect(await repo.findById(body.id as string)).toBeDefined();
+    expect(body.nodeId).toBeNull();
+    expect(body.workingDir).toBeNull();
+    expect(body.promptBlocks).toBeNull();
+    // Cross-comm is an OPT-IN (migration 0043): a fresh preset is off.
+    expect(body.crossCommEnabled).toBe(0);
+  });
+
+  it("the cross-comm switch only stands on a row that carries the trio (spec 2026-09-29, migration 0043)", async () => {
+    const _blocks = [{ kind: "custom", description: "", body: "go" }];
+    // ON without the trio: refused, naming the rule.
+    const bad = await app.fetch(
+      authedRequest("/api/presets", ownerCookie, {
+        method: "POST",
+        body: JSON.stringify({ harnessId: "claude-code", name: "cc-bad", crossCommEnabled: true }),
+      }),
+    );
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { message: string }).message).toContain("needs a machine");
+    // ON with a machine but NO directory: still refused.
+    const noDir = await app.fetch(
+      authedRequest("/api/presets", ownerCookie, {
+        method: "POST",
+        body: JSON.stringify({ harnessId: "claude-code", name: "cc-nodir", crossCommEnabled: true, nodeId: "local" }),
+      }),
+    );
+    expect(noDir.status).toBe(400);
+    // ON with a machine and a directory: lands enabled - the prompt is NOT a
+    // requirement (re-ruling 2026-09-30), so nothing is typed and the promise
+    // still holds.
+    const good = await app.fetch(
+      authedRequest("/api/presets", ownerCookie, {
+        method: "POST",
+        body: JSON.stringify({
+          harnessId: "claude-code",
+          name: "cc-on",
+          crossCommEnabled: true,
+          nodeId: "local",
+          workingDir: "/srv/app",
+        }),
+      }),
+    );
+    expect(good.status).toBe(200);
+    const row = (await good.json()) as { id: string; crossCommEnabled: number };
+    createdPresetIds.push(row.id);
+    expect(row.crossCommEnabled).toBe(1);
+    // PUT: enabling an incomplete row is the same 400...
+    const enableBad = await app.fetch(
+      authedRequest(`/api/presets/${row.id}`, ownerCookie, {
+        method: "PUT",
+        body: JSON.stringify({ crossCommEnabled: true, workingDir: null }),
+      }),
+    );
+    expect(enableBad.status).toBe(400);
+    // ...the trio break alone saves fine while the switch is OFF, and turning
+    // the switch off saves even with gaps.
+    const off = await app.fetch(
+      authedRequest(`/api/presets/${row.id}`, ownerCookie, {
+        method: "PUT",
+        body: JSON.stringify({ crossCommEnabled: false, workingDir: null }),
+      }),
+    );
+    expect(off.status).toBe(200);
+    expect(((await off.json()) as { crossCommEnabled: number; workingDir: string | null }).crossCommEnabled).toBe(0);
+  });
+
+  it("POST persists a launchable node, dir, and prompt; an unlaunchable node is refused", async () => {
+    const good = await app.fetch(
+      authedRequest("/api/presets", ownerCookie, {
+        method: "POST",
+        body: JSON.stringify({
+          harnessId: "claude-code",
+          name: "cross-comm",
+          nodeId: "local",
+          workingDir: "/srv/app",
+          promptBlocks: [{ kind: "custom", description: "", body: "go" }],
+        }),
+      }),
+    );
+    expect(good.status).toBe(200);
+    const row = (await good.json()) as Record<string, unknown>;
+    createdPresetIds.push(row.id as string);
+    expect(row.nodeId).toBe("local");
+    expect(row.workingDir).toBe("/srv/app");
+    expect(JSON.parse(row.promptBlocks as string)).toEqual([{ kind: "custom", description: "", body: "go" }]);
+
+    // A node id that names nothing the caller could launch on is refused, and
+    // nothing lands (the row died at validation, exactly the old PUT's posture).
+    const bad = await app.fetch(
+      authedRequest("/api/presets", ownerCookie, {
+        method: "POST",
+        body: JSON.stringify({ harnessId: "claude-code", name: "phantom-node", nodeId: crypto.randomUUID() }),
+      }),
+    );
+    expect(bad.status).toBe(404);
+    const list = await app.fetch(authedRequest("/api/presets", ownerCookie));
+    const names = ((await list.json()) as { name: string }[]).map((p) => p.name);
+    expect(names).not.toContain("phantom-node");
+  });
+
+  it("a relative preset dir is 400", async () => {
+    const res = await app.fetch(
+      authedRequest("/api/presets", ownerCookie, {
+        method: "POST",
+        body: JSON.stringify({ harnessId: "claude-code", name: "rel-dir", workingDir: "srv/app" }),
+      }),
+    );
+    expect(res.status).toBe(400);
   });
 
   /** Seeds an updatable claude-code preset owned by this suite's user. */
@@ -404,18 +520,56 @@ describe("preset writes have no node dimension (spec 2026-09-13 §6)", () => {
 
   // PUT's body schema is its OWN and strict (TODO 8): every field the update
   // cannot apply is refused as an unknown property, never 200'd into silence.
-  // POST keeps its lenient strip (the nodeId test above).
-  it("PUT body carrying nodeId is refused 400, not silently stripped", async () => {
-    const id = await seedUpdatable("put-stray");
-    const res = await app.fetch(
+  // The launch trio is now APPLICABLE (spec 2026-09-29); a genuinely unknown
+  // key still dies at the transform, and a real-but-unlaunchable nodeId dies
+  // at the node gate - either way nothing lands.
+  it("PUT persists the launch fields; explicit null clears; an unknown key still 400s", async () => {
+    const id = await seedUpdatable("put-launch");
+    const set = await app.fetch(
       authedRequest(`/api/presets/${id}`, ownerCookie, {
         method: "PUT",
-        body: JSON.stringify({ name: "put-stray-2", nodeId: crypto.randomUUID() }),
+        body: JSON.stringify({ nodeId: "local", workingDir: "/srv/app" }),
       }),
     );
-    expect(res.status).toBe(400);
-    // Nothing landed — the whole request died at validation.
-    expect((await repo.findById(id))?.name).toBe("put-stray");
+    expect(set.status).toBe(200);
+    let row = await repo.findById(id);
+    expect(row?.nodeId).toBe("local");
+    expect(row?.workingDir).toBe("/srv/app");
+
+    // Absent means untouched: a PUT naming no node keeps the row's "local".
+    await app.fetch(
+      authedRequest(`/api/presets/${id}`, ownerCookie, {
+        method: "PUT",
+        body: JSON.stringify({ name: "put-renamed" }),
+      }),
+    );
+    row = await repo.findById(id);
+    expect(row?.name).toBe("put-renamed");
+    expect(row?.nodeId).toBe("local");
+
+    // Explicit null clears (a real null meaning the row can hold).
+    await app.fetch(
+      authedRequest(`/api/presets/${id}`, ownerCookie, { method: "PUT", body: JSON.stringify({ nodeId: null }) }),
+    );
+    row = await repo.findById(id);
+    expect(row?.nodeId).toBeNull();
+
+    // A genuinely unknown property is still refused as an unknown key.
+    const stray = await app.fetch(
+      authedRequest(`/api/presets/${id}`, ownerCookie, { method: "PUT", body: JSON.stringify({ bogus: 1 }) }),
+    );
+    expect(stray.status).toBe(400);
+
+    // A real-but-phantom nodeId dies at the node gate (404), and the whole
+    // request - including the rename it rode with - lands nothing.
+    const phantom = await app.fetch(
+      authedRequest(`/api/presets/${id}`, ownerCookie, {
+        method: "PUT",
+        body: JSON.stringify({ name: "put-phantom", nodeId: crypto.randomUUID() }),
+      }),
+    );
+    expect(phantom.status).toBe(404);
+    expect((await repo.findById(id))?.name).toBe("put-renamed");
   });
 
   it("renaming onto a name the caller already uses is 409, and nothing lands", async () => {

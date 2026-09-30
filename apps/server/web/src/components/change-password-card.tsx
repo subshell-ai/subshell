@@ -1,9 +1,11 @@
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Label } from "@internal/node-admin";
 import { useState } from "react";
 import { z } from "zod";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { authClient } from "@/lib/auth-client";
 import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
 import { MIN_PASSWORD_LENGTH, PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 
 /**
  * Change-password as a standalone card (spec 2026-09-02 settings-split §1.2)
@@ -88,7 +90,10 @@ export function ChangePasswordCard() {
           <form.Field name="current">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor="current-password">Current password</Label>
+                <Label htmlFor="current-password">
+                  Current password
+                  <RequiredMark />
+                </Label>
                 <Input
                   id="current-password"
                   type="password"
@@ -98,8 +103,11 @@ export function ChangePasswordCard() {
                   onChange={(e) => field.handleChange(e.target.value)}
                   onBlur={field.handleBlur}
                 />
+                {/* This slot's one sentence is "This field is required" - a
+                    gap, gold. The mismatch and length sentences live in the
+                    slots below and are hard errors: red. */}
                 {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className="text-destructive text-detail">
+                  <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
                     {fieldError(field.state.meta.errors)}
                   </p>
                 )}
@@ -109,7 +117,10 @@ export function ChangePasswordCard() {
           <form.Field name="next">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor="new-password">New password</Label>
+                <Label htmlFor="new-password">
+                  New password
+                  <RequiredMark />
+                </Label>
                 <Input
                   id="new-password"
                   type="password"
@@ -135,7 +146,10 @@ export function ChangePasswordCard() {
           <form.Field name="confirm">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor="confirm-password">Confirm new password</Label>
+                <Label htmlFor="confirm-password">
+                  Confirm new password
+                  <RequiredMark />
+                </Label>
                 <Input
                   id="confirm-password"
                   type="password"

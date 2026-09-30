@@ -414,6 +414,36 @@ bun run test               # Run tests across all packages
 bun run test:e2e           # Playwright end-to-end suite (boots its own backend on :3199)
 ```
 
+**Locally, always run the `test` scripts (`bun run test`,
+`bun run test --filter=<pkg>`, a package's own `bun run test`), never a bare
+`bun test` for a suite run.** The `--parallel=N` flag that gives the suite its
+worker processes lives IN the scripts (bun silently ignores a `parallel` key
+in `bunfig.toml`, measured on 1.4.0/1.4.2), so a hand-typed `bun test` runs
+the whole suite SERIALLY - minutes slower, and not the regime the script
+defines. A bare `bun test <file>` is still fine for one focused file mid-edit
+(see `.claude/rules/testing.md`); the rule is about suite runs.
+
+**Automation shells may poison bash: run with `env -u SHELLOPTS -u BASHOPTS`.**
+Measured repeatedly on this harness: the tool shell can export `SHELLOPTS`
+including `onecmd:posix`, and any `/usr/bin/bash <file>` then executes ZERO
+commands and exits 0 - it strikes the package's own test script AND a bash
+script a test spawns (installer-script tests), and it looks exactly like a
+broken script or a phantom red. CI never sets these, so local-red-CI-green on
+anything bash-shaped is this. Prefix script-invoked test runs with
+`env -u SHELLOPTS -u BASHOPTS`, and treat an implausibly fast or empty suite
+run as a broken invocation worth re-running, never as a pass.
+
+**One run, failures from the captured file - never a second run to find the
+failures.** A bare run piped to `tail` shows only the summary, so a red then
+costs a whole second suite run for a test name that was already in the output:
+
+```bash
+env -u SHELLOPTS -u BASHOPTS <test cmd> > /tmp/test-out.txt 2>&1; \
+  echo exit=$?; grep "(fail)" /tmp/test-out.txt || echo "no failures"; tail -4 /tmp/test-out.txt
+```
+
+The one re-run that stays legitimate is AFTER a code fix, to verify it.
+
 The e2e suite lives in `e2e/` and is NOT part of `bun run test` or the pre-push
 hook: it needs a real tmux server and a one-time `bunx playwright install
 chromium`. See `e2e/AGENTS.md`.

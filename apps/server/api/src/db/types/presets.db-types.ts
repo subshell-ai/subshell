@@ -40,14 +40,47 @@ export interface PresetTable {
   configIsolation: number;
   /** 1 = new subshells from this preset auto-restart on exit */
   restartOnExit: number;
+  /** 1 = the operator switched on "Cross-subshell comms" (migration 0043).
+   *  Readiness for agents is this flag AND a machine AND a directory (the
+   *  prompt is optional launch data, not a requirement). */
+  crossCommEnabled: number;
+  /**
+   * Optional launch node hint (spec 2026-09-29 preset-launch-fields): a launch
+   * with this preset and no explicit node runs here. An EXPLICIT request node
+   * still wins, and deleting the node unsets this (FK SET NULL) rather than
+   * taking the preset with it. NULL = the preset names no node and the
+   * launch-time ladder decides.
+   */
+  nodeId: string | null;
+  /** Optional working directory (absolute path, spec 2026-09-29): an explicit
+   *  request dir wins; the node's directory allowlist still enforces at launch. */
+  workingDir: string | null;
+  /**
+   * Optional prompt block stack as JSON (`PresetPromptBlock[]` from
+   * `@internal/subshell-protocol`, without the SPA's form-local ids). The
+   * bodies are snapshots taken at pick time, so library edits never change
+   * what this preset launches - which is what makes a cross-comm-ready
+   * preset's text knowable from the row alone. NULL = no prompt.
+   */
+  promptBlocks: string | null;
   /** ISO 8601 timestamp when the preset was created */
   createdAt: string;
   /** ISO 8601 timestamp of the last update */
   updatedAt: string;
 }
 
-/** Insert shape: DB defaults fill createdAt/updatedAt/restartOnExit when omitted. */
-export type NewPreset = Omit<PresetTable, "createdAt" | "updatedAt" | "restartOnExit"> & {
+/** Insert shape: DB defaults fill createdAt/updatedAt/restartOnExit when omitted.
+ *  The three launch fields (0042) are optional on insert - a preset created
+ *  before the picker's removal, or by an editor that never sets them, carries
+ *  all NULL. */
+export type NewPreset = Omit<
+  PresetTable,
+  "createdAt" | "updatedAt" | "restartOnExit" | "crossCommEnabled" | "nodeId" | "workingDir" | "promptBlocks"
+> & {
   restartOnExit?: number;
+  crossCommEnabled?: number;
+  nodeId?: string | null;
+  workingDir?: string | null;
+  promptBlocks?: string | null;
 };
 export type PresetUpdate = Partial<Omit<NewPreset, "id" | "userId" | "harnessId">>;

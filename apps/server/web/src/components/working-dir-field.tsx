@@ -19,6 +19,8 @@ export function WorkingDirField({
   value,
   onChange,
   helper,
+  placeholder = "/home/you/my-project",
+  clearOption,
   nodeId,
   nodeName,
 }: {
@@ -30,6 +32,12 @@ export function WorkingDirField({
   onChange: (path: string) => void;
   /** Optional helper text under the field. */
   helper?: string;
+  /** Placeholder shown while empty. The launch form wants a sample path; a
+   *  preset editor wants the empty state to read as a choice ("Decide at
+   *  launch"), matching the Machine select beside it. */
+  placeholder?: string;
+  /** Empty-is-a-choice row label for the browse panel (see DirectoryPickerInput). */
+  clearOption?: string;
   /** Browse this node (`local`/undefined = the control plane). */
   nodeId?: string;
   /** Display name of `nodeId` for the too-old-node prompt. */
@@ -40,8 +48,9 @@ export function WorkingDirField({
       id={id}
       value={value}
       onChange={onChange}
-      placeholder="/home/you/my-project"
+      placeholder={placeholder}
       helper={helper}
+      clearOption={clearOption}
       nodeId={nodeId}
       nodeName={nodeName}
     />

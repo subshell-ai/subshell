@@ -132,6 +132,25 @@ export function defaultAgentId(
  * itself (spec 2026-09-13 §2.3) — the default pick is `pickNodeDefault`'s,
  * unchanged.
  */
+/**
+ * The machines a launch picker LISTS - launch-granted, plus the one
+ * unlaunchable kind worth showing.
+ *
+ * A host narrowed by its shares is FILTERED rather than greyed: a greyed row
+ * is a choice with a reason, and "the host you were never granted" is not a
+ * choice at all - the empty state says what to do about it, once, instead of
+ * every row saying it. A node in MAINTENANCE is kept and greyed (spec
+ * 2026-09-14 §6), because it is a choice with a reason and a way back:
+ * somebody is working on that machine, it will take subshells again, and
+ * whoever manages it can end the window from its page. Hiding it would leave
+ * a person hunting for a node that had simply vanished. Single definition
+ * since spec 2026-09-29: the launch form and the preset editor's node hint
+ * select share one rule.
+ */
+export function launchableNodes(nodes: Node[]): Node[] {
+  return nodes.filter((n) => n.canLaunch || n.maintenance);
+}
+
 export function buildNodeOptions(nodes: readonly Node[], agent: LaunchAgent | null): ComboboxOption[] {
   return usableFirst(
     nodes.map((n) => {

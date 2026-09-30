@@ -1,7 +1,9 @@
 import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
 import { useEffect, useState } from "react";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { NetworkSettingsError, type NetworkSettingsIssue, useUpdateNetworkSettings } from "@/hooks/use-network";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import type { NetworkRow, SettingsFieldWire } from "@/types/network";
 
 /**
@@ -182,7 +184,7 @@ export function NetworkSettingsForm({
           <div key={field.key} className="space-y-1.5">
             <Label htmlFor={id}>
               {field.label}
-              {field.required && <span className="ml-1 text-detail text-muted-foreground">(required)</span>}
+              {field.required && <RequiredMark />}
             </Label>
             {field.type === "boolean" ? (
               <Switch
@@ -265,7 +267,7 @@ export function NetworkSettingsForm({
                 complaints do. Named for the visible label so the sentence ties
                 back to the control on screen. */}
             {isRequiredMissing(field) && focusedKey !== field.key && !problem && (
-              <p className="text-destructive text-detail">{field.label} is required.</p>
+              <p className={REQUIREMENT_CAPTION_CLASS}>{field.label} is required.</p>
             )}
             {problem && <p className="text-destructive text-detail">{problem}</p>}
           </div>

@@ -27,12 +27,10 @@ import type { PromptBlock } from "@/lib/prompt-stack";
  */
 export function InjectPromptDialog({
   subshellId,
-  subshellName,
   open,
   onOpenChange,
 }: {
   subshellId: string;
-  subshellName: string;
   open: boolean;
   onOpenChange: (next: boolean) => void;
 }) {
@@ -66,18 +64,15 @@ export function InjectPromptDialog({
     );
   }
 
-  // The confirm step is the SAME Dialog component: name, body, what the
-  // button does, send. An unlabelled custom block carries an empty description
-  // (the picker never bakes in "Untitled"), so the title falls back here too -
-  // otherwise it reads `Inject "" into "Pane"`.
-  const pickedLabel = picked.description === "" ? "Untitled" : picked.description;
+  // The confirm step asks the ONE question (operator ruling 2026-09-30): the
+  // long `Inject "<prompt>" into "<pane>"` title made a noun phrase of an
+  // act and ran off with the screen. The prompt text is the box below; the
+  // pane is the one whose action menu opened this.
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>
-            Inject "{pickedLabel}" into "{subshellName}"
-          </DialogTitle>
+          <DialogTitle>Send prompt to agent?</DialogTitle>
           <DialogDescription>
             This types into the pane without sending. Press Enter there when you are ready.
           </DialogDescription>

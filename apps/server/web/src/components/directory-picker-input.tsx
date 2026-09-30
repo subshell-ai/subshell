@@ -58,6 +58,7 @@ export function DirectoryPickerInput({
   onChange,
   placeholder,
   helper,
+  clearOption,
   nodeId,
   nodeName,
 }: {
@@ -71,6 +72,13 @@ export function DirectoryPickerInput({
   placeholder?: string;
   /** Optional helper text rendered under the picker. */
   helper?: string;
+  /** When set AND the field holds a path, the panel lists this label as its
+   *  FIRST row; clicking it clears the field and closes the panel. The
+   *  preset editor uses it because there, "no directory yet" is a real
+   *  choice ("Decide at launch") and a picked path needs a row that gives
+   *  that choice back. The launch form never passes it: there the path is
+   *  required, and the picker's only exit from a dead path is Start over. */
+  clearOption?: string;
   /** Browse this node instead of the control plane; `local`/undefined = local. */
   nodeId?: string;
   /** Human label for `nodeId`, shown in the too-old prompt when set. */
@@ -221,6 +229,16 @@ export function DirectoryPickerInput({
     setPickerPath("~");
   }
 
+  /** The optional empty-is-a-choice row's act (see `clearOption`): the pick
+   *  is COMPLETE (back to "decide at launch"), so the panel closes the way
+   *  a select closes on its empty item — unlike Start over, which keeps the
+   *  browse going. */
+  function clearChoice() {
+    lastTypedRef.current = "";
+    onChange("");
+    setPickerOpen(false);
+  }
+
   return (
     <div ref={rootRef} className="space-y-2">
       <Input
@@ -307,6 +325,15 @@ export function DirectoryPickerInput({
             </div>
           ) : explore ? (
             <div className="h-56 overflow-y-auto">
+              {clearOption !== undefined && value.trim() !== "" && (
+                <button
+                  type="button"
+                  onClick={clearChoice}
+                  className="mb-1 w-full rounded px-2 py-1 text-left text-muted-foreground text-sm hover:bg-accent hover:text-foreground"
+                >
+                  {clearOption}
+                </button>
+              )}
               {/* Saved paths first — Recent (top 3) over Favorites — each
                   section rendered only when it has rows. The directory
                   listing lives at the BOTTOM on purpose: a busy folder can

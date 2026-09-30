@@ -13,7 +13,9 @@ const bunLaunch: McpLaunchSpec = { command: "/usr/bin/bun", args: ["/opt/subshel
 
 describe("ClaudeCodePlugin MCP registration", () => {
   it("renders the claude mcpServers document and its own activating argv", () => {
-    const reg = getHarness("claude-code")!.mcpRegistration?.(launch, "/data/sess.json");
+    const harness = getHarness("claude-code");
+    if (harness === undefined) throw new Error("the claude-code harness is not registered");
+    const reg = harness.mcpRegistration?.(launch, "/data/sess.json");
     expect(reg?.env).toBeUndefined();
     const doc = JSON.parse(reg?.fileContent ?? "{}") as {
       mcpServers: Record<string, { command: string; args: string[] }>;

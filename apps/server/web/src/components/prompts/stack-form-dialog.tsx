@@ -10,11 +10,14 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  formDialogOpenChange,
 } from "@/components/ui/dialog";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { useCreatePromptStack, useUpdatePromptStack } from "@/hooks/use-prompts";
-import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { fieldError, fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
 import { movePromptBlock, newPromptLocalId, type PromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import { makePromptStackSchema, stackMembersFromBlocks } from "@/lib/prompt-stack-form";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 
 /**
  * Add or edit a prompt stack (spec 2026-09-29). The editor is the launch
@@ -82,17 +85,20 @@ export function StackFormDialog({
   const disabled = useSubmitDisabled(form, busy);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={formDialogOpenChange(onOpenChange)}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editingId ? "Edit stack" : "New stack"}</DialogTitle>
-          <DialogDescription>An ordered set of prompts, typed into a pane as one.</DialogDescription>
+          <DialogDescription>A stack is a set of prompts combined together.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <form.Field name="label">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor="stack-label">Label</Label>
+                <Label htmlFor="stack-label">
+                  Label
+                  <RequiredMark />
+                </Label>
                 <Input
                   id="stack-label"
                   value={field.state.value}
@@ -102,7 +108,7 @@ export function StackFormDialog({
                   onBlur={field.handleBlur}
                 />
                 {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className="text-destructive text-detail">
+                  <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
                     {fieldError(field.state.meta.errors)}
                   </p>
                 )}
@@ -112,7 +118,12 @@ export function StackFormDialog({
           <form.Field name="blocks">
             {(field) => (
               <div className="space-y-2">
-                <Label id={membersLabelId}>Members</Label>
+                {/* Required on create (one member minimum); an edit may lawfully empty
+                    the list, so no star there. */}
+                <Label id={membersLabelId}>
+                  Prompts
+                  {editingId === undefined && <RequiredMark />}
+                </Label>
                 {field.state.value.length > 0 && (
                   <PromptStackList
                     labelledBy={membersLabelId}
@@ -140,11 +151,22 @@ export function StackFormDialog({
                     <Plus /> Add prompt
                   </Button>
                 )}
-                {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className="text-destructive text-detail">
-                    {fieldError(field.state.meta.errors)}
-                  </p>
-                )}
+                {/* One slot, two facts: "needs at least one prompt" is a gap
+                    (gold); the joined-cap sentence is a hard error (red). */}
+                {field.state.meta.isTouched &&
+                  (() => {
+                    const shown = fieldErrorToned(field.state.meta.errors);
+                    return (
+                      shown && (
+                        <p
+                          role="alert"
+                          className={shown.gap ? REQUIREMENT_CAPTION_CLASS : "text-destructive text-detail"}
+                        >
+                          {shown.text}
+                        </p>
+                      )
+                    );
+                  })()}
               </div>
             )}
           </form.Field>

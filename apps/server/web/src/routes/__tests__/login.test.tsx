@@ -80,6 +80,29 @@ function renderLogin(initialEntry: string) {
   return router;
 }
 
+describe("/login submit gating", () => {
+  afterEach(() => {
+    setFetchRouter(null);
+    cleanup();
+  });
+
+  it("Sign in stays disabled until both credentials are present", async () => {
+    stubWires();
+    const router = renderLogin("/login");
+    // The form lands after the anonymous instance-settings read.
+    await screen.findByLabelText("E-mail");
+    const button = () => screen.getByRole("button", { name: "Sign in" }) as HTMLButtonElement;
+    expect(button().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "   " } });
+    expect(button().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "theo@example.test" } });
+    expect(button().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "hunter2" } });
+    expect(button().disabled).toBe(false);
+    void router;
+  });
+});
+
 describe("/login round-trip refusals", () => {
   afterEach(() => {
     setFetchRouter(null);

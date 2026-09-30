@@ -361,6 +361,82 @@ describe('/prompts "In N stacks"', () => {
   });
 });
 
+describe("/prompts create action (spec 2026-09-29: one New button)", () => {
+  // Base UI triggers open on pointerdown, which happy-dom cannot emulate;
+  // ArrowDown is the keyboard path (the actions-menu tests' idiom).
+  const openNew = () => fireEvent.keyDown(screen.getByRole("button", { name: "New" }), { key: "ArrowDown" });
+
+  it("the header carries ONE New button offering both kinds on All", async () => {
+    const { restore } = mockFetch();
+    try {
+      renderPage();
+      await screen.findByText("Kickoff");
+      // The pair is gone; the one button replaced it.
+      expect(screen.queryByRole("button", { name: "New prompt" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "New stack" })).toBeNull();
+      openNew();
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(2));
+      expect(screen.getByRole("menuitem", { name: "New prompt" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "New stack" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("Single's menu lists only the prompt; Stacked's only the stack", async () => {
+    const { restore } = mockFetch();
+    try {
+      renderPage("/prompts?view=single");
+      await screen.findByText("Kickoff");
+      openNew();
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(1));
+      expect(screen.getByRole("menuitem", { name: "New prompt" })).toBeDefined();
+      cleanup();
+      renderPage("/prompts?view=stacked");
+      await screen.findByText("Morning set");
+      openNew();
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(1));
+      expect(screen.getByRole("menuitem", { name: "New stack" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("the items open their dialogs unchanged", async () => {
+    const { restore } = mockFetch();
+    try {
+      renderPage();
+      await screen.findByText("Kickoff");
+      openNew();
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(2));
+      fireEvent.click(screen.getByRole("menuitem", { name: "New prompt" }));
+      expect(await screen.findByRole("heading", { name: "New prompt" })).toBeDefined();
+      // No fighting the dialog's close affordance: unmount and re-render
+      // fresh, then take the other item.
+      cleanup();
+      renderPage();
+      await screen.findByText("Kickoff");
+      openNew();
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(2));
+      fireEvent.click(screen.getByRole("menuitem", { name: "New stack" }));
+      expect(await screen.findByRole("heading", { name: "New stack" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("the Shared tab shows no create action, as before", async () => {
+    const { restore } = mockFetch();
+    try {
+      renderPage("/prompts?tab=shared");
+      await screen.findByText("Review");
+      expect(screen.queryByRole("button", { name: "New" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
 describe("/prompts stack filter", () => {
   it("Empty filters Stacked/own only; the overview is never silently trimmed", async () => {
     const { restore } = mockFetch();

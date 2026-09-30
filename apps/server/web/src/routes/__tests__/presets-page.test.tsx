@@ -21,9 +21,18 @@ import type { PresetRow } from "@/types/preset";
  * row menu, confirm.
  */
 
-function presetRow(p: { id: string; harnessId: string; name: string }): PresetRow {
+function presetRow(
+  p: { id: string; harnessId: string; name: string } & Partial<
+    Pick<PresetRow, "nodeId" | "workingDir" | "promptBlocks" | "crossCommEnabled">
+  >,
+): PresetRow {
+  const { nodeId = null, workingDir = null, promptBlocks = null, crossCommEnabled = 0, ...rest } = p;
   return {
-    ...p,
+    ...rest,
+    nodeId,
+    workingDir,
+    promptBlocks,
+    crossCommEnabled,
     description: null,
     envJson: null,
     flagsJson: null,
@@ -240,6 +249,55 @@ describe("/presets row command visibility", () => {
       // Gating the former would only teach people to reveal first.
       expect(screen.getByRole("button", { name: "Copy launch command" })).toBeDefined();
       expect(screen.queryByText(/sk-ant-secret/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("cross-comm-ready badge (spec 2026-09-29 preset-launch-fields)", () => {
+  afterEach(cleanup);
+
+  it("badges only the switched-on row that names a machine and a directory", async () => {
+    const { restore } = mockFetch({
+      presets: [
+        presetRow({
+          id: "ready",
+          harnessId: "claude-code",
+          name: "Everywhere",
+          crossCommEnabled: 1,
+          nodeId: "n1",
+          workingDir: "/srv/app",
+          promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
+        }),
+        // The same trio WITHOUT the switch: readiness is opt-in (0043).
+        presetRow({
+          id: "unflagged",
+          harnessId: "claude-code",
+          name: "Filled but off",
+          nodeId: "n1",
+          workingDir: "/srv/app",
+          promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
+        }),
+        // Machine + directory, no prompt, switched on: ready (prompt optional).
+        presetRow({
+          id: "no-prompt",
+          harnessId: "claude-code",
+          name: "Silent and ready",
+          crossCommEnabled: 1,
+          nodeId: "n1",
+          workingDir: "/srv/app",
+        }),
+        presetRow({ id: "half", harnessId: "claude-code", name: "Settings only", nodeId: "n1" }),
+      ],
+    });
+    try {
+      renderPage();
+      await screen.findByText("Everywhere");
+      const badges = screen.getAllByText("cross-comm ready");
+      // Two badges: the enabled rows (with and without a prompt). The
+      // filled-but-off row and the half row stay unbadged.
+      expect(badges).toHaveLength(2);
     } finally {
       restore();
     }

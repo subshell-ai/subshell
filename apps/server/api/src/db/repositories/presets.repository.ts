@@ -17,8 +17,10 @@ export class PresetsRepository extends BaseRepository {
       .values({
         ...preset,
         // restartOnExit (0003) defaults in the DB; mirror it here so the row
-        // is complete on read-back.
+        // is complete on read-back. Same for the cross-comm switch (0043):
+        // an insert that does not say, says OFF.
         restartOnExit: preset.restartOnExit ?? 0,
+        crossCommEnabled: preset.crossCommEnabled ?? 0,
         createdAt: now,
         updatedAt: now,
       })

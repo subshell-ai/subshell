@@ -297,9 +297,7 @@ export function SubshellActionsMenu({
           menu: the selection and the POST error reset every open. The
           half-typed custom TEXT deliberately outlives the unmount (the
           picker's sessionStorage draft, ruling 2026-09-29). */}
-      {injectOpen && (
-        <InjectPromptDialog subshellId={subshell.id} subshellName={subshell.name} open onOpenChange={setInjectOpen} />
-      )}
+      {injectOpen && <InjectPromptDialog subshellId={subshell.id} open onOpenChange={setInjectOpen} />}
       <QrLinkDialog
         open={qrOpen}
         onOpenChange={setQrOpen}

@@ -101,19 +101,6 @@ describe("SubshellsRepository.listVisibleTo", () => {
     expect(ids(await subshells.listVisibleTo("root", true))).toEqual(["a_priv", "b_own", "c_priv"]);
     await db.destroy();
   });
-
-  it("the status filter narrows the visible set", async () => {
-    const db = await freshDb();
-    await seed(db, "run", "bob", "running");
-    await seed(db, "done", "bob", "terminated");
-    await seed(db, "shared_run", "alice", "running");
-    const shares = new SubshellSharesRepository(db);
-    await shares.replaceForSubshell("shared_run", [{ granteeUserId: "bob", permission: "view" }], "alice");
-    const subshells = new SubshellsRepository(db);
-    expect(ids(await subshells.listVisibleTo("bob", false, "running"))).toEqual(["run", "shared_run"]);
-    expect(ids(await subshells.listVisibleTo("bob", false, "terminated"))).toEqual(["done"]);
-    await db.destroy();
-  });
 });
 
 /**

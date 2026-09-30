@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { z } from "zod";
-import { type FieldProblems, fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { type FieldProblems, fieldError, fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
+import { makePromptStackSchema } from "@/lib/prompt-stack-form";
 
 afterEach(cleanup);
 
@@ -157,5 +158,41 @@ describe("form substrate (spec 2026-09-29)", () => {
     });
     expect(sent.length).toBe(1);
     expect(sent[0]).toMatchObject({ body: "hello" });
+  });
+});
+
+describe("fieldErrorToned (the gold/red split, ruling 2026-09-30)", () => {
+  it("tags a gap:true issue as a requirement (gold) and everything else as a hard error (red)", () => {
+    expect(fieldErrorToned([{ message: "A stack needs a short label", gap: true }])).toEqual({
+      text: "A stack needs a short label",
+      gap: true,
+    });
+    expect(fieldErrorToned(["Plain string"])).toEqual({ text: "Plain string", gap: false });
+    expect(fieldErrorToned([{ message: "too long" }])).toEqual({ text: "too long", gap: false });
+    expect(fieldErrorToned([{ message: "", gap: true }, "second"])).toEqual({ text: "second", gap: false });
+    expect(fieldErrorToned([])).toBeNull();
+  });
+
+  it("the REAL schema carries the tag: zod keeps custom keys on the issue it is given", () => {
+    // The split rides on zod preserving `gap` through to the field's error
+    // list. If a schema upgrade ever strips extra keys, this fails - the
+    // unfilled fields would silently turn red.
+    const schema = makePromptStackSchema(1);
+    const bad = schema.safeParse({ label: "  ", blocks: [], shared: false });
+    expect(bad.success).toBe(false);
+    const issues = bad.success ? [] : bad.error.issues;
+    expect(issues.map((i) => (i as { message: string; gap?: unknown }).gap)).toContain(true);
+    // And a HARD error (over the joined cap) arrives WITHOUT the tag.
+    const huge = Array.from({ length: 50 }, (_, i) => ({
+      localId: `l${i}`,
+      kind: "custom" as const,
+      description: "",
+      body: "x".repeat(420),
+    }));
+    const cap = schema.safeParse({ label: "Fine", blocks: huge, shared: false });
+    expect(cap.success).toBe(false);
+    const capIssues = cap.success ? [] : cap.error.issues;
+    expect(capIssues.length).toBeGreaterThan(0);
+    expect(capIssues.every((i) => (i as { gap?: unknown }).gap !== true)).toBe(true);
   });
 });
