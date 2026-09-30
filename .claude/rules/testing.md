@@ -15,7 +15,9 @@ nor a sibling file's boot; and runner-wide cleanup cannot live in a preload
 `afterAll` (those fire per file under `--parallel`), it belongs in the
 package's `test` script. A bare `bun test` still runs serially - bun ignores
 a `parallel` key in `bunfig.toml [test]` (measured on 1.4.0 and 1.4.2), so
-the flag lives in the scripts only.
+the flag lives in the scripts only. `SUBSHELL_TEST_PARALLEL` overrides a
+package's default (CI pins 4 for its 4-core runners; 12 starved the web
+suite's timeouts there).
 
 ## Guidelines
 

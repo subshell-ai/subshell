@@ -63,6 +63,13 @@ on:
     branches:
       - main
 
+# Every package's `test` script defaults its own bun --parallel width; these
+# runners are 4-core hosted machines, and 12 CPU-heavy workers here starve
+# wall-clock timeouts (measured: the web suite's 5 s default blew at 12/4 on
+# run 36660089740, green at 48 cores locally). One knob, no per-job repeats.
+env:
+  SUBSHELL_TEST_PARALLEL: 4
+
 permissions:
   contents: read
   # The container jobs pull ghcr.io/subshell-ai/desktop-builder, which inherits

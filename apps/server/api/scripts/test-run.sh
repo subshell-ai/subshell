@@ -14,16 +14,18 @@
 # The DB-file sweep stays in the preload: it is scoped by this process's PID
 # prefix, so a per-file firing is exactly its right moment there.
 #
-# --parallel=12 (issue #261): worker processes for the run's files. 12 is
-# measured on this repo's suite, not core count - bunfig's `parallel` key is
-# silently ignored by bun 1.4.0, so the flag lives here and every package's
-# `test` script, and a bare hand-typed `bun test` stays serial (the preload
-# above still applies to it). Trailing args pass through to `bun test`
-# (CI appends --shard for its matrix legs).
+# --parallel (issue #261): worker processes for the run's files. Default 12,
+# measured on this repo's suite at 48 cores; SUBSHELL_TEST_PARALLEL overrides
+# it (CI pins 4 for its 4-core runners - 12 starved the web suite's wall-clock
+# timeouts there). bunfig's `parallel` key is silently ignored by bun (1.4.0
+# and 1.4.2), so the flag lives here and in every package's `test` script, and
+# a bare hand-typed `bun test` stays serial (the preload above still applies
+# to it). Trailing args pass through to `bun test` (CI appends --shard for
+# its matrix legs).
 set -u
 dir="$(mktemp -d /tmp/subshell-test-tmux-XXXXXX)"
 status=0
-TMUX_TMPDIR="$dir" bun test --parallel=12 --timeout 30000 src "$@" || status=$?
+TMUX_TMPDIR="$dir" bun test --parallel="${SUBSHELL_TEST_PARALLEL:-12}" --timeout 30000 src "$@" || status=$?
 if command -v tmux >/dev/null 2>&1; then
   for sock in "$dir"/tmux-*/*; do
     [ -e "$sock" ] || continue

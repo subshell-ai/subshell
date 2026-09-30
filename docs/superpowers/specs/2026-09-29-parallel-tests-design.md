@@ -91,10 +91,18 @@ after PR 1; split another job only if a real long pole remains.
 
 - Per-cluster reproducers before fixes (two-file parallel runs).
 - PR 1 gate: full `bun run test` three consecutive green runs locally at
-  the chosen N, plus one serial run (`--parallel=1`) to prove the sweep
-  move didn't break serial semantics.
+  the chosen N (passed on 1.4.2, 51/51 tasks each), one serial
+  (`--parallel=1`) run proving the sweep move kept serial semantics, and
+  `verify-types`/`lint:check`/`lint:prose`/`test:scripts`.
 - Flake policy: any package that fails the bake gets its `N` set back to
   `1` and rejoins later.
+- What CI's first run of PR 1 found (4-core hosted runner, N=12): three
+  `Test: web` wall-clock timeouts (a pure-logic test measured 6 s against
+  bun's 5 s default) and one real race in `daemon.test.ts` that waited on
+  one settle-unlink and peeked the other. Fixes: per-runner width via
+  `SUBSHELL_TEST_PARALLEL` (scripts default to their N, CI pins 4; local
+  48 cores keep 12/4), and the daemon test now waits for both unlinks.
+  No package fell back to `parallel = 1`.
 
 ## Non-goals
 

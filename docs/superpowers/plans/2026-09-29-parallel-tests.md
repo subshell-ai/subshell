@@ -409,3 +409,9 @@ After merge, record the before/after job duration in the PR (comment). If a leg 
 
 - Spec coverage: hazard 1 (sweep) = Task 2; hazard 2 (implicit migrations) = Task 1; ordering-shuffle control = Task 4 bake + flake policy; mechanism = Task 3; CI = Task 5. The `bootstrap argv` failure the spec's section-3 predicted turned out to be the local `SHELLOPTS` artifact (reproduced serially, passes under `env -u SHELLOPTS`) - no task needed; the Global Constraints now name the trap.
 - The 14-failing-suite list came from one `--parallel=8` run of `apps/server/api` on 2026-09-29; the bake is the net for any suite this list missed.
+
+## Execution record (2026-09-29/30)
+
+- Task 1 shipped 5 files (not 6): `subshell-manager.service.test.ts` already migrated its DB; its two parallel failures were hazard-1 collateral (sweep-killed live panes), fixed by Task 2. The MCP suite additionally needs `prepareLocalPlugins()` (the auto-restart gate silently defers on a pluginless instance).
+- Task 3 shipped as script flags, not bunfig (see the correction note there); `apps/server/desktop`'s tauri-config meta-test pins the script string, so the flag goes at each half's END (commit 1d2b9192).
+- CI's first PR1 run (4-core runner, N=12) caught what 48 cores could not: three `Test: web` wall-clock timeouts and a one-unlink-then-peek race in `daemon.test.ts`. Fixed by `SUBSHELL_TEST_PARALLEL` (CI pins 4, commit abcc2089) and waiting for both settle unlinks (099a23d3). No package needed the `parallel = 1` fallback.
