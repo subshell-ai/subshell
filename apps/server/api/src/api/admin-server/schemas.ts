@@ -81,6 +81,9 @@ export const DeploymentViewSchema = t.Object({
     available: t.Boolean({ description: "Whether POST /api/admin/server/restart would work" }),
     reason: t.Nullable(t.String(), { description: "Why not, when it would not" }),
   }),
+  containerized: t.Boolean({
+    description: "True when this process runs inside the Subshell release container (SUBSHELL_CONTAINER=1)",
+  }),
   logging: t.Object({
     debug: t.Boolean({ description: "Whether debug logging (and with it HTTP request logging) is on" }),
     source: t.Union([t.Literal("process env"), t.Literal("setting"), t.Literal("default")], {

@@ -5,7 +5,7 @@ import { restartSeams } from "@/api/admin-server/restart.route.js";
 import { db } from "@/db/index.js";
 import { AuditRepository } from "@/db/repositories/audit.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
-import type { DeploymentView } from "@/services/server-deployment.js";
+import { type DeploymentView, RESTART_CONTAINERIZED_REASON } from "@/services/server-deployment.js";
 import { authedRequest } from "../../__tests__/helpers/auth-tables.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "./fixture.js";
 
@@ -98,6 +98,20 @@ describe("POST /api/admin/server/restart", () => {
     expect(performed).toBe(1);
     const events = await new AuditRepository(db).listLatest(5);
     expect(events.some((e) => e.action === "server.restart")).toBe(true);
+  });
+
+  it("the unsupervised refusal NAMES the image-pull remedy when the container marker is set", async () => {
+    restartSeams.deployment = () => ({
+      ...viewWith({ supervised: false, paneSafety: "keeps" }),
+      containerized: true,
+      restart: { available: false, reason: RESTART_CONTAINERIZED_REASON },
+    });
+    const res = await app.fetch(post(fx.adminCookie, {}));
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.code).toBe("RESTART_UNAVAILABLE");
+    expect(body.message).toContain("proxmox-server.sh update");
+    expect(performed).toBe(0);
   });
 
   it("bearer 403, non-admin 403, and neither restarts anything", async () => {

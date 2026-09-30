@@ -128,6 +128,8 @@ export enum BackendErrorCodes {
    * installed one. The message carries the reason.
    */
   UPDATE_BINARY_UNKNOWN = "UPDATE_BINARY_UNKNOWN",
+  /** `POST /api/admin/server/update`: the image marker says this install updates by pulling a new image, not by swapping a binary; the message names the image as the unit of update (spec 2026-09-28 § 6). */
+  UPDATE_CONTAINERIZED = "UPDATE_CONTAINERIZED",
   /** `POST /api/admin/server/update`: a marker is already on disk, or a job is running. */
   UPDATE_IN_PROGRESS = "UPDATE_IN_PROGRESS",
   /** `POST /api/admin/server/update`: no newer release, and the body named no version. */
@@ -346,6 +348,10 @@ export const BackendErrorCodeDefs = {
   // honoured. Same shape as RESTART_UNAVAILABLE, which they sit beside.
   [BackendErrorCodes.UPDATE_SOURCE_DISABLED]: {
     message: "This server does not fetch releases",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.UPDATE_CONTAINERIZED]: {
+    message: "This server runs inside a container; the image is the unit of update",
     statusCode: 409,
   },
   [BackendErrorCodes.UPDATE_BINARY_UNKNOWN]: {

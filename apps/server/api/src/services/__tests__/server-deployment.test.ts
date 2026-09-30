@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { appSupervised, collectDeployment, isSupervised, settingSource } from "@/services/server-deployment.js";
+import {
+  appSupervised,
+  collectDeployment,
+  isContainerized,
+  isSupervised,
+  settingSource,
+} from "@/services/server-deployment.js";
 import { originRegistry } from "@/services/trusted-origins.js";
 
 describe("isSupervised", () => {
@@ -96,6 +102,26 @@ describe("collectDeployment", () => {
     });
     expect(view.restart.available).toBe(false);
     expect(view.restart.reason).toContain("service manager");
+  });
+
+  it("names the image as the unit of update when the container marker is set (spec 2026-09-28 § 6)", () => {
+    const view = collectDeployment({
+      platform: "linux",
+      pid: 1,
+      env: { SUBSHELL_CONTAINER: "1" },
+      applied: new Set(),
+      queryService: () => service as never,
+    });
+    expect(view.containerized).toBe(true);
+    expect(view.restart.available).toBe(false);
+    expect(view.restart.reason).toContain("container");
+    expect(view.restart.reason).toContain("proxmox-server.sh update");
+  });
+
+  it("reads the container fact from the marker only, not from anything else in the env", () => {
+    expect(isContainerized({})).toBe(false);
+    expect(isContainerized({ SUBSHELL_CONTAINER: "true" })).toBe(false);
+    expect(isContainerized({ SUBSHELL_CONTAINER: "1" })).toBe(true);
   });
 
   it("carries no secret in any form", () => {

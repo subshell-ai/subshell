@@ -9,3 +9,5 @@ apps/server/web/node_modules
 apps/server/api/node_modules
 packages/*/node_modules
 packages/*/dist
+# The release shards land here mid-verify; docker/bin is the build context.
+docker/dl/

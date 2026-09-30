@@ -21,6 +21,7 @@ const VIEW_KEYS = [
   "paths",
   "service",
   "restart",
+  "containerized",
   "logging",
   "tmuxPath",
   "mcp",

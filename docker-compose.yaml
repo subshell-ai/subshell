@@ -1,9 +1,9 @@
 services:
   subshell:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: subshell:latest
+    # The published release image (spec 2026-09-28). To build from a staged
+    # binary instead: mkdir -p docker/bin, drop subshell-server-<arch> there,
+    # and `docker build -t subshell:local .`
+    image: ghcr.io/subshell-ai/subshell:latest
     container_name: subshell
     # Run as the host user so bind mounts stay uid-aligned (SQLite, session
     # logs and harness file edits all keep sane ownership without fixups).
@@ -20,10 +20,10 @@ services:
       # Session working dirs, mounted at their REAL host path so bookmarks,
       # recent paths and session paths stored in the DB resolve unchanged.
       - ${PROJECTS_DIR:-$HOME/projects}:${PROJECTS_DIR:-$HOME/projects}:rw
-      # The harness binary is not bundled in the image; mount the host's
-      # claude CLI and its state (claude writes session records into
-      # ~/.claude, so these are rw — same-uid sharing matches running the
-      # CLI natively).
+      # The image now bakes harness CLIs; these mounts OVERRIDE them with the
+      # host's binaries/state when that is what you want. The baked CLIs live
+      # under uid 1000's home: running as a different host UID, mount your own
+      # CLIs the way CLAUDE_BIN below does.
       #
       # DESTINATIONS ARE THE CONTAINER'S HOME (/home/subshell), not the host's:
       # the Dockerfile pins HOME=/home/subshell (the runtime uid has no passwd
@@ -64,10 +64,13 @@ services:
       # Auth cookies/redirects; this origin is trusted automatically. Set it
       # to the URL users actually open (behind a TLS-terminating proxy).
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3080}
-      # Required: the signing secret for session cookies. Put the SAME value
-      # as the old instance used in the .env beside this file and existing
-      # browser sessions survive the move. (Prod refuses the placeholder.)
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET in .env (>= 32 chars)}
+      # No secret needed: first boot mints a unique one into
+      # $SUBSHELL_SERVER_CONFIG_DIR/config.env on the data volume. To pin one
+      # explicitly (moving an existing instance's sessions), uncomment the next
+      # line - init persists a supplied value verbatim - and set it in .env.
+      # At boot the env value takes precedence over the file, and an existing
+      # config.env is kept as-is:
+      # BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set it in .env or delete this line}
       NODE_ENV: production
     # The service comes back with the Docker daemon — i.e. on boot.
     restart: unless-stopped
