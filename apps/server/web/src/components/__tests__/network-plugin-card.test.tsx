@@ -88,7 +88,7 @@ const CLOUDFLARE_FIELDS: SettingsFieldWire[] = [
     key: "teamDomain",
     type: "string",
     required: true,
-    label: "Access team domain",
+    label: "Team domain",
     placeholder: "myteam",
     description: "Your Cloudflare Access team. Assertions are verified against <team>.cloudflareaccess.com.",
   },
