@@ -17,7 +17,7 @@ import type { PromptTable } from "@/db/types/prompts.db-types.js";
  *
  * Two rules live here, both inherited from the design conversation:
  * - Deleting a prompt removes it from every stack. That is the FK CASCADE in
- *   migration 0042, not code; a stack is then EMPTY, which is a state.
+ *   migration 0041, not code; a stack is then EMPTY, which is a state.
  * - A referenced prompt the CALLER cannot see (someone else's, since unshared)
  *   is dropped from the view's items rather than answered about. The row stays;
  *   sharing it again returns the member.

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { CamelCasePlugin, Kysely, sql } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
-import { down as down0041, up as up0041 } from "@/db/migrations/0041-prompts.js";
+import { down as down0040, up as up0040 } from "@/db/migrations/0040-prompts.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 
 /**
@@ -25,13 +25,13 @@ interface PromptsMigrationDatabase {
   };
 }
 
-describe("0041 prompts migration", () => {
+describe("0040 prompts migration", () => {
   let dbFile: string;
   let sqlite: ReturnType<typeof openSqliteDatabase>;
   let db: Kysely<PromptsMigrationDatabase>;
 
   beforeAll(async () => {
-    dbFile = `/tmp/subshell-0041-${Math.random().toString(36).slice(2)}.db`;
+    dbFile = `/tmp/subshell-0040-${Math.random().toString(36).slice(2)}.db`;
     sqlite = openSqliteDatabase(dbFile);
     db = new Kysely<PromptsMigrationDatabase>({
       dialect: new BunSqliteDialect({ database: sqlite }),
@@ -43,7 +43,7 @@ describe("0041 prompts migration", () => {
     await sql`CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT, email TEXT)`.execute(db);
     // The app enables foreign_keys; every prompt row below hangs off this one.
     await sql`INSERT INTO user (id, name, email) VALUES ('u1', 'Owner', 'u1@subshell.local')`.execute(db);
-    await up0041(db as unknown as Kysely<unknown>);
+    await up0040(db as unknown as Kysely<unknown>);
   });
 
   afterAll(async () => {
@@ -85,7 +85,7 @@ describe("0041 prompts migration", () => {
   });
 
   it("drops the table on down", async () => {
-    await down0041(db as unknown as Kysely<unknown>);
+    await down0040(db as unknown as Kysely<unknown>);
     await expect(sql`SELECT * FROM prompts`.execute(db)).rejects.toThrow();
   });
 });

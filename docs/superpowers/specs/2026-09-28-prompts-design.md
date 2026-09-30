@@ -33,7 +33,7 @@ pattern's "Everyone" idea, deliberately simplified to a boolean.
 
 ## Data model
 
-Migration `0041-prompts.ts`, table `prompts`:
+Migration `0040-prompts.ts`, table `prompts`:
 
 | column | type | notes |
 | --- | --- | --- |

@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { CamelCasePlugin, Kysely, sql } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
-import { up as up0041 } from "@/db/migrations/0041-prompts.js";
-import { down as down0042, up as up0042 } from "@/db/migrations/0042-prompt-stacks.js";
+import { up as up0040 } from "@/db/migrations/0040-prompts.js";
+import { down as down0041, up as up0041 } from "@/db/migrations/0041-prompt-stacks.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 
 /**
@@ -38,25 +38,25 @@ interface StacksMigrationDatabase {
   };
 }
 
-describe("0042 prompt-stacks migration", () => {
+describe("0041 prompt-stacks migration", () => {
   let dbFile: string;
   let sqlite: ReturnType<typeof openSqliteDatabase>;
   let db: Kysely<StacksMigrationDatabase>;
 
   beforeAll(async () => {
-    dbFile = `/tmp/subshell-0042-${Math.random().toString(36).slice(2)}.db`;
+    dbFile = `/tmp/subshell-0041-${Math.random().toString(36).slice(2)}.db`;
     sqlite = openSqliteDatabase(dbFile);
     db = new Kysely<StacksMigrationDatabase>({
       dialect: new BunSqliteDialect({ database: sqlite }),
       plugins: [new CamelCasePlugin()],
     });
     await sql`PRAGMA foreign_keys = ON`.execute(db);
-    // The FK targets, the 0041-test posture: the real 0041 up builds the
+    // The FK targets, the 0040-test posture: the real 0040 up builds the
     // prompts table, so this test cascades against the shipped shape.
     await sql`CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT, email TEXT)`.execute(db);
     await sql`INSERT INTO user (id, name, email) VALUES ('u1', 'Owner', 'u1@subshell.local')`.execute(db);
+    await up0040(db as unknown as Kysely<unknown>);
     await up0041(db as unknown as Kysely<unknown>);
-    await up0042(db as unknown as Kysely<unknown>);
   });
 
   afterAll(async () => {
@@ -186,7 +186,7 @@ describe("0042 prompt-stacks migration", () => {
   });
 
   it("drops both tables on down", async () => {
-    await down0042(db as unknown as Kysely<unknown>);
+    await down0041(db as unknown as Kysely<unknown>);
     await expect(sql`SELECT * FROM prompt_stacks`.execute(db)).rejects.toThrow();
     await expect(sql`SELECT * FROM prompt_stack_items`.execute(db)).rejects.toThrow();
   });
