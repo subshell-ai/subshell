@@ -22,5 +22,16 @@ if [ -n "${SUBSHELL_TEST_PARALLEL:-}" ]; then n="$SUBSHELL_TEST_PARALLEL"; fi
 prog="$1"
 sub="$2"
 shift 2
-if [ -z "${SUBSHELL_TEST_SERIAL:-}" ]; then set -- --parallel="$n" "$@"; fi
+if [ -z "${SUBSHELL_TEST_SERIAL:-}" ]; then
+  set -- --parallel="$n" "$@"
+else
+  # CI's serial regime gets one automatic retry, and it is for a measured
+  # reason: the hosted runner throttles the whole container below its 4
+  # labels (a pure-logic 20 ms test took 5.6 s and died on bun's 5 s default,
+  # PR #278's web job, 2026-09-30, WITH width 1), so a failed test there
+  # cannot be told apart from a starved one by looking at it. A real
+  # assertion fails twice; a starved budget usually does not. Local runs
+  # deliberately keep no retry - a developer's flake should stay visible.
+  set -- --retry=1 "$@"
+fi
 exec "$prog" "$sub" "$@"
