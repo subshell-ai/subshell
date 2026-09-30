@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getHarness, TmuxRunner } from "@internal/pane-runtime";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
+import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import * as initMigration from "@/db/migrations/0001-init.js";
 import * as operatorUxMigration from "@/db/migrations/0002-operator-ux.js";
 import * as remoteOpsMigration from "@/db/migrations/0003-remote-ops.js";
@@ -79,6 +80,11 @@ let presetId: string;
 let previousClaudePath: string | undefined;
 
 beforeAll(async () => {
+  // The launch gate reads `node_allowed_dirs` through the SHARED `@/db`
+  // singleton, which parallel `bun test` hands every file fresh and
+  // unmigrated. The old serial run only covered this by file order.
+  await ensureMigratedTestDb();
+
   // Same hermetic harness trick as the MCP suite: CLAUDE_PATH is the first
   // thing findBinary() consults, so binary resolution never touches the host.
   const harnessStub = join(testDir, "claude-stub");

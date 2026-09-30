@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "kysely";
+import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { evaluateProviderPolicy } from "@/auth/provider-policy.js";
 import { markApprovalProviderArrival, setAuthPolicyDb } from "@/auth.js";
 import { db } from "@/db/index.js";
-import { runMigrations } from "@/db/migrate.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 
@@ -67,7 +67,7 @@ async function makeAccount(userId: string, providerId: string): Promise<string> 
 }
 
 beforeAll(async () => {
-  await runMigrations();
+  await ensureMigratedTestDb();
   // The arrival hook reads the same injected handle production injects.
   setAuthPolicyDb(db);
 });
