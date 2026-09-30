@@ -4,26 +4,33 @@
  * Mirrors `apps/server/api/src/scripts/release.ts` beat for beat (assertBunFloor →
  * parseScope → preflight → build → assert → glob the one artifact the bundler
  * wrote → digest → publish, all-or-nothing, CLI entry behind
- * `import.meta.main`), with one step neither other pipeline has: it BUILDS THE
- * SERVER FIRST and stages it as the Tauri sidecar.
+ * `import.meta.main`), with one step neither other pipeline has: it STAGES
+ * THE SERVER as the Tauri sidecar, and since the cut-order ruling
+ * (2026-09-30) the staged bytes are the ones the cli-server release PUBLISHED,
+ * not a local rebuild.
  *
- * Three rules about that server binary, each of which has a failure mode that
- * only shows up on a user's machine:
+ * Rules about that server binary, each of which has a failure mode that only
+ * shows up on a user's machine:
  *
- * 1. **`compile:release`, never `compile`.** Only the release build embeds the
- *    SPA into `src/generated/embedded-web.ts`. A plain `compile` ships the
- *    tracked stub (`EMBEDDED = false`), and `selectStaticPlugin` then throws at
- *    boot where there is no `apps/server/web/dist` to fall back to.
- * 2. **Never pre-signed, never separately notarized.** Tauri re-signs nested
- *    binaries with `--force` under the bundle's own identity and entitlements,
- *    and the app-level notarization mints tickets for nested files — so a
- *    prior signature is overwritten and a prior ticket binds to a cdhash that
- *    no longer exists. `SUBSHELL_RELEASE_SIGN_CMD` is explicitly cleared for
- *    the nested build.
- * 3. **The `.sha256` the server pipeline writes beside it is DELETED.** It
- *    describes the bytes before Tauri re-seals them, so keeping it publishes a
- *    digest that matches nothing. Digests are never comparable between the
- *    bare-binary download channel and this one.
+ * 1. **Fetch the released artifact, verified against the signed manifest.**
+ *    The sidecar IS the CLI the release page offers: same version (read from
+ *    `apps/server/api/package.json` at this commit), same bytes (the publisher
+ *    signature over `release-manifest.json` first, then the digest from its
+ *    SIGNED `assets` map, never a `.sha256`). A missing release fails the
+ *    shard by name: it means the CLI cut has not happened yet, and the cut
+ *    order says it comes first. `SUBSHELL_SIDECAR_FROM_SOURCE=1` is the
+ *    explicit local-dev escape (it rebuilds via `compile:release`, the old
+ *    path, which alone embeds the SPA into `src/generated/embedded-web.ts`).
+ * 2. **A pre-signed download is fine, a separately notarized bundle is not.**
+ *    The published darwin CLI binary carries the CLI's own signature; Tauri
+ *    re-signs nested binaries with `--force` under the bundle's identity and
+ *    the app-level notarization re-staples, so the prior signature is simply
+ *    overwritten. What must never happen is notarizing the bundle separately
+ *    after `tauri build` sealed it.
+ * 3. **No digest sidecar travels with the sidecar.** A `.sha256` describes the
+ *    bytes before Tauri re-seals them, so keeping one publishes a digest that
+ *    matches nothing. Digests are never comparable between the bare-binary
+ *    download channel and this one.
  */
 
 import { existsSync } from "node:fs";
@@ -37,8 +44,12 @@ import {
   desktopSidecarFileName,
   RELEASE_MANIFEST_NAME,
   RELEASE_MANIFEST_SIG_NAME,
+  RELEASE_PUBKEY,
+  RELEASE_TAG_PREFIX,
+  type ReleaseComponent,
   rustTargetTriple,
   SERVER_SIDECAR_NAME,
+  SUBSHELL_REPO_SLUG,
   serverArtifactFileName,
 } from "@internal/subshell-protocol";
 import {
@@ -52,6 +63,11 @@ import {
   selectBundleOutput,
   writeReleaseManifest,
 } from "@internal/subshell-protocol/release-artifacts";
+import {
+  type UnverifiedReleaseManifest,
+  type VerifiedReleaseManifest,
+  verifyReleaseManifest,
+} from "@internal/subshell-protocol/release-signature";
 // By PATH rather than by package name, the way every root script reaches the
 // protocol package: this module is a release-pipeline concern with no runtime
 // consumer, so it lives in `scripts/` and both desktop pipelines import it —
@@ -166,19 +182,127 @@ export interface DesktopReleaseDeps {
   write: (path: string, text: string) => Promise<void>;
   /** Run a command capturing combined output — what notarytool's verdict is READ from. */
   runCapture: (argv: string[]) => Promise<{ code: number; output: string }>;
+  /** SHA-256 of a staged file's bytes, checked against the SIGNED manifest. */
+  digest: (path: string) => Promise<string>;
+  /**
+   * Verify a release-manifest pair against the publisher key. Injected so
+   * tests drive the fetch path with a verdict; production is
+   * `verifyReleaseManifest` under the compiled-in `RELEASE_PUBKEY`.
+   */
+  verify: (
+    manifestText: string,
+    sigText: string,
+    expected: { component: ReleaseComponent; version: string },
+  ) => Promise<VerifiedReleaseManifest | UnverifiedReleaseManifest>;
   log: (line: string) => void;
 }
 
+/** The cli-server version THIS checkout expects the bundle to carry. */
+export async function cliReleaseVersion(deps: DesktopReleaseDeps): Promise<string> {
+  const pkg = JSON.parse(await deps.read(join(REPO_ROOT, "apps/server/api", "package.json"))) as { version?: string };
+  const version = String(pkg.version ?? "");
+  if (!/^\d+\.\d+\.\d+/.test(version))
+    throw new Error(`apps/server/api/package.json has no usable version: '${version}'`);
+  return version;
+}
+
 /**
- * Build the server for `triple` and stage it under the name Tauri expects.
+ * Stage the published cli-server artifact for `triple` as the sidecar Tauri
+ * expects, refusing anything but the bytes the release's SIGNED manifest
+ * names.
+ *
+ * The version comes from `apps/server/api/package.json` at this commit: the
+ * version PR lands CLI and desktop bumps together, so the matching
+ * `cli-server-vX.Y.Z` release either already shipped (an earlier cut) or is
+ * what the publish-cli phase of THIS cut just produced. Absent means the cut
+ * order was violated, and the log says exactly that.
+ */
+export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Promise<boolean> {
+  if (process.env.SUBSHELL_SIDECAR_FROM_SOURCE === "1") {
+    deps.log("SUBSHELL_SIDECAR_FROM_SOURCE=1: staging the sidecar from a local build (never set in CI)…");
+    return stageSidecarFromSource(deps, triple);
+  }
+  deps.log(`staging the server sidecar for ${triple} from the published release…`);
+  let version: string;
+  try {
+    version = await cliReleaseVersion(deps);
+  } catch (err) {
+    deps.log(err instanceof Error ? err.message : String(err));
+    return false;
+  }
+  const tag = `${RELEASE_TAG_PREFIX["cli-server"]}${version}`; // the prefix already ends in "-v"
+  const asset = serverArtifactFileName(triple);
+  const code = await deps.run(
+    [
+      "gh",
+      "release",
+      "download",
+      tag,
+      "-R",
+      SUBSHELL_REPO_SLUG,
+      "-p",
+      asset,
+      "-p",
+      RELEASE_MANIFEST_NAME,
+      "-p",
+      RELEASE_MANIFEST_SIG_NAME,
+      "-D",
+      SIDECAR_DIR,
+    ],
+    REPO_ROOT,
+  );
+  if (code !== 0 || !deps.exists(join(SIDECAR_DIR, asset))) {
+    deps.log(
+      `refused: ${asset} is not downloadable from ${tag}. The desktop bundle ships the CLI that was actually released; ` +
+        "cut the cli-server release first (SUBSHELL_SIDECAR_FROM_SOURCE=1 builds from source for local use).",
+    );
+    return false;
+  }
+  const verdict = await deps.verify(
+    await deps.read(join(SIDECAR_DIR, RELEASE_MANIFEST_NAME)),
+    await deps.read(join(SIDECAR_DIR, RELEASE_MANIFEST_SIG_NAME)),
+    { component: "cli-server", version },
+  );
+  if (!verdict.ok) {
+    deps.log(`refused: ${tag}: ${verdict.reason}`);
+    return false;
+  }
+  const expected = verdict.manifest.assets[asset];
+  const actual = await deps.digest(join(SIDECAR_DIR, asset));
+  if (expected === undefined || expected !== actual) {
+    deps.log(
+      `refused: ${asset} digest ${actual} is not the signed ${expected ?? "(absent from the manifest)"} for ${tag}`,
+    );
+    return false;
+  }
+  // The pair has done its job; a release-manifest.json in this directory
+  // would collide on basename with the one THIS app publishes.
+  await deps.remove(join(SIDECAR_DIR, RELEASE_MANIFEST_NAME));
+  await deps.remove(join(SIDECAR_DIR, RELEASE_MANIFEST_SIG_NAME));
+  const sidecar = join(SIDECAR_DIR, desktopSidecarFileName(SERVER_SIDECAR_NAME, triple));
+  await deps.move(join(SIDECAR_DIR, asset), sidecar);
+  // Downloaded bytes land 0644; a sidecar that ships 0644 dies EACCES at exec,
+  // invisibly until first run.
+  if ((await deps.run(["chmod", "0755", sidecar], REPO_ROOT)) !== 0) {
+    deps.log(`refused: chmod 0755 failed on ${sidecar}`);
+    return false;
+  }
+  deps.log(`staged ${tag}/${asset} (${actual.slice(0, 12)}…) as the ${triple} sidecar`);
+  return true;
+}
+
+/**
+ * The old path: BUILD the server for `triple` and stage it. Kept behind
+ * `SUBSHELL_SIDECAR_FROM_SOURCE=1` for local builds with nothing published
+ * yet; CI never sets it, and a cut never runs it.
  *
  * The publish dir MUST be absolute: `resolveArtifactsDir()` on the server side
  * calls `resolve()` in the CHILD's cwd (`apps/server/api`), so a relative override
  * would land in `apps/server/api/apps/server/desktop/…` and the build would then fail
  * with "binary not found" pointing at a path that looks right.
  */
-export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Promise<boolean> {
-  deps.log(`staging the server sidecar for ${triple}…`);
+async function stageSidecarFromSource(deps: DesktopReleaseDeps, triple: string): Promise<boolean> {
+  deps.log(`staging the server sidecar for ${triple} from source…`);
   const code = await deps.run(["bun", "run", "--cwd", "apps/server/api", "compile:release"], REPO_ROOT, {
     SUBSHELL_SERVER_RELEASE_TRIPLES: triple,
     SUBSHELL_SERVER_RELEASE_DIR: SIDECAR_DIR,
@@ -322,6 +446,8 @@ export const DEFAULT_DEPS: DesktopReleaseDeps = {
     const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
     return { code: await proc.exited, output: `${out}${err}` };
   },
+  digest: digestFile,
+  verify: (manifestText, sigText, expected) => verifyReleaseManifest(manifestText, sigText, RELEASE_PUBKEY, expected),
   log: (line) => console.log(line),
 };
 

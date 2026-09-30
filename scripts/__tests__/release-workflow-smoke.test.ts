@@ -31,8 +31,9 @@ const FILE_OUTPUT: Record<string, string> = {
 };
 
 function hintTable(): Map<string, string> {
-  // release.yml carries three `case "$TRIPLE"` blocks; the HINT table is the
-  // one whose body assigns HINT.
+  // release.yml carries the `case "$TRIPLE"` blocks once per build job (the
+  // phase split duplicates the body); the HINT table is the block whose body
+  // assigns HINT, and find() takes the first identical copy.
   const bodies = [...WORKFLOW.matchAll(/case "\$TRIPLE" in\n([\s\S]*?)\n\s*esac/g)].map((m) => m[1]);
   const block = bodies.find((body) => body.includes("HINT="));
   if (block === undefined) throw new Error("release.yml: the HINT case block was not found (renamed?)");
