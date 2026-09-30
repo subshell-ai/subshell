@@ -186,11 +186,12 @@ export function PresetLaunchFields({
         {crossCommSaveBlocked(value) ? (
           <p className="text-destructive text-detail">Complete every item above, or switch this off, to save.</p>
         ) : gaps.length === 0 && value.crossCommEnabled ? (
-          <p className="text-detail text-muted-foreground">
-            Agents can launch this preset from its name alone over MCP.
-          </p>
+          // The confirmed state reads as one (the success token), the same
+          // way a missing requirement reads as amber: the sentence's color
+          // says which fact it is (operator ruling 2026-09-30).
+          <p className="text-detail text-success">Agents can launch this preset from its name alone over MCP.</p>
         ) : gaps.length === 0 ? (
-          <p className="text-detail text-muted-foreground">
+          <p className="text-detail text-success">
             All requirements met: switch this on to let agents launch it by name.
           </p>
         ) : null}
