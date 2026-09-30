@@ -414,6 +414,15 @@ bun run test               # Run tests across all packages
 bun run test:e2e           # Playwright end-to-end suite (boots its own backend on :3199)
 ```
 
+**Locally, always run the `test` scripts (`bun run test`,
+`bun run test --filter=<pkg>`, a package's own `bun run test`), never a bare
+`bun test` for a suite run.** The `--parallel=N` flag that gives the suite its
+worker processes lives IN the scripts (bun silently ignores a `parallel` key
+in `bunfig.toml`, measured on 1.4.0/1.4.2), so a hand-typed `bun test` runs
+the whole suite SERIALLY - minutes slower, and not the regime the script
+defines. A bare `bun test <file>` is still fine for one focused file mid-edit
+(see `.claude/rules/testing.md`); the rule is about suite runs.
+
 The e2e suite lives in `e2e/` and is NOT part of `bun run test` or the pre-push
 hook: it needs a real tmux server and a one-time `bunx playwright install
 chromium`. See `e2e/AGENTS.md`.
