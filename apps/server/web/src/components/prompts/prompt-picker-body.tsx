@@ -349,21 +349,25 @@ export function PromptPickerBody({
     </>
   );
 
-  const heading = step === "custom" ? "Write your own" : "Add a prompt";
-  const blurb =
-    mode === "multi" ? "Pick one; press Add prompt again for the next." : "One prompt, typed into the pane.";
+  // The single pick IS the inject action, so it is named as one (operator
+  // ruling 2026-09-30); the multi stacker is the "Add prompts" section's own
+  // picker and keeps its heading. The one-shot pick needs no explanatory
+  // subtitle - the title is the whole story; the stacker's sentence says
+  // something true (pick again for the next).
+  const heading = step === "custom" ? "Write your own" : mode === "single" ? "Inject prompt" : "Add a prompt";
+  const blurb = "Pick one; press Add prompt again for the next.";
 
   return (
     <div className="space-y-3">
       {surface === "dialog" ? (
         <DialogHeader>
           <DialogTitle>{heading}</DialogTitle>
-          <DialogDescription>{blurb}</DialogDescription>
+          {mode === "multi" && <DialogDescription>{blurb}</DialogDescription>}
         </DialogHeader>
       ) : (
         <div className="space-y-0.5">
           <p className="font-strong text-label">{heading}</p>
-          <p className="text-detail text-muted-foreground">{blurb}</p>
+          {mode === "multi" && <p className="text-detail text-muted-foreground">{blurb}</p>}
         </div>
       )}
 
