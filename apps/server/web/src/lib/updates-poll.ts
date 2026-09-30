@@ -42,7 +42,11 @@ export function updatesPollMs(view: UpdatesView | undefined, explicitMs: number 
   // same gate keeps the query refetching into the outage until the new boot
   // answers with the terminal tracker entry. (Operator report 2026-09-30:
   // "why do I lose current update status when I refresh the page".)
-  if (view.server.job !== null && view.server.job.phase !== "failed") return ACTIVE_POLL_MS;
+  // The gate is deliberately nullish-tolerant like `isLive`, because
+  // hand-stubbed views (the sidebar's Components card) can lack the field
+  // entirely.
+  const job = view.server.job;
+  if (job !== undefined && job !== null && job.phase !== "failed") return ACTIVE_POLL_MS;
   if (isLive(view.serverUpdate)) return ACTIVE_POLL_MS;
   return (view.nodes?.rows ?? []).some((row) => isLive(row.update)) ? ACTIVE_POLL_MS : false;
 }
