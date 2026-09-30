@@ -1,5 +1,11 @@
 # @internal/desktop-server
 
+## 1.3.0
+
+### Minor Changes
+
+- [#286](https://github.com/subshell-ai/subshell/pull/286) [`60fdc5e`](https://github.com/subshell-ai/subshell/commit/60fdc5e20cb6199f71b957cc6b132545898ade53) Thanks [@theogravity](https://github.com/theogravity)! - Ships the Server app the bundled subshell-server 1.7.0 (presets carry the launch), so desktop users receive the preset-launch work as a desktop-server update. This bump is the pairing this release mechanizes: the app now declares @internal/server as a workspace dependency and changesets propagates CLI bumps to it.
+
 ## 1.2.0
 
 ### Minor Changes
