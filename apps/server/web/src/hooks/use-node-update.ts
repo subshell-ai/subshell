@@ -1,5 +1,6 @@
 import { apiFetch, errMessage, NODE_QUERY_KEY, NODES_QUERY_KEY } from "@internal/node-admin";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { UPDATES_QUERY_KEY } from "@/lib/query-keys";
 
 /** What `POST /api/nodes/:id/update` answers on 202. */
@@ -18,15 +19,25 @@ export interface NodeUpdateStarted {
   url: string;
 }
 
-/** What {@link useNodeUpdate} hands the Nodes rows. */
+/** What {@link useNodeUpdate} hands the Nodes rows and the node page card. */
 export interface NodeUpdate {
   /** Ask one node to replace its own binary. Resolves on the 202; rejects on a refusal. */
   update(nodeId: string, opts?: { force?: boolean }): Promise<NodeUpdateStarted>;
-  /** The node whose update is in flight, or null. */
-  pendingNodeId: string | null;
-  /** Why the last attempt failed, and on which node; null when none has. */
-  failure: { nodeId: string; message: string } | null;
-  /** Forget the last failure — the rows clear it when a new run starts. */
+  /** Node ids whose POST is in flight through this hook instance. A SET,
+   * because one instance now drives a whole batch: a single-call
+   * `useMutation` could name only its latest variables, which is what left
+   * every "Update all" but the first row silent for minutes (operator
+   * report 2026-09-25, and the reason the old sequence owned its own
+   * activeId - this makes that per-tab bookkeeping unnecessary). */
+  pendingNodeIds: ReadonlySet<string>;
+  /** Why a node's last attempt was REFUSED, per node. Covers the refusals
+   * that land before the route opens a tracker entry (offline, too old,
+   * would kill panes) and so have no server-side story; the tracker's
+   * sentence wins wherever both exist (the rows' suppression rule). */
+  failures: Readonly<Record<string, string>>;
+  /** Forget every remembered failure - the rows clear them when a new run
+   * starts, so a refusal from before never stays pinned on a row the new
+   * run did not even ask. */
   reset(): void;
 }
 
@@ -44,34 +55,53 @@ export interface NodeUpdate {
  * `NODE_NOT_SUPERVISED`, `NODE_RESTART_KILLS_PANES` (`force` overrides) and
  * `NODE_UPDATE_FAILED` — on which the node's binary is untouched.
  *
- * It rejects rather than swallowing, because the caller is a SEQUENCE: "Update
- * all" stops at the first failure and names the node, and a hook that resolved
- * on a refusal would march the rest of the fleet past a problem.
+ * **One instance drives many nodes at once** (spec 2026-09-30): "Update all"
+ * fires its whole batch through this one hook, so busy and failure are
+ * per-node collections, not a mutation's single latest call. It rejects
+ * rather than swallowing, because the caller is a BATCH: `Promise.allSettled`
+ * keeps every row's outcome independent, and a hook that resolved on a
+ * refusal would report a stopped machine as a finished one.
  */
 export function useNodeUpdate(): NodeUpdate {
   const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationFn: ({ nodeId, force }: { nodeId: string; force?: boolean }) =>
-      apiFetch<NodeUpdateStarted>(`/api/nodes/${nodeId}/update`, {
+  const [pendingNodeIds, setPendingNodeIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [failures, setFailures] = useState<Readonly<Record<string, string>>>({});
+
+  async function update(nodeId: string, opts?: { force?: boolean }): Promise<NodeUpdateStarted> {
+    setPendingNodeIds((cur) => new Set(cur).add(nodeId));
+    setFailures((cur) => {
+      if (cur[nodeId] === undefined) return cur;
+      const next = { ...cur };
+      delete next[nodeId];
+      return next;
+    });
+    try {
+      const result = await apiFetch<NodeUpdateStarted>(`/api/nodes/${nodeId}/update`, {
         method: "POST",
-        body: JSON.stringify(force === true ? { force: true } : {}),
-      }),
-    onSuccess: (_result, { nodeId }) => {
+        body: JSON.stringify(opts?.force === true ? { force: true } : {}),
+      });
       // The node exits to be respawned, so its row is about to change twice:
       // offline, then online on the new version.
       void queryClient.invalidateQueries({ queryKey: UPDATES_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, nodeId] });
-    },
-  });
+      return result;
+    } catch (err) {
+      setFailures((cur) => ({ ...cur, [nodeId]: errMessage(err, "The update was refused.") }));
+      throw err;
+    } finally {
+      setPendingNodeIds((cur) => {
+        if (!cur.has(nodeId)) return cur;
+        const next = new Set(cur);
+        next.delete(nodeId);
+        return next;
+      });
+    }
+  }
 
-  return {
-    update: (nodeId, opts) => mutation.mutateAsync({ nodeId, force: opts?.force }),
-    pendingNodeId: mutation.isPending ? (mutation.variables?.nodeId ?? null) : null,
-    failure:
-      mutation.error && mutation.variables
-        ? { nodeId: mutation.variables.nodeId, message: errMessage(mutation.error, "The update was refused.") }
-        : null,
-    reset: () => mutation.reset(),
-  };
+  function reset(): void {
+    setFailures({});
+  }
+
+  return { update, pendingNodeIds, failures, reset };
 }

@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { nodeRow, nodeUpdates, updateState } from "@/components/__tests__/helpers/updates-view";
 import { NodeRows, rowState } from "@/components/updates/node-rows";
+import { releasePageUrl } from "@/components/updates/row-cells";
 import type { NodeUpdates, UpdateTrackerState } from "@/types/updates";
 
 afterEach(cleanup);
@@ -208,20 +209,19 @@ describe("NodeRows", () => {
     }
   });
 
-  it("shows Update all as Updating with a spinner while its sequence runs", async () => {
-    // Same idiom as the two per-row buttons (review minor 4): the sequence
-    // blocks on each row's five-minute POST, so the header button says so.
+  it("shows Update all as Updating with a spinner while its batch runs", async () => {
+    // Parallel by contract now (spec 2026-09-30): the whole batch is asked at
+    // once, and the header button says so while anything is still settling.
     const original = globalThis.fetch;
     const posts: string[] = [];
     globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
       const url = String(input);
       if (init?.method === "POST") {
         posts.push(url);
-        // First row's POST never resolves: the button stays mid-sequence.
-        return new Promise<Response>(() => {});
+        return new Promise<Response>(() => {}); // never resolves: the batch stays open
       }
       return new Response("{}", { status: 200 });
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
     try {
       renderRows(
         nodeUpdates({
@@ -231,29 +231,31 @@ describe("NodeRows", () => {
           ],
         }),
       );
-      fireEvent.click(updateAll());
-      // The header button carries the sequence counter now ("Updating 1 of
-      // 2…"), so the only exact "Updating…" match is row a's own button —
-      // which is the working row, and the point of this assertion.
-      const updating = (await screen.findAllByRole("button", { name: "Updating…" }))[0] as HTMLButtonElement;
-      expect(updating.disabled).toBe(true);
-      expect(updating.textContent).toContain("Updating");
-      expect(updating.querySelector("svg")).toBeTruthy();
-      expect(posts).toEqual(["/api/nodes/a/update"]);
+      const allBtn = updateAll();
+      fireEvent.click(allBtn);
+      // The whole point: BOTH machines were asked while the first is still
+      // answering. Sequential dispatch left posts at length 1.
+      await waitFor(() => expect(posts.length).toBe(2));
+      expect(posts).toContain("/api/nodes/a/update");
+      expect(posts).toContain("/api/nodes/b/update");
+      expect(allBtn.textContent).toBe("Updating…");
+      expect(allBtn.disabled).toBe(true);
+      expect(allBtn.querySelector("svg")).toBeTruthy();
+      // Header and both rows: three spinners for one fact, the fleet moving.
+      await waitFor(() => expect(screen.getAllByRole("button", { name: "Updating…" }).length).toBe(3));
     } finally {
       globalThis.fetch = original;
     }
   });
 
-  it("moves the working row with the sequence and names its position", async () => {
-    // Operator report (2026-09-25): Update all disabled every row's button
-    // while only the FIRST row ever showed a spinner, for the minutes that
-    // one POST takes. The rows read their busy state from a single shared
-    // mutation, which can only ever name its latest call, and nothing said
-    // where the fleet stood in the sequence.
+  it("runs each row to its own end and keeps a settled row spinning from the tracker alone", async () => {
+    // The tracker-on-refresh contract (spec 2026-09-30): a row's busy state
+    // comes from the server's fact, so the tab that sees a row's POST answer
+    // still spins it while the tracker calls it live, and a reader who never
+    // pressed reads the same spin.
     const original = globalThis.fetch;
     const deferred = new Map<string, () => void>();
-    globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
       const url = String(input);
       if (init?.method === "POST") {
         const id = url.split("/")[3];
@@ -267,72 +269,39 @@ describe("NodeRows", () => {
           );
         });
       }
-      // The watcher's read: both still on the OLD version, so accepted
-      // watches stay on their "installing" sentence.
-      return Promise.resolve(
-        new Response(
-          JSON.stringify({
-            nodes: [
-              { id: "a", agentVersion: "0.9.0" },
-              { id: "b", agentVersion: "0.9.0" },
-            ],
-          }),
-          {
-            status: 200,
-          },
-        ),
-      );
-    }) as typeof globalThis.fetch;
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    }) as unknown as typeof globalThis.fetch;
     try {
-      const view = renderRows(
-        nodeUpdates({
-          release: { version: "0.9.1", tag: "cli-node-v0.9.1", publishedAt: null },
-          rows: [
-            nodeRow({ id: "a", name: "alpha", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } }),
-            nodeRow({ id: "b", name: "beta", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } }),
-          ],
-        }),
-      );
-      const { client } = view;
-      // Grab the header button BEFORE pressing it: mid-sequence it no longer
-      // answers /^Update all/, so every position assert below reads the same
-      // captured element (React keeps the node across renders).
+      const fleetA = nodeUpdates({
+        release: { version: "0.9.1", tag: "cli-node-v0.9.1", publishedAt: null },
+        rows: [
+          nodeRow({ id: "a", name: "alpha", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } }),
+          nodeRow({ id: "b", name: "beta", agentVersion: "0.9.0", canUpdate: { ok: true, reason: null } }),
+        ],
+      });
+      const view = renderRows(fleetA);
       const allBtn = updateAll();
       fireEvent.click(allBtn);
 
-      // Position 1 of 2 while a's POST is open: the counter names it, only
-      // row a spins, row b sits plainly disabled.
-      await waitFor(() => expect(allBtn.textContent).toBe("Updating 1 of 2…"));
-      expect((await screen.findByRole("button", { name: "Updating…" })).textContent).toBe("Updating…");
-      // Row b is the only plain "Update" button left: a string `name` on a
-      // role query matches the accessible name exactly, so "Updating…" on
-      // row a cannot shadow-match it.
-      const plain = screen.getByRole("button", { name: "Update" }) as HTMLButtonElement;
-      expect(plain.disabled).toBe(true);
+      // Both in flight at once, both spinning, plus the header.
+      await waitFor(() => expect(deferred.size).toBe(2));
+      expect(screen.getAllByRole("button", { name: "Updating…" }).length).toBe(3);
 
-      // a's 202 lands: a keeps a sentence (not a spinner), b takes the
-      // spinner, and the counter moves. This is the moment the old state
-      // model made unrepresentable to SEE. (ASYNC act: a sync act callback
-      // returns before the resolve's microtask chain runs, so the state
-      // would land outside it and the next waitFor's first check would be
-      // a coin-flip, which is exactly the Linux happy-dom escape trap. The
-      // await drains the chain, so the waitFor below lands on settled DOM.)
+      // a's 202 lands. Its POST settles, the payload knows nothing yet, so a
+      // plainly waits while b keeps moving; the batch (and its lock) stays on.
       await act(async () => {
         deferred.get("a")?.();
       });
-      await waitFor(() => expect(allBtn.textContent).toBe("Updating 2 of 2…"));
-      // No sentence yet, for either row: the phase lives in the payload now,
-      // and the payload the test was rendered with knows nothing.
-      expect(screen.getAllByRole("button", { name: "Updating…" }).length).toBe(1);
-      expect(screen.queryByText(/is installing/)).toBeNull();
+      await waitFor(() => expect(screen.getAllByRole("button", { name: "Updating…" }).length).toBe(2));
+      expect(screen.getByRole("button", { name: "Update" }).textContent).toBe("Update");
+      expect(allBtn.textContent).toBe("Updating…");
 
       // The mid-run refetch: a's tracker entry has appeared, a is offline and
-      // out of the updatable list, and b is still in flight. The counter must
-      // keep counting the fleet the press captured, not the one on screen
-      // now, or it reads "1 of 1" while the operator's own press said two;
-      // and a's sentence arrives FROM THE PAYLOAD, not from this tab's memory.
+      // out of the updatable list, b is still in flight. a's spinner and
+      // sentence now come FROM THE PAYLOAD, not this tab's memory - that is
+      // what a refreshed page would read too.
       view.rerender(
-        <QueryClientProvider client={client}>
+        <QueryClientProvider client={view.client}>
           <div className="grid">
             <NodeRows
               fleet={nodeUpdates({
@@ -352,18 +321,18 @@ describe("NodeRows", () => {
           </div>
         </QueryClientProvider>,
       );
-      expect(allBtn.textContent).toBe("Updating 2 of 2…");
       expect(screen.getByText("alpha is installing 0.9.1 and will reconnect by itself.")).toBeTruthy();
-      expect(screen.queryByText(/beta is installing/)).toBeNull();
+      expect(screen.getAllByRole("button", { name: "Updating…" }).length).toBe(3); // a is spinning again
 
-      // b's 202 lands: the sequence is done; the header button is itself
-      // again, counted against the fleet as it stands now.
+      // b's 202 lands: the batch closes and the header is itself again, but
+      // still LOCKED, because a's tracker says a is still moving.
       await act(async () => {
         deferred.get("b")?.();
       });
       await waitFor(() => expect(allBtn.textContent).toBe("Update all (1)"));
+      expect(allBtn.disabled).toBe(true);
       view.rerender(
-        <QueryClientProvider client={client}>
+        <QueryClientProvider client={view.client}>
           <div className="grid">
             <NodeRows
               fleet={nodeUpdates({
@@ -445,12 +414,12 @@ describe("NodeRows", () => {
     }
   });
 
-  it("says a failed 'Update all' ONCE, on the row it stopped at", async () => {
-    // The double-render fix (review 2026-09-17): the hook keeps the failure
-    // and the failed row renders its own destructive line, so the old
-    // section-bottom `runError` copy printed the same refusal a second time —
-    // one failing row showed the message twice. This pins the count at ONE,
-    // and that the sequence stopped at the machine that refused.
+  it("says a failed 'Update all' ONCE per failing row and asks them all anyway", async () => {
+    // Parallel contract (spec 2026-09-30): a refusal no longer stops the
+    // batch, because every row's story is its own - the tracker tells the
+    // ones that opened an entry, this tab's failure map the ones refused
+    // before one. The 2026-09-17 lesson survives in the COUNT: one failing
+    // row shows its refusal exactly once.
     const original = globalThis.fetch;
     const posts: string[] = [];
     globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
@@ -460,7 +429,7 @@ describe("NodeRows", () => {
         return new Response("NODE_NOT_SUPERVISED: nothing respawns this agent", { status: 409 });
       }
       return original(input as RequestInfo, init);
-    }) as typeof globalThis.fetch;
+    }) as unknown as typeof globalThis.fetch;
     try {
       renderRows(
         nodeUpdates({
@@ -471,11 +440,64 @@ describe("NodeRows", () => {
         }),
       );
       fireEvent.click(updateAll());
-      await waitFor(() => expect(screen.getAllByText(/NODE_NOT_SUPERVISED/).length).toBe(1));
-      // Stop at the first failure: beta was never asked.
-      expect(posts).toEqual(["/api/nodes/a/update"]);
+      await waitFor(() => expect(screen.getAllByRole("alert").length).toBe(2));
+      expect(screen.getAllByText(/NODE_NOT_SUPERVISED/).length).toBe(2);
+      expect(posts).toContain("/api/nodes/a/update");
+      expect(posts).toContain("/api/nodes/b/update");
     } finally {
       globalThis.fetch = original;
     }
+  });
+
+  it("keeps the row spinning and the fleet locked from the tracker alone, as a refreshed page reads it", () => {
+    // No press, no fetch stub: one live tracker entry on the payload IS the
+    // whole state, which is the point of it being server state.
+    renderRows(
+      nodeUpdates({
+        rows: [
+          nodeRow({
+            id: "a",
+            name: "alpha",
+            canUpdate: { ok: true, reason: null },
+            update: updateState({ phase: "restarting" }),
+          }),
+        ],
+      }),
+    );
+    const rowBtn = screen.getByRole("button", { name: "Updating…" }) as HTMLButtonElement;
+    expect(rowBtn.disabled).toBe(true);
+    expect(updateAll().disabled).toBe(true);
+  });
+
+  it("hands a stalled row back to the human instead of locking the fleet on it", () => {
+    // STALL_MS-not-busy: two minutes without confirmation and the row says
+    // so; a permanently disabled button would take that handoff away.
+    renderRows(
+      nodeUpdates({
+        rows: [
+          nodeRow({
+            id: "a",
+            name: "alpha",
+            canUpdate: { ok: true, reason: null },
+            update: updateState({ phase: "stalled" }),
+          }),
+        ],
+      }),
+    );
+    expect(updateAll().disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Update" }).textContent).toBe("Update");
+  });
+
+  it("links the Nodes section to the offered node release", () => {
+    // One link for the section, not one per row (operator ruling 2026-09-30):
+    // every row is offered the same release page.
+    renderRows(nodeUpdates({ rows: [nodeRow()] }));
+    const link = screen.getByRole("link", { name: "Notes" }) as HTMLAnchorElement;
+    expect(link.href).toBe(releasePageUrl("cli-node-v0.9.0"));
+  });
+
+  it("offers no Notes when no node release can be offered", () => {
+    renderRows(nodeUpdates({ release: null, reason: "the release source is off", rows: [nodeRow()] }));
+    expect(screen.queryByRole("link", { name: "Notes" })).toBeNull();
   });
 });

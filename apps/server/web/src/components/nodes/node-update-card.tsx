@@ -26,7 +26,8 @@ import { useNodeUpdate } from "@/hooks/use-node-update";
 export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
   const nodeUpdate = useNodeUpdate();
   const [accepted, setAccepted] = useState<{ to: string } | null>(null);
-  const updating = nodeUpdate.pendingNodeId === node.id;
+  const updating = nodeUpdate.pendingNodeIds.has(node.id);
+  const failure = nodeUpdate.failures[node.id];
 
   // TanStack reuses route components across param changes, so navigating to
   // another node must retire this node's result lines — and the hook's
@@ -92,9 +93,9 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
             Update accepted. {node.name} is installing {accepted.to} and will reconnect by itself.
           </p>
         )}
-        {nodeUpdate.failure?.nodeId === node.id && (
+        {failure !== undefined && (
           <p role="alert" className="text-destructive text-detail">
-            {nodeUpdate.failure.message}
+            {failure}
           </p>
         )}
       </CardContent>
