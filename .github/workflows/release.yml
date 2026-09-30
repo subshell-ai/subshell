@@ -37,9 +37,11 @@
 #                 cut-order ruling (2026-09-30) is CLI first, desktop after,
 #                 because each desktop bundle SHIPS the CLI binary the release
 #                 page offers — stageSidecar downloads and signature-verifies
-#                 it rather than rebuilding. GitHub cannot express
-#                 per-matrix-leg needs, so the phases are jobs and the bodies
-#                 are test-pinned copies (scripts/__tests__/release-cut-order.test.ts).
+#                 it rather than rebuilding. The ordering crosses a publish
+#                 JOB (draft, flip, assets), and job-level `needs` is the only
+#                 surface that can say "after that went live" — so the phases
+#                 are jobs and the bodies are test-pinned copies
+#                 (scripts/__tests__/release-cut-order.test.ts).
 #                 The matrix, per triple:
 #                 linux-* → ubuntu-24.04 (pinned for the glibc-2.39 floor;
 #                 linux-arm64 is CROSS-BUILT — bytecode cross is proven on
@@ -558,10 +560,11 @@ jobs:
   # The build/publish pair exists TWICE on purpose (cut-order ruling,
   # 2026-09-30): the CLI apps build and publish first, and the desktop shards
   # then FETCH the published release binary as their sidecar (see
-  # stageSidecar) instead of rebuilding it. GitHub cannot express
-  # needs-dependencies per matrix leg, so phases are jobs; the bodies are
-  # byte-identical apart from the job key / needs / matrix expressions, and
-  # scripts/__tests__/release-cut-order.test.ts fails the drift.
+  # stageSidecar) instead of rebuilding it. The order is a boundary the
+  # publish job owns (draft, flip, assets) and job-level `needs` is the only
+  # surface that spans it; the bodies are byte-identical apart from the job
+  # key / needs / matrix expressions, and
+  # scripts/__tests__/release-cut-order.test.ts fails any drift.
 
   build-cli:
     name: ${{ matrix.app }} ${{ matrix.triple }}
@@ -761,7 +764,9 @@ jobs:
           APP: ${{ matrix.app }}
           # The app's directory under apps/ — see the plan job's `app_dir` table.
           DIR: ${{ matrix.dir }}
-          # stageSidecar FETCHES the released CLI asset: gh needs the job token.
+          # stageSidecar FETCHES the released CLI asset over the GitHub API;
+          # the repo is private, so the lookup and download are authenticated
+          # with the job token (cli-release-fetch.ts refuses without it).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel
@@ -1369,7 +1374,9 @@ jobs:
           APP: ${{ matrix.app }}
           # The app's directory under apps/ — see the plan job's `app_dir` table.
           DIR: ${{ matrix.dir }}
-          # stageSidecar FETCHES the released CLI asset: gh needs the job token.
+          # stageSidecar FETCHES the released CLI asset over the GitHub API;
+          # the repo is private, so the lookup and download are authenticated
+          # with the job token (cli-release-fetch.ts refuses without it).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel

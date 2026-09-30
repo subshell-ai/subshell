@@ -99,14 +99,22 @@ and refuses the shard unless the publisher SIGNATURE over
 SIGNED `assets` map, then chmods 0755 (downloaded bytes land 0644; a 0644
 sidecar dies EACCES at exec, invisibly until first run). A missing release is
 a refusal BY NAME, and it means exactly one thing: the CLI cut has not shipped
-yet. That is the ordering made mechanical: within one cut, release.yml's
-`build-desktop` job literally needs `publish-cli` (the duplicated job bodies
-are pinned against drift by `scripts/__tests__/release-cut-order.test.ts`);
-across cuts, the release either exists or the shard stops. The GHCR image rail
-then chains after the whole run, so a full cut runs **CLI -> desktop -> image**.
-`SUBSHELL_SIDECAR_FROM_SOURCE=1` keeps the old path (build, never fetch) for
-local use; CI never sets it. Rules about the staged binary that survive either
-path, each with a failure that only appears on a user's machine:
+yet (a published-but-broken release, meaning a missing asset, a bad
+signature or a wrong digest, is a HARD refusal by name instead, so the two never read alike). The
+fetch is Bun's own `fetch` against the GitHub API, never the `gh` CLI: the
+linux desktop shard runs inside the desktop-builder container, which carries no
+`gh`, and a cut must not depend on which image runs the job. That is the
+ordering made mechanical: within one cut, release.yml's `build-desktop` job
+literally needs `publish-cli`: the ordering crosses a publish job, and
+job-level `needs` is the only surface that spans it (the duplicated bodies are
+pinned against drift by `scripts/__tests__/release-cut-order.test.ts`); across
+cuts, the release either exists or the shard stops. The GHCR image rail then
+chains after the whole run, so a full cut runs **CLI -> desktop -> image**.
+For local work, run the release script with `SUBSHELL_SIDECAR_FROM_SOURCE=1`
+set in the environment and it keeps the old path (build, never fetch); CI
+never sets it, and `scripts/desktop-dev.ts` sets it deliberately (dev ships the
+working tree). Rules about the staged binary that survive either path, each
+with a failure that only appears on a user's machine:
 
 - **Source builds use `compile:release`, never `compile`**: for the server,
   only the release build embeds the SPA, and a stub-shipping binary throws at

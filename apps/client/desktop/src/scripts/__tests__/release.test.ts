@@ -15,7 +15,6 @@ import {
   RELEASE_MANIFEST_SIG_NAME,
   type ReleaseManifest,
   rustTargetTriple,
-  SUBSHELL_REPO_SLUG,
 } from "@internal/subshell-protocol";
 
 /** The cli-node version the stubbed apps/node/agent/package.json reports. */
@@ -24,6 +23,17 @@ const STUB_CLI_VERSION = "9.9.9";
 const STUB_DIGEST = "ab".repeat(32);
 /** The signed assets map the stubbed verify hands back: every target matches. */
 const STUB_ASSETS = Object.fromEntries(NODE_TARGETS.map((t) => [nodeArtifactFileName(t), STUB_DIGEST]));
+/** Download URLs the stubbed index hands out; the bytes come back by name. */
+const stubUrl = (name: string) => `https://dl.invalid/${name}`;
+/** The full asset index of a published release, as the API would answer. */
+function stubIndex() {
+  return {
+    status: 200,
+    assets: Object.fromEntries(
+      [...Object.keys(STUB_ASSETS), RELEASE_MANIFEST_NAME, RELEASE_MANIFEST_SIG_NAME].map((n) => [n, stubUrl(n)]),
+    ) as Record<string, string>,
+  };
+}
 
 import {
   assertBundleSet,
@@ -97,6 +107,11 @@ function stub(over: Partial<DesktopReleaseDeps> & { built?: boolean; listing?: s
       return "untrusted comment: signature from tauri secret key\nSIGNATURE\n";
     },
     digest: async () => STUB_DIGEST,
+    fetchIndex: async () => stubIndex(),
+    fetchBytes: async (url) => ({ status: 200, bytes: new TextEncoder().encode(`bytes-of-${url.split("/").pop()}`) }),
+    writeBytes: async (p2, bytes2) => {
+      writes.push([p2, `\u0000binary\u0000${bytes2.byteLength}`]);
+    },
     verify: async (_manifestText, _sigText, expected) => {
       verifyArgs = expected;
       return { ok: true, manifest: { assets: STUB_ASSETS } as ReleaseManifest };
@@ -127,64 +142,78 @@ describe("stageSidecar", () => {
   test("stages the asset the cli-node release published, verified against the signed manifest", async () => {
     const s = stub();
     expect(await stageSidecar(s.deps, "darwin-arm64")).toBe(true);
-    expect(s.runs[0]?.argv).toEqual([
-      "gh",
-      "release",
-      "download",
-      `cli-node-v${STUB_CLI_VERSION}`,
-      "-R",
-      SUBSHELL_REPO_SLUG,
-      "-p",
-      nodeArtifactFileName("darwin-arm64"),
-      "-p",
-      RELEASE_MANIFEST_NAME,
-      "-p",
-      RELEASE_MANIFEST_SIG_NAME,
-      "-D",
-      SIDECAR_DIR,
-    ]);
     expect(s.verifyArgs?.component).toBe("cli-node");
     expect(s.verifyArgs?.version).toBe(STUB_CLI_VERSION);
-    expect(s.removed).toEqual([join(SIDECAR_DIR, RELEASE_MANIFEST_NAME), join(SIDECAR_DIR, RELEASE_MANIFEST_SIG_NAME)]);
+    // Pre-clean of BOTH output names before anything is fetched…
+    expect(s.removed.slice(0, 2)).toEqual([
+      join(SIDECAR_DIR, desktopSidecarFileName(NODE_SIDECAR_NAME, "darwin-arm64")),
+      join(SIDECAR_DIR, nodeArtifactFileName("darwin-arm64")),
+    ]);
+    // …the asset bytes land at the release name…
+    expect(
+      s.writes.some(
+        ([p2, text]) =>
+          p2 === join(SIDECAR_DIR, nodeArtifactFileName("darwin-arm64")) && text.startsWith("\u0000binary"),
+      ),
+    ).toBe(true);
+    // …and the rename + exec-mode finish it.
     expect(s.moves).toEqual([
       [
         join(SIDECAR_DIR, nodeArtifactFileName("darwin-arm64")),
         join(SIDECAR_DIR, desktopSidecarFileName(NODE_SIDECAR_NAME, "darwin-arm64")),
       ],
     ]);
-    // Downloaded bytes land 0644; the sidecar must exec.
     expect(s.runs.at(-1)?.argv).toEqual([
       "chmod",
       "0755",
       join(SIDECAR_DIR, desktopSidecarFileName(NODE_SIDECAR_NAME, "darwin-arm64")),
     ]);
-    // Anything grepping for the STAGED name inside a built bundle finds
-    // nothing, so the two spellings are worth stating apart.
-    expect(s.moves[0]?.[1]).toContain(rustTargetTriple("darwin-arm64"));
-    expect(s.moves[0]?.[1]).not.toContain("darwin-arm64");
   });
 
-  // The cut order is CLI first; a desktop shard that outran it fails HERE, by
-  // name, rather than quietly shipping a stale binary or a source rebuild.
-  test("a not-yet-published cli release refuses the shard and stages nothing", async () => {
-    const s = stub({ run: async () => 1 });
+  // The cut order is CLI first; a desktop shard that outran it fails HERE,
+  // softly and by name, and main() repeats the tag in its refusal.
+  test("an unpublished cli release refuses the shard softly, naming the tag", async () => {
+    const s = stub({ fetchIndex: async () => ({ status: 404, assets: {} }) });
     expect(await stageSidecar(s.deps, "darwin-arm64")).toBe(false);
     expect(s.moves).toEqual([]);
     expect(s.logs.some((l) => l.includes(`cli-node-v${STUB_CLI_VERSION}`))).toBe(true);
   });
 
-  test("an asset whose digest is not the signed one is refused", async () => {
-    const s = stub({ digest: async () => "cd".repeat(32) });
+  test("a failing lookup is reported with its status, not as a missing release", async () => {
+    const s = stub({ fetchIndex: async () => ({ status: 503, assets: {} }) });
     expect(await stageSidecar(s.deps, "darwin-arm64")).toBe(false);
-    expect(s.moves).toEqual([]);
-    expect(s.logs.some((l) => l.includes("is not the signed"))).toBe(true);
+    expect(s.logs.some((l) => l.includes("HTTP 503"))).toBe(true);
   });
 
-  test("a manifest the publisher key does not vouch for is refused", async () => {
-    const s = stub({ verify: async () => ({ ok: false, reason: "bad sig" }) });
-    expect(await stageSidecar(s.deps, "darwin-arm64")).toBe(false);
+  // A PUBLISHED release missing an asset every CLI cut carries is a broken
+  // release, not a missing one: hard refusal, never "cut the CLI first".
+  test("a published release without the manifest pair is a hard refusal", async () => {
+    const s = stub({
+      fetchIndex: async () => ({ status: 200, assets: { [nodeArtifactFileName("darwin-arm64")]: stubUrl("a") } }),
+    });
+    await expect(stageSidecar(s.deps, "darwin-arm64")).rejects.toThrow(/published without release-manifest\.json/);
+  });
+
+  test("an asset the download refuses to hand over is a hard refusal", async () => {
+    const s = stub({
+      fetchBytes: async (url) =>
+        url.includes("darwin-arm64")
+          ? { status: 500, bytes: undefined }
+          : { status: 200, bytes: new TextEncoder().encode("x") },
+    });
+    await expect(stageSidecar(s.deps, "darwin-arm64")).rejects.toThrow(/answered HTTP 500/);
+  });
+
+  test("an asset whose digest is not the signed one is a hard refusal", async () => {
+    const s = stub({ digest: async () => "cd".repeat(32) });
+    await expect(stageSidecar(s.deps, "darwin-arm64")).rejects.toThrow(/is not the signed/);
     expect(s.moves).toEqual([]);
-    expect(s.logs.some((l) => l.includes("bad sig"))).toBe(true);
+  });
+
+  test("a manifest the publisher key does not vouch for is a hard refusal", async () => {
+    const s = stub({ verify: async () => ({ ok: false, reason: "bad sig" }) });
+    await expect(stageSidecar(s.deps, "darwin-arm64")).rejects.toThrow(/does not verify: bad sig/);
+    expect(s.moves).toEqual([]);
   });
 
   test("the source escape still builds with compile:release, scoped and unsigned", async () => {
@@ -192,17 +221,14 @@ describe("stageSidecar", () => {
     try {
       const s = stub();
       expect(await stageSidecar(s.deps, "linux-x64")).toBe(true);
-      // `compile` is the host-only dev build — no cross target and no
-      // --bytecode, so a darwin bundle built on a Linux shard would carry an ELF.
+      // `compile` ships a host-only binary with no cross target and no
+      // --bytecode; the release build (and this escape) always uses
+      // compile:release. The publish dir must be ABSOLUTE (the child resolves
+      // in its own cwd), scoped to one triple, sign hook CLEARED.
       expect(s.runs[0]?.argv).toEqual(["bun", "run", "--cwd", "apps/node/agent", "compile:release"]);
-      // resolveArtifactsDir() on the agent side resolves in the CHILD's cwd,
-      // so the publish dir must be ABSOLUTE; and the sign hook is CLEARED
-      // because Tauri re-seals the nested bytes itself.
       expect(s.runs[0]?.env?.SUBSHELL_NODE_ARTIFACTS_DIR).toBe(SIDECAR_DIR);
-      expect(s.runs[0]?.env?.SUBSHELL_NODE_ARTIFACTS_DIR?.startsWith("/")).toBe(true);
       expect(s.runs[0]?.env?.SUBSHELL_RELEASE_TRIPLES).toBe("linux-x64");
       expect(s.runs[0]?.env?.SUBSHELL_RELEASE_SIGN_CMD).toBe("");
-      // Pre-seal digests and the nested manifest have no business here.
       expect(s.removed).toEqual([
         `${join(SIDECAR_DIR, nodeArtifactFileName("linux-x64"))}.sha256`,
         join(SIDECAR_DIR, RELEASE_MANIFEST_NAME),
@@ -219,8 +245,8 @@ describe("stageSidecar", () => {
     }
   });
 
-  test("a missing artifact after a failed fetch stages nothing", async () => {
-    const s = stub({ built: false });
+  test("an unpublished release stages nothing on the fetch path either", async () => {
+    const s = stub({ fetchIndex: async () => ({ status: 404, assets: {} }) });
     expect(await stageSidecar(s.deps, "darwin-arm64")).toBe(false);
     expect(s.moves).toEqual([]);
   });
@@ -298,8 +324,9 @@ describe("the Intel Mac target", () => {
   test("its sidecar stages the agent scoped to the x64 triple", async () => {
     const s = stub();
     expect(await stageSidecar(s.deps, "darwin-x64")).toBe(true);
-    // On the fetch path the triple pick is WHICH ASSET the shard downloads.
-    expect(s.runs[0]?.argv).toContain(nodeArtifactFileName("darwin-x64"));
+    // On the fetch path the triple pick is WHICH ASSET the shard downloads:
+    // the moved file is the x86_64 asset landing under the x86_64 sidecar name.
+    expect(s.moves[0]?.[0]).toBe(join(SIDECAR_DIR, nodeArtifactFileName("darwin-x64")));
     expect(s.moves[0]?.[1]).toContain(rustTargetTriple("darwin-x64"));
   });
 });

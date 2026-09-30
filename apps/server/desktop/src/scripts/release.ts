@@ -49,7 +49,6 @@ import {
   type ReleaseComponent,
   rustTargetTriple,
   SERVER_SIDECAR_NAME,
-  SUBSHELL_REPO_SLUG,
   serverArtifactFileName,
 } from "@internal/subshell-protocol";
 import {
@@ -73,6 +72,7 @@ import {
 // consumer, so it lives in `scripts/` and both desktop pipelines import it —
 // which is what keeps the manifest the shards WRITE and the one the publish
 // job MERGES one shape.
+import { fetchReleaseBytes, fetchReleaseIndex } from "../../../../../scripts/cli-release-fetch.js";
 import {
   buildShardManifest,
   latestManifestName,
@@ -185,6 +185,19 @@ export interface DesktopReleaseDeps {
   /** SHA-256 of a staged file's bytes, checked against the SIGNED manifest. */
   digest: (path: string) => Promise<string>;
   /**
+   * Index a published release's assets (name -> download URL) over the
+   * GitHub API; status 404 means the version was never released. Injected so
+   * tests drive every lookup outcome; production is scripts/cli-release-fetch.
+   */
+  fetchIndex: (
+    component: ReleaseComponent,
+    version: string,
+  ) => Promise<{ status: number; assets: Record<string, string> }>;
+  /** Download one asset's bytes. */
+  fetchBytes: (url: string) => Promise<{ status: number; bytes: Uint8Array | undefined }>;
+  /** Write bytes to a file — the downloaded asset, before it is renamed. */
+  writeBytes: (path: string, bytes: Uint8Array) => Promise<void>;
+  /**
    * Verify a release-manifest pair against the publisher key. Injected so
    * tests drive the fetch path with a verdict; production is
    * `verifyReleaseManifest` under the compiled-in `RELEASE_PUBKEY`.
@@ -197,12 +210,44 @@ export interface DesktopReleaseDeps {
   log: (line: string) => void;
 }
 
+/**
+ * Download one named asset of an EXISTING release. Reaching this with the
+ * name missing means the published release lacks an asset every CLI cut
+ * carries — a broken release, not a missing one, and a broken release gets a
+ * hard refusal by name. The soft "cut the CLI first" path is for a release
+ * that does not exist at all; the two must not read the same.
+ */
+async function fetchAsset(
+  deps: DesktopReleaseDeps,
+  tag: string,
+  index: { status: number; assets: Record<string, string> },
+  name: string,
+): Promise<Uint8Array> {
+  const url = index.assets[name];
+  if (url === undefined) throw new Error(`refused: ${tag} is published without ${name}`);
+  const got = await deps.fetchBytes(url);
+  if (got.bytes === undefined) throw new Error(`refused: ${tag}/${name} answered HTTP ${got.status}`);
+  return got.bytes;
+}
+
+/** The manifest and signature are verified as TEXT (the signed bytes). */
+async function fetchAssetText(
+  deps: DesktopReleaseDeps,
+  tag: string,
+  index: { status: number; assets: Record<string, string> },
+  name: string,
+): Promise<string> {
+  return new TextDecoder().decode(await fetchAsset(deps, tag, index, name));
+}
+
 /** The cli-server version THIS checkout expects the bundle to carry. */
 export async function cliReleaseVersion(deps: DesktopReleaseDeps): Promise<string> {
   const pkg = JSON.parse(await deps.read(join(REPO_ROOT, "apps/server/api", "package.json"))) as { version?: string };
   const version = String(pkg.version ?? "");
-  if (!/^\d+\.\d+\.\d+/.test(version))
-    throw new Error(`apps/server/api/package.json has no usable version: '${version}'`);
+  // Exact, not prefix: a prerelease version would name a tag the rail never
+  // publishes, and "not published yet" would be a lie about a false premise.
+  if (!/^\d+\.\d+\.\d+$/.test(version))
+    throw new Error(`apps/server/api/package.json has no usable release version: '${version}'`);
   return version;
 }
 
@@ -223,64 +268,43 @@ export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Pr
     return stageSidecarFromSource(deps, triple);
   }
   deps.log(`staging the server sidecar for ${triple} from the published release…`);
-  let version: string;
-  try {
-    version = await cliReleaseVersion(deps);
-  } catch (err) {
-    deps.log(err instanceof Error ? err.message : String(err));
-    return false;
-  }
+  const version = await cliReleaseVersion(deps);
   const tag = `${RELEASE_TAG_PREFIX["cli-server"]}${version}`; // the prefix already ends in "-v"
   const asset = serverArtifactFileName(triple);
-  const code = await deps.run(
-    [
-      "gh",
-      "release",
-      "download",
-      tag,
-      "-R",
-      SUBSHELL_REPO_SLUG,
-      "-p",
-      asset,
-      "-p",
-      RELEASE_MANIFEST_NAME,
-      "-p",
-      RELEASE_MANIFEST_SIG_NAME,
-      "-D",
-      SIDECAR_DIR,
-    ],
-    REPO_ROOT,
-  );
-  if (code !== 0 || !deps.exists(join(SIDECAR_DIR, asset))) {
+  const assetPath = join(SIDECAR_DIR, asset);
+  const sidecar = join(SIDECAR_DIR, desktopSidecarFileName(SERVER_SIDECAR_NAME, triple));
+  // Clean the two output names FIRST: a refused download's asset left behind
+  // would satisfy the escape hatch's exists() check on the next call, and
+  // everything in this directory is walkable by the bundler's preflight.
+  await deps.remove(sidecar);
+  await deps.remove(assetPath);
+  const index = await deps.fetchIndex("cli-server", version);
+  if (index.status !== 200) {
+    // The ORDERING refusal: the release this bundle must ship does not exist
+    // (or the lookup failed; the status says which). Soft by design —
+    // main() refuses with this log above it.
     deps.log(
-      `refused: ${asset} is not downloadable from ${tag}. The desktop bundle ships the CLI that was actually released; ` +
-        "cut the cli-server release first (SUBSHELL_SIDECAR_FROM_SOURCE=1 builds from source for local use).",
+      `refused: ${tag} answered the release lookup with HTTP ${index.status}. The desktop bundle ships the CLI that was ` +
+        "actually released; cut the cli-server release first (SUBSHELL_SIDECAR_FROM_SOURCE=1 builds from source for local use).",
     );
     return false;
   }
-  const verdict = await deps.verify(
-    await deps.read(join(SIDECAR_DIR, RELEASE_MANIFEST_NAME)),
-    await deps.read(join(SIDECAR_DIR, RELEASE_MANIFEST_SIG_NAME)),
-    { component: "cli-server", version },
-  );
+  const manifestText = await fetchAssetText(deps, tag, index, RELEASE_MANIFEST_NAME);
+  const sigText = await fetchAssetText(deps, tag, index, RELEASE_MANIFEST_SIG_NAME);
+  const assetBytes = await fetchAsset(deps, tag, index, asset);
+  const verdict = await deps.verify(manifestText, sigText, { component: "cli-server", version });
   if (!verdict.ok) {
-    deps.log(`refused: ${tag}: ${verdict.reason}`);
-    return false;
+    throw new Error(`refused: ${tag}'s release manifest does not verify: ${verdict.reason}`);
   }
+  await deps.writeBytes(assetPath, assetBytes);
   const expected = verdict.manifest.assets[asset];
-  const actual = await deps.digest(join(SIDECAR_DIR, asset));
+  const actual = await deps.digest(assetPath);
   if (expected === undefined || expected !== actual) {
-    deps.log(
+    throw new Error(
       `refused: ${asset} digest ${actual} is not the signed ${expected ?? "(absent from the manifest)"} for ${tag}`,
     );
-    return false;
   }
-  // The pair has done its job; a release-manifest.json in this directory
-  // would collide on basename with the one THIS app publishes.
-  await deps.remove(join(SIDECAR_DIR, RELEASE_MANIFEST_NAME));
-  await deps.remove(join(SIDECAR_DIR, RELEASE_MANIFEST_SIG_NAME));
-  const sidecar = join(SIDECAR_DIR, desktopSidecarFileName(SERVER_SIDECAR_NAME, triple));
-  await deps.move(join(SIDECAR_DIR, asset), sidecar);
+  await deps.move(assetPath, sidecar);
   // Downloaded bytes land 0644; a sidecar that ships 0644 dies EACCES at exec,
   // invisibly until first run.
   if ((await deps.run(["chmod", "0755", sidecar], REPO_ROOT)) !== 0) {
@@ -447,6 +471,11 @@ export const DEFAULT_DEPS: DesktopReleaseDeps = {
     return { code: await proc.exited, output: `${out}${err}` };
   },
   digest: digestFile,
+  fetchIndex: fetchReleaseIndex,
+  fetchBytes: fetchReleaseBytes,
+  writeBytes: async (path, bytes) => {
+    await Bun.write(path, bytes);
+  },
   verify: (manifestText, sigText, expected) => verifyReleaseManifest(manifestText, sigText, RELEASE_PUBKEY, expected),
   log: (line) => console.log(line),
 };
@@ -487,7 +516,9 @@ async function main(): Promise<void> {
   try {
     for (const triple of targets) {
       if (!(await stageSidecar(deps, triple))) {
-        throw new Error(`the server sidecar for ${triple} failed to build. Nothing published`);
+        throw new Error(
+          `the cli-server release this bundle must ship is not available (see the refusal logged above). Nothing published`,
+        );
       }
       const bundleRoot = bundleRootFor(triple);
       // A previous target's output would otherwise make `assertBundleSet` fail

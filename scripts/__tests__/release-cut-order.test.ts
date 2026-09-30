@@ -24,6 +24,13 @@ function job(name: string): string {
   return rest.slice(0, next ? next.index : rest.length);
 }
 
+/** A job's header: everything before its steps, where its `if` gate lives. */
+function header(name: string): string {
+  const block = job(name);
+  const i = block.indexOf("\n    steps:");
+  return i === -1 ? block : block.slice(0, i);
+}
+
 /** A job's step definitions, where drift would hide. */
 function steps(name: string): string {
   const block = job(name);
@@ -56,6 +63,19 @@ describe("cut phases: CLI first, desktop after", () => {
     expect(job("build-desktop")).toContain("needs.publish-cli.result == 'skipped'");
     expect(job("publish-desktop")).toContain("needs: [plan, build-desktop]");
     expect(job("publish-desktop")).toContain("desktop_apps");
+    // The failure half of the tolerance: a SKIPPED publish-cli (desktop-only
+    // dispatch) may pass, a FAILED one must stop it. The tolerance is
+    // deliberately ONLY here: a publish job tolerating a skipped build would
+    // try to publish bytes that were never built, so both publish gates stay
+    // plain app-list guards and GitHub's needs blocking stays load-bearing.
+    expect(job("build-desktop")).toContain("needs.publish-cli.result == 'success'");
+    expect(header("publish-cli")).not.toContain("result ==");
+    expect(header("publish-desktop")).not.toContain("result ==");
+    // Nothing may paper over a failed NEEDS with always(). The one always()
+    // in the build bodies is a STEP guard (un-root the container workspace),
+    // not a gate, so the check is scoped to headers.
+    expect(header("build-cli")).not.toContain("always()");
+    expect(header("build-desktop")).not.toContain("always()");
     // The website's manifest refresh waits for every phase that ran.
     expect(job("site-manifest")).toContain("needs: [plan, publish-cli, publish-desktop]");
   });
@@ -65,6 +85,9 @@ describe("cut phases: CLI first, desktop after", () => {
     // And the fetch is what stages the sidecar: the step never sets the
     // source escape (CI builds shipped bytes, never local ones).
     expect(steps("build-desktop")).not.toContain("SUBSHELL_SIDECAR_FROM_SOURCE");
+    // The fetch is Bun's fetch against the API, not the gh CLI: the linux
+    // desktop shard's container has no gh, and a cut may not care.
+    expect(steps("build-desktop")).not.toMatch(/\bgh release\b/);
   });
 
   test("the duplicated job bodies have not drifted apart", () => {
