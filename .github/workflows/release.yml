@@ -1881,8 +1881,16 @@ jobs:
           # FOR BYTE: generation already ran against the remote tags, so a
           # raw copy that is merely readable but not OURS means the push did
           # not land what we built (or something else landed after us).
-          for attempt in 1 2 3 4 5 6; do
-            sleep 5
+          # The budget is ~2 minutes, not ~30 seconds. This check (2026-09-24)
+          # went RED for the first time on the 2026-09-30 version-PR merge
+          # run: it pushed fine, and runs minutes apart were passing it on
+          # attempt 1 the same evening, so raw lag simply exceeds a 30 s
+          # window sometimes. The push is the fact; this loop only proves the
+          # site can SEE it. A red here then means a real serving outage, or a
+          # newer refresh superseded this run mid-window (which a generous
+          # window makes MORE likely, and the error line says so).
+          for attempt in $(seq 1 12); do
+            sleep 10
             if curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/releases.json" | cmp -s - releases.json; then
               echo "raw releases.json byte-matches what we built (attempt $attempt)"
               exit 0
