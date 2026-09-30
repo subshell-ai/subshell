@@ -1,0 +1,50 @@
+---
+title: "Installation"
+description: "Install your server and nodes with the desktop apps, or choose CLI setup for headless machines."
+---
+
+Install the Subshell server and the machines that will run your agents.
+
+## Recommended desktop setup
+
+Use the desktop apps for most installations. Download them from [Subshell downloads](https://subshell.sh), choosing the app for the machine's role.
+
+| App | Install it on | What it sets up |
+| --- | --- | --- |
+| [Install Subshell Server](/install/desktop-server) | The machine hosting your instance. | The server binary and setup assistant, including service and recovery options. |
+| [Install Subshell Client](/install/desktop-client) | Another machine where you want to run agents or watch sessions. | The desktop interface and bundled node binary, with a node-management window for enrollment. |
+
+1. Install **Subshell Server** and [Create the first admin account](/get-started/admin-account).
+2. Install **Subshell Client** on each additional execution machine.
+3. Follow [Desktop node setup](/nodes/desktop) to enroll that machine with your server.
+
+The server's own machine can run agents too. Add nodes when you want to run agents on other machines. Install coding agent CLIs under the account that will execute them; the desktop apps supply Subshell's binaries, not the agent CLIs.
+
+## CLI installation
+
+Use the CLI when a machine is headless or you prefer terminal-based setup. These install the same server and node components used by the desktop apps.
+
+| Component | Instructions |
+| --- | --- |
+| Server on Linux | [Linux CLI](/install/linux). |
+| Server on macOS | [macOS CLI](/install/macos). |
+| Node on Linux or macOS | [Enroll a node with the CLI](/nodes/enroll). |
+| Selected or offline server release | [Install the server manually](/install/manual). |
+
+The server includes its web interface. A release binary does not require Bun, a repository checkout, or a separate frontend service.
+
+## Container deployments
+
+[Docker](/install/docker) and [Proxmox LXC](/install/proxmox) cover dedicated server deployments. [Proxmox nodes](/nodes/proxmox) covers a separate execution container.
+
+## Browser access
+
+Open your server's address in any supported browser to watch and control sessions. [Browser and PWA access](/install/browser) covers standalone browser installation and phones or tablets. A device used only to access the web interface does not need a node installation.
+
+## Before choosing a machine
+
+Review [Supported platforms](/concepts/platforms). Agents run under the OS account hosting their node, with that account's filesystem access. Choose a trusted execution account and directory.
+
+## Next steps
+
+Follow [Get started](/get-started) for the recommended desktop setup, or [Desktop node setup](/nodes/desktop) if your server is already running.

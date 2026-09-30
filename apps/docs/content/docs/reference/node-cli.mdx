@@ -1,0 +1,94 @@
+---
+title: "Node CLI"
+description: "Look up subshell node commands for enrollment, services, maintenance, updates, and removal."
+---
+
+Look up the commands supported by the `subshell` node binary.
+
+## Command summary
+
+| Command | Purpose |
+| --- | --- |
+| `setup` | Interactive enrollment and service setup. |
+| `enroll` | Enrollment primitive without setup questions. |
+| `configure` | Repoint or store a rotated node key. |
+| `run` | Run the node daemon. |
+| `dashboard` | Run local node management without the daemon. |
+| `status` | Inspect recorded node state. |
+| `service` | Control the per-user daemon service. |
+| `maintenance` | Stop sessions and refuse new launches. |
+| `update` | Apply or roll back a binary update. |
+| `unenroll` | Remove enrollment credentials. |
+| `reset` | Clear local node state while keeping the binary. |
+| `uninstall` | Remove the service and binary, optionally state. |
+| `version` / `license` | Print identity or license information. |
+| `mcp` / `report` / `pane-log` | Pane integration operations. |
+
+## setup and enroll
+
+```text
+subshell setup --server <url> --key <setup-key> [--name <name>]
+               [--data-dir <dir>] [--no-service] [--yes] [--json]
+subshell enroll --server <url> --key <setup-key> --name <name>
+                [--data-dir <dir>] [--json]
+```
+
+`setup` asks for a name and offers service installation. Supply `--name` with `--yes`, `--json`, or noninteractive setup. `enroll` always requires the name and does not offer a service.
+
+## configure
+
+`subshell configure [--server <url>] [--key <node-key>] [--json]` requires at least one change. It keeps node identity and the trusted control-plane key. A setup key is refused here. Restart to apply changes.
+
+## run and dashboard
+
+Both support `--dashboard-port <n>`; `SUBSHELL_DASHBOARD_PORT` is the environment equivalent. The management dashboard is loopback-only and uses a tokenized local URL, not a public node-control endpoint.
+
+## status
+
+`subshell status [--json] [--probe]` reads lock-file state and reports paths without exposing the node key.
+
+> [!warning] Active probe
+> `--probe` connects as the node and can displace its running connection. Use ordinary status for routine inspection.
+
+## service
+
+```text
+subshell service install [--no-autostart]
+subshell service uninstall
+subshell service status [--json]
+subshell service start|stop
+subshell service restart [--force]
+subshell service autostart on|off [--json]
+```
+
+Install starts the daemon. Autostart changes future login behavior without stopping it. Restart can refuse a definition that would kill live panes; `--force` accepts that disruption.
+
+## maintenance
+
+`maintenance on [--yes] [--json]` stops running subshells and refuses new launches. Without `--yes`, live panes are listed and the command refuses before changes. `off` restores launch availability; `status` reports local state. Both support `--json`.
+
+## update
+
+```text
+subshell update [--check] [--to <version>] [--from <file>]
+                [--force] [--yes] [--json] [--no-restart]
+subshell update --rollback [--yes] [--json]
+```
+
+Check before disrupting work. Local files require your own provenance check. `--force` allows downgrade and accepts live-pane disruption. Rollback restores a previous binary when available.
+
+## unenroll, reset, and uninstall
+
+`unenroll [--yes] [--json]` removes the node configuration and lock, keeping its data, binary, and service definition. It always refuses a live daemon. `--yes` can accept orphaning remaining panes.
+
+`reset` stops local work, removes the service, and clears local node data while retaining the binary. `uninstall` also removes the binary and asks separately about data, defaulting to keep it. Both require the machine name, with `--confirm <name>` for a headless run; neither accepts `--yes`. Uninstall supports `--reset-data`.
+
+The plane's node row remains until its owner removes it. These commands do not reset another machine or the control plane.
+
+## Pane integration
+
+`mcp` requires injected pane identity. `report attention`, `report session`, and `report exit <status>` are hook operations. `pane-log --file <path>` captures pane output. There is no node-side `plugin` command; plugins live on the server.
+
+## See also
+
+[Manage nodes](/nodes) and [Version compatibility](/reference/versions).

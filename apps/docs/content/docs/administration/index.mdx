@@ -1,0 +1,28 @@
+---
+title: "Server administration"
+description: "Manage accounts, configuration, plugins, persistence, backups, and recovery."
+---
+
+Administer the Subshell instance through its server settings and host tools.
+
+## Before you start
+
+Sign in with an administrator account. **Server Settings** is hidden from members, and administration endpoints require an admin cookie session. A bearer API key does not substitute for that session.
+
+## Configure the instance
+
+Use [Configuration](/administration/configuration) for host settings, [Users and roles](/administration/users) for accounts, and [Sign-in providers](/administration/sign-in-providers) for authentication.
+
+[Registration](/administration/registration) controls who may create accounts and enroll nodes. [Plugins](/administration/plugins) manages the instance-wide harness and network plugin set.
+
+## Keep it available
+
+[Service and autostart](/administration/service) explains supervision and login startup. [Update the server](/administration/updates) covers release binaries and container images.
+
+Make [Backups and restoration](/administration/backups) part of normal operation. Use [Status and logs](/administration/logs) and [Audit log](/administration/audit) to inspect failures and administrative activity.
+
+## Recovery
+
+[Account recovery](/administration/recovery) restores admin access when normal sign-in fails. [Reset and uninstall](/administration/reset) describes destructive host operations.
+
+Operations that would leave the server unreachable require a host-side CLI or desktop assistant. A page served by a stopped server cannot bring it back.

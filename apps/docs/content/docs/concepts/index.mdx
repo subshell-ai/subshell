@@ -1,0 +1,30 @@
+---
+title: "Concepts"
+description: "Understand Subshell\u2019s components, execution model, identity, and security boundaries."
+---
+
+Understand how Subshell connects your interfaces to agent processes.
+
+## Components
+
+A server is the control plane, a node is an execution machine, and a client is your interface. [Architecture](/concepts/architecture) shows how these components communicate.
+
+The server serves the web interface and manages the instance database. A node runs real CLI processes in tmux, including when that execution machine is the server's own host.
+
+## Sessions
+
+[Session lifecycle](/guides/lifecycle) separates a live process from its stored row and browser connections. An offline node is not proof that its process stopped.
+
+Agent state and provider credentials belong to the CLI and execution account. Subshell does not replace an agent's provider login or sandbox its filesystem access.
+
+## Permissions and trust
+
+[Access model](/concepts/access) explains ownership, sharing, administrators, and machine credentials. [Security model](/concepts/security) explains encryption, trusted networks, plugin privileges, and accepted risks.
+
+## Platforms
+
+[Supported platforms](/concepts/platforms) distinguishes published execution binaries from browser access. [Version compatibility](/reference/versions) explains why a node may connect for updates while remaining unavailable for launches.
+
+## Next steps
+
+Use [Reference](/reference) for configuration values and command syntax, or [Get started](/get-started) for setup.

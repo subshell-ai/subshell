@@ -60,7 +60,8 @@ subshell unenroll [--yes] [--json] # stop being a node: deletes daemon.lock THEN
                                      # binary and service definition stay, and the
                                      # plane's node row stays until its owner deletes
                                      # it there.
-subshell run                       # foreground daemon (what the service unit runs)
+subshell dashboard [--dashboard-port <n>] # tokenized loopback management without daemon
+subshell run [--dashboard-port <n>] # foreground daemon (what the service unit runs)
                                      # NOTE: there is no `subshell plugin` command anymore
                                      # (inversion spec 2026-09-10 §6, Task 7). The node
                                      # holds no plugins: harnesses live on the control
@@ -94,6 +95,13 @@ subshell maintenance on [--yes]    # take this node out of service (spec 2026-09
                                      # RunDeps.prompt, injected by tests.)
 subshell maintenance off           # back in service
 subshell maintenance status [--json] # what THIS machine's mirror says; always exits 0
+subshell reset                    # stop daemon and local pane servers, remove the
+                                   # service and local node data, retaining the binary.
+                                   # Requires the machine name; --confirm <name> for
+                                   # headless consent. --yes is refused.
+subshell uninstall [--reset-data]  # stop and remove service + installed binary;
+                                   # data removal is a separate choice, default keep.
+                                   # Requires the same machine-name consent.
 subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane and
                                      # newest-wins KICKS a running node — warned loudly
 subshell update [--check] [--to <v>] [--from <file>] [--force] [--yes] [--json]

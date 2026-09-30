@@ -1,0 +1,34 @@
+---
+title: "Directory restrictions"
+description: "Restrict the directories in which users can launch subshells on a node."
+---
+
+Restrict where new subshells can launch on a node.
+
+## Before you start
+
+You must own the node to edit its directory allowlist. Sharing a node does not give another user permission to widen the list.
+
+## Set the allowlist
+
+1. Open the node's overview.
+2. Edit its allowed directories.
+3. Add absolute directories that exist on that machine.
+4. Save and test a launch inside an allowed directory.
+
+A session can launch in an allowed directory or beneath it. The rules are checked by both the control plane and the node, including for restarts and directory browsing operations supported by the node.
+
+> [!warning] Empty allowlist
+> An empty allowlist means unrestricted execution directories. Clearing every entry does not disable launches.
+
+## Limits
+
+The allowlist restricts the initial working directory. It is not an OS sandbox: an agent can still access files allowed by its execution account.
+
+Rules use resolved paths, so symbolic links do not provide an alternative spelling that bypasses confinement. Existing running sessions are not stopped by changing the allowlist.
+
+Users who can see the node can also see its directory rules. Choose an execution account with appropriate filesystem permissions for stronger isolation.
+
+## Next steps
+
+Read [Share a node](/nodes/sharing) and [Security model](/concepts/security).

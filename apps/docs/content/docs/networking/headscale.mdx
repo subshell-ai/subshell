@@ -1,0 +1,32 @@
+---
+title: "Headscale"
+description: "Connect the server host to your self-hosted tailnet using the Tailscale client."
+---
+
+Connect the server host to a tailnet managed by Headscale.
+
+## Before you start
+
+Run a Headscale control server and install the Tailscale client on the Subshell server host. The plugin drives `tailscale`; it does not install a Headscale server on that host.
+
+## Join
+
+1. Enable the Headscale plugin and open its networking card.
+2. Set **Control server URL** to your Headscale instance.
+3. Complete the printed privileged steps if the daemon needs installation or operator access.
+4. Join using a pre-auth key or finish interactive registration on the Headscale server.
+5. Verify that the card recognizes the intended control server.
+
+The control-server URL is required. Subshell refuses an unset destination instead of silently enrolling into Tailscale's hosted service.
+
+## Addresses and HTTPS
+
+Headscale and Tailscale share one daemon, so only one tailnet can be active on the machine. The plugins inspect the daemon's actual control-server preference rather than treating either card as proof of membership.
+
+The Headscale plugin advertises HTTP addresses and does not claim Tailscale-managed HTTPS certificates. Those addresses are not secure contexts for browser features such as remote passkeys.
+
+Use a separately configured HTTPS proxy when you need a secure browser origin. If publication is refused, review the card's stated reason rather than assuming an address was created.
+
+## Next steps
+
+Read [HTTPS and reverse proxies](/networking/https) and [Addresses and trusted origins](/networking/addresses).

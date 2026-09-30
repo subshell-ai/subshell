@@ -1,0 +1,33 @@
+---
+title: "Terminal"
+description: "Launch a shell without installing a coding agent or provider integration."
+---
+
+Run a plain shell inside a Subshell terminal pane.
+
+## Before you start
+
+The target machine needs tmux and an available shell. Terminal has no provider login, coding agent installation, or MCP registration requirement.
+
+## Launch
+
+1. Open the launch dialog.
+2. Select **Terminal**.
+3. Choose the node and working directory.
+4. Launch and run `pwd` to confirm the directory.
+
+The Terminal plugin uses the execution environment's shell selection, with `bash` as its detection binary. It has no agent settings, resume capability, or attention reporting.
+
+## Session behavior
+
+Closing a tab leaves the shell running. Closing the subshell through its menu permanently removes it in this version.
+
+A restarted shell is a new process. Subshell does not restore a shell's in-memory state or turn it into a resumable agent conversation.
+
+## MCP
+
+Terminal has no automatic agent MCP integration. It is useful for checking that launch and terminal transport work before investigating a coding agent's configuration.
+
+## Next steps
+
+Read [Your first subshell](/get-started/first-subshell) and [Session lifecycle](/guides/lifecycle).

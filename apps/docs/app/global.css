@@ -47,3 +47,32 @@
   --color-fd-secondary: #241e33;
   --color-fd-muted-foreground: #b3a5c4;
 }
+
+/* Compact reading rhythm: section headings remain distinct without the
+   preset's 48px lead-in and 24px gap before their content. */
+#nd-page > .prose > h2 {
+  margin-top: 1.75rem;
+  margin-bottom: 0.75rem;
+}
+
+#nd-page > .prose > h3 {
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+#nd-page > .prose > :is(p, ul, ol) {
+  margin-block: 0.75rem;
+}
+
+#nd-page > .prose > :first-child {
+  margin-top: 0;
+}
+
+/* The opening sentence is the visible lead, separate from body prose. */
+#nd-page > .prose > p:first-child {
+  margin-top: 0;
+  margin-bottom: 1.25rem;
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--color-fd-muted-foreground);
+}

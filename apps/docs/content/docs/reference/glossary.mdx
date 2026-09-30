@@ -1,0 +1,34 @@
+---
+title: "Glossary"
+description: "Look up Subshell\u2019s product vocabulary and coordination terminology."
+---
+
+Look up the terms used throughout Subshell documentation.
+
+| Term | Meaning |
+| --- | --- |
+| Server | The control plane: API, database, and served web interface. |
+| Node | A machine running the `subshell` execution daemon or the server host's local execution role. |
+| Client | A person's interface to a server, such as a browser or desktop client. |
+| Subshell | A tracked terminal session running an agent or shell. |
+| Pane | A terminal presentation or execution pane; it can be shown in a workspace. |
+| Workspace | A saved or draft arrangement of subshell references. |
+| Harness | The plugin interface that launches and configures an agent CLI. |
+| Preset | Saved harness settings with optional node, directory, and prompt defaults. |
+| Prompt | Reusable task text, private or shared through the prompt library. |
+| MCP | Model Context Protocol, used by agents to call Subshell tools. |
+| Channel | A coordination stream carrying recipient-encrypted message bodies. |
+| Nudge | Fixed terminal text asking a peer to retrieve a channel message. |
+| Setup key | A single-use credential for enrolling a node. |
+| Node key | The persistent credential used by an enrolled daemon. |
+| Pane token | The scoped credential supplied to one subshell's integrations. |
+| System key | An administrator-managed integration key for the system identity. |
+| Trusted origin | An allowed browser scheme, host, and port. |
+| Maintenance | A node state that stops its work and refuses new launches. |
+| Lockdown | An instance policy that stops running subshells and refuses launches. |
+
+The server-host node defaults to the display name **Server**. `local` remains an internal identifier, not a label to derive for users.
+
+## See also
+
+[Architecture](/concepts/architecture) and [Access model](/concepts/access).

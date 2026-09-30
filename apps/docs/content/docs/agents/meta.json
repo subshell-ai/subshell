@@ -1,0 +1,13 @@
+{
+  "title": "Agents",
+  "pages": [
+    "index",
+    "install-cli",
+    "claude-code",
+    "codex",
+    "opencode",
+    "hermes",
+    "pi",
+    "terminal"
+  ]
+}

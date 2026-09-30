@@ -1,0 +1,33 @@
+---
+title: "Agents"
+description: "Choose a supported agent harness and install its CLI on the execution machine."
+---
+
+Choose the harness that launches your coding agent in a subshell.
+
+## Built-in harnesses
+
+| Harness | CLI binary | MCP setup |
+| --- | --- | --- |
+| [Claude Code](/agents/claude-code) | `claude` | Automatic per-session configuration. |
+| [Codex](/agents/codex) | `codex` | Automatic per-session configuration. |
+| [OpenCode](/agents/opencode) | `opencode` | Automatic per-session configuration. |
+| [Hermes Agent](/agents/hermes) | `hermes` | One-time registration on the execution host. |
+| [pi](/agents/pi) | `pi` | Install an adapter and register MCP on the execution host. |
+| [Terminal](/agents/terminal) | Your shell | No agent MCP integration. |
+
+A harness plugin describes how Subshell launches a program. Installing that plugin does not make the program available on every machine.
+
+## Availability
+
+The administrator installs and enables plugins for the instance. The server checks whether each node can find the corresponding binary. A disabled plugin or missing binary prevents launch on that node.
+
+See [Install an agent CLI](/agents/install-cli) for detection and [Plugins](/administration/plugins) for instance management.
+
+## Agent accounts
+
+Authenticate the CLI under the OS account that runs the agent. A browser sign-in to Subshell does not authenticate the coding agent with its provider.
+
+## Next steps
+
+Choose an agent guide above, then save [Presets](/guides/presets).

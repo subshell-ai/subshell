@@ -1,0 +1,38 @@
+---
+title: "Configuration"
+description: "Set server configuration, instance naming, and launch controls with verified precedence."
+---
+
+Configure the instance's host settings and display labels.
+
+## Host configuration
+
+Use the configuration command to review or change persistent values:
+
+```bash
+subshell-server configure
+subshell-server status
+```
+
+Configuration precedence is process environment, then `config.env`, then a development `.env`, then built-in defaults. A service's environment can therefore override a value you edited in `config.env`.
+
+The default configuration file is `~/.config/subshell-server/config.env`. `SUBSHELL_SERVER_CONFIG_DIR` selects another configuration directory. Use absolute data paths for deployments that may start from different working directories.
+
+Restart the process when changing boot-time settings. Network plugin addresses and saved sign-in provider settings have their own live update behavior.
+
+## Instance labels
+
+Use **Server Settings** to set the instance's display name. It appears in the sidebar and sign-in page. The default is the host's hostname.
+
+The control-plane host's node has a separate name, defaulting to **Server**. Changing it updates launch pickers without changing its internal `local` ID.
+
+## Launch controls
+
+Disabling server-host subshells prevents new launches and restarts on that host while existing panes finish.
+
+> [!warning] Lockdown
+> Enabling lockdown stops running subshells across the instance and refuses new launches and restarts. Review its confirmation before applying it.
+
+## Next steps
+
+See [Environment variables](/reference/environment), [Addresses and trusted origins](/networking/addresses), and [Service and autostart](/administration/service).

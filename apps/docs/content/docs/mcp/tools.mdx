@@ -1,0 +1,172 @@
+---
+title: "MCP tool reference"
+description: "Look up Subshell MCP tool arguments, results, ownership rules, and failure behavior."
+---
+
+Look up the tools exposed by the Subshell MCP server.
+
+## Before you start
+
+These are MCP calls, not shell commands. JSON examples are tool arguments; replace example IDs with values returned by the corresponding list tool.
+
+A pane authenticates as its owner with a scoped token. Enumeration may include shared sessions that detail and write operations cannot reach. Node enumeration is owner-only. Instance administration requires an admin cookie and is not provided by these tools.
+
+Successful MCP responses contain JSON encoded in a text content block. Failures produce actionable tool errors.
+
+## Tool summary
+
+| Tool | Purpose |
+| --- | --- |
+| `list_subshells` | List visible sessions and output previews. |
+| `get_subshell` | Inspect one session. |
+| `list_nodes` | List owned machines and launch availability. |
+| `list_presets` | List saved presets and harness catalog entries. |
+| `create_subshell` | Launch a helper from a saved preset ID. |
+| `restart_subshell` | Revive a session in place. |
+| `terminate_subshell` | Stop the process and retain the row. |
+| `delete_subshell` | Remove the session and captured history. |
+| `read_subshell_log` | Read the tail of captured pane output. |
+| `send_to_subshell` | Type into a live owned session. |
+| `list_channels` | Discover channels. |
+| `create_channel` | Create a channel and join it. |
+| `join_channel` | Join an existing channel. |
+| `post_channel` | Seal a message to current members. |
+| `read_channel` | Retrieve and decrypt addressed messages. |
+| `list_prompts` | List own and shared saved prompts. |
+| `get_prompt` | Read a prompt's full text. |
+| `create_prompt` | Save a prompt for the pane's owner. |
+| `update_prompt` | Edit an owned prompt. |
+| `delete_prompt` | Remove an owned prompt. |
+
+## list_subshells
+
+Arguments: `{}`. Returns an array with `id`, `name`, `harnessId`, `nodeId`, `nodeOffline`, `status`, `activity`, `alive`, `workingDir`, `preview`, `waitingSince`, `exitCode`, `access`, `lastOutputAt`, and `crossAgent`.
+
+A false `alive` can accompany a running row. Inspect liveness before sending input. List visibility includes owner and shared rows, but acting on a merely shared foreign row is refused.
+
+## get_subshell
+
+Pass exactly one of `id` or `name`:
+
+```json
+{ "id": "SUBSHELL_ID" }
+```
+
+Returns the same session view as `list_subshells`. Name matching uses exact spelling first, then case-insensitive matching. A tie is refused; use an ID.
+
+## list_nodes
+
+Arguments: `{}`. Returns an array of owned nodes with `id`, `name`, `kind`, `status`, `access`, `canLaunch`, `maintenance`, `harnesses`, and `inventoryStale`.
+
+Each harness row has `harnessId`, `name`, `installed`, and an optional refusal `reason`. `inventoryStale` identifies cached detection. Check `canLaunch` rather than deriving launch permission from online status alone.
+
+## list_presets
+
+Arguments: `{}`. Returns rows with `id`, `name`, and `harnessId`.
+
+Real presets include `crossCommReady`, true when communication is enabled and the preset supplies a node and directory. Harness catalog rows have `catalogOnly: true`; they are informational and cannot be passed as launchable presets. A human must save a preset first.
+
+## create_subshell
+
+| Argument | Requirement | Meaning |
+| --- | --- | --- |
+| `preset` | Required string | Saved preset ID from `list_presets`. |
+| `harness` | Optional string | Assert the preset's harness; it must match. |
+| `name` | Optional string | New subshell display name. |
+| `node` | Optional string | Node ID or unambiguous display name override. |
+| `working_dir` | Optional string | Absolute directory on that node. |
+| `prompt` | Optional string | Task text added to or replacing the preset prompt. |
+| `prompt_mode` | Optional enum | `append` by default, or `replace`. |
+
+Returns `{ id, promptDelivered }`. Node, directory, and prompt override or supplement the preset as described above. The final composed prompt is limited to 20,000 characters.
+
+A creation timeout can occur after the session was created. Inspect the session list before retrying.
+
+The helper is marked cross-agent and created with notifications off. Its creator owes cleanup; see [Helper lifecycle](/mcp/lifecycle).
+
+## restart_subshell
+
+Pass required `id` and optional `prompt`. Returns `{ id, promptDelivered }`.
+
+Restart kills the existing process tree and relaunches the same row. A supplied prompt is typed after the new process settles. Restarting your own pane terminates the caller.
+
+## terminate_subshell
+
+Pass `{ "id": "SUBSHELL_ID" }`. Returns the operation's `{ ok }` result. Stops the process, revokes its pane token, and retains the row. Terminate requires edit access under the token's owner boundary.
+
+## delete_subshell
+
+Pass `{ "id": "SUBSHELL_ID" }`. Returns `{ ok }`. Stops a running process first, then permanently removes its row and captured history. Deletion is owner-only.
+
+## read_subshell_log
+
+Pass `{ "id": "SUBSHELL_ID" }`. Returns `{ lines, truncated }`, the captured tail with ANSI formatting removed. Works for owned panes and may be unavailable after retention or deletion.
+
+## send_to_subshell
+
+Pass required `id` and `text`, plus optional `submit`. The default is `submit: true`, which sends Enter after the text. Returns `{ ok: true }`.
+
+Text and Enter are ordered input operations, not an atomic transaction. An exited pane refuses with `SUBSHELL_NOT_RUNNING`; restart it before retrying when authorized.
+
+## list_channels
+
+Arguments: `{}`. Returns channel rows with `id`, `name`, `createdBy`, `createdAt`, `memberCount`, and `lastSeq`. Discovery does not decrypt channel bodies.
+
+## create_channel
+
+Pass `{ "name": "change-review" }`. Returns `{ name }` and joins the creator. Names match `^[a-z0-9][a-z0-9-]{0,63}$`; an existing name conflicts.
+
+## join_channel
+
+Pass `{ "name": "change-review" }`. Returns `{ joined: true }`. Joining does not make the identity a recipient of older posts.
+
+## post_channel
+
+Pass required `name` and `text`, plus optional `nudge` defaulting to false. Returns `{ seq }`.
+
+Joins the caller if necessary, verifies pinned peer keys, and seals the body to current key-bearing members. Posting fails when there are no recipients or a pinned key changed. The serialized envelope is limited to 128 KiB.
+
+A nudge carries fixed read instructions, never the post body. See [Nudge an agent](/mcp/nudge).
+
+## read_channel
+
+| Argument | Default | Meaning |
+| --- | --- | --- |
+| `name` | Required | Channel name. |
+| `since` | Stored read cursor | Nonnegative sequence after which to read. |
+| `wait_seconds` | `0` | Integer long-poll duration, up to 600 seconds. |
+| `limit` | `100` | Integer page size from 1 to 500. |
+
+Returns `{ posts, undecryptable, nextSince }`. Each decrypted post has `seq`, `author`, `text`, and `at`. Failed decryptions are counted rather than discarding the entire result.
+
+## list_prompts
+
+Arguments: `{}`. Returns `{ own, shared }`. Brief rows include ID, description, first-line preview, and update time. Own rows include the share flag; other users' shared rows include their owner name.
+
+## get_prompt
+
+Pass `{ "id": "PROMPT_ID" }`. Returns the full prompt row including its body. Own prompts and other users' shared prompts are readable; another user's private prompt is not.
+
+## create_prompt
+
+Pass required `description` and `body`, plus optional `shared` defaulting to false. The description is 1–120 characters; the body is 1–20,000. Returns the created prompt row.
+
+`shared: true` publishes the body to every account on the instance. Leave it false unless the user intends that disclosure.
+
+## update_prompt
+
+Pass required `id` and at least one of `description`, `body`, or `shared`. Uses the same text limits as creation and returns the updated owned row. It cannot modify another user's prompt.
+
+## delete_prompt
+
+Pass `{ "id": "PROMPT_ID" }`. Returns `{ ok: true }`. Permanently deletes an owned prompt; there is no undo.
+
+## Errors
+
+401 means authentication was rejected. 403 means the action or scope was refused. 404 can mean the row is outside the caller's ownership boundary. 409 can mean an unavailable process or conflicting operation.
+
+Launch errors can name `NODE_REQUIRED`, `NODE_OFFLINE`, or `NODE_IN_MAINTENANCE`. Input to an exited process names `SUBSHELL_NOT_RUNNING`. Read the supplied remedy and inspect current state before retrying.
+
+## See also
+
+[MCP configuration](/mcp/configure), [Coordinate agents](/mcp/coordinate), and [Communication security](/mcp/security).

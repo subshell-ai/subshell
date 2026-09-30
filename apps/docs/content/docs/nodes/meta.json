@@ -1,0 +1,17 @@
+{
+  "title": "Manage nodes",
+  "pages": [
+    "index",
+    "desktop",
+    "enroll",
+    "proxmox",
+    "manage",
+    "directories",
+    "sharing",
+    "maintenance",
+    "service",
+    "updates",
+    "repoint",
+    "unenroll"
+  ]
+}

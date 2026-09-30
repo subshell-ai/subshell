@@ -1,0 +1,40 @@
+---
+title: "Network plugins"
+description: "Implement a network integration that describes effects while the server executes them."
+---
+
+Create a network plugin that connects and publishes the control-plane host.
+
+## Before you start
+
+Read [Plugin API](/developers/plugin-api). Confirm the vendor CLI's real output and failure modes; return a refusal for an unverified state rather than claiming publication succeeded.
+
+## Manifest data
+
+Use `type: "network"` and declare supported `network.platforms`, exposure, and any privileged setup steps. `private` describes a restricted network; `public-with-gate` requires an identity gate before publication.
+
+Platform support and privileged instructions belong in the manifest so the page can display them without importing plugin code.
+
+## Host-executed effects
+
+The plugin describes argv, parses results, and returns addresses or supervision specifications. Execute effects only through `PluginHost`; do not spawn directly, write configuration files, or edit the server's `config.env`.
+
+Declare capabilities matching the interface members you provide. `status` should be cheap and describe actionable states without throwing for routine vendor failures.
+
+## Credentials and privilege
+
+The secret store supports setting, presence checks, and deletion, not reading values back. Supply secret names in a process specification and let the host hydrate them.
+
+Root steps belong under `network.privileged` and are printed for a person to run. `install.command` cannot start with sudo, and host execution refuses privilege-elevation programs.
+
+## Addresses
+
+Return verified canonical addresses. The enabled plugin record contributes them to the trusted-origin registry; publication must not modify the operator's explicit extras.
+
+## Validate
+
+Test missing installation, daemon failure, login, publication refusal, disable/leave behavior, and secret handling. Treat unverified output shapes as explicit limitations.
+
+## Next steps
+
+Read [Publish a plugin](/developers/publish-plugin) and the [full network contract](https://github.com/subshell-ai/subshell/tree/main/packages/plugin-api).

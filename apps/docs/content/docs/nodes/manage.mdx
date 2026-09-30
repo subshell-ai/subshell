@@ -1,0 +1,37 @@
+---
+title: "Manage a node"
+description: "Inspect node runtime, service, logs, harness availability, and display names."
+---
+
+Inspect a node's runtime and execution settings.
+
+## Open the node
+
+Select a machine in **Nodes** and review its overview. Check its online state, maintenance state, runtime, and installed harnesses before launching work.
+
+A cached harness inventory may describe the last successful detection rather than the current machine. Use **Re-check** to request fresh detection.
+
+## Names and ownership
+
+Node names are display labels. Renaming a node does not change its identity, and launch pickers use the current display name.
+
+The server host's node is named **Server** by default. Its internal ID remains `local` even if the administrator chooses another label.
+
+Node owners manage the machine's settings. A share may allow launching there without granting ownership of service, directory, or enrollment controls.
+
+## Service and logs
+
+Where you have management access, review the service and log sections. A node may be online from a terminal process even when no service is installed.
+
+On the machine, use:
+
+```bash
+subshell status
+subshell service status
+```
+
+`status` describes the daemon's recorded state; service status asks the service manager. Avoid `status --probe` during normal inspection because it connects as the node and can displace a running connection.
+
+## Next steps
+
+See [Maintenance](/nodes/maintenance), [Node services](/nodes/service), and [Node troubleshooting](/troubleshooting/nodes).

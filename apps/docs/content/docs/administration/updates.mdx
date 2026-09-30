@@ -1,0 +1,51 @@
+---
+title: "Update the server"
+description: "Apply release updates or replace a container image while preserving instance state."
+---
+
+Update the server using the mechanism appropriate to its installation.
+
+## Before you start
+
+Review running sessions and make a backup. Updating can restart the server and may refuse disruptive work unless explicitly accepted.
+
+## Standalone CLI
+
+```bash
+subshell-server update --check
+subshell-server update
+```
+
+The updater verifies signed release information, stages a database snapshot, replaces the binary, and completes the update when the new server starts.
+
+Use `--to <version>` for a selected release. `--from <file>` uses a local file and requires you to verify its provenance. `--no-restart` leaves restart to the caller. `--force` can allow a downgrade or override a live-pane refusal.
+
+## Desktop app
+
+Use the desktop app's update flow for its bundled server. The assistant handles the app and server phases. Updating only a standalone CLI release does not change a binary bundled in an older desktop installer.
+
+## Containers
+
+Pull the new image and recreate the container with the same persistent mounts and configuration. With Compose:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+The Proxmox server helper has its own image-update operation. Do not run a binary self-update inside the image.
+
+## Rollback
+
+The standalone rollback command restores the previous binary and database snapshot when available:
+
+```bash
+subshell-server update --rollback
+```
+
+> [!warning] Database rollback
+> Restoring an earlier snapshot can discard database changes made after that snapshot. Keep a separate backup before rollback.
+
+## Next steps
+
+See [Backups and restoration](/administration/backups), [Version compatibility](/reference/versions), and [Update troubleshooting](/troubleshooting/updates).

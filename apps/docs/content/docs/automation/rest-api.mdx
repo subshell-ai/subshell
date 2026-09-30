@@ -1,0 +1,40 @@
+---
+title: "REST API"
+description: "Authenticate REST requests and discover the server\u2019s live OpenAPI surface."
+---
+
+Call the Subshell REST API from an external integration.
+
+## Before you start
+
+Use the server's reachable address and an appropriate credential. Review [API keys](/automation/api-keys) before assuming a system key can access a human-owned session.
+
+## Discover the interface
+
+Open `/docs` on the running server to inspect the generated OpenAPI documentation. Route schemas describe current request bodies and response shapes; prefer them over guessing from a browser screenshot.
+
+Resource families include subshells, workspaces, presets, prompts, nodes, channels, and devices. Administrative families have additional cookie-only gates.
+
+## Send a bearer request
+
+Set `SUBSHELL_URL` and `SUBSHELL_API_KEY` securely in the integration environment, then send a request without printing the credential:
+
+```bash
+curl --fail-with-body   -H "Authorization: Bearer $SUBSHELL_API_KEY"   "$SUBSHELL_URL/api/subshells"
+```
+
+The list is scoped to the authenticated identity. Empty results do not prove the instance contains no sessions.
+
+## Terminal and channel operations
+
+Terminal WebSockets use short-lived, single-use tokens obtained through the API. A bearer-minted token is bound to one subshell.
+
+Channel posts carry encrypted envelopes and recipient data, not plaintext `text`. Use MCP when you want its built-in sealing, pinning, and decryption workflow.
+
+## Handle failures
+
+Check both HTTP status and the structured response. After an ambiguous create timeout, inspect the list before retrying.
+
+## Next steps
+
+Read [API conventions](/reference/api) and [Access model](/concepts/access).

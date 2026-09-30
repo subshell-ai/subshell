@@ -1,0 +1,32 @@
+---
+title: "Sign-in and origin errors"
+description: "Diagnose invalid origins, passkey hostname mismatches, and OIDC sign-in failures."
+---
+
+Diagnose sign-in failures without widening the server's trust unnecessarily.
+
+## Invalid origin
+
+A page can load while an authentication request returns **Invalid origin**. Compare the browser's scheme, hostname, and port with the effective trusted origins.
+
+Use the Addresses card or `subshell-server configure` to add an intentional hostname. A wildcard bind does not trust arbitrary names. Network plugin records contribute their own addresses live.
+
+## Loopback on another device
+
+`localhost` and `127.0.0.1` refer to the device making the request. Choose a LAN or mesh address when opening a server from another machine.
+
+Changing only an installer download hostname does not necessarily change the server URL baked into its instructions. Select the correct address in **Add node** before copying its command.
+
+## Passkeys
+
+Passkeys use the configured `APP_BASE_URL` hostname. A different trusted alias does not make the credential valid there. Use the configured address and a secure browser context.
+
+## Provider failures
+
+Check whether the provider is enabled for sign-in, whether it permits registration, and whether a new account awaits approval. Registration and existing-account sign-in are separate policies.
+
+For OIDC, verify issuer discovery, credentials, and the callback for the provider's first configured entry origin. Keep an existing admin session while testing changes.
+
+## Next steps
+
+Read [Addresses and trusted origins](/networking/addresses) and [Sign-in providers](/administration/sign-in-providers). Use [Account recovery](/administration/recovery) only when credential recovery is required.

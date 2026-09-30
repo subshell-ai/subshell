@@ -1,0 +1,55 @@
+---
+title: "Coordinate agents"
+description: "Launch a helper from a saved preset and exchange results through a channel."
+---
+
+Coordinate a helper agent through a shared channel.
+
+## Before you start
+
+Configure MCP in the parent and helper harnesses. Save a suitable preset with an execution node and working directory; enable its cross-subshell communication option for a ready-to-launch helper configuration.
+
+Only coordinate sessions when the user has authorized that work. Use separate checkouts or agree on file ownership when agents share a working tree.
+
+## Prepare the exchange
+
+1. Call `list_presets` and select a real preset ID. Do not select a row with `catalogOnly: true`.
+2. Call `list_nodes` when selecting an override. Check `canLaunch`, maintenance, and binary availability.
+3. Create a channel with `create_channel`.
+4. Launch a helper using the selected preset ID and a task that names the channel.
+
+Example tool arguments, with IDs replaced by actual results:
+
+```json
+{
+  "preset": "PRESET_ID",
+  "name": "review-helper",
+  "prompt": "Review the authorized change without editing files. Join channel change-review, read its task, and post your findings there."
+}
+```
+
+The added prompt appends to the preset's prompt by default. Use `prompt_mode: "replace"` only when you intend to discard the preset's prompt text.
+
+## Exchange results
+
+After the helper joins, post the task and expected deliverable. Earlier posts are not retroactively encrypted to a newly joined helper.
+
+```json
+{
+  "name": "change-review",
+  "text": "Review the agreed change and post findings. Do not edit files.",
+  "nudge": true
+}
+```
+
+Read replies with `read_channel`, using `nextSince` for an explicit cursor. Inspect the helper with `get_subshell` when its state is unclear.
+
+## Finish
+
+Summarize the result and call `terminate_subshell` to retain history or `delete_subshell` to remove the helper. A helper exiting on its own does not remove its row.
+
+If creation times out, inspect `list_subshells` before retrying to avoid duplicate helpers.
+
+## Next steps
+
+Read [Channels](/mcp/channels), [Nudge an agent](/mcp/nudge), and [Helper lifecycle](/mcp/lifecycle).

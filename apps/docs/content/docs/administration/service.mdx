@@ -1,0 +1,48 @@
+---
+title: "Service and autostart"
+description: "Choose server supervision and configure background operation and login startup."
+---
+
+Configure how the server starts and what keeps it running.
+
+## Service installation
+
+After initialization, install a per-user service:
+
+```bash
+subshell-server service install
+subshell-server service status
+```
+
+Linux uses systemd user services; macOS uses launchd agents. Installation starts the server. `--no-autostart` starts it now without enabling login startup.
+
+Use `service start`, `service stop`, or `service restart` to operate an installed service. Those commands do not install a missing definition.
+
+## Start at login
+
+```bash
+subshell-server service enable
+subshell-server service disable
+```
+
+These change future login behavior without stopping the process currently running.
+
+On Linux, user-service enablement is separate from lingering. A host administrator can enable lingering when the server must continue after logout:
+
+```bash
+loginctl enable-linger "$USER"
+```
+
+## Desktop supervision
+
+Subshell Server can supervise the process directly or use an installed service. An app-supervised process stops with the app; a service is independent of the desktop window.
+
+The service page shows process state separately from supervision and persistence. Changing supervision mode inside the desktop app uses its native assistant because the transition can stop the server.
+
+## Headless recovery
+
+A stopped server cannot serve its own management page. Start it from the host CLI or desktop assistant.
+
+## Next steps
+
+Read [Status and logs](/administration/logs) and [Server CLI](/reference/server-cli).

@@ -8,9 +8,9 @@
  * carries no `gh` (and every future shard would need one more apt line in
  * the image). A cut must not depend on which image happens to run the job.
  *
- * Auth is `GH_TOKEN` — the job token the workflow exports. It is mandatory:
- * the repo is private, and an unauthenticated lookup answers 404 for a
- * release that DOES exist, which would make "not published yet" a lie.
+ * Auth is `GH_TOKEN`, the job token the workflow exports. This repository
+ * is public; the CI fetch helper still requires authenticated requests for
+ * consistent API access and refuses a missing token before any request.
  */
 
 import {
@@ -188,7 +188,7 @@ export async function fetchReleaseIndex(
 ): Promise<ReleaseIndex> {
   const token = process.env.GH_TOKEN ?? "";
   if (token === "")
-    throw new Error("GH_TOKEN is not set; the private repo answers 404 unauthenticated, so a fetch must never guess");
+    throw new Error("GH_TOKEN is not set; the CI release fetch helper requires authenticated GitHub API requests");
   const res = await fetchWithTransientRetry(releaseTagUrl(component, version), apiHeaders(token), deps);
   if (!res.ok) return releaseIndexFrom(res.status, {});
   return releaseIndexFrom(
@@ -207,11 +207,9 @@ export async function fetchReleaseBytes(
   deps: TransportDeps = {},
 ): Promise<{ status: number; bytes: Uint8Array | undefined }> {
   const token = process.env.GH_TOKEN ?? "";
-  // The same named refusal as the index lookup: an empty bearer is a
-  // guaranteed 401, and a 401 surfacing verbatim reads as an auth problem
-  // with a REAL token rather than the actual cause (there is no token).
+  // Apply the same authenticated-request policy as the index lookup.
   if (token === "")
-    throw new Error("GH_TOKEN is not set; the private repo answers 404 unauthenticated, so a fetch must never guess");
+    throw new Error("GH_TOKEN is not set; the CI release fetch helper requires authenticated GitHub API requests");
   const res = await fetchWithTransientRetry(url, apiHeaders(token, true), deps);
   if (!res.ok) return { status: res.status, bytes: undefined };
   return { status: res.status, bytes: await readBounded(res, deps.maxBytes ?? MAX_ASSET_BYTES) };

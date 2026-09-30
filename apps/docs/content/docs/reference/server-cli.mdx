@@ -1,0 +1,89 @@
+---
+title: "Server CLI"
+description: "Look up subshell-server commands for setup, services, updates, backup, reset, and MCP."
+---
+
+Look up the commands supported by `subshell-server`.
+
+## Command summary
+
+| Command | Purpose |
+| --- | --- |
+| No subcommand | Boot the control plane. |
+| `help` | Print usage; also `--help` and `-h`. |
+| `version` | Print version; also `--version` and `-v`. |
+| `license` | Print copyright and license notice. |
+| `status` | Read resolved configuration and diagnostics. |
+| `init` | Prepare first-run settings and offer a service. |
+| `configure` | Edit persistent configuration. |
+| `service` | Install and control a per-user service. |
+| `backup` | Create a consistent database snapshot. |
+| `update` | Check, apply, or roll back an update. |
+| `reset` | Stop and clear instance data, retaining the binary. |
+| `uninstall` | Remove the service and binary, optionally data. |
+| `mcp` | Serve pane-bound MCP over stdio. |
+| `report` | Report pane state from harness hooks. |
+| `pane-log` | Capture stdin for a tmux pane log. |
+
+## status
+
+```bash
+subshell-server status --json
+```
+
+Reads boot configuration, source layers, paths, version, service state, tmux and MCP availability, and setup state. It does not start the server. Secret values are masked.
+
+## init and configure
+
+Both accept `--port <n>`, `--host <h>`, `--base-url <url>`, `--db-path <path>`, `--trusted-origins <comma-separated-origins>`, `--yes`, and `--verbose`.
+
+`init` additionally accepts `--service` and `--no-service`. `--yes` accepts configuration defaults, tmux installation, PATH updates, and the background service. A terminal-less run without that acceptance skips interactive extras and reports its defaults.
+
+An empty trusted-origin argument clears operator extras; derived origins remain separate.
+
+## service
+
+```text
+subshell-server service install [--no-autostart]
+subshell-server service uninstall
+subshell-server service enable
+subshell-server service disable
+subshell-server service status [--json]
+subshell-server service start
+subshell-server service stop
+subshell-server service restart [--force]
+```
+
+Installation starts the service. Enable and disable change login startup without touching the current process. Restart's `--force` accepts a reported live-pane refusal.
+
+## backup
+
+`subshell-server backup [--json]` snapshots the configured SQLite database. It reports failure when no database exists. See [Backups and restoration](/administration/backups).
+
+## update
+
+```text
+subshell-server update [--check] [--to <version>] [--from <file>]
+                      [--force] [--yes] [--json] [--no-restart]
+subshell-server update --rollback [--yes] [--json]
+```
+
+`--check` reads availability. `--from` uses a local file whose trust you must verify. `--force` allows downgrade and accepts pane disruption. Rollback can restore both the previous binary and database snapshot. Containers update by image replacement instead.
+
+## reset and uninstall
+
+Both require the machine's name, typed interactively or supplied as `--confirm <machine-name>`. `--yes` is refused.
+
+Reset removes data and settings while keeping the binary. Uninstall removes the binary and asks whether to remove data, defaulting to keep it. `--reset-data` answers uninstall's separate data question in a headless run; reset refuses that flag because it always clears data.
+
+## MCP and reporting
+
+`mcp` is a long-running stdio child of an agent. `report attention turn_complete|needs_attention|resumed` and `report session` are harness-hook operations. `pane-log --file <path>` is used by tmux capture, not ordinary administration.
+
+## Logging
+
+`--verbose` increases console detail on supported verbs or when booting the server. It cannot be combined with `--json`. `SUBSHELL_VERBOSE` is its environment equivalent.
+
+## See also
+
+[Environment variables](/reference/environment) and [Server administration](/administration).

@@ -1,0 +1,33 @@
+---
+title: "Cloudflare Tunnel"
+description: "Publish a server hostname behind Cloudflare Access with the guarded tunnel plugin."
+---
+
+Publish the server through a Cloudflare Tunnel protected by Cloudflare Access.
+
+## Before you start
+
+Create the tunnel, its public hostname, and an Access application in your Cloudflare account. Install `cloudflared` on the server host. The plugin does not create or remove your Cloudflare resources.
+
+## Configure the plugin
+
+1. Open the Cloudflare Tunnel networking card.
+2. Set the hostname, team domain, and Access application's audience value.
+3. Supply the tunnel connector token.
+4. Choose **Start tunnel**.
+5. Open the HTTPS hostname from another device and verify both Access and Subshell sign-in.
+
+The host stores the token in its secret store and supervises the connector. It supplies the token through the connector's environment rather than placing it in argv.
+
+## Access verification
+
+> [!warning] Public hostname
+> The tunnel is publicly reachable. Cloudflare Access must protect it before publication; a tunnel token alone is not an identity gate.
+
+The plugin checks for positive evidence of Access and refuses when the check is unavailable or inconclusive. The server also applies the configured Access request guard.
+
+Stopping publication does not delete the Cloudflare tunnel or application. Leaving removes the local stored token; manage cloud resources in Cloudflare separately.
+
+## Next steps
+
+Read [Security model](/concepts/security), [Addresses and trusted origins](/networking/addresses), and [Status and logs](/administration/logs).

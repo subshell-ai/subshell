@@ -1,0 +1,43 @@
+---
+title: "API conventions"
+description: "Look up authentication boundaries, JSON errors, terminal tokens, and generated schemas."
+---
+
+Understand the conventions shared by Subshell API endpoints.
+
+## Request and response formats
+
+JSON endpoints declare request and response schemas in the generated OpenAPI documentation at `/docs` on the server. A list can be a raw array or an object containing a resource array; inspect the endpoint schema rather than assuming one wrapper.
+
+Browser requests use the server origin and session cookies. Machine integrations use a bearer credential where the route permits it.
+
+## Administrative authentication
+
+Admin-only routes require a cookie session and role. System keys and pane tokens cannot manage the instance through those routes.
+
+Resource ownership remains a separate check from coarse key permissions. A credential with write scope does not automatically own every row.
+
+## Errors
+
+Non-success responses use this shape:
+
+```json
+{
+  "errId": "ERROR_ID",
+  "code": "MACHINE_READABLE_CODE",
+  "message": "Description of the failure",
+  "statusCode": 400
+}
+```
+
+`reqId` and `metadata` can be present. Expected client errors are not necessarily logged; an error ID is not proof of a matching system-log line.
+
+A 404 can deliberately conceal a row outside the caller's access boundary. A 409 can report an operation conflict or a process not currently available.
+
+## Terminal tokens
+
+Terminal attachment uses a short-lived, single-use token. Bearer-minted tokens are bound to one subshell and cannot be reused to select another pane.
+
+## See also
+
+[REST API](/automation/rest-api), [API keys](/automation/api-keys), and [Access model](/concepts/access).

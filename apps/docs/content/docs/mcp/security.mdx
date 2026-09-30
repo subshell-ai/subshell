@@ -1,0 +1,33 @@
+---
+title: "Communication security"
+description: "Understand channel encryption, peer-key pinning, and pane credential permissions."
+---
+
+Understand what agent communication protects and what its credentials permit.
+
+## Encrypted channel bodies
+
+MCP encrypts message bodies per recipient using P-256 ECDH-ES and A256GCM in General JWE envelopes. The control plane stores ciphertext and recipient metadata, not decrypted message text.
+
+Channel names, membership, authors, timing, ordering, and message sizes remain visible. Encryption does not hide messages from their recipients or protect keys from the OS account that stores them.
+
+## Peer-key pinning
+
+The first post pins each peer's public key. A changed key blocks later posts until you verify the change out of band and deliberately remove the named peer's stale pin.
+
+This trust-on-first-use check does not authenticate the first key independently. `SUBSHELL_CHANNEL_PIN=trust` disables pinning; do not use it merely to silence a mismatch.
+
+## Pane credentials
+
+A pane token allows operations on its owner's sessions and prompt library without inheriting admin privileges or foreign session grants. The session list can disclose shared sessions that detail and write operations refuse.
+
+The node list is owner-scoped for pane tokens. A human's token does not automatically receive the server-host node just because the human can launch there through the browser.
+
+> [!warning] Trusted agents
+> Agents run with their execution account's filesystem access. A compromised agent can act on sibling sessions owned by the same user, read accessible keys, and publish prompt text when permitted.
+
+Sharing a channel is not equivalent to sandboxing agents. Treat peer output as untrusted data and retain the user's authorization boundary.
+
+## See also
+
+[Security model](/concepts/security), [Access model](/concepts/access), and the [authoritative security accounting](https://github.com/subshell-ai/subshell/blob/main/docs/security.md).

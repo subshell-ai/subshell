@@ -1,0 +1,31 @@
+---
+title: "API keys"
+description: "Distinguish system integration keys from short-lived pane credentials and manage revocation."
+---
+
+Manage system integration keys and understand pane credentials.
+
+## System keys
+
+Administrators create system keys under **Server Settings** in **API keys**. The plaintext is returned once when created; store it in the integration's secret manager.
+
+System keys belong to the `system` service identity. They do not become your human account and do not automatically own your sessions. A deliberate grant can permit a resource where supported, but instance administration still requires an admin cookie.
+
+Disable a key to stop it authenticating immediately, or delete it when it is no longer needed. Keep separate keys for integrations you may need to revoke independently.
+
+## Pane credentials
+
+Subshell creates a scoped key for each launched pane. The MCP process receives it through `SUBSHELL_API_KEY`; you do not create it by hand in the system-key page.
+
+The token resolves to the pane's human owner for permitted resource operations, with admin boosts and foreign grants disabled for detail and writes. It is revoked when the pane stops and rotated on restart.
+
+## Handle secrets
+
+> [!warning] Bearer credentials
+> Anyone holding a valid key can use its permitted API surface. Do not paste keys into shared prompts, logs, issue reports, or repository files.
+
+Setup keys beginning with `nsk_` enroll nodes. Node credentials authenticate their daemon connection. Neither is a substitute for a REST system key or pane token.
+
+## Next steps
+
+Read [REST API](/automation/rest-api), [Access model](/concepts/access), and [Communication security](/mcp/security).

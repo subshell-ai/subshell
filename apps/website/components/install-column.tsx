@@ -188,7 +188,7 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
         Already running Subshell?{" "}
         <a
           className="text-[var(--frost)] underline-offset-2 hover:text-[var(--orchid)]"
-          href="https://docs.subshell.sh/get-started/add-a-machine"
+          href="https://docs.subshell.sh/nodes"
         >
           Add another machine
         </a>{" "}

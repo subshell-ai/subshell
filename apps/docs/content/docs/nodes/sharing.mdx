@@ -1,0 +1,36 @@
+---
+title: "Share a node"
+description: "Allow other users to launch agents on a machine you own."
+---
+
+Allow other users to launch their subshells on your node.
+
+## Before you start
+
+You must own the node to manage its sharing. Recipients need accounts on the same server.
+
+## Grant access
+
+1. Open the node page and its sharing controls.
+2. Choose named users or the available instance-wide grant.
+3. Save the permissions.
+4. Ask the recipient to confirm the node is available in their launch picker.
+
+Sharing execution capacity does not transfer node ownership. Management controls such as widening directory restrictions remain with the owner.
+
+## Execution consequences
+
+> [!warning] Shared OS account
+> Sessions launched by other users run under the node's execution account. They can access files and credentials that account can read.
+
+A directory allowlist limits launch locations, not later filesystem access. Use a dedicated account or machine when projects or credentials require stronger separation.
+
+The session created by another user belongs to that user. Node sharing and subshell sharing are separate permissions; sharing the machine does not make every session on it visible to every user.
+
+## Revocation
+
+Remove the grant to stop future access through the node share. Use maintenance if you need to stop running sessions before working on the machine.
+
+## Next steps
+
+See [Directory restrictions](/nodes/directories), [Maintenance](/nodes/maintenance), and [Access model](/concepts/access).

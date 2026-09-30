@@ -13,5 +13,6 @@ export const dynamic = "force-static";
 export default function sitemap(): MetadataRoute.Sitemap {
   return source.getPages().map((page) => ({
     url: `${SITE_ORIGIN}${page.url === "/" ? "/" : page.url}`,
+    ...(page.data.lastModified ? { lastModified: page.data.lastModified } : {}),
   }));
 }

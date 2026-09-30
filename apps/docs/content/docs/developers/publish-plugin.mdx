@@ -1,0 +1,41 @@
+---
+title: "Publish a plugin"
+description: "Bundle a standalone plugin package and test administrator installation on a control plane."
+---
+
+Package a plugin so an administrator can install it on a control plane.
+
+## Before you start
+
+Implement and validate the [Plugin API](/developers/plugin-api) contract. Choose a unique plugin ID; a runtime package cannot replace a built-in implementation by claiming its ID.
+
+## Build the package
+
+1. Bundle the factory to the manifest's entry path.
+2. Inline contract runtime helpers rather than importing them from a workspace package.
+3. Include the manifest, entry output, and assets needed by the plugin.
+4. Inspect the package archive before publishing.
+
+A useful archive check is:
+
+```bash
+npm pack --dry-run
+```
+
+Do not include credentials, local logs, or private project files. Package identity and detection data must remain readable without loading code.
+
+## Test installation
+
+Use an isolated Subshell instance. An administrator installs the trusted package specification through **Plugins**, then verifies loading, detection, and applicable launch or network behavior.
+
+Test the compiled-host case where the plugin has no adjacent workspace `node_modules`. Passing tests from your source checkout is not sufficient to prove runtime resolution.
+
+## Publish and maintain
+
+Publish through your package registry workflow and provide release notes for contract or behavioral changes. Check the package's declared API version against the host you support.
+
+Installation grants code the server's process privileges. Document its dependencies and security consequences so administrators can make that trust decision.
+
+## Next steps
+
+Read [Plugins](/administration/plugins) and [Network plugins](/developers/network-plugin).

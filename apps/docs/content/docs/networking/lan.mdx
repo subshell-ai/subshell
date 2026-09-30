@@ -1,0 +1,31 @@
+---
+title: "LAN access"
+description: "Open Subshell from another device on your local network and diagnose reachability."
+---
+
+Reach the server from another device on your local network.
+
+## Before you start
+
+Use a trusted network and finish first-account setup before widening access. The server must bind a reachable interface, and the host firewall must allow its configured port.
+
+## Connect
+
+1. Find the server host's LAN IPv4 address.
+2. Verify `HOST` and `SERVER_PORT` with `subshell-server status`.
+3. Open `http://<server-ip>:<port>` in the other device's browser.
+4. Sign in and open an existing subshell.
+
+The default port is 3080. `localhost` on the other device points to that device, not to the server.
+
+Wildcard IPv4 binds allow the server to derive its own non-loopback IPv4 interface origins. A custom LAN hostname may still need an explicit trusted origin.
+
+## Separate reachability from trust
+
+A connection timeout usually concerns routing, bind address, or firewall. A page that loads but rejects sign-in may concern trusted origins or the configured authentication address.
+
+LAN HTTP is not a secure browser context on another device. Features such as remote passkeys and web push need a suitable HTTPS origin.
+
+## Next steps
+
+Use [HTTPS and reverse proxies](/networking/https) or [Tailscale](/networking/tailscale) for secure remote browser access. See [Ports](/reference/ports) for connection direction.

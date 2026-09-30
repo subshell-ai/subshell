@@ -1,0 +1,33 @@
+---
+title: "Registration"
+description: "Control new account creation, approval, and node enrollment separately."
+---
+
+Control who can create accounts and enroll execution machines.
+
+## Account registration
+
+Registration is configured per sign-in provider. The email provider controls email-based account creation; OIDC providers have their own registration and approval settings.
+
+1. Open **Server Settings** and choose **Auth**.
+2. Review registration for each enabled provider.
+3. Enable it only where you intend to admit new users.
+4. Configure approval if arrivals should wait for administrator review.
+
+Pending or rejected arrivals do not receive ordinary access to the instance. Review approvals in **Users**.
+
+## Administrative account creation
+
+Use **Users** to create an account directly. Do not open registration just to create a test or automation account.
+
+The first-account setup window is different from ongoing registration: an unconfigured instance permits its first admin to be created. Protect that window with network access controls.
+
+## Node enrollment
+
+Node enrollment has a separate instance policy. A permitted user generates a single-use setup key and enrolls a machine under their ownership.
+
+A setup key authorizes enrollment, not a new human account. A node credential issued by enrollment authenticates the machine afterward.
+
+## Next steps
+
+Read [Users and roles](/administration/users), [Enroll a node with the CLI](/nodes/enroll), and [Access model](/concepts/access).

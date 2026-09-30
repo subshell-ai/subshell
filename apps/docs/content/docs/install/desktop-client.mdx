@@ -1,0 +1,35 @@
+---
+title: "Install Subshell Client"
+description: "Install the desktop app that sets up a node and connects you to an existing Subshell server."
+---
+
+Install Subshell Client to run agents on your machine and access an existing server.
+
+## Before you start
+
+You need a reachable Subshell server address and an account on that server. Subshell Client does not create a control plane.
+
+Subshell Client is the recommended way to install a node on a desktop machine. It bundles the node binary and provides its local management window.
+
+## Download and connect
+
+1. Open [Subshell downloads](https://subshell.sh), select the option to run agents here or watch, and download **Subshell Client** for your platform.
+2. Install and open **Subshell Client**.
+3. Enter the server's reachable address in the connection flow.
+4. Sign in to the server in the dashboard window.
+
+The client loads the server's own web interface. Choosing **Open in browser** opens the corresponding page in your system browser, where you may need to sign in again.
+
+## Run agents on this machine
+
+Node management is a separate window in Subshell Client. Follow [Desktop node setup](/nodes/desktop) to enter a setup key, enroll the bundled node, and choose how it stays running. You can also use the client only to watch sessions without enrolling this machine.
+
+The server page has only the native command needed to open its page in a browser. Privileged local node operations stay in the bundled node-management page.
+
+## Updates and reset
+
+Update the desktop app and its bundled node through its update flow. Resetting the node removes its enrollment; it does not reset the remote server. Read [Unenroll a node](/nodes/unenroll) before removing its identity.
+
+## Next steps
+
+See [Connect from another device](/get-started/another-device) or [Manage nodes](/nodes).

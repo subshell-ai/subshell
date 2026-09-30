@@ -1,0 +1,33 @@
+---
+title: "Connect from another device"
+description: "Open your existing Subshell server and sessions from another browser or device."
+---
+
+Open the same Subshell session from another device.
+
+## Before you start
+
+Your other device must reach the server over your LAN or configured private network. A loopback address such as `localhost` refers to the device opening it, so it cannot reach a server on another machine.
+
+## Open the server
+
+1. Find a reachable address in **Server Settings** under networking, or use an address supplied by the administrator.
+2. Open that address in the other device's browser.
+3. Sign in with your existing account.
+4. Select the subshell from the sidebar.
+
+You see the same session rather than a copy of it. Multiple viewers can affect terminal dimensions; see [Use the terminal](/guides/terminal).
+
+You can also open a subshell's **QR code…** action and scan it. The link still requires sign-in and permission to view that subshell.
+
+## Install the web app
+
+For a standalone browser window on a phone or tablet, follow [Browser and PWA access](/install/browser). Push notification support depends on the browser and installation method.
+
+## If the address does not work
+
+Check [LAN access](/networking/lan) for reachability and [Sign-in and origin errors](/troubleshooting/sign-in) for rejected addresses. Passkeys are tied to the configured server hostname.
+
+## Next steps
+
+Use [Workspaces](/guides/workspaces) to organize several sessions, or [Desktop node setup](/nodes/desktop) to run agents on another machine.

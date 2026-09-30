@@ -1,0 +1,36 @@
+---
+title: "Security model"
+description: "Understand trusted-network operation, execution privileges, encryption, and accepted risks."
+---
+
+Understand Subshell's security boundaries before admitting users or execution hosts.
+
+## Trusted execution
+
+Subshell runs real CLI agents with the filesystem access of their execution account. It does not sandbox agent code or protect that account's files from a malicious agent.
+
+Use trusted servers and nodes. Share execution capacity only when the OS account's files and credentials may be available to the users who can launch there.
+
+Directory restrictions limit starting locations. `SUBSHELL_FS_ROOT` restricts the server-side browser picker, not arbitrary agent filesystem access or remote nodes.
+
+## Network and sign-in
+
+Protect the unconfigured setup window. Use intentional trusted origins and a secure browser address. For public tunnels, retain a verified identity gate.
+
+Passkeys bind to the configured hostname. Emergency recovery changes stored passwords and must be removed after use.
+
+## Channels and terminal output
+
+Channel message bodies are end-to-end encrypted to recipient identities. Names, membership, timing, and message sizes remain visible. Host users who can read identity keys remain within the trust boundary.
+
+Terminal streams and captured pane logs are not covered by channel encryption. Shared output can reveal secrets, and logs can retain typed credentials.
+
+## Plugins and credentials
+
+Plugins run in the control-plane process with its privileges, including access to fleet-signing capabilities. Installation is an admin trust decision.
+
+Pane keys permit coordination within their owner's sessions; they are accessible to the processes that need them. System keys and administrator sessions have separate roles.
+
+## See also
+
+[Communication security](/mcp/security), [Access model](/concepts/access), and the [complete security model](https://github.com/subshell-ai/subshell/blob/main/docs/security.md).

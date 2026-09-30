@@ -1,0 +1,33 @@
+---
+title: "Networking"
+description: "Make your server reachable through a LAN, private network, or guarded public tunnel."
+---
+
+Choose how your devices reach the Subshell server.
+
+## Local and remote access
+
+A browser connects to the control plane, not directly to an execution node. The server normally serves its API and web interface on one port.
+
+[LAN access](/networking/lan) covers devices on the same network. [Addresses and trusted origins](/networking/addresses) explains the difference between listening on an address and accepting browser sign-in there.
+
+For a secure browser context, use [HTTPS and reverse proxies](/networking/https) or a suitable network plugin.
+
+## Network plugins
+
+| Plugin | Access model |
+| --- | --- |
+| [Tailscale](/networking/tailscale) | Private tailnet, with Tailscale Serve for HTTPS. |
+| [Headscale](/networking/headscale) | Your self-hosted tailnet using the Tailscale client. |
+| [NetBird](/networking/netbird) | Private mesh, with the daemon's reachable addresses. |
+| [Cloudflare Tunnel](/networking/cloudflare) | Public hostname guarded by Cloudflare Access. |
+
+Network plugins connect the server host. Their address records feed the trusted-origin registry without rewriting your extra-origin configuration.
+
+## Administrative boundary
+
+Network setup is an administrator action. Privileged installation steps are printed for you to run on the host; the server cannot answer a sudo password prompt.
+
+## Next steps
+
+Choose the network guide above and test sign-in from another device before relying on unattended access.

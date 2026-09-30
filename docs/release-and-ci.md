@@ -355,10 +355,10 @@ already carries bun (1.4.2, pinned to
 the root `packageManager` so CI runs what developers run), rustup stable and
 Tauri's system dependencies; `tmux`, `rustfmt` and `clippy` were added for
 CI's sake. That is what lets `setup-bun`, `dtolnay/rust-toolchain` and every
-`sudo apt-get` stay out of the workflow. The image is PRIVATE (it inherits
-the repo's visibility), and a container job pulls a same-repo ghcr image
-with the job token: the `packages: read` permission is what authenticates
-it; a PAT is not needed and none is used. Inside a container we simply ARE
+`sudo apt-get` stay out of the workflow. The repository is public. Container
+package visibility is configured separately, and CI authenticates pulls of the same-repo GHCR image with
+the job token. The `packages: read` permission enables that access; a PAT
+is not needed and none is used. Inside a container we simply ARE
 root, which is also what makes Playwright's `install-deps` possible.
 
 `lint.yml` and `cla.yml` run BARE: bun and a JS action need no system

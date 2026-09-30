@@ -1,0 +1,42 @@
+---
+title: "MCP configuration"
+description: "Set up automatic or host-specific MCP registration for supported agent harnesses."
+---
+
+Connect an agent to Subshell's stdio MCP server.
+
+## Before you start
+
+Launch the agent inside a Subshell pane. The MCP process needs `SUBSHELL_API_KEY` and `SUBSHELL_ID`, supplied by the host, plus the injected server address and state directory.
+
+Do not paste pane credentials into shared configuration or copy them to another session. The credential identifies the pane's owner and is revoked when the pane is stopped.
+
+## Automatic integration
+
+Claude Code, Codex, and OpenCode receive per-launch MCP configuration. Open the agent's tool list and verify that the `subshell` server exposes `list_subshells`.
+
+The compiled server and node binaries both include an `mcp` subcommand. The host resolves which executable exists on the machine where the pane runs.
+
+## Manual integration
+
+Hermes and pi require one-time host setup. Use the command and configuration shown by the harness's MCP setup instructions. See [Hermes Agent](/agents/hermes) and [pi](/agents/pi).
+
+For a node with `subshell` on PATH, a standard registration has this shape:
+
+```json
+{
+  "mcpServers": {
+    "subshell": { "command": "subshell", "args": ["mcp"] }
+  }
+}
+```
+
+Use `subshell-server` or the displayed absolute executable where that is the resolved host command. The child process inherits the pane's identity environment.
+
+## Verify
+
+Ask the agent to call `list_subshells` without modifying any session. A stdio MCP process may wait for protocol messages; running it by hand is not a general health-check command.
+
+## Next steps
+
+Read [Coordinate agents](/mcp/coordinate) and [MCP troubleshooting](/mcp/troubleshooting).

@@ -1,0 +1,40 @@
+---
+title: "Share a subshell"
+description: "Grant view or edit access while retaining ownership of a session."
+---
+
+Grant other users access to a subshell you own.
+
+## Before you start
+
+Only the owner can change sharing. The recipient needs an account on the same instance. Administrators can operate sessions but do not acquire ownership or the right to change their shares.
+
+## Grant access
+
+1. Open the subshell menu and choose **Share…**.
+2. Choose named users or **Everyone**.
+3. Select view or edit access.
+4. Save the sharing settings.
+
+**Everyone** means signed-in accounts on the instance, not anonymous visitors.
+
+| Access | What it allows |
+| --- | --- |
+| View | Read session details, captured output, and the live terminal. |
+| Edit | View access plus input, rename, restart, and terminate through the API. |
+| Owner | Manage sharing, notification preferences, and permanent deletion. |
+
+## What recipients see
+
+> [!warning] Terminal disclosure
+> View access exposes terminal output, including any secrets displayed there. Edit access also allows input into the running process.
+
+Attached viewers can see other viewers' device names and terminal dimensions. Notifications remain owner-targeted and are not added by a sharing grant.
+
+## Revoke access
+
+Remove the relevant grants in the sharing dialog. A machine token from a subshell can enumerate shared sessions but cannot operate a foreign session merely because its owner has a share.
+
+## Next steps
+
+Read [Access model](/concepts/access) and [Communication security](/mcp/security).

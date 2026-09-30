@@ -1,0 +1,35 @@
+---
+title: "Version compatibility"
+description: "Understand independent component releases, minimum node versions, and exact protocol matching."
+---
+
+Check compatibility between a control plane and its execution nodes.
+
+## Component versions
+
+The server, node, server desktop app, and client desktop app have independent release versions. GitHub release prefixes identify the installed component:
+
+| Prefix | Component |
+| --- | --- |
+| `cli-server-v` | Standalone control plane. |
+| `cli-node-v` | Standalone node daemon. |
+| `desktop-server-v` | Server desktop app and bundled server. |
+| `desktop-client-v` | Client desktop app and bundled node. |
+
+A desktop update must ship the CLI it wraps. Installing a newer standalone binary does not change the contents of an older downloaded desktop bundle.
+
+## Node gates
+
+The control plane applies two checks: a minimum node release version, then exact protocol-version matching. Passing the release floor does not imply protocol compatibility.
+
+A refused node can remain connected in a held state for updating. It remains unavailable for ordinary launches and management operations outside that update path.
+
+## Choose an update
+
+Use the updates interface or installed commands to inspect the compatible release currently offered. Avoid pinning a numeric compatibility floor in operational instructions when the running server can report it directly.
+
+For air-gapped operation, stage compatible signed release artifacts and use local-file workflows as documented. An empty release source disables automatic fetching; it does not remove protocol checks.
+
+## See also
+
+[Node updates](/nodes/updates), [Update the server](/administration/updates), and [Node protocol](/reference/node-protocol).

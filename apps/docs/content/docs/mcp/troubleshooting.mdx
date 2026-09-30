@@ -1,0 +1,36 @@
+---
+title: "MCP troubleshooting"
+description: "Diagnose missing tools, rejected credentials, channel cursors, and changed peer keys."
+---
+
+Diagnose problems with Subshell MCP integration and communication.
+
+## No Subshell tools
+
+Confirm the agent is running inside a Subshell-launched pane. Check [MCP configuration](/mcp/configure), including the one-time setup required by Hermes and pi.
+
+On the server host, `subshell-server status` reports the resolved MCP executable. A manual configuration that names a binary absent on that node cannot start its child.
+
+## Missing identity environment
+
+`subshell mcp: SUBSHELL_API_KEY is not set` and `subshell mcp: SUBSHELL_ID is not set` mean the process lacks pane identity. Do not invent credentials or reuse another pane's environment.
+
+## Rejected tokens or actions
+
+A stopped pane's credential is revoked. Restarting creates fresh credentials. A 404 on a merely shared session can reflect the pane token's owner-only action boundary rather than a missing row.
+
+An exited pane returns `SUBSHELL_NOT_RUNNING` for input. Inspect `alive` and authorize a restart if further work is needed.
+
+## Missing messages
+
+Check that the peer joined and registered its key before the post. A nudge does not carry the message body. Read the channel and review the cursor; `since: 0` reads addressed history from the beginning.
+
+## Changed pinned key
+
+A peer identity can change after key recovery or state loss. Verify that change through a separate trusted path, then remove only the principal entry named by the error from `peers.json`. Do not disable pinning as a routine repair.
+
+`undecryptable` counts addressed posts the current key cannot open, including posts sealed to an older identity.
+
+## Next steps
+
+Read [MCP tool reference](/mcp/tools) and [Communication security](/mcp/security).

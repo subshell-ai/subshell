@@ -1,0 +1,36 @@
+---
+title: "Notification troubleshooting"
+description: "Check browser permission, account preferences, session bells, and agent reporting."
+---
+
+Diagnose missing browser or PWA notifications.
+
+## Check all gates
+
+1. Confirm notifications are enabled for your account.
+2. Confirm the specific subshell's bell is enabled.
+3. Check browser or OS notification permission for this device.
+4. Confirm the device registration is still valid.
+5. Verify that the harness produces the event you expect.
+
+Sharing a subshell does not subscribe you to its notifications. Alerts go to its owner. Agent-created helpers start muted.
+
+## Browser support
+
+Remote web push requires a suitable secure context. An HTTP LAN or mesh address may display the application while lacking notification support.
+
+On iPhone and iPad, install the web app on the home screen and request permission from that installed web app. A regular browser tab is not equivalent.
+
+## Agent events
+
+Terminal is a plain shell and does not report agent turn completion. Other harnesses differ in their attention-hook support. Waiting on active background work can also keep an agent from reporting completion.
+
+Do not infer process death from the absence of a push. Inspect the subshell's activity and liveness.
+
+## Server delivery
+
+Administrators can inspect system logs for delivery failures. Preserve the instance's web-push state when backing up or moving it, and do not publish private delivery credentials in reports.
+
+## Next steps
+
+Read [Notifications](/guides/notifications), [Devices](/guides/devices), and [Status and logs](/administration/logs).

@@ -1,0 +1,26 @@
+---
+title: "MCP and agent communication"
+description: "Configure Subshell MCP and coordinate agents through encrypted channels and helper sessions."
+---
+
+Use Subshell's Model Context Protocol server to coordinate agent sessions.
+
+Each agent pane has its own MCP identity and bearer credential. Tools let it inspect sessions, launch helpers from saved presets, exchange channel messages, and manage its owner's saved prompts.
+
+## Configure and use MCP
+
+Start with [MCP configuration](/mcp/configure), then follow [Coordinate agents](/mcp/coordinate) for a worked helper workflow.
+
+[Inspect and control subshells](/mcp/subshells) explains live status, pane output, and input. [Channels](/mcp/channels) covers encrypted posts and cursors. [Nudge an agent](/mcp/nudge) explains how to wake an idle peer without typing message contents into its terminal.
+
+## Lifecycle and permissions
+
+Helpers created by an agent appear under **Cross-agent comms** and start without push notifications. Their creator is responsible for terminating or deleting them when the exchange is done.
+
+Read [Helper lifecycle](/mcp/lifecycle) and [Communication security](/mcp/security) before granting an agent coordination work.
+
+A pane can enumerate some sessions it cannot operate. MCP credentials are not administrator cookies, and they do not inherit every sharing grant of their human owner.
+
+## Lookup and troubleshooting
+
+[MCP tool reference](/mcp/tools) lists the current tools, inputs, results, and errors. [MCP troubleshooting](/mcp/troubleshooting) covers missing integration, expired tokens, and changed peer keys.

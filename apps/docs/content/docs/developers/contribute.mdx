@@ -1,0 +1,52 @@
+---
+title: "Contribute to Subshell"
+description: "Set up the Bun monorepo, run the correct development tools, and validate a contribution."
+---
+
+Contribute a verified change to the public Subshell repository.
+
+## Before you start
+
+Install the Bun version required by the root package and clone the [repository](https://github.com/subshell-ai/subshell). Read the root `AGENTS.md` and the owning app's `AGENTS.md` before editing.
+
+## Develop
+
+```bash
+bun install
+bun run start
+```
+
+The workspace uses Bun, TypeScript, and Turborepo. Desktop apps, documentation, and the marketing site have explicit launch commands:
+
+```bash
+bun run dev:desktop-server
+bun run dev:desktop-client
+bun run dev:docs
+bun run dev:website
+```
+
+Desktop launchers stage sidecars and prepare workspace builds. Bare `tauri dev` can fail or run a stale installed binary.
+
+## Validate
+
+Use package test scripts for suites, with the automation shell options removed:
+
+```bash
+env -u SHELLOPTS -u BASHOPTS bun run test
+bun run lint:check
+bun run verify-types
+```
+
+Run focused tests during development and capture failures from one suite invocation. Rust changes also require `bun run rust:check`. E2E tests use their own backend on port 3199; never test against a live instance.
+
+New migrations need both a file and registration in the server's static migration map.
+
+## Contribution licensing
+
+Complete the one-time [CLA](https://github.com/subshell-ai/subshell/blob/main/CLA.md). Server code is AGPL-3.0-only and other directories are Apache-2.0. Moving code across that boundary changes its license.
+
+Add a changeset for the app that ships a user-visible change. Do not add ignored packages or hand-edit generated changelogs. Workflows own release tags.
+
+## Next steps
+
+Read [Write documentation](/developers/documentation) or [Plugin API](/developers/plugin-api).

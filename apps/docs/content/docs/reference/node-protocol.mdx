@@ -1,0 +1,34 @@
+---
+title: "Node protocol"
+description: "Understand node enrollment identity, signed commands, compatibility checks, and streamed output."
+---
+
+Understand the connection contract between a node and its control plane.
+
+## Identity
+
+Enrollment exchanges a single-use setup key for a persistent node credential and the control plane's public signing identity. The node uses that stored state to connect and verify execution commands.
+
+Repointing to another address preserves this identity. Joining a different control plane requires a new enrollment rather than assuming its signing key is interchangeable.
+
+## Commands and launch data
+
+The control plane signs commands sent to enrolled nodes. Launch commands carry the plane-built arguments and binary resolution rules; nodes do not install or load a separate harness plugin set.
+
+Binary detection is requested by the control plane. A node's last inventory can remain cached while the connection is unavailable.
+
+## Compatibility
+
+The release-version floor and exact protocol check are distinct gates. Refused nodes can be held for compatible updates without becoming launchable.
+
+A protocol change requires coordinated server and node releases. It is not a browser-facing stable API with a per-feature compatibility window.
+
+## Output and liveness
+
+Pane output flows back through the control plane to browser viewers. Disconnecting the node makes those panes unreachable from the server; it does not itself prove their processes stopped.
+
+The node also reports process death. An exited pane can retain a stored row so its output and restart action remain available.
+
+## See also
+
+[Architecture](/concepts/architecture), [Version compatibility](/reference/versions), and the [protocol package](https://github.com/subshell-ai/subshell/tree/main/packages/subshell-protocol).

@@ -1,0 +1,35 @@
+---
+title: "Notifications"
+description: "Enable owner-targeted alerts for sessions and configure your receiving devices."
+---
+
+Receive alerts when a subshell needs attention or completes a turn.
+
+## Before you start
+
+Use a browser or installed PWA that supports notifications and secure contexts. The server must have the corresponding notification delivery setup available.
+
+## Enable alerts
+
+1. Enable notifications in your account preferences.
+2. Allow notification permission on the device where you want alerts.
+3. Open a subshell you own and choose **Notify when done**.
+4. Use **Mute notifications** to silence that subshell again.
+
+Both the account master preference and the subshell's bell must allow delivery. A notification is not a substitute for checking the session's actual status.
+
+## Who receives alerts
+
+Notifications go to the subshell owner's devices. Sharing does not subscribe another user, even when that user has edit access.
+
+Agent-created helper panes start with the notification bell off and appear under **Cross-agent comms**. Their owner can enable the bell later.
+
+## Agent signals
+
+Attention reporting depends on the harness's hooks and capabilities. A terminal-only shell does not report agent turn completion. A running agent waiting on background work may remain active rather than reporting completion.
+
+For iPhone and iPad web push, open the home-screen web app and request permission there.
+
+## Next steps
+
+Review [Devices](/guides/devices) or [Notification troubleshooting](/troubleshooting/notifications).

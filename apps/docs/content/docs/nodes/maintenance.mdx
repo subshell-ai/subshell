@@ -1,0 +1,46 @@
+---
+title: "Node maintenance"
+description: "Take a node out of service and stop its running subshells before disruptive work."
+---
+
+Take a node out of service before performing disruptive maintenance.
+
+## Before you start
+
+Review the subshells running on the machine and notify their owners. Maintenance stops running sessions and refuses new launches.
+
+## Enter maintenance
+
+Open the node's maintenance controls and review the named count of running subshells before confirming.
+
+On the node itself:
+
+```bash
+subshell maintenance on
+```
+
+If subshells are running, the CLI lists them and refuses without changing state. To accept stopping them:
+
+```bash
+subshell maintenance on --yes
+```
+
+> [!warning] Sessions stop
+> Entering maintenance stops the subshells running on this node. Record any work that depends on an active process before proceeding.
+
+If a stop fails, inspect the reported failures. A partial failure must not be treated as a machine with no running work.
+
+## Return to service
+
+After completing the work:
+
+```bash
+subshell maintenance off
+subshell maintenance status
+```
+
+The daemon continues answering management commands while maintenance is enabled. Leaving maintenance permits new launches; it does not automatically recreate every stopped process.
+
+## Next steps
+
+Use [Node updates](/nodes/updates) or [Unenroll a node](/nodes/unenroll).

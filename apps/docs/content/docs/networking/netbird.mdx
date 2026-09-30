@@ -1,0 +1,34 @@
+---
+title: "NetBird"
+description: "Join a NetBird network and use the server host\u2019s reachable mesh address."
+---
+
+Reach the server through a NetBird network.
+
+## Before you start
+
+Install NetBird on a supported Linux or macOS server host and enable the plugin. Use a NetBird account or self-hosted management service you trust.
+
+## Join the network
+
+1. Open the NetBird networking card.
+2. Run the printed installation steps on the host if needed.
+3. Complete interactive sign-in or supply a setup key.
+4. Wait for the daemon to report its network address.
+5. Open the advertised server address from another device on that network.
+
+Joining already makes the mesh address reachable, so the plugin records it without a separate forwarding command. **Use this address** remains a fallback if the address has not propagated yet.
+
+## Self-hosted management
+
+Configure a self-hosted management URL on the machine through NetBird's own setup. The Subshell card reads the daemon's resulting configuration; it has no separate management-URL field that could disagree with it.
+
+## DNS and browser features
+
+Peer names require suitable NetBird DNS configuration. If the offered hostname does not resolve, try the mesh IP and review your network's nameserver group.
+
+An HTTP mesh address can reach the server without being a secure browser context. Use [HTTPS and reverse proxies](/networking/https) when passkeys or web push require HTTPS.
+
+## Next steps
+
+Read [Addresses and trusted origins](/networking/addresses) and [Sign-in and origin errors](/troubleshooting/sign-in).

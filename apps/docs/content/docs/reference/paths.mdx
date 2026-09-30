@@ -1,0 +1,43 @@
+---
+title: "Files and paths"
+description: "Locate server configuration, databases, node credentials, pane logs, and MCP identities."
+---
+
+Locate the files that define your installation's state.
+
+## Ask the installed binary
+
+```bash
+subshell-server status --json
+subshell status --json
+```
+
+These report the installation's resolved paths. Use them before backup, relocation, or removal, especially when defaults were overridden.
+
+## Server files
+
+| File or directory | Contents |
+| --- | --- |
+| `~/.config/subshell-server/config.env` | Default persistent server configuration. |
+| Configured SQLite database | Accounts, sessions, presets, prompts, sharing, and instance records. |
+| Server data `plugins/` | Instance-wide installed plugin store. |
+| Server data `backups/` | Consistent database snapshots. |
+| Server data `node-artifacts/` | Cached or staged node release binaries. |
+| Pane log storage | Captured terminal transcripts. |
+| MCP identity storage | Recipient keypairs and peer pins. |
+
+Database path, data directory, and log directory can differ. The database's raw default is relative to the boot working directory; initialized production configuration uses its selected persistent location.
+
+## Node files
+
+The node reports its configuration file, daemon lock, data directory, binary, and agent log. Configuration contains the node credential and trusted control-plane key.
+
+`unenroll` removes configuration and lock but retains other data. Reset has a broader deletion plan. Do not treat every path in status output as a deletion target.
+
+## Project and agent storage
+
+Uploads live under `<workingDir>/.subshell/uploads/` and are not automatically swept. Agent provider credentials and conversation transcripts belong to the CLI's home or project state, not solely to the Subshell database.
+
+## See also
+
+[Backups and restoration](/administration/backups), [Reset and uninstall](/administration/reset), and [Unenroll a node](/nodes/unenroll).

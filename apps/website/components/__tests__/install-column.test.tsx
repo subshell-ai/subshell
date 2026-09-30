@@ -66,8 +66,8 @@ test("picking the client chip says what the client is, node enrollment included"
   expect(screen.queryByText("This machine becomes the control plane every other device connects to.")).toBeNull();
 });
 
-test("the non-download third path points at the docs add-a-machine page", async () => {
+test("the non-download third path points at the node setup documentation", async () => {
   await mounted();
   const link = screen.getByRole("link", { name: "Add another machine" });
-  expect(link.getAttribute("href")).toBe("https://docs.subshell.sh/get-started/add-a-machine");
+  expect(link.getAttribute("href")).toBe("https://docs.subshell.sh/nodes");
 });

@@ -24,8 +24,9 @@ importing any of this code.
   the plugin's "Use this address" press survives only as the fallback for the
   rare join whose address had not propagated yet. The plugin's own `unpublish`
   stays a no-op (there is nothing on the machine for it to undo), but the
-  host's half clears the record and removes the trusted origins, so the address
-  stops accepting sign-ins at the next restart.
+  host's half clears the record, removing the plugin contribution from the
+  live trusted-origin registry.
+  An origin independently trusted by another source remains allowed.
 - **The management URL is the daemon's own config: the card has no field for
   it.** A self-hosted NetBird is set up **on the machine**: run
   `netbird setup`/`netbird up` yourself first; this card then reflects and

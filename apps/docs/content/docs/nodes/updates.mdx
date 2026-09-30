@@ -1,0 +1,41 @@
+---
+title: "Node updates"
+description: "Check and apply compatible node updates, including offline files and rollback."
+---
+
+Update the node daemon while accounting for its running sessions.
+
+## Before you start
+
+Review current work and the server's compatibility requirements. The server checks a minimum node version and an exact protocol version independently.
+
+## Check and update
+
+On the node:
+
+```bash
+subshell update --check
+subshell update
+```
+
+Review the proposed version and any refusal concerning live panes. Use maintenance when you need a controlled stop.
+
+The control plane can offer compatible updates and drive an update on an enrolled node. A node refused for its version can remain connected for updating while unavailable for normal work.
+
+## Offline and selected updates
+
+`--to <version>` selects a published version. `--from <file>` uses a staged local binary; you are responsible for the trustworthiness of that file. `--no-restart` replaces the binary but leaves restart to the caller.
+
+`--force` can accept a downgrade and override a live-pane refusal. It is not a substitute for reviewing compatibility and session impact.
+
+## Rollback
+
+```bash
+subshell update --rollback
+```
+
+Rollback restores the previous binary when available. Check the server's protocol requirements before expecting an older node to reconnect.
+
+## Next steps
+
+Read [Version compatibility](/reference/versions) and [Update troubleshooting](/troubleshooting/updates).

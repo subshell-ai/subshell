@@ -1,0 +1,34 @@
+---
+title: "Agent and launch errors"
+description: "Diagnose missing CLIs, unavailable presets, inaccessible directories, and failed prompt delivery."
+---
+
+Diagnose a subshell that cannot launch its selected agent.
+
+## Missing program
+
+Install the agent CLI on the target node under its execution account. A plugin installed on the control plane does not install that CLI on every node.
+
+Use **Re-check** after installation. Check PATH and the harness-specific binary override when the service cannot find a program that works in an interactive shell.
+
+## Plugin or preset unavailable
+
+Confirm that the instance's harness plugin is installed and enabled. Presets belong to their creator; a foreign preset cannot be assumed available to your launch.
+
+MCP helper creation requires a real saved preset ID. A catalog-only harness row cannot be launched as a preset.
+
+## Directory refused
+
+The working directory belongs to the selected node. Check that it exists and is permitted by the node's resolved allowlist.
+
+Changing nodes in the human form clears machine-specific directory assumptions. An empty allowlist is unrestricted, not a reason to refuse every directory.
+
+## Process or prompt failure
+
+Run the agent directly under the execution account to verify provider authentication. Starting a process does not prove an initial task was delivered; MCP create and restart return `promptDelivered` separately.
+
+Use an owned pane's captured log to inspect its exit output. Do not repeatedly retry creation after a timeout without checking whether a session already exists.
+
+## Next steps
+
+Read [Install an agent CLI](/agents/install-cli), [Presets](/guides/presets), and [MCP troubleshooting](/mcp/troubleshooting).

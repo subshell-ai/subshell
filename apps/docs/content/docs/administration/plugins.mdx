@@ -1,0 +1,35 @@
+---
+title: "Plugins"
+description: "Install and enable the instance-wide harness and network plugin set."
+---
+
+Manage the plugins available to your Subshell instance.
+
+## Before you start
+
+Use an administrator cookie session. Plugins run inside the control-plane process with the server's privileges.
+
+> [!warning] Plugin trust
+> Installing a plugin runs third-party code in the process holding the node signing keys. A malicious plugin can affect the instance and its enrolled nodes.
+
+## Manage the set
+
+1. Open **Server Settings** and choose **Plugins**.
+2. Review installed harness, terminal, and network plugins.
+3. Install a trusted package specification when adding a third-party plugin.
+4. Enable or disable it for the instance.
+5. Review the impact before uninstalling.
+
+There is one plugin store on the control plane. Nodes do not hold their own installed sets or plugin enable flags.
+
+Enabling a harness does not install its CLI on each node. Availability combines the instance's plugin state with binary detection on the target machine.
+
+## Built-ins and uninstalling
+
+Built-ins are available without a network fetch and seeded once. An empty store after deliberate uninstallation is not automatically filled again on every boot.
+
+The host validates plugin capability declarations when loading code. Network plugins have a different interface from harness plugins and do not appear in agent launch pickers.
+
+## Next steps
+
+See [Install an agent CLI](/agents/install-cli), [Networking](/networking), and [Plugin API](/developers/plugin-api).

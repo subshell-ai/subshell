@@ -1,0 +1,15 @@
+{
+  "title": "MCP and agent communication",
+  "pages": [
+    "index",
+    "configure",
+    "coordinate",
+    "subshells",
+    "channels",
+    "nudge",
+    "lifecycle",
+    "security",
+    "tools",
+    "troubleshooting"
+  ]
+}

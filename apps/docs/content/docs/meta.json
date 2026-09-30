@@ -1,0 +1,18 @@
+{
+  "pages": [
+    "index",
+    "get-started",
+    "install",
+    "guides",
+    "agents",
+    "nodes",
+    "administration",
+    "networking",
+    "mcp",
+    "automation",
+    "concepts",
+    "reference",
+    "troubleshooting",
+    "developers"
+  ]
+}

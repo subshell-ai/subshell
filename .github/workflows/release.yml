@@ -142,10 +142,9 @@ on:
 
 permissions:
   contents: write
-  # The desktop Linux shard pulls ghcr.io/subshell-ai/desktop-builder, which
-  # inherits this repo's visibility. Without this the runner's docker pull is
-  # denied by the registry and the job dies in "Initialize containers", before
-  # a single step runs.
+  # The desktop Linux shard authenticates pulls of the desktop-builder
+  # package. Package visibility is configured separately from this public
+  # repository; retain read access for registry-authenticated CI pulls.
   packages: read
 
 concurrency:
@@ -780,8 +779,8 @@ jobs:
           # The app's directory under apps/ — see the plan job's `app_dir` table.
           DIR: ${{ matrix.dir }}
           # stageSidecar FETCHES the released CLI asset over the GitHub API;
-          # the repo is private, so the lookup and download are authenticated
-          # with the job token (cli-release-fetch.ts refuses without it).
+          # this public repository uses authenticated CI requests for reliable
+          # API access (cli-release-fetch.ts requires the job token).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel
@@ -1402,8 +1401,8 @@ jobs:
           # The app's directory under apps/ — see the plan job's `app_dir` table.
           DIR: ${{ matrix.dir }}
           # stageSidecar FETCHES the released CLI asset over the GitHub API;
-          # the repo is private, so the lookup and download are authenticated
-          # with the job token (cli-release-fetch.ts refuses without it).
+          # this public repository uses authenticated CI requests for reliable
+          # API access (cli-release-fetch.ts requires the job token).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel

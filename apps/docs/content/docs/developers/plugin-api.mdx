@@ -1,0 +1,32 @@
+---
+title: "Plugin API"
+description: "Understand manifest identity, factory loading, host services, and capability validation."
+---
+
+Build plugins against the published Subshell plugin contract.
+
+## Package identity
+
+A plugin's `package.json` carries a `subshell` manifest with API version, ID, type, name, entry point, and binary detection data. The host can list and detect a plugin without executing its code.
+
+Types include `agent-harness`, `terminal`, and `network`. Types group plugins for people; validated capabilities determine code paths. Network plugins implement a different interface.
+
+## Factory and host
+
+The module default-exports a factory receiving `PluginHost`. That host supplies runtime services such as binary lookup, command execution, secret storage, logging, and shell quoting.
+
+The compiled server loads runtime-installed plugins from disk. It has no adjacent `node_modules` directory for a plugin's bare runtime imports to resolve.
+
+## Bundle the contract
+
+Use `@subshell-ai/plugin-api` for types and development helpers, but inline its runtime code in your build. A loaded bundle should depend only on supported built-ins, not workspace imports.
+
+## Capabilities
+
+Declare only behavior your plugin actually implements. Claiming `resume` without its required interface or assigning harness capabilities to a network plugin causes load validation to refuse the plugin.
+
+A reporter executable, when supplied, is a host-resolved command and arguments. Do not assume Bun or a particular Subshell binary exists on every pane's machine.
+
+## Next steps
+
+Use [Harness plugins](/developers/harness-plugin) or [Network plugins](/developers/network-plugin). The [package contract and full example](https://github.com/subshell-ai/subshell/tree/main/packages/plugin-api) contains the exported types.

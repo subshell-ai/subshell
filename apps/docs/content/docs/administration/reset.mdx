@@ -1,0 +1,37 @@
+---
+title: "Reset and uninstall"
+description: "Remove server data or uninstall the server with explicit destructive-action confirmation."
+---
+
+Reset the server's local state or uninstall its executable.
+
+## Before you start
+
+Create a backup and review the actual deletion paths with `subshell-server status --json`. These operations run from the host CLI or desktop assistant, not a page served by the server.
+
+> [!warning] Permanent deletion
+> Reset stops local server work and removes the instance's data and settings. Without a separate backup, accounts, keys, and captured history cannot be recovered.
+
+## Reset
+
+```bash
+subshell-server reset
+```
+
+The CLI requires the machine's name as confirmation. It removes the service definition and configured data while retaining the installed binary. Initialize again when you want a fresh instance.
+
+A headless invocation uses `--confirm <machine-name>`. `--yes` is refused and cannot replace the name. After consent, the CLI continues clearing state even if individual cleanup steps fail; inspect the resulting exit status and reported errors.
+
+## Uninstall
+
+```bash
+subshell-server uninstall
+```
+
+Uninstall stops the server, removes its service and installed binary, and asks separately whether to remove data. Keeping data is the default. A headless uninstall uses `--reset-data` only when you intend to delete it too.
+
+Resetting the server does not erase project directories, separately enrolled node homes, or remote machines. Those machines have their own removal procedures.
+
+## Next steps
+
+Read [Unenroll a node](/nodes/unenroll) for node removal and [Backups and restoration](/administration/backups) for recovery.

@@ -1,0 +1,38 @@
+---
+title: "Sign-in providers"
+description: "Configure email and OIDC sign-in while preserving a working authentication method."
+---
+
+Configure the sign-in methods available to your users.
+
+## Before you start
+
+Use an administrator account and retain a working sign-in method. For OIDC, obtain the issuer URL, client ID, client secret, and redirect configuration from your identity provider.
+
+## Add an OIDC provider
+
+1. Open **Server Settings** and choose **Auth**.
+2. Add the provider and give it a recognizable name.
+3. Enter its issuer and client credentials.
+4. Configure the browser entry origins and matching identity-provider callback.
+5. Save the provider and test sign-in in a separate browser session.
+
+Saving performs discovery and verifies credentials when the issuer supports the corresponding grant. The login button uses the provider's configured name.
+
+The current integration uses the first configured entry origin as the canonical callback origin. Do not assume it follows whichever hostname a visitor used.
+
+## Registration and approval
+
+Enable account creation only for providers through which you want new users to arrive. Approval can hold new arrivals pending rather than granting immediate access.
+
+Closing registration does not itself disable sign-in for existing users. The email provider's sign-in policy also governs password and passkey entry.
+
+## Preserve access
+
+Subshell refuses a change that closes the last open sign-in provider. Successful provider changes take effect without restarting the server.
+
+If sign-in fails, keep the existing session and inspect [Sign-in and origin errors](/troubleshooting/sign-in).
+
+## Next steps
+
+Read [Registration](/administration/registration) and [Account recovery](/administration/recovery).

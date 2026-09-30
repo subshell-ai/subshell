@@ -1,0 +1,34 @@
+---
+title: "Tailscale"
+description: "Join a tailnet and publish the Subshell server through Tailscale Serve."
+---
+
+Publish your server to devices on a Tailscale tailnet.
+
+## Before you start
+
+Use a supported Linux or macOS server host and an enabled Tailscale plugin. Install Tailscale and join the intended tailnet. For HTTPS publication, the tailnet needs HTTPS certificate support.
+
+## Connect the host
+
+1. Open **Server Settings** and choose **Networking**.
+2. Review the Tailscale card's current state.
+3. Run its privileged installation or operator-permission instructions on the host when required.
+4. Complete interactive sign-in or supply an auth key.
+5. Choose **Publish with Tailscale Serve** when the card is ready.
+
+The server runs allowed unprivileged operations; root-required steps remain copyable instructions. On macOS, the app and command-line daemon installation methods are alternatives.
+
+## Verify publication
+
+Open the advertised HTTPS address from another tailnet device. Confirm sign-in and terminal streaming. Tailscale Serve forwards to the server's current port.
+
+The plugin's enabled address record becomes trusted live. Publication does not rewrite `APP_BASE_URL` or the operator's extra origins, so review those separately for passkeys and OIDC callbacks.
+
+## Limits
+
+This private publication is not Tailscale Funnel. Tailscale and Headscale use the same local daemon; the machine can be joined to only one tailnet at a time.
+
+## Next steps
+
+Read [Addresses and trusted origins](/networking/addresses) and [Connect from another device](/get-started/another-device).

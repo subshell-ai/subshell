@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
+import { ROOT_PAGES } from "../../lib/navigation";
 
 /**
  * Validates the documentation content tree against the pinned conventions
@@ -8,27 +9,10 @@ import path from "node:path";
  * `meta.json` page entries, frontmatter on every page, no orphaned `.mdx`
  * files, and internal links that resolve to existing pages.
  *
- * The content tree is authored by a separate workstream, so a missing
- * `content/docs` directory SKIPs rather than fails — the suite goes green
- * the moment the tree lands.
+ * Missing content is a failure: the published site must contain the complete tree.
  */
 
 const DOCS_DIR = path.join(import.meta.dir, "..", "..", "content", "docs");
-
-/** The canonical root `meta.json` pages list — 11 entries, in sidebar order. */
-const ROOT_PAGES = [
-  "index",
-  "get-started",
-  "use",
-  "agents",
-  "nodes",
-  "server",
-  "automation",
-  "concepts",
-  "reference",
-  "help",
-  "develop",
-];
 
 interface MetaFile {
   title?: string;
@@ -137,16 +121,65 @@ function brokenInternalLinks(rel: string, source: string): string[] {
   return broken;
 }
 
-if (!fs.existsSync(DOCS_DIR)) {
-  test("content tree not present yet — validation skipped", () => {
-    console.warn(
-      `[content-tree] SKIP: ${path.relative(process.cwd(), DOCS_DIR) || "content/docs"} does not exist. ` +
-        "The content tree is authored separately; this suite validates it once it lands.",
-    );
+describe("published documentation", () => {
+  test("legacy routes redirect permanently to published pages", () => {
+    const redirects = fs.readFileSync(path.join(DOCS_DIR, "../../public/_redirects"), "utf8");
+    const sources = new Set<string>();
+    for (const line of redirects.split("\n").filter((line) => line && !line.startsWith("#"))) {
+      const [from, to, status] = line.split(/\s+/);
+      expect(sources.has(from), `duplicate redirect: ${from}`).toBe(false);
+      sources.add(from);
+      expect(status).toBe("301");
+      expect(from).not.toBe(to);
+      expect(brokenInternalLinks("_redirects", `[target](${to})`)).toEqual([]);
+    }
   });
-} else {
+
+  test("all sections have nonempty content and ordered metadata", () => {
+    expect(fs.existsSync(DOCS_DIR), "content/docs is required").toBe(true);
+    for (const section of ROOT_PAGES.filter((entry) => entry !== "index")) {
+      expect(fs.existsSync(path.join(DOCS_DIR, section, "index.mdx"))).toBe(true);
+      expect(pagesOf(section).length).toBeGreaterThan(1);
+    }
+    for (const dir of ["", ...listDirs("")]) {
+      expect(readMeta(dir), `${dir || "."} needs meta.json`).toBeDefined();
+      expect(new Set(pagesOf(dir)).size).toBe(pagesOf(dir).length);
+    }
+  });
+
+  test("published pages are substantive and exclude native mobile and draft stubs", () => {
+    const titles = new Set<string>();
+    const descriptions = new Set<string>();
+    for (const rel of listMdx("")) {
+      const raw = fs.readFileSync(path.join(DOCS_DIR, rel), "utf8");
+      const fm = parseFrontmatter(raw);
+      expect(titles.has(String(fm?.title)), `duplicate title: ${rel}`).toBe(false);
+      expect(descriptions.has(String(fm?.description)), `duplicate summary: ${rel}`).toBe(false);
+      titles.add(String(fm?.title));
+      descriptions.add(String(fm?.description));
+      const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---/, "").trim();
+      expect(body.length, `empty or stub page: ${rel}`).toBeGreaterThan(350);
+      expect(body, `draft placeholder: ${rel}`).not.toMatch(/> \[!warning\] Draft|^## Sources|TODO|coming soon/im);
+      expect(body, `native mobile content: ${rel}`).not.toMatch(
+        /native mobile|react native|\bexpo\b|testflight|eas build|play store|app store/i,
+      );
+      expect(body, `MDX component outside authoring contract: ${rel}`).not.toMatch(
+        /^(import |export |<(Tabs|Cards|Steps)\b)/m,
+      );
+      expect(body, `the page renderer provides the H1: ${rel}`).not.toMatch(/^# /m);
+    }
+  });
+
+  test("MCP reference covers every registered tool and no retired tools", () => {
+    const server = fs.readFileSync(path.join(DOCS_DIR, "../../../../packages/mcp-core/src/server.ts"), "utf8");
+    const names = [...server.matchAll(/server\.registerTool\(\s*"([^"]+)"/g)].map((match) => match[1]).sort();
+    const reference = fs.readFileSync(path.join(DOCS_DIR, "mcp/tools.mdx"), "utf8");
+    const headings = [...reference.matchAll(/^## ([a-z]+_[a-z_]+)$/gm)].map((match) => match[1]).sort();
+    expect(headings).toEqual(names);
+  });
+
   describe("content/docs root meta.json", () => {
-    test("lists exactly the 11 canonical root entries, in order", () => {
+    test("lists the canonical root entries, in order", () => {
       expect(pagesOf("")).toEqual(ROOT_PAGES);
     });
   });
@@ -230,10 +263,7 @@ if (!fs.existsSync(DOCS_DIR)) {
       const broken = listMdx("").flatMap((rel) =>
         brokenInternalLinks(rel, fs.readFileSync(path.join(DOCS_DIR, rel), "utf8")),
       );
-      expect(
-        broken,
-        `dead internal links (groups have no index page — /use 404s while /nodes resolves):\n${broken.join("\n")}`,
-      ).toEqual([]);
+      expect(broken, `dead internal links (each section must have an index page):\n${broken.join("\n")}`).toEqual([]);
     });
   });
 
@@ -261,4 +291,4 @@ if (!fs.existsSync(DOCS_DIR)) {
       });
     }
   });
-}
+});

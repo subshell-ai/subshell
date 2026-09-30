@@ -1,0 +1,26 @@
+---
+title: "Developers"
+description: "Contribute to Subshell, write documentation, and create harness or network plugins."
+---
+
+Develop Subshell and its plugin integrations from the public repository.
+
+## Contribute
+
+[Contribute to Subshell](/developers/contribute) covers the workspace, local development, tests, and contribution licensing. [Write documentation](/developers/documentation) describes the MDX authoring and verification contract.
+
+The repository is public and dual-licensed. Server implementations are AGPL-3.0-only; the rest of the project is Apache-2.0, with an explicit additional permission for API type declarations.
+
+## Build a plugin
+
+[Plugin API](/developers/plugin-api) explains the factory and manifest contract. Choose [Harness plugins](/developers/harness-plugin) for an agent CLI or [Network plugins](/developers/network-plugin) for a network connection.
+
+[Publish a plugin](/developers/publish-plugin) covers bundled output and administrator installation. Plugins must work when loaded by a compiled binary without a neighboring `node_modules` directory.
+
+## Integration reference
+
+For agents calling the product, use [MCP tool reference](/mcp/tools). For external scripts, use [REST API](/automation/rest-api). The generated OpenAPI page on a running server supplies endpoint schemas.
+
+## Next steps
+
+Read the owning app's `AGENTS.md` before changing its implementation. Root project documentation routes to deeper engineering topics when needed.

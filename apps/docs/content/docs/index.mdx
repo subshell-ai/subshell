@@ -1,0 +1,29 @@
+---
+title: "Subshell documentation"
+description: "Install, use, and administer Subshell to run CLI coding agents on machines you own."
+---
+
+Subshell runs interactive coding agents in terminal sessions that you can access from any device.
+
+Agents run on machines you own. Closing a browser tab does not stop the session, and opening the server from another device returns you to the same terminal.
+
+## Start using Subshell
+
+Follow [Get started](/get-started) to install Subshell Server, create your account, and launch a terminal. If you already have a server, open its address in your browser or install [Subshell Client](/install/desktop-client).
+
+- [Installation](/install) covers desktop, CLI, Docker, and Proxmox deployment.
+- [Use Subshell](/guides) covers sessions, workspaces, presets, sharing, and notifications.
+- [Manage nodes](/nodes) explains how to run agents on other machines.
+- [MCP and agent communication](/mcp) explains how agents exchange messages and coordinate work.
+
+## Run and extend Subshell
+
+Administrators configure accounts, plugins, backups, and updates in [Server administration](/administration). Use [Networking](/networking) to make the server reachable from your other devices.
+
+For commands and configuration values, use [Reference](/reference). For integrations, start with [API and automation](/automation) or [Developers](/developers).
+
+## Product terms
+
+A **server** is the control plane: the API, database, and web interface it serves. A **node** is a machine running agents. A **client** is your interface to a server.
+
+The server's host can also run subshells. Enrolled nodes add other execution machines; they do not replace the server. Read [Architecture](/concepts/architecture) for the component relationships.

@@ -1,0 +1,36 @@
+---
+title: "Desktop node setup"
+description: "Enroll your desktop machine using the node-management window in Subshell Client."
+---
+
+Make your desktop machine a node through Subshell Client.
+
+## Before you start
+
+Install [Subshell Client](/install/desktop-client), then obtain a reachable server address and unused setup key from **Add node** on the server.
+
+The client has a dashboard window and a separate node-management window. Local node operations belong to the node window.
+
+## Enroll
+
+1. Open the node-management window in Subshell Client.
+2. Enter the server address and setup key.
+3. Choose a recognizable machine name.
+4. Follow the tmux and service instructions.
+5. Verify that the node appears online in the server's node list.
+
+The client bundles the node binary. It can enroll even when the control plane has no downloadable node binary staged locally, provided the bundled version is compatible.
+
+## Configure local execution
+
+Install coding agent CLIs under the node's OS account. Set [Directory restrictions](/nodes/directories) and confirm the appropriate persistence mode before leaving a task running.
+
+The node remains an execution machine, while the server still stores instance configuration and serves the dashboard.
+
+## Removal
+
+Use the node-management reset flow to remove enrollment. This is separate from resetting the remote server. Read [Unenroll a node](/nodes/unenroll) first.
+
+## Next steps
+
+[Launch a subshell](/guides/launch) on the new node.

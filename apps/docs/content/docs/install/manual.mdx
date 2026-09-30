@@ -1,0 +1,37 @@
+---
+title: "Install the server manually"
+description: "Download a selected server release and initialize it without the installation script."
+---
+
+Install a selected Subshell server release without using the installation script.
+
+## Before you start
+
+Choose a published `cli-server` release and a supported [platform](/concepts/platforms). Install tmux and make a writable directory available to the OS account that will run the server.
+
+## Download and verify
+
+1. Open [Subshell downloads](https://subshell.sh) and select the server option. Follow its release link to find CLI assets; choose the required `cli-server-v` release when staging a specific version.
+2. Download its `subshell-server-cli-<target>` binary and matching `.sha256` file.
+3. Compute the binary's SHA-256 digest and compare it with the published value. Do not execute a file that fails the comparison.
+4. Rename the binary to `subshell-server` and place it in a directory on your PATH.
+
+For a downloaded binary renamed in the current directory:
+
+```bash
+chmod 755 subshell-server
+./subshell-server version
+./subshell-server init
+```
+
+Initialization writes configuration and prepares the authentication secret. Accept the service offer if this machine should run unattended.
+
+## Start and inspect
+
+If initialization did not install a service, run `subshell-server` in the foreground. Use `subshell-server status` to see configuration paths, tmux availability, and process/service diagnostics.
+
+Do not use a production placeholder authentication secret. Initialization creates a unique secret; preserve it when moving the instance.
+
+## Next steps
+
+[Create the first admin account](/get-started/admin-account), then review [Configuration](/administration/configuration).

@@ -1,0 +1,33 @@
+---
+title: "HTTPS and reverse proxies"
+description: "Put Subshell behind HTTPS while preserving browser origins and WebSocket connections."
+---
+
+Serve Subshell through an HTTPS endpoint.
+
+## Before you start
+
+Choose a trusted reverse proxy or network publish method. The proxy must reach the server's listening interface and support WebSocket upgrades.
+
+## Configure a reverse proxy
+
+1. Route the public or private HTTPS hostname to the server's configured port.
+2. Preserve requests for the API, static web interface, and WebSocket endpoints.
+3. Set `APP_BASE_URL` to the browser's HTTPS URL.
+4. Add any other intentional browser origins to the trusted list.
+5. Restart the server for boot-time changes and test sign-in and terminal attachment.
+
+A proxy outside the server's host cannot reach a loopback-only bind. A container proxy must use an address reachable from its own network namespace.
+
+## Security
+
+> [!warning] Public exposure
+> Subshell's baseline posture assumes admitted users and trusted execution hosts. Do not expose an unconfigured setup page or treat HTTPS alone as an access policy.
+
+For a public tunnel, use a tested identity gate such as the [Cloudflare Tunnel](/networking/cloudflare) plugin's Access integration.
+
+A working page load does not prove the WebSocket path works. Open a terminal, send input, and confirm streaming output before considering the proxy ready.
+
+## Next steps
+
+Read [Addresses and trusted origins](/networking/addresses), [Security model](/concepts/security), and [Terminal troubleshooting](/troubleshooting/terminal).

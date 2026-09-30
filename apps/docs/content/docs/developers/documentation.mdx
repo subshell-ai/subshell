@@ -1,0 +1,51 @@
+---
+title: "Write documentation"
+description: "Author MDX pages with verified behavior, explicit navigation, and SEO and AI export checks."
+---
+
+Author and verify public documentation in the Subshell repository.
+
+## Content contract
+
+Pages live under `apps/docs/content/docs` as MDX. Every page needs nonempty `title` and `description` frontmatter and an entry in its folder's `meta.json`.
+
+```yaml
+---
+title: "Install the server"
+description: "Install and initialize the Subshell server on a supported host."
+---
+```
+
+Use a factual one-sentence opener. How-to pages continue with prerequisites, numbered actions, expected results, and next steps. Reference pages use lookup tables and command sections.
+
+## Verify facts
+
+Read the owning app documentation and implementation. Confirm flags, defaults, platform support, UI labels, and permissions. Use `docs/security.md` as the security authority and preserve warnings about trust or destructive operations.
+
+Keep server, node, and client meanings distinct. Follow `apps/docs/STYLE.md`: plain second-person prose, no em dashes or marketing language.
+
+## MDX and navigation
+
+Use default code blocks, tables, and GitHub alerts. Keep placeholders such as `<path>` and JSON braces inside code. Internal links are root-relative and must resolve to a real page. Do not add draft placeholders, screenshots, or custom MDX components.
+
+Navigation and AI section order are shared in `apps/docs/lib/navigation.ts`. Every section has an index page. The content tests enforce the tree.
+
+## Verify the site
+
+```bash
+env -u SHELLOPTS -u BASHOPTS bun run --cwd apps/docs test
+bunx turbo build --filter=@internal/docs
+bun run --cwd apps/docs lint:check
+bun run --cwd apps/docs verify-types
+bun run --cwd apps/docs verify:export
+```
+
+The build compiles MDX and generates HTML, search, sitemap, and AI text exports. Export verification checks page coverage, metadata, and complete readable content.
+
+## Ship the change
+
+Add a changeset for `@internal/docs` only. Update existing repository links when routes change, and preserve historical engineering specs as dated records.
+
+## Next steps
+
+Preview with `bun run dev:docs` on port 3400 and review wide and narrow layouts.

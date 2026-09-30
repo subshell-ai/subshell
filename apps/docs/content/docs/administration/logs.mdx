@@ -1,0 +1,42 @@
+---
+title: "Status and logs"
+description: "Inspect server diagnostics, system output, and sensitive pane-log retention."
+---
+
+Inspect the server's resolved configuration and operational logs.
+
+## Host diagnostics
+
+```bash
+subshell-server status
+subshell-server service status
+```
+
+The first command shows the configuration that a boot would resolve, including source layers, paths, tmux, and MCP diagnostics. It does not boot the server. Service status asks the manager about the installed service.
+
+`--json` provides machine-readable output. Secrets are masked rather than returned in plaintext.
+
+## Browser diagnostics
+
+Administrators can open **Server Settings** and choose **Status** or **Logs**. The logs page separates system output from the audit trail.
+
+For service-manager output on Linux:
+
+```bash
+journalctl --user -u subshell-server.service
+```
+
+The server's own log file is separate from service output. Its location is part of the installation's path information.
+
+## Debugging
+
+`--verbose` or `SUBSHELL_VERBOSE=1` increases console detail. `SUBSHELL_DEBUG_LOGGING` controls additional file logging and is a separate setting.
+
+> [!warning] Sensitive output
+> Pane transcripts can contain commands, project data, and typed secrets. Terminal attach debug dumps can include screen contents. Review and redact logs before sharing them.
+
+Terminated pane logs default to 30-day retention; `SUBSHELL_LOG_RETENTION_DAYS=0` disables that sweep. Running panes are not swept.
+
+## Next steps
+
+See [Audit log](/administration/audit) and [Troubleshooting](/troubleshooting).

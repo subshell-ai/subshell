@@ -75,9 +75,8 @@ describe("cli-release-fetch", () => {
   });
 
   test("the index fetch refuses outright when GH_TOKEN is absent", async () => {
-    // The throw must land BEFORE any request: the private repo answers 404
-    // unauthenticated, and a silent 404 reads as "not published yet", which
-    // is a lie about the cause. No fetch may even be attempted.
+    // The CI helper requires authenticated requests even for the public repo.
+    // Missing credentials must fail explicitly before a request is attempted.
     const saved = process.env.GH_TOKEN;
     delete process.env.GH_TOKEN;
     try {

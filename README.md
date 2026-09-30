@@ -49,11 +49,11 @@ curl -fsSL https://subshell.sh/install-server.sh | bash
 It verifies the release's `.sha256` before making anything executable, then runs
 `subshell-server init` and prints the address where you create the first
 account. Rather not touch a CLI? The
-[Subshell Server desktop app](https://docs.subshell.sh/get-started/install-server#subshell-server-desktop-app)
+[Subshell Server desktop app](https://docs.subshell.sh/install/desktop-server)
 installs the same binary behind a button. To run agents on other machines,
-[enroll a node](https://docs.subshell.sh/nodes/add-node); to work from your own,
+[enroll a node](https://docs.subshell.sh/nodes/desktop); to work from your own,
 open the server in any browser or use the
-[Subshell Client](https://docs.subshell.sh/nodes/client-as-node).
+[Subshell Client](https://docs.subshell.sh/nodes/desktop).
 
 ## Documentation
 
@@ -62,8 +62,10 @@ open the server in any browser or use the
 - [Quickstart](https://docs.subshell.sh/get-started): from nothing to a running
   subshell you can watch from any device
 - [Nodes](https://docs.subshell.sh/nodes): what a node is and what enrolling one delegates
-- [Server](https://docs.subshell.sh/server): install, configuration, service,
+- [Server administration](https://docs.subshell.sh/administration): install, configuration, service,
   networking, users, backups, updates
+- [MCP and agent communication](https://docs.subshell.sh/mcp): tools, encrypted
+  channels, helper sessions, and cleanup
 
 Everything this README used to carry (the desktop apps, the env-var tables, the
 security and remote-operation notes) moved to the site. Docker and Proxmox LXC
@@ -71,7 +73,7 @@ setup live in the docs (docs.subshell.sh).
 
 ## Contributing
 
-- [Contribute to Subshell](https://docs.subshell.sh/develop/contribute-to-subshell):
+- [Contribute to Subshell](https://docs.subshell.sh/developers/contribute):
   the dev loop. `bun install`, `bun run start`, and the verification trio every
   change runs through.
 - Contributions need the one-time [CLA](CLA.md): it keeps the server AGPL while

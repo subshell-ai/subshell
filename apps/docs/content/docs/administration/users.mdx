@@ -1,0 +1,33 @@
+---
+title: "Users and roles"
+description: "Create accounts, assign roles, approve users, and disable access."
+---
+
+Manage the accounts admitted to your Subshell instance.
+
+## Before you start
+
+Use an administrator cookie session. Account administration is not available through machine credentials.
+
+## Create and review accounts
+
+1. Open **Server Settings** and choose **Users**.
+2. Create an account with the shared account form when you want to admit someone directly.
+3. Review its role and status.
+4. Approve pending accounts when your sign-in provider requires approval.
+
+Creating an account administratively does not require enabling public registration. Users' names, email addresses, roles, and disabled states are visible through the authenticated roster used by sharing pickers.
+
+## Roles
+
+Members manage their own sessions and access shared resources. Administrators also operate instance settings and have edit access to sessions across the instance.
+
+Administrative access does not transfer session ownership. Only the owner can delete a session, change its sharing, or control its notification bell.
+
+## Disable access
+
+Disabling an account prevents normal session authentication. Review any long-lived integrations separately, rather than assuming a human sign-in action revokes every kind of machine credential.
+
+## Next steps
+
+Configure [Registration](/administration/registration), [Sign-in providers](/administration/sign-in-providers), and [API keys](/automation/api-keys).

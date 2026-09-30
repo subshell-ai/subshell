@@ -1,0 +1,14 @@
+{
+  "title": "Installation",
+  "pages": [
+    "index",
+    "desktop-server",
+    "desktop-client",
+    "browser",
+    "linux",
+    "macos",
+    "manual",
+    "docker",
+    "proxmox"
+  ]
+}

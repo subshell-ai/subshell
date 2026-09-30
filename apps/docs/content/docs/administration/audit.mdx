@@ -1,0 +1,33 @@
+---
+title: "Audit log"
+description: "Review recorded administrative actions and understand the audit trail\u2019s limits."
+---
+
+Review administrative activity in the instance's audit trail.
+
+## Before you start
+
+Use an administrator session. Audit records describe actions on the control plane, not every command an agent runs.
+
+## Open the trail
+
+1. Open **Server Settings** and choose **Logs**.
+2. Select the audit view.
+3. Review the actor, action, target, and time associated with the operation.
+4. Page through results when investigating a sequence of changes.
+
+Account creation and recovery, configuration changes, plugin actions, and other audited operations provide a record of instance management. Credentials such as provider client secrets are not serialized into audit payloads.
+
+## Correlate failures
+
+API error responses include a machine-readable code and an error ID. Logged server errors can be correlated through the error ID. Expected client errors are not necessarily logged, so the absence of a matching system-log entry does not prove a request succeeded.
+
+Keep timestamps, response codes, and the relevant operation when reporting an issue. Avoid copying authentication headers or secret configuration values.
+
+## Limits
+
+The audit trail is stored by the same instance it describes. It is not an independent tamper-proof ledger. Direct terminal input and filesystem changes by agents are outside its comprehensive coverage.
+
+## Next steps
+
+Read [Status and logs](/administration/logs) and [API conventions](/reference/api).

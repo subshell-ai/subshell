@@ -1,0 +1,29 @@
+---
+title: "OpenCode"
+description: "Install and launch OpenCode with Subshell, including its MCP and session behavior."
+---
+
+Run OpenCode as a Subshell agent.
+
+## Before you start
+
+Install `opencode` using the [vendor instructions](https://opencode.ai/docs/cli/) and authenticate it under the execution account. Enable its harness plugin on the instance and confirm detection on the target node.
+
+## Launch
+
+1. Open the launch dialog and select **OpenCode**.
+2. Select a preset or configure the supported launch settings.
+3. Choose the target node and an existing project directory.
+4. Launch and confirm that the CLI opens normally.
+
+The plugin detects `opencode` through PATH and its known locations. `OPENCODE_PATH` can identify the binary explicitly in the execution environment.
+
+## MCP and session behavior
+
+Subshell injects a local MCP entry into the launch configuration. Preset configuration is merged with the required Subshell wiring. The built-in plugin declares MCP and settings capabilities; it does not declare automatic conversation resumption or attention hooks.
+
+Subshell runs the real CLI rather than proxying its provider API. Provider configuration, usage limits, and CLI-specific permissions remain the agent's own settings.
+
+## Next steps
+
+Read [MCP configuration](/mcp/configure), [Presets](/guides/presets), and [Agent and launch errors](/troubleshooting/agents).

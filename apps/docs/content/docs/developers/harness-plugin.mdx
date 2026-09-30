@@ -1,0 +1,48 @@
+---
+title: "Harness plugins"
+description: "Create a plugin that detects and launches an agent CLI through the host contract."
+---
+
+Create a harness plugin for an agent CLI.
+
+## Before you start
+
+Read [Plugin API](/developers/plugin-api) and use the published contract as your development dependency. Verify the CLI's actual arguments and configuration interface before implementing them.
+
+## Declare the manifest
+
+```json
+{
+  "subshell": {
+    "apiVersion": 2,
+    "id": "my-agent",
+    "type": "agent-harness",
+    "name": "My Agent",
+    "description": "Run My Agent in a subshell.",
+    "entry": "dist/index.js",
+    "detect": {
+      "binaryName": "my-agent",
+      "envOverride": "MY_AGENT_PATH",
+      "knownPaths": [".local/bin/my-agent"]
+    }
+  }
+}
+```
+
+Known paths can be HOME-relative or absolute. Detection must remain data so the control plane can ask another machine to locate the binary without loading plugin code there.
+
+## Implement launch
+
+Default-export a factory that returns the harness interface. `buildCommand` returns an argv array beginning with the resolved binary. Consume supplied preset values and optional launch inputs without inventing host program paths.
+
+Validate preset settings and declare supported capabilities. Only offer resume when you can recover the agent's actual conversation identity and transcript. Only offer attention reporting when hooks are wired.
+
+Use the host-supplied MCP and reporter launch specifications. If a reporter is absent, omit its feature instead of guessing a command.
+
+## Validate
+
+Test argv construction, invalid settings, missing binaries, and each claimed capability. Bundle the contract into your output and verify the installed bundle has no unresolved workspace runtime imports.
+
+## Next steps
+
+Read [Publish a plugin](/developers/publish-plugin) and the [built-in harness implementations](https://github.com/subshell-ai/subshell/tree/main/packages/plugins).
