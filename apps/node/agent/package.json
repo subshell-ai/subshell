@@ -20,7 +20,7 @@
     "lint": "biome check --write --unsafe src && biome format src --write && biome lint src --fix",
     "lint:check": "biome check --no-errors-on-unmatched src",
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
-    "test": "bun test",
+    "test": "bun test --parallel=12",
     "verify-types": "tsc --project tsconfig.json --noEmit",
     "compile": "bun build --compile --bytecode --minify --sourcemap ./src/main.ts --outfile ./dist/subshell",
     "compile:release": "bun run src/scripts/release.ts"

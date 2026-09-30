@@ -15,7 +15,7 @@
     "lint": "biome check --no-errors-on-unmatched --write --unsafe app lib components scripts",
     "lint:check": "biome check --no-errors-on-unmatched app lib components scripts",
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged app lib components scripts",
-    "test": "bun test",
+    "test": "bun test --parallel=4",
     "verify-types": "tsc --noEmit"
   },
   "dependencies": {
