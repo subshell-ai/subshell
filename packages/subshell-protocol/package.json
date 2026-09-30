@@ -40,7 +40,7 @@
     "lint": "biome check --write --unsafe src && biome format src --write && biome lint src --fix",
     "lint:check": "biome check --no-errors-on-unmatched src",
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
-    "test": "bun test --parallel=${SUBSHELL_TEST_PARALLEL:-4}",
+    "test": "bash \"$(git rev-parse --show-toplevel)/scripts/par-test.sh\" 4 bun test",
     "verify-types": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {

@@ -12,7 +12,7 @@
     "lint": "biome check --no-errors-on-unmatched --write --unsafe src",
     "lint:check": "biome check --no-errors-on-unmatched src",
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
-    "test": "bun test --parallel=${SUBSHELL_TEST_PARALLEL:-4} --pass-with-no-tests",
+    "test": "bash \"$(git rev-parse --show-toplevel)/scripts/par-test.sh\" 4 bun test --pass-with-no-tests",
     "verify-types": "tsc --noEmit"
   },
   "dependencies": {

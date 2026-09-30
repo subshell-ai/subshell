@@ -63,12 +63,15 @@ on:
     branches:
       - main
 
-# Every package's `test` script defaults its own bun --parallel width; these
-# runners are 4-core hosted machines, and 12 CPU-heavy workers here starve
-# wall-clock timeouts (measured: the web suite's 5 s default blew at 12/4 on
-# run 36660089740, green at 48 cores locally). One knob, no per-job repeats.
+# CI runs every suite SERIALLY inside its package (issue #261's scripts
+# still parallelize local runs). The hosted container gets a fraction of its
+# 4 labels (0.4 CPU measured in apps/server/web's budgets, twice), and bun's
+# --parallel at ANY width - even 1, which is not serial - starved
+# time-budgeted suites into per-test timeouts across three CI attempts on
+# PR #277. scripts/par-test.sh omits the flag on this variable; the shard
+# matrix is CI's speed, not worker threads.
 env:
-  SUBSHELL_TEST_PARALLEL: 4
+  SUBSHELL_TEST_SERIAL: "1"
 
 permissions:
   contents: read
@@ -183,15 +186,6 @@ jobs:
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 15
-    # The react-act suite is CI's one starved slice: this container gets a
-    # fraction of its 4 labels (measured 0.4 CPU in the 2026-09-17 budgets;
-    # reconfirmed 2026-09-30, where width 4 stretched a 2.5 s act chain to
-    # 25 s and bun's per-test timeouts fired three times - a width-4 budget
-    # raise would not help, the tests' own inner waitFor budgets starve too).
-    # Serial is the regime this suite has passed in here for months; dev
-    # machines keep the script's 12 (measured 11 s for the whole suite).
-    env:
-      SUBSHELL_TEST_PARALLEL: 1
     defaults:
       run:
         # A container job defaults to `sh`, not bash, and these steps use

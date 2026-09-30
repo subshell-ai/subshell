@@ -15,7 +15,7 @@
     "lint": "biome check --no-errors-on-unmatched --write --unsafe app lib components scripts",
     "lint:check": "biome check --no-errors-on-unmatched app lib components scripts",
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged app lib components scripts",
-    "test": "bun test --parallel=${SUBSHELL_TEST_PARALLEL:-4}",
+    "test": "bash \"$(git rev-parse --show-toplevel)/scripts/par-test.sh\" 4 bun test",
     "verify-types": "tsc --noEmit"
   },
   "dependencies": {

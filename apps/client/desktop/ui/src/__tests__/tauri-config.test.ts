@@ -146,7 +146,12 @@ describe("the two test runs", () => {
   });
 
   it("runs the web half with ui/ as the cwd, which is how it finds its preload", () => {
-    expect(pkg.scripts.test).toContain("cd ui && bun test");
+    // Issue #261: each half runs through scripts/par-test.sh (the --parallel
+    // flag has to be omittable for CI, which package.json cannot express);
+    // the second half still executes from ui/ as its cwd.
+    expect(pkg.scripts.test).toContain(
+      'cd ui && bash "$(git rev-parse --show-toplevel)/scripts/par-test.sh" 4 bun test',
+    );
     const bunfig = readFileSync(join(import.meta.dir, "../../bunfig.toml"), "utf8");
     expect(bunfig).toContain('preload = ["./src/test-setup.ts"]');
   });
