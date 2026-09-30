@@ -78,7 +78,14 @@ function plugin(p: {
   };
 }
 
-function preset(p: { id: string; harnessId: string; name?: string }) {
+function preset(p: {
+  id: string;
+  harnessId: string;
+  name?: string;
+  nodeId?: string | null;
+  workingDir?: string | null;
+  promptBlocks?: string | null;
+}) {
   return {
     id: p.id,
     harnessId: p.harnessId,
@@ -89,6 +96,11 @@ function preset(p: { id: string; harnessId: string; name?: string }) {
     settingsJson: null,
     configIsolation: 0,
     restartOnExit: 0,
+    // The launch trio (spec 2026-09-29): the real row always carries the
+    // columns, nulls included - the fixtures match the server's shape.
+    nodeId: p.nodeId ?? null,
+    workingDir: p.workingDir ?? null,
+    promptBlocks: p.promptBlocks ?? null,
     createdAt: "2026-09-13T00:00:00.000Z",
     updatedAt: "2026-09-13T00:00:00.000Z",
   };
@@ -1371,6 +1383,84 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
       await settle();
       const body = toSubshellCreateBody({ ...latest(), harnessId: "claude-code" });
       expect(body.prompt).toBeUndefined();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
+  // Base UI's press path (same lesson as switch-preset-dialog.test): a bare
+  // click never reaches onValueChange under happy-dom; pointer down/up/click does.
+  async function pressPreset(name: string): Promise<void> {
+    fireEvent.click(screen.getByRole("combobox", { name: "Preset" }));
+    const option = await screen.findByRole("option", { name });
+    fireEvent.pointerDown(option);
+    fireEvent.pointerUp(option);
+    fireEvent.click(option);
+    await settle();
+  }
+  it("choosing a preset applies its machine, directory, and prompt - and they stay editable", async () => {
+    const full = preset({
+      id: "p-full",
+      harnessId: "claude-code",
+      name: "Everywhere",
+      nodeId: "a1",
+      workingDir: "/srv/app",
+      promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
+    });
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [full]);
+    try {
+      const { latest } = await renderForm({ ...emptyNewSubshellForm(), harnessId: "claude-code" });
+      await pressPreset("Everywhere");
+      expect(latest().presetId).toBe("p-full");
+      expect(latest().nodeId).toBe("a1");
+      expect(latest().workingDir).toBe("/srv/app");
+      // The stored stack opens the checkbox and lands as blocks (fresh
+      // form-local ids, the snapshot body).
+      expect(latest().promptEnabled).toBe(true);
+      expect(latest().promptBlocks.map(({ localId: _id, ...rest }) => rest)).toEqual([
+        { kind: "custom", description: "", body: "go" },
+      ]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("a settings-only preset selects itself and changes nothing else", async () => {
+    const plain = preset({ id: "p-plain", harnessId: "claude-code", name: "Just flags" });
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [plain]);
+    try {
+      const { latest } = await renderForm({
+        ...emptyNewSubshellForm(),
+        harnessId: "claude-code",
+        workingDir: "/typed/by/hand",
+      });
+      await pressPreset("Just flags");
+      expect(latest().presetId).toBe("p-plain");
+      expect(latest().workingDir).toBe("/typed/by/hand");
+      expect(latest().promptEnabled).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("back to None clears the selection and keeps the prefilled fields", async () => {
+    const full = preset({
+      id: "p-full",
+      harnessId: "claude-code",
+      name: "Everywhere",
+      workingDir: "/srv/app",
+    });
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [full]);
+    try {
+      const { latest } = await renderForm({ ...emptyNewSubshellForm(), harnessId: "claude-code" });
+      await pressPreset("Everywhere");
+      expect(latest().workingDir).toBe("/srv/app");
+      await pressPreset("None");
+      expect(latest().presetId).toBeNull();
+      // The person still sees what they are about to launch with.
+      expect(latest().workingDir).toBe("/srv/app");
     } finally {
       restore();
     }

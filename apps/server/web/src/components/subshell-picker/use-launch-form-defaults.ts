@@ -14,6 +14,7 @@ import {
   launchTemplateFromList,
   launchTemplateFromRow,
 } from "@/lib/launch-defaults";
+import { wireToPresetBlocks } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import { buildAgentOptions, defaultAgentId } from "@/lib/subshell-compat";
 import type { PresetRow } from "@/types/preset";
@@ -48,12 +49,22 @@ export interface LaunchFormDefaults {
 
 /**
  * The launch form's defaults: the ONE effect that composes every automatic
- * correction, and `applyCopy`, the "Copy settings from" picker's explicit
- * act. Split out of `new-subshell-form.tsx` (2026-09-25 file-size split)
- * with the behavior and the ordering rules intact — read the effect's own
- * comments for why each gate waits on what it waits on.
+ * correction, plus the two explicit acts that outrank it: `applyCopy` (the
+ * "Copy settings from" picker) and `applyPreset` (choosing a preset, which
+ * since spec 2026-09-29 also PREFILLS the preset's own node, directory, and
+ * prompt - a hint, not a lock: every field stays editable afterwards). Split
+ * out of `new-subshell-form.tsx` (2026-09-25 file-size split) with the
+ * behavior and the ordering rules intact - read the effect's own comments for
+ * why each gate waits on what it waits on.
  */
-export function useLaunchFormDefaults(args: LaunchFormDefaults): (subshellId: string) => void {
+export interface LaunchFormActions {
+  /** The copy picker's act: applies a prior subshell's settings over any edits */
+  applyCopy: (subshellId: string) => void;
+  /** Choosing a preset: selects it AND prefills the launch fields it names */
+  applyPreset: (preset: PresetRow | null) => void;
+}
+
+export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActions {
   const { value, onChange, nodes, nodesPending, plugins, presetRows, recent, subshells, subshellsPending, firstRun } =
     args;
 
@@ -275,5 +286,31 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): (subshellId: st
     });
   }
 
-  return applyCopy;
+  // Choosing a preset is an explicit act, so it applies over whatever the
+  // form holds (and cancels a pending auto-default, the copy's posture).
+  // What the preset NAMES is prefilled - machine, directory, prompt - and
+  // what it leaves blank stays exactly as it was: prefill, never a lock
+  // (ruling 2026-09-29: the values are optional on the preset). Picking
+  // "None" clears only the selection, not the fields a previous preset
+  // filled: the person still sees what they are about to launch with.
+  function applyPreset(preset: PresetRow | null): void {
+    pendingTemplateRef.current = null;
+    if (preset === null) {
+      onChange({ ...value, presetId: null });
+      return;
+    }
+    let next: NewSubshellFormValue = { ...value, presetId: preset.id };
+    if (preset.nodeId !== null) next = { ...next, nodeId: preset.nodeId };
+    if (preset.workingDir !== null) next = { ...next, workingDir: preset.workingDir };
+    const blocks = wireToPresetBlocks(preset.promptBlocks);
+    if (blocks.length > 0) next = { ...next, promptEnabled: true, promptBlocks: blocks };
+    // The pair rule (2026-09-20): a directory is a claim about ONE machine,
+    // so the node this write settled on owns the bookkeeping - and a preset
+    // that named a dir outranks the per-node recents seed.
+    dirNodeRef.current = next.nodeId;
+    prefillDoneRef.current = next.workingDir !== "";
+    onChange(next);
+  }
+
+  return { applyCopy, applyPreset };
 }

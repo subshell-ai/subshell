@@ -123,7 +123,7 @@ export function NewSubshellForm({
   // The ONE effect (prior-launch node+dir → re-home → seed → agent+preset)
   // and `applyCopy`, the picker's explicit act that applies over edits and
   // cancels a pending auto-default.
-  const applyCopy = useLaunchFormDefaults({
+  const { applyCopy, applyPreset } = useLaunchFormDefaults({
     value,
     onChange,
     nodes,
@@ -296,7 +296,9 @@ export function NewSubshellForm({
                 // "none" is the picker sentinel for "no preset" — the form
                 // state keeps null and the wire omits presetId (see toSubshellCreateBody).
                 value={value.presetId ?? "none"}
-                onValueChange={(v) => v !== null && onChange({ ...value, presetId: v === "none" ? null : v })}
+                onValueChange={(v) =>
+                  v !== null && applyPreset(v === "none" ? null : (agentPresets.find((p) => p.id === v) ?? null))
+                }
                 // Base UI's Value prints the raw value without this map;
                 // labels must match the item texts below exactly.
                 items={[{ value: "none", label: "None" }, ...agentPresets.map((p) => ({ value: p.id, label: p.name }))]}
@@ -355,7 +357,7 @@ export function NewSubshellForm({
               open
               lockedHarness={value.harnessId}
               onOpenChange={(next) => !next && setCreatePresetOpen(false)}
-              onCreated={(row) => onChange({ ...value, presetId: row.id })}
+              onCreated={(row) => applyPreset(row)}
             />
           )}
         </div>
