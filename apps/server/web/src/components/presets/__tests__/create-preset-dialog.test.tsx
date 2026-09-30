@@ -485,6 +485,24 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
     }
   });
 
+  it("clicking out or pressing Escape does NOT close the form; Close (X) does", async () => {
+    // The live-test loss this pins: a click outside silently discarded a
+    // half-filled preset (operator ruling 2026-09-30).
+    const closed: boolean[] = [];
+    await renderDialog({ lockedHarness: "claude-code", onClose: (o) => closed.push(o) });
+    const dialog = await screen.findByRole("dialog");
+    const backdrop = document.querySelector('[data-slot="dialog-overlay"]') as HTMLElement;
+    fireEvent.mouseDown(backdrop);
+    fireEvent.mouseUp(backdrop);
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("dialog")).not.toBeNull();
+    expect(closed).toEqual([]);
+    fireEvent.click(screen.getByLabelText("Close"));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(closed).toEqual([false]);
+  });
+
   it("checking Add a prompt opens the stack and the picker button", async () => {
     const m = mockFetch();
     try {

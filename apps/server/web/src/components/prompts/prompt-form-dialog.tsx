@@ -7,6 +7,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  formDialogOpenChange,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreatePrompt, useUpdatePrompt } from "@/hooks/use-prompts";
@@ -67,7 +68,7 @@ export function PromptFormDialog({
   const disabled = useSubmitDisabled(form, busy);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={formDialogOpenChange(onOpenChange)}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editingId ? "Edit prompt" : "New prompt"}</DialogTitle>

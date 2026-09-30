@@ -10,6 +10,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  formDialogOpenChange,
 } from "@/components/ui/dialog";
 import { useCreatePromptStack, useUpdatePromptStack } from "@/hooks/use-prompts";
 import { fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
@@ -83,7 +84,7 @@ export function StackFormDialog({
   const disabled = useSubmitDisabled(form, busy);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={formDialogOpenChange(onOpenChange)}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editingId ? "Edit stack" : "New stack"}</DialogTitle>

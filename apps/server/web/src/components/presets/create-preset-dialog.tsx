@@ -8,6 +8,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  formDialogOpenChange,
 } from "@/components/ui/dialog";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useCreatePreset } from "@/hooks/use-presets";
@@ -86,7 +87,7 @@ export function CreatePresetDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={formDialogOpenChange(onOpenChange)}>
       <DialogContent className="sm:max-w-2xl" onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>
