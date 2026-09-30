@@ -479,8 +479,9 @@ describe("NewSubshellForm preset row", () => {
         promptBlocks: [],
       });
       await waitFor(() => expect(latest().presetId).toBeNull());
-      // And the picker stands at None (Base UI prints the mapped label).
-      await waitFor(() => expect(screen.getByText("None")).toBeDefined());
+      // The row is a COPY, not a tie (ruling 2026-09-30): the trigger never
+      // wears a preset's name, it asks. What stands is the form value, above.
+      await waitFor(() => expect(screen.getByText("Choose a preset")).toBeDefined());
     } finally {
       restore();
     }
@@ -517,14 +518,15 @@ describe("NewSubshellForm preset row", () => {
       });
       await settle();
       expect(latest().nodeId).toBe("a1");
+      // The pair survives the guard in the FORM VALUE - the trigger shows
+      // its placeholder either way (the copy posture, not a held selection).
       expect(latest().presetId).toBe("p-claude");
-      expect(screen.getByText("Fast")).toBeDefined();
     } finally {
       restore();
     }
   });
 
-  it("a chosen agent's own preset survives the guard and reads on the trigger", async () => {
+  it("a chosen agent's own preset survives the guard in the form value", async () => {
     const restore = mockFetch([LOCAL], [CLAUDE], [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })]);
     try {
       const { latest } = await renderForm({
@@ -537,7 +539,6 @@ describe("NewSubshellForm preset row", () => {
       });
       await settle();
       expect(latest().presetId).toBe("p-claude");
-      expect(screen.getByText("Fast")).toBeDefined();
     } finally {
       restore();
     }
@@ -587,7 +588,9 @@ describe("NewSubshellForm preset row", () => {
       await renderForm();
       await waitFor(() =>
         expect(
-          screen.getByText("Saved launch settings. Picking one fills this form; edit anything after."),
+          screen.getByText(
+            "Picking one copies its launch settings into this form. Editing here never changes the preset.",
+          ),
         ).toBeDefined(),
       );
       // The row lists EVERY preset now, so emptiness is about the account,
@@ -642,8 +645,9 @@ describe("NewSubshellForm preset row", () => {
         ),
       );
       await waitFor(() => expect(latest().presetId).toBe("p-new"));
-      // The trigger reads the new row's name; the dialog is gone.
-      expect(screen.getByText("Brand new")).toBeDefined();
+      // The new row is the selection IN THE FORM VALUE and the dialog is
+      // gone; the trigger stays on its placeholder (the copy posture).
+      expect(screen.getByText("Choose a preset")).toBeDefined();
       expect(screen.queryByRole("dialog", { name: "New preset for Claude Code" })).toBeNull();
     } finally {
       restore();
@@ -1323,6 +1327,13 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
       const { latest } = await renderForm({ ...emptyNewSubshellForm(), harnessId: "claude-code" });
       await pressPreset("Everywhere");
       expect(latest().presetId).toBe("p-full");
+      // A copy, not a tie (ruling 2026-09-30): the TRIGGER does NOT keep
+      // wearing the picked name (the dropdown's own option node stays in
+      // the tree, so ask the trigger element) - the values now live in the
+      // editable rows below, and the preset is not editable from here.
+      const trigger = screen.getByRole("combobox", { name: "Preset" });
+      expect(trigger.textContent).toContain("Choose a preset");
+      expect(trigger.textContent).not.toContain("Everywhere");
       expect(latest().nodeId).toBe("a1");
       expect(latest().workingDir).toBe("/srv/app");
       // The stored stack opens the checkbox and lands as blocks (fresh

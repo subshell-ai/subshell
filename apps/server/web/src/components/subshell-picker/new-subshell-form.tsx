@@ -39,10 +39,12 @@ import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subs
  * screen. State lives in the caller (so each can gate and reset its own
  * submit), this file owns the layout and the pairing (spec 2026-09-13 §5).
  *
- * The PRESET leads (operator ruling 2026-09-30): it lists every preset with
- * "None" first, and picking one FILLS the fields below it — agent, machine,
- * directory, prompt — each still editable, because a preset is a starting
- * point, not a lock. Its `+` opens a nested create dialog (the agent locked
+ * The PRESET leads (operator ruling 2026-09-30): it lists every preset, and
+ * picking one COPIES the fields below it — agent, machine, directory, prompt
+ * — each still editable, because a preset is a starting point, not a lock.
+ * The trigger returns to its placeholder after the pick: the row names an
+ * act ("copy this in"), not a held state, so the filled form reads as a copy
+ * and edits visibly belong to the launch, not to the preset. Its `+` opens a nested create dialog (the agent locked
  * when one is already chosen, asked there when not), and a created preset
  * becomes the selection. The AGENT below it stays a direct question: options
  * are the whole plugin set, greyed never hidden (the 2026-09-02 rule,
@@ -202,9 +204,14 @@ export function NewSubshellForm({
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
               <Select
-                // "none" is the picker sentinel for "no preset" - the form
-                // state keeps null and the wire omits presetId (see toSubshellCreateBody).
-                value={value.presetId ?? "none"}
+                // The row COPIES (ruling 2026-09-30, second pass): the value
+                // stays null on purpose, so after a pick the trigger returns
+                // to its placeholder instead of wearing the preset's name.
+                // What was picked now lives in the editable fields below -
+                // holding a "selected" state would claim a tie the copy
+                // severed. presetId still rides the launch (the preset's
+                // flags and env come with it); "None" drops it, fields kept.
+                value={null}
                 onValueChange={(v) =>
                   v !== null && applyPreset(v === "none" ? null : (presets.find((p) => p.id === v) ?? null))
                 }
@@ -216,7 +223,7 @@ export function NewSubshellForm({
                   id={ids.preset}
                   aria-describedby={`${ids.preset}-hint${presets.length === 0 ? ` ${ids.preset}-empty` : ""}`}
                 >
-                  <SelectValue />
+                  <SelectValue placeholder="Choose a preset" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">None</SelectItem>
@@ -233,7 +240,7 @@ export function NewSubshellForm({
             </Button>
           </div>
           <p id={`${ids.preset}-hint`} className="text-detail text-muted-foreground">
-            Saved launch settings. Picking one fills this form; edit anything after.
+            Picking one copies its launch settings into this form. Editing here never changes the preset.
           </p>
           {presets.length === 0 && (
             <p id={`${ids.preset}-empty`} className="text-detail text-muted-foreground">
