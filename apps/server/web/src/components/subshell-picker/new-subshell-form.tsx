@@ -39,17 +39,18 @@ import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subs
  * screen. State lives in the caller (so each can gate and reset its own
  * submit), this file owns the layout and the pairing (spec 2026-09-13 §5).
  *
- * The AGENT is asked first, directly — the pickers before this design were
- * harness pickers wearing a saved-configuration costume, and making the
- * preset optional deleted the seeded Default that made the row required.
- * Agent options are the whole plugin set, greyed never hidden (the 2026-09-02
- * rule, unchanged; the reasons live in `lib/subshell-compat`), and the
- * server's 409 stays the authoritative backstop for anything the cached views
- * got wrong. Preset lists only the chosen agent's presets with "None" first;
- * its `+` opens a nested create dialog with the agent locked, and a created
- * preset becomes the selection. Changing the agent resets the preset. First
- * run hides the Preset row — a new account has zero presets and the row would
- * offer only "None".
+ * The PRESET leads (operator ruling 2026-09-30): it lists every preset with
+ * "None" first, and picking one FILLS the fields below it — agent, machine,
+ * directory, prompt — each still editable, because a preset is a starting
+ * point, not a lock. Its `+` opens a nested create dialog (the agent locked
+ * when one is already chosen, asked there when not), and a created preset
+ * becomes the selection. The AGENT below it stays a direct question: options
+ * are the whole plugin set, greyed never hidden (the 2026-09-02 rule,
+ * unchanged; the reasons live in `lib/subshell-compat`), and the server's
+ * 409 stays the authoritative backstop for anything the cached views got
+ * wrong. Changing the agent clears the preset pick — the preset belongs to
+ * the agent. First run hides the Preset row — a new account has zero presets
+ * and the row would offer only "None".
  *
  * **It opens on your last launch** (operator rule, 2026-09-25): node,
  * directory, agent and preset pre-fill from the newest prior subshell, once,
@@ -100,9 +101,9 @@ export function NewSubshellForm({
   // One list, one key: availability is the SERVER's store-scoped question
   // (is the agent installed+enabled on the instance), so a preset whose
   // agent runs only on ANOTHER machine is listed here too — the form reads
-  // the same `["presets"]` every other surface does. Agent-scoping stays
-  // client-side (`p.harnessId === value.harnessId`); per-node fit is the
-  // grey matrix, never a list filter.
+  // the same `["presets"]` every other surface does. The Preset row lists
+  // ALL of them (it leads the form and fills the agent); per-node fit is
+  // the grey matrix, never a list filter.
   const { data: presetRows } = usePresets();
   const presets = presetRows ?? [];
 
@@ -137,7 +138,18 @@ export function NewSubshellForm({
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
   const selectedAgent: InstancePluginRow | undefined = (plugins ?? []).find((p) => p.id === value.harnessId);
   const agentName = selectedAgent?.name ?? value.harnessId;
-  const agentPresets = presets.filter((p) => p.harnessId === value.harnessId);
+  // Every preset is offerable now that the row leads: a name is unique per
+  // agent, so a shared spelling gets its agent appended - the row has to say
+  // which one it is picking.
+  const presetOptions = (() => {
+    const spellings = new Map<string, number>();
+    for (const p of presets) spellings.set(p.name, (spellings.get(p.name) ?? 0) + 1);
+    const names = new Map((plugins ?? []).map((p) => [p.id, p.name]));
+    return presets.map((p) => ({
+      value: p.id,
+      label: (spellings.get(p.name) ?? 0) > 1 ? `${p.name} (${names.get(p.harnessId) ?? p.harnessId})` : p.name,
+    }));
+  })();
 
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -179,6 +191,70 @@ export function NewSubshellForm({
 
   return (
     <div className="space-y-4">
+      {/* Preset leads the form (operator ruling 2026-09-30): picking one
+          FILLS the fields below it - agent, machine, directory, prompt -
+          and everything stays editable, which is the whole point of
+          filling rather than hiding. First run hides the row: a picker
+          whose only option is "None" is a control with no choice. */}
+      {!firstRun && (
+        <div className="space-y-2">
+          <Label htmlFor={ids.preset}>Preset</Label>
+          <div className="flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <Select
+                // "none" is the picker sentinel for "no preset" - the form
+                // state keeps null and the wire omits presetId (see toSubshellCreateBody).
+                value={value.presetId ?? "none"}
+                onValueChange={(v) =>
+                  v !== null && applyPreset(v === "none" ? null : (presets.find((p) => p.id === v) ?? null))
+                }
+                // Base UI's Value prints the raw value without this map;
+                // labels must match the item texts below exactly.
+                items={[{ value: "none", label: "None" }, ...presetOptions]}
+              >
+                <SelectTrigger
+                  id={ids.preset}
+                  aria-describedby={`${ids.preset}-hint${presets.length === 0 ? ` ${ids.preset}-empty` : ""}`}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {presetOptions.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="outline" size="icon" aria-label="New preset" onClick={() => setCreatePresetOpen(true)}>
+              <Plus />
+            </Button>
+          </div>
+          <p id={`${ids.preset}-hint`} className="text-detail text-muted-foreground">
+            Saved launch settings. Picking one fills this form; edit anything after.
+          </p>
+          {presets.length === 0 && (
+            <p id={`${ids.preset}-empty`} className="text-detail text-muted-foreground">
+              No presets yet.
+            </p>
+          )}
+          {/* Mounted only while open, so every open starts from a blank form
+              (clone-dialog posture). Base UI nests the dialogs natively:
+              Escape closes this one and the launch dialog stays up. Unlocked
+              when no agent is picked yet - the Preset row no longer waits on
+              one, and the create dialog asks for the agent itself. */}
+          {createPresetOpen && (
+            <CreatePresetDialog
+              open
+              lockedHarness={value.harnessId !== "" ? value.harnessId : undefined}
+              onOpenChange={(next) => !next && setCreatePresetOpen(false)}
+              onCreated={(row) => applyPreset(row)}
+            />
+          )}
+        </div>
+      )}
       <div className="space-y-2">
         <Label htmlFor={ids.agent}>Agent</Label>
         {firstRun && (
@@ -224,84 +300,6 @@ export function NewSubshellForm({
           </p>
         ) : null}
       </div>
-
-      {/* First run hides the row entirely: a new account has zero presets, and
-          a picker whose only option is "None" is a control with no choice. */}
-      {!firstRun && (
-        <div className="space-y-2">
-          <Label htmlFor={ids.preset}>Preset</Label>
-          <div className="flex items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <Select
-                // "none" is the picker sentinel for "no preset" — the form
-                // state keeps null and the wire omits presetId (see toSubshellCreateBody).
-                value={value.presetId ?? "none"}
-                onValueChange={(v) =>
-                  v !== null && applyPreset(v === "none" ? null : (agentPresets.find((p) => p.id === v) ?? null))
-                }
-                // Base UI's Value prints the raw value without this map;
-                // labels must match the item texts below exactly.
-                items={[{ value: "none", label: "None" }, ...agentPresets.map((p) => ({ value: p.id, label: p.name }))]}
-              >
-                <SelectTrigger
-                  id={ids.preset}
-                  // Same association as the Agent field: the lines under this
-                  // select say what a preset IS here and whether this agent
-                  // has any, and only `aria-describedby` puts them in the
-                  // announcement.
-                  aria-describedby={
-                    value.harnessId !== ""
-                      ? `${ids.preset}-hint${agentPresets.length === 0 ? ` ${ids.preset}-empty` : ""}`
-                      : undefined
-                  }
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {agentPresets.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Button
-              variant="outline"
-              size="icon"
-              aria-label="New preset"
-              disabled={value.harnessId === ""}
-              onClick={() => setCreatePresetOpen(true)}
-            >
-              <Plus />
-            </Button>
-          </div>
-          {value.harnessId !== "" && (
-            <>
-              <p id={`${ids.preset}-hint`} className="text-detail text-muted-foreground">
-                Saved flags, env vars and restart policy for {agentName}.
-              </p>
-              {agentPresets.length === 0 && (
-                <p id={`${ids.preset}-empty`} className="text-detail text-muted-foreground">
-                  No presets for {agentName} yet.
-                </p>
-              )}
-            </>
-          )}
-          {/* Mounted only while open, so every open starts from a blank form
-              (clone-dialog posture). Base UI nests the dialogs natively:
-              Escape closes this one and the launch dialog stays up. */}
-          {createPresetOpen && value.harnessId !== "" && (
-            <CreatePresetDialog
-              open
-              lockedHarness={value.harnessId}
-              onOpenChange={(next) => !next && setCreatePresetOpen(false)}
-              onCreated={(row) => applyPreset(row)}
-            />
-          )}
-        </div>
-      )}
 
       {/* Hidden when the host is the only place it could run: a picker with
           one option is a control that cannot be used, and on a fresh install

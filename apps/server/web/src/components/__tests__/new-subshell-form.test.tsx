@@ -290,7 +290,7 @@ describe("pickNodeDefault", () => {
 });
 
 describe("NewSubshellForm agent/preset defaults", () => {
-  it("defaults to Local, picks an agent, is submittable, and asks Agent before Preset before Node", async () => {
+  it("defaults to Local, picks an agent, is submittable, and asks Preset before Agent before Node", async () => {
     const restore = mockFetch([LOCAL, ENROLLED_ONLINE, ENROLLED_OFFLINE], [CLAUDE]);
     try {
       const { latest } = await renderForm();
@@ -299,8 +299,9 @@ describe("NewSubshellForm agent/preset defaults", () => {
       await waitFor(() => expect(latest().nodeId).toBe("local"));
       await waitFor(() => expect(latest().harnessId).toBe("claude-code"));
       const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
-      expect(labels.indexOf("Agent")).toBeLessThan(labels.indexOf("Preset"));
-      expect(labels.indexOf("Preset")).toBeLessThan(labels.indexOf("Node"));
+      // Preset leads (ruling 2026-09-30): picking one fills the rows below.
+      expect(labels.indexOf("Preset")).toBeLessThan(labels.indexOf("Agent"));
+      expect(labels.indexOf("Agent")).toBeLessThan(labels.indexOf("Node"));
       expect(
         canSubmit({
           harnessId: "claude-code",
@@ -580,14 +581,37 @@ describe("NewSubshellForm preset row", () => {
     }
   });
 
-  it("shows the hint for the agent, appending the zero-presets sentence", async () => {
+  it("shows the fill-hint, agent-agnostic, with the zero-presets sentence", async () => {
     const restore = mockFetch([LOCAL], [CLAUDE], []);
     try {
       await renderForm();
       await waitFor(() =>
-        expect(screen.getByText("Saved flags, env vars and restart policy for Claude Code.")).toBeDefined(),
+        expect(
+          screen.getByText("Saved launch settings. Picking one fills this form; edit anything after."),
+        ).toBeDefined(),
       );
-      expect(screen.getByText("No presets for Claude Code yet.")).toBeDefined();
+      // The row lists EVERY preset now, so emptiness is about the account,
+      // not the agent nobody has picked yet.
+      expect(screen.getByText("No presets yet.")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("the + with no agent chosen opens the create dialog asking for the agent", async () => {
+    // Unlocked posture (ruling 2026-09-30): the Preset row no longer waits
+    // on an agent pick, so a first-run-less account with nothing chosen can
+    // still create - and the create dialog owns the Agent question.
+    // Zero plugins: the auto-default never fires (nothing to default to), so
+    // the agent really stays unchosen - the posture the row used to refuse.
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [], []);
+    try {
+      await renderForm(emptyNewSubshellForm());
+      const plus = screen.getByRole("button", { name: "New preset" }) as HTMLButtonElement;
+      expect(plus.disabled).toBe(false);
+      fireEvent.click(plus);
+      await screen.findByRole("dialog", { name: "Create preset" });
+      expect(document.querySelector("#preset-harness")).not.toBeNull();
     } finally {
       restore();
     }
@@ -1307,6 +1331,47 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
       expect(latest().promptBlocks.map(({ localId: _id, ...rest }) => rest)).toEqual([
         { kind: "custom", description: "", body: "go" },
       ]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("a preset fills the agent it belongs to (the row leads the form)", async () => {
+    const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE, pi],
+      [preset({ id: "p-pi", harnessId: "pi", name: "Pi one" })],
+    );
+    try {
+      // Cold form: no agent chosen. The pick below FILLS claude's successor -
+      // the agent is part of what a preset names now, and stays editable.
+      const { latest } = await renderForm(emptyNewSubshellForm());
+      await pressPreset("Pi one");
+      expect(latest().presetId).toBe("p-pi");
+      expect(latest().harnessId).toBe("pi");
+    } finally {
+      restore();
+    }
+  });
+
+  it("lists every agent's presets, shared names disambiguated by agent", async () => {
+    const pi = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE, pi],
+      [
+        preset({ id: "p-a", harnessId: "claude-code", name: "Fast" }),
+        preset({ id: "p-b", harnessId: "pi", name: "Fast" }),
+      ],
+    );
+    try {
+      await renderForm(emptyNewSubshellForm());
+      fireEvent.click(screen.getByRole("combobox", { name: "Preset" }));
+      // A name is unique per agent, so the agent is the only honest tiebreak
+      // when two agents' presets share a spelling across the whole list.
+      await screen.findByRole("option", { name: "Fast (Pi)" });
+      expect(screen.getByRole("option", { name: "Fast (Claude Code)" }).textContent).toBe("Fast (Claude Code)");
     } finally {
       restore();
     }

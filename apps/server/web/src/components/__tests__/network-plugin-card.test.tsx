@@ -686,11 +686,10 @@ describe("NetworkPluginCard: the state matrix", () => {
     expect(screen.queryByRole("button", { name: "Use tunnel token" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Sign in with/ })).toBeNull();
     // Box and Connect button are simply there, with no panel to switch to.
-    // The exact string names ONLY the box — the settings form's other door
-    // reads "Tunnel token (required)" (see the two-doors test below), which is
-    // what makes this assertion about the credential box rather than about
-    // whichever of the two came first.
-    expect(screen.getByLabelText("Tunnel token")).toBeTruthy();
+    // The box is named by its ID, not its label: since the required mark
+    // became a generated `*` (2026-09-30), the settings form's other door
+    // reads "Tunnel token" too, and only the id says WHICH one is the card's.
+    expect(document.getElementById("network-cloudflare-tunnel-credential")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Connect" })).toBeTruthy();
   });
 

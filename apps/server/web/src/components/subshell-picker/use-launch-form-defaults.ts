@@ -254,7 +254,9 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
       onChange({ ...value, presetId: null });
       return;
     }
-    let next: NewSubshellFormValue = { ...value, presetId: preset.id };
+    // The preset FILLS the form it leads: its agent too, not just the launch
+    // trio (ruling 2026-09-30; every field stays editable afterwards).
+    let next: NewSubshellFormValue = { ...value, presetId: preset.id, harnessId: preset.harnessId };
     if (preset.nodeId !== null) next = { ...next, nodeId: preset.nodeId };
     if (preset.workingDir !== null) next = { ...next, workingDir: preset.workingDir };
     const blocks = wireToPresetBlocks(preset.promptBlocks);
