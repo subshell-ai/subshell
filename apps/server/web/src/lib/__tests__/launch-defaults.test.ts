@@ -76,9 +76,9 @@ describe("isUntouchedForm", () => {
     expect(isUntouchedForm({ ...empty, workingDir: "/x" }, empty)).toBe(false);
     // The re-home case: a node move alone disqualifies the auto arm too.
     expect(isUntouchedForm({ ...empty, nodeId: "a1" }, empty)).toBe(false);
-    // The prompt clause (spec 2026-09-28): an opened section, or a block
-    // already stacked, is an edit the prior-launch tier must not override.
-    expect(isUntouchedForm({ ...empty, promptEnabled: true }, empty)).toBe(false);
+    // The prompt clause (spec 2026-09-28): a block already stacked is an
+    // edit the prior-launch tier must not override (the opened-section
+    // clause left with the checkbox, 2026-09-30 - the stack is the fact).
     expect(
       isUntouchedForm(
         { ...empty, promptBlocks: [{ localId: "x", kind: "custom", description: "d", body: "b" }] },

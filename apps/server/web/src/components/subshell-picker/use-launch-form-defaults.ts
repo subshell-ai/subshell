@@ -261,7 +261,7 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     if (preset.nodeId !== null) next = { ...next, nodeId: preset.nodeId };
     if (preset.workingDir !== null) next = { ...next, workingDir: preset.workingDir };
     const blocks = wireToPresetBlocks(preset.promptBlocks);
-    if (blocks.length > 0) next = { ...next, promptEnabled: true, promptBlocks: blocks };
+    if (blocks.length > 0) next = { ...next, promptBlocks: blocks };
     // The pair rule (2026-09-20): a directory is a claim about ONE machine,
     // so the node this write settled on owns the bookkeeping - and a preset
     // that named a dir outranks the per-node recents seed.

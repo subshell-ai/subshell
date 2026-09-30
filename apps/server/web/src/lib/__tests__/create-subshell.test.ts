@@ -78,7 +78,6 @@ describe("toSubshellCreateBody", () => {
       presetId: "pr-9",
       workingDir: "/tmp/x",
       name: "n",
-      promptEnabled: true,
       promptBlocks: blocks,
     });
     expect(body.prompt).toBe("first\n\nsecond");
@@ -99,29 +98,25 @@ describe("toSubshellCreateBody", () => {
 
 const block = (id: string): PromptBlock => ({ localId: id, kind: "custom", description: id, body: `b-${id}` });
 
-describe("toSubshellCreateBody prompt (spec 2026-09-28)", () => {
-  it("sends no prompt field when the section is off, even with blocks present", () => {
+describe("toSubshellCreateBody prompt (spec 2026-09-28; the checkbox retired 2026-09-30)", () => {
+  it("the stack IS the switch: non-empty blocks send the joined text", () => {
     const body = toSubshellCreateBody({
       harnessId: "p1",
       workingDir: "/x",
-      promptEnabled: false,
       promptBlocks: [block("a")],
     });
-    expect("prompt" in body).toBe(true);
-    expect(body.prompt).toBeUndefined();
-    expect(JSON.parse(JSON.stringify(body))).toEqual({ harnessId: "p1", workingDir: "/x" });
+    expect(body.prompt).toBe("b-a");
   });
 
-  it("sends no prompt field when the section is on but empty", () => {
-    const body = toSubshellCreateBody({ harnessId: "p1", workingDir: "/x", promptEnabled: true, promptBlocks: [] });
+  it("sends no prompt field when the stack is empty", () => {
+    const body = toSubshellCreateBody({ harnessId: "p1", workingDir: "/x", promptBlocks: [] });
     expect(body.prompt).toBeUndefined();
   });
 
-  it("sends the blocks joined by one blank line when on and non-empty", () => {
+  it("sends the blocks joined by one blank line when non-empty", () => {
     const body = toSubshellCreateBody({
       harnessId: "p1",
       workingDir: "/x",
-      promptEnabled: true,
       promptBlocks: [block("a"), block("b")],
     });
     expect(body.prompt).toBe(joinPromptBlocks([block("a"), block("b")]));
@@ -131,13 +126,12 @@ describe("toSubshellCreateBody prompt (spec 2026-09-28)", () => {
 
 describe("promptLaunchMissed (the toast gate the review pinned)", () => {
   it("stays silent for the no-prompt launch the wire also answers false for", () => {
-    expect(promptLaunchMissed(false, [], false)).toBe(false);
-    expect(promptLaunchMissed(undefined, undefined, false)).toBe(false);
-    expect(promptLaunchMissed(true, [], false)).toBe(false);
+    expect(promptLaunchMissed([], false)).toBe(false);
+    expect(promptLaunchMissed(undefined, false)).toBe(false);
   });
   it("fires only when a stacked prompt actually missed", () => {
-    expect(promptLaunchMissed(true, [block("a")], false)).toBe(true);
-    expect(promptLaunchMissed(true, [block("a")], true)).toBe(false);
-    expect(promptLaunchMissed(true, [block("a")], undefined)).toBe(false);
+    expect(promptLaunchMissed([block("a")], false)).toBe(true);
+    expect(promptLaunchMissed([block("a")], true)).toBe(false);
+    expect(promptLaunchMissed([block("a")], undefined)).toBe(false);
   });
 });

@@ -25,20 +25,16 @@ export interface NewSubshellFormValue {
   nodeId: string;
   workingDir: string;
   /**
-   * The "Add a prompt" checkbox (spec 2026-09-28): untouched, the prompt
-   * section renders nothing and the create body carries no `prompt` field,
-   * so the dialog's footprint grows only when the user asks for it.
-   */
-  promptEnabled: boolean;
-  /**
-   * The picked/written prompt blocks, in the order they will be typed.
-   * Always starts empty; a clone copies settings, not prompts.
+   * The prompt stack, in the order it will be typed (spec 2026-09-28,
+   * checkbox retired 2026-09-30: the blocks ARE the switch). Empty, the
+   * create body carries no `prompt` field. Always starts empty; a clone
+   * copies settings, not prompts.
    */
   promptBlocks: PromptBlock[];
 }
 
 export function emptyNewSubshellForm(): NewSubshellFormValue {
-  return { harnessId: "", presetId: null, workingDir: "", nodeId: "local", promptEnabled: false, promptBlocks: [] };
+  return { harnessId: "", presetId: null, workingDir: "", nodeId: "local", promptBlocks: [] };
 }
 
 /** True once the form has everything the create call requires. */
@@ -123,7 +119,7 @@ export interface NewSubshellFormIds {
   workingDir: string;
   /** Node combobox input */
   node: string;
-  /** "Add a prompt" checkbox input */
+  /** Add-prompt button of the shared prompt section */
   prompt: string;
 }
 

@@ -320,7 +320,6 @@ describe("NewSubshellForm agent/preset defaults", () => {
           presetId: null,
           workingDir: "/tmp/x",
           nodeId: "local",
-          promptEnabled: false,
           promptBlocks: [],
         }),
       ).toBe(true);
@@ -487,7 +486,6 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-pi",
         workingDir: "/x",
         nodeId: "local",
-        promptEnabled: false,
         promptBlocks: [],
       });
       await waitFor(() => expect(latest().presetId).toBeNull());
@@ -525,7 +523,6 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "a1",
-        promptEnabled: false,
         promptBlocks: [],
       });
       await settle();
@@ -546,7 +543,6 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "local",
-        promptEnabled: false,
         promptBlocks: [],
       });
       await settle();
@@ -577,7 +573,6 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "local",
-        promptEnabled: false,
         promptBlocks: [],
       });
       const input = screen.getByPlaceholderText("Choose an agent") as HTMLInputElement;
@@ -637,7 +632,6 @@ describe("NewSubshellForm preset row", () => {
         presetId: null,
         workingDir: "/x",
         nodeId: "local",
-        promptEnabled: false,
         promptBlocks: [],
       });
       fireEvent.click(screen.getByRole("button", { name: "New preset" }));
@@ -695,7 +689,6 @@ describe("NewSubshellForm honest hints", () => {
         presetId: null,
         workingDir: "/tmp/x",
         nodeId: "a1",
-        promptEnabled: false,
         promptBlocks: [],
       });
       // The node name sits inside the hint's <Link>, so the sentence spans
@@ -718,7 +711,6 @@ describe("NewSubshellForm honest hints", () => {
         presetId: null,
         workingDir: "/tmp/x",
         nodeId: "a1",
-        promptEnabled: false,
         promptBlocks: [],
       });
       expect(
@@ -737,10 +729,7 @@ describe("NewSubshellForm honest hints", () => {
       // holdValue pins the pick on the offline node — the live form re-homes
       // it — so this probes the gate itself: the row reasons already say
       // "node offline"; the hint must not claim the node holds no plugins.
-      await renderForm(
-        { harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a2", promptEnabled: false, promptBlocks: [] },
-        true,
-      );
+      await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a2", promptBlocks: [] }, true);
       expect(
         screen.queryByText((_text, el) => el?.tagName === "P" && /Nothing installed on/.test(el.textContent ?? "")),
       ).toBeNull();
@@ -757,7 +746,6 @@ describe("NewSubshellForm honest hints", () => {
         presetId: null,
         workingDir: "/tmp/x",
         nodeId: "a3",
-        promptEnabled: false,
         promptBlocks: [],
       });
       expect(await screen.findByText(/No available node can run Claude Code/)).toBeDefined();
@@ -958,7 +946,6 @@ describe("NewSubshellForm prior-launch defaults", () => {
         presetId: null,
         workingDir: "/keep/me",
         nodeId: "local",
-        promptEnabled: false,
         promptBlocks: [],
       });
       await settle();
@@ -1183,8 +1170,8 @@ describe("nowhere to launch", () => {
   });
 });
 
-describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
-  it("the checkbox reveals the stack; the picker adds, reorders, and removes blocks", async () => {
+describe("NewSubshellForm Add prompts (spec 2026-09-28, shared section 2026-09-30)", () => {
+  it("the shared section shows itself; the picker adds, reorders, and removes blocks", async () => {
     const prompts = {
       own: [
         {
@@ -1202,11 +1189,10 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
     const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [], undefined, { prompts });
     try {
       const { latest } = await renderForm();
-      // Collapsed: just the checkbox line.
-      const box = screen.getByLabelText("Add a prompt");
+      // The section shows itself from the first render (ruling 2026-09-30:
+      // the checkbox is gone, the "Add prompts" section is the shared one).
+      expect(screen.getByText("Add prompts")).toBeDefined();
       expect(latest().promptBlocks).toEqual([]);
-      fireEvent.click(box);
-      await settle();
       expect(screen.getByRole("button", { name: "Add prompt" })).toBeDefined();
 
       // Open the picker; a pick closes it (decisive-action redesign,
@@ -1275,8 +1261,6 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
     const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [], undefined, { stacks });
     try {
       const { latest } = await renderForm();
-      fireEvent.click(screen.getByLabelText("Add a prompt"));
-      await settle();
       fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
       await settle();
       openPickerSearch();
@@ -1352,9 +1336,8 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
       expect(input.value).toBe("");
       expect(latest().nodeId).toBe("a1");
       expect(latest().workingDir).toBe("/srv/app");
-      // The stored stack opens the checkbox and lands as blocks (fresh
-      // form-local ids, the snapshot body).
-      expect(latest().promptEnabled).toBe(true);
+      // The stored stack lands as blocks (fresh form-local ids, the
+      // snapshot body) - the shared section shows them itself.
       expect(latest().promptBlocks.map(({ localId: _id, ...rest }) => rest)).toEqual([
         { kind: "custom", description: "", body: "go" },
       ]);
@@ -1473,7 +1456,7 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
       await pressPreset("Just flags");
       expect(latest().presetId).toBe("p-plain");
       expect(latest().workingDir).toBe("/typed/by/hand");
-      expect(latest().promptEnabled).toBe(false);
+      expect(latest().promptBlocks).toEqual([]);
     } finally {
       restore();
     }

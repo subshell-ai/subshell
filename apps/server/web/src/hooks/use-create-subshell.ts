@@ -26,9 +26,9 @@ export interface CreateSubshellInput {
    * Node picked in the form; "" = no valid choice yet (blocks submit upstream).
    */
   nodeId?: string;
-  /** The launch form's "Add a prompt" checkbox (spec 2026-09-28). */
-  promptEnabled?: boolean;
-  /** The block stack joined into `prompt` when the checkbox is on. */
+  /** The prompt stack, joined into `prompt` when non-empty (spec
+   *  2026-09-28; the launch form's checkbox was retired 2026-09-30 - the
+   *  blocks ARE the switch). */
   promptBlocks?: PromptBlock[];
 }
 
@@ -51,7 +51,6 @@ export function toSubshellCreateBody({
   workingDir,
   name,
   nodeId,
-  promptEnabled,
   promptBlocks,
 }: CreateSubshellInput): {
   harnessId: string;
@@ -61,16 +60,15 @@ export function toSubshellCreateBody({
   nodeId?: string;
   prompt?: string;
 } {
-  // The joined stack when the section is on and non-empty. With a PRESET
-  // chosen and the stack emptied (never ticked, or every block removed after
+  // The joined stack when it is non-empty. With a PRESET
+  // chosen and the stack emptied (nothing added, or every copied block removed
   // the prefill), the launch says "none" OUTRIGHT with `prompt: ""`: the
   // server falls back to the preset's own blocks for an ABSENT field (spec
   // 2026-09-29-preset-launch-fields), and an empty string is what distinguishes
   // "the user said none" from "the user said nothing" (the manager's trim gate
   // types nothing, `promptLaunchMissed` needs blocks, so the empty override is
   // silent end to end). Presetless, an untouched form still sends no field.
-  const joined =
-    promptEnabled === true && promptBlocks != null && promptBlocks.length > 0 ? joinPromptBlocks(promptBlocks) : null;
+  const joined = promptBlocks != null && promptBlocks.length > 0 ? joinPromptBlocks(promptBlocks) : null;
   const prompt = joined ?? (presetId != null ? "" : undefined);
   return {
     harnessId,
@@ -101,7 +99,7 @@ export function useCreateSubshell() {
       // One gate for all four launch surfaces (the form is shared): the
       // server answers `promptDelivered: false` for "no prompt" too, so the
       // warning may only ride a launch that actually stacked one.
-      if (promptLaunchMissed(input.promptEnabled, input.promptBlocks, created.promptDelivered)) {
+      if (promptLaunchMissed(input.promptBlocks, created.promptDelivered)) {
         toast.warning('The prompt did not land. Use "Inject prompt" to type it in.');
       }
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });

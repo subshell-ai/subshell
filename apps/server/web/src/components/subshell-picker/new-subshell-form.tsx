@@ -5,8 +5,7 @@ import { Plus } from "lucide-react";
 import type { JSX } from "react";
 import { useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
-import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
-import { PromptStackList } from "@/components/prompts/prompt-stack-list";
+import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import {
   DIALOG_IDS,
   hideMachineField,
@@ -25,7 +24,6 @@ import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { isOfflineAgent } from "@/lib/node-label";
 import { loadRecentPresetPicks, recordRecentPresetPick } from "@/lib/preset-recents";
-import { movePromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subshell-compat";
 
 // The pure half of this form — the value contract, the submit gate, the
@@ -177,7 +175,6 @@ export function NewSubshellForm({
   })();
 
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
 
   const targets = launchableNodes(nodes ?? []);
   const agentOptions = buildAgentOptions(plugins ?? [], selectedNode);
@@ -359,64 +356,18 @@ export function NewSubshellForm({
         />
       </div>
 
-      {/* Prompts (spec 2026-09-28): one checkbox when untouched, so a launch
-          that does not use a prompt pays nothing in screen. Checked, the
-          stack and its Add button appear; the joined text rides the create
-          body's existing `prompt` field and is typed once the harness
-          settles. The section lives HERE so all four launch surfaces get
-          it; the clone dialog copies settings, never a prompt. */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id={ids.prompt}
-            checked={value.promptEnabled}
-            onChange={(e) => onChange({ ...value, promptEnabled: e.target.checked })}
-            className="h-4 w-4 rounded border border-input bg-background accent-primary"
-          />
-          <Label htmlFor={ids.prompt}>Add a prompt</Label>
-        </div>
-        {value.promptEnabled && (
-          <>
-            {value.promptBlocks.length > 0 && (
-              <PromptStackList
-                blocks={value.promptBlocks}
-                onReorder={(localId, dir) =>
-                  onChange({ ...value, promptBlocks: movePromptBlock(value.promptBlocks, localId, dir) })
-                }
-                onRemove={(localId) =>
-                  onChange({ ...value, promptBlocks: removePromptBlock(value.promptBlocks, localId) })
-                }
-              />
-            )}
-            {/* The picker INLINE (operator ruling 2026-09-29: the dialog-
-                on-dialog-on-dialog stack read as weird; this is the same
-                BODY the inject action puts on a Dialog, so "choose a
-                prompt" is one component in both places). A pick lands the
-                block and collapses back to the button; the half-typed
-                CUSTOM text outlives the collapse on purpose (the picker's
-                sessionStorage draft, durable until submitted). */}
-            {pickerOpen ? (
-              <div className="rounded-lg border p-3">
-                <PromptPickerBody
-                  surface="inline"
-                  mode="multi"
-                  onPick={(block) => {
-                    onChange({ ...value, promptBlocks: [...value.promptBlocks, block] });
-                    setPickerOpen(false);
-                  }}
-                  onExit={() => setPickerOpen(false)}
-                />
-              </div>
-            ) : (
-              <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
-                <Plus /> Add prompt
-              </Button>
-            )}
-            <p className="text-detail text-muted-foreground">Typed into the pane when the subshell starts.</p>
-          </>
-        )}
-      </div>
+      {/* Prompts (spec 2026-09-28, restated 2026-09-30): the SAME section the
+          preset editors show - a divider, "Add prompts", the stack, an
+          always-visible Add button. The checkbox is gone (it hid the add
+          control behind a decision nobody asked for); what you stacked is
+          what rides the create body, typed once the harness settles. The
+          section lives HERE so all four launch surfaces get it; the clone
+          dialog copies settings, never a prompt. */}
+      <PromptStackSection
+        blocks={value.promptBlocks}
+        onBlocksChange={(promptBlocks) => onChange({ ...value, promptBlocks })}
+        addButtonId={ids.prompt}
+      />
     </div>
   );
 }

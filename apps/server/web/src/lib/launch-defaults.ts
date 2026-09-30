@@ -69,10 +69,10 @@ export function isUntouchedForm(value: NewSubshellFormValue, empty: NewSubshellF
     value.presetId === empty.presetId &&
     value.nodeId === empty.nodeId &&
     value.workingDir === empty.workingDir &&
-    // A ticked "Add a prompt" (or a block already picked) is an edit: the
-    // prior-launch default must not apply over a section the user opened
-    // while the node list was still loading (spec 2026-09-28).
-    value.promptEnabled === empty.promptEnabled &&
+    // A block already stacked is an edit: the prior-launch default must not
+    // apply over a section the user filled while the node list was still
+    // loading (spec 2026-09-28; the checkbox left with the 2026-09-30
+    // shared-section ruling, and the stack itself is the touched fact).
     value.promptBlocks.length === empty.promptBlocks.length
   );
 }

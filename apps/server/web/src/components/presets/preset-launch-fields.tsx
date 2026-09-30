@@ -1,15 +1,11 @@
-import { Button, Label, Switch } from "@internal/node-admin";
-import { Plus } from "lucide-react";
-import { useState } from "react";
-import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
-import { PromptStackList } from "@/components/prompts/prompt-stack-list";
+import { Label, Switch } from "@internal/node-admin";
+import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import type { ComboboxOption } from "@/components/ui/combobox";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
 import { isOfflineAgent } from "@/lib/node-label";
 import { crossCommSaveBlocked, type PresetFormValue, presetLaunchGaps } from "@/lib/preset-form";
-import { movePromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import type { LaunchAgent } from "@/lib/subshell-compat";
 import { buildNodeOptions } from "@/lib/subshell-compat";
@@ -64,7 +60,6 @@ export function PresetLaunchFields({
       {o.reason !== undefined && <span className="text-muted-foreground"> ({o.reason})</span>}
     </SelectItem>
   );
-  const [pickerOpen, setPickerOpen] = useState(false);
 
   const selectedNode = nodes.find((n) => n.id === value.nodeId);
   const gaps = presetLaunchGaps(value);
@@ -112,40 +107,13 @@ export function PresetLaunchFields({
           nodeName={selectedNode?.name}
         />
       </div>
-      {/* The stack shows itself behind a divider (operator ruling 2026-09-30):
-          as a checkbox it was too easy to miss, and a checked box that HIDES
-          the add button made the feature look finished when it was empty. */}
-      <div className="space-y-2 border-t pt-3">
-        <p className="font-strong text-sm leading-none">Add prompts</p>
-        <p className="text-detail text-muted-foreground">Prompts to inject on subshell creation.</p>
-        {value.promptBlocks.length > 0 && (
-          <PromptStackList
-            blocks={value.promptBlocks}
-            onReorder={(localId, dir) =>
-              onChange({ ...value, promptBlocks: movePromptBlock(value.promptBlocks, localId, dir) })
-            }
-            onRemove={(localId) => onChange({ ...value, promptBlocks: removePromptBlock(value.promptBlocks, localId) })}
-          />
-        )}
-        {pickerOpen ? (
-          <div className="rounded-lg border p-3">
-            <PromptPickerBody
-              surface="inline"
-              mode="multi"
-              draftScope={draftScope}
-              onPick={(block) => {
-                onChange({ ...value, promptBlocks: [...value.promptBlocks, block] });
-                setPickerOpen(false);
-              }}
-              onExit={() => setPickerOpen(false)}
-            />
-          </div>
-        ) : (
-          <Button type="button" variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
-            <Plus /> Add prompt
-          </Button>
-        )}
-      </div>
+      {/* The stack shows itself behind a divider (ruling 2026-09-30), ONE
+          section shared with the launch form: see prompt-stack-section. */}
+      <PromptStackSection
+        blocks={value.promptBlocks}
+        onBlocksChange={(promptBlocks) => onChange({ ...value, promptBlocks })}
+        draftScope={draftScope}
+      />
       {/* Cross-subshell comms (migration 0043): the readiness fact is an OPT-IN
           switch plus the trio, not the trio alone. The switch refuses to arm
           while requirements are missing and names what is missing; once armed
