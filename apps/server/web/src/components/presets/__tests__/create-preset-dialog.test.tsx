@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
-import { type PresetFormValue, presetFormFromRow } from "@/lib/preset-form";
+import { emptyPresetForm, type PresetFormValue, presetFormFromRow } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 
 /**
@@ -102,12 +102,13 @@ function mockFetch(post: { status?: number; body?: unknown } = {}, nodes: unknow
   return { calls, restore: () => (globalThis.fetch = original) };
 }
 
-async function renderDialog(props: {
-  lockedHarness?: string;
-  initialForm?: PresetFormValue;
-  onCreated?: (row: PresetRow) => void;
-  onClose?: (o: boolean) => void;
-}) {
+/** The locked agent the removed `lockedHarness` prop used to stand in for:
+ *  a clone seed whose form is otherwise empty. The dialog locks off the
+ *  seed (ruling 2026-09-30: the props-lock posture left with the launch
+ *  form's `+`; the seed is now the only lock there is). */
+const lockedSeed = (): PresetFormValue => ({ ...emptyPresetForm(), harnessId: "claude-code" });
+
+async function renderDialog(props: { initialForm?: PresetFormValue; onClose?: (o: boolean) => void }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // Seed the list cache the way a page with a live usePresets() would have it.
   client.setQueryData(PRESETS_QUERY_KEY, []);
@@ -120,9 +121,7 @@ async function renderDialog(props: {
           setOpen(next);
           props.onClose?.(next);
         }}
-        lockedHarness={props.lockedHarness}
         initialForm={props.initialForm}
-        onCreated={props.onCreated}
       />
     );
   }
@@ -149,71 +148,15 @@ async function settle(): Promise<void> {
 
 afterEach(cleanup);
 
-describe("CreatePresetDialog — locked (launch form)", () => {
-  afterEach(cleanup);
-
-  it("titles with the agent, locks it as static text, posts the locked harnessId, and hands out the row", async () => {
-    const m = mockFetch();
-    const created: PresetRow[] = [];
-    try {
-      const { client } = await renderDialog({ lockedHarness: "claude-code", onCreated: (r) => created.push(r) });
-      const dialog = await screen.findByRole("dialog", { name: "New preset" });
-      expect(
-        screen.getByText(
-          "Saved flags, env vars and restart policy. Every subshell you start with it launches Claude Code this way.",
-        ),
-      ).toBeDefined();
-      expect(dialog.querySelector("#preset-harness")).toBeNull();
-      expect(dialog.textContent).toContain("Claude Code");
-
-      fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "Fast" } });
-      fireEvent.click(screen.getByRole("button", { name: "Create preset" }));
-
-      await waitFor(() =>
-        expect(m.calls).toContainEqual({
-          method: "POST",
-          url: "/api/presets",
-          body: {
-            harnessId: "claude-code",
-            name: "Fast",
-            env: {},
-            flags: [],
-            settings: {},
-            configIsolation: false,
-            // ON by default since 2026-09-18 — a preset is a way of running
-            // something repeatedly, so recovering from an exit is expected.
-            restartOnExit: true,
-            crossCommEnabled: false,
-            // The launch trio posts as empty nulls until the editor says
-            // otherwise (spec 2026-09-29).
-            nodeId: null,
-            workingDir: null,
-            promptBlocks: null,
-          },
-        }),
-      );
-      // The row lands in the LIST CACHE — the launch form's mismatch guard
-      // reads it, and a bare invalidation would null the new selection.
-      await waitFor(() =>
-        expect((client.getQueryData<PresetRow[]>(PRESETS_QUERY_KEY) ?? []).map((r) => r.id)).toContain("p-new"),
-      );
-      await waitFor(() => expect(created.map((r) => r.id)).toEqual(["p-new"]));
-      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    } finally {
-      m.restore();
-    }
-  });
-});
-
 describe("CreatePresetDialog — clone (initialForm)", () => {
   afterEach(cleanup);
 
   it("titles Clone preset, seeds the source's values with the suggested name, keeps the locked agent, and posts a plain create", async () => {
     const m = mockFetch();
     try {
-      // `initialForm` ALONE — no `lockedHarness` pairs with it. The lock is
-      // derived from the seed; this test is what pins that guarantee.
-      await renderDialog({
+      // `initialForm` ALONE carries the lock: it is derived from the seed,
+      // and this test is what pins that guarantee.
+      const { client } = await renderDialog({
         initialForm: { ...presetFormFromRow(SOURCE), name: "Work (2)" },
       });
       const dialog = await screen.findByRole("dialog", { name: "Clone preset" });
@@ -247,6 +190,13 @@ describe("CreatePresetDialog — clone (initialForm)", () => {
           },
         }),
       );
+      // The created row lands in the LIST CACHE (the invalidation refetch)
+      // and the dialog closes itself on success - coverage the removed
+      // launch-form posture carried, which belongs to the create path.
+      await waitFor(() =>
+        expect((client.getQueryData<PresetRow[]>(PRESETS_QUERY_KEY) ?? []).map((r) => r.id)).toContain("p-new"),
+      );
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     } finally {
       m.restore();
     }
@@ -307,7 +257,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
   it("renders the launch defaults with the amber requirement checklist", async () => {
     const m = mockFetch();
     try {
-      await renderDialog({ lockedHarness: "claude-code" });
+      await renderDialog({ initialForm: lockedSeed() });
       const dialog = await screen.findByRole("dialog");
       expect(dialog.querySelector("#preset-launch-node")).toBeDefined();
       expect(within(dialog).getByText("Working directory")).toBeDefined();
@@ -332,7 +282,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
   it("the cross-subshell switch arms only on machine + directory, and a broken pair blocks Save", async () => {
     const m = mockFetch();
     try {
-      await renderDialog({ lockedHarness: "claude-code" });
+      await renderDialog({ initialForm: lockedSeed() });
       const dialog = await screen.findByRole("dialog");
       const toggle = () => dialog.querySelector("#preset-cross-comm") as HTMLButtonElement;
       const save = () => screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement;
@@ -390,7 +340,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
     };
     const m = mockFetch({}, [desk, oldLaptop]);
     try {
-      await renderDialog({ lockedHarness: "claude-code" });
+      await renderDialog({ initialForm: lockedSeed() });
       const dialog = await screen.findByRole("dialog");
       // The help sentence is gone: the select says "Decide at launch" and the
       // section below says everything else.
@@ -452,7 +402,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
     };
     const m = mockFetch({}, [desk]);
     try {
-      await renderDialog({ lockedHarness: "claude-code" });
+      await renderDialog({ initialForm: lockedSeed() });
       const dialog = await screen.findByRole("dialog");
       fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "cc-live" } });
       fireEvent.change(dialog.querySelector("#preset-launch-dir") as HTMLInputElement, {
@@ -485,7 +435,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
   it("Create stays disabled while the Name is blank, even with the agent locked", async () => {
     const m = mockFetch();
     try {
-      await renderDialog({ lockedHarness: "claude-code" });
+      await renderDialog({ initialForm: lockedSeed() });
       const dialog = await screen.findByRole("dialog");
       const save = () => screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement;
       const name = () => dialog.querySelector("#preset-name") as HTMLInputElement;
@@ -512,7 +462,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
     // The live-test loss this pins: a click outside silently discarded a
     // half-filled preset (operator ruling 2026-09-30).
     const closed: boolean[] = [];
-    await renderDialog({ lockedHarness: "claude-code", onClose: (o) => closed.push(o) });
+    await renderDialog({ initialForm: lockedSeed(), onClose: (o) => closed.push(o) });
     const dialog = await screen.findByRole("dialog");
     const backdrop = document.querySelector('[data-slot="dialog-overlay"]') as HTMLElement;
     fireEvent.mouseDown(backdrop);
@@ -529,7 +479,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
   it("the always-shown Add prompt button opens the picker", async () => {
     const m = mockFetch();
     try {
-      await renderDialog({ lockedHarness: "claude-code" });
+      await renderDialog({ initialForm: lockedSeed() });
       const dialog = await screen.findByRole("dialog");
       fireEvent.click(within(dialog).getByRole("button", { name: "Add prompt" }));
       await within(dialog).findByRole("button", { name: /Write your own/ });

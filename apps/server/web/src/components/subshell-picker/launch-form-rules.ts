@@ -15,7 +15,9 @@ import { launchableNodes } from "@/lib/subshell-compat";
 export interface NewSubshellFormValue {
   /** Agent (plugin) to launch — the one required choice */
   harnessId: string;
-  /** Preset to launch from; null = "None", a real presetless launch */
+  /** Preset to launch from; null is a real presetless launch (the picker's
+   *  "None" row retired 2026-09-30 - an untouched consumed input already IS
+   *  the no-preset state) */
   presetId: string | null;
   /**
    * Launch node — defaults to "local" (the control-plane host). "" means no
@@ -34,10 +36,12 @@ export interface NewSubshellFormValue {
   /**
    * "Save as preset" (operator ruling 2026-09-30, replacing the picker's
    * `+`): on submit the launch ALSO creates a new preset from the agent,
-   * machine, directory and prompts as filled here. Optional on the type -
-   * an absent value is the untouched false; no existing caller literal
-   * changes. Nothing about the launch differs; the preset is the extra
-   * artifact the check promises.
+   * machine, directory and prompts as filled here, and launches FROM it -
+   * when a preset was already picked, its settings are copied into the new
+   * row first, so nothing about the launch differs either way (review
+   * round 3 made the copy faithful; see use-create-subshell). Optional on
+   * the type - an absent value is the untouched false; no existing caller
+   * literal changes.
    */
   saveAsPreset?: boolean;
   /** The new preset's name; REQUIRED (trimmed) while `saveAsPreset` is checked. */

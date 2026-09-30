@@ -138,7 +138,12 @@ admitted here.
   on is already on screen below the title. *(The inject confirm carried
   `Inject "<prompt>" into "<pane>"` and the launch dialog's create step
   `New preset for <agent>`: two unknown-length strings per heading, and the
-  first wrapped four lines in live testing. Operator ruling, 2026-09-30.)*
+  first wrapped four lines in live testing. Operator ruling, 2026-09-30.)
+  The question-shaped confirmations that name ONE bounded subject
+  (`Close "Review pane"?`, `Delete key "desk"?`) are the family's existing
+  exception: the name is the question's subject, a fixed frame carries it,
+  and the label grammars cap their names at 120. A new confirmation whose
+  subject could be long names it in the BODY, not the title.
 - **Tooltip**: the popup carries an arrow pointing back at its control.
   `TooltipContent` draws it by default, and `arrow={false}` is the rare opt-out
   for a surface with no single anchor. A floating box beside a run of elements

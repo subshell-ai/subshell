@@ -1,6 +1,6 @@
 import { Button } from "@internal/node-admin";
 import { Plus } from "lucide-react";
-import { type JSX, useState } from "react";
+import { type JSX, useId, useState } from "react";
 import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
 import { PromptStackList } from "@/components/prompts/prompt-stack-list";
 import { movePromptBlock, type PromptBlock, removePromptBlock } from "@/lib/prompt-stack";
@@ -35,12 +35,19 @@ export function PromptStackSection({
   addButtonId?: string;
 }): JSX.Element {
   const [pickerOpen, setPickerOpen] = useState(false);
+  const listLabelId = useId();
   return (
     <div className="space-y-2 border-t pt-3">
-      <p className="font-strong text-sm leading-none">Add prompts</p>
+      {/* The list points back at this title (the stack dialog's association,
+          kept when the section was shared): the listbox should not be an
+          unnamed region on either surface. */}
+      <p id={listLabelId} className="font-strong text-sm leading-none">
+        Add prompts
+      </p>
       <p className="text-detail text-muted-foreground">Prompts to inject on subshell creation.</p>
       {blocks.length > 0 && (
         <PromptStackList
+          labelledBy={listLabelId}
           blocks={blocks}
           onReorder={(localId, dir) => onBlocksChange(movePromptBlock(blocks, localId, dir))}
           onRemove={(localId) => onBlocksChange(removePromptBlock(blocks, localId))}

@@ -148,7 +148,15 @@ test(`the launch form's "Save as preset" makes a preset from the form`, async ({
   await page.fill("#picker-preset-name", "Inline shell");
 
   const before = await subshellIds(page);
+  // Wait for the app's own two POSTs before reading (review round 3): an
+  // immediate GET races the page and can miss either artifact - the preset
+  // assert would throw, or the cleanup's `after` would miss the new pane.
+  const presetPost = page.waitForResponse((r) => r.url().endsWith("/api/presets") && r.request().method() === "POST");
+  const subshellPost = page.waitForResponse(
+    (r) => r.url().endsWith("/api/subshells") && r.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Start subshell" }).click();
+  await Promise.all([presetPost, subshellPost]);
 
   // The preset reached the store carrying the form's launch trio, and the
   // launched pane references the NEW row.

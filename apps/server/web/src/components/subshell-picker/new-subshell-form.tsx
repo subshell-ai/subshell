@@ -55,7 +55,7 @@ import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subs
  * 409 stays the authoritative backstop for anything the cached views got
  * wrong. Changing the agent clears the preset pick — the preset belongs to
  * the agent. First run hides the Preset row — a new account has zero presets
- * and the row would offer only "None".
+ * and the row would have nothing to offer.
  *
  * **It opens on your last launch** (operator rule, 2026-09-25): node,
  * directory, agent and preset pre-fill from the newest prior subshell, once,

@@ -65,9 +65,10 @@ page whose header opens the sharing dialog. It used to read "Enable on {name}"
 and point at `LocalLaunchCard`, which is gone: an offer that ends nowhere is
 worse than no offer, and it ended nowhere for the one person who could take it.
 
-**The form asks Agent → Preset → Node → Working directory** (spec
-2026-09-13, presets replace profiles; `#picker-agent` / `#picker-preset` are
-the e2e handles, `lib/subshell-compat.ts` holds the pure rules). The form is
+**The form asks Preset → Agent → Node → Working directory** (spec 2026-09-13,
+presets replace profiles; the 2026-09-30 ruling moved Preset to the top, the
+row that fills all the others; `#picker-agent` / `#picker-preset` are the e2e
+handles, `lib/subshell-compat.ts` holds the pure rules). The form is
 three files since the 2026-09-25 split: `new-subshell-form.tsx` is the fields
 and their pairing, `launch-form-rules.ts` the pure contract (the value, the
 empty baseline, `canSubmit`, the node-pick rules, the field-id sets), and
@@ -78,12 +79,18 @@ default (`defaultAgentId`) is the agent of the user's most recent subshell when
 usable (evaluated only after the subshells LIST has ANSWERED, so an
 unanswered read cannot outvote the recent one), else the first usable
 non-terminal agent, else anything usable; `useSubshellsList()` already holds
-the data, so the rule costs no request. Preset lists only the chosen agent's
-presets with **None** first and selected; changing the agent resets it to None,
-and its `+` opens `create-preset-dialog.tsx` nested in the launch dialog with
-the agent locked; a created preset is selected on return. First run hides the
-Preset row entirely: a new account has zero presets, so the row would offer
-only "None". The saved set lives at `/presets`, grouped by agent under real
+the data, so the rule costs no request. Preset is a CONSUMED searchable
+picker listing every preset (the up-to-3 last-picked lead under "Recently
+used", the rest under "Presets"; the split headers appear only when both
+halves exist). Picking one RESETS the form and copies in the agent, machine,
+directory and prompts the preset names - the trigger stays on its
+placeholder, because the row names an act, not a held tie. Changing the agent
+drops the copied preset link (the preset belongs to the agent) and keeps the
+filled fields. There is no `+` on the row and no "None" row: a preset worth
+keeping is MADE from the whole form by the "Save as preset" checkbox at its
+bottom, and an untouched picker already IS the no-preset state. First run
+hides the Preset row entirely: a new account has zero presets, so the row
+would have nothing to offer. The saved set lives at `/presets`, grouped by agent under real
 `<h2>` headers. There the row menu's **Clone preset** opens the SAME
 `create-preset-dialog.tsx`, seeded through `initialForm`: the clone IS a plain
 create, and the agent rides locked because a preset's harness is immutable.

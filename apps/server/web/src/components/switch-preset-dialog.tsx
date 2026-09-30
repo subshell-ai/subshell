@@ -14,16 +14,19 @@ import { usePresets } from "@/hooks/use-presets";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import type { SubshellView } from "@/types/subshell";
 
-/** The select's sentinel for "no preset" — the wire carries null instead
- *  (the same sentinel the launch form's Preset row uses). */
+/** The select's sentinel for "no preset" — the wire carries null instead.
+ *  This dialog KEEPS a "None" row (re-pointing a live subshell away from a
+ *  preset is a decision with no other answer); the launch form's picker
+ *  dropped its None the same month it became consumed - an untouched input
+ *  already means "no preset" there. */
 const NONE = "none";
 
 /**
  * Switch preset (spec 2026-09-23 §3): point THIS row at another preset of
  * its own harness (or none) and restart it with the new one — the same POST
  * the Restart item sends, plus the `presetId` body. The selector is the
- * launch form's grammar: "None" first, then only presets the row's harness
- * could run, because changing the harness of a live subshell is out of the
+ * grammar of a held select: "None" first, then only presets the row's
+ * harness could run, because changing the harness of a live subshell is out of the
  * design (it would silently become a fresh conversation in a different
  * agent). Confirming without changing anything is legal and is exactly a
  * restart — no client special case.

@@ -184,9 +184,10 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
         harness: z
           .string()
           .optional()
-          // An ASSERT, not the addressing key: the preset names its harness.
-          // Given, it must agree (400 naming both) - it decides which harness
-          // a cross-harness name tie resolves against.
+          // An ASSERT, not the addressing key: the preset is addressed by
+          // its id and names its own harness. Given, it must agree (400
+          // naming both) - a caller asserting the wrong harness is acting
+          // on a stale or guessed list.
           .describe("Optional assert: must equal the preset's harness"),
         name: z.string().optional(),
         working_dir: z

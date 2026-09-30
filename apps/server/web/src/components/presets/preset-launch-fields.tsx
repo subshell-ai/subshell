@@ -14,9 +14,10 @@ import { buildNodeOptions } from "@/lib/subshell-compat";
 /**
  * The preset's OPTIONAL launch defaults (spec 2026-09-29 preset-launch-fields):
  * a machine, a working directory, and a prompt stack - the same three the
- * launch form asks, in the same shapes (the prompt area works exactly like the
- * new-subshell one: the checkbox, the stack rows, the inline picker; picking
- * snapshots the text, so library edits never change what this preset launches).
+ * launch form asks, in the same shapes (the prompt area is the SAME shared
+ * section the launch form renders - prompt-stack-section.tsx: divider, title,
+ * stack rows, inline picker; picking snapshots the text, so library edits
+ * never change what this preset launches).
  * They are hints, not locks: an explicit request at launch still wins.
  *
  * Below the trio sits the CROSS-SUBSHELL COMMS switch (migration 0043): an

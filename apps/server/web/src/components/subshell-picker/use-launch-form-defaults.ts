@@ -43,9 +43,9 @@ export interface LaunchFormDefaults {
 /**
  * The launch form's defaults: the ONE effect that composes every automatic
  * correction, plus the explicit act that outranks it: `applyPreset` (choosing
- * a preset, which since spec 2026-09-29 also PREFILLS the preset's own node,
- * directory, and prompt - a hint, not a lock: every field stays editable
- * afterwards). Split
+ * a preset, which since spec 2026-09-29 carries the preset's own node,
+ * directory, and prompt - and since 2026-09-30 RESETS the form first and
+ * fills the agent too: a faithful copy, still editable everywhere). Split
  * out of `new-subshell-form.tsx` (2026-09-25 file-size split) with the
  * behavior and the ordering rules intact - read the effect's own comments for
  * why each gate waits on what it waits on.
@@ -181,7 +181,7 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
     // Default agent, when the user has not chosen one. Reads the same disabled
     // set the dropdown renders — computed against the row this pass holds, so
     // even a same-pass re-home cannot select an agent the server would refuse.
-    // Only ever fills a blank; the "None" preset state needs no default.
+    // Only ever fills a blank; an unmade preset pick needs no default.
     //
     // The subshells list must have ANSWERED before the fill fires: the fill
     // happens once (blank-only), so filling while the list is in flight

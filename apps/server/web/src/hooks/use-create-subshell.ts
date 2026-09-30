@@ -1,8 +1,9 @@
-import { apiPost } from "@internal/node-admin";
+import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { joinPromptBlocks, type PromptBlock, presetBlocksToWire, promptLaunchMissed } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import type { PresetRow } from "@/types/preset";
 
 /** The fields the shared new-subshell form collects. */
 export interface CreateSubshellInput {
@@ -100,22 +101,61 @@ export function useCreateSubshell() {
     mutationFn: async (input: CreateSubshellInput) => {
       // The checkbox's promise first, so a failed preset POST never launches
       // an unremembered subshell (ruling 2026-09-30). SAVE-AS always creates
-      // a NEW row: even when the form was copied from a preset, the edits
-      // belong to the launch, and presets are never written back.
-      const saved =
-        input.saveAsPreset === true
-          ? await apiPost<{ id: string }>("/api/presets", {
-              harnessId: input.harnessId,
-              name: (input.presetName ?? "").trim(),
-              nodeId: input.nodeId && input.nodeId !== "" ? input.nodeId : null,
-              workingDir: input.workingDir,
-              promptBlocks: presetBlocksToWire(input.promptBlocks ?? []),
-            })
-          : null;
-      return apiPost<{ id: string; promptDelivered?: boolean }>(
-        "/api/subshells",
-        toSubshellCreateBody(saved === null ? input : { ...input, presetId: saved.id }),
-      );
+      // a NEW row - presets are never written back - and it is a FAITHFUL
+      // copy: when the form was copied from a preset, that row's settings
+      // the form cannot see (env, flags, isolation, restart policy) ride
+      // into the new row, so launching FROM the saved preset changes
+      // nothing about the launch, and the saved preset reproduces exactly
+      // the pane you are about to get (review round 3: a bare copy silently
+      // dropped the picked preset's flags from the launch). Never copied:
+      // the cross-comm switch - letting agents launch is an opt-in per row.
+      let saved: { id: string } | null = null;
+      if (input.saveAsPreset === true) {
+        const source =
+          input.presetId != null
+            ? ((await apiFetch<PresetRow[]>("/api/presets")).find((r) => r.id === input.presetId) ?? null)
+            : null;
+        saved = await apiPost<{ id: string }>("/api/presets", {
+          harnessId: input.harnessId,
+          name: (input.presetName ?? "").trim(),
+          ...(source === null
+            ? {}
+            : {
+                env: source.envJson === null ? undefined : (JSON.parse(source.envJson) as Record<string, string>),
+                flags: source.flagsJson === null ? undefined : (JSON.parse(source.flagsJson) as string[]),
+                settings:
+                  source.settingsJson === null
+                    ? undefined
+                    : (JSON.parse(source.settingsJson) as Record<string, unknown>),
+                configIsolation: source.configIsolation === 1,
+                restartOnExit: source.restartOnExit === 1,
+              }),
+          nodeId: input.nodeId && input.nodeId !== "" ? input.nodeId : null,
+          // TRIMMED like the preset editor's payload; the server refuses a
+          // leading space and canSubmit only requires non-empty content.
+          workingDir: input.workingDir.trim(),
+          promptBlocks: presetBlocksToWire(input.promptBlocks ?? []),
+        });
+      }
+      try {
+        return await apiPost<{ id: string; promptDelivered?: boolean }>(
+          "/api/subshells",
+          toSubshellCreateBody(saved === null ? input : { ...input, presetId: saved.id }),
+        );
+      } catch (err) {
+        // A row this click created for a launch that did not happen is an
+        // orphan: invisible (the list was never invalidated) and poisonous
+        // (the unique-name index would refuse the retry). Take it back
+        // before rethrowing; best-effort - the launch error is the story.
+        if (saved !== null) {
+          try {
+            await apiFetch(`/api/presets/${saved.id}`, { method: "DELETE" });
+          } catch {
+            /* the launch error still surfaces; a leftover row stays visible at /presets */
+          }
+        }
+        throw err;
+      }
     },
     onSuccess: (created, input) => {
       // One gate for all four launch surfaces (the form is shared): the
