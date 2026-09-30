@@ -21,6 +21,24 @@ import { FsDeadlineError, withFsDeadline } from "@/utils/fs-deadline.js";
  * originals; the long comments came with the code.
  */
 
+type RealpathFn = (path: string) => Promise<string>;
+
+/**
+ * Test seam for the ONLY symlink-resolving read the confinement gate performs.
+ * A hung `realpath` (a candidate sitting on a dead autofs/network mount, the
+ * mac-builder fault) cannot be produced with real paths in a suite, so a test
+ * injects a never-settling probe here to pin the gate's timeout path. Passing
+ * `null` restores the real call. Same IS_TEST hard refusal as the route's
+ * readdir seam: production must never be able to swap the filesystem.
+ * @internal
+ */
+let probeRealpath: RealpathFn = (path) => realpathAsync(path);
+
+export function setFilesRealpathForTests(fn: RealpathFn | null): void {
+  if (!IS_TEST) throw new Error("setFilesRealpathForTests is a test-only seam");
+  probeRealpath = fn ?? ((path) => realpathAsync(path));
+}
+
 /**
  * The optional confinement root, or `null` when `SUBSHELL_FS_ROOT` is unset —
  * which means NO confinement (any absolute path is allowed). This is
@@ -40,24 +58,6 @@ import { FsDeadlineError, withFsDeadline } from "@/utils/fs-deadline.js";
  * silently confining to the lexical form — a root that cannot be resolved in
  * time is a browse to refuse, not one to mis-confinement.
  */
-type RealpathFn = (path: string) => Promise<string>;
-
-/**
- * Test seam for the ONLY symlink-resolving read the confinement gate performs.
- * A hung `realpath` (a candidate sitting on a dead autofs/network mount, the
- * mac-builder fault) cannot be produced with real paths in a suite, so a test
- * injects a never-settling probe here to pin the gate's timeout path. Passing
- * `null` restores the real call. Same IS_TEST hard refusal as the route's
- * readdir seam: production must never be able to swap the filesystem.
- * @internal
- */
-let probeRealpath: RealpathFn = (path) => realpathAsync(path);
-
-export function setFilesRealpathForTests(fn: RealpathFn | null): void {
-  if (!IS_TEST) throw new Error("setFilesRealpathForTests is a test-only seam");
-  probeRealpath = fn ?? ((path) => realpathAsync(path));
-}
-
 async function confinementRoot(signal?: AbortSignal): Promise<{ lexical: string; real: string } | null> {
   const root = process.env.SUBSHELL_FS_ROOT?.trim();
   if (!root) return null;
