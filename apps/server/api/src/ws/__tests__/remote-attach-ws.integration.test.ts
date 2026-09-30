@@ -190,6 +190,11 @@ describe("remote attach through the real handleSubshellWs dispatch", () => {
       // pane back and announces what it found — the same confirmed grid the
       // attach announced, which is what keeps several viewers of one node
       // pane rendering the same thing as each other and as the pane.
+      // The ANNOUNCE is its own async fact: `countOf("resize")` is the RPC
+      // leaving, not the read-back landing — on a throttled runner the peek
+      // caught `undefined` at index 2 (CI shard 2/2, 2026-09-30). Wait on
+      // the frame the assertion consumes.
+      await until(() => term()[2]?.includes('"type":"geometry"') ?? false, "post-resize geometry announce");
       expect(term()[2]).toBe(JSON.stringify({ type: "geometry", cols: 132, rows: 43 }));
 
       dispatchOutput(outputFrame(id, subIdOf(sim), LOG.length, "echo hi\r\n"));
