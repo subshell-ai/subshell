@@ -15,7 +15,7 @@
     "lint": "biome check --write --unsafe src ui",
     "lint:check": "biome check src ui",
     "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src ui",
-    "test": "bun test --parallel=4 --path-ignore-patterns \"**/ui/**\" src && cd ui && bun test --parallel=4",
+    "test": "bun test --path-ignore-patterns \"**/ui/**\" src --parallel=4 && cd ui && bun test --parallel=4",
     "verify-types": "tsc --project tsconfig.json --noEmit && tsc --project ui/tsconfig.json --noEmit",
     "compile:release": "bun run src/scripts/release.ts"
   },
