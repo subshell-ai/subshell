@@ -40,8 +40,8 @@ import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subs
  * submit), this file owns the layout and the pairing (spec 2026-09-13 §5).
  *
  * The PRESET leads (operator ruling 2026-09-30): a type-to-filter list of
- * every preset — the last three picked lead under "Recently used" — and
- * picking one COPIES the
+ * every preset — the last three picked lead under "Recently used", the rest
+ * under "Presets" — and picking one COPIES the
  * fields below it (agent, machine, directory, prompt), each still editable,
  * because a preset is a starting point, not a lock. The input returns to its
  * placeholder after the pick: the row names an act ("copy this in"), not a
@@ -146,13 +146,14 @@ export function NewSubshellForm({
   // state as well as the store.
   const [recentPresetIds, setRecentPresetIds] = useState<string[]>(() => loadRecentPresetPicks());
 
-  // The picker's list: the up-to-3 last-picked presets under one "Recently
-  // used" header, then the rest - the header labels the split, no hairline
-  // repeats it. There is NO "None" row (ruling 2026-09-30): a consumed
-  // picker holds nothing to un-select, the untouched form already IS "no
-  // preset", and changing the agent is the documented way to drop a link a
-  // copy left. A name is unique per agent, so each row carries its agent as
-  // the muted reason: two "Fast" rows read Fast  Claude Code / Fast  Pi.
+  // The picker's list: the up-to-3 last-picked presets under "Recently
+  // used", the rest under "Presets" (ruling 2026-09-30) - both sections
+  // labelled, so no hairline is needed, and with nothing recent the single
+  // list needs no header at all. There is NO "None" row: a consumed picker
+  // holds nothing to un-select, the untouched form already IS "no preset",
+  // and changing the agent is the documented way to drop a link a copy
+  // left. A name is unique per agent, so each row carries its agent as the
+  // muted reason: two "Fast" rows read Fast  Claude Code / Fast  Pi.
   const presetList: ComboboxOption[] = (() => {
     const names = new Map((plugins ?? []).map((p) => [p.id, p.name]));
     const all: ComboboxOption[] = presets.map((p) => ({
@@ -169,7 +170,9 @@ export function NewSubshellForm({
       recents.push({ ...opt, group: "Recently used" });
       recentValues.add(id);
     }
-    const rest = all.filter((o) => !recentValues.has(o.value));
+    const rest = all
+      .filter((o) => !recentValues.has(o.value))
+      .map((o) => (recents.length > 0 ? { ...o, group: "Presets" } : o));
     return [...recents, ...rest];
   })();
 

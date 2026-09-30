@@ -1427,6 +1427,9 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
       openPresetSearch();
       await settle();
       expect(screen.getByText("Recently used")).toBeDefined();
+      // The rest of the list is not a headless run - it answers "and the
+      // others?" with its own label (ruling 2026-09-30).
+      expect(screen.getByText("Presets")).toBeDefined();
       // Each recent appears ONCE (the rest excludes them), and recents lead
       // the list in pick order, ahead of the never-picked "Three".
       expect(screen.getAllByText("Two")).toHaveLength(1);
@@ -1449,7 +1452,9 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
       await renderForm(emptyNewSubshellForm());
       openPresetSearch();
       await settle();
+      // One unsplit list needs no headers at all.
       expect(screen.queryByText("Recently used")).toBeNull();
+      expect(screen.queryByText("Presets")).toBeNull();
       expect(screen.getByText("One")).toBeDefined();
     } finally {
       restore();
