@@ -433,6 +433,17 @@ anything bash-shaped is this. Prefix script-invoked test runs with
 `env -u SHELLOPTS -u BASHOPTS`, and treat an implausibly fast or empty suite
 run as a broken invocation worth re-running, never as a pass.
 
+**One run, failures from the captured file - never a second run to find the
+failures.** A bare run piped to `tail` shows only the summary, so a red then
+costs a whole second suite run for a test name that was already in the output:
+
+```bash
+env -u SHELLOPTS -u BASHOPTS <test cmd> > /tmp/test-out.txt 2>&1; \
+  echo exit=$?; grep "(fail)" /tmp/test-out.txt || echo "no failures"; tail -4 /tmp/test-out.txt
+```
+
+The one re-run that stays legitimate is AFTER a code fix, to verify it.
+
 The e2e suite lives in `e2e/` and is NOT part of `bun run test` or the pre-push
 hook: it needs a real tmux server and a one-time `bunx playwright install
 chromium`. See `e2e/AGENTS.md`.
