@@ -55,12 +55,17 @@ export function bumpCaptureCalls(): void {
 }
 /** What `capture` was last asked for (scrollback line budget). */
 export let captureLinesArg: number | undefined;
+/** Every `resize` the attach issued, in call order, with its grid. */
 export let resizeCalls: Array<{ cols: number; rows: number }> = [];
 /** Shared per-test ordered log - proves resize lands BEFORE the capture. */
 export let order: string[] = [];
 
+/** The memoized local launcher the handler resolves - the object whose
+ * tmux-touching methods {@link stubLauncher} swaps. */
 export { defaultLocalLauncher };
 
+/** Swaps the launcher's tmux-touching methods for in-memory fakes that feed
+ * the recorders above; `afterEach` restores them from `launcherOriginals`. */
 export function stubLauncher(): void {
   defaultLocalLauncher.hasSubshell = async (_socket: string, _id: string) => true;
   defaultLocalLauncher.capture = async (_socket: string, _id: string, lines?: number) => {
@@ -75,7 +80,7 @@ export function stubLauncher(): void {
   };
   // Default: the machine cannot deliver a bare SIGWINCH (as for a remote
   // node today), so the nudge path under test is the ±1 resize. Its
-  // no-reflow-first behavior gets its own cases in the grid file.
+  // no-reflow-first behavior gets its own cases in the replay file.
   // Unreadable BY DEFAULT, and deliberately so: the real `paneSize` shells out
   // to tmux against a socket that does not exist, which happened to answer
   // null and left every case on the no-geometry path by accident - with the
@@ -122,12 +127,11 @@ export function fakeBrowser(): FakeBrowser {
       closed.push({ code, reason });
     },
     raw: {},
-    // The local tail subscribes to this socket's pubsub channel; nothing
-    // here has a publisher (the pump is the seam under test), so the fake
-    // accepts and forgets. Typed loosely the way `subshell-ws.test.ts`'s
-    // socket fake does: the cast owns the seam, not the interface.
-    subscribe: (_topic: string) => {},
-    unsubscribe: (_topic: string) => {},
+    // Typed loosely the way `subshell-ws.test.ts`'s socket fake does: the
+    // cast owns the seam, not the interface. The local path never calls
+    // `ws.subscribe` (the pump subscribes on the `paneStreams` registry and
+    // delivers through the closure), so the fake carries no pubsub members -
+    // a future handler call would surface instead of being swallowed.
   } as unknown as WsSocket;
   return { ws, sent, closed };
 }
