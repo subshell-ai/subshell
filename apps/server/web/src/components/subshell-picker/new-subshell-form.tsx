@@ -5,6 +5,8 @@ import { Plus } from "lucide-react";
 import type { JSX } from "react";
 import { useMemo, useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
+import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
+import { PromptStackList } from "@/components/prompts/prompt-stack-list";
 import {
   DIALOG_IDS,
   hideMachineField,
@@ -23,8 +25,9 @@ import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
-import { copySettingsOptions } from "@/lib/launch-defaults";
+import { COPY_CATEGORY_PREVIEW, copySettingsOptions } from "@/lib/launch-defaults";
 import { isOfflineAgent } from "@/lib/node-label";
+import { movePromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import { buildAgentOptions, buildNodeOptions } from "@/lib/subshell-compat";
 
 // The pure half of this form — the value contract, the submit gate, the
@@ -148,6 +151,12 @@ export function NewSubshellForm({
   const agentPresets = presets.filter((p) => p.harnessId === value.harnessId);
 
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  // "Copy settings from" is collapsed until asked for (operator ruling
+  // 2026-09-29): a launch that does not copy pays nothing in screen. This is
+  // pure UI reveal (like `pickerOpen`), NOT form value — it never touches the
+  // wire, the touched-gate, or the prior-launch auto-default.
+  const [copyOpen, setCopyOpen] = useState(false);
 
   const targets = launchableNodes(nodes ?? []);
   const agentOptions = buildAgentOptions(plugins ?? [], selectedNode);
@@ -188,20 +197,45 @@ export function NewSubshellForm({
     <div className="space-y-4">
       {/* First, because it is cause and the four fields below are effect:
           one pick fills all four, and the row returns to its placeholder the
-          moment it fires. Hidden with nothing to copy (a first account, an
-          unanswered list) and on the setup assistant's first launch. */}
+          moment it fires. A CHECKBOX until asked for (so a copy-less launch
+          pays nothing in screen), and hidden with nothing to copy (a first
+          account, an unanswered list) and on the setup assistant's first
+          launch. Inside it the list is divided into Active and Recently
+          terminated, at most `COPY_CATEGORY_PREVIEW` of each before you search
+          (see copySettingsOptions + the combobox's preview cap). */}
       {!firstRun && copyOptions.length > 0 && (
         <div className="space-y-2">
-          <Label htmlFor={ids.copy}>Copy settings from</Label>
-          <SearchableSelect
-            id={ids.copy}
-            // The consumed posture, pinned: a copy is an action, not a held
-            // selection the re-pickable fields would then contradict.
-            value=""
-            placeholder="Recent subshell"
-            options={copyOptions}
-            onValueChange={(id) => id !== "" && applyCopy(id)}
-          />
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id={`${ids.copy}-toggle`}
+              checked={copyOpen}
+              onChange={(e) => setCopyOpen(e.target.checked)}
+              className="h-4 w-4 rounded border border-input bg-background accent-primary"
+            />
+            <Label htmlFor={`${ids.copy}-toggle`}>Copy settings from a subshell</Label>
+          </div>
+          {copyOpen && (
+            <>
+              {/* The reveal checkbox is labelled; the input behind it needs its
+                  own association too - a placeholder is the last-resort name. */}
+              <Label htmlFor={ids.copy} className="sr-only">
+                Copy settings from a subshell
+              </Label>
+              <SearchableSelect
+                id={ids.copy}
+                // The consumed posture, pinned: a copy is an action, not a held
+                // selection the re-pickable fields would then contradict.
+                value=""
+                placeholder="Search recent subshells"
+                options={copyOptions}
+                // A few per category in the calm view; a typed query lifts it so
+                // a search reaches every prior subshell, not just the shown few.
+                groupPreviewLimit={COPY_CATEGORY_PREVIEW}
+                onValueChange={(id) => id !== "" && applyCopy(id)}
+              />
+            </>
+          )}
         </div>
       )}
 
@@ -360,6 +394,65 @@ export function NewSubshellForm({
           nodeId={value.nodeId !== "local" ? value.nodeId : undefined}
           nodeName={selectedNode?.name}
         />
+      </div>
+
+      {/* Prompts (spec 2026-09-28): one checkbox when untouched, so a launch
+          that does not use a prompt pays nothing in screen. Checked, the
+          stack and its Add button appear; the joined text rides the create
+          body's existing `prompt` field and is typed once the harness
+          settles. The section lives HERE so all four launch surfaces get
+          it; the clone dialog copies settings, never a prompt. */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            id={ids.prompt}
+            checked={value.promptEnabled}
+            onChange={(e) => onChange({ ...value, promptEnabled: e.target.checked })}
+            className="h-4 w-4 rounded border border-input bg-background accent-primary"
+          />
+          <Label htmlFor={ids.prompt}>Add a prompt</Label>
+        </div>
+        {value.promptEnabled && (
+          <>
+            {value.promptBlocks.length > 0 && (
+              <PromptStackList
+                blocks={value.promptBlocks}
+                onReorder={(localId, dir) =>
+                  onChange({ ...value, promptBlocks: movePromptBlock(value.promptBlocks, localId, dir) })
+                }
+                onRemove={(localId) =>
+                  onChange({ ...value, promptBlocks: removePromptBlock(value.promptBlocks, localId) })
+                }
+              />
+            )}
+            {/* The picker INLINE (operator ruling 2026-09-29: the dialog-
+                on-dialog-on-dialog stack read as weird; this is the same
+                BODY the inject action puts on a Dialog, so "choose a
+                prompt" is one component in both places). A pick lands the
+                block and collapses back to the button; the half-typed
+                CUSTOM text outlives the collapse on purpose (the picker's
+                sessionStorage draft, durable until submitted). */}
+            {pickerOpen ? (
+              <div className="rounded-lg border p-3">
+                <PromptPickerBody
+                  surface="inline"
+                  mode="multi"
+                  onPick={(block) => {
+                    onChange({ ...value, promptBlocks: [...value.promptBlocks, block] });
+                    setPickerOpen(false);
+                  }}
+                  onExit={() => setPickerOpen(false)}
+                />
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
+                <Plus /> Add prompt
+              </Button>
+            )}
+            <p className="text-detail text-muted-foreground">Typed into the pane when the subshell starts.</p>
+          </>
+        )}
       </div>
     </div>
   );

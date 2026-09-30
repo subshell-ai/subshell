@@ -128,6 +128,13 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
         "list_nodes",
         "read_subshell_log",
         "send_to_subshell",
+        // The saved-prompt library, five tools (spec 2026-09-28): a pane may
+        // full-CRUD its owner's prompts, the share flip included.
+        "list_prompts",
+        "get_prompt",
+        "create_prompt",
+        "update_prompt",
+        "delete_prompt",
       ]),
     );
   });
@@ -150,5 +157,9 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect(byName.send_to_subshell.description).toContain("untrusted");
     expect(byName.read_subshell_log.description).toContain("ANSI-stripped");
     expect(byName.list_presets.description).toContain("catalogOnly");
+    // The prompt tools name the sharing consequence in their own description
+    // (the disclosure is the agent-visible decision).
+    expect(byName.create_prompt.description).toContain("shared");
+    expect(byName.list_prompts.description).toContain("shared");
   });
 });

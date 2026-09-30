@@ -35,12 +35,19 @@ describe("visibleNavItems", () => {
     for (const flag of [false, undefined]) {
       const paths = visibleNavItems(flag).map((i) => i.to);
       for (const page of GROUP_PAGES) expect(paths).not.toContain(page);
-      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/presets"]);
+      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/presets", "/prompts"]);
     }
   });
 
   it("gives an admin every group page, flattened in rail order", () => {
-    expect(visibleNavItems(true).map((i) => i.to)).toEqual(["/", "/workspaces", "/nodes", "/presets", ...GROUP_PAGES]);
+    expect(visibleNavItems(true).map((i) => i.to)).toEqual([
+      "/",
+      "/workspaces",
+      "/nodes",
+      "/presets",
+      "/prompts",
+      ...GROUP_PAGES,
+    ]);
   });
 });
 

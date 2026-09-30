@@ -1,0 +1,104 @@
+import { apiPost, Button, errMessage } from "@internal/node-admin";
+import { useState } from "react";
+import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import type { PromptBlock } from "@/lib/prompt-stack";
+
+/**
+ * The subshell menu's "Inject prompt..." (spec 2026-09-28): the shared
+ * picker BODY on a Dialog in single-select, then a confirm step that says
+ * exactly what the button does. The text is TYPED, never submitted: a
+ * submitted line can corrupt a harness mid-turn, so the person reviews it
+ * at the prompt and presses Enter themselves. This is the browser's first
+ * consumer of `POST /api/subshells/:id/input`; the server answers the
+ * running/offline facts, so failures render here and keep the dialog open.
+ *
+ * The pick ADVANCES by unmount swap (the picker branch is replaced by the
+ * confirm), never by closing: the only close that reaches the menu caller
+ * is a real dismissal (Done/Escape/success), so the old pick-close
+ * absorption hack is gone.
+ */
+export function InjectPromptDialog({
+  subshellId,
+  subshellName,
+  open,
+  onOpenChange,
+}: {
+  subshellId: string;
+  subshellName: string;
+  open: boolean;
+  onOpenChange: (next: boolean) => void;
+}) {
+  const [picked, setPicked] = useState<PromptBlock | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function send() {
+    if (!picked) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiPost(`/api/subshells/${subshellId}/input`, { text: picked.body, submit: false });
+      onOpenChange(false);
+    } catch (err) {
+      // The row died or its node went dark since the menu drew: the server's
+      // own sentence, on the dialog that failed.
+      setError(errMessage(err, "The prompt could not be typed into the pane"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!picked) {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-lg">
+          <PromptPickerBody surface="dialog" mode="single" onPick={setPicked} onExit={() => onOpenChange(false)} />
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  // The confirm step is the SAME Dialog component: name, body, what the
+  // button does, send. An unlabelled custom block carries an empty description
+  // (the picker never bakes in "Untitled"), so the title falls back here too -
+  // otherwise it reads `Inject "" into "Pane"`.
+  const pickedLabel = picked.description === "" ? "Untitled" : picked.description;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>
+            Inject "{pickedLabel}" into "{subshellName}"
+          </DialogTitle>
+          <DialogDescription>
+            This types into the pane without sending. Press Enter there when you are ready.
+          </DialogDescription>
+        </DialogHeader>
+        <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono text-sm">
+          {picked.body}
+        </pre>
+        {error && (
+          <p role="alert" className="text-destructive text-detail">
+            {error}
+          </p>
+        )}
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setPicked(null)} disabled={busy}>
+            Back
+          </Button>
+          <Button onClick={() => void send()} disabled={busy}>
+            {busy ? "Typing…" : "Type into pane"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}

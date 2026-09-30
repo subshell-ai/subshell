@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { toSubshellCreateBody } from "@/hooks/use-create-subshell";
+import { joinPromptBlocks, type PromptBlock, promptLaunchMissed } from "@/lib/prompt-stack";
 
 describe("toSubshellCreateBody", () => {
   it("sends the trimmed name when there is one", () => {
@@ -68,5 +69,50 @@ describe("toSubshellCreateBody", () => {
       const body = toSubshellCreateBody({ harnessId: "p1", presetId, workingDir: "/tmp/x", name: "n" });
       expect(JSON.parse(JSON.stringify(body))).toEqual({ harnessId: "p1", workingDir: "/tmp/x", name: "n" });
     }
+  });
+});
+
+const block = (id: string): PromptBlock => ({ localId: id, kind: "custom", description: id, body: `b-${id}` });
+
+describe("toSubshellCreateBody prompt (spec 2026-09-28)", () => {
+  it("sends no prompt field when the section is off, even with blocks present", () => {
+    const body = toSubshellCreateBody({
+      harnessId: "p1",
+      workingDir: "/x",
+      promptEnabled: false,
+      promptBlocks: [block("a")],
+    });
+    expect("prompt" in body).toBe(true);
+    expect(body.prompt).toBeUndefined();
+    expect(JSON.parse(JSON.stringify(body))).toEqual({ harnessId: "p1", workingDir: "/x" });
+  });
+
+  it("sends no prompt field when the section is on but empty", () => {
+    const body = toSubshellCreateBody({ harnessId: "p1", workingDir: "/x", promptEnabled: true, promptBlocks: [] });
+    expect(body.prompt).toBeUndefined();
+  });
+
+  it("sends the blocks joined by one blank line when on and non-empty", () => {
+    const body = toSubshellCreateBody({
+      harnessId: "p1",
+      workingDir: "/x",
+      promptEnabled: true,
+      promptBlocks: [block("a"), block("b")],
+    });
+    expect(body.prompt).toBe(joinPromptBlocks([block("a"), block("b")]));
+    expect(body.prompt).toBe("b-a\n\nb-b");
+  });
+});
+
+describe("promptLaunchMissed (the toast gate the review pinned)", () => {
+  it("stays silent for the no-prompt launch the wire also answers false for", () => {
+    expect(promptLaunchMissed(false, [], false)).toBe(false);
+    expect(promptLaunchMissed(undefined, undefined, false)).toBe(false);
+    expect(promptLaunchMissed(true, [], false)).toBe(false);
+  });
+  it("fires only when a stacked prompt actually missed", () => {
+    expect(promptLaunchMissed(true, [block("a")], false)).toBe(true);
+    expect(promptLaunchMissed(true, [block("a")], true)).toBe(false);
+    expect(promptLaunchMissed(true, [block("a")], undefined)).toBe(false);
   });
 });

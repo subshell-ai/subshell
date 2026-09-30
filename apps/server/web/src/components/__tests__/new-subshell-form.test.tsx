@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { Node } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -115,6 +115,10 @@ let lastPresetsUrl: string | null = null;
 type RecentStub = { paths: { path: string; label: string | null }[]; home: string | null };
 
 interface MockOpts {
+  /** Answer GET /api/prompts (the launch picker's list, spec 2026-09-28). */
+  prompts?: { own: unknown[]; shared: unknown[] };
+  /** Answer GET /api/prompts/stacks (the launch picker's stacks, spec 2026-09-29). */
+  stacks?: { own: unknown[]; shared: unknown[] };
   /** Answer GET /api/nodes this many ms late — the ordering where recents
    *  resolve while the node pick is still unsettled (review round 2). */
   nodesDelayMs?: number;
@@ -172,6 +176,12 @@ function mockFetch(
       // default must wait on.
       return opts.subshellsGate ? opts.subshellsGate.then(() => body()) : Promise.resolve(body());
     }
+    if (path === "/api/prompts") {
+      return Promise.resolve(new Response(JSON.stringify(opts.prompts ?? { own: [], shared: [] })));
+    }
+    if (path === "/api/prompts/stacks") {
+      return Promise.resolve(new Response(JSON.stringify(opts.stacks ?? { own: [], shared: [] })));
+    }
     if (path === "/api/files/recent") {
       const scope = url.searchParams.get("node");
       const body = typeof recent === "function" ? recent(scope) : recent;
@@ -180,6 +190,23 @@ function mockFetch(
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
   return () => (globalThis.fetch = original);
+}
+
+/** The combobox popup in the prompt picker opens on a real pointer
+ *  gesture; a bare click does not reach Base UI's trigger in happy-dom. */
+function openPickerSearch(): void {
+  const input = document.getElementById("prompt-picker-search");
+  if (!input) return;
+  // Inside act(): Base UI updates on the pointer events, and the bare
+  // dispatch floods "not wrapped in act" noise (the ffe50bc rule).
+  act(() => {
+    for (const type of ["pointerdown", "pointerup"]) {
+      input.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse" }));
+    }
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      input.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+    }
+  });
 }
 
 /** Flush pending query/effect updates inside act() — 50 ms is generous for
@@ -228,7 +255,13 @@ async function renderForm(initial: NewSubshellFormValue = emptyNewSubshellForm()
   return { latest: () => latest, client };
 }
 
-afterEach(cleanup);
+// The form's inline picker records picks into localStorage (process-wide);
+// clear both sides so a later lib suite never sees these picks (round-4).
+beforeEach(() => localStorage.clear());
+afterEach(() => {
+  localStorage.clear();
+  cleanup();
+});
 
 describe("pickNodeDefault", () => {
   it("keeps a valid pick and the local default while local is present", () => {
@@ -256,7 +289,16 @@ describe("NewSubshellForm agent/preset defaults", () => {
       const labels = Array.from(document.querySelectorAll("label"), (l) => l.textContent);
       expect(labels.indexOf("Agent")).toBeLessThan(labels.indexOf("Preset"));
       expect(labels.indexOf("Preset")).toBeLessThan(labels.indexOf("Node"));
-      expect(canSubmit({ harnessId: "claude-code", presetId: null, workingDir: "/tmp/x", nodeId: "local" })).toBe(true);
+      expect(
+        canSubmit({
+          harnessId: "claude-code",
+          presetId: null,
+          workingDir: "/tmp/x",
+          nodeId: "local",
+          promptEnabled: false,
+          promptBlocks: [],
+        }),
+      ).toBe(true);
       // Wire pin: ONE list for every surface. The store-scoped server
       // already answers for agents that run only on another node, so the
       // launch form reads the plain URL the /presets page does — no query,
@@ -420,6 +462,8 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-pi",
         workingDir: "/x",
         nodeId: "local",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       await waitFor(() => expect(latest().presetId).toBeNull());
       // And the picker stands at None (Base UI prints the mapped label).
@@ -455,6 +499,8 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "a1",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       await settle();
       expect(latest().nodeId).toBe("a1");
@@ -473,6 +519,8 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "local",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       await settle();
       expect(latest().presetId).toBe("p-claude");
@@ -503,6 +551,8 @@ describe("NewSubshellForm preset row", () => {
         presetId: "p-claude",
         workingDir: "/x",
         nodeId: "local",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       const input = screen.getByPlaceholderText("Choose an agent") as HTMLInputElement;
       // Keyboard-open the picker (happy-dom cannot emulate the pointer path
@@ -540,6 +590,8 @@ describe("NewSubshellForm preset row", () => {
         presetId: null,
         workingDir: "/x",
         nodeId: "local",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       fireEvent.click(screen.getByRole("button", { name: "New preset" }));
       const dialog = await screen.findByRole("dialog", { name: "New preset for Claude Code" });
@@ -586,7 +638,14 @@ describe("NewSubshellForm honest hints", () => {
   it("nothing on the picked node can run an agent → the hint, with a node link", async () => {
     const restore = mockFetch([node({ id: "a1", name: "bare", harnesses: [] })], [CLAUDE]);
     try {
-      await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a1" });
+      await renderForm({
+        harnessId: "",
+        presetId: null,
+        workingDir: "/tmp/x",
+        nodeId: "a1",
+        promptEnabled: false,
+        promptBlocks: [],
+      });
       // The node name sits inside the hint's <Link>, so the sentence spans
       // multiple nodes — match the paragraph on its full textContent.
       const hint = await screen.findByText(
@@ -602,7 +661,14 @@ describe("NewSubshellForm honest hints", () => {
   it("loaded-zero plugins on the picked node → the hint still shows (empty ≠ loading)", async () => {
     const restore = mockFetch([node({ id: "a1", name: "bare", harnesses: [] })], []);
     try {
-      await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a1" });
+      await renderForm({
+        harnessId: "",
+        presetId: null,
+        workingDir: "/tmp/x",
+        nodeId: "a1",
+        promptEnabled: false,
+        promptBlocks: [],
+      });
       expect(
         await screen.findByText(
           (_text, el) => el?.tagName === "P" && /Nothing installed on bare can run an agent/.test(el.textContent ?? ""),
@@ -619,7 +685,10 @@ describe("NewSubshellForm honest hints", () => {
       // holdValue pins the pick on the offline node — the live form re-homes
       // it — so this probes the gate itself: the row reasons already say
       // "node offline"; the hint must not claim the node holds no plugins.
-      await renderForm({ harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a2" }, true);
+      await renderForm(
+        { harnessId: "", presetId: null, workingDir: "/tmp/x", nodeId: "a2", promptEnabled: false, promptBlocks: [] },
+        true,
+      );
       expect(
         screen.queryByText((_text, el) => el?.tagName === "P" && /Nothing installed on/.test(el.textContent ?? "")),
       ).toBeNull();
@@ -631,7 +700,14 @@ describe("NewSubshellForm honest hints", () => {
   it("chosen agent runnable on no visible node → the mirror hint", async () => {
     const restore = mockFetch([ENROLLED_INCOMPAT], [CLAUDE]);
     try {
-      await renderForm({ harnessId: "claude-code", presetId: null, workingDir: "/tmp/x", nodeId: "a3" });
+      await renderForm({
+        harnessId: "claude-code",
+        presetId: null,
+        workingDir: "/tmp/x",
+        nodeId: "a3",
+        promptEnabled: false,
+        promptBlocks: [],
+      });
       expect(await screen.findByText(/No available node can run Claude Code/)).toBeDefined();
     } finally {
       restore();
@@ -829,6 +905,8 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
         presetId: null,
         workingDir: "/keep/me",
         nodeId: "local",
+        promptEnabled: false,
+        promptBlocks: [],
       });
       await settle();
       expect(latest().nodeId).toBe("local");
@@ -947,7 +1025,11 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().harnessId).toBe("pi"));
-      expect(screen.getByText("Copy settings from")).toBeDefined();
+      // The section is a checkbox until asked for: the label is there, the
+      // picker is not, until it is ticked.
+      expect(screen.getByText("Copy settings from a subshell")).toBeDefined();
+      expect(document.getElementById("picker-copy")).toBeNull();
+      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
       const input = document.getElementById("picker-copy") as HTMLInputElement;
       fireEvent.focus(input);
       fireEvent.keyDown(input, { key: "ArrowDown" });
@@ -974,6 +1056,7 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
     );
     try {
       const { latest } = await renderForm();
+      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
       const input = document.getElementById("picker-copy") as HTMLInputElement;
       fireEvent.focus(input);
       fireEvent.keyDown(input, { key: "ArrowDown" });
@@ -987,18 +1070,50 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
     }
   });
 
+  it("leads the picker with a just-terminated subshell, under its own category", async () => {
+    const restore = mockFetch(
+      [LOCAL],
+      [CLAUDE],
+      [],
+      [
+        launchRow({ id: "r-run", name: "Still going", status: "running", createdAt: "2026-09-20T00:00:00.000Z" }),
+        launchRow({
+          id: "r-end",
+          name: "Just ended",
+          status: "terminated",
+          endedAt: "2026-09-25T00:00:00.000Z",
+          createdAt: "2026-09-01T00:00:00.000Z",
+        }),
+      ],
+    );
+    try {
+      await renderForm();
+      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
+      const input = document.getElementById("picker-copy") as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      await screen.findByRole("option", { name: /Still going/ });
+      // The category header shows, and the ended row LEADS despite the running
+      // row being newer by creation (endedAt, not createdAt, drives the tier).
+      expect(screen.getByText("Recently terminated")).toBeDefined();
+      expect(screen.getAllByRole("option")[0]?.textContent).toContain("Just ended");
+    } finally {
+      restore();
+    }
+  });
+
   it("absent with nothing to copy, and on first run", async () => {
     const empty = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE]);
     try {
       await renderForm();
-      expect(screen.queryByText("Copy settings from")).toBeNull();
+      expect(screen.queryByText("Copy settings from a subshell")).toBeNull();
     } finally {
       empty();
     }
     const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [launchRow({})], undefined, undefined);
     try {
       await renderForm(emptyNewSubshellForm(), false, true);
-      expect(screen.queryByText("Copy settings from")).toBeNull();
+      expect(screen.queryByText("Copy settings from a subshell")).toBeNull();
     } finally {
       restore();
     }
@@ -1125,6 +1240,137 @@ describe("nowhere to launch", () => {
       // just denied twice over. (The MANAGER's sharing sentence stays — the
       // card can act on it — pinned in `no-launch-targets.test.tsx`.)
       expect(screen.queryByText(/granted launch access/i)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
+  it("the checkbox reveals the stack; the picker adds, reorders, and removes blocks", async () => {
+    const prompts = {
+      own: [
+        {
+          id: "pr1",
+          description: "Kickoff",
+          body: "start the task\nsecond line",
+          shared: false,
+          createdAt: "t",
+          updatedAt: "t",
+        },
+        { id: "pr2", description: "Review", body: "check the diff", shared: false, createdAt: "t", updatedAt: "t" },
+      ],
+      shared: [],
+    };
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [], undefined, { prompts });
+    try {
+      const { latest } = await renderForm();
+      // Collapsed: just the checkbox line.
+      const box = screen.getByLabelText("Add a prompt");
+      expect(latest().promptBlocks).toEqual([]);
+      fireEvent.click(box);
+      await settle();
+      expect(screen.getByRole("button", { name: "Add prompt" })).toBeDefined();
+
+      // Open the picker; a pick closes it (decisive-action redesign,
+      // operator report 2026-09-29), so the second add reopens. The list is
+      // the searchable combobox, whose popup opens on a real POINTER
+      // gesture, not a bare click (happy-dom quirk).
+      fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
+      await settle();
+      openPickerSearch();
+      await settle();
+      fireEvent.click(await screen.findByText("Kickoff"));
+      await settle();
+      expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff"]);
+      expect(latest().promptBlocks[0].promptId).toBe("pr1");
+      // The pick CLOSED the picker (the decisive action, 2026-09-29): the
+      // list's step is gone from the DOM, only the stack remains. Without
+      // this assertion the close could silently regress (review round 5).
+      expect(screen.queryByText("Write your own...")).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
+      await settle();
+      openPickerSearch();
+      await settle();
+      fireEvent.click(screen.getByText("Review"));
+      await settle();
+      expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff", "Review"]);
+
+      // The full text is COLLAPSED by default (operator ruling 2026-09-29)
+      // and one click on the row opens it, the page row's shape.
+      expect(screen.queryByText(/second line/)).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: /Kickoff/ }));
+      expect(screen.getByText(/second line/)).toBeDefined();
+
+      // Stack controls: reorder the second up (row 2's button, the first is
+      // already disabled at the top), then remove the first.
+      const ups = screen.getAllByLabelText("Move prompt up");
+      expect((ups[0] as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.click(ups[1]);
+      await settle();
+      expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Review", "Kickoff"]);
+      const removes = screen.getAllByLabelText("Remove prompt");
+      fireEvent.click(removes[0]);
+      await settle();
+      expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff"]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("a STACK pick is ONE unit block whose body is the members joined", async () => {
+    const stacks = {
+      own: [
+        {
+          id: "st1",
+          label: "Morning set",
+          shared: false,
+          createdAt: "t",
+          updatedAt: "t",
+          items: [
+            { id: "i1", promptId: "pr1", description: "Kickoff", body: "start the task" },
+            { id: "i2", description: "Note", body: "inline note" },
+          ],
+        },
+      ],
+      shared: [],
+    };
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [], undefined, { stacks });
+    try {
+      const { latest } = await renderForm();
+      fireEvent.click(screen.getByLabelText("Add a prompt"));
+      await settle();
+      fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
+      await settle();
+      openPickerSearch();
+      await settle();
+      fireEvent.click(await screen.findByText("Morning set"));
+      await settle();
+      // ONE block, not one per member (the one-unit ruling, spec 2026-09-29).
+      expect(latest().promptBlocks).toHaveLength(1);
+      const block = latest().promptBlocks[0];
+      expect(block.kind).toBe("stack");
+      expect(block.stackId).toBe("st1");
+      expect(block.body).toBe("start the task\n\ninline note");
+      // The row says it is a stack, and the joined text still joins into the
+      // create body's one prompt field (the launch seam, unchanged).
+      fireEvent.change(document.querySelector("#picker-working-dir") as Element, { target: { value: "/x" } });
+      await settle();
+      const body = toSubshellCreateBody({ ...latest(), harnessId: "claude-code" });
+      expect(body.prompt).toBe("start the task\n\ninline note");
+    } finally {
+      restore();
+    }
+  });
+
+  it("untouched, the create body carries no prompt field", async () => {
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE]);
+    try {
+      const { latest } = await renderForm();
+      fireEvent.change(document.querySelector("#picker-working-dir") as Element, { target: { value: "/x" } });
+      await settle();
+      const body = toSubshellCreateBody({ ...latest(), harnessId: "claude-code" });
+      expect(body.prompt).toBeUndefined();
     } finally {
       restore();
     }

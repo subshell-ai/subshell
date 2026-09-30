@@ -64,7 +64,13 @@ describe("subshell tokens", () => {
     };
     expect(res.valid).toBe(true);
     expect(res.key.metadata).toEqual({ kind: "subshell", subshellId: sid });
-    expect(res.key.permissions).toMatchObject({ channels: ["read", "write"], subshells: ["read", "write"] });
+    // EXACT map, not a subset: `prompts` arrived with the saved-prompt
+    // library (spec 2026-09-28), and this line is what notices a mint drift.
+    expect(res.key.permissions).toEqual({
+      channels: ["read", "write"],
+      subshells: ["read", "write"],
+      prompts: ["read", "write"],
+    });
   });
 
   it("revoke disables verification; extend keeps the key alive", async () => {

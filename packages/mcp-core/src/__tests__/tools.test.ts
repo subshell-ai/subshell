@@ -6,6 +6,7 @@ import { ApiError, SubshellApi } from "../api-client.js";
 import { postChannel, readChannel } from "../channel-tools.js";
 import { generateKeypair, open, seal } from "../crypto.js";
 import { reloadPinSettingsForTests } from "../pin-store.js";
+import { createPrompt, deletePrompt, getPrompt, listPrompts, updatePrompt } from "../prompt-tools.js";
 import {
   createSubshell,
   getSubshell,
@@ -666,5 +667,52 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     const message = describeToolError(err).message;
     expect(message).toContain("disabled or not installed");
     expect(message).toContain("list_nodes");
+  });
+});
+
+describe("prompt tools (spec 2026-09-28)", () => {
+  it("list_prompts projects the wire rows down to description + first-line preview", async () => {
+    const own = await generateKeypair();
+    const { api, calls } = fakeApi(() => ({
+      own: [{ id: "p1", description: "Kickoff", body: "line one\nline two\n", shared: false, updatedAt: "t" }],
+      shared: [{ id: "p2", description: "Theirs", body: "x".repeat(300), ownerName: "Bob", updatedAt: "t2" }],
+    }));
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    const res = await listPrompts(deps);
+    expect(calls[0]).toEqual({ path: "/api/prompts", method: "GET", body: undefined, query: undefined });
+    expect(res.own).toEqual([
+      { id: "p1", description: "Kickoff", bodyPreview: "line one", shared: false, updatedAt: "t" },
+    ]);
+    expect(res.shared[0].bodyPreview).toHaveLength(120); // sliced first line
+    expect(res.shared[0].ownerName).toBe("Bob");
+  });
+
+  it("get_prompt / create / update / delete ride the REST paths and bodies verbatim", async () => {
+    const own = await generateKeypair();
+    const { api, calls } = fakeApi((req) => (req.method === "GET" ? { id: "p1" } : { ok: true }));
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    await getPrompt(deps, { id: "p1" });
+    await createPrompt(deps, { description: "d", body: "b", shared: true });
+    await updatePrompt(deps, { id: "p1", body: "b2" });
+    await deletePrompt(deps, { id: "p1" });
+    expect(calls.map((c) => [c.method, c.path])).toEqual([
+      ["GET", "/api/prompts/p1"],
+      ["POST", "/api/prompts"],
+      ["PUT", "/api/prompts/p1"],
+      ["DELETE", "/api/prompts/p1"],
+    ]);
+    expect(calls[1].body).toEqual({ description: "d", body: "b", shared: true });
+    expect(calls[2].body).toEqual({ body: "b2" }); // id is path, not body
+  });
+
+  it("a scoped-down bearer answers through describeToolError like every other tool", async () => {
+    const own = await generateKeypair();
+    const { api } = fakeApi(() => {
+      throw new ApiError(403, "Forbidden", "FORBIDDEN");
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    expect(
+      describeToolError(await createPrompt(deps, { description: "d", body: "b" }).catch((e) => e)).message,
+    ).toContain("permission denied");
   });
 });

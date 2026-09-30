@@ -28,7 +28,9 @@ export async function issueSubshellToken(subshellId: string, userId: string): Pr
       metadata,
       // Least-privilege grants every subshell token carries; a fresh object
       // per call because the plugin treats it as mutable.
-      permissions: { channels: ["read", "write"], subshells: ["read", "write"] },
+      // `prompts` joined the map with the saved-prompt library (spec
+      // 2026-09-28); a pane may full-CRUD its OWNER's prompts over MCP.
+      permissions: { channels: ["read", "write"], subshells: ["read", "write"], prompts: ["read", "write"] },
     },
   })) as unknown as CreatedApiKey;
   await new SubshellsRepository(db).update(subshellId, { apiKeyId: created.id });

@@ -15,6 +15,7 @@ import { nodesRoutes } from "@/api/nodes/index.js";
 import { notificationsRoutes } from "@/api/notifications.route.js";
 import { pluginsRoutes } from "@/api/plugins.route.js";
 import { presetRoutes } from "@/api/presets.route.js";
+import { promptsRoutes } from "@/api/prompts.route.js";
 import { settingsRoutes } from "@/api/settings.route.js";
 import { instancePublicRoutes } from "@/api/settings-public.route.js";
 import { setupRoutes } from "@/api/setup.route.js";
@@ -65,6 +66,7 @@ const computeRoutes = new Elysia()
   .use(subshellRoutes)
   .use(uploadsRoutes)
   .use(presetRoutes)
+  .use(promptsRoutes)
   .use(filesRoutes)
   .use(workspaceRoutes)
   .use(nodesRoutes);

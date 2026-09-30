@@ -34,6 +34,13 @@ export function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.
  * content. The wrapper's negative margin absorbs the Popup's `p-6` so the
  * scroll area spans edge-to-edge, and its own `p-6` restores the padding —
  * the Popup itself never scrolls, so the X stays pinned.
+ *
+ * Both grid columns are `minmax(0,1fr)` (and the wrapper `min-w-0`). A grid
+ * track defaults to a content-sized `min-width:auto`, so one long untruncated
+ * line — a prompt's first line in the stack editor — would size the track past
+ * `max-w-lg` and spill the dialog sideways (with a `truncate`'d row's buttons
+ * pushed off the edge) instead of letting the row clip. `minmax(0,…)` lets the
+ * column shrink to the dialog width, which is what the ellipsis needs to bind.
  */
 export function DialogContent({ className, children, ...props }: DialogPrimitive.Popup.Props) {
   return (
@@ -42,12 +49,14 @@ export function DialogContent({ className, children, ...props }: DialogPrimitive
       <DialogPrimitive.Popup
         data-slot="dialog-content"
         className={cn(
-          "fixed top-[50%] left-[50%] z-50 grid w-[calc(100vw-1.5rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-card p-6 opacity-100 shadow-lg transition-[opacity,scale] duration-150 data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0 sm:w-full sm:rounded-lg",
+          "fixed top-[50%] left-[50%] z-50 grid w-[calc(100vw-1.5rem)] max-w-lg translate-x-[-50%] translate-y-[-50%] grid-cols-[minmax(0,1fr)] gap-4 border bg-card p-6 opacity-100 shadow-lg transition-[opacity,scale] duration-150 data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0 sm:w-full sm:rounded-lg",
           className,
         )}
         {...props}
       >
-        <div className="-m-6 grid max-h-[85dvh] gap-4 overflow-y-auto p-6">{children}</div>
+        <div className="-m-6 grid max-h-[85dvh] min-w-0 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto p-6">
+          {children}
+        </div>
         <DialogPrimitive.Close
           className="absolute top-4 right-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
           aria-label="Close"

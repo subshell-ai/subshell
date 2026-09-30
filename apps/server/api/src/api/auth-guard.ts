@@ -189,9 +189,21 @@ export interface PermContext {
  * fails `requirePerm(ctx, "channels", "write")`). Call it at the top of a
  * handler — it is cheap and synchronous.
  */
-export function requirePerm(ctx: PermContext, resource: "channels" | "subshells", action: "read" | "write"): void {
+export function requirePerm(
+  ctx: PermContext,
+  resource: "channels" | "subshells" | "prompts",
+  action: "read" | "write",
+): void {
   if (ctx.actor !== "subshell-key") return;
-  if (!(ctx.apiKeyPermissions?.[resource] ?? []).includes(action)) throw new ForbiddenError();
+  const grants = ctx.apiKeyPermissions?.[resource];
+  // One backward-compat concession (spec 2026-09-28 §Token scopes): a map
+  // minted BEFORE the prompts feature carries `channels` but no `prompts`
+  // key, and self-extension never re-mints it, so absence there predates the
+  // gate rather than declining it. A map carrying neither key is not a
+  // recognizable legacy shape and falls through to the deny below.
+  if (resource === "prompts" && grants === undefined && ctx.apiKeyPermissions && "channels" in ctx.apiKeyPermissions)
+    return;
+  if (!(grants ?? []).includes(action)) throw new ForbiddenError();
 }
 
 /**

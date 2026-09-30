@@ -17,6 +17,7 @@ import { Route as NodesRouteImport } from './routes/nodes'
 import { Route as PendingRouteImport } from './routes/pending'
 import { Route as PreferencesRouteImport } from './routes/preferences'
 import { Route as PresetsRouteImport } from './routes/presets'
+import { Route as PromptsRouteImport } from './routes/prompts'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as WorkspacesRouteImport } from './routes/workspaces'
@@ -74,6 +75,11 @@ const PreferencesRoute = PreferencesRouteImport.update({
 const PresetsRoute = PresetsRouteImport.update({
   id: '/presets',
   path: '/presets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PromptsRoute = PromptsRouteImport.update({
+  id: '/prompts',
+  path: '/prompts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -176,6 +182,7 @@ export interface FileRoutesByFullPath {
   '/pending': typeof PendingRoute
   '/preferences': typeof PreferencesRoute
   '/presets': typeof PresetsRoute
+  '/prompts': typeof PromptsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/workspaces': typeof WorkspacesRoute
@@ -204,6 +211,7 @@ export interface FileRoutesByTo {
   '/pending': typeof PendingRoute
   '/preferences': typeof PreferencesRoute
   '/presets': typeof PresetsRoute
+  '/prompts': typeof PromptsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/workspaces': typeof WorkspacesRoute
@@ -233,6 +241,7 @@ export interface FileRoutesById {
   '/pending': typeof PendingRoute
   '/preferences': typeof PreferencesRoute
   '/presets': typeof PresetsRoute
+  '/prompts': typeof PromptsRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
   '/workspaces': typeof WorkspacesRoute
@@ -263,6 +272,7 @@ export interface FileRouteTypes {
     | '/pending'
     | '/preferences'
     | '/presets'
+    | '/prompts'
     | '/settings'
     | '/setup'
     | '/workspaces'
@@ -291,6 +301,7 @@ export interface FileRouteTypes {
     | '/pending'
     | '/preferences'
     | '/presets'
+    | '/prompts'
     | '/settings'
     | '/setup'
     | '/workspaces'
@@ -319,6 +330,7 @@ export interface FileRouteTypes {
     | '/pending'
     | '/preferences'
     | '/presets'
+    | '/prompts'
     | '/settings'
     | '/setup'
     | '/workspaces'
@@ -348,6 +360,7 @@ export interface RootRouteChildren {
   PendingRoute: typeof PendingRoute
   PreferencesRoute: typeof PreferencesRoute
   PresetsRoute: typeof PresetsRoute
+  PromptsRoute: typeof PromptsRoute
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
   WorkspacesRoute: typeof WorkspacesRoute
@@ -424,6 +437,13 @@ declare module '@tanstack/react-router' {
       path: '/presets'
       fullPath: '/presets'
       preLoaderRoute: typeof PresetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prompts': {
+      id: '/prompts'
+      path: '/prompts'
+      fullPath: '/prompts'
+      preLoaderRoute: typeof PromptsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -564,6 +584,7 @@ const rootRouteChildren: RootRouteChildren = {
   PendingRoute: PendingRoute,
   PreferencesRoute: PreferencesRoute,
   PresetsRoute: PresetsRoute,
+  PromptsRoute: PromptsRoute,
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,
   WorkspacesRoute: WorkspacesRoute,

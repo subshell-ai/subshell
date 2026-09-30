@@ -46,6 +46,9 @@ export function LaunchSubshellDialog({
     setError(null);
     try {
       const created = await create.mutateAsync(form);
+      // A prompt that did not land announces itself through the hook's
+      // toast, across this navigation (spec 2026-09-28); the launch itself
+      // is a success and the subshell page is the right destination.
       onOpenChange(false);
       reset();
       void navigate({ to: "/subshells/$id", params: { id: created.id } });

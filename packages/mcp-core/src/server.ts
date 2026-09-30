@@ -19,6 +19,18 @@ import { readMcpEnv } from "./env.js";
 import { loadOrCreateIdentity } from "./identity-store.js";
 import { createChannel, joinChannel, listChannels, postChannel, readChannel } from "./channel-tools.js";
 import {
+  createPrompt,
+  CreatePromptToolSchema,
+  deletePrompt,
+  DeletePromptToolSchema,
+  getPrompt,
+  GetPromptToolSchema,
+  listPrompts,
+  ListPromptsToolSchema,
+  updatePrompt,
+  UpdatePromptToolSchema,
+} from "./prompt-tools.js";
+import {
   createSubshell,
   deleteSubshell,
   getSubshell,
@@ -263,6 +275,60 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
   );
   // No update_subshell_notes tool (spec 2026-09-03 follow-up): the operator
   // note feature was removed with its UI — a tool writing it had no reader.
+
+  // --- prompts (spec 2026-09-28) ---
+  server.registerTool(
+    "list_prompts",
+    {
+      title: "List prompts",
+      description:
+        "List the owner's saved prompts: own (with the shared flag) plus everyone else's shared ones. Each row carries a short label and a first-line preview; get_prompt returns the full text.",
+      inputSchema: ListPromptsToolSchema,
+    },
+    guard(() => listPrompts(deps)),
+  );
+  server.registerTool(
+    "get_prompt",
+    {
+      title: "Get prompt",
+      description: "Read one prompt in full by id (own rows always; others' rows only when shared).",
+      inputSchema: GetPromptToolSchema,
+    },
+    guard(({ id }: { id: string }) => getPrompt(deps, { id })),
+  );
+  server.registerTool(
+    "create_prompt",
+    {
+      title: "Create prompt",
+      description:
+        "Save a prompt to the owner's library with a required short description. shared: true publishes the text to every account on the instance, so leave it false unless asked.",
+      inputSchema: CreatePromptToolSchema,
+    },
+    guard(({ description, body, shared }: { description: string; body: string; shared?: boolean }) =>
+      createPrompt(deps, { description, body, shared }),
+    ),
+  );
+  server.registerTool(
+    "update_prompt",
+    {
+      title: "Update prompt",
+      description:
+        "Patch description, body, or shared on a prompt the owner owns. Setting shared true publishes the text to every account on the instance.",
+      inputSchema: UpdatePromptToolSchema,
+    },
+    guard(({ id, description, body, shared }: { id: string; description?: string; body?: string; shared?: boolean }) =>
+      updatePrompt(deps, { id, description, body, shared }),
+    ),
+  );
+  server.registerTool(
+    "delete_prompt",
+    {
+      title: "Delete prompt",
+      description: "Remove a prompt the owner owns. There is no undo.",
+      inputSchema: DeletePromptToolSchema,
+    },
+    guard(({ id }: { id: string }) => deletePrompt(deps, { id })),
+  );
 }
 
 /**
