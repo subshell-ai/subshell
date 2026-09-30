@@ -1,12 +1,7 @@
-import { SUBSHELL_REPO_SLUG, semverLt } from "@internal/subshell-protocol";
-import { DASH, MobilePair, RowRule, VersionCell } from "@/components/updates/row-cells";
+import { semverLt } from "@internal/subshell-protocol";
+import { DASH, MobilePair, RowRule, releasePageUrl, VersionCell } from "@/components/updates/row-cells";
 import { desktopShell } from "@/lib/desktop";
 import type { ReleaseRef, UpdatesView } from "@/types/updates";
-
-/** Where a release's own page lives, for the browser rows. */
-export function releasePageUrl(tag: string): string {
-  return `https://github.com/${SUBSHELL_REPO_SLUG}/releases/tag/${tag}`;
-}
 
 /**
  * The two desktop apps, and how a person updates the one they are in (spec §6).

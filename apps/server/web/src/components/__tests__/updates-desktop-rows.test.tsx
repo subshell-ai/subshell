@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
 import { updatesView } from "@/components/__tests__/helpers/updates-view";
-import { DesktopRows, releasePageUrl } from "@/components/updates/desktop-rows";
+import { DesktopRows } from "@/components/updates/desktop-rows";
+import { releasePageUrl } from "@/components/updates/row-cells";
 import { resetDesktopShellForTests } from "@/lib/desktop";
 
 /**
