@@ -243,7 +243,7 @@ export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
     deps.api.req<PresetsWireRow[]>("/api/presets"),
     deps.api.req<{ plugins: PluginWireRow[] }>("/api/plugins"),
   ]);
-  const presets = rows.map(({ id, name, harnessId, crossCommEnabled, nodeId, workingDir, promptBlocks }) => ({
+  const presets = rows.map(({ id, name, harnessId, crossCommEnabled, nodeId, workingDir }) => ({
     id,
     name,
     harnessId,

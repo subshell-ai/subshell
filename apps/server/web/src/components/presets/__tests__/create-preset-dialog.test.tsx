@@ -453,8 +453,8 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       await waitFor(() =>
         expect(m.calls.filter((c) => c.method === "POST" && c.url === "/api/presets")).toHaveLength(1),
       );
-      const post = m.calls.find((c) => c.method === "POST" && c.url === "/api/presets")!;
-      expect(post.body).toMatchObject({
+      const post = m.calls.find((c) => c.method === "POST" && c.url === "/api/presets");
+      expect(post?.body).toMatchObject({
         name: "cc-live",
         crossCommEnabled: true,
         nodeId: "a1",
