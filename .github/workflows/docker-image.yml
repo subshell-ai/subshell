@@ -77,10 +77,11 @@ jobs:
           if [ "$EVENT" = "workflow_dispatch" ]; then
             VERSION="$DISPATCH_VERSION"
           elif [ "$CONCLUSION" != "success" ] || [ "$BRANCH" != "main" ]; then
-            # A failed or off-main parent published nothing new.
+            # A failed or off-main parent published nothing new. Only the
+            # version comes out of THIS step: skip and move_latest belong to
+            # `decide` (the job's outputs map there, and the first chained
+            # run proved an empty skip lets a versionless build launch).
             echo "version=" >> "$GITHUB_OUTPUT"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "move_latest=false" >> "$GITHUB_OUTPUT"
             exit 0
           else
             VERSION=$(node -e 'process.stdout.write(require("./apps/server/api/package.json").version)')
@@ -103,7 +104,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$VERSION" ]; then
-            # The resolve step already emitted the skip triple.
+            # Failed/off-main parent (or any other empty-version path): skip,
+            # and never move :latest.
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "move_latest=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           if docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
@@ -141,7 +145,9 @@ jobs:
 
   build:
     needs: plan
-    if: needs.plan.outputs.skip != 'true'
+    # Belt and braces: skip must say so, AND a version must exist. The first
+    # chained run leaked past a skip-only gate with an empty version.
+    if: needs.plan.outputs.skip != 'true' && needs.plan.outputs.version != ''
     # One job per architecture, each on a NATIVE runner: the harness installers
     # run inside the image build and must execute real arm64/amd64 code.
     strategy:

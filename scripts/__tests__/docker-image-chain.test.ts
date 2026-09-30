@@ -25,6 +25,15 @@ describe("docker-image.yml chain", () => {
   test("a failed or off-main parent packages nothing", () => {
     expect(WORKFLOW).toMatch(/CONCLUSION" != "success"/);
     expect(WORKFLOW).toMatch(/BRANCH" != "main"/);
+    // The skip triple must come from `decide` alone: the job's outputs map
+    // there, and the first chained run let a versionless build launch
+    // because a failed-parent `skip=true` was written to resolve's outputs
+    // and never reached the gate.
+    const resolve = WORKFLOW.slice(WORKFLOW.indexOf("id: resolve"), WORKFLOW.indexOf("id: decide"));
+    expect(resolve).not.toMatch(/echo "skip=/);
+    // And build gates on BOTH the skip flag and a non-empty version.
+    const buildIf = WORKFLOW.match(/if: needs\.plan\.outputs\.skip[^\n]+/);
+    expect(buildIf?.[0]).toContain("version != ''");
   });
 
   test("the parent's own head commit is what gets read for the version", () => {
