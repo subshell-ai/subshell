@@ -462,7 +462,7 @@ function PromptsPage() {
     <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
       <PageHeader
         title="Prompts"
-        subtitle="Saved prompts you can drop into any subshell"
+        subtitle="Saved prompts for subshell injection"
         action={
           // One "New" (operator ruling 2026-09-29: the two-button pair read
           // as clutter). The dropdown carries the KIND choice; the per-view
