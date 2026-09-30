@@ -16,8 +16,11 @@ nor a sibling file's boot; and runner-wide cleanup cannot live in a preload
 package's `test` script. A bare `bun test` still runs serially - bun ignores
 a `parallel` key in `bunfig.toml [test]` (measured on 1.4.0 and 1.4.2), so
 the flag lives in the scripts only. `SUBSHELL_TEST_PARALLEL` overrides a
-package's default (CI pins 4 for its 4-core runners; 12 starved the web
-suite's timeouts there).
+package's width. CI instead sets `SUBSHELL_TEST_SERIAL=1`, which drops the
+flag entirely and adds `--retry=1`: the hosted container runs a fraction of
+its labelled cores and starves time-budgeted tests at every worker width, so
+CI gets the serial regime plus a shard matrix for speed (`--parallel=1` is
+NOT serial - it still isolates per file; omit the flag for serial).
 
 ## Guidelines
 
