@@ -157,7 +157,7 @@ describe("CreatePresetDialog — locked (launch form)", () => {
     const created: PresetRow[] = [];
     try {
       const { client } = await renderDialog({ lockedHarness: "claude-code", onCreated: (r) => created.push(r) });
-      const dialog = await screen.findByRole("dialog", { name: "New preset for Claude Code" });
+      const dialog = await screen.findByRole("dialog", { name: "New preset" });
       expect(
         screen.getByText(
           "Saved flags, env vars and restart policy. Every subshell you start with it launches Claude Code this way.",

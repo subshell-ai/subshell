@@ -91,11 +91,7 @@ export function CreatePresetDialog({
       <DialogContent className="sm:max-w-2xl" onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>
-            {initialForm !== undefined
-              ? "Clone preset"
-              : lock !== undefined
-                ? `New preset for ${lockedName}`
-                : "Create preset"}
+            {initialForm !== undefined ? "Clone preset" : lock !== undefined ? "New preset" : "Create preset"}
           </DialogTitle>
           <DialogDescription>
             Saved flags, env vars and restart policy.
