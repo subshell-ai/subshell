@@ -28,7 +28,7 @@ name: Test
 # 360-minute GitHub default is an outage either way.
 #
 # The suites are split into ten routed jobs (web / mobile / desktop /
-# server + node / packages / scripts / smoke / e2e, plus the two Rust ones:
+# server + node, in two --shard legs / packages / scripts / smoke / e2e, plus the two Rust ones:
 # the desktop-core crate and the desktop apps' src-tauri legs) rather than
 # one big run.
 # The single `Testing` job had become the place failures were hard to LOCATE —
@@ -395,9 +395,17 @@ jobs:
   # agent) are exactly what a red job needs telling apart. The name now says
   # which workspaces run, in the words the repo uses for them.
   test-server-node:
-    name: "Test: server + node"
+    name: "Test: server + node (shard ${{ matrix.shard }})"
     needs: plan
     if: needs.plan.outputs.server-node == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        # Issue #261: two legs run complementary `bun test --shard` halves of
+        # every filtered package. The committed .bun-test-timings.json makes
+        # the split by measured per-file duration rather than file count;
+        # regenerate it with `bun run test:timings`.
+        shard: ["1/2", "2/2"]
     runs-on: ubuntu-24.04
     container: ghcr.io/subshell-ai/desktop-builder:ubuntu24.04
     timeout-minutes: 20
@@ -464,8 +472,11 @@ jobs:
       - name: Build workspace packages
         run: bun run build
 
+      # Turbo's passthrough appends the args to each filtered package's test
+      # command, so BOTH legs together cover every file once
+      # (`bun test ... src --shard=1/2` here, `--shard=2/2` on the sibling).
       - name: Run server and node tests
-        run: bunx turbo run test --continue --filter=@internal/server --filter=@internal/node
+        run: bunx turbo run test --continue --filter=@internal/server --filter=@internal/node -- --shard=${{ matrix.shard }} --timings="$GITHUB_WORKSPACE/.bun-test-timings.json"
 
       - name: Un-root the workspace
         if: always()
