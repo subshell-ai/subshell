@@ -101,7 +101,7 @@
     },
     "apps/docs": {
       "name": "@internal/docs",
-      "version": "0.5.3",
+      "version": "0.5.4",
       "dependencies": {
         "fumadocs-core": "16.15.11",
         "fumadocs-mdx": "15.4.1",
@@ -176,7 +176,7 @@
     },
     "apps/server/api": {
       "name": "@internal/server",
-      "version": "1.5.0",
+      "version": "1.6.0",
       "dependencies": {
         "@better-auth/api-key": "1.7.1",
         "@better-auth/passkey": "1.7.1",
@@ -305,7 +305,7 @@
     },
     "apps/website": {
       "name": "@internal/website",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "dependencies": {
         "@internal/subshell-protocol": "workspace:*",
         "class-variance-authority": "0.7.1",

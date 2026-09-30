@@ -1,5 +1,13 @@
 # @internal/server
 
+## 1.6.0
+
+### Minor Changes
+
+- [#273](https://github.com/subshell-ai/subshell/pull/273) [`53c9e33`](https://github.com/subshell-ai/subshell/commit/53c9e339b4fe23029b84d56accc3a9aa40cd5f9b) Thanks [@theogravity](https://github.com/theogravity)! - Docker release image and Proxmox LXC rails: a signed-release GHCR image (tmux + the five harness CLIs, per-install secret minted at first boot), the proxmox-server.sh host helper with install/update verbs, a proxmox-node.sh helper whose container enrolls as a node through the instance's own setup-keyed rail, and an update rail that names the image as the unit of update inside containers (UPDATE_CONTAINERIZED, the containerized deployment fact, and `update --check` reporting it).
+
+- [`c98f29e`](https://github.com/subshell-ai/subshell/commit/c98f29e3e8e945aef6f7a880e376c485aac790ff) Thanks [@theogravity](https://github.com/theogravity)! - Prompts library and prompt stacks: saved prompts with share-everyone flips, ordered stacks saved as one launchable unit, the All / Single / Stacked page with the "In N stacks" disclosure, a recently-used picker memory, and copy-settings categories (Active / Recently terminated, three each) in the new-pane form.
+
 ## 1.5.0
 
 ### Minor Changes
