@@ -120,7 +120,7 @@ export function StackFormDialog({
           <form.Field name="blocks">
             {(field) => (
               <div className="space-y-2">
-                <Label id={membersLabelId}>Members</Label>
+                <Label id={membersLabelId}>Prompts</Label>
                 {field.state.value.length > 0 && (
                   <PromptStackList
                     labelledBy={membersLabelId}
