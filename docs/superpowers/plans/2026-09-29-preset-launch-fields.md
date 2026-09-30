@@ -115,9 +115,9 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 
 **Files:** `apps/server/web/docs/presets-system.md` (three fields + cross-comm rule + badge), `apps/server/web/AGENTS.md` (preset paragraph), `packages/mcp-core` README/description already task-4'd, `.changeset/*.md` (minor bump for `@internal/subshell-protocol`, `@internal/mcp-core`, server/web per repo convention - check recent changesets), this plan checked off.
 
-- [ ] **Step 1:** write docs + changeset; full `bun run verify-types && bun run lint:check && bun run lint:prose && bun run test`; `bunx turbo build`.
-- [ ] **Step 2:** code-reviewer agent on the saved diff (read-only, from a /tmp diff file); fix findings; repeat rounds until a clean pass (memory: review until clean).
-- [ ] **Step 3:** commit; then finishing-a-development-branch skill (normal repo: 4 options).
+- [x] **Step 1:** write docs + changeset; full `bun run verify-types && bun run lint:check && bun run lint:prose && bun run test`; `bunx turbo build`.
+- [x] **Step 2:** code-reviewer agent on the saved diff (read-only, from a /tmp diff file); fix findings; repeat rounds until a clean pass (memory: review until clean).
+- [x] **Step 3:** commit; then finishing-a-development-branch skill (normal repo: 4 options).
 
 ## Deviations (recorded at Task 8's review)
 
