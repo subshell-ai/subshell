@@ -4,9 +4,9 @@
 
 **Goal:** Make `bun test` run files in parallel (issue #261): fix the hazards that break under `--parallel`, then set `parallel = N` in every package's `bunfig.toml`, then shard CI's longest test job.
 
-**Architecture:** Bun 1.4.0's `bun test --parallel=N` runs each test file in a worker process with a **fresh module registry per file** (measured; serial mode shares one cache across files). A preload-registered `afterAll` fires once per run serially but **once per file** under parallel (measured). Two existing test-infrastructure behaviors rely on the serial facts and must be fixed first: the `server/api` tmux sweep (kills sibling workers' panes) and 14 suites that reach SQLite tables without ever running migrations (they ride another file's boot).
+**Architecture:** Bun's `bun test --parallel=N` runs each test file in a worker process with a **fresh module registry per file** (measured on 1.4.0 and 1.4.2; serial mode shares one cache across files). A preload-registered `afterAll` fires once per run serially but **once per file** under parallel (measured). Two existing test-infrastructure behaviors rely on the serial facts and must be fixed first: the `server/api` tmux sweep (kills sibling workers' panes) and 14 suites that reach SQLite tables without ever running migrations (they ride another file's boot).
 
-**Tech Stack:** Bun 1.4.0 (`bun test`, `bunfig.toml [test]`), Kysely + bun:sqlite, better-auth, turbo 2.x, GitHub Actions.
+**Tech Stack:** Bun 1.4.2 (upgraded from 1.4.0 during implementation; CI's builder image already had 1.4.2), Kysely + bun:sqlite, better-auth, turbo 2.x, GitHub Actions.
 
 **Spec:** `docs/superpowers/specs/2026-09-29-parallel-tests-design.md`
 
@@ -198,13 +198,22 @@ git add apps/server/api/scripts/test-run.sh apps/server/api/package.json apps/se
 git commit -m "test(server): move the tmux kill-all sweep to the run script (parallel-safe)"
 ```
 
-### Task 3: flip `parallel` in every package's `bunfig.toml`
+### Task 3: flip `parallel` in every package's `test` script
 
-`bunfig.toml` over a script flag because it reaches `bun run test`, `turbo test`, AND a bare hand-typed `bun test` - the same reason the preloads live there. `--parallel` implies `--isolate` (fresh module registry per file), which Task 1's suites now assume.
+> **Correction during execution (2026-09-29):** the plan originally put
+> `parallel = N` in each package's `bunfig.toml` (so a bare `bun test` would
+> get it too). Measured on bun 1.4.0 AND re-measured on 1.4.2: bun SILENTLY
+> IGNORES a `parallel` key in bunfig's `[test]` - no PARALLEL banner, serial
+> timings - and https://bun.com/docs/test documents `parallel` only as a CLI
+> flag. The flag therefore lives in the `test` scripts (inside
+> `apps/server/api/scripts/test-run.sh` for the server); a bare hand-typed
+> `bun test` stays serial, which is the safe default. `--parallel` implies
+> `--isolate` (fresh module registry per file), which Task 1's suites now
+> assume.
 
-**Files (modify existing bunfig; create where absent):**
-- `parallel = 12`: `apps/server/api/bunfig.toml`, `apps/server/web/bunfig.toml`, `apps/node/agent/bunfig.toml`
-- `parallel = 4` (create a bare file if none exists): `packages/pane-runtime/`, `apps/node/web/`, `apps/website/`, `packages/assistant/`, `packages/node-admin/`, `apps/client/desktop/` AND `apps/client/desktop/ui/`, `apps/server/desktop/` AND `apps/server/desktop/ui/`, `apps/client/mobile/`, `apps/docs/`, `packages/backend-errors/`, `packages/mcp-core/`, `packages/plugin-api/`, `packages/subshell-protocol/`, every `packages/plugins/<name>/` (10 of them)
+**Files (the `test` entry of every package.json that runs `bun test`, plus `apps/server/api/scripts/test-run.sh`):**
+- `--parallel=12`: `apps/server/api` (in `test-run.sh`), `apps/server/web`, `apps/node/agent`
+- `--parallel=4`: the remaining 22 packages. For the two desktop apps the flag goes at the END of each half (`... src --parallel=4 && cd ui && bun test --parallel=4`) because `apps/server/desktop/ui/src/__tests__/tauri-config.test.ts` pins the exact `bun test --path-ignore-patterns "**/ui/**" src` string.
 
 **Interfaces:**
 - Consumes: Tasks 1-2 (server/api is only safe after both).

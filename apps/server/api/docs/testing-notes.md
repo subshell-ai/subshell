@@ -1,31 +1,40 @@
-# Testing internals: why the tmux reaper, the 30 s timeout and turbo dependsOn are shaped this way. Moved verbatim from AGENTS.md ("Testing"); AGENTS.md keeps the rules and routes here.
+# Testing internals: why the tmux reaper, the per-file database, the 30 s timeout and turbo dependsOn are shaped this way. Moved verbatim from AGENTS.md ("Testing"); AGENTS.md keeps the rules and routes here.
 
-**A run reaps its own tmux servers, and that net lives in the `test` script,
-not the preload.** The script prefixes `TMUX_TMPDIR=$(mktemp -d
-/tmp/subshell-test-tmux-XXXXXX)`; tmux resolves `-L <name>` under it, so the
-preload's `afterAll` can `kill-server` exactly what this run started by
-listing a directory, and a concurrent run's panes are outside it. What leaks
-without it is not a socket file but a live harness: measured 2026-09-14, 17
-real `claude` panes at ~220 MB each were alive on a developer's machine, the
-oldest a day old, one per full `bun test` since, from
-`subshells-local-launch-off.test.ts`, which asserted `not 403 / not 404` on a
-create and got a 409 on CI (no claude) and a genuine 200 on a dev box. That
-suite now pins `CLAUDE_PATH` at a path that does not exist, which is the real
-fix; this is the net under it, for the leak classes a per-file `afterAll`
-cannot catch (a launch that throws before its socket is registered, a file
-with no reaper, a timeout that ends a file before its hooks).
+**A run reaps its own tmux servers, and that net lives in the script that
+wraps the `test` command (`scripts/test-run.sh`), not the preload.** The
+script mktemps the run's `TMUX_TMPDIR=/tmp/subshell-test-tmux-XXXXXX`
+namespace, runs `bun test` with it, and after `bun test` exits
+`kill-server`s every socket under it and removes the directory; tmux
+resolves `-L <name>` under the variable, so "what this run started" is a
+directory listing, and a concurrent run's panes are outside it. Until
+issue #261 the sweep itself sat in the preload's `afterAll`. That moved
+because of a second measured fact (bun 1.4.0): a preload `afterAll` fires
+once per run serially, but after EVERY file under `--parallel`. A
+directory-scoped sweep there would kill the panes of sibling workers still
+mid-suite. The script outlives every worker, so it owns the kill. What
+leaks without the net is not a socket file but a live harness: measured
+2026-09-14, 17 real `claude` panes at ~220 MB each were alive on a
+developer's machine, the oldest a day old, one per full `bun test` since,
+from `subshells-local-launch-off.test.ts`, which asserted `not 403 / not
+404` on a create and got a 409 on CI (no claude) and a genuine 200 on a dev
+box. That suite now pins `CLAUDE_PATH` at a path that does not exist, which
+is the real fix; the net is under it, for the leak classes a per-file
+`afterAll` cannot catch (a launch that throws before its socket is
+registered, a file with no reaper, a timeout that ends a file before its
+hooks).
 
 Two measured facts fix WHERE the variable is set. A child does not see a
 `process.env` written after startup (bun 1.4.2): Bun hands a spawned process
 the environment this one was STARTED with, so setting it in the preload
 reaches `tmuxSocketPath()` in-process and not the tmux client; the socket
 would land in `/tmp` while `cleanSocket` unlinked a path in the temp dir,
-which is worse than no net. And `/tmp` rather than `$TMPDIR`: on macOS the
-latter is a ~49-byte `/var/folders/...` path against a 104-byte socket-path
-cap, so the derived socket lands within a few bytes of tmux's bare "File name
-too long". A bare hand-typed `bun test` sets no such variable and gets no
-net, correctly, since it also gets the shared default socket dir, where
-killing anything would reach panes this run never started.
+which is worse than no net. The script sets it before `bun test` starts, so
+every worker and every child inherits it. And `/tmp` rather than `$TMPDIR`:
+on macOS the latter is a ~49-byte `/var/folders/...` path against a 104-byte
+socket-path cap, so the derived socket lands within a few bytes of tmux's
+bare "File name too long". A bare hand-typed `bun test` sets no such
+variable and gets no net, correctly, since it also gets the shared default
+socket dir, where killing anything would reach panes this run never started.
 
 **The net covers this package only.** `packages/pane-runtime` and
 `apps/node/agent` also spawn real tmux and run a bare `bun test`, so nothing
@@ -38,8 +47,9 @@ extending the variable to those packages is a change to how their sockets are
 named, not a line of cleanup.
 
 **The `--timeout 30000` in the `test` script is measured, not caution.**
-This package's suites set up against that shared DB through migrations and
-better-auth table creation, and bun's 5000 ms per-test/hook default blew
+This package's suites set up against that temp DB through migrations and
+better-auth table creation (each file's own DB under `--parallel`), and
+bun's 5000 ms per-test/hook default blew
 three times in three CI runs, each time in a different file, which is the
 signature of load, not of a bug: the auth-registration `beforeAll` at
 8830 ms (run 34581907693), the heaviest `default-profiles` case (suite since
@@ -67,7 +77,12 @@ correct and this package now inherits it.
 
 ## The testing history this replaced (moved from AGENTS.md "Testing")
 
-All test files within one invocation share that DB, so suites must not
-assume it starts empty. Tests never touch `data/`. (It used to be the URI string `file::memory:?cache=shared`, but
+Serial `bun test` (one process, shared module cache) gives every file the
+same DB, so a suite may never assume it starts empty; under the `test`
+script's `--parallel=12` the opposite holds, every file gets a fresh module
+registry and its own DB file, so a suite may never assume another file's
+migrations happened either - DB-touching suites call
+`@/__tests__/helpers/test-database.js` explicitly. Tests never touch
+`data/`. (The path used to be the URI string `file::memory:?cache=shared`, but
 Bun treats URI strings as file names; every suite was sharing one literal
 CWD file.)
