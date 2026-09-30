@@ -1,6 +1,7 @@
 import { cn, Input } from "@internal/node-admin";
 import { type JSX, useEffect, useRef, useState } from "react";
 import { NAME_MAX_DEFAULT } from "@/lib/name-limits";
+import { REQUIREMENT_GAP_CLASS } from "@/lib/requirement-tone";
 
 /**
  * One line of metadata that edits itself in place: it reads as text, becomes
@@ -42,7 +43,10 @@ export function EditableText({
 }): JSX.Element {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
-  const [error, setError] = useState<string | null>(null);
+  // `{ text, gap }`: an empty commit is an UNMET REQUIREMENT (amber, the
+  // one caption tone across forms); a too-long draft or the server's refusal
+  // is a FAILED value and keeps `text-destructive`.
+  const [error, setError] = useState<{ text: string; gap?: boolean } | null>(null);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -71,7 +75,7 @@ export function EditableText({
     // anyway, through the rejection below. Importing `normalizeNodeName` into this
     // shared component would have the workspace form refuse by the node's rule.
     if (!next) {
-      setError("A name is required");
+      setError({ text: "A name is required", gap: true });
       return;
     }
     // The cap the ENTITY's rule sets, in the unit that rule counts. `maxLength` is
@@ -81,11 +85,11 @@ export function EditableText({
     // characters. A name within `maxChars` is always within twice its units, so the
     // two never both have an opinion about the same commit.
     if (maxChars !== undefined && [...next].length > maxChars) {
-      setError(`Keep it under ${maxChars} characters`);
+      setError({ text: `Keep it under ${maxChars} characters` });
       return;
     }
     if (next.length > maxLength) {
-      setError(`Keep it under ${maxLength} characters`);
+      setError({ text: `Keep it under ${maxLength} characters` });
       return;
     }
     setSaving(true);
@@ -94,7 +98,7 @@ export function EditableText({
       await onSave(next);
       cancel();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
+      setError({ text: err instanceof Error ? err.message : "Failed to save" });
     } finally {
       setSaving(false);
     }
@@ -141,7 +145,11 @@ export function EditableText({
         }}
         className={cn("h-7", className, inputClassName)}
       />
-      {error && <span className="shrink-0 text-destructive text-detail">{error}</span>}
+      {error && (
+        <span className={cn("shrink-0", error.gap ? REQUIREMENT_GAP_CLASS : "text-destructive text-detail")}>
+          {error.text}
+        </span>
+      )}
     </span>
   );
 }

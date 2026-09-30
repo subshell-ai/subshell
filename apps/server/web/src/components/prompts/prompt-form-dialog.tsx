@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useCreatePrompt, useUpdatePrompt } from "@/hooks/use-prompts";
 import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
 import { type PromptDraft, promptDraftSchema } from "@/lib/prompt-form";
+import { REQUIREMENT_GAP_CLASS } from "@/lib/requirement-tone";
 
 /**
  * Add or edit a saved prompt (spec 2026-09-28): the description is required
@@ -86,7 +87,7 @@ export function PromptFormDialog({
                   onBlur={field.handleBlur}
                 />
                 {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className="text-destructive text-detail">
+                  <p role="alert" className={REQUIREMENT_GAP_CLASS}>
                     {fieldError(field.state.meta.errors)}
                   </p>
                 )}
@@ -106,7 +107,7 @@ export function PromptFormDialog({
                   onBlur={field.handleBlur}
                 />
                 {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className="text-destructive text-detail">
+                  <p role="alert" className={REQUIREMENT_GAP_CLASS}>
                     {fieldError(field.state.meta.errors)}
                   </p>
                 )}

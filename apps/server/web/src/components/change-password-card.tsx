@@ -4,6 +4,7 @@ import { z } from "zod";
 import { authClient } from "@/lib/auth-client";
 import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
 import { MIN_PASSWORD_LENGTH, PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
+import { REQUIREMENT_GAP_CLASS } from "@/lib/requirement-tone";
 
 /**
  * Change-password as a standalone card (spec 2026-09-02 settings-split §1.2)
@@ -99,7 +100,7 @@ export function ChangePasswordCard() {
                   onBlur={field.handleBlur}
                 />
                 {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className="text-destructive text-detail">
+                  <p role="alert" className={REQUIREMENT_GAP_CLASS}>
                     {fieldError(field.state.meta.errors)}
                   </p>
                 )}

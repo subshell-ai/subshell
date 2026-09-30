@@ -10,6 +10,7 @@ import { useHarnessSchema } from "@/hooks/use-harness-schema";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { parseEnvPaste, parseFlagsPaste } from "@/lib/preset-command";
 import type { PresetFormValue } from "@/lib/preset-form";
+import { REQUIREMENT_GAP_CLASS } from "@/lib/requirement-tone";
 import { buildAgentOptions } from "@/lib/subshell-compat";
 
 /**
@@ -209,9 +210,7 @@ export function PresetFields({
             {/* Save is gated on this (a blank name is refused server-side too);
                 the caption wears the same amber as the cross-comm gap rows:
                 every unfilled requirement reads alike (operator, 2026-09-30). */}
-            {value.name.trim() === "" && (
-              <p className="text-amber-600 text-detail dark:text-amber-400">A name is required.</p>
-            )}
+            {value.name.trim() === "" && <p className={REQUIREMENT_GAP_CLASS}>A name is required.</p>}
           </div>
           {/* TWO VIEWS OF ONE SET OF VALUES. The rows are the state either
               way, so switching is free and lossless: paste a command and the

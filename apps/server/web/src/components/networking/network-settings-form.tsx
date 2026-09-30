@@ -2,6 +2,7 @@ import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
 import { useEffect, useState } from "react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { NetworkSettingsError, type NetworkSettingsIssue, useUpdateNetworkSettings } from "@/hooks/use-network";
+import { REQUIREMENT_GAP_CLASS } from "@/lib/requirement-tone";
 import type { NetworkRow, SettingsFieldWire } from "@/types/network";
 
 /**
@@ -265,7 +266,7 @@ export function NetworkSettingsForm({
                 complaints do. Named for the visible label so the sentence ties
                 back to the control on screen. */}
             {isRequiredMissing(field) && focusedKey !== field.key && !problem && (
-              <p className="text-destructive text-detail">{field.label} is required.</p>
+              <p className={REQUIREMENT_GAP_CLASS}>{field.label} is required.</p>
             )}
             {problem && <p className="text-destructive text-detail">{problem}</p>}
           </div>

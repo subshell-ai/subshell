@@ -12,9 +12,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useCreatePromptStack, useUpdatePromptStack } from "@/hooks/use-prompts";
-import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
 import { movePromptBlock, newPromptLocalId, type PromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import { makePromptStackSchema, stackMembersFromBlocks } from "@/lib/prompt-stack-form";
+import { REQUIREMENT_GAP_CLASS } from "@/lib/requirement-tone";
 
 /**
  * Add or edit a prompt stack (spec 2026-09-29). The editor is the launch
@@ -101,11 +102,17 @@ export function StackFormDialog({
                   onChange={(e) => field.handleChange(e.target.value)}
                   onBlur={field.handleBlur}
                 />
-                {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className="text-destructive text-detail">
-                    {fieldError(field.state.meta.errors)}
-                  </p>
-                )}
+                {field.state.meta.isTouched &&
+                  (() => {
+                    const shown = fieldErrorToned(field.state.meta.errors);
+                    return (
+                      shown && (
+                        <p role="alert" className={shown.gap ? REQUIREMENT_GAP_CLASS : "text-destructive text-detail"}>
+                          {shown.text}
+                        </p>
+                      )
+                    );
+                  })()}
               </div>
             )}
           </form.Field>
@@ -140,11 +147,19 @@ export function StackFormDialog({
                     <Plus /> Add prompt
                   </Button>
                 )}
-                {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className="text-destructive text-detail">
-                    {fieldError(field.state.meta.errors)}
-                  </p>
-                )}
+                {field.state.meta.isTouched &&
+                  (() => {
+                    // One slot, two kinds: "needs at least one prompt" is the
+                    // gap amber; the joined-cap sentence is a failed value.
+                    const shown = fieldErrorToned(field.state.meta.errors);
+                    return (
+                      shown && (
+                        <p role="alert" className={shown.gap ? REQUIREMENT_GAP_CLASS : "text-destructive text-detail"}>
+                          {shown.text}
+                        </p>
+                      )
+                    );
+                  })()}
               </div>
             )}
           </form.Field>
