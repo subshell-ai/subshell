@@ -112,49 +112,38 @@ export function PresetLaunchFields({
           nodeName={selectedNode?.name}
         />
       </div>
-      <div className="space-y-2">
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id="preset-launch-prompt"
-            checked={value.promptEnabled}
-            onChange={(e) => onChange({ ...value, promptEnabled: e.target.checked })}
-            className="h-4 w-4 rounded border border-input bg-background accent-primary"
+      {/* The stack shows itself behind a divider (operator ruling 2026-09-30):
+          as a checkbox it was too easy to miss, and a checked box that HIDES
+          the add button made the feature look finished when it was empty. */}
+      <div className="space-y-2 border-t pt-3">
+        <p className="font-strong text-sm leading-none">Add prompts</p>
+        <p className="text-detail text-muted-foreground">Prompts to inject on subshell creation.</p>
+        {value.promptBlocks.length > 0 && (
+          <PromptStackList
+            blocks={value.promptBlocks}
+            onReorder={(localId, dir) =>
+              onChange({ ...value, promptBlocks: movePromptBlock(value.promptBlocks, localId, dir) })
+            }
+            onRemove={(localId) => onChange({ ...value, promptBlocks: removePromptBlock(value.promptBlocks, localId) })}
           />
-          <Label htmlFor="preset-launch-prompt">Add a prompt</Label>
-        </div>
-        {value.promptEnabled && (
-          <>
-            {value.promptBlocks.length > 0 && (
-              <PromptStackList
-                blocks={value.promptBlocks}
-                onReorder={(localId, dir) =>
-                  onChange({ ...value, promptBlocks: movePromptBlock(value.promptBlocks, localId, dir) })
-                }
-                onRemove={(localId) =>
-                  onChange({ ...value, promptBlocks: removePromptBlock(value.promptBlocks, localId) })
-                }
-              />
-            )}
-            {pickerOpen ? (
-              <div className="rounded-lg border p-3">
-                <PromptPickerBody
-                  surface="inline"
-                  mode="multi"
-                  draftScope={draftScope}
-                  onPick={(block) => {
-                    onChange({ ...value, promptBlocks: [...value.promptBlocks, block] });
-                    setPickerOpen(false);
-                  }}
-                  onExit={() => setPickerOpen(false)}
-                />
-              </div>
-            ) : (
-              <Button type="button" variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
-                <Plus /> Add prompt
-              </Button>
-            )}
-          </>
+        )}
+        {pickerOpen ? (
+          <div className="rounded-lg border p-3">
+            <PromptPickerBody
+              surface="inline"
+              mode="multi"
+              draftScope={draftScope}
+              onPick={(block) => {
+                onChange({ ...value, promptBlocks: [...value.promptBlocks, block] });
+                setPickerOpen(false);
+              }}
+              onExit={() => setPickerOpen(false)}
+            />
+          </div>
+        ) : (
+          <Button type="button" variant="outline" size="sm" onClick={() => setPickerOpen(true)}>
+            <Plus /> Add prompt
+          </Button>
         )}
       </div>
       {/* Cross-subshell comms (migration 0043): the readiness fact is an OPT-IN

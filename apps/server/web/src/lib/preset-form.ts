@@ -43,9 +43,9 @@ export interface PresetFormValue {
   nodeId: string | null;
   /** Optional absolute working directory; "" = names none (edited as text). */
   workingDir: string;
-  /** The launch form's "Add a prompt" posture, mirrored on the preset. */
-  promptEnabled: boolean;
-  /** The stacked blocks (form-local ids included; dropped on submit). */
+  /** The stacked blocks (form-local ids included; dropped on submit). The
+   *  editor shows this section always (2026-09-30 ruling); the stack itself
+   *  is the posture - there is no separate enabled flag. */
   promptBlocks: PromptBlock[];
 }
 
@@ -70,7 +70,6 @@ export function emptyPresetForm(): PresetFormValue {
     crossCommEnabled: false,
     nodeId: null,
     workingDir: "",
-    promptEnabled: false,
     promptBlocks: [],
   };
 }
@@ -110,19 +109,8 @@ export function presetFormFromRow(row: PresetRow): PresetFormValue {
     crossCommEnabled: row.crossCommEnabled === 1,
     nodeId: row.nodeId,
     workingDir: row.workingDir ?? "",
-    // A stored stack turns the checkbox on by itself: reopening a preset that
-    // carries a prompt shows the prompt.
-    promptEnabled: promptBlocks.length > 0,
     promptBlocks,
   };
-}
-
-/**
- * A checkbox that is on but holds nothing is NOT a prompt: the payload only
- * carries blocks when both the box is checked and at least one exists.
- */
-export function presetFormPromptBlocks(form: PresetFormValue): PromptBlock[] {
-  return form.promptEnabled ? form.promptBlocks : [];
 }
 
 /**
@@ -239,7 +227,7 @@ export function toPresetPayload(form: PresetFormValue): PresetPayload {
     crossCommEnabled: form.crossCommEnabled,
     nodeId: form.nodeId,
     workingDir: form.workingDir.trim() || null,
-    promptBlocks: presetBlocksToWire(presetFormPromptBlocks(form)),
+    promptBlocks: presetBlocksToWire(form.promptBlocks),
   };
 }
 
@@ -290,7 +278,7 @@ export function toPresetUpdatePayload(form: PresetFormValue): PresetUpdatePayloa
     // cleared field impossible to save away.
     nodeId: form.nodeId,
     workingDir: form.workingDir.trim() || null,
-    promptBlocks: presetBlocksToWire(presetFormPromptBlocks(form)),
+    promptBlocks: presetBlocksToWire(form.promptBlocks),
   };
 }
 

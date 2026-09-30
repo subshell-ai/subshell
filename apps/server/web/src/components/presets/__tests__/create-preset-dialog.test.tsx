@@ -311,7 +311,11 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       const dialog = await screen.findByRole("dialog");
       expect(dialog.querySelector("#preset-launch-node")).toBeDefined();
       expect(within(dialog).getByText("Working directory")).toBeDefined();
-      expect(within(dialog).getByText("Add a prompt")).toBeDefined();
+      // The stack section stands on its own behind the divider: titled,
+      // described, with the add button visible WITHOUT any checkbox first.
+      expect(within(dialog).getByText("Add prompts")).toBeDefined();
+      expect(within(dialog).getByText("Prompts to inject on subshell creation.")).toBeDefined();
+      expect(within(dialog).getByRole("button", { name: "Add prompt" })).toBeDefined();
       // The empty directory reads as a choice, exactly like the Machine
       // select's "Decide at launch" empty state.
       expect((dialog.querySelector("#preset-launch-dir") as HTMLInputElement).placeholder).toBe("Decide at launch");
@@ -337,7 +341,6 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       fireEvent.change(dialog.querySelector("#preset-launch-dir") as HTMLInputElement, {
         target: { value: "/srv/app" },
       });
-      fireEvent.click(within(dialog).getByText("Add a prompt"));
       fireEvent.click(within(dialog).getByRole("button", { name: "Add prompt" }));
       fireEvent.click(await within(dialog).findByRole("button", { name: /Write your own/ }));
       fireEvent.change(within(dialog).getByPlaceholderText("The text to type into the pane"), {
@@ -503,13 +506,13 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
     expect(closed).toEqual([false]);
   });
 
-  it("checking Add a prompt opens the stack and the picker button", async () => {
+  it("the always-shown Add prompt button opens the picker", async () => {
     const m = mockFetch();
     try {
       await renderDialog({ lockedHarness: "claude-code" });
       const dialog = await screen.findByRole("dialog");
-      fireEvent.click(within(dialog).getByText("Add a prompt"));
-      expect(within(dialog).getByRole("button", { name: "Add prompt" })).toBeDefined();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Add prompt" }));
+      await within(dialog).findByRole("button", { name: /Write your own/ });
     } finally {
       m.restore();
     }

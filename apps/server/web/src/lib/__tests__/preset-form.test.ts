@@ -49,7 +49,6 @@ describe("emptyPresetForm", () => {
       // just settings until someone says where and with what.
       nodeId: null,
       workingDir: "",
-      promptEnabled: false,
       promptBlocks: [],
     });
   });
@@ -86,7 +85,6 @@ describe("presetFormFromRow", () => {
       crossCommEnabled: false,
       nodeId: null,
       workingDir: "",
-      promptEnabled: false,
       promptBlocks: [],
     });
   });
@@ -177,7 +175,6 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
     crossCommEnabled: false,
     nodeId: null,
     workingDir: "",
-    promptEnabled: false,
     promptBlocks: [],
   };
 
@@ -274,7 +271,6 @@ const toPresetForm: PresetFormValue = {
   crossCommEnabled: false,
   nodeId: null,
   workingDir: "",
-  promptEnabled: false,
   promptBlocks: [],
 };
 
@@ -288,8 +284,8 @@ describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
     const form = presetFormFromRow({ ...baseRow, nodeId: "n1", workingDir: "/srv/app", promptBlocks: wire });
     expect(form.nodeId).toBe("n1");
     expect(form.workingDir).toBe("/srv/app");
-    // A stored stack opens the checkbox by itself.
-    expect(form.promptEnabled).toBe(true);
+    // A stored stack opens as a stack: the section is always the stack.
+    expect(form.promptBlocks.length).toBe(2);
     expect(form.promptBlocks.map(({ localId: _id, ...rest }) => rest)).toEqual(JSON.parse(wire));
     const payload = toPresetPayload(form);
     expect(payload.nodeId).toBe("n1");
@@ -300,10 +296,10 @@ describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
 
   const blocks: PromptBlock[] = [{ localId: "x", kind: "custom", description: "", body: "hi" }];
 
-  it("an unchecked box drops the blocks; a checked empty box sends nothing", () => {
-    const withBlocks: PresetFormValue = { ...toPresetForm, promptEnabled: true, promptBlocks: blocks };
-    expect(toPresetPayload({ ...withBlocks, promptEnabled: false }).promptBlocks).toBeNull();
-    expect(toPresetPayload({ ...withBlocks, promptBlocks: [] }).promptBlocks).toBeNull();
+  it("the stack is the posture: blocks ride the payload, an empty stack sends null", () => {
+    const withBlocks: PresetFormValue = { ...toPresetForm, promptBlocks: blocks };
+    expect(toPresetPayload(withBlocks).promptBlocks).toEqual([{ kind: "custom", description: "", body: "hi" }]);
+    expect(toPresetPayload({ ...toPresetForm, promptBlocks: [] }).promptBlocks).toBeNull();
   });
 
   it("a relative dir saves as-is and the server owns the refusal; blank saves as null", () => {
@@ -320,7 +316,6 @@ describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
         crossCommEnabled: true,
         nodeId: "n1",
         workingDir: "/srv",
-        promptEnabled: true,
         promptBlocks: [{ localId: "b", kind: "custom", description: "", body: "go" }],
       }),
     ).toBe(false);
@@ -333,7 +328,6 @@ describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
         ...toPresetForm,
         nodeId: "n1",
         workingDir: "/srv",
-        promptEnabled: true,
         promptBlocks: blocks,
       }),
     ).toEqual([]);
@@ -346,6 +340,5 @@ describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
   it("unparseable stored JSON reads as no blocks (opening a preset never throws)", () => {
     const form = presetFormFromRow({ ...baseRow, promptBlocks: "not json[" });
     expect(form.promptBlocks).toEqual([]);
-    expect(form.promptEnabled).toBe(false);
   });
 });
