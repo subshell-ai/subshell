@@ -1,35 +1,15 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { BROWSER_UA, CLIENT_UA, restoreUA, setUA } from "@/components/__tests__/helpers/desktop-ua";
 import { nodeRow, nodeUpdates, updateState } from "@/components/__tests__/helpers/updates-view";
 import { NodeRows, rowState } from "@/components/updates/node-rows";
 import { releasePageUrl } from "@/components/updates/row-cells";
-import { resetDesktopShellForTests } from "@/lib/desktop";
 import type { NodeUpdateRow, NodeUpdates, UpdateTrackerState } from "@/types/updates";
-
-/**
- * The section header asks `desktopShell()`, which parses (and memoizes) the
- * User-Agent, so the surfaces are UAs. The stub idiom is the one
- * `updates-desktop-rows.test.tsx` carries.
- */
-const CLIENT_UA = "Mozilla/5.0 SubshellClient/0.3.0 (linux; p=1)";
-const BROWSER_UA = "Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15";
-
-const nav = globalThis.navigator as unknown as Record<string, unknown>;
-let previousUserAgent: PropertyDescriptor | undefined;
-
-function setUA(userAgent: string) {
-  previousUserAgent ??= Object.getOwnPropertyDescriptor(nav, "userAgent");
-  Object.defineProperty(nav, "userAgent", { value: userAgent, configurable: true, writable: true });
-  resetDesktopShellForTests();
-}
 
 afterEach(() => {
   cleanup();
-  if (previousUserAgent) Object.defineProperty(nav, "userAgent", previousUserAgent);
-  else delete nav.userAgent;
-  previousUserAgent = undefined;
-  resetDesktopShellForTests();
+  restoreUA();
 });
 
 /**
@@ -468,6 +448,37 @@ describe("NodeRows", () => {
       expect(screen.getAllByText(/NODE_NOT_SUPERVISED/).length).toBe(2);
       expect(posts).toContain("/api/nodes/a/update");
       expect(posts).toContain("/api/nodes/b/update");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+
+  it("keeps a sibling row's refusal when another row is pressed again", async () => {
+    // A retry is one row's act: it clears that row's own line (the hook does
+    // that before sending) and must leave every other row's story standing.
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return new Response("NODE_NOT_SUPERVISED: nothing respawns this agent", { status: 409 });
+      }
+      return original(input as RequestInfo, init);
+    }) as unknown as typeof globalThis.fetch;
+    try {
+      setUA(BROWSER_UA);
+      renderRows(
+        nodeUpdates({
+          rows: [
+            nodeRow({ id: "a", name: "alpha", canUpdate: { ok: true, reason: null } }),
+            nodeRow({ id: "b", name: "beta", canUpdate: { ok: true, reason: null } }),
+          ],
+        }),
+      );
+      fireEvent.click(updateAll());
+      await waitFor(() => expect(screen.getAllByRole("alert").length).toBe(2));
+      // Retry row a (both rows answer "Update" after the batch failed, so
+      // the selector takes the first); both refusals must still stand.
+      fireEvent.click(screen.getAllByRole("button", { name: "Update" })[0]);
+      await waitFor(() => expect(screen.getAllByRole("alert").length).toBe(2));
     } finally {
       globalThis.fetch = original;
     }

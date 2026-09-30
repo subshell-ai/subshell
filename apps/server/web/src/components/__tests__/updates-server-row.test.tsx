@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { BROWSER_UA, CLIENT_UA, restoreUA, setUA } from "@/components/__tests__/helpers/desktop-ua";
 import {
   idleUpdate,
   recordingUpdate,
@@ -8,32 +9,11 @@ import {
 } from "@/components/__tests__/helpers/updates-view";
 import { releasePageUrl } from "@/components/updates/row-cells";
 import { jobLine, ServerRow } from "@/components/updates/server-row";
-import { resetDesktopShellForTests } from "@/lib/desktop";
 import type { ServerUpdateView, UpdateJob, UpdateTrackerState } from "@/types/updates";
-
-/**
- * The Notes link asks `desktopShell()`, which parses (and memoizes) the
- * User-Agent, so the surfaces are UAs. The stub idiom is the one
- * `updates-desktop-rows.test.tsx` carries.
- */
-const CLIENT_UA = "Mozilla/5.0 SubshellClient/0.3.0 (linux; p=1)";
-const BROWSER_UA = "Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15";
-
-const nav = globalThis.navigator as unknown as Record<string, unknown>;
-let previousUserAgent: PropertyDescriptor | undefined;
-
-function setUA(userAgent: string) {
-  previousUserAgent ??= Object.getOwnPropertyDescriptor(nav, "userAgent");
-  Object.defineProperty(nav, "userAgent", { value: userAgent, configurable: true, writable: true });
-  resetDesktopShellForTests();
-}
 
 afterEach(() => {
   cleanup();
-  if (previousUserAgent) Object.defineProperty(nav, "userAgent", previousUserAgent);
-  else delete nav.userAgent;
-  previousUserAgent = undefined;
-  resetDesktopShellForTests();
+  restoreUA();
 });
 
 const updateButton = (label = /^Update to /) => screen.getByRole("button", { name: label }) as HTMLButtonElement;

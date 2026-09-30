@@ -185,7 +185,6 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
                 disabled={!row.canUpdate.ok || batch || updating}
                 title={row.canUpdate.reason ?? undefined}
                 onClick={() => {
-                  nodeUpdate.reset();
                   void nodeUpdate.update(row.id).catch(() => {
                     // The failure map keeps the refusal and the row renders
                     // it; the rejection is the hook's batch contract, not
