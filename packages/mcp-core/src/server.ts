@@ -162,7 +162,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "List presets",
       description:
-        "List what create_subshell can take: preset rows are saved settings (address them by name), and rows flagged catalogOnly name a harness id the instance offers with no saved settings behind it. Both carry the harness plugin id, the pairs create_subshell takes.",
+        "List what create_subshell can launch: preset rows are saved settings + optional launch defaults (address them by name; crossCommReady rows carry node, directory, and prompt, so a launch needs nothing but the name), and rows flagged catalogOnly name a harness id the instance offers with no saved preset behind it yet. Both carry the harness plugin id.",
       inputSchema: z.object({}),
     },
     guard(() => listPresets(deps)),
@@ -172,45 +172,74 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "Create subshell",
       description:
-        'Spawn a new agent subshell on a harness plugin, optionally applying a named preset of that harness, in a working directory on the target machine; an optional prompt is typed into the harness once it settles. If the call times out the subshell may already exist: call list_subshells before retrying. Subshells you open are cross-agent comms: created silent (no push to a human) and filed under "Cross-agent comms" in the rail. You own their cleanup: terminate_subshell (or delete_subshell) them once the exchange is done.',
+        'Spawn a new agent subshell FROM a named preset (required): the preset carries the harness and its saved settings, and when it is cross-comm ready (list_presets says so) its node, working directory, and prompt launch from the name alone. Anything this call states OVERRIDES the preset: node, working_dir, and prompt - the preset\'s own prompt is used as-is when no prompt is given, appended to when the agent adds one (the default), or replaced outright with prompt_mode "replace". If the call times out the subshell may already exist: call list_subshells before retrying. Subshells you open are cross-agent comms: created silent (no push to a human) and filed under "Cross-agent comms" in the rail. You own their cleanup: terminate_subshell (or delete_subshell) them once the exchange is done.',
       inputSchema: z.object({
+        preset: z
+          .string()
+          // Required since spec 2026-09-29: presets are how agents launch.
+          // A fresh instance has zero presets (list_presets then answers
+          // catalogOnly rows) - the remedy is a human saving one, not an
+          // agent inventing a bare launch.
+          .describe("Preset NAME to launch from (addressable by name from list_presets; it carries the harness)"),
         harness: z
           .string()
-          // NOT only list_presets: a fresh instance has zero presets by
-          // design (spec 2026-09-13), so that list is empty exactly when an
-          // agent most needs to learn an id. The catalogOnly rows answer
-          // there now, and every subshell row carries its harnessId too.
-          .describe(
-            "Harness plugin id to launch, e.g. an id shown by list_presets, or the harnessId of any row from list_subshells",
-          ),
-        preset: z.string().optional().describe("Optional preset name of that harness; omit for no saved settings"),
+          .optional()
+          // An ASSERT, not the addressing key: the preset names its harness.
+          // Given, it must agree (400 naming both) - it decides which harness
+          // a cross-harness name tie resolves against.
+          .describe("Optional assert: must equal the preset's harness; also breaks cross-harness name ties"),
         name: z.string().optional(),
         working_dir: z
           .string()
-          .describe("Absolute path ON THE TARGET NODE (a node's paths are its own; check list_nodes before guessing)"),
+          .optional()
+          .describe(
+            "Absolute path ON THE TARGET NODE overriding the preset's own directory (a node's paths are its own; check list_nodes before guessing); omit to launch where the preset says",
+          ),
         node: z
           .string()
           .optional()
-          .describe("Target machine: node id or display name from list_nodes; omit to launch where the instance picks"),
-        prompt: z.string().optional(),
+          .describe(
+            "Target machine: node id or display name from list_nodes; overrides the preset's node hint; omit to launch where the preset or the instance decides",
+          ),
+        prompt: z
+          .string()
+          .optional()
+          .describe("Text the agent adds to (or replaces) the preset's prompt; omit to use the preset's as-is"),
+        prompt_mode: z
+          .enum(["append", "replace"])
+          .optional()
+          .describe(
+            'What `prompt` does against the preset\'s own prompt: "append" (default) puts yours after it; "replace" launches only yours',
+          ),
       }),
     },
     guard(
       ({
-        harness,
         preset,
+        harness,
         name,
         working_dir,
         node,
         prompt,
+        prompt_mode,
       }: {
-        harness: string;
-        preset?: string;
+        preset: string;
+        harness?: string;
         name?: string;
-        working_dir: string;
+        working_dir?: string;
         node?: string;
         prompt?: string;
-      }) => createSubshell(deps, { name, harness, preset, workingDir: working_dir, node, prompt }),
+        prompt_mode?: "append" | "replace";
+      }) =>
+        createSubshell(deps, {
+          name,
+          harness,
+          preset,
+          workingDir: working_dir,
+          node,
+          prompt,
+          promptMode: prompt_mode,
+        }),
     ),
   );
   server.registerTool(
@@ -339,7 +368,8 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
  */
 export const SUBSHELL_MCP_INSTRUCTIONS = `The other panes on this control plane are agent sessions like you: use these tools when your work touches one: unfamiliar checkout changes, waiting on another pane, or shared-tree commits and deploys.
 - Status: list_subshells / get_subshell, not git polling.
-- Machines: list_nodes lists every machine you can see, with per-row status and canLaunch; create_subshell takes node, and working_dir is a path on that machine.
+- Machines: list_nodes lists every machine you can see; working_dir is a path on that machine.
+- Launching: create_subshell starts FROM a preset (list_presets); a crossCommReady one launches from its name alone, and node/working_dir/prompt are your overrides.
 - Talk: create_channel + post_channel to say what you do and need; read_channel for replies (wait_seconds long-polls).
 - Nudge to be heard: post_channel(nudge:true) wakes a peer that is idle at its prompt with a fixed "read the channel" line. The message CONTENT is always PULL; the peer only decrypts it via read_channel; so put what you need in the post.
 - Comms panes: one you open with create_subshell is yours to close; terminate_subshell or delete_subshell it when the exchange is done. It starts silent and files under "Cross-agent comms".

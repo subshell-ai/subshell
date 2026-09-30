@@ -193,18 +193,110 @@ describe("mcp tools (handler-level, real crypto)", () => {
     expect(create?.body?.prompt).toBe("do it");
   });
 
-  it("create_subshell without a preset launches on the harness alone — no lookup, no presetId", async () => {
+  it("create_subshell with no harness derives it from the preset row; an omitted working_dir rides the preset", async () => {
+    // Spec 2026-09-29: the preset is the launch. The harness arrives from the
+    // row (unscoped search), and NO workingDir on the wire means the server
+    // resolves the preset's own - an undefined field is left off, not sent.
     const own = await generateKeypair();
     const { api, calls } = fakeApi((req) => {
+      if (req.path === "/api/presets")
+        return [
+          { id: "pre-1", name: "Dev", harnessId: "claude-code", nodeId: null, workingDir: "/srv", promptBlocks: null },
+        ];
       if (req.path === "/api/subshells") return { id: "s2", promptDelivered: false };
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    const res = await createSubshell(deps, { harness: "terminal", workingDir: "/tmp" });
+    const res = await createSubshell(deps, { preset: "dev" });
     expect(res).toEqual({ id: "s2", promptDelivered: false });
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.body?.harnessId).toBe("terminal");
-    expect(calls[0]?.body?.presetId).toBeUndefined();
+    const list = calls.find((c) => c.path === "/api/presets");
+    expect(list?.query).toBeUndefined(); // whole-list search when no harness is asserted
+    const create = calls.find((c) => c.path === "/api/subshells");
+    expect(create?.body?.harnessId).toBe("claude-code");
+    expect(create?.body?.presetId).toBe("pre-1");
+    expect("workingDir" in (create?.body ?? {})).toBe(false);
+  });
+
+  it("create_subshell's working_dir overrides the preset's own directory", async () => {
+    const own = await generateKeypair();
+    const { api, calls } = fakeApi((req) => {
+      if (req.path === "/api/presets")
+        return [
+          { id: "pre-1", name: "Dev", harnessId: "claude-code", nodeId: null, workingDir: "/srv", promptBlocks: null },
+        ];
+      if (req.path === "/api/subshells") return { id: "s2", promptDelivered: false };
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    await createSubshell(deps, { preset: "dev", workingDir: "/override" });
+    const create = calls.find((c) => c.path === "/api/subshells");
+    expect(create?.body?.workingDir).toBe("/override");
+  });
+
+  it("create_subshell composes the prompt against the preset's: append (default), replace, or use-as-is", async () => {
+    const row = {
+      id: "pre-1",
+      name: "Dev",
+      harnessId: "claude-code",
+      nodeId: null,
+      workingDir: "/srv",
+      promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "standup first" }]),
+    };
+    const own = await generateKeypair();
+    const { api, calls } = fakeApi((req) => {
+      if (req.path === "/api/presets") return [row];
+      if (req.path === "/api/subshells") return { id: "s", promptDelivered: true };
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    // append: the preset's text first, the agent's after it, one blank line.
+    await createSubshell(deps, { preset: "dev", prompt: "then push" });
+    // replace: only the agent's.
+    await createSubshell(deps, { preset: "dev", prompt: "forget all that", promptMode: "replace" });
+    // no prompt: the field stays absent and the SERVER uses the preset's.
+    await createSubshell(deps, { preset: "dev" });
+    const bodies = calls.filter((c) => c.path === "/api/subshells").map((c) => c.body);
+    expect(bodies[0]?.prompt).toBe("standup first\n\nthen push");
+    expect(bodies[1]?.prompt).toBe("forget all that");
+    expect(bodies[2]?.prompt).toBeUndefined();
+  });
+
+  it("create_subshell refuses a harness that contradicts the preset, and a cross-harness name tie", async () => {
+    const own = await generateKeypair();
+    const { api } = fakeApi((req) => {
+      if (req.path === "/api/presets")
+        return req.query?.harnessId === "codex"
+          ? []
+          : [
+              {
+                id: "pre-1",
+                name: "Dev",
+                harnessId: "claude-code",
+                nodeId: null,
+                workingDir: null,
+                promptBlocks: null,
+              },
+            ];
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    // Asserted harness with a scoped search that finds nothing: the unknown-name
+    // refusal already covers it; the direct contradiction is the unscoped tie.
+    const cross = await fakeApi((req) => {
+      if (req.path === "/api/presets")
+        return [
+          { id: "a", name: "Dev", harnessId: "claude-code", nodeId: null, workingDir: null, promptBlocks: null },
+          { id: "b", name: "Dev", harnessId: "codex", nodeId: null, workingDir: null, promptBlocks: null },
+        ];
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const crossDeps: ToolDeps = { api: cross.api, own: { principalId: "sess:me", ...own } };
+    await expect(createSubshell(crossDeps, { preset: "dev" })).rejects.toThrow(
+      /names presets on 'claude-code' and 'codex'; pass the harness/,
+    );
+    await expect(createSubshell(deps, { harness: "codex", preset: "dev" })).rejects.toThrow(
+      /no preset named 'dev' for harness 'codex'/,
+    );
   });
 
   it("create_subshell over the REAL SubshellApi with fetch stubbed makes the expected REST calls", async () => {
@@ -334,9 +426,32 @@ describe("mcp tools (handler-level, real crypto)", () => {
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
     const rows = await listPresets(deps);
-    expect(rows).toEqual([{ id: "pre-1", name: "Dev", harnessId: "claude-code" }]);
+    // The trio (node/dir/prompt-blocks) never rides the row either; what
+    // rides is the DERIVED readiness, and the secret-free promise holds.
+    expect(rows).toEqual([{ id: "pre-1", name: "Dev", harnessId: "claude-code", crossCommReady: false }]);
     expect(JSON.stringify(rows)).not.toContain("sk-secret");
     expect(JSON.stringify(rows)).not.toContain("flags");
+  });
+
+  it("list_presets flags a cross-comm-ready preset from its trio", async () => {
+    const own = await generateKeypair();
+    const { api } = fakeApi((req) => {
+      if (req.path === "/api/presets")
+        return [
+          {
+            id: "pre-1",
+            name: "Dev",
+            harnessId: "claude-code",
+            nodeId: "node-1",
+            workingDir: "/srv/app",
+            promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
+          },
+        ];
+      if (req.path === "/api/plugins") return { plugins: [] };
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const rows = await listPresets({ api, own: { principalId: "sess:me", ...own } });
+    expect(rows[0]?.crossCommReady).toBe(true);
   });
 
   it("describeToolError turns a 401 into restart guidance", () => {
@@ -495,11 +610,20 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
       ["N-2", "odd-1"],
     ] as const) {
       const { deps, calls } = await depsFor((req) => {
+        if (req.path === "/api/presets")
+          return [
+            { id: "pre-1", name: "Dev", harnessId: "terminal", nodeId: null, workingDir: null, promptBlocks: null },
+          ];
         if (req.path === "/api/nodes") return { nodes };
         if (req.path === "/api/subshells") return { id: "s-new", tmuxSocket: "sk", promptDelivered: false };
         throw new Error(`unexpected ${req.method} ${req.path}`);
       });
-      const res = await createSubshell(deps, { harness: "terminal", workingDir: "/srv/app", node: want });
+      const res = await createSubshell(deps, {
+        harness: "terminal",
+        preset: "dev",
+        workingDir: "/srv/app",
+        node: want,
+      });
       expect(res).toEqual({ id: "s-new", promptDelivered: false });
       const create = calls.find((c) => c.path === "/api/subshells");
       expect(create?.body?.nodeId).toBe(expected);
@@ -507,20 +631,34 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
   });
 
   it("create_subshell refuses a node-name tie listing the spellings, and zero matches listing the names", async () => {
+    const presetRow = {
+      id: "pre-1",
+      name: "Dev",
+      harnessId: "terminal",
+      nodeId: null,
+      workingDir: null,
+      promptBlocks: null,
+    };
     const tied = [nodeWireRow({ name: "Mac" }), nodeWireRow({ id: "n-2", name: "MAC" })];
-    const { deps, calls } = await depsFor((req) => (req.path === "/api/nodes" ? { nodes: tied } : []));
-    await expect(createSubshell(deps, { harness: "terminal", workingDir: "/tmp", node: "mac" })).rejects.toThrow(
-      /more than one node matches 'mac' \('Mac', 'MAC'\)/,
+    const { deps, calls } = await depsFor((req) =>
+      req.path === "/api/presets" ? [presetRow] : req.path === "/api/nodes" ? { nodes: tied } : [],
     );
+    await expect(
+      createSubshell(deps, { harness: "terminal", preset: "dev", workingDir: "/tmp", node: "mac" }),
+    ).rejects.toThrow(/more than one node matches 'mac' \('Mac', 'MAC'\)/);
     // Refused at resolution; no launch was attempted.
     expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(0);
 
     const { deps: alone } = await depsFor((req) =>
-      req.path === "/api/nodes" ? { nodes: [nodeWireRow(), nodeWireRow({ id: "n-2", name: "Laptop" })] } : [],
+      req.path === "/api/presets"
+        ? [presetRow]
+        : req.path === "/api/nodes"
+          ? { nodes: [nodeWireRow(), nodeWireRow({ id: "n-2", name: "Laptop" })] }
+          : [],
     );
-    await expect(createSubshell(alone, { harness: "terminal", workingDir: "/tmp", node: "nope" })).rejects.toThrow(
-      /no node 'nope'; available: Build Box, Laptop/,
-    );
+    await expect(
+      createSubshell(alone, { harness: "terminal", preset: "dev", workingDir: "/tmp", node: "nope" }),
+    ).rejects.toThrow(/no node 'nope'; available: Build Box, Laptop/);
   });
 
   it("create_subshell on a named node with ZERO nodes says no machines are enrolled", async () => {
@@ -530,18 +668,28 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     // owner-only bearer read (spec 2026-09-25) answers { nodes: [] } for a pane whose
     // owner owns no node rows, which is every human pane until someone
     // enrolls a machine (the seeded `local` belongs to the system user).
-    const { deps, calls } = await depsFor((req) => (req.path === "/api/nodes" ? { nodes: [] } : []));
-    await expect(createSubshell(deps, { harness: "terminal", workingDir: "/tmp", node: "any" })).rejects.toThrow(
-      /no node 'any'; no machines are enrolled; call list_nodes/,
+    const { deps, calls } = await depsFor((req) =>
+      req.path === "/api/presets"
+        ? [{ id: "pre-1", name: "Dev", harnessId: "terminal", nodeId: null, workingDir: null, promptBlocks: null }]
+        : req.path === "/api/nodes"
+          ? { nodes: [] }
+          : [],
     );
+    await expect(
+      createSubshell(deps, { harness: "terminal", preset: "dev", workingDir: "/tmp", node: "any" }),
+    ).rejects.toThrow(/no node 'any'; no machines are enrolled; call list_nodes/);
     expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(0);
   });
 
   it("create_subshell without a node never reads /api/nodes and sends no nodeId", async () => {
-    const { deps, calls } = await depsFor(() => ({ id: "s", tmuxSocket: "sk", promptDelivered: false }));
-    await createSubshell(deps, { harness: "terminal", workingDir: "/tmp" });
-    expect(calls.map((c) => c.path)).toEqual(["/api/subshells"]);
-    expect(calls[0]?.body?.nodeId).toBeUndefined();
+    const { deps, calls } = await depsFor((req) =>
+      req.path === "/api/presets"
+        ? [{ id: "pre-1", name: "Dev", harnessId: "terminal", nodeId: null, workingDir: null, promptBlocks: null }]
+        : { id: "s", tmuxSocket: "sk", promptDelivered: false },
+    );
+    await createSubshell(deps, { harness: "terminal", preset: "dev", workingDir: "/tmp" });
+    expect(calls.map((c) => c.path)).toEqual(["/api/presets", "/api/subshells"]);
+    expect(calls[1]?.body?.nodeId).toBeUndefined();
   });
 
   it("list_subshells and get_subshell project to the honest SubshellView key set", async () => {
@@ -603,8 +751,12 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
   });
 
   it("create_subshell returns {id, promptDelivered}, dropping tmuxSocket", async () => {
-    const { deps } = await depsFor(() => ({ id: "s-1", tmuxSocket: "sock-9", promptDelivered: true }));
-    const res = await createSubshell(deps, { harness: "terminal", workingDir: "/tmp" });
+    const { deps } = await depsFor((req) =>
+      req.path === "/api/presets"
+        ? [{ id: "pre-1", name: "Dev", harnessId: "terminal", nodeId: null, workingDir: null, promptBlocks: null }]
+        : { id: "s-1", tmuxSocket: "sock-9", promptDelivered: true },
+    );
+    const res = await createSubshell(deps, { harness: "terminal", preset: "dev", workingDir: "/tmp" });
     expect(res).toEqual({ id: "s-1", promptDelivered: true });
     expect(JSON.stringify(res)).not.toContain("sock-9");
   });
@@ -634,7 +786,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const rows = await listPresets(merged.deps);
-    expect(rows[0]).toEqual({ id: "pre-1", name: "Dev", harnessId: "claude-code" });
+    expect(rows[0]).toEqual({ id: "pre-1", name: "Dev", harnessId: "claude-code", crossCommReady: false });
     expect("catalogOnly" in (rows[0] as unknown as Record<string, unknown>)).toBe(false);
     expect(rows[1]?.catalogOnly).toBe(true);
   });

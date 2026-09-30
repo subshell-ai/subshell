@@ -1,3 +1,4 @@
+import { isPresetCrossCommReady, joinPresetPrompt, parsePresetPromptBlocks } from "@internal/subshell-protocol";
 import type { ToolDeps } from "./tools.js";
 
 /**
@@ -124,12 +125,29 @@ export interface PresetRow {
   name: string;
   harnessId: string;
   /**
+   * True on a real preset whose node, directory, and prompt are ALL set: this
+   * one launches from its name alone (spec 2026-09-29 preset-launch-fields -
+   * the readiness is derived from the row, never stored). Absent on catalog
+   * entries, which are not presets.
+   */
+  crossCommReady?: boolean;
+  /**
    * Present only on catalog entries: this row names a harness the instance
    * could launch (id == harnessId), not saved settings an addressable preset
    * stands behind. Absent on real presets, so existing consumers never see a
    * new field value on the rows they already handle.
    */
   catalogOnly?: true;
+}
+
+/** One preset row as GET /api/presets sends it (the launch trio rides every bearer row; envJson is redacted server-side). */
+interface PresetsWireRow {
+  id: string;
+  name: string;
+  harnessId: string;
+  nodeId: string | null;
+  workingDir: string | null;
+  promptBlocks: string | null;
 }
 
 /** One plugin row as GET /api/plugins sends it (only the fields the catalog filter reads). */
@@ -219,10 +237,15 @@ export async function getSubshell(deps: ToolDeps, args: { id?: string; name?: st
  */
 export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
   const [rows, { plugins }] = await Promise.all([
-    deps.api.req<{ id: string; name: string; harnessId: string }[]>("/api/presets"),
+    deps.api.req<PresetsWireRow[]>("/api/presets"),
     deps.api.req<{ plugins: PluginWireRow[] }>("/api/plugins"),
   ]);
-  const presets = rows.map(({ id, name, harnessId }) => ({ id, name, harnessId }));
+  const presets = rows.map(({ id, name, harnessId, nodeId, workingDir, promptBlocks }) => ({
+    id,
+    name,
+    harnessId,
+    crossCommReady: isPresetCrossCommReady({ nodeId, workingDir, promptBlocks }),
+  }));
   const catalog = plugins
     .filter((p) => (p.type === "agent-harness" || p.type === "terminal") && p.installed && p.enabled)
     .map((p) => ({ id: p.id, name: p.name, harnessId: p.id, catalogOnly: true as const }));
@@ -253,45 +276,86 @@ export async function listNodes(deps: ToolDeps): Promise<NodeView[]> {
 }
 
 /**
- * `create_subshell`: launches from a harness plugin id with an optional
- * preset NAME resolved within that harness (ids are not shared context) and
- * an optional node given as an id OR display name, resolved client-side so
- * the server only ever sees an id. No preset named means no saved settings,
- * which is a complete launch.
+ * `create_subshell`: an agent launches FROM a preset (required since spec
+ * 2026-09-29 preset-launch-fields): the preset's NAME is addressed (ids are
+ * not shared context), its harness is derived unless the call asserts one, and
+ * everything else the call says OVERRIDES what the preset carries - node,
+ * directory, and the prompt. A call that names no dir when the preset names
+ * none gets the server's 400 naming both spellings. The prompt relationship is
+ * the agent's choice (ruling 2026-09-29): no `prompt` uses the preset's,
+ * `"append"` (the default) puts the agent's text AFTER it, `"replace"` sends
+ * only the agent's. The node, when given, resolves client-side as an id OR
+ * display name so the server only ever sees an id.
  */
 export async function createSubshell(
   deps: ToolDeps,
-  args: { name?: string; harness: string; preset?: string; workingDir: string; prompt?: string; node?: string },
+  args: {
+    name?: string;
+    harness?: string;
+    preset: string;
+    workingDir?: string;
+    prompt?: string;
+    /** "append" (default) or "replace"; only read when `prompt` is given. */
+    promptMode?: "append" | "replace";
+    node?: string;
+  },
 ): Promise<{ id: string; promptDelivered: boolean }> {
-  let presetId: string | undefined;
-  if (args.preset !== undefined) {
-    // Scope the lookup to the harness: preset names are only unique per harness.
-    const presets = await deps.api.req<{ id: string; name: string; harnessId: string }[]>("/api/presets", {
-      query: { harnessId: args.harness },
-    });
-    // The name is the agent's addressing key, so a tie is REFUSED, never
-    // silently won by whichever row sorts first: launching the wrong preset
-    // writes the wrong credential layer. Migration 0028 made the tie
-    // unreachable on a current instance (a NOCASE unique index), and this
-    // stays anyway: the lookup runs over whatever list the SERVER returned,
-    // which may be an older instance, and a client cannot check another
-    // machine's constraints.
-    const matches = nameMatches(presets, args.preset, (p) => p.name);
-    if (matches.length === 0) {
+  // With a harness asserted, the lookup stays scoped to it (names are unique
+  // per harness); without one, the WHOLE list is searched and the winning row
+  // decides the harness.
+  const presets = await deps.api.req<PresetsWireRow[]>(
+    "/api/presets",
+    args.harness !== undefined ? { query: { harnessId: args.harness } } : {},
+  );
+  // The name is the agent's addressing key, so a tie is REFUSED, never
+  // silently won by whichever row sorts first: launching the wrong preset
+  // writes the wrong credential layer. Migration 0028 made the tie
+  // unreachable on a current instance (a NOCASE unique index), and this
+  // stays anyway: the lookup runs over whatever list the SERVER returned,
+  // which may be an older instance, and a client cannot check another
+  // machine's constraints. Harness-less ties are named by their HARNESSes:
+  // that is the tie's actionable content, and the `harness` param is the fix.
+  const matches = nameMatches(presets, args.preset, (p) => p.name);
+  if (matches.length === 0) {
+    throw new Error(
+      `subshell: no preset named '${args.preset}'${
+        args.harness !== undefined ? ` for harness '${args.harness}'` : ""
+      }; call list_presets for options`,
+    );
+  }
+  if (matches.length > 1) {
+    const harnesses = [...new Set(matches.map((p) => p.harnessId))];
+    if (args.harness === undefined && harnesses.length > 1) {
       throw new Error(
-        `subshell: no preset named '${args.preset}' for harness '${args.harness}'; call list_presets for options`,
+        `subshell: '${args.preset}' names presets on ${harnesses.map((h) => `'${h}'`).join(" and ")}; pass the harness`,
       );
     }
-    if (matches.length > 1) {
-      throw new Error(
-        `subshell: more than one preset named '${args.preset}' for harness '${args.harness}' (${spellingsOrIds(
-          matches,
-          (p) => p.name,
-          (p) => p.id,
-        )}); rename one, or ask for an exact spelling`,
-      );
+    throw new Error(
+      `subshell: more than one preset named '${args.preset}'${
+        args.harness !== undefined ? ` for harness '${args.harness}'` : ""
+      } (${spellingsOrIds(
+        matches,
+        (p) => p.name,
+        (p) => p.id,
+      )}); rename one, or ask for an exact spelling`,
+    );
+  }
+  const presetRow = matches[0];
+  if (args.harness !== undefined && presetRow.harnessId !== args.harness) {
+    throw new Error(
+      `subshell: preset '${args.preset}' is for harness '${presetRow.harnessId}', not the asserted '${args.harness}'`,
+    );
+  }
+  // The prompt relationship, composed here because the SERVER only ever sees
+  // one final string (its rule: body prompt wins, else the preset's blocks).
+  let prompt: string | undefined;
+  if (args.prompt !== undefined) {
+    if (args.promptMode === "replace") {
+      prompt = args.prompt;
+    } else {
+      const presetText = joinPresetPrompt(parsePresetPromptBlocks(presetRow.promptBlocks) ?? []);
+      prompt = presetText === "" ? args.prompt : `${presetText}\n\n${args.prompt}`;
     }
-    presetId = matches[0].id;
   }
   let nodeId: string | undefined;
   if (args.node !== undefined) {
@@ -321,11 +385,14 @@ export async function createSubshell(
   const res = await deps.api.req<LaunchWireResponse>("/api/subshells", {
     method: "POST",
     body: {
-      harnessId: args.harness,
-      presetId,
-      workingDir: args.workingDir,
+      harnessId: args.harness ?? presetRow.harnessId,
+      presetId: presetRow.id,
+      // An omitted dir rides the preset's (the server resolves); sending
+      // `workingDir: undefined` over JSON would drop it anyway, but staying
+      // absent here keeps the wire honest about what the agent actually said.
+      ...(args.workingDir !== undefined ? { workingDir: args.workingDir } : {}),
       name: args.name,
-      prompt: args.prompt,
+      prompt,
       nodeId,
     },
   });
