@@ -107,9 +107,9 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 - Tests: DELETE `launch-defaults.test.ts` copySettingsOptions describe + related imports; DELETE `combobox.test.tsx` "group preview cap" describe (keep divider test; neutralize the "Recently terminated" fixture labels); TRIM `new-subshell-form.test.tsx` picker its-cases (~885, 918, 1006, 1050, 1073, 1105); mobile `new.test.tsx` 304-326 case (picker-mirror wording) reworded not deleted; server list tests covering `terminated=1` (find via grep) removed.
 - e2e: none cover the picker (`grep -rn "Copy settings" e2e/tests` = empty; re-verify).
 
-- [ ] **Step 1:** grep-verify every claimed caller/dead param before deleting (bun silently skips missing test paths - count files run).
-- [ ] **Step 2:** remove + trim; run touched web + server test files; type-check.
-- [ ] **Step 3:** boundary verify + commit `remove the copy-settings picker; presets carry launch reuse now`.
+- [x] **Step 1:** grep-verify every claimed caller/dead param before deleting (bun silently skips missing test paths - count files run).
+- [x] **Step 2:** remove + trim; run touched web + server test files; type-check.
+- [x] **Step 3:** boundary verify + commit `remove the copy-settings picker; presets carry launch reuse now`.
 
 ### Task 8: Docs, changeset, final review loop
 

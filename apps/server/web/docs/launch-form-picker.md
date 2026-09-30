@@ -91,6 +91,20 @@ The suggested `… (2)` name mirrors the UNIQUE index's collision rule, so the
 prefill is a name the server can accept. A presetless launch omits `presetId`:
 absence, never null.
 
+**A preset can carry the launch** (spec 2026-09-29-preset-launch-fields): the
+editor's **Launch defaults** section takes an optional machine, working
+directory, and the SAME prompt block stack the launch form uses (snapshot
+bodies, joined by one blank line at launch). Filling all three makes the
+preset CROSS-COMM READY (`isPresetCrossCommReady` in
+`@internal/subshell-protocol`, derived from the row's values, never stored):
+the `/presets` row badges it, the launch form prefills from it on pick, and
+MCP `create_subshell` can launch from the preset's name alone. Resolution
+lives once, server-side, at `subshells.service.createSubshell`: the request
+wins, the preset fills the gaps, and a launch with no directory from either
+is a 400 naming both spellings. The node hint rides an FK: deleting the node
+nulls the hint and the preset row survives (it just stops being cross-comm
+ready).
+
 **The launch dialog opens on your last launch** (operator ask 2026-09-25):
 the form's node and directory pre-fill from the newest prior subshell.
 `launchTemplateFromList` (`lib/launch-defaults.ts`) reads the SAME
