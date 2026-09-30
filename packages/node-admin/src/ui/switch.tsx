@@ -15,13 +15,20 @@ import { cn } from "../lib/utils";
  * the ON purple. (Two cuts preceded it: the requirements amber was refused
  * - gold already means a missing requirement; the dashed outline was
  * refused too - the operator asked for a background color, and got one.)
+ *
+ * The `!` is load-bearing, not a shortcut: Tailwind sorts the data-variants
+ * alphabetically, so `data-unchecked:bg-input` lands AFTER the disabled rule
+ * in the sheet and silently recolored every disabled-and-off switch back to
+ * the plain OFF track (measured in the built CSS, and what the operator's
+ * "not seeing the difference" was). Important is the only weight that wins
+ * the pair.
  */
 export function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:cursor-not-allowed data-checked:bg-primary data-disabled:bg-muted-foreground/50 data-unchecked:bg-input",
+        "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:cursor-not-allowed data-checked:bg-primary data-disabled:bg-muted-foreground/50! data-unchecked:bg-input",
         className,
       )}
       {...props}
