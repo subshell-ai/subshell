@@ -37,10 +37,11 @@ variable and gets no net, correctly, since it also gets the shared default
 socket dir, where killing anything would reach panes this run never started.
 
 **The net covers this package only.** `packages/pane-runtime` and
-`apps/node/agent` also spawn real tmux and run a bare `bun test`, so nothing
-sweeps behind them; what stands there is each suite's own `afterAll`, which
-registers a socket BEFORE spawning on it (`freshSocket` in
-`tmux-runner.test.ts`) and so has no window to leak through. That is a
+`apps/node/agent` also spawn real tmux, so what stands there is each suite's
+own `afterAll`, which registers a socket BEFORE spawning on it (`freshSocket`
+in `packages/pane-runtime/src/__tests__/helpers/tmux-test-harness.ts`) and so
+has no window to leak through; under `--parallel` the helper is a per-file
+module, which is exactly per-worker. That is a
 narrower guarantee than this one (it holds as long as every future suite
 keeps registering first), and it is stated here rather than fixed because
 extending the variable to those packages is a change to how their sockets are
