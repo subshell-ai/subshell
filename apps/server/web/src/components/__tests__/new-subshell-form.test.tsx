@@ -1375,6 +1375,33 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
     }
   });
 
+  it("a deleted preset drops out of the Recently used section, the older survivor rises", async () => {
+    // The stored list is an ORDERING HINT over the live rows, never a second
+    // source of them: an id whose preset was deleted renders nothing (and
+    // cannot be picked), and the backlog lets an older still-existing pick
+    // fill the header's three.
+    localStorage.setItem("subshell/recent-preset-picks", JSON.stringify(["gone", "p-keep"]));
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE],
+      [preset({ id: "p-keep", harnessId: "claude-code", name: "Survivor" })],
+    );
+    try {
+      await renderForm(emptyNewSubshellForm());
+      openPresetSearch();
+      await settle();
+      // The dead id shows neither as a row nor as a phantom; the survivor
+      // appears exactly once. And because it is now the WHOLE list, the
+      // header says "Presets" - "Recently used" over every row there is
+      // would label nothing.
+      expect(screen.getByText("Presets")).toBeDefined();
+      expect(screen.queryByText("Recently used")).toBeNull();
+      expect(screen.getAllByText("Survivor")).toHaveLength(1);
+    } finally {
+      restore();
+    }
+  });
+
   it("no Recently used header before the first pick", async () => {
     const restore = mockFetch(
       [LOCAL, ENROLLED_ONLINE],

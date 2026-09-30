@@ -173,10 +173,13 @@ export function NewSubshellForm({
       recents.push({ ...opt, group: "Recently used" });
       recentValues.add(id);
     }
-    const rest = all
-      .filter((o) => !recentValues.has(o.value))
-      .map((o) => (recents.length > 0 ? { ...o, group: "Presets" } : o));
-    return [...recents, ...rest];
+    const rest = all.filter((o) => !recentValues.has(o.value));
+    // A header only earns its keep when it SPLITS the list: if the recents
+    // were everything, or there are none, one unlabelled "Presets" list is
+    // the truth - not a header floating above another header.
+    if (recents.length === 0) return rest;
+    if (rest.length === 0) return recents.map((o) => ({ ...o, group: "Presets" }));
+    return [...recents, ...rest.map((o) => ({ ...o, group: "Presets" }))];
   })();
 
   const targets = launchableNodes(nodes ?? []);
