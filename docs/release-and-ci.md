@@ -478,7 +478,13 @@ which is why they share their own smoke, parameterized by app id.
   Each bundle SHIPS the CLI it wraps, so a desktop cut re-releases that CLI: a
   server-only or node-only fix does not reach desktop users until the matching
   desktop cut, which is why a security-relevant release should be dispatched as
-  `app=all`.
+  `app=all`. That matching desktop BUMP is machinery now, not convention: each
+  desktop package declares the CLI it bundles as a `workspace:*` dependency,
+  and `.changeset/config.json` sets `updateInternalDependents: "always"`, so a
+  CLI bump bumps the desktop app in the same version PR (pinned by
+  `scripts/__tests__/desktop-cuts-track-bundled-cli.test.ts`). Through
+  2026-09-30 the pairing lived only in this sentence, and cli-server v1.7.0
+  shipped with no desktop-server cut.
 - **Never write a changeset for an `ignore`d package; it is inert and it
   wedges the version PR.** `.changeset/config.json` ignores ten workspaces,
   `@internal/server-web` among them, because they are not independently
