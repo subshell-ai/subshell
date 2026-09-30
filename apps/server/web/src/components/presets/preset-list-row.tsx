@@ -60,8 +60,8 @@ export function PresetListRow({ preset, binary, items }: { preset: PresetRow; bi
               auto-restart
             </Badge>
           )}
-          {/* Derived from the row's trio (never stored): the flag an agent
-              reads in list_presets, stated for the human scrolling this list. */}
+          {/* The same rule an agent reads in list_presets (the stored switch
+              AND machine + directory), stated for the human scrolling this list. */}
           {isPresetCrossCommReady(preset) && (
             <Badge variant="secondary" className="shrink-0">
               cross-comm ready

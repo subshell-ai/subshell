@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Route } from "@/routes/presets_.$id";
 import type { PresetRow } from "@/types/preset";
 
@@ -29,11 +29,19 @@ const ROW: PresetRow = {
   updatedAt: "2026-09-30T00:00:00.000Z",
 };
 
-function mockFetch() {
+function mockFetch(nodes: unknown[] = []) {
+  const puts: { url: string; body: Record<string, unknown> }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const method = init?.method ?? "GET";
+    if (url.pathname === "/api/nodes" && method === "GET") {
+      return Promise.resolve(new Response(JSON.stringify({ nodes })));
+    }
+    if (url.pathname === "/api/presets/p1" && method === "PUT") {
+      puts.push({ url: url.pathname, body: JSON.parse(String(init?.body)) });
+      return Promise.resolve(new Response(JSON.stringify(ROW)));
+    }
     if (url.pathname === "/api/presets" && method === "GET") {
       return Promise.resolve(new Response(JSON.stringify([ROW])));
     }
@@ -48,7 +56,7 @@ function mockFetch() {
     }
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
-  return () => (globalThis.fetch = original);
+  return { puts, restore: () => (globalThis.fetch = original) };
 }
 
 function renderEditor() {
@@ -73,9 +81,60 @@ function renderEditor() {
 
 afterEach(cleanup);
 
+describe("preset edit page switch click-through", () => {
+  it("a real toggle-click reaches the PUT: the body carries crossCommEnabled", async () => {
+    // The gap this pins: earlier tests only read the switch's DISABLED state,
+    // never clicked it - so a click that painted but never flipped the form
+    // value saved the row back to OFF (operator live test, 2026-09-30).
+    const desk = {
+      id: "a1",
+      name: "desk",
+      kind: "agent",
+      status: "online",
+      os: null,
+      arch: null,
+      maintenance: false,
+      inventoryStale: false,
+      canLaunch: true,
+      harnesses: [{ harnessId: "claude-code", name: "Claude Code", installed: true }],
+    };
+    const m = mockFetch([desk]);
+    try {
+      renderEditor();
+      const view = await screen.findByLabelText("Name");
+      void view;
+      const dialog = document.body;
+      // Requirements first (the switch refuses to arm while gaps exist).
+      fireEvent.change(dialog.querySelector("#preset-launch-dir") as HTMLInputElement, {
+        target: { value: "/srv/app" },
+      });
+      fireEvent.click(dialog.querySelector("#preset-launch-node") as HTMLElement);
+      const option = await screen.findByRole("option", { name: /desk/ });
+      fireEvent.pointerDown(option);
+      fireEvent.pointerUp(option);
+      fireEvent.click(option);
+      const toggle = () => dialog.querySelector("#preset-cross-comm") as HTMLButtonElement;
+      await waitFor(() => expect(toggle().disabled).toBe(false));
+      fireEvent.click(toggle());
+      expect(
+        toggle().getAttribute("aria-checked") ?? (toggle() as unknown as { checked: boolean }).checked,
+      ).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+      await waitFor(() => expect(m.puts).toHaveLength(1));
+      expect(m.puts[0].body).toMatchObject({
+        crossCommEnabled: true,
+        nodeId: "a1",
+        workingDir: "/srv/app",
+      });
+    } finally {
+      m.restore();
+    }
+  });
+});
+
 describe("preset edit page save gate", () => {
   it("disables Save while the name is blank and re-enables it when refilled", async () => {
-    const restore = mockFetch();
+    const { restore } = mockFetch();
     try {
       const view = renderEditor();
       const nameInput = (await screen.findByLabelText("Name")) as HTMLInputElement;

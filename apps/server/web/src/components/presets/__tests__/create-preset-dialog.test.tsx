@@ -420,6 +420,51 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
     }
   });
 
+  it("a real toggle-click reaches the POST: creating with the switch on stores it on", async () => {
+    const desk = {
+      id: "a1",
+      name: "desk",
+      kind: "agent",
+      status: "online",
+      os: null,
+      arch: null,
+      maintenance: false,
+      inventoryStale: false,
+      canLaunch: true,
+      harnesses: [{ harnessId: "claude-code", name: "Claude Code", installed: true }],
+    };
+    const m = mockFetch({}, [desk]);
+    try {
+      await renderDialog({ lockedHarness: "claude-code" });
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "cc-live" } });
+      fireEvent.change(dialog.querySelector("#preset-launch-dir") as HTMLInputElement, {
+        target: { value: "/srv/app" },
+      });
+      fireEvent.click(dialog.querySelector("#preset-launch-node") as HTMLElement);
+      const option = await screen.findByRole("option", { name: /desk/ });
+      fireEvent.pointerDown(option);
+      fireEvent.pointerUp(option);
+      fireEvent.click(option);
+      const toggle = () => dialog.querySelector("#preset-cross-comm") as HTMLButtonElement;
+      await waitFor(() => expect(toggle().disabled).toBe(false));
+      fireEvent.click(toggle());
+      fireEvent.click(screen.getByRole("button", { name: "Create preset" }));
+      await waitFor(() =>
+        expect(m.calls.filter((c) => c.method === "POST" && c.url === "/api/presets")).toHaveLength(1),
+      );
+      const post = m.calls.find((c) => c.method === "POST" && c.url === "/api/presets")!;
+      expect(post.body).toMatchObject({
+        name: "cc-live",
+        crossCommEnabled: true,
+        nodeId: "a1",
+        workingDir: "/srv/app",
+      });
+    } finally {
+      m.restore();
+    }
+  });
+
   it("Create stays disabled while the Name is blank, even with the agent locked", async () => {
     const m = mockFetch();
     try {
