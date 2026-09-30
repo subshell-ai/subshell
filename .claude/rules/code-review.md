@@ -14,8 +14,8 @@ When implementing fixes based on code review feedback:
 ## Review until clean
 
 Once a change is ready for review, run the `code-reviewer` agent, address every
-finding, then review again. Repeat the loop until a full pass comes back with no
-MAJOR and no MINOR issues. A single round that still has open minor findings is
-not done: fix them (adding a test where one is a bug) and re-review. Nits are
-judgment calls; majors and minors are not. Do not merge while any major or minor
-finding remains open.
+MAJOR and MINOR finding (NITs are at your discretion), then review again. Repeat
+the loop until a full pass returns zero MAJOR and zero MINOR findings. A round
+that still has an open MAJOR or MINOR finding is not done: fix it and re-review,
+adding a test for a bug fix when possible (per above). Do not merge while any
+MAJOR or MINOR finding remains open.
