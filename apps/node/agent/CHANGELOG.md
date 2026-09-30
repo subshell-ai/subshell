@@ -1,5 +1,11 @@
 # @internal/node
 
+## 1.4.0
+
+### Minor Changes
+
+- [#290](https://github.com/subshell-ai/subshell/pull/290) [`8c7d64e`](https://github.com/subshell-ai/subshell/commit/8c7d64e059473d8c59f04d99fe1c44edb7b261b5) Thanks [@theogravity](https://github.com/theogravity)! - The agent's MCP surface speaks the preset-launch language: create_subshell launches from a preset id handed out by list_presets (which now flags the presets that are cross-comm ready), and typed prompt blocks follow the preset's join rule. Panes on freshly enrolled or updated nodes get the new tools; the "Copy settings from" naming is gone from the guidance too. @internal/desktop-client rides the bump automatically: it ships this agent binary.
+
 ## 1.3.0
 
 ### Minor Changes
