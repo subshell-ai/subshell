@@ -106,11 +106,16 @@ export function stubLauncher(): void {
  * in a full run.
  */
 export interface FakeBrowser {
+  /** The socket handed to `handleSubshellWs`; `data` is its own object. */
   ws: WsSocket;
+  /** Every frame the server sent, in order, as raw JSON strings. */
   sent: string[];
+  /** Every `close` the server performed, code and reason included. */
   closed: { code?: number; reason?: string }[];
 }
 
+/** Every browser attached since the last `afterEach`, so cleanup runs even
+ * for a test that failed before its own disconnect. */
 export const attached: FakeBrowser[] = [];
 
 /** A fake browser socket with `ws.data` as a SEPARATE object (as Elysia's is). */
