@@ -1198,11 +1198,16 @@ jobs:
     # ALL needs, and that gate runs BEFORE this expression. On exactly the
     # desktop-only cut the `== 'skipped'` clause exists for, publish-cli is
     # skipped, the implicit gate skips this job, and the tolerance never
-    # evaluates. `!cancelled()` displaces the implicit gate; the two result
-    # checks then carry the real rule (a skipped CLI phase may pass, a failed
-    # or cancelled one stops the desktop half).
+    # evaluates. Displacing the implicit gate drops its protection over PLAN
+    # too, so `needs.plan.result` restores that half by name: a failed plan
+    # leaves desktop_matrix an empty string, `'' != '[]'` is TRUE, and
+    # without this clause the job runs and dies at fromJSON on invalid JSON —
+    # a second, cryptic red job beside the real one. The result checks now
+    # carry the whole rule: plan must have succeeded, a skipped CLI phase may
+    # pass, a failed or cancelled one stops the desktop half.
     if: >-
       !cancelled() &&
+      needs.plan.result == 'success' &&
       needs.plan.outputs.desktop_matrix != '[]' &&
       (needs.publish-cli.result == 'success' || needs.publish-cli.result == 'skipped')
     # One sign+notarize round trip per darwin artifact again — the mcp

@@ -82,6 +82,9 @@ describe("cli-release-fetch", () => {
     delete process.env.GH_TOKEN;
     try {
       await expect(fetchReleaseIndex("cli-server", "1.0.0")).rejects.toThrow(/GH_TOKEN is not set/);
+      // The bytes fetch guards identically: an empty bearer is a guaranteed
+      // 401 that would read as a token problem, not as the missing token.
+      await expect(fetchReleaseBytes("https://example.test/a")).rejects.toThrow(/GH_TOKEN is not set/);
     } finally {
       if (saved !== undefined) process.env.GH_TOKEN = saved;
     }

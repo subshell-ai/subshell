@@ -206,7 +206,13 @@ export async function fetchReleaseBytes(
   url: string,
   deps: TransportDeps = {},
 ): Promise<{ status: number; bytes: Uint8Array | undefined }> {
-  const res = await fetchWithTransientRetry(url, apiHeaders(process.env.GH_TOKEN ?? "", true), deps);
+  const token = process.env.GH_TOKEN ?? "";
+  // The same named refusal as the index lookup: an empty bearer is a
+  // guaranteed 401, and a 401 surfacing verbatim reads as an auth problem
+  // with a REAL token rather than the actual cause (there is no token).
+  if (token === "")
+    throw new Error("GH_TOKEN is not set; the private repo answers 404 unauthenticated, so a fetch must never guess");
+  const res = await fetchWithTransientRetry(url, apiHeaders(token, true), deps);
   if (!res.ok) return { status: res.status, bytes: undefined };
   return { status: res.status, bytes: await readBounded(res, deps.maxBytes ?? MAX_ASSET_BYTES) };
 }

@@ -80,6 +80,12 @@ describe("cut phases: CLI first, desktop after", () => {
     // cancelled run must still stop publishes and pushes.
     expect(header("build-desktop")).toContain("!cancelled()");
     expect(header("site-manifest")).toContain("!cancelled()");
+    // And because build-desktop's `'' != '[]'` matrix guard reads TRUE on a
+    // dead plan's empty outputs, it names plan's success itself — the clause
+    // the displaced implicit gate used to provide for free. (site-manifest
+    // needs no such clause: every conjunct reads false on a dead plan's
+    // empty outputs, so its gate skips on its own.)
+    expect(header("build-desktop")).toContain("needs.plan.result == 'success'");
     // And no header may use always(), which would displace the gate the other
     // way — papering over a FAILED or CANCELLED chain. (The one always() in
     // the build bodies is a STEP guard, un-rooting the container workspace,
