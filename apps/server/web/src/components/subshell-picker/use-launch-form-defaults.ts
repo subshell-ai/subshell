@@ -243,11 +243,12 @@ export function useLaunchFormDefaults(args: LaunchFormDefaults): LaunchFormActio
 
   // Choosing a preset is an explicit act, so it applies over whatever the
   // form holds (and cancels a pending auto-default, the copy's posture).
-  // What the preset NAMES is prefilled - machine, directory, prompt - and
-  // what it leaves blank stays exactly as it was: prefill, never a lock
-  // (ruling 2026-09-29: the values are optional on the preset). Picking
-  // "None" clears only the selection, not the fields a previous preset
-  // filled: the person still sees what they are about to launch with.
+  // What the preset NAMES is prefilled - agent, machine, directory, prompt -
+  // and what it leaves blank stays exactly as it was: prefill, never a lock
+  // (ruling 2026-09-29: the values are optional on the preset). The null
+  // arm - the membership guard's exit, dropping a preset that no longer
+  // fits - clears only the link, never the fields a preset filled: the
+  // person still sees what they are about to launch with.
   function applyPreset(preset: PresetRow | null): void {
     pendingTemplateRef.current = null;
     if (preset === null) {

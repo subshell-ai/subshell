@@ -31,8 +31,8 @@ test("create a workspace, add a subshell pane, and the layout survives reload", 
   // (direction) is buttons, not comboboxes, but the id survives either way.
   // Agent options render as the plugin display name, greyed never hidden;
   // pick pi exactly (the stub pi is the only agent binary the e2e stack
-  // owns). The Preset row is left at "None" — a preset is optional since
-  // spec 2026-09-13.
+  // owns). The Preset row is left untouched — a preset is optional since
+  // spec 2026-09-13, and the consumed picker's empty input says so.
   await pickAgent(page.locator("#picker-agent"), "pi");
   await page.fill("#picker-working-dir", "/tmp");
   // The working-dir DirectoryPickerInput opened on focus and its fixed-height

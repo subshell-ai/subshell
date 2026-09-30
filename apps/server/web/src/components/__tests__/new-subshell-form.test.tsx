@@ -1474,19 +1474,37 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
     }
   });
 
-  it("back to None clears the selection and keeps the prefilled fields", async () => {
+  it("the preset link's exit is an agent change: the link drops, the copied fields stay", async () => {
+    // There is no "None" row (ruling 2026-09-30): a consumed picker holds
+    // nothing to un-select, and the preset belongs to the agent - switching
+    // agents is what drops the link. The copied fields are the form's now.
+    const host = node({
+      id: "local",
+      name: "this host",
+      kind: "local",
+      access: "view",
+      harnesses: [CLAUDE_ON, { harnessId: "pi", name: "Pi", installed: true }],
+    });
     const full = preset({
       id: "p-full",
       harnessId: "claude-code",
       name: "Everywhere",
       workingDir: "/srv/app",
     });
-    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [full]);
+    const restore = mockFetch(
+      [host, ENROLLED_ONLINE],
+      [CLAUDE, plugin({ id: "pi", name: "Pi", type: "agent-harness" })],
+      [full],
+    );
     try {
       const { latest } = await renderForm({ ...emptyNewSubshellForm(), harnessId: "claude-code" });
       await pressPreset("Everywhere");
       expect(latest().workingDir).toBe("/srv/app");
-      await pressPreset("None");
+      const input = screen.getByPlaceholderText("Choose an agent") as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      fireEvent.click(await screen.findByRole("option", { name: "Pi" }));
+      await waitFor(() => expect(latest().harnessId).toBe("pi"));
       expect(latest().presetId).toBeNull();
       // The person still sees what they are about to launch with.
       expect(latest().workingDir).toBe("/srv/app");

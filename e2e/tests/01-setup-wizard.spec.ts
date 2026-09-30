@@ -76,7 +76,7 @@ test("first-run wizard creates the admin; login and logout work", async ({ page,
   await expect(page.locator("#setup-agent")).not.toHaveValue("");
   await expect(page.locator("#setup-working-dir")).not.toHaveValue("");
   // First run hides the Preset row entirely (spec 2026-09-13 §5): a brand-
-  // new account has zero presets and the row would offer only "None".
+  // new account has zero presets, so the row has nothing to offer.
   await expect(page.getByLabel("Preset")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start" })).toBeEnabled();
   await page.getByRole("button", { name: "Skip" }).click();

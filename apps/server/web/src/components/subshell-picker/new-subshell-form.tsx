@@ -40,8 +40,8 @@ import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subs
  * submit), this file owns the layout and the pairing (spec 2026-09-13 §5).
  *
  * The PRESET leads (operator ruling 2026-09-30): a type-to-filter list of
- * every preset — the last three picked lead under "Recently used", the rest
- * follow a divider, "None" exits at the bottom — and picking one COPIES the
+ * every preset — the last three picked lead under "Recently used" — and
+ * picking one COPIES the
  * fields below it (agent, machine, directory, prompt), each still editable,
  * because a preset is a starting point, not a lock. The input returns to its
  * placeholder after the pick: the row names an act ("copy this in"), not a
@@ -146,12 +146,13 @@ export function NewSubshellForm({
   // state as well as the store.
   const [recentPresetIds, setRecentPresetIds] = useState<string[]>(() => loadRecentPresetPicks());
 
-  // The picker's list, in the prompt picker's shape (ruling 2026-09-30):
-  // the up-to-3 last-picked presets under one "Recently used" header, a
-  // divider, the rest, and "None" last on its own rule - dropping the
-  // preset is the row's exit, not its headline. A name is unique per agent,
-  // so each row carries its agent as the muted reason: two "Fast" rows read
-  // Fast  Claude Code / Fast  Pi.
+  // The picker's list: the up-to-3 last-picked presets under one "Recently
+  // used" header, then the rest - the header labels the split, no hairline
+  // repeats it. There is NO "None" row (ruling 2026-09-30): a consumed
+  // picker holds nothing to un-select, the untouched form already IS "no
+  // preset", and changing the agent is the documented way to drop a link a
+  // copy left. A name is unique per agent, so each row carries its agent as
+  // the muted reason: two "Fast" rows read Fast  Claude Code / Fast  Pi.
   const presetList: ComboboxOption[] = (() => {
     const names = new Map((plugins ?? []).map((p) => [p.id, p.name]));
     const all: ComboboxOption[] = presets.map((p) => ({
@@ -168,10 +169,8 @@ export function NewSubshellForm({
       recents.push({ ...opt, group: "Recently used" });
       recentValues.add(id);
     }
-    const rest = all
-      .filter((o) => !recentValues.has(o.value))
-      .map((o, i) => (recents.length > 0 && i === 0 ? { ...o, divider: true } : o));
-    return [...recents, ...rest, { value: "none", label: "None", reason: "Launch without a preset", divider: true }];
+    const rest = all.filter((o) => !recentValues.has(o.value));
+    return [...recents, ...rest];
   })();
 
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
@@ -218,7 +217,7 @@ export function NewSubshellForm({
           FILLS the fields below it - agent, machine, directory, prompt -
           and everything stays editable, which is the whole point of
           filling rather than hiding. First run hides the row: a picker
-          whose only option is "None" is a control with no choice. */}
+          whose only offer is emptiness is a control with no choice. */}
       {!firstRun && (
         <div className="space-y-2">
           <Label htmlFor={ids.preset}>Preset</Label>
@@ -229,18 +228,15 @@ export function NewSubshellForm({
                 // CONSUMED (the prompt picker's posture, now the ruling's too):
                 // the pick is an action, the closed state is the placeholder,
                 // nothing holds a selection. presetId still rides the launch
-                // (the preset's flags and env come with it); "None" drops it
-                // and keeps the filled fields.
+                // (the preset's flags and env come with it); changing the
+                // agent drops it and keeps the filled fields.
                 consumed
                 value=""
                 placeholder="Choose a preset"
                 options={presetList}
                 describedBy={`${ids.preset}-hint${presets.length === 0 ? ` ${ids.preset}-empty` : ""}`}
                 onValueChange={(v) => {
-                  if (v === "" || v === "none") {
-                    if (v === "none") applyPreset(null);
-                    return;
-                  }
+                  if (v === "") return;
                   const row = presets.find((p) => p.id === v);
                   if (row === undefined) return;
                   applyPreset(row);
@@ -301,7 +297,8 @@ export function NewSubshellForm({
           value={value.harnessId}
           placeholder="Choose an agent"
           options={agentOptions}
-          // The preset belongs to the agent, so a new agent starts at None.
+          // The preset belongs to the agent, so a new agent drops the pick
+          // (the copy's fields stay - they are the form's now).
           onValueChange={(harnessId) => harnessId !== "" && onChange({ ...value, harnessId, presetId: null })}
         />
         {noAgentHere && selectedNode ? (

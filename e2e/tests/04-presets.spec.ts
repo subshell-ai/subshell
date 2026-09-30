@@ -14,7 +14,7 @@ test.use({ storageState: ADMIN_STATE });
  *
  * The stack starts at ZERO presets (nothing auto-seeds any more — spec 01
  * asserts that via the API), and each test cleans up after itself so the
- * canonical launch in every later spec starts from "None".
+ * canonical launch in every later spec starts presetless.
  */
 
 /**
@@ -130,10 +130,11 @@ test("the launch form's + creates a preset inline and selects it", async ({ page
   await page.goto("/new");
   await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
   // Unlike the first-run wizard (spec 15: the row is hidden there), the real
-  // launch form shows the Preset select even at zero presets — with "None"
-  // selected and the hint naming the agent.
-  await expect(page.locator("#picker-preset")).toContainText("None");
-  await expect(page.getByText("No presets for pi yet.")).toBeVisible();
+  // launch form shows the Preset picker even at zero presets — an empty
+  // type-to-filter input (there is no selection to show) and the emptiness
+  // sentence.
+  await expect(page.locator("#picker-preset")).toHaveValue("");
+  await expect(page.getByText("No presets yet.")).toBeVisible();
 
   await page.getByRole("button", { name: "New preset" }).click();
   // The nested dialog (Base UI stacks dialogs; Escape closes the topmost)
@@ -143,11 +144,17 @@ test("the launch form's + creates a preset inline and selects it", async ({ page
   await page.getByRole("button", { name: "Create preset" }).click();
 
   // The created preset becomes the selection — the nested dialog's whole
-  // promise. (On agent CHANGE the preset resets to None; on create it sticks.)
-  await expect(page.locator("#picker-preset")).toContainText("Inline shell");
+  // promise. The picker is CONSUMED (a copy, not a tie), so the proof is the
+  // state behind it: the row reopens with the new preset on offer, under
+  // "Recently used" (a create counts as a pick), and the agent stayed pi.
+  await expect(page.locator("#picker-preset")).toHaveValue("");
+  await page.locator("#picker-preset").click();
+  await expect(page.getByText("Recently used")).toBeVisible();
+  await expect(page.getByRole("option", { name: "Inline shell" })).toBeVisible();
+  await page.keyboard.press("Escape");
 
   // Clean up over the API, so every later spec's canonical launch still
-  // starts at "None" on the shared DB.
+  // starts presetless on the shared DB.
   const rows = (await (await page.request.get("/api/presets")).json()) as { id: string; name: string }[];
   const row = rows.find((r) => r.name === "Inline shell");
   if (!row) throw new Error("the inline create must persist a real row");
