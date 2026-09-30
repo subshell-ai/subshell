@@ -1,4 +1,5 @@
-import { Label, Switch } from "@internal/node-admin";
+import { Button, Label, Switch } from "@internal/node-admin";
+import { X } from "lucide-react";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import type { ComboboxOption } from "@/components/ui/combobox";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -69,31 +70,50 @@ export function PresetLaunchFields({
       <p className="font-strong text-sm leading-none">Launch defaults</p>
       <div className="space-y-2">
         <Label htmlFor="preset-launch-node">Machine</Label>
-        <Select
-          value={value.nodeId ?? ""}
-          items={[{ value: "", label: "Decide at launch" }, ...nodeOptions]}
-          onValueChange={(v) => onChange({ ...value, nodeId: v === "" || v === null ? null : v })}
-        >
-          <SelectTrigger id="preset-launch-node">
-            <SelectValue placeholder="Decide at launch" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">Decide at launch</SelectItem>
-            {splitGroups && (
-              <>
-                <SelectGroup>
-                  <p className="px-2 pt-2 text-detail text-muted-foreground">Online</p>
-                  {onlineOptions.map(renderNodeOption)}
-                </SelectGroup>
-                <SelectGroup>
-                  <p className="px-2 pt-2 text-detail text-muted-foreground">Offline</p>
-                  {offlineOptions.map(renderNodeOption)}
-                </SelectGroup>
-              </>
-            )}
-            {!splitGroups && nodeOptions.map(renderNodeOption)}
-          </SelectContent>
-        </Select>
+        {/* The list holds MACHINES only (ruling 2026-09-30): no "Decide at
+            launch" row - an absence is not one of the options, and a blank
+            choice floating among the machines reads like a machine. An
+            empty pick shows the placeholder; the X beside the picker
+            clears back to it. */}
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <Select
+              value={value.nodeId ?? ""}
+              items={nodeOptions}
+              onValueChange={(v) => onChange({ ...value, nodeId: v === "" || v === null ? null : v })}
+            >
+              <SelectTrigger id="preset-launch-node">
+                <SelectValue placeholder="Decide at launch" />
+              </SelectTrigger>
+              <SelectContent>
+                {splitGroups && (
+                  <>
+                    <SelectGroup>
+                      <p className="px-2 pt-2 text-detail text-muted-foreground">Online</p>
+                      {onlineOptions.map(renderNodeOption)}
+                    </SelectGroup>
+                    <SelectGroup>
+                      <p className="px-2 pt-2 text-detail text-muted-foreground">Offline</p>
+                      {offlineOptions.map(renderNodeOption)}
+                    </SelectGroup>
+                  </>
+                )}
+                {!splitGroups && nodeOptions.map(renderNodeOption)}
+              </SelectContent>
+            </Select>
+          </div>
+          {value.nodeId !== null && (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label="Clear machine"
+              onClick={() => onChange({ ...value, nodeId: null })}
+            >
+              <X />
+            </Button>
+          )}
+        </div>
       </div>
       <div className="space-y-2">
         <Label htmlFor="preset-launch-dir">Working directory</Label>

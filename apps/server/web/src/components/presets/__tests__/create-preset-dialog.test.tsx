@@ -397,6 +397,9 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       expect(screen.queryByText(/Where subshells started/)).toBeNull();
       fireEvent.click(dialog.querySelector("#preset-launch-node") as HTMLElement);
       const offline = await screen.findByRole("option", { name: /old laptop \(offline\)/ });
+      // The list holds MACHINES only (ruling 2026-09-30): no "Decide at
+      // launch" row; emptiness is the placeholder plus the X.
+      expect(screen.queryByRole("option", { name: "Decide at launch" })).toBeNull();
       expect(screen.getByRole("option", { name: /desk/ })).toBeDefined();
       // Section headers, in order, and the offline row is SELECTABLE.
       expect(screen.getByText("Online")).toBeDefined();
@@ -407,6 +410,17 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       fireEvent.pointerDown(offline);
       fireEvent.pointerUp(offline);
       fireEvent.click(offline);
+      // The picked machine earns its X (2026-09-30): clearing is an act on
+      // the field, not a row in the list.
+      fireEvent.click(screen.getByRole("button", { name: "Clear machine" }));
+      await waitFor(() => expect(dialog.querySelector('[aria-label="Clear machine"]')).toBeNull());
+      expect((dialog.querySelector("#preset-launch-node") as HTMLElement).textContent).toContain("Decide at launch");
+      // Re-pick: the gap checks below need the machine chosen again.
+      fireEvent.click(dialog.querySelector("#preset-launch-node") as HTMLElement);
+      const offline2 = await screen.findByRole("option", { name: /old laptop \(offline\)/ });
+      fireEvent.pointerDown(offline2);
+      fireEvent.pointerUp(offline2);
+      fireEvent.click(offline2);
       // Chosen: the machine gap closes even though the node is DOWN.
       await waitFor(() =>
         expect(dialog.querySelector("#preset-cross-comm-gaps")?.textContent).toBe("A working directory"),

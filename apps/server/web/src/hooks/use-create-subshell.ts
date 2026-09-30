@@ -1,7 +1,7 @@
 import { apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { joinPromptBlocks, type PromptBlock, promptLaunchMissed } from "@/lib/prompt-stack";
+import { joinPromptBlocks, type PromptBlock, presetBlocksToWire, promptLaunchMissed } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
 /** The fields the shared new-subshell form collects. */
@@ -30,6 +30,10 @@ export interface CreateSubshellInput {
    *  2026-09-28; the launch form's checkbox was retired 2026-09-30 - the
    *  blocks ARE the switch). */
   promptBlocks?: PromptBlock[];
+  /** Create a preset from these values before launching (ruling 2026-09-30). */
+  saveAsPreset?: boolean;
+  /** Its name; the form gates submit on it while `saveAsPreset` is set. */
+  presetName?: string;
 }
 
 /**
@@ -93,8 +97,26 @@ export function useCreateSubshell() {
   return useMutation({
     // `promptDelivered: false` is honest "started, prompt did not land": the
     // caller can point at the inject action instead of assuming the task went in.
-    mutationFn: (input: CreateSubshellInput) =>
-      apiPost<{ id: string; promptDelivered?: boolean }>("/api/subshells", toSubshellCreateBody(input)),
+    mutationFn: async (input: CreateSubshellInput) => {
+      // The checkbox's promise first, so a failed preset POST never launches
+      // an unremembered subshell (ruling 2026-09-30). SAVE-AS always creates
+      // a NEW row: even when the form was copied from a preset, the edits
+      // belong to the launch, and presets are never written back.
+      const saved =
+        input.saveAsPreset === true
+          ? await apiPost<{ id: string }>("/api/presets", {
+              harnessId: input.harnessId,
+              name: (input.presetName ?? "").trim(),
+              nodeId: input.nodeId && input.nodeId !== "" ? input.nodeId : null,
+              workingDir: input.workingDir,
+              promptBlocks: presetBlocksToWire(input.promptBlocks ?? []),
+            })
+          : null;
+      return apiPost<{ id: string; promptDelivered?: boolean }>(
+        "/api/subshells",
+        toSubshellCreateBody(saved === null ? input : { ...input, presetId: saved.id }),
+      );
+    },
     onSuccess: (created, input) => {
       // One gate for all four launch surfaces (the form is shared): the
       // server answers `promptDelivered: false` for "no prompt" too, so the
@@ -103,6 +125,8 @@ export function useCreateSubshell() {
         toast.warning('The prompt did not land. Use "Inject prompt" to type it in.');
       }
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
+      // The new preset row belongs in every preset list the app has open.
+      if (input.saveAsPreset === true) void queryClient.invalidateQueries({ queryKey: ["presets"] });
       // The create touched the recent-paths row for its launch node — every
       // scoped recents cache (["recent-paths"] and ["recent-paths", nodeId])
       // is stale the moment a subshell launches somewhere.

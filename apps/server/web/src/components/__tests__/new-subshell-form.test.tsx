@@ -21,7 +21,6 @@ import {
 import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
 import { toSubshellCreateBody } from "@/hooks/use-create-subshell";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
-import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
 import { launchableNodes } from "@/lib/subshell-compat";
 
 /**
@@ -604,60 +603,11 @@ describe("NewSubshellForm preset row", () => {
     }
   });
 
-  it("the + with no agent chosen opens the create dialog asking for the agent", async () => {
-    // Unlocked posture (ruling 2026-09-30): the Preset row no longer waits
-    // on an agent pick, so a first-run-less account with nothing chosen can
-    // still create - and the create dialog owns the Agent question.
-    // Zero plugins: the auto-default never fires (nothing to default to), so
-    // the agent really stays unchosen - the posture the row used to refuse.
-    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [], []);
-    try {
-      await renderForm(emptyNewSubshellForm());
-      const plus = screen.getByRole("button", { name: "New preset" }) as HTMLButtonElement;
-      expect(plus.disabled).toBe(false);
-      fireEvent.click(plus);
-      await screen.findByRole("dialog", { name: "Create preset" });
-      expect(document.querySelector("#preset-harness")).not.toBeNull();
-    } finally {
-      restore();
-    }
-  });
-
-  it("+ opens the nested create dialog, and a created preset becomes the selection", async () => {
-    const created = preset({ id: "p-new", harnessId: "claude-code", name: "Brand new" });
-    const restore = mockFetch([LOCAL], [CLAUDE], [], [], undefined, { createdPreset: created });
-    try {
-      const { latest, client } = await renderForm({
-        harnessId: "claude-code",
-        presetId: null,
-        workingDir: "/x",
-        nodeId: "local",
-        promptBlocks: [],
-      });
-      fireEvent.click(screen.getByRole("button", { name: "New preset" }));
-      const dialog = await screen.findByRole("dialog", { name: "New preset for Claude Code" });
-      // Locked posture: the agent is static text, never a second select.
-      expect(dialog.textContent).toContain("Claude Code");
-      expect(dialog.querySelector("#preset-harness")).toBeNull();
-      fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "Brand new" } });
-      fireEvent.click(screen.getByRole("button", { name: "Create preset" }));
-      await waitFor(() =>
-        expect((client.getQueryData<{ id: string }[]>(PRESETS_QUERY_KEY) ?? []).some((r) => r.id === "p-new")).toBe(
-          true,
-        ),
-      );
-      await waitFor(() => expect(latest().presetId).toBe("p-new"));
-      // The new row is the selection IN THE FORM VALUE and the dialog is
-      // gone; the input stays on its placeholder (the copy posture).
-      expect(screen.getByPlaceholderText("Choose a preset")).toBeDefined();
-      // And the created preset counts as a use: it leads the next open.
-      openPresetInRow();
-      await settle();
-      expect(screen.getByText("Recently used")).toBeDefined();
-      expect(screen.queryByRole("dialog", { name: "New preset for Claude Code" })).toBeNull();
-    } finally {
-      restore();
-    }
+  it("canSubmit: a checked Save-as-preset without a name never submits", () => {
+    const base = { harnessId: "claude-code", presetId: null, workingDir: "/x", nodeId: "local", promptBlocks: [] };
+    expect(canSubmit({ ...base })).toBe(true);
+    expect(canSubmit({ ...base, saveAsPreset: true, presetName: "   " })).toBe(false);
+    expect(canSubmit({ ...base, saveAsPreset: true, presetName: "Keeper" })).toBe(true);
   });
 
   it("first run hides the Preset row entirely", async () => {

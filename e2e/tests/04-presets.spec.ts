@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { ADMIN_STATE, pickAgent } from "./helpers";
+import { ADMIN_STATE, pickAgent, subshellIds } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
@@ -9,7 +9,8 @@ test.use({ storageState: ADMIN_STATE });
  * 1. the /presets page — create with the agent chosen in the dialog, verify
  *    the row reached storage, delete it again (every preset is deletable now;
  *    the unremovable seeded "Default" went out with the profile model);
- * 2. the launch form's `+` — a NESTED create dialog with the agent locked,
+ * 2. the launch form's "Save as preset" checkbox (ruling 2026-09-30, which
+   replaced the `+` and its nested dialog) — launch, keep the row,
  *    where creating a preset selects it.
  *
  * The stack starts at ZERO presets (nothing auto-seeds any more — spec 01
@@ -126,38 +127,49 @@ test("create a preset from the page, verify it via the API, delete it", async ({
   await expect(page.getByText("No presets yet")).toBeVisible();
 });
 
-test("the launch form's + creates a preset inline and selects it", async ({ page }) => {
+test(`the launch form's "Save as preset" makes a preset from the form`, async ({ page }) => {
+  // Ruling 2026-09-30 replaced the picker's `+` (a nested create dialog)
+  // with a checkbox at the bottom of the launch form: the launch you
+  // assembled is kept as a NEW preset holding agent, machine, directory
+  // and prompts as filled.
   await page.goto("/new");
   await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
-  // Unlike the first-run wizard (spec 15: the row is hidden there), the real
-  // launch form shows the Preset picker even at zero presets — an empty
-  // type-to-filter input (there is no selection to show) and the emptiness
-  // sentence.
-  await expect(page.locator("#picker-preset")).toHaveValue("");
-  await expect(page.getByText("No presets yet.")).toBeVisible();
+  await page.fill("#picker-working-dir", "/tmp");
+  // The directory panel opened on focus and dismisses only outside the
+  // picker root - click the heading, which stays inside the dialog (see
+  // dismissDirectoryPanel in 05).
+  await page.getByRole("heading", { name: "Add a subshell" }).click();
 
-  await page.getByRole("button", { name: "New preset" }).click();
-  // The nested dialog (Base UI stacks dialogs; Escape closes the topmost)
-  // with the agent locked — no #preset-harness to choose, just the name.
-  await expect(page.getByRole("heading", { name: "New preset for pi" })).toBeVisible();
-  await page.fill("#preset-name", "Inline shell");
-  await page.getByRole("button", { name: "Create preset" }).click();
+  await page.locator("#picker-save-as-preset").check();
+  await expect(page.getByText("Name")).toBeVisible();
+  // The name is required exactly while the box is checked: Start stays
+  // dead until it is filled.
+  await expect(page.getByRole("button", { name: "Start subshell" })).toBeDisabled();
+  await page.fill("#picker-preset-name", "Inline shell");
 
-  // The created preset becomes the selection — the nested dialog's whole
-  // promise. The picker is CONSUMED (a copy, not a tie), so the proof is the
-  // state behind it: the row reopens with the new preset on offer, under
-  // "Recently used" (a create counts as a pick), and the agent stayed pi.
-  await expect(page.locator("#picker-preset")).toHaveValue("");
-  await page.locator("#picker-preset").click();
-  await expect(page.getByText("Recently used")).toBeVisible();
-  await expect(page.getByRole("option", { name: "Inline shell" })).toBeVisible();
-  await page.keyboard.press("Escape");
+  const before = await subshellIds(page);
+  await page.getByRole("button", { name: "Start subshell" }).click();
 
-  // Clean up over the API, so every later spec's canonical launch still
-  // starts presetless on the shared DB.
-  const rows = (await (await page.request.get("/api/presets")).json()) as { id: string; name: string }[];
+  // The preset reached the store carrying the form's launch trio, and the
+  // launched pane references the NEW row.
+  const rows = (await page.request.get("/api/presets").then((r) => r.json())) as {
+    id: string;
+    name: string;
+    harnessId: string;
+    workingDir: string | null;
+  }[];
   const row = rows.find((r) => r.name === "Inline shell");
-  if (!row) throw new Error("the inline create must persist a real row");
+  if (!row) throw new Error("the checkbox must persist a real preset row");
+  expect(row.harnessId).toBe("pi");
+  expect(row.workingDir).toBe("/tmp");
+
+  // Clean up both artifacts, so every later spec's canonical launch still
+  // starts presetless on the shared DB (and no stray pane survives here).
+  const after = await subshellIds(page);
+  for (const id of after.filter((x) => !before.includes(x))) {
+    await page.request.post(`/api/subshells/${id}/terminate`);
+    await page.request.delete(`/api/subshells/${id}`);
+  }
   expect((await page.request.delete(`/api/presets/${row.id}`)).ok()).toBe(true);
 });
 

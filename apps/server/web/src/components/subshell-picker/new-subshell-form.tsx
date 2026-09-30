@@ -1,10 +1,8 @@
 import type { Node } from "@internal/node-admin";
-import { Button, Label } from "@internal/node-admin";
+import { Input, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
 import type { JSX } from "react";
 import { useState } from "react";
-import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import {
   DIALOG_IDS,
@@ -16,6 +14,7 @@ import {
 import { NoLaunchTargets } from "@/components/subshell-picker/no-launch-targets";
 import { useLaunchFormDefaults } from "@/components/subshell-picker/use-launch-form-defaults";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { type InstancePluginRow, useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
@@ -24,6 +23,7 @@ import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { isOfflineAgent } from "@/lib/node-label";
 import { loadRecentPresetPicks, recordRecentPresetPick } from "@/lib/preset-recents";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subshell-compat";
 
 // The pure half of this form — the value contract, the submit gate, the
@@ -46,9 +46,10 @@ import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subs
  * the preset does not name does not survive the pick. The input returns to its
  * placeholder after the pick: the row names an act ("copy this in"), not a
  * held state, so the filled form reads as a copy and edits visibly belong to
- * the launch, not to the preset. Its `+` opens a nested create dialog (the agent locked
- * when one is already chosen, asked there when not), and a created preset
- * becomes the selection. The AGENT below it stays a direct question: options
+ * the launch, not to the preset. There is no create `+` on the row (ruling
+ * 2026-09-30): a preset worth keeping is MADE from the whole form, by
+ * "Save as preset" at its bottom, which requires a name and saves a NEW
+ * row. The AGENT below it stays a direct question: options
  * are the whole plugin set, greyed never hidden (the 2026-09-02 rule,
  * unchanged; the reasons live in `lib/subshell-compat`), and the server's
  * 409 stays the authoritative backstop for anything the cached views got
@@ -145,6 +146,8 @@ export function NewSubshellForm({
   // The section order re-renders the moment a pick lands, so the pick rides
   // state as well as the store.
   const [recentPresetIds, setRecentPresetIds] = useState<string[]>(() => loadRecentPresetPicks());
+  // The blur gate for the new-preset name caption (the preset editors' rule).
+  const [presetNameTouched, setPresetNameTouched] = useState(false);
 
   // The picker's list: the up-to-3 last-picked presets under "Recently
   // used", the rest under "Presets" (ruling 2026-09-30) - both sections
@@ -175,8 +178,6 @@ export function NewSubshellForm({
       .map((o) => (recents.length > 0 ? { ...o, group: "Presets" } : o));
     return [...recents, ...rest];
   })();
-
-  const [createPresetOpen, setCreatePresetOpen] = useState(false);
 
   const targets = launchableNodes(nodes ?? []);
   const agentOptions = buildAgentOptions(plugins ?? [], selectedNode);
@@ -223,33 +224,29 @@ export function NewSubshellForm({
       {!firstRun && (
         <div className="space-y-2">
           <Label htmlFor={ids.preset}>Preset</Label>
-          <div className="flex items-center gap-2">
-            <div className="min-w-0 flex-1">
-              <SearchableSelect
-                id={ids.preset}
-                // CONSUMED (the prompt picker's posture, now the ruling's too):
-                // the pick is an action, the closed state is the placeholder,
-                // nothing holds a selection. presetId still rides the launch
-                // (the preset's flags and env come with it); changing the
-                // agent drops it and keeps the filled fields.
-                consumed
-                value=""
-                placeholder="Choose a preset"
-                options={presetList}
-                describedBy={`${ids.preset}-hint${presets.length === 0 ? ` ${ids.preset}-empty` : ""}`}
-                onValueChange={(v) => {
-                  if (v === "") return;
-                  const row = presets.find((p) => p.id === v);
-                  if (row === undefined) return;
-                  applyPreset(row);
-                  setRecentPresetIds(recordRecentPresetPick(row.id));
-                }}
-              />
-            </div>
-            <Button variant="outline" size="icon" aria-label="New preset" onClick={() => setCreatePresetOpen(true)}>
-              <Plus />
-            </Button>
-          </div>
+          <SearchableSelect
+            id={ids.preset}
+            // CONSUMED (the prompt picker's posture, now the ruling's too):
+            // the pick is an action, the closed state is the placeholder,
+            // nothing holds a selection. presetId still rides the launch
+            // (the preset's flags and env come with it); changing the
+            // agent drops it and keeps the filled fields. There is no `+`
+            // beside it any more (ruling 2026-09-30): a preset you want to
+            // keep is MADE from this form, at its bottom - "Save as
+            // preset".
+            consumed
+            value=""
+            placeholder="Choose a preset"
+            options={presetList}
+            describedBy={`${ids.preset}-hint${presets.length === 0 ? ` ${ids.preset}-empty` : ""}`}
+            onValueChange={(v) => {
+              if (v === "") return;
+              const row = presets.find((p) => p.id === v);
+              if (row === undefined) return;
+              applyPreset(row);
+              setRecentPresetIds(recordRecentPresetPick(row.id));
+            }}
+          />
           <p id={`${ids.preset}-hint`} className="text-detail text-muted-foreground">
             Picking one copies its launch settings into this form.
           </p>
@@ -257,22 +254,6 @@ export function NewSubshellForm({
             <p id={`${ids.preset}-empty`} className="text-detail text-muted-foreground">
               No presets yet.
             </p>
-          )}
-          {/* Mounted only while open, so every open starts from a blank form
-              (clone-dialog posture). Base UI nests the dialogs natively:
-              Escape closes this one and the launch dialog stays up. Unlocked
-              when no agent is picked yet - the Preset row no longer waits on
-              one, and the create dialog asks for the agent itself. */}
-          {createPresetOpen && (
-            <CreatePresetDialog
-              open
-              lockedHarness={value.harnessId !== "" ? value.harnessId : undefined}
-              onOpenChange={(next) => !next && setCreatePresetOpen(false)}
-              onCreated={(row) => {
-                applyPreset(row);
-                setRecentPresetIds(recordRecentPresetPick(row.id));
-              }}
-            />
           )}
         </div>
       )}
@@ -370,6 +351,52 @@ export function NewSubshellForm({
         onBlocksChange={(promptBlocks) => onChange({ ...value, promptBlocks })}
         addButtonId={ids.prompt}
       />
+
+      {/* Save as preset (operator ruling 2026-09-30, replacing the picker's
+          `+`): the launch you just assembled can be kept, as a NEW preset
+          holding the agent, machine, directory and prompts as filled here.
+          The name is required exactly while the box is checked (the gold
+          star, the blur caption, and `canSubmit` say so together); a
+          checked box with a blank name never submits. Nothing here edits
+          an existing preset - even a form copied from one saves a new row.
+          Hidden on first run, where the wizard asks nothing it cannot
+          show. */}
+      {!firstRun && (
+        <div className="space-y-2 border-t pt-3">
+          <div className="flex items-center gap-3">
+            <input
+              type="checkbox"
+              id={ids.savePreset}
+              checked={value.saveAsPreset === true}
+              onChange={(e) => onChange({ ...value, saveAsPreset: e.target.checked })}
+              className="h-4 w-4 rounded border border-input bg-background accent-primary"
+            />
+            <Label htmlFor={ids.savePreset}>Save as preset</Label>
+          </div>
+          {value.saveAsPreset === true && (
+            <div className="space-y-2">
+              <Label htmlFor={ids.presetName}>
+                Name
+                <RequiredMark />
+              </Label>
+              <Input
+                id={ids.presetName}
+                value={value.presetName ?? ""}
+                onChange={(e) => onChange({ ...value, presetName: e.target.value })}
+                onBlur={() => setPresetNameTouched(true)}
+                placeholder="e.g. Fast model"
+                aria-required
+              />
+              {presetNameTouched && (value.presetName ?? "").trim() === "" && (
+                <p className={REQUIREMENT_CAPTION_CLASS}>A name is required.</p>
+              )}
+              <p className="text-detail text-muted-foreground">
+                Saves a new preset with the agent, machine, directory and prompts as filled here.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

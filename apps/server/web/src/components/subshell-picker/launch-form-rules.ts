@@ -31,6 +31,17 @@ export interface NewSubshellFormValue {
    * copies settings, not prompts.
    */
   promptBlocks: PromptBlock[];
+  /**
+   * "Save as preset" (operator ruling 2026-09-30, replacing the picker's
+   * `+`): on submit the launch ALSO creates a new preset from the agent,
+   * machine, directory and prompts as filled here. Optional on the type -
+   * an absent value is the untouched false; no existing caller literal
+   * changes. Nothing about the launch differs; the preset is the extra
+   * artifact the check promises.
+   */
+  saveAsPreset?: boolean;
+  /** The new preset's name; REQUIRED (trimmed) while `saveAsPreset` is checked. */
+  presetName?: string;
 }
 
 export function emptyNewSubshellForm(): NewSubshellFormValue {
@@ -39,7 +50,10 @@ export function emptyNewSubshellForm(): NewSubshellFormValue {
 
 /** True once the form has everything the create call requires. */
 export function canSubmit(value: NewSubshellFormValue): boolean {
-  return Boolean(value.harnessId) && Boolean(value.workingDir.trim()) && Boolean(value.nodeId);
+  // A checked "Save as preset" without a name is an unnamed promise; the
+  // field is required exactly while the box is checked (ruling 2026-09-30).
+  const presetNamed = value.saveAsPreset !== true || (value.presetName ?? "").trim() !== "";
+  return Boolean(value.harnessId) && Boolean(value.workingDir.trim()) && Boolean(value.nodeId) && presetNamed;
 }
 
 /**
@@ -121,6 +135,10 @@ export interface NewSubshellFormIds {
   node: string;
   /** Add-prompt button of the shared prompt section */
   prompt: string;
+  /** "Save as preset" checkbox */
+  savePreset: string;
+  /** New-preset name input, shown while the box is checked */
+  presetName: string;
 }
 
 /** The `picker-*` set every launch dialog gets by default. */
@@ -130,4 +148,6 @@ export const DIALOG_IDS: NewSubshellFormIds = {
   workingDir: "picker-working-dir",
   node: "picker-node",
   prompt: "picker-prompt-add",
+  savePreset: "picker-save-as-preset",
+  presetName: "picker-preset-name",
 };

@@ -677,6 +677,8 @@ function SetupPage() {
           workingDir: "setup-working-dir",
           node: "setup-node",
           prompt: "setup-prompt-add",
+          savePreset: "setup-save-as-preset",
+          presetName: "setup-preset-name",
         }}
       />
       {create.error && (
