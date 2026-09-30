@@ -387,8 +387,8 @@ export function PromptPickerBody({
             <Label htmlFor="prompt-picker-search" className="sr-only">
               {offeredStacks.length > 0 ? "Search prompts or stacks" : "Search prompts"}
             </Label>
-            {/* The consumed posture, shared with "Copy settings from": the
-                  pick is an action, so the input returns to its placeholder
+            {/* The consumed posture: the pick is an action, so the input
+                  returns to its placeholder
                   and the next pick starts fresh. (The row clicks that failed
                   in the operator's browser on 2026-09-29 were the absent
                   crypto.randomUUID throwing in the pick handler, fixed at

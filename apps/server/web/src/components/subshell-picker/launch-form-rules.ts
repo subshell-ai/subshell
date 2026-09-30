@@ -131,8 +131,6 @@ export function pickNodeDefault(nodes: Node[], current: string): string {
  * different moment rather than a second spelling of this one.
  */
 export interface NewSubshellFormIds {
-  /** "Copy settings from" combobox input */
-  copy: string;
   /** Agent combobox input */
   agent: string;
   /** Preset select trigger */
@@ -147,7 +145,6 @@ export interface NewSubshellFormIds {
 
 /** The `picker-*` set every launch dialog gets by default. */
 export const DIALOG_IDS: NewSubshellFormIds = {
-  copy: "picker-copy",
   agent: "picker-agent",
   preset: "picker-preset",
   workingDir: "picker-working-dir",

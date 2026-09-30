@@ -11,8 +11,8 @@ const ICONED: ComboboxOption[] = [{ value: "c", label: "Claude Code", icon: "�
 // Two grouped rows then an ungrouped one: the header is the group, so it
 // renders ONCE above the run, and the trailing row carries none.
 const GROUPED: ComboboxOption[] = [
-  { value: "t1", label: "Stopped job", group: "Recently terminated" },
-  { value: "t2", label: "Another ended", group: "Recently terminated" },
+  { value: "t1", label: "Stopped job", group: "Recently used" },
+  { value: "t2", label: "Another ended", group: "Recently used" },
   { value: "r1", label: "Running one" },
 ];
 
@@ -32,12 +32,12 @@ describe("SearchableSelect — group headers", () => {
   it("renders ONE header above the run, not one per row, and the header is not a row", async () => {
     await openPopup();
     // The group's label shows exactly once for the two grouped rows.
-    expect(screen.getAllByText("Recently terminated")).toHaveLength(1);
+    expect(screen.getAllByText("Recently used")).toHaveLength(1);
     // A header is a heading, not a selectable option: three options (t1, t2,
     // r1), and none of them is named after the group.
     expect(screen.getAllByRole("option")).toHaveLength(3);
     for (const opt of screen.getAllByRole("option")) {
-      expect(opt.textContent).not.toContain("Recently terminated");
+      expect(opt.textContent).not.toContain("Recently used");
     }
   });
 
@@ -48,96 +48,16 @@ describe("SearchableSelect — group headers", () => {
     fireEvent.change(input, { target: { value: "ended" } });
     await waitFor(() => expect(screen.queryByRole("option", { name: /Running one/ })).toBeNull());
     expect(screen.getByRole("option", { name: /Another ended/ })).toBeDefined();
-    expect(screen.getAllByText("Recently terminated")).toHaveLength(1);
+    expect(screen.getAllByText("Recently used")).toHaveLength(1);
     // Query an UNGROUPED row: no grouped member survives, so no orphan header.
     fireEvent.change(input, { target: { value: "Running" } });
     await waitFor(() => expect(screen.queryByRole("option", { name: /Stopped job/ })).toBeNull());
     expect(screen.getByRole("option", { name: /Running one/ })).toBeDefined();
-    expect(screen.queryByText("Recently terminated")).toBeNull();
+    expect(screen.queryByText("Recently used")).toBeNull();
   });
 });
 
-// The copy picker's "3 each, search to dig deeper" (operator ruling 2026-09-29,
-// 4-each first, re-ruled the same day) on top of the group headers: the preview
-// cap trims each category's calm view, but a typed query lifts it so the deep
-// list stays reachable.
-const CAP_TWO: ComboboxOption[] = [
-  ...["Alpha", "Bravo", "Charlie", "Delta"].map((label, i) => ({ value: `a${i}`, label, group: "Active" })),
-  ...["One", "Two", "Three", "Four"].map((label, i) => ({
-    value: `t${i}`,
-    label: `Stopped ${label}`,
-    group: "Recently terminated",
-  })),
-];
-
-describe("SearchableSelect — group preview cap", () => {
-  it("shows only the cap per group in the calm view", async () => {
-    render(
-      <SearchableSelect
-        id="picker-copy"
-        value=""
-        onValueChange={() => {}}
-        placeholder="p"
-        options={CAP_TWO}
-        groupPreviewLimit={3}
-      />,
-    );
-    const input = screen.getByPlaceholderText("p");
-    fireEvent.mouseDown(input);
-    fireEvent.click(input);
-    await screen.findByRole("option", { name: /Alpha/ });
-    // 3 of each category = 6 rows; the 4th of each is trimmed.
-    expect(screen.getAllByRole("option")).toHaveLength(6);
-    expect(screen.queryByRole("option", { name: /Delta/ })).toBeNull();
-    expect(screen.queryByRole("option", { name: /Stopped Four/ })).toBeNull();
-    // Both headers show, once.
-    expect(screen.getByText("Active")).toBeDefined();
-    expect(screen.getByText("Recently terminated")).toBeDefined();
-  });
-
-  it("the cap trims the NAVIGATED set: keyboard focus never stops on an unrendered row", async () => {
-    // The defect this pins (round-2 review): when the cap only hid rows at
-    // render time, Base UI still cycled the full filtered set, so the 4th
-    // ArrowDown highlighted an invisible row - the list looked dead for a
-    // press and Enter committed nothing. With the set trimmed, every highlight
-    // lands on a row that is on screen.
-    render(
-      <SearchableSelect
-        id="picker-copy"
-        value=""
-        onValueChange={() => {}}
-        placeholder="p"
-        options={CAP_TWO}
-        groupPreviewLimit={3}
-      />,
-    );
-    const input = screen.getByPlaceholderText("p") as HTMLInputElement;
-    fireEvent.mouseDown(input);
-    fireEvent.click(input);
-    await screen.findByRole("option", { name: /Alpha/ });
-    const seen: (string | null)[] = [];
-    for (let i = 0; i < 7; i++) {
-      // Six trimmed rows; a seventh stop would be an invisible one.
-      fireEvent.keyDown(input, { key: "ArrowDown" });
-      // aria-activedescendant is the discriminator: Base UI's WRAP passes
-      // through a null-active step (measured identical on an uncapped 3-item
-      // list), but the old render-time trim left the highlight on a row that
-      // was not in the DOM - the id resolved to MISSING. Every step must
-      // point at a row that exists, or at none.
-      const ad = input.getAttribute("aria-activedescendant");
-      if (ad === null) {
-        seen.push(null);
-      } else {
-        const el = document.getElementById(ad);
-        if (!el) throw new Error(`activedescendant ${ad} resolves to nothing - an unrendered keyboard stop`);
-        seen.push(el.textContent ?? "");
-      }
-    }
-    // A full cycle of the six rendered rows with wrap's null step, and the
-    // trimmed 4th of each group never appears.
-    expect(seen).toEqual(["Alpha", "Bravo", "Charlie", "Stopped One", "Stopped Two", "Stopped Three", null]);
-  });
-
+describe("SearchableSelect — divider", () => {
   it("a divider renders one hairline above its row and is not selectable", async () => {
     const withDivider: ComboboxOption[] = [
       { value: "r", label: "Recent pick" },
@@ -154,29 +74,6 @@ describe("SearchableSelect — group preview cap", () => {
     // The divider is not an option: exactly two choices exist, the hairline is
     // a bare rule between them.
     expect(screen.getAllByRole("option")).toHaveLength(2);
-  });
-
-  it("lifts the cap when a query reaches a trimmed row (search digs deeper)", async () => {
-    render(
-      <SearchableSelect
-        id="picker-copy"
-        value=""
-        onValueChange={() => {}}
-        placeholder="p"
-        options={CAP_TWO}
-        groupPreviewLimit={3}
-      />,
-    );
-    const input = screen.getByPlaceholderText("p") as HTMLInputElement;
-    fireEvent.mouseDown(input);
-    fireEvent.click(input);
-    await screen.findByRole("option", { name: /Alpha/ });
-    expect(screen.queryByRole("option", { name: /Delta/ })).toBeNull(); // trimmed
-    fireEvent.change(input, { target: { value: "Delta" } });
-    // The query lifts the cap: the trimmed Active row is now reachable.
-    expect(await screen.findByRole("option", { name: /Delta/ })).toBeDefined();
-    fireEvent.change(input, { target: { value: "Four" } });
-    expect(await screen.findByRole("option", { name: /Stopped Four/ })).toBeDefined();
   });
 });
 

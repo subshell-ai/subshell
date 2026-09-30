@@ -92,9 +92,7 @@ prefill is a name the server can accept. A presetless launch omits `presetId`:
 absence, never null.
 
 **The launch dialog opens on your last launch** (operator ask 2026-09-25):
-the form's node and directory pre-fill from the newest prior subshell, and a
-**Copy settings from** row above the Agent (`#picker-copy`) applies any listed
-row's four settings as an explicit act. Two arms, one selector:
+the form's node and directory pre-fill from the newest prior subshell.
 `launchTemplateFromList` (`lib/launch-defaults.ts`) reads the SAME
 `sortByCreation` head as `defaultAgentId`'s recent tier, so the agent default
 and the full-settings default can never disagree about which row is "recent";
@@ -103,23 +101,31 @@ armed template and applies the preset only when ITS agent survived the
 usability check. The auto arm fires once, only while the form still holds
 `emptyNewSubshellForm()`. A Split `initialForm`, a caller seed, pre-settle
 typing, or `firstRun` (whose Preset row is hidden, so a preset landed there
-would be invisible) all disqualify it; the picker applies over any edit,
-cancels the armed auto tier, and its row RESETS to the placeholder (the copy
-is an action, not a held value the re-pickable fields would contradict).
-Degradation is never a second rule: copying from an offline node re-homes the
-pick and the existing machine-switch arm clears the copied directory and
-re-arms the per-node seed; the preset-membership guard drops a preset that
-does not belong to the landed agent. And nothing guesses at an unanswered
-list: the recents seed WAITS for the subshells list to have answered (a cold
-load where `/recent` lands first would otherwise have the seed mark the form
-touched and disqualify the copy tier for the whole session), so on a final
-list error with the dialog open the directory stays cold until the list next
-answers. The same gate-the-answered-not-the-value rule as the agent tier
-applies, and it self-heals on reopen, feed event, or retry. The picker lists up to 10 newest rows
-(`COPY_SETTINGS_LIMIT`), NEVER disables one, and carries `agent · node · dir`
-as the detail line (short node id for an unresolved machine). No new
-persistence: everything rides `GET /api/subshells`, so a deleted subshell
-leaves the list exactly as the agent default already ignored it. Mobile's New
+would be invisible) all disqualify it. Degradation is never a second rule: a
+newest row on an offline node re-homes the pick and the existing
+machine-switch arm clears the copied directory and re-arms the per-node seed;
+the preset-membership guard drops a preset that does not belong to the landed
+agent. And nothing guesses at an unanswered list: the recents seed WAITS for
+the subshells list to have answered (a cold load where `/recent` lands first
+would otherwise have the seed mark the form touched and disqualify the copy
+tier for the whole session), so on a final list error with the dialog open the
+directory stays cold until the list next answers. The same gate-the-answered-
+not-the-value rule as the agent tier applies, and it self-heals on reopen,
+feed event, or retry. No new persistence: everything rides
+`GET /api/subshells`, so a deleted subshell leaves the list exactly as the
+agent default already ignored it.
+
+**Choosing a preset prefills the launch fields it names** (spec
+2026-09-29-preset-launch-fields, replacing the "Copy settings from" picker
+that applied any listed row): a preset can carry a node, a working directory,
+and prompt blocks, and selecting it on the launch form applies all three
+through `applyPreset` in `use-launch-form-defaults.ts`, cancelling a pending
+auto-default. A hint, never a lock: every field stays re-pickable afterwards,
+and the same degradation arms apply (an offline preset node re-homes and
+clears the directory; missing fields simply stay at their tier's answer).
+The same trio is what makes a preset cross-comm ready for MCP
+(`isPresetCrossCommReady`, `@internal/subshell-protocol`).
+Mobile's New
 screen does NOT mirror this tier (operator scope call: web only;
 `agent-default.ts` keeps its "change one, change both" for the AGENT rule
 only).

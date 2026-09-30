@@ -837,12 +837,13 @@ describe("NewSubshellForm copy", () => {
  */
 /**
  * The prior-launch tier (operator rule, 2026-09-25): the form opens on the
- * newest row's four settings, and "Copy settings from" applies any listed
- * row's settings as an explicit act. The pure selectors are pinned in
+ * newest row's four settings. The pure selectors are pinned in
  * `lib/__tests__/launch-defaults.test.ts`; these pins are the effect's
  * composition — arming, degradation, and the caller/edit disqualifiers.
+ * (The "Copy settings from" picker tests left with its removal under spec
+ * 2026-09-29-preset-launch-fields; preset prefill is pinned below.)
  */
-describe("NewSubshellForm prior-launch defaults + copy picker", () => {
+describe("NewSubshellForm prior-launch defaults", () => {
   const PI_ON = { harnessId: "pi", name: "Pi", installed: true };
   const PI = plugin({ id: "pi", name: "Pi", type: "agent-harness" });
 
@@ -998,9 +999,9 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
   });
 
   it("a copy from a maintenance node degrades like the offline case", async () => {
-    // The one unlaunchable row the picker KEEPS for its reason (spec
-    // 2026-09-14 §6) must degrade the same way: the pick re-homes, the
-    // copied dir rides the machine-switch clear, the seed refills.
+    // The newest row on a maintenance node must degrade the same way: the
+    // auto pick re-homes, the copied dir rides the machine-switch clear,
+    // and the seed refills (spec 2026-09-14 §6 posture).
     const MAINT = node({ id: "m1", name: "shop", maintenance: true, canLaunch: false });
     const restore = mockFetch([LOCAL, MAINT], [CLAUDE], [], [launchRow({ nodeId: "m1", workingDir: "/srv/on-shop" })], {
       paths: [],
@@ -1010,122 +1011,6 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().nodeId).toBe("local"));
       await waitFor(() => expect(latest().workingDir).toBe("/home/ada"));
-    } finally {
-      restore();
-    }
-  });
-
-  it("lists prior subshells, applies a pick over the held fields, and resets to placeholder", async () => {
-    const PI_NODE = node({ id: "a1", name: "mac mini", harnesses: [PI_ON] });
-    const restore = mockFetch(
-      [LOCAL, PI_NODE],
-      [CLAUDE, PI],
-      [preset({ id: "p-pi", harnessId: "pi", name: "Pi one" })],
-      [
-        launchRow({
-          id: "s-new",
-          name: "Newest",
-          harnessId: "pi",
-          presetId: "p-pi",
-          nodeId: "a1",
-          workingDir: "/srv/new",
-        }),
-        launchRow({ id: "s-old", name: "Older one", createdAt: "2026-09-02T00:00:00.000Z", workingDir: "/srv/old" }),
-      ],
-      { paths: [], home: "/home/ada" },
-    );
-    try {
-      const { latest } = await renderForm();
-      await waitFor(() => expect(latest().harnessId).toBe("pi"));
-      // The section is a checkbox until asked for: the label is there, the
-      // picker is not, until it is ticked.
-      expect(screen.getByText("Copy settings from a subshell")).toBeDefined();
-      expect(document.getElementById("picker-copy")).toBeNull();
-      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
-      const input = document.getElementById("picker-copy") as HTMLInputElement;
-      fireEvent.focus(input);
-      fireEvent.keyDown(input, { key: "ArrowDown" });
-      fireEvent.click(await screen.findByRole("option", { name: /Older one/ }));
-      // An explicit copy applies over the auto-default's answer…
-      await waitFor(() => expect(latest().harnessId).toBe("claude-code"));
-      expect(latest().presetId).toBeNull();
-      expect(latest().nodeId).toBe("local");
-      expect(latest().workingDir).toBe("/srv/old");
-      // …and the row returns to its placeholder: the copy was an action.
-      await settle();
-      expect(input.value).toBe("");
-    } finally {
-      restore();
-    }
-  });
-
-  it("the picker copies a foreign preset only to lose it to the membership guard", async () => {
-    const restore = mockFetch(
-      [LOCAL],
-      [CLAUDE],
-      [preset({ id: "p-claude", harnessId: "claude-code", name: "Fast" })],
-      [launchRow({ harnessId: "claude-code", presetId: "p-pi" })],
-    );
-    try {
-      const { latest } = await renderForm();
-      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
-      const input = document.getElementById("picker-copy") as HTMLInputElement;
-      fireEvent.focus(input);
-      fireEvent.keyDown(input, { key: "ArrowDown" });
-      fireEvent.click(await screen.findByRole("option", { name: /Last launch/ }));
-      // The row names a preset that does not belong to any pickable agent —
-      // the guard leaves the launch presetless, never half-copied.
-      await waitFor(() => expect(latest().presetId).toBeNull());
-      expect(latest().harnessId).toBe("claude-code");
-    } finally {
-      restore();
-    }
-  });
-
-  it("leads the picker with a just-terminated subshell, under its own category", async () => {
-    const restore = mockFetch(
-      [LOCAL],
-      [CLAUDE],
-      [],
-      [
-        launchRow({ id: "r-run", name: "Still going", status: "running", createdAt: "2026-09-20T00:00:00.000Z" }),
-        launchRow({
-          id: "r-end",
-          name: "Just ended",
-          status: "terminated",
-          endedAt: "2026-09-25T00:00:00.000Z",
-          createdAt: "2026-09-01T00:00:00.000Z",
-        }),
-      ],
-    );
-    try {
-      await renderForm();
-      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
-      const input = document.getElementById("picker-copy") as HTMLInputElement;
-      fireEvent.focus(input);
-      fireEvent.keyDown(input, { key: "ArrowDown" });
-      await screen.findByRole("option", { name: /Still going/ });
-      // The category header shows, and the ended row LEADS despite the running
-      // row being newer by creation (endedAt, not createdAt, drives the tier).
-      expect(screen.getByText("Recently terminated")).toBeDefined();
-      expect(screen.getAllByRole("option")[0]?.textContent).toContain("Just ended");
-    } finally {
-      restore();
-    }
-  });
-
-  it("absent with nothing to copy, and on first run", async () => {
-    const empty = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE]);
-    try {
-      await renderForm();
-      expect(screen.queryByText("Copy settings from a subshell")).toBeNull();
-    } finally {
-      empty();
-    }
-    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [launchRow({})], undefined, undefined);
-    try {
-      await renderForm(emptyNewSubshellForm(), false, true);
-      expect(screen.queryByText("Copy settings from a subshell")).toBeNull();
     } finally {
       restore();
     }

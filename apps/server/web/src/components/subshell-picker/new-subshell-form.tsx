@@ -3,7 +3,7 @@ import { Button, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import type { JSX } from "react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
 import { PromptStackList } from "@/components/prompts/prompt-stack-list";
@@ -25,7 +25,6 @@ import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
-import { COPY_CATEGORY_PREVIEW, copySettingsOptions } from "@/lib/launch-defaults";
 import { isOfflineAgent } from "@/lib/node-label";
 import { movePromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import { buildAgentOptions, buildNodeOptions } from "@/lib/subshell-compat";
@@ -55,12 +54,12 @@ import { buildAgentOptions, buildNodeOptions } from "@/lib/subshell-compat";
  *
  * **It opens on your last launch** (operator rule, 2026-09-25): node,
  * directory, agent and preset pre-fill from the newest prior subshell, once,
- * while the form is still untouched — and the "Copy settings from" row on top
- * applies any listed row's settings as an explicit act, after edits included.
- * Both are defaults, never constraints: every field stays re-pickable, and
- * the form's own arms degrade an unsafe copy (an offline source node re-homes
- * and re-seeds the directory exactly like a machine switch; a preset that
- * does not belong to the landed agent is dropped). The wiring is
+ * while the form is still untouched — and choosing a preset re-applies from
+ * ITS stored launch trio (spec 2026-09-29-preset-launch-fields). Both are
+ * defaults, never constraints: every field stays re-pickable, and the form's
+ * own arms degrade an unsafe prefill (an offline source node re-homes and
+ * re-seeds the directory exactly like a machine switch; a preset that does
+ * not belong to the landed agent is dropped). The wiring is
  * `use-launch-form-defaults.ts`; the selectors are `lib/launch-defaults.ts`.
  *
  * **It does not ask for a name.** The server names a new subshell after its
@@ -121,9 +120,9 @@ export function NewSubshellForm({
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
 
   // The ONE effect (prior-launch node+dir → re-home → seed → agent+preset)
-  // and `applyCopy`, the picker's explicit act that applies over edits and
-  // cancels a pending auto-default.
-  const { applyCopy, applyPreset } = useLaunchFormDefaults({
+  // and `applyPreset`, choosing a preset's explicit act (select + prefill its
+  // launch trio), which cancels a pending auto-default.
+  const { applyPreset } = useLaunchFormDefaults({
     value,
     onChange,
     nodes,
@@ -136,15 +135,6 @@ export function NewSubshellForm({
     firstRun,
   });
 
-  // The "Copy settings from" rows, newest first — the same live list, no
-  // second source. Labels resolve against the node registry and the plugin
-  // catalog when those have answered; until then the rows carry their
-  // fallbacks (short id, raw slug), never a name proven by nothing.
-  const copyOptions = useMemo(
-    () => copySettingsOptions(subshells, nodes ?? [], plugins ?? []),
-    [subshells, nodes, plugins],
-  );
-
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
   const selectedAgent: InstancePluginRow | undefined = (plugins ?? []).find((p) => p.id === value.harnessId);
   const agentName = selectedAgent?.name ?? value.harnessId;
@@ -152,11 +142,6 @@ export function NewSubshellForm({
 
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  // "Copy settings from" is collapsed until asked for (operator ruling
-  // 2026-09-29): a launch that does not copy pays nothing in screen. This is
-  // pure UI reveal (like `pickerOpen`), NOT form value — it never touches the
-  // wire, the touched-gate, or the prior-launch auto-default.
-  const [copyOpen, setCopyOpen] = useState(false);
 
   const targets = launchableNodes(nodes ?? []);
   const agentOptions = buildAgentOptions(plugins ?? [], selectedNode);
@@ -195,50 +180,6 @@ export function NewSubshellForm({
 
   return (
     <div className="space-y-4">
-      {/* First, because it is cause and the four fields below are effect:
-          one pick fills all four, and the row returns to its placeholder the
-          moment it fires. A CHECKBOX until asked for (so a copy-less launch
-          pays nothing in screen), and hidden with nothing to copy (a first
-          account, an unanswered list) and on the setup assistant's first
-          launch. Inside it the list is divided into Active and Recently
-          terminated, at most `COPY_CATEGORY_PREVIEW` of each before you search
-          (see copySettingsOptions + the combobox's preview cap). */}
-      {!firstRun && copyOptions.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id={`${ids.copy}-toggle`}
-              checked={copyOpen}
-              onChange={(e) => setCopyOpen(e.target.checked)}
-              className="h-4 w-4 rounded border border-input bg-background accent-primary"
-            />
-            <Label htmlFor={`${ids.copy}-toggle`}>Copy settings from a subshell</Label>
-          </div>
-          {copyOpen && (
-            <>
-              {/* The reveal checkbox is labelled; the input behind it needs its
-                  own association too - a placeholder is the last-resort name. */}
-              <Label htmlFor={ids.copy} className="sr-only">
-                Copy settings from a subshell
-              </Label>
-              <SearchableSelect
-                id={ids.copy}
-                // The consumed posture, pinned: a copy is an action, not a held
-                // selection the re-pickable fields would then contradict.
-                value=""
-                placeholder="Search recent subshells"
-                options={copyOptions}
-                // A few per category in the calm view; a typed query lifts it so
-                // a search reaches every prior subshell, not just the shown few.
-                groupPreviewLimit={COPY_CATEGORY_PREVIEW}
-                onValueChange={(id) => id !== "" && applyCopy(id)}
-              />
-            </>
-          )}
-        </div>
-      )}
-
       <div className="space-y-2">
         <Label htmlFor={ids.agent}>Agent</Label>
         {firstRun && (
