@@ -324,7 +324,7 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
   it("the cross-comm switch arms only when the trio holds, and a broken trio blocks Save", async () => {
     const m = mockFetch();
     try {
-      const { client } = await renderDialog({ lockedHarness: "claude-code" });
+      await renderDialog({ lockedHarness: "claude-code" });
       const dialog = await screen.findByRole("dialog");
       const toggle = () => dialog.querySelector("#preset-cross-comm") as HTMLButtonElement;
       const save = () => screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement;
