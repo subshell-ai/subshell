@@ -15,6 +15,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  formDialogOpenChange,
 } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/segmented";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
@@ -148,10 +149,12 @@ export function AddSubshellDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => {
+      // A half-filled launch form is not disposable (ruling 2026-09-30):
+      // only a deliberate act closes this - X, Cancel, or a successful add.
+      onOpenChange={formDialogOpenChange((next) => {
         onOpenChange(next);
         if (!next) reset();
-      }}
+      })}
     >
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
