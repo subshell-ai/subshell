@@ -402,6 +402,7 @@
       "name": "@internal/mcp-core",
       "version": "1.0.0",
       "dependencies": {
+        "@internal/subshell-protocol": "workspace:*",
         "@modelcontextprotocol/server": "2.0.0",
         "jose": "6.2.9",
         "zod": "4.4.3",

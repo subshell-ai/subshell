@@ -117,7 +117,13 @@ function PresetEditor({ preset }: { preset: PresetRow }) {
           {/* Editing opens on the rows: the question here is what this preset
               already is, and the command view is one click away for whoever
               came to paste a replacement over it. */}
-          <PresetFields value={form} onChange={setForm} lockedHarness={preset.harnessId} defaultEntryMode="custom" />
+          <PresetFields
+            value={form}
+            onChange={setForm}
+            lockedHarness={preset.harnessId}
+            defaultEntryMode="custom"
+            draftScope={`preset-${preset.id}`}
+          />
           {error && <p className="text-destructive text-detail">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => navigate({ to: "/presets" })} disabled={mutation.isPending}>

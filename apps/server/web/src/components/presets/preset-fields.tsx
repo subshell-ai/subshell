@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { McpSetupSection } from "@/components/mcp-setup-section";
 import { type PairRow, PairRowsEditor } from "@/components/pair-rows-editor";
 import { CommandPasteField } from "@/components/presets/command-paste-field";
+import { PresetLaunchFields } from "@/components/presets/preset-launch-fields";
 import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useHarnessSchema } from "@/hooks/use-harness-schema";
@@ -40,6 +41,7 @@ export function PresetFields({
   onChange,
   lockedHarness,
   defaultEntryMode = "paste",
+  draftScope = "preset",
 }: {
   value: PresetFormValue;
   onChange: (value: PresetFormValue) => void;
@@ -58,6 +60,11 @@ export function PresetFields({
    * preset is reading what it already is, not replacing it.
    */
   defaultEntryMode?: PresetEntryMode;
+  /**
+   * Draft namespace threaded to the launch defaults' prompt picker, so the
+   * create dialog and the edit page never share a half-typed custom block.
+   */
+  draftScope?: string;
 }) {
   // Loading and failure are tracked separately: "No agent installed" is only
   // honest after a load that succeeded with zero rows — claiming it while the
@@ -279,6 +286,10 @@ export function PresetFields({
               delay between attempts while it keeps failing. Leave off to decide manually.
             </p>
           </div>
+          {/* The preset's optional launch trio (spec 2026-09-29): hints the
+              launch form prefills and the server resolves when a request
+              leaves a field blank. */}
+          <PresetLaunchFields value={value} onChange={onChange} agent={agent ?? null} draftScope={draftScope} />
           {schema?.mcp && <McpSetupSection mcp={schema.mcp} />}
         </>
       )}

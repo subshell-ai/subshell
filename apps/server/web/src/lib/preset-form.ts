@@ -1,3 +1,5 @@
+import type { PresetPromptBlock } from "@internal/subshell-protocol";
+import { type PromptBlock, presetBlocksToWire, wireToPresetBlocks } from "@/lib/prompt-stack";
 import type { PresetRow } from "@/types/preset";
 
 /** One env var as edited: name and value in separate fields. */
@@ -31,6 +33,17 @@ export interface PresetFormValue {
   envRows: EnvRow[];
   flagRows: FlagRow[];
   restartOnExit: boolean;
+  /**
+   * Optional launch node hint (spec 2026-09-29): null = the preset names no
+   * machine and the launch-time ladder decides, exactly the old behavior.
+   */
+  nodeId: string | null;
+  /** Optional absolute working directory; "" = names none (edited as text). */
+  workingDir: string;
+  /** The launch form's "Add a prompt" posture, mirrored on the preset. */
+  promptEnabled: boolean;
+  /** The stacked blocks (form-local ids included; dropped on submit). */
+  promptBlocks: PromptBlock[];
 }
 
 /**
@@ -51,6 +64,10 @@ export function emptyPresetForm(): PresetFormValue {
     envRows: [{ key: "", value: "" }],
     flagRows: [{ flag: "", value: "" }],
     restartOnExit: true,
+    nodeId: null,
+    workingDir: "",
+    promptEnabled: false,
+    promptBlocks: [],
   };
 }
 
@@ -79,13 +96,41 @@ export function presetFormFromRow(row: PresetRow): PresetFormValue {
     }
   }
   const envRows = Object.entries(env).map(([key, value]) => ({ key, value: String(value ?? "") }));
+  const promptBlocks = wireToPresetBlocks(row.promptBlocks);
   return {
     harnessId: row.harnessId,
     name: row.name,
     envRows: envRows.length > 0 ? envRows : [{ key: "", value: "" }],
     flagRows: flagTokensToRows(tokens),
     restartOnExit: row.restartOnExit === 1,
+    nodeId: row.nodeId,
+    workingDir: row.workingDir ?? "",
+    // A stored stack turns the checkbox on by itself: reopening a preset that
+    // carries a prompt shows the prompt.
+    promptEnabled: promptBlocks.length > 0,
+    promptBlocks,
   };
+}
+
+/**
+ * A checkbox that is on but holds nothing is NOT a prompt: the payload only
+ * carries blocks when both the box is checked and at least one exists.
+ */
+export function presetFormPromptBlocks(form: PresetFormValue): PromptBlock[] {
+  return form.promptEnabled ? form.promptBlocks : [];
+}
+
+/**
+ * The launch trio's gaps (spec 2026-09-29): a preset is cross-comm ready when
+ * a machine, a directory, and a prompt are all set - the editor's completeness
+ * line and the list badge read the same fact.
+ */
+export function presetLaunchGaps(form: PresetFormValue): string[] {
+  const gaps: string[] = [];
+  if (form.nodeId === null) gaps.push("machine");
+  if (form.workingDir.trim() === "") gaps.push("directory");
+  if (presetFormPromptBlocks(form).length === 0) gaps.push("prompt");
+  return gaps;
 }
 
 /**
@@ -146,6 +191,12 @@ export interface PresetPayload {
   configIsolation: boolean;
   /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
+  /** Launch node hint; null = names no machine */
+  nodeId: string | null;
+  /** Absolute working directory; null = names none */
+  workingDir: string | null;
+  /** The prompt stack, or null when the box is off or empty */
+  promptBlocks: PresetPromptBlock[] | null;
 }
 
 /**
@@ -166,6 +217,9 @@ export function toPresetPayload(form: PresetFormValue): PresetPayload {
     // No harness consumes config isolation yet — see preset-fields.tsx.
     configIsolation: false,
     restartOnExit: form.restartOnExit,
+    nodeId: form.nodeId,
+    workingDir: form.workingDir.trim() || null,
+    promptBlocks: presetBlocksToWire(presetFormPromptBlocks(form)),
   };
 }
 
@@ -181,6 +235,12 @@ export interface PresetUpdatePayload {
   configIsolation: boolean;
   /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
+  /** Launch node hint; the editor ALWAYS sends the trio so clearing works */
+  nodeId: string | null;
+  /** Absolute working directory; null clears */
+  workingDir: string | null;
+  /** The prompt stack; null clears */
+  promptBlocks: PresetPromptBlock[] | null;
 }
 
 /**
@@ -202,6 +262,12 @@ export function toPresetUpdatePayload(form: PresetFormValue): PresetUpdatePayloa
     // No harness consumes config isolation yet — see preset-fields.tsx.
     configIsolation: false,
     restartOnExit: form.restartOnExit,
+    // The trio rides EVERY update (explicit nulls): the editor is the whole
+    // truth about the preset, and "absent means untouched" would make a
+    // cleared field impossible to save away.
+    nodeId: form.nodeId,
+    workingDir: form.workingDir.trim() || null,
+    promptBlocks: presetBlocksToWire(presetFormPromptBlocks(form)),
   };
 }
 

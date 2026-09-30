@@ -14,6 +14,12 @@ export interface PresetRow {
   settingsJson: string | null;
   configIsolation: number;
   restartOnExit: number;
+  /** Optional launch node hint (null = the preset names no machine) */
+  nodeId: string | null;
+  /** Optional absolute working directory (null = the preset names none) */
+  workingDir: string | null;
+  /** JSON prompt block stack, snapshot bodies (null = no prompt) */
+  promptBlocks: string | null;
   /** ISO 8601 creation timestamp */
   createdAt: string;
   /** ISO 8601 update timestamp */

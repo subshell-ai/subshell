@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import type { PresetFormValue } from "@/lib/preset-form";
+import type { PromptBlock } from "@/lib/prompt-stack";
 import type { PresetRow } from "@/types/preset";
 import { filterSuggestions } from "../autocomplete";
 import {
@@ -7,6 +9,7 @@ import {
   formToEnv,
   formToFlagTokens,
   presetFormFromRow,
+  presetLaunchGaps,
   suggestCloneName,
   toPresetPayload,
   toPresetUpdatePayload,
@@ -22,6 +25,9 @@ const baseRow: PresetRow = {
   settingsJson: null,
   configIsolation: 0,
   restartOnExit: 0,
+  nodeId: null,
+  workingDir: null,
+  promptBlocks: null,
   createdAt: "2026-09-13T00:00:00.000Z",
   updatedAt: "2026-09-13T00:00:00.000Z",
 };
@@ -36,6 +42,12 @@ describe("emptyPresetForm", () => {
       // Operator's call, 2026-09-18: a preset is a way of running something
       // repeatedly, so recovering from an exit is the expected answer.
       restartOnExit: true,
+      // The launch trio starts EMPTY (spec 2026-09-29): a preset is still
+      // just settings until someone says where and with what.
+      nodeId: null,
+      workingDir: "",
+      promptEnabled: false,
+      promptBlocks: [],
     });
   });
 
@@ -68,6 +80,10 @@ describe("presetFormFromRow", () => {
         { flag: "--verbose", value: "" },
       ],
       restartOnExit: true,
+      nodeId: null,
+      workingDir: "",
+      promptEnabled: false,
+      promptBlocks: [],
     });
   });
 
@@ -154,6 +170,10 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
     ],
     flagRows: [{ flag: "--model", value: "sonnet" }],
     restartOnExit: true,
+    nodeId: null,
+    workingDir: "",
+    promptEnabled: false,
+    promptBlocks: [],
   };
 
   it("builds the POST body: trimmed name, parsed rows, reserved constants", () => {
@@ -165,6 +185,9 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
       settings: {},
       configIsolation: false,
       restartOnExit: true,
+      nodeId: null,
+      workingDir: null,
+      promptBlocks: null,
     });
   });
 
@@ -181,6 +204,9 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
       flags: ["--model", "sonnet"],
       configIsolation: false,
       restartOnExit: true,
+      nodeId: null,
+      workingDir: null,
+      promptBlocks: null,
     });
     expect(Object.keys(update).sort()).toEqual(
       Object.keys(toPresetPayload(form))
@@ -229,5 +255,71 @@ describe("suggestCloneName", () => {
     expect(suggested.length).toBeLessThanOrEqual(120);
     expect(suggested.startsWith("n".repeat(115))).toBe(true);
     expect(suggested).toBe(`${"n".repeat(116)} (2)`);
+  });
+});
+
+const toPresetForm: PresetFormValue = {
+  harnessId: "pi",
+  name: "Work",
+  envRows: [{ key: "A", value: "1" }],
+  flagRows: [{ flag: "--model", value: "sonnet" }],
+  restartOnExit: true,
+  nodeId: null,
+  workingDir: "",
+  promptEnabled: false,
+  promptBlocks: [],
+};
+
+describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
+  const wire = JSON.stringify([
+    { kind: "saved", promptId: "p1", description: "Standup", body: "run it" },
+    { kind: "custom", description: "", body: "and push" },
+  ]);
+
+  it("a stored trio survives row → form → payload unchanged (except fresh localIds)", () => {
+    const form = presetFormFromRow({ ...baseRow, nodeId: "n1", workingDir: "/srv/app", promptBlocks: wire });
+    expect(form.nodeId).toBe("n1");
+    expect(form.workingDir).toBe("/srv/app");
+    // A stored stack opens the checkbox by itself.
+    expect(form.promptEnabled).toBe(true);
+    expect(form.promptBlocks.map(({ localId: _id, ...rest }) => rest)).toEqual(JSON.parse(wire));
+    const payload = toPresetPayload(form);
+    expect(payload.nodeId).toBe("n1");
+    expect(payload.workingDir).toBe("/srv/app");
+    // localIds never cross the wire.
+    expect(JSON.stringify(payload.promptBlocks)).toBe(wire);
+  });
+
+  const blocks: PromptBlock[] = [{ localId: "x", kind: "custom", description: "", body: "hi" }];
+
+  it("an unchecked box drops the blocks; a checked empty box sends nothing", () => {
+    const withBlocks: PresetFormValue = { ...toPresetForm, promptEnabled: true, promptBlocks: blocks };
+    expect(toPresetPayload({ ...withBlocks, promptEnabled: false }).promptBlocks).toBeNull();
+    expect(toPresetPayload({ ...withBlocks, promptBlocks: [] }).promptBlocks).toBeNull();
+  });
+
+  it("a relative dir saves as-is and the server owns the refusal; blank saves as null", () => {
+    expect(toPresetPayload({ ...toPresetForm, workingDir: "  " }).workingDir).toBeNull();
+    expect(toPresetPayload({ ...toPresetForm, workingDir: " /srv/app " }).workingDir).toBe("/srv/app");
+  });
+
+  it("gaps name what is missing, in machine/directory/prompt order", () => {
+    expect(presetLaunchGaps(toPresetForm)).toEqual(["machine", "directory", "prompt"]);
+    expect(
+      presetLaunchGaps({
+        ...toPresetForm,
+        nodeId: "n1",
+        workingDir: "/srv",
+        promptEnabled: true,
+        promptBlocks: blocks,
+      }),
+    ).toEqual([]);
+    expect(presetLaunchGaps({ ...toPresetForm, nodeId: "n1" })).toEqual(["directory", "prompt"]);
+  });
+
+  it("unparseable stored JSON reads as no blocks (opening a preset never throws)", () => {
+    const form = presetFormFromRow({ ...baseRow, promptBlocks: "not json[" });
+    expect(form.promptBlocks).toEqual([]);
+    expect(form.promptEnabled).toBe(false);
   });
 });

@@ -21,9 +21,17 @@ import type { PresetRow } from "@/types/preset";
  * row menu, confirm.
  */
 
-function presetRow(p: { id: string; harnessId: string; name: string }): PresetRow {
+function presetRow(
+  p: { id: string; harnessId: string; name: string } & Partial<
+    Pick<PresetRow, "nodeId" | "workingDir" | "promptBlocks">
+  >,
+): PresetRow {
+  const { nodeId = null, workingDir = null, promptBlocks = null, ...rest } = p;
   return {
-    ...p,
+    ...rest,
+    nodeId,
+    workingDir,
+    promptBlocks,
     description: null,
     envJson: null,
     flagsJson: null,
@@ -240,6 +248,35 @@ describe("/presets row command visibility", () => {
       // Gating the former would only teach people to reveal first.
       expect(screen.getByRole("button", { name: "Copy launch command" })).toBeDefined();
       expect(screen.queryByText(/sk-ant-secret/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("cross-comm-ready badge (spec 2026-09-29 preset-launch-fields)", () => {
+  afterEach(cleanup);
+
+  it("badges only the row whose machine, directory, and prompt are all set", async () => {
+    const { restore } = mockFetch({
+      presets: [
+        presetRow({
+          id: "ready",
+          harnessId: "claude-code",
+          name: "Everywhere",
+          nodeId: "n1",
+          workingDir: "/srv/app",
+          promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
+        }),
+        presetRow({ id: "half", harnessId: "claude-code", name: "Settings only", nodeId: "n1" }),
+      ],
+    });
+    try {
+      renderPage();
+      await screen.findByText("Everywhere");
+      const badges = screen.getAllByText("cross-comm ready");
+      // One badge, on the ready row only (the half row stays unbadged).
+      expect(badges).toHaveLength(1);
     } finally {
       restore();
     }

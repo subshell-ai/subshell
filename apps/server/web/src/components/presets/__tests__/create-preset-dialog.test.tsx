@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { CreatePresetDialog } from "@/components/presets/create-preset-dialog";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
@@ -27,6 +27,9 @@ const ROW: PresetRow = {
   settingsJson: null,
   configIsolation: 0,
   restartOnExit: 0,
+  nodeId: null,
+  workingDir: null,
+  promptBlocks: null,
   createdAt: "2026-09-13T00:00:00.000Z",
   updatedAt: "2026-09-13T00:00:00.000Z",
 };
@@ -43,6 +46,9 @@ const SOURCE: PresetRow = {
   settingsJson: null,
   configIsolation: 0,
   restartOnExit: 1,
+  nodeId: null,
+  workingDir: null,
+  promptBlocks: null,
   createdAt: "2026-09-13T00:00:00.000Z",
   updatedAt: "2026-09-13T00:00:00.000Z",
 };
@@ -167,6 +173,11 @@ describe("CreatePresetDialog — locked (launch form)", () => {
             // ON by default since 2026-09-18 — a preset is a way of running
             // something repeatedly, so recovering from an exit is expected.
             restartOnExit: true,
+            // The launch trio posts as empty nulls until the editor says
+            // otherwise (spec 2026-09-29).
+            nodeId: null,
+            workingDir: null,
+            promptBlocks: null,
           },
         }),
       );
@@ -218,6 +229,9 @@ describe("CreatePresetDialog — clone (initialForm)", () => {
             settings: {},
             configIsolation: false,
             restartOnExit: true,
+            nodeId: null,
+            workingDir: null,
+            promptBlocks: null,
           },
         }),
       );
@@ -269,6 +283,37 @@ describe("CreatePresetDialog — unlocked (/presets page)", () => {
       expect(screen.queryByText("Every subshell you start with it launches Claude Code this way.")).toBeNull();
       expect((screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement).disabled).toBe(true);
       void container;
+    } finally {
+      m.restore();
+    }
+  });
+});
+
+describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => {
+  afterEach(cleanup);
+
+  it("renders the trio with the completeness line naming all three gaps", async () => {
+    const m = mockFetch();
+    try {
+      await renderDialog({ lockedHarness: "claude-code" });
+      const dialog = await screen.findByRole("dialog");
+      expect(dialog.querySelector("#preset-launch-node")).toBeDefined();
+      expect(within(dialog).getByText("Working directory")).toBeDefined();
+      expect(within(dialog).getByText("Add a prompt")).toBeDefined();
+      // Nothing set yet: the line invites rather than scolds.
+      expect(dialog.textContent).toContain("Optional: set a machine, directory, and prompt");
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("checking Add a prompt opens the stack and the picker button", async () => {
+    const m = mockFetch();
+    try {
+      await renderDialog({ lockedHarness: "claude-code" });
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByText("Add a prompt"));
+      expect(within(dialog).getByRole("button", { name: "Add prompt" })).toBeDefined();
     } finally {
       m.restore();
     }

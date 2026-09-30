@@ -132,6 +132,17 @@ export function defaultAgentId(
  * itself (spec 2026-09-13 §2.3) — the default pick is `pickNodeDefault`'s,
  * unchanged.
  */
+/**
+ * The nodes a launch may target: launch-granted, plus the maintenance window
+ * (a machine in a window is listed greyed, not hidden - ending the window is
+ * the fix a picker can wait for). Moved out of the launch-form rules (spec
+ * 2026-09-29) so the preset editor's node hint select and the launch form
+ * share one rule.
+ */
+export function launchableNodes(nodes: Node[]): Node[] {
+  return nodes.filter((n) => n.canLaunch || n.maintenance);
+}
+
 export function buildNodeOptions(nodes: readonly Node[], agent: LaunchAgent | null): ComboboxOption[] {
   return usableFirst(
     nodes.map((n) => {

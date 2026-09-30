@@ -1,4 +1,5 @@
 import { Badge, Button } from "@internal/node-admin";
+import { isPresetCrossCommReady } from "@internal/subshell-protocol";
 import { Link } from "@tanstack/react-router";
 import { Check, Copy, Eye, EyeOff } from "lucide-react";
 import { useState } from "react";
@@ -57,6 +58,13 @@ export function PresetListRow({ preset, binary, items }: { preset: PresetRow; bi
           {preset.restartOnExit === 1 && (
             <Badge variant="secondary" className="shrink-0">
               auto-restart
+            </Badge>
+          )}
+          {/* Derived from the row's trio (never stored): the flag an agent
+              reads in list_presets, stated for the human scrolling this list. */}
+          {isPresetCrossCommReady(preset) && (
+            <Badge variant="secondary" className="shrink-0">
+              cross-comm ready
             </Badge>
           )}
           {/* No description line: the name and the launch command already

@@ -1,3 +1,4 @@
+import type { PresetPromptBlock } from "@internal/subshell-protocol";
 import { newRandomId } from "@/lib/random-id";
 /**
  * The create dialog's prompt stack (spec 2026-09-28): the blocks the user
@@ -76,4 +77,40 @@ export function promptLaunchMissed(
  */
 export function newPromptLocalId(): string {
   return newRandomId("p");
+}
+
+/**
+ * The preset editor's stack → the wire shape stored on the row: the same
+ * blocks minus `localId`, which is form-local by contract (spec 2026-09-29
+ * preset-launch-fields). An empty stack stores nothing: "" / null on the row.
+ */
+export function presetBlocksToWire(blocks: PromptBlock[]): PresetPromptBlock[] | null {
+  if (blocks.length === 0) return null;
+  return blocks.map(({ localId: _localId, ...wire }) => wire);
+}
+
+/**
+ * A stored stack back into editor blocks with FRESH form-local ids (the old
+ * ones never crossed the wire). Unparseable stored JSON yields no blocks -
+ * the same tolerance the env/flag row parsing shows: reading a preset must
+ * not throw because a column got written by something strange.
+ */
+export function wireToPresetBlocks(json: string | null): PromptBlock[] {
+  if (!json) return [];
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (b): b is PresetPromptBlock & { kind: PromptBlock["kind"] } =>
+          typeof b === "object" &&
+          b !== null &&
+          typeof (b as { body?: unknown }).body === "string" &&
+          typeof (b as { description?: unknown }).description === "string" &&
+          ["saved", "custom", "stack"].includes((b as { kind?: unknown }).kind as string),
+      )
+      .map((b) => ({ localId: newPromptLocalId(), ...b }));
+  } catch {
+    return [];
+  }
 }
