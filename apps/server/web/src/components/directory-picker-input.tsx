@@ -300,28 +300,72 @@ export function DirectoryPickerInput({
                 </p>
               </div>
             ) : (
-              <div className="flex h-56 items-center px-2 text-destructive text-detail">
-                Couldn&apos;t browse this path.
+              // A browse failure that is none of the named cases (a 403, a
+              // network error, a 500): explain, AND give the one escape that
+              // never needs this folder to read — home. Without it the panel was
+              // a dead end you could only click away from.
+              <div className="flex h-56 flex-col items-start justify-center gap-2 px-2">
+                <p className="text-destructive text-detail">Couldn&apos;t browse this path.</p>
+                <button
+                  type="button"
+                  onClick={startOver}
+                  className="rounded-md border px-2 py-1 text-detail text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  Start over
+                </button>
               </div>
             )
-          ) : explore?.blocked === "permission" ? (
-            // The folder EXISTS and is not empty — the OS refused the read.
-            // Rendering it as an empty listing would say the opposite, and
-            // the person would keep clicking into folders wondering why their
-            // projects had vanished (operator's report, 2026-09-14).
+          ) : explore?.blocked === "permission" || explore?.blocked === "timeout" ? (
+            // The folder is NOT empty-and-shown — the read was refused
+            // (permission) or never answered (timeout). Rendering either as an
+            // empty listing would say the opposite (operator's report,
+            // 2026-09-14), and leaving NO escape trapped the person in a panel
+            // they could only close and reopen (2026-09-30: the same dead
+            // feeling as the hung server this flag now bounds). The server
+            // echoes parent/recent/favorites on a blocked read, so offer the
+            // ways out that need no read of THIS folder.
             <div className="flex h-56 flex-col items-start justify-center gap-2 px-2">
-              {/* The server flags EACCES as well as EPERM, on every platform, so
-                  the copy names macOS only where this page can know the server
-                  is on a Mac (review, 2026-09-14). */}
-              <p className="text-sm">{serverOnMac ? "Blocked by macOS" : "Not allowed to read this folder"}</p>
-              <PermissionNotice
-                pane="files"
-                message={
-                  serverOnMac
-                    ? `macOS is not letting ${blockedByName(deployment)} read this folder.`
-                    : `${blockedByName(deployment)} was refused when it tried to list this folder.`
-                }
-              />
+              {explore.blocked === "permission" ? (
+                <>
+                  {/* The server flags EACCES as well as EPERM, on every
+                      platform, so the copy names macOS only where this page can
+                      know the server is on a Mac (review, 2026-09-14). */}
+                  <p className="text-sm">{serverOnMac ? "Blocked by macOS" : "Not allowed to read this folder"}</p>
+                  <PermissionNotice
+                    pane="files"
+                    message={
+                      serverOnMac
+                        ? `macOS is not letting ${blockedByName(deployment)} read this folder.`
+                        : `${blockedByName(deployment)} was refused when it tried to list this folder.`
+                    }
+                  />
+                </>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  This folder took too long to read. It may be on a slow or disconnected drive.
+                </p>
+              )}
+              {/* The recovery row: back up toward a folder that reads, or
+                  abandon the dead path for home. "Up" is offered only when the
+                  server could name a parent (never at the filesystem root). */}
+              <div className="flex gap-2">
+                {explore.parent && (
+                  <button
+                    type="button"
+                    onClick={() => pick(explore.parent ?? "")}
+                    className="rounded-md border px-2 py-1 text-detail text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    Go up one level
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={startOver}
+                  className="rounded-md border px-2 py-1 text-detail text-muted-foreground hover:bg-accent hover:text-foreground"
+                >
+                  Start over
+                </button>
+              </div>
             </div>
           ) : explore ? (
             <div className="h-56 overflow-y-auto">

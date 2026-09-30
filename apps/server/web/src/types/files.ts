@@ -29,13 +29,16 @@ export interface ExploreResult {
   /** Starred paths, newest first. */
   favorites: SavedPath[];
   /**
-   * Present when the OS refused to list THIS directory — macOS asks per
-   * protected folder (Desktop, Documents, Downloads) and a decline makes the
-   * read throw forever after; plain unix modes reach the same place.
+   * Present when the directory could not be listed though the request
+   * succeeded — the reason `entries` is empty. `"permission"`: the OS refused
+   * the read (macOS asks per protected folder and a decline throws forever
+   * after; unix modes reach the same place). `"timeout"`: the read never
+   * answered within the server's deadline (a hung network/automount — the
+   * instance-wedging case) and may well work later.
    *
-   * It is why `entries` is empty, and an empty listing without it is a folder
-   * that genuinely holds nothing. The flag is never on a child: probing each
-   * one is the act that fires a prompt per folder.
+   * An empty listing WITHOUT the flag is a folder that genuinely holds nothing.
+   * The flag is never on a child: probing each one is the act that fires a
+   * prompt per folder.
    */
-  blocked?: "permission";
+  blocked?: "permission" | "timeout";
 }
