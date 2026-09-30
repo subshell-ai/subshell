@@ -423,6 +423,14 @@ the whole suite SERIALLY - minutes slower, and not the regime the script
 defines. A bare `bun test <file>` is still fine for one focused file mid-edit
 (see `.claude/rules/testing.md`); the rule is about suite runs.
 
+**Automation shells may poison the script: run it with `env -u SHELLOPTS`.**
+Measured repeatedly on this harness: the tool shell exports
+`SHELLOPTS=onecmd:posix`, and a bash-launched script then executes ZERO
+commands and exits 0 - a "green" test run in 1 ms with no output is that
+failure, not speed. Prefix script-invoked test runs with `env -u SHELLOPTS`,
+and treat an implausibly fast or empty suite run as a broken invocation worth
+re-running, never as a pass.
+
 The e2e suite lives in `e2e/` and is NOT part of `bun run test` or the pre-push
 hook: it needs a real tmux server and a one-time `bunx playwright install
 chromium`. See `e2e/AGENTS.md`.
