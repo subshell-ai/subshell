@@ -47,7 +47,12 @@ mkdirSync(binDir, { recursive: true });
 
 for (const key of arg === "all" ? Object.keys(TARGETS) : [arg]) {
   const target = TARGETS[key];
-  const compile = Bun.spawnSync({ cmd: ["bun", "run", "compile"], cwd: join(root, target.pkg), stdout: "inherit", stderr: "inherit" });
+  const compile = Bun.spawnSync({
+    cmd: ["bun", "run", "compile"],
+    cwd: join(root, target.pkg),
+    stdout: "inherit",
+    stderr: "inherit",
+  });
   if (compile.exitCode !== 0) {
     console.error(`dev-install: ${target.pkg} compile failed (exit ${compile.exitCode}); nothing was copied`);
     process.exit(1);

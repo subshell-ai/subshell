@@ -82,7 +82,7 @@ import {
 // consumer, so it lives in `scripts/` and both desktop pipelines import it —
 // which is what keeps the manifest the shards WRITE and the one the publish
 // job MERGES one shape.
-import { fetchReleaseBytes, fetchReleaseIndex } from "../../../../../scripts/cli-release-fetch.js";
+import { fetchReleaseBytes, fetchReleaseIndex, type ReleaseIndex } from "../../../../../scripts/cli-release-fetch.js";
 import {
   buildShardManifest,
   latestManifestName,
@@ -199,13 +199,12 @@ export interface DesktopReleaseDeps {
   digest: (path: string) => Promise<string>;
   /**
    * Index a published release's assets (name -> download URL) over the
-   * GitHub API; status 404 means the version was never released. Injected so
-   * tests drive every lookup outcome; production is scripts/cli-release-fetch.
+   * GitHub API; status 404 means the version was never released, and even a
+   * 200 may name a DRAFT (the endpoint answers drafts to a push-scoped
+   * token). Injected so tests drive every lookup outcome; production is
+   * scripts/cli-release-fetch.
    */
-  fetchIndex: (
-    component: ReleaseComponent,
-    version: string,
-  ) => Promise<{ status: number; assets: Record<string, string> }>;
+  fetchIndex: (component: ReleaseComponent, version: string) => Promise<ReleaseIndex>;
   /** Download one asset's bytes. */
   fetchBytes: (url: string) => Promise<{ status: number; bytes: Uint8Array | undefined }>;
   /** Write bytes to a file — the downloaded asset, before it is renamed. */
@@ -267,10 +266,15 @@ export async function cliReleaseVersion(deps: DesktopReleaseDeps): Promise<strin
 /**
  * Stage the published cli-node artifact for `triple` as the sidecar Tauri
  * expects, refusing anything but the bytes the release's SIGNED manifest
- * names. Same contract `apps/server/desktop` runs against cli-server, one CLI
- * over: the version PR lands CLI and desktop bumps together, so the matching
- * `cli-node-vX.Y.Z` either shipped in an earlier cut or is what this cut's
- * publish-cli phase just produced.
+ * names. The version comes from `apps/node/agent/package.json` at this commit: the
+ * version PR lands CLI and desktop bumps together, so the matching
+ * `cli-node-vX.Y.Z` release either shipped in an earlier cut or is what this
+ * cut's publish-cli phase just produced. Absent means the cut order was
+ * violated, and the log says exactly that.
+ *
+ * The two desktop apps enforce the SAME contract over different CLIs;
+ * scripts/__tests__/desktop-release-parity.test.ts keeps the two fetch paths
+ * identical apart from the component tokens.
  */
 export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Promise<boolean> {
   if (process.env.SUBSHELL_SIDECAR_FROM_SOURCE === "1") {
@@ -299,6 +303,15 @@ export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Pr
     );
     return false;
   }
+  if (index.draft) {
+    // A draft is NOT a shipped release: it is a cut that died between the
+    // draft step and the flip, and its bytes were never on the release page.
+    // Bundling them would break the one rule this ordering exists for (ship
+    // what the release page offers), so refuse HARD and by name.
+    throw new Error(
+      `refused: ${tag} exists only as a DRAFT release (a prior cut died between draft and publish); delete the draft and re-dispatch`,
+    );
+  }
   const manifestText = await fetchAssetText(deps, tag, index, RELEASE_MANIFEST_NAME);
   const sigText = await fetchAssetText(deps, tag, index, RELEASE_MANIFEST_SIG_NAME);
   const assetBytes = await fetchAsset(deps, tag, index, asset);
@@ -315,10 +328,12 @@ export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Pr
     );
   }
   await deps.move(assetPath, sidecar);
-  // Downloaded bytes land 0644; the sidecar must be exec (rule 1's tail).
+  // Downloaded bytes land 0644, and a 0644 sidecar dies EACCES at exec,
+  // invisibly until first run. A failed chmod leaves a non-executable file
+  // EXACTLY where the bundler picks it up, so this is a hard refusal:
+  // nothing about it reads as "not published yet".
   if ((await deps.run(["chmod", "0755", sidecar], REPO_ROOT)) !== 0) {
-    deps.log(`refused: chmod 0755 failed on ${sidecar}`);
-    return false;
+    throw new Error(`refused: chmod 0755 failed on the freshly staged ${sidecar}`);
   }
   deps.log(`staged ${tag}/${asset} (${actual.slice(0, 12)}…) as the ${triple} sidecar`);
   return true;

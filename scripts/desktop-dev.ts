@@ -728,7 +728,8 @@ async function stopService(binary: string): Promise<void> {
  * Abort is `process.exit(1)` rather than a thrown error: the caller is
  * `main()`, and the message on screen is the product. Exported (like the pure
  * seams above) so the verdict can be driven against a real machine without a
- * launch; importing this file runs nothing — the CLI body is `main`-guarded.
+ * launch; importing this file only sets the staging escape (line 148) and
+ * nothing else — the CLI body is `main`-guarded.
  */
 export async function preflightDevPort(
   app: DesktopApp,

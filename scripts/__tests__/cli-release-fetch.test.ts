@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { apiHeaders, releaseTag, releaseTagUrl } from "../cli-release-fetch";
+import { apiHeaders, fetchReleaseIndex, releaseIndexFrom, releaseTag, releaseTagUrl } from "../cli-release-fetch";
 
 /**
  * The desktop bundles fetch the CLI's own release binary as their sidecar
@@ -20,9 +20,37 @@ describe("cli-release-fetch", () => {
   });
 
   test("per_page governs the asset page too", () => {
-    // A CLI release carries 4×(binary + .sha256) + manifest + sig: over the
-    // API's default 30-asset page the tail would silently "not exist".
+    // A CLI release carries 4×(binary + .sha256) + manifest + sig today,
+    // comfortably under the API's default 30-asset page; the pin is that an
+    // asset added tomorrow must not silently "not exist" at the page tail.
     expect(releaseTagUrl("cli-node", "1.0.0")).toContain("per_page=100");
+  });
+
+  test("the index mapper: only a 200 indexes, and draft is read exactly", () => {
+    expect(releaseIndexFrom(404, { assets: [{ name: "x", url: "u" }], draft: true })).toEqual({
+      status: 404,
+      assets: {},
+      draft: true,
+    });
+    expect(releaseIndexFrom(200, { assets: [{ name: "x", url: "u" }] })).toEqual({
+      status: 200,
+      assets: { x: "u" },
+      draft: false,
+    });
+    expect(releaseIndexFrom(200, { draft: true }).draft).toBe(true);
+  });
+
+  test("the index fetch refuses outright when GH_TOKEN is absent", async () => {
+    // The throw must land BEFORE any request: the private repo answers 404
+    // unauthenticated, and a silent 404 reads as "not published yet", which
+    // is a lie about the cause. No fetch may even be attempted.
+    const saved = process.env.GH_TOKEN;
+    delete process.env.GH_TOKEN;
+    try {
+      await expect(fetchReleaseIndex("cli-server", "1.0.0")).rejects.toThrow(/GH_TOKEN is not set/);
+    } finally {
+      if (saved !== undefined) process.env.GH_TOKEN = saved;
+    }
   });
 
   test("requests are authenticated and versioned; downloads ask for octet-stream", () => {

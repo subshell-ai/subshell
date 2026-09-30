@@ -40,13 +40,17 @@ describe("release.yml site-manifest wiring", () => {
     expect(job).toContain("timeout-minutes");
     // Runs after a real cut OR as the standalone refresh dispatch — and ONLY
     // from a run on main, since the job pushes to main. "A real cut" means
-    // every phase that ran succeeded and at least one ran (a phase skipped
-    // because its app was not in the selection must not block the refresh).
+    // each phase was EITHER not selected (empty apps list) OR published
+    // successfully: a skipped publish of a SELECTED phase means the build
+    // stopped it, and announcing plan's pushed-but-unshipped tag would put a
+    // 404 link on the website.
     expect(job).toContain("github.ref == 'refs/heads/main'");
     expect(job).toContain("needs.plan.outputs.refresh_manifest == 'true'");
-    expect(job).toContain("needs.publish-cli.result == 'skipped'");
-    expect(job).toContain("needs.publish-desktop.result == 'skipped'");
-    expect(job).toContain("needs.publish-cli.result == 'success' || needs.publish-desktop.result == 'success'");
+    expect(job).toContain("needs.plan.outputs.cli_apps == '[]' || needs.publish-cli.result == 'success'");
+    expect(job).toContain("needs.plan.outputs.desktop_apps == '[]' || needs.publish-desktop.result == 'success'");
+    // The old tolerance ("skipped is fine, just require one success") is the
+    // very conflation this gate exists to avoid; it may not come back.
+    expect(job).not.toContain("result == 'skipped'");
   });
 
   test("commit retry is bounded and never forced", () => {

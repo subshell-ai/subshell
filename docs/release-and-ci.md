@@ -98,9 +98,12 @@ and refuses the shard unless the publisher SIGNATURE over
 `release-manifest.json` verifies and the asset's digest matches that manifest's
 SIGNED `assets` map, then chmods 0755 (downloaded bytes land 0644; a 0644
 sidecar dies EACCES at exec, invisibly until first run). A missing release is
-a refusal BY NAME, and it means exactly one thing: the CLI cut has not shipped
-yet (a published-but-broken release, meaning a missing asset, a bad
-signature or a wrong digest, is a HARD refusal by name instead, so the two never read alike). The
+a refusal BY NAME, and it means the CLI cut has not shipped yet, or the
+lookup itself failed; the status it logs says which. A published-but-broken
+release, meaning a missing asset, a bad signature, a wrong digest, or a DRAFT
+that never flipped live, is a HARD refusal by name instead, so the three never
+read alike (a draft matters because the tags endpoint answers 200 for drafts
+to the job token: "a release answers" is not "it shipped"). The
 fetch is Bun's own `fetch` against the GitHub API, never the `gh` CLI: the
 linux desktop shard runs inside the desktop-builder container, which carries no
 `gh`, and a cut must not depend on which image runs the job. That is the
@@ -634,7 +637,10 @@ which is why they share their own smoke, parameterized by app id.
   does NOT reach desktop users until the matching desktop cut. Dispatch a
   security-relevant release as `app=all`.
 - **Retry:** a mid-flight failure leaves the tag without a release:
-  re-dispatching COMPLETES the half-cut. Re-cutting a PUBLISHED version
+  re-dispatching COMPLETES the half-cut. A DRAFT is the subtle case: the tags
+  endpoint answers 200 for a draft too, so plan skips an app only when its
+  release exists AND is not a draft, and a draft re-enters the retry path
+  (softprops updates and flips it). Re-cutting a PUBLISHED version
   requires deleting the release and its tag first. And because a desktop
   bundle SHIPS the CLI release's bytes: re-cutting a CLI version after its
   matching desktop cut shipped means deleting and re-cutting the desktop

@@ -65,12 +65,14 @@
 #   publish     — per tagged app: merge what only the whole set can produce
 #                 (desktop: latest.json; every app: the release manifest +
 #                 signature), then draft release with every artifact, then a
-#                 second softprops invocation flips the draft live. Any build
-#                 failure ⇒ no release. softprops/action-gh-release for the
+#                 second softprops invocation flips the draft live. Within a
+#                 phase, any build failure ⇒ no release for it (a desktop
+#                 shard failing no longer holds back the CLI phase that
+#                 shipped before it). softprops/action-gh-release for the
 #                 draft-then-publish pair; it predates the hosted move (the
 #                 fleet's runners had no gh CLI) and stays because the two-
 #                 invocation shape is what the no-half-release rule rides on.
-#   site-manifest, after every shard of a successful cut has published (or on
+#   site-manifest, once every SELECTED publish phase succeeded (or on
 #                 a bare `refresh` dispatch), regenerates the root
 #                 releases.json from the REMOTE tags and commits it to main,
 #                 so the marketing site's install column reads the same
@@ -450,9 +452,16 @@ jobs:
             fi
             tag="$app-v$version"
             if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
-              if curl -fsS -o /dev/null -H "Authorization: Bearer $GITHUB_TOKEN" \
-                   "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$tag"; then
-                echo "::notice::$tag already has a release — skipping (delete the release+tag to re-cut)"
+              # The tags endpoint answers 200 for a DRAFT release too (any
+              # push-scoped token sees drafts), and a draft is a cut that died
+              # between the draft step and the flip: "a release answers" is
+              # not "it shipped". Only a NON-draft release may skip an app; a
+              # draft falls through to the retry path, which updates and flips
+              # it (the desktop fetch refuses drafts by name all the same).
+              if curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" \
+                   "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$tag" \
+                   | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{process.exit(JSON.parse(d).draft===true?1:0)})'; then
+                echo "::notice::$tag already has a published release — skipping (delete the release+tag to re-cut)"
                 continue
               fi
               # Retry state (spec §7.2): a prior cut tagged but never shipped
@@ -810,8 +819,11 @@ jobs:
 
           case "$TRIPLE" in
             linux-*)
-              # The nested release:cli-server ends in `git checkout` to restore the
-              # embedded-web stub, as root, over a runner-owned workspace.
+              # Insurance, not a live need on the fetch path (which runs no
+              # git): a child that writes to the repo as root over the
+              # runner-owned workspace, like the source escape restoring the
+              # embedded-web stub with `git checkout`, dies on "dubious
+              # ownership" without this.
               git config --global --add safe.directory "$GITHUB_WORKSPACE"
               pkg-config --exists webkit2gtk-4.1 || { echo "missing libwebkit2gtk-4.1-dev"; exit 1; }
               pkg-config --exists ayatana-appindicator3-0.1 \
@@ -1420,8 +1432,11 @@ jobs:
 
           case "$TRIPLE" in
             linux-*)
-              # The nested release:cli-server ends in `git checkout` to restore the
-              # embedded-web stub, as root, over a runner-owned workspace.
+              # Insurance, not a live need on the fetch path (which runs no
+              # git): a child that writes to the repo as root over the
+              # runner-owned workspace, like the source escape restoring the
+              # embedded-web stub with `git checkout`, dies on "dubious
+              # ownership" without this.
               git config --global --add safe.directory "$GITHUB_WORKSPACE"
               pkg-config --exists webkit2gtk-4.1 || { echo "missing libwebkit2gtk-4.1-dev"; exit 1; }
               pkg-config --exists ayatana-appindicator3-0.1 \
@@ -1790,15 +1805,17 @@ jobs:
     # The main-ref guard: the commit below pushes to main, so this job may
     # only run from a run ON main: a dispatch picked on a branch ref would
     # otherwise write a branch's tag view onto main.
-    # A real cut refreshed the manifest once EVERY publish that ran succeeded
-    # and at least one did run; the bare `refresh` dispatch remains the repair
-    # path for a run that died before this job.
+    # A real cut refreshes the manifest once each publish phase was EITHER
+    # not selected (its apps list is empty) OR succeeded. "Skipped" alone is
+    # NOT enough: a publish of a SELECTED phase that reports skipped means the
+    # build stopped it, plan had already pushed the tags, and announcing one
+    # would put a 404 link on the website. The bare `refresh` dispatch stays
+    # the repair path for a run that died before this job.
     if: >-
       github.ref == 'refs/heads/main' && (
       needs.plan.outputs.refresh_manifest == 'true' ||
-      ((needs.publish-cli.result == 'success' || needs.publish-cli.result == 'skipped') &&
-       (needs.publish-desktop.result == 'success' || needs.publish-desktop.result == 'skipped') &&
-       (needs.publish-cli.result == 'success' || needs.publish-desktop.result == 'success')))
+      ((needs.plan.outputs.cli_apps == '[]' || needs.publish-cli.result == 'success') &&
+       (needs.plan.outputs.desktop_apps == '[]' || needs.publish-desktop.result == 'success')))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

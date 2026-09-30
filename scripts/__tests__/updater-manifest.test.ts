@@ -115,7 +115,13 @@ describe("a shard manifest", () => {
   // update it describes — which reads as "there are no updates".
   it("refuses an empty signature", () => {
     expect(() =>
-      buildShardManifest({ version: VERSION, tag: "desktop-server-v0.7.0", target: "linux-x64", asset: "x.deb", signature: "  " }),
+      buildShardManifest({
+        version: VERSION,
+        tag: "desktop-server-v0.7.0",
+        target: "linux-x64",
+        asset: "x.deb",
+        signature: "  ",
+      }),
     ).toThrow("signature");
   });
 

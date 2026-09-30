@@ -225,8 +225,9 @@ sidecar, and `tauri-build` only checks that the path EXISTS. A real one comes
 from a release cut: `stageSidecar` DOWNLOADS the `subshell-node-cli-<triple>`
 asset of the `cli-node-vX` release named by `apps/node/agent/package.json`,
 verifies the publisher signature and the signed manifest's digest, and chmods
-0755. For local work, `SUBSHELL_SIDECAR_FROM_SOURCE=1 `SUBSHELL_SIDECAR_FROM_SOURCE=1
-bun run compile:release`, which builds `apps/node/agent` instead.
+0755. A missing release fails the shard by name (the cut ships the agent
+first); `SUBSHELL_SIDECAR_FROM_SOURCE=1` is the local escape that rebuilds via
+`compile:release` instead of fetching.
 
 **Three names, one binary.** `apps/node/agent`'s own pipeline publishes it as
 `subshell-node-cli-<triple>` (the `cli` says bare-binary, against this app's

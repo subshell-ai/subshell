@@ -29,6 +29,7 @@ const stubUrl = (name: string) => `https://dl.invalid/${name}`;
 function stubIndex() {
   return {
     status: 200,
+    draft: false,
     assets: Object.fromEntries(
       [...Object.keys(STUB_ASSETS), RELEASE_MANIFEST_NAME, RELEASE_MANIFEST_SIG_NAME].map((n) => [n, stubUrl(n)]),
     ) as Record<string, string>,
@@ -41,6 +42,7 @@ import {
   bundleArtifact,
   bundleKind,
   bundleRootFor,
+  cliReleaseVersion,
   collectArtifact,
   collectUpdaterArtifact,
   DESKTOP_RELEASE_DIR_ENV,
@@ -98,12 +100,12 @@ function stub(over: Partial<DesktopReleaseDeps> & { built?: boolean; listing?: s
       return listing;
     },
     // The updater `.sig`, whose bytes travel INLINE in `latest.<triple>.json`.
-    // Path-aware like the real reader: the fetch path also reads the agent's
-    // package.json (the version it must download) and the manifest pair.
+    // Path-aware like the real reader: the fetch path reads the agent's
+    // package.json (the version it must download). The manifest pair
+    // travels through fetchBytes, never through here.
     read: async (p) => {
       reads.push(p);
       if (p.includes("node/agent/package.json")) return JSON.stringify({ version: STUB_CLI_VERSION });
-      if (p.endsWith(RELEASE_MANIFEST_NAME)) return '{"assets":{}}';
       return "untrusted comment: signature from tauri secret key\nSIGNATURE\n";
     },
     digest: async () => STUB_DIGEST,
@@ -173,14 +175,24 @@ describe("stageSidecar", () => {
   // The cut order is CLI first; a desktop shard that outran it fails HERE,
   // softly and by name, and main() repeats the tag in its refusal.
   test("an unpublished cli release refuses the shard softly, naming the tag", async () => {
-    const s = stub({ fetchIndex: async () => ({ status: 404, assets: {} }) });
+    const s = stub({ fetchIndex: async () => ({ status: 404, assets: {}, draft: false }) });
     expect(await stageSidecar(s.deps, "darwin-arm64")).toBe(false);
     expect(s.moves).toEqual([]);
     expect(s.logs.some((l) => l.includes(`cli-node-v${STUB_CLI_VERSION}`))).toBe(true);
   });
 
+  // A DRAFT is a cut that died between the draft step and the flip: the tags
+  // endpoint answers 200 for it to a push-scoped token, but its bytes never
+  // shipped and no release page ever offered them. Bundling a draft is what
+  // the whole ordering exists to forbid, so this reads HARD, by name.
+  test("a draft release is a hard refusal, not a shipped one", async () => {
+    const s = stub({ fetchIndex: async () => ({ ...stubIndex(), draft: true }) });
+    await expect(stageSidecar(s.deps, "darwin-arm64")).rejects.toThrow(/exists only as a DRAFT release/);
+    expect(s.moves).toEqual([]);
+  });
+
   test("a failing lookup is reported with its status, not as a missing release", async () => {
-    const s = stub({ fetchIndex: async () => ({ status: 503, assets: {} }) });
+    const s = stub({ fetchIndex: async () => ({ status: 503, assets: {}, draft: false }) });
     expect(await stageSidecar(s.deps, "darwin-arm64")).toBe(false);
     expect(s.logs.some((l) => l.includes("HTTP 503"))).toBe(true);
   });
@@ -189,7 +201,11 @@ describe("stageSidecar", () => {
   // release, not a missing one: hard refusal, never "cut the CLI first".
   test("a published release without the manifest pair is a hard refusal", async () => {
     const s = stub({
-      fetchIndex: async () => ({ status: 200, assets: { [nodeArtifactFileName("darwin-arm64")]: stubUrl("a") } }),
+      fetchIndex: async () => ({
+        status: 200,
+        assets: { [nodeArtifactFileName("darwin-arm64")]: stubUrl("a") },
+        draft: false,
+      }),
     });
     await expect(stageSidecar(s.deps, "darwin-arm64")).rejects.toThrow(/published without release-manifest\.json/);
   });
@@ -244,11 +260,20 @@ describe("stageSidecar", () => {
       delete process.env.SUBSHELL_SIDECAR_FROM_SOURCE;
     }
   });
+});
 
-  test("an unpublished release stages nothing on the fetch path either", async () => {
-    const s = stub({ fetchIndex: async () => ({ status: 404, assets: {} }) });
-    expect(await stageSidecar(s.deps, "darwin-arm64")).toBe(false);
-    expect(s.moves).toEqual([]);
+// The exact-version guard on the fetch path: a prerelease version would name
+// a tag no rail ever publishes, and the soft refusal would then lie about a
+// false premise.
+describe("cliReleaseVersion", () => {
+  test("a prerelease version is refused before any fetch", async () => {
+    const s = stub({ read: async () => JSON.stringify({ version: "9.9.9-beta.1" }) });
+    await expect(cliReleaseVersion(s.deps)).rejects.toThrow(/no usable release version/);
+  });
+
+  test("a plain semver version passes", async () => {
+    const s = stub();
+    expect(await cliReleaseVersion(s.deps)).toBe(STUB_CLI_VERSION);
   });
 });
 

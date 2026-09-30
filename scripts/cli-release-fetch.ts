@@ -44,22 +44,43 @@ export interface ReleaseIndex {
   status: number;
   /** Asset name → its octet-stream download URL. Empty unless the release exists. */
   assets: Record<string, string>;
+  /**
+   * True when the tags endpoint answered with a DRAFT release. It does, to
+   * any push-scoped token: the endpoint answers 200 for drafts, so "exists"
+   * and "shipped" are different facts and the caller must not conflate them
+   * (a cut that died between draft and flip would otherwise look published).
+   */
+  draft: boolean;
+}
+
+/** The tags endpoint's JSON → the index. Pure, so the draft rule is testable. */
+export function releaseIndexFrom(
+  status: number,
+  body: { assets?: { name: string; url: string }[]; draft?: boolean },
+): ReleaseIndex {
+  const assets: Record<string, string> = {};
+  // Only a 200 is a promise of contents; anything else indexes nothing.
+  if (status === 200) for (const a of body.assets ?? []) assets[a.name] = a.url;
+  return { status, assets, draft: body.draft === true };
 }
 
 /**
  * The release's asset index, or an empty one with the HTTP status that
- * explains its absence. Only a 200 is a promise of contents.
+ * explains its absence. Only a 200 is a promise of contents, and even a 200
+ * may name a DRAFT (`index.draft`); distinguishing that is the caller's job.
+ * Bytes only, never digests: the caller hashes the file it WROTE, so the
+ * digest is computed at the point of use, not at the point of fetch.
  */
 export async function fetchReleaseIndex(component: ReleaseComponent, version: string): Promise<ReleaseIndex> {
   const token = process.env.GH_TOKEN ?? "";
   if (token === "")
     throw new Error("GH_TOKEN is not set; the private repo answers 404 unauthenticated, so a fetch must never guess");
   const res = await fetch(releaseTagUrl(component, version), { headers: apiHeaders(token) });
-  if (!res.ok) return { status: res.status, assets: {} };
-  const body = (await res.json()) as { assets?: { name: string; url: string }[] };
-  const assets: Record<string, string> = {};
-  for (const a of body.assets ?? []) assets[a.name] = a.url;
-  return { status: res.status, assets };
+  if (!res.ok) return releaseIndexFrom(res.status, {});
+  return releaseIndexFrom(
+    res.status,
+    (await res.json()) as { assets?: { name: string; url: string }[]; draft?: boolean },
+  );
 }
 
 /** One asset's bytes. A non-200 is returned, not thrown: the caller names it. */

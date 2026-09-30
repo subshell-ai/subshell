@@ -60,7 +60,7 @@ describe("cut phases: CLI first, desktop after", () => {
     expect(job("build-desktop")).toContain("desktop_matrix");
     // A skipped CLI phase (a desktop-only dispatch, an earlier CLI cut) must
     // not strand the desktop half; a FAILED one must stop it.
-    expect(job("build-desktop")).toContain("needs.publish-cli.result == 'skipped'");
+    expect(header("build-desktop")).toContain("needs.publish-cli.result == 'skipped'");
     expect(job("publish-desktop")).toContain("needs: [plan, build-desktop]");
     expect(job("publish-desktop")).toContain("desktop_apps");
     // The failure half of the tolerance: a SKIPPED publish-cli (desktop-only
@@ -68,7 +68,7 @@ describe("cut phases: CLI first, desktop after", () => {
     // deliberately ONLY here: a publish job tolerating a skipped build would
     // try to publish bytes that were never built, so both publish gates stay
     // plain app-list guards and GitHub's needs blocking stays load-bearing.
-    expect(job("build-desktop")).toContain("needs.publish-cli.result == 'success'");
+    expect(header("build-desktop")).toContain("needs.publish-cli.result == 'success'");
     expect(header("publish-cli")).not.toContain("result ==");
     expect(header("publish-desktop")).not.toContain("result ==");
     // Nothing may paper over a failed NEEDS with always(). The one always()
@@ -88,6 +88,44 @@ describe("cut phases: CLI first, desktop after", () => {
     // The fetch is Bun's fetch against the API, not the gh CLI: the linux
     // desktop shard's container has no gh, and a cut may not care.
     expect(steps("build-desktop")).not.toMatch(/\bgh release\b/);
+  });
+
+  test("the plan's phase splitter divides by prefix, actually", () => {
+    // The wiring pins above prove the strings exist; running the plan's own
+    // node script proves it SPLITS. A regex that matched the old mixed-matrix
+    // shape while the filter mis-sorted an app would ship a CLI leg into the
+    // desktop phase, exactly the mixup the plan's prefix-guard loop catches.
+    const m = WORKFLOW.match(/node -e '\n([\s\S]*?)'\s*"\[\$entries\]" "\[\$appsjson\]"/);
+    if (m === null) throw new Error("the plan's splitter script is gone or reshaped");
+    // The newline after `node -e '` is the splitter's shape: the plan's
+    // other node -e (the draft check on the skip path) is a one-liner.
+    const entries = JSON.stringify([
+      { app: "cli-server", triple: "linux-x64" },
+      { app: "cli-node", triple: "darwin-arm64" },
+      { app: "desktop-server", triple: "linux-x64" },
+      { app: "desktop-client", triple: "darwin-arm64" },
+    ]);
+    // The plan's apps list is objects (the publish matrix consumes them), so
+    // the splitter filters on x.app in BOTH lists.
+    const appNames = ["cli-server", "cli-node", "desktop-server", "desktop-client"];
+    const apps = JSON.stringify(appNames.map((app) => ({ app, dir: "x", version: "1.0.0", tag: `${app}-v1.0.0` })));
+    const proc = Bun.spawnSync(["node", "-e", m[1], entries, apps], { stdout: "pipe", stderr: "pipe" });
+    expect(proc.exitCode).toBe(0);
+    const out: Record<string, string> = {};
+    for (const line of proc.stdout.toString().trim().split("\n")) {
+      const i = line.indexOf("=");
+      out[line.slice(0, i)] = line.slice(i + 1);
+    }
+    expect(JSON.parse(out["cli_matrix"]).map((x: { app: string }) => x.app)).toEqual(["cli-server", "cli-node"]);
+    expect(JSON.parse(out["desktop_matrix"]).map((x: { app: string }) => x.app)).toEqual([
+      "desktop-server",
+      "desktop-client",
+    ]);
+    expect(JSON.parse(out["cli_apps"]).map((x: { app: string }) => x.app)).toEqual(["cli-server", "cli-node"]);
+    expect(JSON.parse(out["desktop_apps"]).map((x: { app: string }) => x.app)).toEqual([
+      "desktop-server",
+      "desktop-client",
+    ]);
   });
 
   test("the duplicated job bodies have not drifted apart", () => {
