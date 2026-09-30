@@ -32,7 +32,23 @@
 #                 any build starts (spec §7.2: no tag race downstream). The
 #                 `refresh` app choice cuts nothing: empty matrix, and the
 #                 `refresh_manifest=true` output that wakes site-manifest alone.
-#   build       — matrix over app×triple, pinned to hardware per triple:
+#   build-cli   — matrix over the CLI apps' triples, pinned to hardware per triple.
+#   build-desktop — the SAME body as a second job, gated on publish-cli: the
+#                 cut-order ruling (2026-09-30) is CLI first, desktop after,
+#                 because each desktop bundle SHIPS the CLI binary the release
+#                 page offers — stageSidecar downloads and signature-verifies
+#                 it rather than rebuilding. The ordering crosses a publish
+#                 JOB (draft, flip, assets), and job-level `needs` is the only
+#                 surface that can say "after that went live" — so the phases
+#                 are jobs and the bodies are test-pinned copies
+#                 (scripts/__tests__/release-cut-order.test.ts). Its gate
+#                 carries `!cancelled()` for GitHub's implicit-success trap:
+#                 without a status function the whole `if` is wrapped in
+#                 success()-over-needs, and a desktop-only cut (publish-cli
+#                 SKIPPED) would skip this job before the skip-tolerance
+#                 could run. site-manifest carries the same fix for the same
+#                 reason; the cut-order test pins both.
+#                 The matrix, per triple:
 #                 linux-* → ubuntu-24.04 (pinned for the glibc-2.39 floor;
 #                 linux-arm64 is CROSS-BUILT — bytecode cross is proven on
 #                 bun 1.4.0; the hosted ubuntu-24.04-arm image exists and
@@ -55,12 +71,14 @@
 #   publish     — per tagged app: merge what only the whole set can produce
 #                 (desktop: latest.json; every app: the release manifest +
 #                 signature), then draft release with every artifact, then a
-#                 second softprops invocation flips the draft live. Any build
-#                 failure ⇒ no release. softprops/action-gh-release for the
+#                 second softprops invocation flips the draft live. Within a
+#                 phase, any build failure ⇒ no release for it (a desktop
+#                 shard failing no longer holds back the CLI phase that
+#                 shipped before it). softprops/action-gh-release for the
 #                 draft-then-publish pair; it predates the hosted move (the
 #                 fleet's runners had no gh CLI) and stays because the two-
 #                 invocation shape is what the no-half-release rule rides on.
-#   site-manifest, after every shard of a successful cut has published (or on
+#   site-manifest, once every SELECTED publish phase succeeded (or on
 #                 a bare `refresh` dispatch), regenerates the root
 #                 releases.json from the REMOTE tags and commits it to main,
 #                 so the marketing site's install column reads the same
@@ -323,8 +341,15 @@ jobs:
     permissions:
       contents: write
     outputs:
-      matrix: ${{ steps.compute.outputs.matrix }}
-      apps: ${{ steps.compute.outputs.apps }}
+      # Split by phase (the cut-order ruling, 2026-09-30): the CLI half is
+      # built and PUBLISHED first, then the desktop half builds — its shards
+      # download the just-published CLI release binary as their sidecar, so
+      # the bundle ships the same bytes the CLI release page offers. The GHCR
+      # image rail chains after the whole run (docker-image.yml).
+      cli_matrix: ${{ steps.compute.outputs.cli_matrix }}
+      desktop_matrix: ${{ steps.compute.outputs.desktop_matrix }}
+      cli_apps: ${{ steps.compute.outputs.cli_apps }}
+      desktop_apps: ${{ steps.compute.outputs.desktop_apps }}
       # 'true' ONLY for an `app=refresh` dispatch: no cut, and the
       # site-manifest job runs alone. Every other path, push events included,
       # emits 'false'.
@@ -341,8 +366,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$EVENT" != "workflow_dispatch" ]; then
-            echo 'matrix=[]' >> "$GITHUB_OUTPUT"
-            echo 'apps=[]' >> "$GITHUB_OUTPUT"
+            echo 'cli_matrix=[]' >> "$GITHUB_OUTPUT"
+            echo 'desktop_matrix=[]' >> "$GITHUB_OUTPUT"
+            echo 'cli_apps=[]' >> "$GITHUB_OUTPUT"
+            echo 'desktop_apps=[]' >> "$GITHUB_OUTPUT"
             echo 'refresh_manifest=false' >> "$GITHUB_OUTPUT"
             echo "::notice::$EVENT event — version PR only; cut releases via workflow_dispatch (see header comment)"
             exit 0
@@ -431,9 +458,16 @@ jobs:
             fi
             tag="$app-v$version"
             if [ -n "$(git ls-remote --tags origin "refs/tags/$tag")" ]; then
-              if curl -fsS -o /dev/null -H "Authorization: Bearer $GITHUB_TOKEN" \
-                   "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$tag"; then
-                echo "::notice::$tag already has a release — skipping (delete the release+tag to re-cut)"
+              # The tags endpoint answers 200 for a DRAFT release too (any
+              # push-scoped token sees drafts), and a draft is a cut that died
+              # between the draft step and the flip: "a release answers" is
+              # not "it shipped". Only a NON-draft release may skip an app; a
+              # draft falls through to the retry path, which updates and flips
+              # it (the desktop fetch refuses drafts by name all the same).
+              if curl -fsS -H "Authorization: Bearer $GITHUB_TOKEN" \
+                   "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$tag" \
+                   | node -e 'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{process.exit(JSON.parse(d).draft===true?1:0)})'; then
+                echo "::notice::$tag already has a published release — skipping (delete the release+tag to re-cut)"
                 continue
               fi
               # Retry state (spec §7.2): a prior cut tagged but never shipped
@@ -522,8 +556,14 @@ jobs:
               entries="$entries{\"app\":\"$app\",\"dir\":\"$dir\",\"version\":\"$version\",\"tag\":\"$tag\",\"triple\":\"$triple\",\"runner\":$runner,\"smoke\":\"$smoke\",\"container\":\"$container\"}"
             done
           done
-          echo "matrix=[${entries}]" >> "$GITHUB_OUTPUT"
-          echo "apps=[$appsjson]" >> "$GITHUB_OUTPUT"
+          node -e '
+            const [e, a] = process.argv.slice(1).map((x) => JSON.parse(x));
+            const half = (arr, p) => JSON.stringify(arr.filter((x) => x.app.startsWith(p)));
+            console.log(`cli_matrix=${half(e, "cli-")}`);
+            console.log(`desktop_matrix=${half(e, "desktop-")}`);
+            console.log(`cli_apps=${half(a, "cli-")}`);
+            console.log(`desktop_apps=${half(a, "desktop-")}`);
+          ' "[$entries]" "[$appsjson]" >> "$GITHUB_OUTPUT"
           echo "refresh_manifest=$refresh_manifest" >> "$GITHUB_OUTPUT"
           {
             echo "### Release plan"
@@ -532,17 +572,27 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-  build:
+  # The build/publish pair exists TWICE on purpose (cut-order ruling,
+  # 2026-09-30): the CLI apps build and publish first, and the desktop shards
+  # then FETCH the published release binary as their sidecar (see
+  # stageSidecar) instead of rebuilding it. The order is a boundary the
+  # publish job owns (draft, flip, assets) and job-level `needs` is the only
+  # surface that spans it; the bodies are byte-identical apart from the job
+  # key / needs / matrix expressions, and
+  # scripts/__tests__/release-cut-order.test.ts fails any drift.
+
+  build-cli:
     name: ${{ matrix.app }} ${{ matrix.triple }}
     needs: plan
     # Guard BEFORE the matrix is expanded: an empty include array makes this
     # job fail the run (measured — the job never materialises) because its
     # runs-on reads from the matrix. A false `if` skips it cleanly.
-    if: needs.plan.outputs.matrix != '[]'
+    if: needs.plan.outputs.cli_matrix != '[]'
     # One sign+notarize round trip per darwin artifact again — the mcp
     # companion is retired (the server binary serves its own `mcp` subcommand).
-    # A desktop shard additionally compiles ~500 Rust crates and builds a
-    # server binary to bundle, so it gets its own budget.
+    # A desktop shard additionally compiles ~500 Rust crates (its sidecar is
+    # FETCHED from the CLI release, not built — see stageSidecar), so it
+    # gets its own budget.
     timeout-minutes: ${{ startsWith(matrix.app, 'desktop-') && 90 || 45 }}
     runs-on: ${{ matrix.runner }}
     # Empty string = no container. Set only for the linux desktop shard, so the
@@ -557,7 +607,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.plan.outputs.matrix) }}
+        include: ${{ fromJSON(needs.plan.outputs.cli_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -729,6 +779,10 @@ jobs:
           APP: ${{ matrix.app }}
           # The app's directory under apps/ — see the plan job's `app_dir` table.
           DIR: ${{ matrix.dir }}
+          # stageSidecar FETCHES the released CLI asset over the GitHub API;
+          # the repo is private, so the lookup and download are authenticated
+          # with the job token (cli-release-fetch.ts refuses without it).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel
           MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
@@ -771,8 +825,11 @@ jobs:
 
           case "$TRIPLE" in
             linux-*)
-              # The nested release:cli-server ends in `git checkout` to restore the
-              # embedded-web stub, as root, over a runner-owned workspace.
+              # Insurance, not a live need on the fetch path (which runs no
+              # git): a child that writes to the repo as root over the
+              # runner-owned workspace, like the source escape restoring the
+              # embedded-web stub with `git checkout`, dies on "dubious
+              # ownership" without this.
               git config --global --add safe.directory "$GITHUB_WORKSPACE"
               pkg-config --exists webkit2gtk-4.1 || { echo "missing libwebkit2gtk-4.1-dev"; exit 1; }
               pkg-config --exists ayatana-appindicator3-0.1 \
@@ -966,10 +1023,10 @@ jobs:
           echo "restoring workspace ownership to $own"
           chown -R "$own" "$GITHUB_WORKSPACE"
 
-  publish:
+  publish-cli:
     name: Release ${{ matrix.app }}
-    needs: [plan, build]
-    if: needs.plan.outputs.apps != '[]'
+    needs: [plan, build-cli]
+    if: needs.plan.outputs.cli_apps != '[]'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -977,7 +1034,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.plan.outputs.apps) }}
+        include: ${{ fromJSON(needs.plan.outputs.cli_apps) }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -1130,18 +1187,661 @@ jobs:
           name: ${{ matrix.tag }}
           body_path: ${{ steps.notes.outputs.path }}
 
-  # The website's install column reads the root releases.json (spec
-  # 2026-09-23 §3); this job is what keeps it true. It runs after EVERY shard
-  # of a real cut has published (publish is a matrix; this is the one place
-  # all components exist together), and on its own for an `app=refresh`
-  # repair dispatch.
+  build-desktop:
+    name: ${{ matrix.app }} ${{ matrix.triple }}
+    needs: [plan, publish-cli]
+    # Guard BEFORE the matrix is expanded: an empty include array makes this
+    # job fail the run (measured — the job never materialises) because its
+    # runs-on reads from the matrix. A false `if` skips it cleanly.
+    # The `!cancelled()` is LOAD-BEARING, not style: an `if` expression that
+    # contains no status-check function gets GitHub's implicit success() over
+    # ALL needs, and that gate runs BEFORE this expression. On exactly the
+    # desktop-only cut the `== 'skipped'` clause exists for, publish-cli is
+    # skipped, the implicit gate skips this job, and the tolerance never
+    # evaluates. Displacing the implicit gate drops its protection over PLAN
+    # too, so `needs.plan.result` restores that half by name: a failed plan
+    # leaves desktop_matrix an empty string, `'' != '[]'` is TRUE, and
+    # without this clause the job runs and dies at fromJSON on invalid JSON —
+    # a second, cryptic red job beside the real one. The result checks now
+    # carry the whole rule: plan must have succeeded, a skipped CLI phase may
+    # pass, a failed or cancelled one stops the desktop half.
+    if: >-
+      !cancelled() &&
+      needs.plan.result == 'success' &&
+      needs.plan.outputs.desktop_matrix != '[]' &&
+      (needs.publish-cli.result == 'success' || needs.publish-cli.result == 'skipped')
+    # One sign+notarize round trip per darwin artifact again — the mcp
+    # companion is retired (the server binary serves its own `mcp` subcommand).
+    # A desktop shard additionally compiles ~500 Rust crates (its sidecar is
+    # FETCHED from the CLI release, not built — see stageSidecar), so it
+    # gets its own budget.
+    timeout-minutes: ${{ startsWith(matrix.app, 'desktop-') && 90 || 45 }}
+    runs-on: ${{ matrix.runner }}
+    # Empty string = no container. Set only for the linux desktop shard, so the
+    # app's minimum glibc is a deliberate choice; every other shard is bare.
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        # A CONTAINER job defaults to `sh`, not bash, and every step here is
+        # bash: `set -o pipefail`, `${!var}` indirection. Without this the
+        # container shard dies on "Illegal option -o pipefail".
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.desktop_matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The workspace is bind-mounted and owned by the runner's user while the
+      # container runs as root, so git refuses it as "dubious ownership". That
+      # breaks `bun install` itself, whose root `prepare` script runs
+      # `lefthook install`. The image sets this too, but a container job
+      # overrides HOME to /github/home, where that config is not.
+      - name: Trust the bind-mounted workspace
+        if: matrix.container != ''
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # Deterministic floor: the release scripts assert a 1.4.0 bytecode floor
+      # and no runner image — hosted or fleet — is guaranteed to carry a
+      # matching bun (mac-builder measured 1.3.14; hosted macOS carries none),
+      # so setup-bun is load-bearing here, not decorative.
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      # tsdown/rolldown bins carry a `#!/usr/bin/env node` shebang and need
+      # node >= 20.12 (util.styleText) — never trust whatever node a runner
+      # image happens to ship, which is a lesson this repo learned on the
+      # fleet (node 18 there) and which applies verbatim to hosted images.
+      # Version tracks the root package.json's `engines.node`.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - run: bun install --frozen-lockfile
+
+      # Both release scripts preflight the workspace dist outputs (the node agent
+      # bundles packages/*, the server embeds apps/server/web/dist).
+      - run: bun run build
+
+      - name: Release build (scoped to ${{ matrix.triple }})
+        if: contains(fromJSON('["cli-server","cli-node"]'), matrix.app)
+        env:
+          APP: ${{ matrix.app }}
+          TRIPLE: ${{ matrix.triple }}
+          DEST: ${{ github.workspace }}/dist-rel
+          # darwin provisioning (spec 2026-09-03, secrets-based): the identity
+          # and the notary API key come from repo secrets, NOT host keychain
+          # state — any mac runner is cut-ready with zero provisioning, and a
+          # cut never depends on the login keychain's mood.
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_API_KEY_P8_BASE64: ${{ secrets.NOTARY_API_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          # The PUBLISHER key (spec 2026-09-17 §4): since this build the SAME
+          # minisign keypair the desktop shards use for `latest.json` also
+          # signs each CLI release's `release-manifest.json`, so an installed
+          # component can verify what it is about to run without trusting the
+          # host it downloaded from. The release script shells out to
+          # `tauri signer sign`, which reads the key from this env var and
+          # (measured, tauri-cli 2.11.5) ignores its `_PATH` sibling; the
+          # password must be SET, and set-to-empty is what the CLI accepts for
+          # an unencrypted key — a desktop shard's note verbatim.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEST"
+          # Missing signing secrets fail the shard LOUDLY, exactly like the
+          # mac ones and for the same reason: a release whose manifest is
+          # unsigned is a release no plane will offer for update
+          # (`compatibleNodeRelease` refuses it by name), so publishing it
+          # would ship a dud and blame the reader's TLS. An operator's local
+          # `bun run release:cli-node` stays legal unsigned — this refusal is
+          # CI's, where a keyless cut is a secret misconfiguration.
+          [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] \
+            || { echo "missing TAURI_SIGNING_PRIVATE_KEY secret (the updater signing key's CONTENTS)"; exit 1; }
+          # Darwin artifacts ship signed + notarized (no more Gatekeeper
+          # "damaged" dialog on browser downloads): the hook runs between the
+          # build and the digest, so the .sha256 sidecars cover the signed
+          # bytes. See scripts/macos-sign-notarize.sh. A missing secret or
+          # identity fails the shard LOUDLY instead of publishing unsigned
+          # bytes.
+          case "$TRIPLE" in
+            darwin-*)
+              for v in MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD NOTARY_API_KEY_P8_BASE64 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+                [ -n "${!v:-}" ] || { echo "missing $v secret (mac signing provisioning)"; exit 1; }
+              done
+              # Ephemeral keychain, alive for exactly this step (trap cleans
+              # up + restores the search list). The login keychain is
+              # deliberately left OFF the search list for the job: any copy
+              # of the identity it happens to hold must never satisfy (or
+              # shadow) the lookup — that is precisely the host-state
+              # dependency this provisioning replaces.
+              CI_TMP="$(mktemp -d)"
+              KC="$CI_TMP/ci-build.keychain-db"
+              KCPW="$(/usr/bin/openssl rand -hex 16)"
+              trap 'rm -rf "$CI_TMP"; security delete-keychain "$KC" 2>/dev/null || true; security list-keychains -d user -s "$HOME/Library/Keychains/login.keychain-db"' EXIT
+              security create-keychain -p "$KCPW" "$KC"
+              security list-keychains -d user -s "$KC"
+              security unlock-keychain -p "$KCPW" "$KC"
+              printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -d > "$CI_TMP/cert.p12"
+              security import "$CI_TMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+              rm -f "$CI_TMP/cert.p12"
+              security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null 2>&1
+              security find-identity -v -p codesigning "$KC" | grep -q "Developer ID Application" \
+                || { echo "imported p12 yielded no valid Developer ID Application identity"; exit 1; }
+              # Notary: App Store Connect API key from secrets (no stored
+              # keychain profile anywhere).
+              printf '%s' "$NOTARY_API_KEY_P8_BASE64" | base64 -d > "$CI_TMP/notary.p8"
+              export SUBSHELL_NOTARY_KEY_PATH="$CI_TMP/notary.p8"
+              export SUBSHELL_NOTARY_KEY_ID="$NOTARY_KEY_ID"
+              export SUBSHELL_NOTARY_ISSUER_ID="$NOTARY_ISSUER_ID"
+              export SUBSHELL_RELEASE_SIGN_CMD="$GITHUB_WORKSPACE/scripts/macos-sign-notarize.sh"
+              ;;
+          esac
+          case "$APP" in
+            cli-server) SUBSHELL_SERVER_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_SERVER_RELEASE_DIR="$DEST" bun run release:cli-server ;;
+            cli-node) SUBSHELL_RELEASE_TRIPLES="$TRIPLE" SUBSHELL_NODE_ARTIFACTS_DIR="$DEST" bun run release:cli-node ;;
+            # Never an `else`: a new app reaching here would build and publish
+            # the NODE binary under its own tag rather than failing.
+            *) echo "::error::no bare-binary pipeline for app '$APP'"; exit 1 ;;
+          esac
+
+      # macOS builds pin their toolchain rather than trusting the image's:
+      # the fleet's mac carried none at all, hosted macOS carries one whose
+      # version floats with every image refresh, and a release binary built by
+      # an unknowable rustc is the kind of state that is only ever wrong at
+      # 2am. The Linux shard skips this: its container ships a pinned
+      # toolchain.
+      - name: Use Rust
+        if: startsWith(matrix.app, 'desktop-') && startsWith(matrix.triple, 'darwin')
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+        with:
+          toolchain: stable
+          # Both Mac stds on every darwin desktop shard: `tauri build` is
+          # passed an explicit `--target` for EVERY triple (a shard must never
+          # be able to silently build an arch other than the one it claims),
+          # and with both stds installed the named target always resolves,
+          # whichever Mac image the fleet hands the shard.
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache cargo
+        if: startsWith(matrix.app, 'desktop-')
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/${{ matrix.dir }}/src-tauri/target
+          # The `-v2-` is a deliberate one-time invalidation. The apps moved
+          # (apps/desktop-server -> apps/server/desktop) while this key stayed
+          # byte-identical — it is keyed on the component ID and on a Cargo.lock
+          # whose content did not change, since a path dependency records no
+          # path. So the first post-move run would take an EXACT-key hit on a
+          # target/ tree whose .fingerprint entries point at source paths that
+          # no longer exist, and actions/cache skips its save on an exact hit,
+          # so the stale tree would persist until Cargo.lock next changed.
+          # `runner.arch` is load-bearing the same way: runner.os is plain
+          # "macOS" on BOTH hosted labels, and with `--target` cargo keeps
+          # host-arch build scripts and proc-macro dylibs in the
+          # UNQUALIFIED target/release/ — an Intel shard that restores an
+          # arm64 host's tree dies executing binaries the CPU cannot run
+          # ("Bad CPU type"), and an exact-key hit means the poisoned slot
+          # is never rewritten. It sits in restore-keys too, because a
+          # prefix restore would re-cross the line the full key just drew.
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-release-v2-${{ matrix.app }}-${{ hashFiles(format('apps/{0}/src-tauri/Cargo.lock', matrix.dir), 'crates/desktop-core/**/*.rs') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-release-v2-${{ matrix.app }}-
+
+      - name: Desktop release build (scoped to ${{ matrix.triple }})
+        if: startsWith(matrix.app, 'desktop-')
+        env:
+          APP: ${{ matrix.app }}
+          # The app's directory under apps/ — see the plan job's `app_dir` table.
+          DIR: ${{ matrix.dir }}
+          # stageSidecar FETCHES the released CLI asset over the GitHub API;
+          # the repo is private, so the lookup and download are authenticated
+          # with the job token (cli-release-fetch.ts refuses without it).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TRIPLE: ${{ matrix.triple }}
+          DEST: ${{ github.workspace }}/dist-rel
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          NOTARY_API_KEY_P8_BASE64: ${{ secrets.NOTARY_API_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          # The UPDATER's signing key (spec 2026-09-15 § 7.2, § 8). ONE keypair
+          # for both apps — they are one publisher — and the value is the key
+          # FILE'S CONTENTS, not a path: measured 2026-09-15, tauri 2.11 reads
+          # `TAURI_SIGNING_PRIVATE_KEY` and ignores
+          # `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`'s path-shaped sibling entirely.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          # Keep this line even though the secret does NOT exist: the key was
+          # generated without a passphrase, and GitHub cannot store an empty
+          # secret. An absent secret expands to "", and an env var that is SET
+          # to "" is what the CLI accepts — measured 2026-09-15 with a
+          # throwaway key: "" signs; UNSET makes the CLI prompt on a terminal
+          # it does not have and fail with "Device not configured".
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$DEST"
+
+          # Missing signing secrets fail the shard LOUDLY, exactly like the
+          # notary ones and for the same reason: an unsigned (or unsignable)
+          # updater artifact is one NO installed app will accept, so publishing
+          # it is publishing a lie — and the symptom on a user's machine is
+          # silence, not an error. The PASSWORD is not checked for emptiness:
+          # a key generated with no passphrase legitimately carries "".
+          [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] \
+            || { echo "missing TAURI_SIGNING_PRIVATE_KEY secret (the updater signing key's CONTENTS)"; exit 1; }
+
+          command -v cargo >/dev/null || { echo "no cargo on this runner/image"; exit 1; }
+          cargo --version; rustc --version
+          # NOT `bunx tauri --version`: npm has a real, deprecated package named
+          # `tauri` that bunx will happily fetch, so that probe can never fail.
+          "./apps/$DIR/node_modules/.bin/tauri" --version >/dev/null \
+            || { echo "@tauri-apps/cli is not installed in the workspace"; exit 1; }
+
+          case "$TRIPLE" in
+            linux-*)
+              # Insurance, not a live need on the fetch path (which runs no
+              # git): a child that writes to the repo as root over the
+              # runner-owned workspace, like the source escape restoring the
+              # embedded-web stub with `git checkout`, dies on "dubious
+              # ownership" without this.
+              git config --global --add safe.directory "$GITHUB_WORKSPACE"
+              pkg-config --exists webkit2gtk-4.1 || { echo "missing libwebkit2gtk-4.1-dev"; exit 1; }
+              pkg-config --exists ayatana-appindicator3-0.1 \
+                || { echo "missing libayatana-appindicator3-dev (tauri panics without it)"; exit 1; }
+              dpkg-deb --version >/dev/null || { echo "no dpkg-deb — wrong image?"; exit 1; }
+              # NOT `ldd --version | head -1`: ldd is a shell script, head exits
+              # after one line, and the SIGPIPE that follows is exit 141 — which
+              # `set -o pipefail` turns into a failed release. It is a race on
+              # the pipe buffer, so it fails intermittently (run 34022233821).
+              glibc_banner="$(ldd --version)"
+              echo "${glibc_banner%%$'\n'*}"   # records the glibc floor in the log
+              ;;
+            darwin-*)
+              for v in MACOS_CERT_P12_BASE64 MACOS_CERT_PASSWORD \
+                       NOTARY_API_KEY_P8_BASE64 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+                [ -n "${!v:-}" ] || { echo "missing $v secret (mac signing provisioning)"; exit 1; }
+              done
+              CI_TMP="$(mktemp -d)"; trap 'rm -rf "$CI_TMP"' EXIT
+              printf '%s' "$NOTARY_API_KEY_P8_BASE64" | base64 -d > "$CI_TMP/notary.p8"
+              # Tauri builds its OWN throwaway keychain from APPLE_CERTIFICATE
+              # and pins --keychain on every codesign call. The repo's
+              # hand-rolled keychain block is deliberately NOT run here: two
+              # keychain owners is the identity ambiguity tauri#11992 traces to.
+              export APPLE_CERTIFICATE="$MACOS_CERT_P12_BASE64"
+              export APPLE_CERTIFICATE_PASSWORD="$MACOS_CERT_PASSWORD"
+              export APPLE_SIGNING_IDENTITY="Developer ID Application: Disaresta, LLC (DVRYX6BV6J)"
+              export APPLE_TEAM_ID="DVRYX6BV6J"
+              export APPLE_API_KEY="$NOTARY_KEY_ID"
+              export APPLE_API_ISSUER="$NOTARY_ISSUER_ID"
+              export APPLE_API_KEY_PATH="$CI_TMP/notary.p8"
+              ;;
+          esac
+
+          # NEVER on a desktop shard: the nested release:cli-server would sign and
+          # notarize a binary the .app is about to re-seal with --force.
+          unset SUBSHELL_RELEASE_SIGN_CMD || true
+
+          SUBSHELL_DESKTOP_RELEASE_TRIPLES="$TRIPLE" \
+          SUBSHELL_DESKTOP_RELEASE_DIR="$DEST" \
+            bun run "release:$APP"
+
+      - name: Smoke
+        env:
+          APP: ${{ matrix.app }}
+          TRIPLE: ${{ matrix.triple }}
+          VERSION: ${{ matrix.version }}
+          SMOKE: ${{ matrix.smoke }}
+        run: |
+          set -euo pipefail
+          # A desktop artifact is a BUNDLE, not a bare binary — different
+          # checks entirely, so it exits before the binary smoke below.
+          case "$APP" in
+            desktop-*)
+              bash scripts/smoke-desktop-bundle.sh "$APP" "$TRIPLE" "$VERSION" dist-rel
+              exit 0
+              ;;
+          esac
+          case "$APP" in
+            cli-server) BIN="dist-rel/subshell-server-cli-$TRIPLE" ;;
+            cli-node) BIN="dist-rel/subshell-node-cli-$TRIPLE" ;;
+            *) echo "no binary smoke for app '$APP'"; exit 1 ;;
+          esac
+          test -f "$BIN"        || { echo "missing artifact $BIN"; exit 1; }
+          test -f "$BIN.sha256" || { echo "missing digest sidecar $BIN.sha256"; exit 1; }
+          # `file` magic sanity applies to every mode; the arch hint doubles as
+          # the fallback assertion when the binary cannot be executed here.
+          case "$TRIPLE" in
+            linux-x64)     HINT='ELF 64-bit.*x86-64' ;;
+            linux-arm64)   HINT='ELF 64-bit.*ARM aarch64' ;;
+            darwin-arm64)  HINT='Mach-O 64-bit.*arm64' ;;
+            darwin-x64)    HINT='Mach-O 64-bit.*x86_64' ;;
+          esac
+          file "$BIN" | grep -Eq "$HINT" || { echo "file(1) says: $(file "$BIN")"; exit 1; }
+
+          exec_smoke() {
+            local out
+            # On failure, print the captured output before returning: an
+            # early cut failed this exec and died silent, because `|| return
+            # 1` threw away the very line that named the cause. A nonzero
+            # exec is the one failure whose whole diagnosis is in its own
+            # stderr. (Backgrounding keeps its own never-silent rule at
+            # boot_smoke: launch the binary as a DIRECT simple command, so
+            # $! is the process the kill and the EXIT trap aim at, a shape
+            # pinned behaviorally by release-workflow-smoke.test.ts after a
+            # helper function around it once silently broke exactly that.)
+            out=$("$BIN" version 2>&1) || { echo "version exec failed: $out"; return 1; }
+            echo "$out"
+            # Pinned against the CLIs' real output: the server prints exactly
+            # "subshell-server <v>"; the agent adds "(node protocol vN)".
+            if [ "$APP" = "cli-server" ]; then
+              [ "$out" = "subshell-server $VERSION" ] || { echo "server version output mismatch"; return 1; }
+            else
+              case "$out" in
+                "subshell $VERSION"*) ;;
+                *) echo "node agent version output mismatch"; return 1 ;;
+              esac
+            fi
+            if [ "$APP" = "cli-server" ]; then
+              boot_smoke
+              # Branch-headline feature, per-triple (darwin included): the
+              # server binary SERVES `mcp` itself — the refusal contract
+              # (clean-env `env -i` refusal + no-CWD-litter) lives in ONE
+              # script shared with test.yml, so the two can never check
+              # different contracts.
+              bash scripts/smoke-mcp-refusal.sh "$BIN"
+            fi
+          }
+
+          boot_smoke() {
+            # Prove the EMBEDDED SPA serves: the compiled binary prefers an
+            # on-disk apps/server/web/dist at its BAKED build-time path (AGENTS
+            # caveat), so hide that dir for the boot.
+            local dbdir cfgdir port pid hdrs i
+            dbdir=$(mktemp -d)
+            cfgdir=$(mktemp -d)
+            port=$((20000 + RANDOM % 20000))
+            mv apps/server/web/dist "$dbdir/frontend-dist-hidden"
+            restore() { mv "$dbdir/frontend-dist-hidden" apps/server/web/dist 2>/dev/null || true; }
+            DATABASE_PATH="$dbdir/subshell.db" \
+            SUBSHELL_SERVER_CONFIG_DIR="$cfgdir" \
+            BETTER_AUTH_SECRET="$(head -c 32 /dev/urandom | base64)" \
+            SERVER_PORT="$port" HOST=127.0.0.1 APP_BASE_URL="http://127.0.0.1:$port" \
+              "$PWD/$BIN" >server-boot.log 2>&1 &
+            pid=$!
+            trap 'kill '"$pid"' 2>/dev/null || true; restore' EXIT
+            for i in $(seq 1 120); do
+              curl -fsS -o /dev/null "http://127.0.0.1:$port/docs" && break
+              kill -0 "$pid" 2>/dev/null || { echo "server died during boot:"; tail -40 server-boot.log; exit 1; }
+              sleep 0.5
+              [ "$i" = 120 ] && { echo "server never answered on :$port"; tail -40 server-boot.log; exit 1; }
+            done
+            curl -fsS "http://127.0.0.1:$port/" | grep -q 'id="root"' || { echo "/ did not serve the SPA index"; exit 1; }
+            # Embedded mode's tell is a strong ETag (spec §4 / static.plugin).
+            hdrs=$(curl -fsS -o /dev/null -D - "http://127.0.0.1:$port/")
+            echo "$hdrs" | grep -qi '^etag:' || { echo "/ carried no ETag — embedded mode not active?"; exit 1; }
+            echo "boot smoke OK: / and /docs served from the embedded SPA"
+            kill "$pid" 2>/dev/null || true
+            wait "$pid" 2>/dev/null || true
+            trap - EXIT
+            restore
+          }
+
+          case "$SMOKE" in
+            exec)
+              exec_smoke
+              ;;
+            magic)
+              echo "cross-built $TRIPLE — no exec smoke (digest sidecar + file(1) hint are the proof)"
+              ;;
+            # exec/magic are all the plan job can emit for a NON-desktop
+            # shard (bundle exits above), so this arm exists for the one
+            # future value that would otherwise pass the step having
+            # proved nothing.
+            *)
+              echo "unknown smoke mode '$SMOKE'" >&2
+              exit 1
+              ;;
+          esac
+
+      # These artifacts are a HANDOFF, not a record: the publish job downloads
+      # them minutes later and attaches them to the GitHub Release, which is
+      # where they live from then on. At the default 90-day retention they are
+      # instead a slow leak — one `app=all` cut uploads ~2.4 GB across ten
+      # shards, and on 2026-09-11 the accumulated 2.48 GB from superseded cuts
+      # hit the account's artifact quota and failed every shard of a release
+      # with "Artifact storage quota has been hit", which reads as a build
+      # break and is not one. One day is generous for a same-run handoff and
+      # makes the store self-limiting rather than something to purge by hand.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.app }}-${{ matrix.triple }}
+          path: dist-rel/*
+          if-no-files-found: error
+          retention-days: 1
+
+      # Fleet-era hygiene, kept because the org fleet can still pick this
+      # workflow up: a container writes as root onto a runner's PERSISTENT
+      # workspace, so without this the next job there fails on files it cannot
+      # touch — the failure `reset-linux-runner-workspace.yml` exists to
+      # repair. Hosted runners are ephemeral, and there it simply no-ops.
+      #
+      # This step runs INSIDE the container, as root — so `id -u` is 0 and
+      # chowning to it is a no-op. The host's uid/gid is readable from
+      # $RUNNER_WORKSPACE, the runner-created parent of the checkout, which
+      # keeps its host ownership inside the mount.
+      - name: Un-root the workspace
+        if: always() && matrix.container != ''
+        run: |
+          set -euo pipefail
+          own="$(stat -c '%u:%g' "$RUNNER_WORKSPACE")"
+          echo "restoring workspace ownership to $own"
+          chown -R "$own" "$GITHUB_WORKSPACE"
+
+  publish-desktop:
+    name: Release ${{ matrix.app }}
+    needs: [plan, build-desktop]
+    if: needs.plan.outputs.desktop_apps != '[]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.desktop_apps) }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ matrix.app }}-*
+          path: dist
+
+      # Solely to read the CHANGELOG (and, for the desktop apps, to run the
+      # updater-manifest merge below): releases used to publish with an EMPTY
+      # body, so the one page a user lands on to ask "what changed in 1.6.0?"
+      # answered with a bare asset list. The prose already exists — changesets
+      # wrote it at version time — it just never travelled to the release.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repo
+
+      # Slice out this version's section. Anchored on the "## <version>"
+      # heading changesets emits, stopping at the next one.
+      - id: notes
+        env:
+          APP: ${{ matrix.app }}
+          # The CHANGELOG lives with the code, so this one reads `dir`; the
+          # release NAME, tag and asset glob below all read `app`.
+          DIR: ${{ matrix.dir }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          changelog="repo/apps/$DIR/CHANGELOG.md"
+          out="$RUNNER_TEMP/release-notes-$APP.md"
+          if [ -f "$changelog" ]; then
+            awk -v want="$VERSION" '
+              /^## / { if (found) exit; if ($2 == want) { found = 1; next } }
+              found { print }
+            ' "$changelog" > "$out"
+          else
+            : > "$out"
+          fi
+          # A version cut with no changeset is legitimate (a re-cut, a manual
+          # version input), and an empty body must never fail the publish — a
+          # release with thin notes beats no release at all.
+          if [ ! -s "$out" ]; then
+            echo "::warning::no CHANGELOG section for $APP $VERSION — publishing with a placeholder body"
+            printf '%s\n' "\`$APP\` $VERSION. See the commit history for changes." > "$out"
+          fi
+          echo "path=$out" >> "$GITHUB_OUTPUT"
+
+      # Both licences oblige us to hand a recipient the terms — Apache-2.0
+      # §4(a) says so outright — and what we publish is a BARE binary plus a
+      # .sha256, downloaded straight into ~/.local/bin with no file beside it.
+      # The CLIs answer `license`, but a release page should not require
+      # running the binary to learn what you may do with it.
+      #
+      # Staged under one directory with distinct basenames because softprops
+      # uploads by basename: two files called LICENSE would collide silently.
+      - id: legal
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          set -euo pipefail
+          mkdir -p legal
+          cp repo/LICENSE legal/LICENSE
+          cp repo/NOTICE legal/NOTICE
+          # The control plane is the AGPL half; its full text (with the
+          # section 7 API Type Surface exception) rides along for the two
+          # components that actually ship it.
+          case "$APP" in
+            cli-server|desktop-server) cp repo/apps/server/LICENSE legal/LICENSE-AGPL-3.0 ;;
+          esac
+          ls -la legal
+
+      # `latest.json` — the ONE document `tauri-plugin-updater` reads, and the
+      # only asset no single build shard could have written: each shard builds
+      # one platform and writes `latest.<triple>.json` beside its bundle, and
+      # this is the first moment they exist together.
+      #
+      # Its output lands ABOVE the per-shard directories, so the asset glob
+      # below would not reach it — it is listed explicitly. The merge REFUSES
+      # (and fails the release) on shards that disagree on the version, a
+      # platform claimed twice, or an entry with no signature: each of those
+      # would publish a manifest every installed app quietly rejects, which
+      # reads as "there are no updates" and is discovered by nobody.
+      - name: Use bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+
+      - name: Merge the updater manifests
+        if: startsWith(matrix.app, 'desktop-')
+        run: bun repo/scripts/merge-updater-manifests.ts dist --out updater
+
+      # One `release-manifest.json` per RELEASE, not per shard. Each shard
+      # wrote its own beside its artifact and — since spec 2026-09-17 — its
+      # `assets` map names ONLY that shard's files, so uploading the three
+      # per-shard copies would collide on basename in softprops and the last
+      # one would silently win: a signed release offering one platform and
+      # refusing every machine on the others. This merges them (refusing any
+      # disagreement), signs the merged bytes with the same publisher key the
+      # shards used, and the step then DELETES the per-shard copies + sigs so
+      # the asset glob below cannot collide with the merged pair.
+      - name: Merge + sign the release manifest
+        env:
+          APP: ${{ matrix.app }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          bun repo/scripts/merge-release-manifest.ts dist --out manifest
+          rm -f "dist/$APP-"*/release-manifest.json "dist/$APP-"*/release-manifest.json.sig
+
+      # The asset list, computed rather than written, because `latest.json`
+      # belongs to the two desktop components only — and
+      # `fail_on_unmatched_files: true` (which is what catches a shard that
+      # uploaded nothing) would otherwise fail every CLI release over a file
+      # those releases correctly do not have.
+      - id: assets
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          set -euo pipefail
+          {
+            echo "files<<ASSETS_EOF"
+            echo "dist/$APP-*/*"
+            echo "legal/*"
+            # The merged manifest + its signature, produced above and listed
+            # explicitly because the per-shard copies were deleted and the
+            # merged pair lives ABOVE the per-shard directories — same reason
+            # `latest.json` is listed, same shape. `fail_on_unmatched_files`
+            # then catches a merge that silently produced nothing.
+            echo "manifest/release-manifest.json"
+            echo "manifest/release-manifest.json.sig"
+            case "$APP" in desktop-*) echo "updater/latest.json" ;; esac
+            echo "ASSETS_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # Draft first: a failed upload never ships a live release.
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ matrix.tag }}
+          name: ${{ matrix.tag }}
+          target_commitish: ${{ github.sha }}
+          draft: true
+          body_path: ${{ steps.notes.outputs.path }}
+          files: ${{ steps.assets.outputs.files }}
+          fail_on_unmatched_files: true
+
+      # Same tag + draft omitted = update the existing draft and publish it
+      # (softprops v2.6 semantics, confirmed against the action's input docs).
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ matrix.tag }}
+          name: ${{ matrix.tag }}
+          body_path: ${{ steps.notes.outputs.path }}
+
   site-manifest:
+    # The website's install column reads the root releases.json (spec
+    # 2026-09-23 §3); this job is what keeps it true. It runs after EVERY
+    # shard of a real cut has published (publish is a matrix; this is the one
+    # place all components exist together), and on its own for an
+    # `app=refresh` repair dispatch. (The text lives INSIDE the job on
+    # purpose: the cut-order parity test slices job bodies up to the next
+    # top-level key, so a comment above this key rides at the end of the
+    # publish-desktop body and breaks steps-parity with publish-cli unless
+    # publish-cli carries an identical orphan copy.)
     name: Refresh releases.json for the website
-    needs: [plan, publish]
+    needs: [plan, publish-cli, publish-desktop]
     # The main-ref guard: the commit below pushes to main, so this job may
     # only run from a run ON main: a dispatch picked on a branch ref would
     # otherwise write a branch's tag view onto main.
-    if: github.ref == 'refs/heads/main' && (needs.plan.outputs.refresh_manifest == 'true' || needs.publish.result == 'success')
+    # A real cut refreshes the manifest once each publish phase was EITHER
+    # not selected (its apps list is empty) OR succeeded. "Skipped" alone is
+    # NOT enough: a publish of a SELECTED phase that reports skipped means the
+    # build stopped it, plan had already pushed the tags, and announcing one
+    # would put a 404 link on the website. The bare `refresh` dispatch stays
+    # the repair path for a run that died before this job.
+    # `!cancelled()` displaces GitHub's implicit success()-over-needs for the
+    # same reason as build-desktop above, and here the stakes are the
+    # `desktop_apps == '[]'` clause: on a CLI-only cut publish-desktop is
+    # SKIPPED, so with the implicit gate this job never runs and releases.json
+    # silently stops tracking CLI cuts — the `refresh` dispatch is the repair
+    # path, but nothing here says "you must repair after every CLI-only cut".
+    if: >-
+      !cancelled() &&
+      github.ref == 'refs/heads/main' && (
+      needs.plan.outputs.refresh_manifest == 'true' ||
+      ((needs.plan.outputs.cli_apps == '[]' || needs.publish-cli.result == 'success') &&
+       (needs.plan.outputs.desktop_apps == '[]' || needs.publish-desktop.result == 'success')))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

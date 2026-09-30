@@ -10,28 +10,37 @@
  * product name all come from the agent's half of the distribution contract in
  * `@internal/subshell-protocol`.
  *
- * Four rules about that staged agent, each with a failure that only appears on
- * a user's machine:
+ * Rules about that staged agent, each with a failure that only appears on
+ * a user's machine (the same story `apps/server/desktop` tells, one CLI over):
  *
- * 1. **`compile:release`, never `compile`.** `compile` is the host-only dev
- *    build: it produces one binary for whatever machine ran it, with no
- *    `--bytecode` and no cross target, so a `darwin-arm64` bundle built on a
- *    Linux shard would ship a Linux ELF the `.app` cannot exec.
- * 2. **Never pre-signed, never separately notarized.** Tauri re-signs nested
- *    binaries with `--force` under the bundle's own identity and entitlements,
- *    and the app-level notarization mints tickets for nested files — so a
- *    prior signature is overwritten and a prior ticket binds to a cdhash that
- *    no longer exists. `SUBSHELL_RELEASE_SIGN_CMD` is CLEARED (set empty, not
+ * 1. **Fetch the released artifact, verified against the signed manifest.**
+ *    The sidecar IS the cli-node release's own asset for this triple: version
+ *    from `apps/node/agent/package.json` at this commit, the publisher
+ *    signature over `release-manifest.json` checked first, then the digest
+ *    from its SIGNED `assets` map, never a `.sha256`. A missing release fails
+ *    the shard by name (the cut order says the CLI ships first). Downloaded
+ *    bytes land 0644, so the stage step CHMODES 0755: a sidecar that ships
+ *    0644 dies EACCES at exec, invisibly until first run.
+ *    `SUBSHELL_SIDECAR_FROM_SOURCE=1` is the local-dev escape: it rebuilds via
+ *    `compile:release` (NEVER `compile`, the host-only dev build), which alone
+ *    carries `--bytecode` and the cross target.
+ * 2. **A pre-signed download is fine, a separately notarized bundle is not.**
+ *    The published darwin agent carries the CLI's own signature; Tauri
+ *    re-signs nested binaries with `--force` under the bundle's identity and
+ *    the app-level notarization re-staples. What must never happen is
+ *    notarizing the bundle separately after `tauri build` sealed it. On the
+ *    source escape, `SUBSHELL_RELEASE_SIGN_CMD` is CLEARED (set empty, not
  *    merely left alone) for the nested build.
- * 3. **The `.sha256` the agent pipeline writes beside it is DELETED.** It
- *    describes the bytes before Tauri re-seals them, so keeping it publishes a
- *    digest that matches nothing. Digests are never comparable between the
- *    bare-binary download channel (`GET /api/downloads/node/*`) and this one.
- * 4. **`SUBSHELL_NODE_ARTIFACTS_DIR` must be ABSOLUTE.** `resolveArtifactsDir()`
- *    on the agent side calls `resolve()` in the CHILD's cwd (`apps/node/agent`),
- *    so a relative override lands in `apps/node/agent/apps/client/desktop/…` — a
- *    path that looks right in the log and is not, and the build then fails with
- *    "binary not found" pointing somewhere else entirely.
+ * 3. **No digest sidecar travels with the sidecar.** A `.sha256` describes the
+ *    bytes before Tauri re-seals them, so keeping one publishes a digest that
+ *    matches nothing. Digests are never comparable between the bare-binary
+ *    download channel (`GET /api/downloads/node/*`) and this one.
+ * 4. **On the source escape, `SUBSHELL_NODE_ARTIFACTS_DIR` must be ABSOLUTE.**
+ *    `resolveArtifactsDir()` on the agent side calls `resolve()` in the
+ *    CHILD's cwd (`apps/node/agent`), so a relative override lands in
+ *    `apps/node/agent/apps/client/desktop/…` — a path that looks right in the
+ *    log and is not, and the build then fails with "binary not found" pointing
+ *    somewhere else entirely.
  */
 
 import { existsSync } from "node:fs";
@@ -47,6 +56,9 @@ import {
   nodeArtifactFileName,
   RELEASE_MANIFEST_NAME,
   RELEASE_MANIFEST_SIG_NAME,
+  RELEASE_PUBKEY,
+  RELEASE_TAG_PREFIX,
+  type ReleaseComponent,
   rustTargetTriple,
 } from "@internal/subshell-protocol";
 import {
@@ -60,11 +72,17 @@ import {
   selectBundleOutput,
   writeReleaseManifest,
 } from "@internal/subshell-protocol/release-artifacts";
+import {
+  type UnverifiedReleaseManifest,
+  type VerifiedReleaseManifest,
+  verifyReleaseManifest,
+} from "@internal/subshell-protocol/release-signature";
 // By PATH rather than by package name, the way every root script reaches the
 // protocol package: this module is a release-pipeline concern with no runtime
 // consumer, so it lives in `scripts/` and both desktop pipelines import it —
 // which is what keeps the manifest the shards WRITE and the one the publish
 // job MERGES one shape.
+import { fetchReleaseBytes, fetchReleaseIndex, type ReleaseIndex } from "../../../../../scripts/cli-release-fetch.js";
 import {
   buildShardManifest,
   latestManifestName,
@@ -177,19 +195,162 @@ export interface DesktopReleaseDeps {
   write: (path: string, text: string) => Promise<void>;
   /** Run a command capturing combined output — what notarytool's verdict is READ from. */
   runCapture: (argv: string[]) => Promise<{ code: number; output: string }>;
+  /** SHA-256 of a staged file's bytes, checked against the SIGNED manifest. */
+  digest: (path: string) => Promise<string>;
+  /**
+   * Index a published release's assets (name -> download URL) over the
+   * GitHub API; status 404 means the version was never released, and even a
+   * 200 may name a DRAFT (the endpoint answers drafts to a push-scoped
+   * token). Injected so tests drive every lookup outcome; production is
+   * scripts/cli-release-fetch.
+   */
+  fetchIndex: (component: ReleaseComponent, version: string) => Promise<ReleaseIndex>;
+  /** Download one asset's bytes. */
+  fetchBytes: (url: string) => Promise<{ status: number; bytes: Uint8Array | undefined }>;
+  /** Write bytes to a file — the downloaded asset, before it is renamed. */
+  writeBytes: (path: string, bytes: Uint8Array) => Promise<void>;
+  /**
+   * Verify a release-manifest pair against the publisher key. Injected so
+   * tests drive the fetch path with a verdict; production is
+   * `verifyReleaseManifest` under the compiled-in `RELEASE_PUBKEY`.
+   */
+  verify: (
+    manifestText: string,
+    sigText: string,
+    expected: { component: ReleaseComponent; version: string },
+  ) => Promise<VerifiedReleaseManifest | UnverifiedReleaseManifest>;
   log: (line: string) => void;
 }
 
 /**
- * Build the node agent for `triple` and stage it under the name Tauri expects.
+ * Download one named asset of an EXISTING release. Reaching this with the
+ * name missing means the published release lacks an asset every CLI cut
+ * carries — a broken release, not a missing one, and a broken release gets a
+ * hard refusal by name. The soft "cut the CLI first" path is for a release
+ * that does not exist at all; the two must not read the same.
+ */
+async function fetchAsset(
+  deps: DesktopReleaseDeps,
+  tag: string,
+  index: { status: number; assets: Record<string, string> },
+  name: string,
+): Promise<Uint8Array> {
+  const url = index.assets[name];
+  if (url === undefined) throw new Error(`refused: ${tag} is published without ${name}`);
+  const got = await deps.fetchBytes(url);
+  if (got.bytes === undefined) throw new Error(`refused: ${tag}/${name} answered HTTP ${got.status}`);
+  return got.bytes;
+}
+
+/** The manifest and signature are verified as TEXT (the signed bytes). */
+async function fetchAssetText(
+  deps: DesktopReleaseDeps,
+  tag: string,
+  index: { status: number; assets: Record<string, string> },
+  name: string,
+): Promise<string> {
+  return new TextDecoder().decode(await fetchAsset(deps, tag, index, name));
+}
+
+/** The cli-node version THIS checkout expects the bundle to carry. */
+export async function cliReleaseVersion(deps: DesktopReleaseDeps): Promise<string> {
+  const pkg = JSON.parse(await deps.read(join(REPO_ROOT, "apps/node/agent", "package.json"))) as { version?: string };
+  const version = String(pkg.version ?? "");
+  // Exact, not prefix: a prerelease version would name a tag the rail never
+  // publishes, and "not published yet" would be a lie about a false premise.
+  if (!/^\d+\.\d+\.\d+$/.test(version))
+    throw new Error(`apps/node/agent/package.json has no usable release version: '${version}'`);
+  return version;
+}
+
+/**
+ * Stage the published cli-node artifact for `triple` as the sidecar Tauri
+ * expects, refusing anything but the bytes the release's SIGNED manifest
+ * names. The version comes from `apps/node/agent/package.json` at this commit: the
+ * version PR lands CLI and desktop bumps together, so the matching
+ * `cli-node-vX.Y.Z` release either shipped in an earlier cut or is what this
+ * cut's publish-cli phase just produced. Absent means the cut order was
+ * violated, and the log says exactly that.
+ *
+ * The two desktop apps enforce the SAME contract over different CLIs;
+ * scripts/__tests__/desktop-release-parity.test.ts keeps the two fetch paths
+ * identical apart from the component tokens.
+ */
+export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Promise<boolean> {
+  if (process.env.SUBSHELL_SIDECAR_FROM_SOURCE === "1") {
+    deps.log("SUBSHELL_SIDECAR_FROM_SOURCE=1: staging the sidecar from a local build (never set in CI)…");
+    return stageSidecarFromSource(deps, triple);
+  }
+  deps.log(`staging the node agent sidecar for ${triple} from the published release…`);
+  const version = await cliReleaseVersion(deps);
+  const tag = `${RELEASE_TAG_PREFIX["cli-node"]}${version}`; // the prefix already ends in "-v"
+  const asset = nodeArtifactFileName(triple);
+  const assetPath = join(SIDECAR_DIR, asset);
+  const sidecar = join(SIDECAR_DIR, desktopSidecarFileName(NODE_SIDECAR_NAME, triple));
+  // Clean the two output names FIRST: a refused download's asset left behind
+  // would satisfy the escape hatch's exists() check on the next call, and
+  // everything in this directory is walkable by the bundler's preflight.
+  await deps.remove(sidecar);
+  await deps.remove(assetPath);
+  const index = await deps.fetchIndex("cli-node", version);
+  if (index.status !== 200) {
+    // The ORDERING refusal: the release this bundle must ship does not exist
+    // (or the lookup failed; the status says which). Soft by design —
+    // main() refuses with this log above it.
+    deps.log(
+      `refused: ${tag} answered the release lookup with HTTP ${index.status}. The desktop bundle ships the agent that was ` +
+        "actually released; cut the cli-node release first (SUBSHELL_SIDECAR_FROM_SOURCE=1 builds from source for local use).",
+    );
+    return false;
+  }
+  if (index.draft) {
+    // A draft is NOT a shipped release: it is a cut that died between the
+    // draft step and the flip, and its bytes were never on the release page.
+    // Bundling them would break the one rule this ordering exists for (ship
+    // what the release page offers), so refuse HARD and by name.
+    throw new Error(
+      `refused: ${tag} exists only as a DRAFT release (a prior cut died between draft and publish); delete the draft and re-dispatch`,
+    );
+  }
+  const manifestText = await fetchAssetText(deps, tag, index, RELEASE_MANIFEST_NAME);
+  const sigText = await fetchAssetText(deps, tag, index, RELEASE_MANIFEST_SIG_NAME);
+  const assetBytes = await fetchAsset(deps, tag, index, asset);
+  const verdict = await deps.verify(manifestText, sigText, { component: "cli-node", version });
+  if (!verdict.ok) {
+    throw new Error(`refused: ${tag}'s release manifest does not verify: ${verdict.reason}`);
+  }
+  await deps.writeBytes(assetPath, assetBytes);
+  const expected = verdict.manifest.assets[asset];
+  const actual = await deps.digest(assetPath);
+  if (expected === undefined || expected !== actual) {
+    throw new Error(
+      `refused: ${asset} digest ${actual} is not the signed ${expected ?? "(absent from the manifest)"} for ${tag}`,
+    );
+  }
+  await deps.move(assetPath, sidecar);
+  // Downloaded bytes land 0644, and a 0644 sidecar dies EACCES at exec,
+  // invisibly until first run. A failed chmod leaves a non-executable file
+  // EXACTLY where the bundler picks it up, so this is a hard refusal:
+  // nothing about it reads as "not published yet".
+  if ((await deps.run(["chmod", "0755", sidecar], REPO_ROOT)) !== 0) {
+    throw new Error(`refused: chmod 0755 failed on the freshly staged ${sidecar}`);
+  }
+  deps.log(`staged ${tag}/${asset} (${actual.slice(0, 12)}…) as the ${triple} sidecar`);
+  return true;
+}
+
+/**
+ * The old path: BUILD the node agent for `triple` and stage it. Kept behind
+ * `SUBSHELL_SIDECAR_FROM_SOURCE=1` for local builds with nothing published
+ * yet; CI never sets it, and a cut never runs it.
  *
  * The three env vars handed to the child are the whole contract with
  * `apps/node/agent`'s own pipeline: scope it to one triple, publish it into the
  * sidecar directory by ABSOLUTE path (rule 4 in this file's header), and sign
  * nothing (rule 2).
  */
-export async function stageSidecar(deps: DesktopReleaseDeps, triple: string): Promise<boolean> {
-  deps.log(`staging the node agent sidecar for ${triple}…`);
+async function stageSidecarFromSource(deps: DesktopReleaseDeps, triple: string): Promise<boolean> {
+  deps.log(`staging the node agent sidecar for ${triple} from source…`);
   const code = await deps.run(["bun", "run", "--cwd", "apps/node/agent", "compile:release"], REPO_ROOT, {
     SUBSHELL_RELEASE_TRIPLES: triple,
     SUBSHELL_NODE_ARTIFACTS_DIR: SIDECAR_DIR,
@@ -465,6 +626,13 @@ export const DEFAULT_DEPS: DesktopReleaseDeps = {
     const [out, err] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
     return { code: await proc.exited, output: `${out}${err}` };
   },
+  digest: digestFile,
+  fetchIndex: fetchReleaseIndex,
+  fetchBytes: fetchReleaseBytes,
+  writeBytes: async (path, bytes) => {
+    await Bun.write(path, bytes);
+  },
+  verify: (manifestText, sigText, expected) => verifyReleaseManifest(manifestText, sigText, RELEASE_PUBKEY, expected),
   log: (line) => console.log(line),
 };
 
@@ -509,7 +677,9 @@ async function main(): Promise<void> {
   try {
     for (const triple of targets) {
       if (!(await stageSidecar(deps, triple))) {
-        throw new Error(`the node agent sidecar for ${triple} failed to build. Nothing published`);
+        throw new Error(
+          `the cli-node release this bundle must ship is not available (see the refusal logged above). Nothing published`,
+        );
       }
       const bundleRoot = bundleRootFor(triple);
       // A previous target's output would otherwise make `assertBundleSet` fail

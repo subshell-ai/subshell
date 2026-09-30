@@ -196,13 +196,12 @@ export function computePlan(
   // The root pseudo-package in the affected set means a GLOBAL input changed
   // (lockfile, root tsconfig/biome, turbo.json) — turbo invalidated everything
   // it hashes; no slice may claim exemption.
-  if (names.has("//")) return { flags: allFlags(), reason: "global inputs changed (root package appears in affected set)" };
+  if (names.has("//"))
+    return { flags: allFlags(), reason: "global inputs changed (root package appears in affected set)" };
 
   // Unknown packages: a workspace added without registering here. Running all
   // slices is the loud-and-wide failure; skipping it would be the silent one.
-  const unknown = affected.filter(
-    (p) => !(p.name in SLICE_BY_PACKAGE) && !p.dir.startsWith("packages/"),
-  );
+  const unknown = affected.filter((p) => !(p.name in SLICE_BY_PACKAGE) && !p.dir.startsWith("packages/"));
   if (unknown.length > 0) {
     return {
       flags: allFlags(),
@@ -235,7 +234,10 @@ export function computePlan(
 
   const why: string[] = [];
   for (const k of FLAG_KEYS) if (flags[k]) why.push(k);
-  return { flags, reason: why.length ? `slices with work: ${why.join(", ")}` : "nothing a test slice reads has changed" };
+  return {
+    flags,
+    reason: why.length ? `slices with work: ${why.join(", ")}` : "nothing a test slice reads has changed",
+  };
 }
 
 /** Run a command, returning stdout; null on any failure (the caller fails wide). */

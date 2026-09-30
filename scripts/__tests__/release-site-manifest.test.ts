@@ -17,7 +17,7 @@ describe("release.yml site-manifest wiring", () => {
   });
 
   test("plan emits refresh_manifest on every path", () => {
-    // Declared as a job output, like matrix and apps. This string is a
+    // Declared as a job output, like the phase matrices. This string is a
     // GitHub Actions expression, not a JS template placeholder.
     // biome-ignore lint/suspicious/noTemplateCurlyInString: pinning workflow YAML
     expect(yml).toContain("refresh_manifest: ${{ steps.compute.outputs.refresh_manifest }}");
@@ -29,18 +29,28 @@ describe("release.yml site-manifest wiring", () => {
     expect(yml).toContain('echo "refresh_manifest=$refresh_manifest" >> "$GITHUB_OUTPUT"');
   });
 
-  test("the job is non-matrix and needs publish", () => {
+  test("the job is non-matrix and needs every publish phase", () => {
     expect(yml).toContain("  site-manifest:");
     const job = yml.slice(yml.indexOf("  site-manifest:"));
     expect(job).not.toContain("strategy:");
-    expect(job).toContain("needs: [plan, publish]");
+    // The cut is phased (CLI first, desktop after); the manifest refresh
+    // waits for BOTH publish jobs.
+    expect(job).toContain("needs: [plan, publish-cli, publish-desktop]");
     expect(job).toContain("contents: write");
     expect(job).toContain("timeout-minutes");
     // Runs after a real cut OR as the standalone refresh dispatch — and ONLY
-    // from a run on main, since the job pushes to main.
-    expect(job).toContain(
-      "if: github.ref == 'refs/heads/main' && (needs.plan.outputs.refresh_manifest == 'true' || needs.publish.result == 'success')",
-    );
+    // from a run on main, since the job pushes to main. "A real cut" means
+    // each phase was EITHER not selected (empty apps list) OR published
+    // successfully: a skipped publish of a SELECTED phase means the build
+    // stopped it, and announcing plan's pushed-but-unshipped tag would put a
+    // 404 link on the website.
+    expect(job).toContain("github.ref == 'refs/heads/main'");
+    expect(job).toContain("needs.plan.outputs.refresh_manifest == 'true'");
+    expect(job).toContain("needs.plan.outputs.cli_apps == '[]' || needs.publish-cli.result == 'success'");
+    expect(job).toContain("needs.plan.outputs.desktop_apps == '[]' || needs.publish-desktop.result == 'success'");
+    // The old tolerance ("skipped is fine, just require one success") is the
+    // very conflation this gate exists to avoid; it may not come back.
+    expect(job).not.toContain("result == 'skipped'");
   });
 
   test("commit retry is bounded and never forced", () => {

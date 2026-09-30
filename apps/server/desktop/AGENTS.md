@@ -300,6 +300,14 @@ port is one.
 
 ## The staged sidecar
 
+A release cut **downloads** its sidecar: `stageSidecar` fetches the
+`subshell-server-cli-<triple>` asset of the `cli-server-vX` release named by
+`apps/server/api/package.json`, checks the publisher signature over
+`release-manifest.json` and the digest from its signed `assets` map, and
+chmods 0755. A missing release fails the shard by name (the cut ships the CLI
+first); `SUBSHELL_SIDECAR_FROM_SOURCE=1` is the local escape that rebuilds via
+`compile:release`.
+
 `bundle.externalBin` is `binaries/subshell-server-bundled`. The staged file
 carries the **Rust** triple (`…-aarch64-apple-darwin`); Tauri **strips** that
 suffix on copy, so inside the bundle (and beside the dev binary) it is just

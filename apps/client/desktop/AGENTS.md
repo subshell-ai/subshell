@@ -222,11 +222,17 @@ cd src-tauri && install -m 755 /dev/null "binaries/subshell-node-bundled-$(rustc
 
 A zero-byte stub is correct for the Rust tests: none of them executes the
 sidecar, and `tauri-build` only checks that the path EXISTS. A real one comes
-from `bun run compile:release`, which builds `apps/node/agent` first.
+from a release cut: `stageSidecar` DOWNLOADS the `subshell-node-cli-<triple>`
+asset of the `cli-node-vX` release named by `apps/node/agent/package.json`,
+verifies the publisher signature and the signed manifest's digest, and chmods
+0755. A missing release fails the shard by name (the cut ships the agent
+first); `SUBSHELL_SIDECAR_FROM_SOURCE=1` is the local escape that rebuilds via
+`compile:release` instead of fetching.
 
 **Three names, one binary.** `apps/node/agent`'s own pipeline publishes it as
 `subshell-node-cli-<triple>` (the `cli` says bare-binary, against this app's
-`Desktop`), which is what `stageSidecar` looks for after the nested build. The
+`Desktop`), the same name `stageSidecar` downloads from the release, or finds
+after the source build. The
 release script then MOVES it to `subshell-node-bundled-<rust triple>`, and Tauri
 STRIPS that suffix when it copies the file, so inside the bundle it is
 `subshell-node-bundled`. Anything grepping for the staged name inside a built

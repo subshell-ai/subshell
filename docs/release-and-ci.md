@@ -89,19 +89,48 @@ bun run release:desktop-server            # 2. stage the SERVER sidecar, then `t
 bun run release:desktop-client            #    or stage the AGENT sidecar instead
 ```
 
-Each script (`apps/<dir>/src/scripts/release.ts`) builds the CLI its app wraps,
-stages it as the Tauri sidecar, and bundles. Three rules about that staged
-binary, each with a failure that only appears on a user's machine:
+Each script (`apps/<dir>/src/scripts/release.ts`) stages the Tauri sidecar
+and bundles. Since the cut-order ruling of 2026-09-30 the staged bytes are the
+ones the **published CLI release** carries: `stageSidecar` downloads the
+`subshell-{server,node}-cli-<triple>` asset of `cli-server-vX` / `cli-node-vX`
+(the version read from the wrapped package's `package.json` at this commit)
+and refuses the shard unless the publisher SIGNATURE over
+`release-manifest.json` verifies and the asset's digest matches that manifest's
+SIGNED `assets` map, then chmods 0755 (downloaded bytes land 0644; a 0644
+sidecar dies EACCES at exec, invisibly until first run). A missing release is
+a refusal BY NAME, and it means the CLI cut has not shipped yet, or the
+lookup itself failed; the status it logs says which. A published-but-broken
+release, meaning a missing asset, a bad signature, a wrong digest, or a DRAFT
+that never flipped live, is a HARD refusal by name instead, so the three never
+read alike (a draft matters because the tags endpoint answers 200 for drafts
+to the job token: "a release answers" is not "it shipped"). The
+fetch is Bun's own `fetch` against the GitHub API, never the `gh` CLI: the
+linux desktop shard runs inside the desktop-builder container, which carries no
+`gh`, and a cut must not depend on which image runs the job. That is the
+ordering made mechanical: within one cut, release.yml's `build-desktop` job
+literally needs `publish-cli`: the ordering crosses a publish job, and
+job-level `needs` is the only surface that spans it (the duplicated bodies are
+pinned against drift by `scripts/__tests__/release-cut-order.test.ts`); across
+cuts, the release either exists or the shard stops. The GHCR image rail then
+chains after the whole run, so a full cut runs **CLI -> desktop -> image**.
+For local work, run the release script with `SUBSHELL_SIDECAR_FROM_SOURCE=1`
+set in the environment and it keeps the old path (build, never fetch); CI
+never sets it, and `scripts/desktop-dev.ts` sets it deliberately (dev ships the
+working tree). Rules about the staged binary that survive either path, each
+with a failure that only appears on a user's machine:
 
-- **`compile:release`, never `compile`**: for the server, only the release
-  build embeds the SPA, and a stub-shipping binary throws at boot where there is
-  no `apps/server/web/dist`.
-- **Never pre-signed or separately notarized**: Tauri re-signs nested binaries
-  with `--force` under the bundle's identity, so a prior ticket binds to a
-  cdhash that no longer exists. The shard clears `SUBSHELL_RELEASE_SIGN_CMD`
+- **Source builds use `compile:release`, never `compile`**: for the server,
+  only the release build embeds the SPA, and a stub-shipping binary throws at
+  boot where there is no `apps/server/web/dist`.
+- **Never separately notarized**: Tauri re-signs nested binaries with
+  `--force` under the bundle's identity, so a prior ticket binds to a cdhash
+  that no longer exists (a pre-signed DOWNLOAD is fine - its signature is
+  simply overwritten). The source escape clears `SUBSHELL_RELEASE_SIGN_CMD`
   for the nested build.
-- **Its `.sha256` is deleted**: it describes pre-seal bytes. Digests are never
-  comparable between the bare-binary channel and this one.
+- **No digest sidecar travels with the sidecar**: a `.sha256` describes
+  pre-seal bytes. Digests are never comparable between the bare-binary channel
+  and this one. The fetched release's own manifest pair is deleted from the
+  sidecar dir for the same basename-collision reason.
 
 Targets are `DESKTOP_TARGETS` (`linux-x64`, `darwin-arm64`, `darwin-x64`),
 narrower than `SERVER_TARGETS` only by `linux-arm64`: there is no native arm64
@@ -608,14 +637,22 @@ which is why they share their own smoke, parameterized by app id.
   does NOT reach desktop users until the matching desktop cut. Dispatch a
   security-relevant release as `app=all`.
 - **Retry:** a mid-flight failure leaves the tag without a release:
-  re-dispatching COMPLETES the half-cut. Re-cutting a PUBLISHED version
-  requires deleting the release and its tag first.
+  re-dispatching COMPLETES the half-cut. A DRAFT is the subtle case: the tags
+  endpoint answers 200 for a draft too, so plan skips an app only when its
+  release exists AND is not a draft, and a draft re-enters the retry path
+  (softprops updates and flips it). Re-cutting a PUBLISHED version
+  requires deleting the release and its tag first. And because a desktop
+  bundle SHIPS the CLI release's bytes: re-cutting a CLI version after its
+  matching desktop cut shipped means deleting and re-cutting the desktop
+  too, or `app=all` skips the desktop's existing tag and the re-cut CLI
+  reaches only downloaders, not bundle users.
 - **A desktop cut re-ships a CLI.** Each desktop app bundles the binary it
-  wraps, built from the same commit, so a fix to `apps/server/api` or `apps/node/agent`
-  does NOT reach desktop users until the matching desktop cut. Since
-  2026-09-30 that matching bump is machinery (`updateInternalDependents`,
-  see the version-PR section above), so a normal CLI changeset lands both
-  bumps; `app=all` is what then CUTS them together.
+  wraps (the published release asset, not a rebuild), so a fix to
+  `apps/server/api` or `apps/node/agent` does NOT reach desktop users until the
+  matching desktop cut. Since 2026-09-30 that matching bump is machinery
+  (`updateInternalDependents`, see the version-PR section above), so a normal
+  CLI changeset lands both bumps, and the cut itself orders the phases
+  (CLI first, desktop after, image last).
 
 ### The GHCR image rail (CI: `.github/workflows/docker-image.yml`)
 

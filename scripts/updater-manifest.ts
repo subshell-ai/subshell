@@ -167,7 +167,7 @@ export function buildShardManifest(input: {
  *   and is not enough: a manifest naming one of two platforms publishes
  *   cleanly and tells the other platform's installed apps "no updates"
  *   forever, which is the exact silent failure this module exists to prevent.
- *   The publish job's `needs: [plan, build]` already means a missing shard
+ *   The publish job's `needs` on its build job already means a missing shard
  *   fails the release before this runs, so this is the second lock on the
  *   same door rather than the only one.
  */

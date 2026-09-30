@@ -564,8 +564,9 @@ jobs:
   #
   # It DOES need the build, and that is load-bearing, not tidiness:
   # desktop-dev.test.ts imports the launcher, which imports the desktop app's
-  # REAL `stageSidecar` (launcher and release share the function — see
-  # AGENTS.md), which imports `@internal/subshell-protocol` through its dist.
+  # REAL `stageSidecar` — one function for launcher and release, the launcher
+  # running it in its declared source mode — which imports
+  # `@internal/subshell-protocol` through its dist.
   # The first CI run of this job died on exactly that; a warm local tree
   # cannot see the gap, which is the trap verification.md names.
   test-scripts:

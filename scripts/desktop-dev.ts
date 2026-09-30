@@ -11,11 +11,13 @@
  * and no way to produce it. Staging it by hand is a four-command dance
  * documented in `apps/server/desktop/AGENTS.md`. This script is that dance.
  *
- * Each app already knows how to build and stage the CLI it wraps — that is its
- * release pipeline's `stageSidecar`, which is what a release uses and what the
- * bundle smoke proves. This imports the SAME function rather than reimplementing
- * it, so a dev sidecar and a released one can never be produced two different
- * ways.
+ * Each app already knows how to stage the CLI it wraps — that is its release
+ * pipeline's `stageSidecar` — and this imports the SAME function, in the mode
+ * it declares for exactly this case: `SUBSHELL_SIDECAR_FROM_SOURCE=1` (set at
+ * module load below), the source path. The distinction is deliberate, not a
+ * fork: DEV runs the working tree, so its sidecar is the tree's CLI built
+ * now; a RELEASE ships the CLI's published bytes. One staging function, two
+ * truths, chosen by the caller.
  *
  * **The staged sidecar is not what the app runs, and that is the whole reason
  * the second half of this script exists.** Both apps resolve their CLI through
@@ -140,6 +142,10 @@ interface DesktopApp {
   /** What the build is actually doing, for the line printed before it. */
   builds: string;
 }
+
+// Dev stages from source (see the header): the fetch path is a release-only
+// contract, and the tree you are developing is what `tauri dev` must run.
+process.env.SUBSHELL_SIDECAR_FROM_SOURCE = "1";
 
 const APPS: readonly DesktopApp[] = [
   {
@@ -722,7 +728,8 @@ async function stopService(binary: string): Promise<void> {
  * Abort is `process.exit(1)` rather than a thrown error: the caller is
  * `main()`, and the message on screen is the product. Exported (like the pure
  * seams above) so the verdict can be driven against a real machine without a
- * launch; importing this file runs nothing — the CLI body is `main`-guarded.
+ * launch; importing this file only sets the staging escape (line 148) and
+ * nothing else — the CLI body is `main`-guarded.
  */
 export async function preflightDevPort(
   app: DesktopApp,

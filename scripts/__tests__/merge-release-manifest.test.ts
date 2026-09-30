@@ -10,7 +10,7 @@
  * asset, shards that disagree on what release they are in.
  */
 import { describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NODE_TARGETS, SERVER_TARGETS } from "../../packages/subshell-protocol/src/paths.js";
@@ -128,7 +128,10 @@ describe("findShardManifests / loadShardManifests", () => {
         mergedAssets[name] = digestFor(i + 1);
         const shardDir = join(root, `node-${t}`);
         mkdirSync(shardDir, { recursive: true });
-        writeFileSync(join(shardDir, RELEASE_MANIFEST_NAME), JSON.stringify(shard("cli-node", { [name]: digestFor(i + 1) }).manifest));
+        writeFileSync(
+          join(shardDir, RELEASE_MANIFEST_NAME),
+          JSON.stringify(shard("cli-node", { [name]: digestFor(i + 1) }).manifest),
+        );
       });
       // The previous run's merged output, disagreeing with a shard on purpose:
       // ingested as a "shard" it would refuse with "two digests across shards"
@@ -136,16 +139,17 @@ describe("findShardManifests / loadShardManifests", () => {
       writeFileSync(
         join(root, RELEASE_MANIFEST_NAME),
         JSON.stringify(
-          shard("cli-node", { ...mergedAssets, [releaseAssetNames("cli-node", NODE_TARGETS[0]!).binary]: digestFor(77) }).manifest,
+          shard("cli-node", {
+            ...mergedAssets,
+            [releaseAssetNames("cli-node", NODE_TARGETS[0]!).binary]: digestFor(77),
+          }).manifest,
         ),
       );
       const paths = findShardManifests(root, root);
       expect(paths.length).toBe(NODE_TARGETS.length);
       expect(paths.some((p) => p === join(root, RELEASE_MANIFEST_NAME))).toBe(false);
       // And the merge over them stays clean — the exclusion is the whole fix.
-      expect(Object.keys(mergeReleaseManifests(loadShardManifests(paths)).assets).length).toBe(
-        NODE_TARGETS.length,
-      );
+      expect(Object.keys(mergeReleaseManifests(loadShardManifests(paths)).assets).length).toBe(NODE_TARGETS.length);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -235,7 +239,10 @@ describe("merge-release-manifest CLI", () => {
         mergedAssets[name] = digestFor(i + 1);
         const shardDir = join(root, `node-${t}`);
         mkdirSync(shardDir, { recursive: true });
-        writeFileSync(join(shardDir, RELEASE_MANIFEST_NAME), JSON.stringify(shard("cli-node", { [name]: digestFor(i + 1) }).manifest));
+        writeFileSync(
+          join(shardDir, RELEASE_MANIFEST_NAME),
+          JSON.stringify(shard("cli-node", { [name]: digestFor(i + 1) }).manifest),
+        );
       });
       mergedAssets[releaseAssetNames("cli-node", NODE_TARGETS[0]!).binary] = digestFor(77);
       writeFileSync(join(root, RELEASE_MANIFEST_NAME), JSON.stringify(shard("cli-node", mergedAssets).manifest));
