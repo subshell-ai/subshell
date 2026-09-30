@@ -103,6 +103,9 @@ export function ChangePasswordCard() {
                   onChange={(e) => field.handleChange(e.target.value)}
                   onBlur={field.handleBlur}
                 />
+                {/* This slot's one sentence is "This field is required" - a
+                    gap, gold. The mismatch and length sentences live in the
+                    slots below and are hard errors: red. */}
                 {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
                   <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
                     {fieldError(field.state.meta.errors)}
@@ -130,7 +133,7 @@ export function ChangePasswordCard() {
                 {(() => {
                   const error = field.state.meta.isTouched ? fieldError(field.state.meta.errors) : null;
                   return error ? (
-                    <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
+                    <p role="alert" className="text-destructive text-detail">
                       {error}
                     </p>
                   ) : (
@@ -157,7 +160,7 @@ export function ChangePasswordCard() {
                   onBlur={field.handleBlur}
                 />
                 {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
+                  <p role="alert" className="text-destructive text-detail">
                     {fieldError(field.state.meta.errors)}
                   </p>
                 )}

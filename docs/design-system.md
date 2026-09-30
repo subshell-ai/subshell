@@ -113,6 +113,22 @@ admitted here.
   12; a plugin's description was 12 in one card and 14 in the other; the
   assistant's `.hint` was 14. Three sizes for one idea, because the table used
   to file "hints" under `body`.)*
+- **Required input**: a gold `*` (`RequiredMark`) stands beside every
+  REQUIRED label at rest, and the submit is disabled until the one schema is
+  satisfied. When the caret LEAVES a field still empty, the sentence appears
+  under it in the same gold. Gold means "nothing typed yet".
+  *(The disabled button was honest but silent: an untouched dialog said
+  nothing about what it demanded, and a live-tester dismissed a half-filled
+  preset deciding the form "didn't want the name". Operator ruling,
+  2026-09-30.)*
+- **Hard error**: a value validation REFUSES (too long, mismatched, over a
+  cap), the server's refusal of the submit, and a load failure all stay
+  `text-destructive` red, rendered on the thing that failed. Red means "what
+  you typed is wrong"; a zod issue tagged `gap: true` means the opposite and
+  wears the gold instead, and `fieldErrorToned` is the reader a slot that can
+  hold both uses. *(An hour of one-tone experiments settled the split: gold
+  for everything read as alarm on unfilled fields; red for everything hid
+  which fields still needed typing.)*
 - **Tooltip**: the popup carries an arrow pointing back at its control.
   `TooltipContent` draws it by default, and `arrow={false}` is the rare opt-out
   for a surface with no single anchor. A floating box beside a run of elements

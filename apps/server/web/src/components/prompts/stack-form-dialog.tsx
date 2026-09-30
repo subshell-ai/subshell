@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { RequiredMark } from "@/components/ui/required-mark";
 import { useCreatePromptStack, useUpdatePromptStack } from "@/hooks/use-prompts";
-import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { fieldError, fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
 import { movePromptBlock, newPromptLocalId, type PromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import { makePromptStackSchema, stackMembersFromBlocks } from "@/lib/prompt-stack-form";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
@@ -151,14 +151,22 @@ export function StackFormDialog({
                     <Plus /> Add prompt
                   </Button>
                 )}
-                {/* The blur caption, gold whichever kind it is (ruling
-                    2026-09-30): empty and refused both answer the same
-                    question - why is Create dead. */}
-                {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
-                    {fieldError(field.state.meta.errors)}
-                  </p>
-                )}
+                {/* One slot, two facts: "needs at least one prompt" is a gap
+                    (gold); the joined-cap sentence is a hard error (red). */}
+                {field.state.meta.isTouched &&
+                  (() => {
+                    const shown = fieldErrorToned(field.state.meta.errors);
+                    return (
+                      shown && (
+                        <p
+                          role="alert"
+                          className={shown.gap ? REQUIREMENT_CAPTION_CLASS : "text-destructive text-detail"}
+                        >
+                          {shown.text}
+                        </p>
+                      )
+                    );
+                  })()}
               </div>
             )}
           </form.Field>
