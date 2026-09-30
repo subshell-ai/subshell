@@ -45,7 +45,7 @@ export function ProviderDialog({
     <Dialog open={open} onOpenChange={(next) => onOpenChange(next)}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>{provider ? `Edit ${provider.name}` : "Add provider"}</DialogTitle>
+          <DialogTitle>{provider ? "Edit provider" : "Add provider"}</DialogTitle>
         </DialogHeader>
         {open && (
           <ProviderForm
