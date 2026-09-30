@@ -3,7 +3,9 @@ import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import { DASH, MobilePair, RowRule, releasePageUrl, VersionCell } from "@/components/updates/row-cells";
 import { useNodeUpdate } from "@/hooks/use-node-update";
+import { desktopShell } from "@/lib/desktop";
 import { endOnce } from "@/lib/update-copy";
+import { isUpdateLive } from "@/lib/updates-poll";
 import type { NodeUpdateRow, NodeUpdates, UpdateTrackerState } from "@/types/updates";
 
 /**
@@ -67,16 +69,6 @@ function updateLine(row: NodeUpdateRow, update: UpdateTrackerState): string {
 }
 
 /**
- * Whether the server's tracker calls one node's update still moving.
- * `stalled` deliberately reads as NOT live: the row says its hedge and a
- * human takes over, and a spinner plus a locked button would take that
- * handoff back. Same reading the poll gate uses (`lib/updates-poll.ts`).
- */
-function isLive(update: UpdateTrackerState | null): boolean {
-  return update !== null && (update.phase === "working" || update.phase === "restarting");
-}
-
-/**
  * The fleet: what every enrolled node is running, and what it could run.
  *
  * **Update all fires every updatable row at once** (spec 2026-09-30). The
@@ -104,9 +96,13 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
   // reads this (the tracker owns busy); it only labels the header and keeps
   // the whole fleet locked while the tab's own press is half-dispatched.
   const [batch, setBatch] = useState(false);
+  // Browser surfaces only: the dash-inside-the-app rule the desktop rows
+  // already follow (`link = shell === null && release !== null`), because a
+  // target="_blank" anchor is inert in a Tauri webview, a dead control.
+  const inBrowser = desktopShell() === null;
 
   const updatable = fleet.rows.filter((row) => row.canUpdate.ok);
-  const rowBusy = (row: NodeUpdateRow): boolean => nodeUpdate.pendingNodeIds.has(row.id) || isLive(row.update);
+  const rowBusy = (row: NodeUpdateRow): boolean => nodeUpdate.pendingNodeIds.has(row.id) || isUpdateLive(row.update);
   const anyBusy = batch || fleet.rows.some(rowBusy);
 
   async function updateAll(): Promise<void> {
@@ -130,7 +126,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
       <div className="col-span-full flex flex-wrap items-center justify-between gap-3 border-t pt-2">
         <span className="font-strong text-label">Nodes</span>
         <div className="flex items-center gap-3">
-          {fleet.release !== null && (
+          {inBrowser && fleet.release !== null && (
             <a
               href={releasePageUrl(fleet.release.tag)}
               target="_blank"
@@ -208,7 +204,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
             {!row.canUpdate.ok && row.canUpdate.reason !== null && (
               <p className="col-span-full truncate text-detail text-muted-foreground">{row.canUpdate.reason}</p>
             )}
-            {tracked !== null && (
+            {tracked != null && (
               <p
                 className={`col-span-full text-detail ${
                   tracked.phase === "done" || tracked.phase === "working" || tracked.phase === "restarting"

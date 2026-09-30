@@ -107,12 +107,21 @@ describe("updatesPollMs", () => {
 
   it("treats a payload whose server half lacks the job field as nothing moving, never as a crash", () => {
     // The sidebar's ServerVersionRow stubs a view whose server half never
-    // carried `job`; the gate must be as loose as isLive or it throws inside
-    // the query scheduler. Same defense the serverUpdate case above pins.
+    // carried `job`; the gate must be as loose as isUpdateLive or it throws
+    // inside the query scheduler. Same defense the serverUpdate case above pins.
     const legacy = updatesView() as unknown as Record<string, unknown>;
     legacy.server = Object.fromEntries(
       Object.entries(legacy.server as Record<string, unknown>).filter(([k]) => k !== "job"),
     );
+    expect(updatesPollMs(legacy as unknown as ReturnType<typeof updatesView>, false)).toBe(false);
+  });
+
+  it("treats a payload whose server half is absent entirely as nothing moving, never as a crash", () => {
+    // One level up the same defense: a hand-stubbed view can lack the whole
+    // `server` half, and the gate answers false rather than throwing inside
+    // the query scheduler.
+    const legacy = updatesView() as unknown as Record<string, unknown>;
+    delete legacy.server;
     expect(updatesPollMs(legacy as unknown as ReturnType<typeof updatesView>, false)).toBe(false);
   });
 });

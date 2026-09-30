@@ -4,9 +4,33 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { nodeRow, nodeUpdates, updateState } from "@/components/__tests__/helpers/updates-view";
 import { NodeRows, rowState } from "@/components/updates/node-rows";
 import { releasePageUrl } from "@/components/updates/row-cells";
-import type { NodeUpdates, UpdateTrackerState } from "@/types/updates";
+import { resetDesktopShellForTests } from "@/lib/desktop";
+import type { NodeUpdateRow, NodeUpdates, UpdateTrackerState } from "@/types/updates";
 
-afterEach(cleanup);
+/**
+ * The section header asks `desktopShell()`, which parses (and memoizes) the
+ * User-Agent, so the surfaces are UAs. The stub idiom is the one
+ * `updates-desktop-rows.test.tsx` carries.
+ */
+const CLIENT_UA = "Mozilla/5.0 SubshellClient/0.3.0 (linux; p=1)";
+const BROWSER_UA = "Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15";
+
+const nav = globalThis.navigator as unknown as Record<string, unknown>;
+let previousUserAgent: PropertyDescriptor | undefined;
+
+function setUA(userAgent: string) {
+  previousUserAgent ??= Object.getOwnPropertyDescriptor(nav, "userAgent");
+  Object.defineProperty(nav, "userAgent", { value: userAgent, configurable: true, writable: true });
+  resetDesktopShellForTests();
+}
+
+afterEach(() => {
+  cleanup();
+  if (previousUserAgent) Object.defineProperty(nav, "userAgent", previousUserAgent);
+  else delete nav.userAgent;
+  previousUserAgent = undefined;
+  resetDesktopShellForTests();
+});
 
 /**
  * The rows mount `useNodeUpdate`, which needs a client even when nothing is
@@ -490,14 +514,36 @@ describe("NodeRows", () => {
 
   it("links the Nodes section to the offered node release", () => {
     // One link for the section, not one per row (operator ruling 2026-09-30):
-    // every row is offered the same release page.
+    // every row is offered the same release page. The UA is pinned so the
+    // memoized shell read can never shadow the browser answer.
+    setUA(BROWSER_UA);
     renderRows(nodeUpdates({ rows: [nodeRow()] }));
     const link = screen.getByRole("link", { name: "Notes" }) as HTMLAnchorElement;
     expect(link.href).toBe(releasePageUrl("cli-node-v0.9.0"));
   });
 
+  it("keeps the Notes link out of the app windows", () => {
+    // The dash-inside-the-app rule the desktop rows follow: a target="_blank"
+    // anchor is inert in a Tauri webview, so the release stays unlinked here
+    // even while a node release IS offered.
+    setUA(CLIENT_UA);
+    renderRows(nodeUpdates({ rows: [nodeRow()] }));
+    expect(screen.queryByRole("link", { name: "Notes" })).toBeNull();
+  });
+
   it("offers no Notes when no node release can be offered", () => {
     renderRows(nodeUpdates({ release: null, reason: "the release source is off", rows: [nodeRow()] }));
     expect(screen.queryByRole("link", { name: "Notes" })).toBeNull();
+  });
+
+  it("renders a row whose payload lacks the update key, answering the plain button", () => {
+    // The shared nullish-tolerant read (isUpdateLive): a cached or hand-stubbed
+    // row can omit the field entirely; the row renders rather than throwing
+    // inside render. Same deletion idiom as updates-poll.test.ts.
+    const bare = Object.fromEntries(
+      Object.entries(nodeRow({ canUpdate: { ok: true, reason: null } })).filter(([k]) => k !== "update"),
+    );
+    renderRows(nodeUpdates({ rows: [bare as unknown as NodeUpdateRow] }));
+    expect(screen.getByRole("button", { name: "Update" }).textContent).toBe("Update");
   });
 });
