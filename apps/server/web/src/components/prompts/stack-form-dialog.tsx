@@ -89,7 +89,7 @@ export function StackFormDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editingId ? "Edit stack" : "New stack"}</DialogTitle>
-          <DialogDescription>An ordered set of prompts, typed into a pane as one.</DialogDescription>
+          <DialogDescription>A stack is a set of prompts combined together.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <form.Field name="label">
