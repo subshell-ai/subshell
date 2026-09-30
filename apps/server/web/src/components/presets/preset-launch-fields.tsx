@@ -10,7 +10,7 @@ import { useNodes } from "@/hooks/use-nodes";
 import { isOfflineAgent } from "@/lib/node-label";
 import { crossCommSaveBlocked, type PresetFormValue, presetLaunchGaps } from "@/lib/preset-form";
 import { movePromptBlock, removePromptBlock } from "@/lib/prompt-stack";
-import { REQUIREMENT_GAP_CLASS } from "@/lib/requirement-tone";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import type { LaunchAgent } from "@/lib/subshell-compat";
 import { buildNodeOptions } from "@/lib/subshell-compat";
 
@@ -176,7 +176,7 @@ export function PresetLaunchFields({
             </p>
             <ul id="preset-cross-comm-gaps" className="ml-5 list-disc space-y-0.5">
               {gaps.map((gap) => (
-                <li key={gap} className={REQUIREMENT_GAP_CLASS}>
+                <li key={gap} className={REQUIREMENT_CAPTION_CLASS}>
                   {gap === "machine" ? "A machine" : "A working directory"}
                 </li>
               ))}

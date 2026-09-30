@@ -9,11 +9,12 @@ import {
   DialogTitle,
   formDialogOpenChange,
 } from "@/components/ui/dialog";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { Textarea } from "@/components/ui/textarea";
 import { useCreatePrompt, useUpdatePrompt } from "@/hooks/use-prompts";
 import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
 import { type PromptDraft, promptDraftSchema } from "@/lib/prompt-form";
-import { REQUIREMENT_GAP_CLASS } from "@/lib/requirement-tone";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 
 /**
  * Add or edit a saved prompt (spec 2026-09-28): the description is required
@@ -78,7 +79,10 @@ export function PromptFormDialog({
           <form.Field name="description">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor="prompt-description">Description</Label>
+                <Label htmlFor="prompt-description">
+                  Description
+                  <RequiredMark />
+                </Label>
                 <Input
                   id="prompt-description"
                   value={field.state.value}
@@ -88,7 +92,7 @@ export function PromptFormDialog({
                   onBlur={field.handleBlur}
                 />
                 {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className={REQUIREMENT_GAP_CLASS}>
+                  <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
                     {fieldError(field.state.meta.errors)}
                   </p>
                 )}
@@ -98,7 +102,10 @@ export function PromptFormDialog({
           <form.Field name="body">
             {(field) => (
               <div className="space-y-2">
-                <Label htmlFor="prompt-body">Prompt</Label>
+                <Label htmlFor="prompt-body">
+                  Prompt
+                  <RequiredMark />
+                </Label>
                 <Textarea
                   id="prompt-body"
                   value={field.state.value}
@@ -108,7 +115,7 @@ export function PromptFormDialog({
                   onBlur={field.handleBlur}
                 />
                 {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className={REQUIREMENT_GAP_CLASS}>
+                  <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
                     {fieldError(field.state.meta.errors)}
                   </p>
                 )}

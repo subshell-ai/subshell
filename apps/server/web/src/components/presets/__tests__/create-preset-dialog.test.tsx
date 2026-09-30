@@ -474,13 +474,19 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       await renderDialog({ lockedHarness: "claude-code" });
       const dialog = await screen.findByRole("dialog");
       const save = () => screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement;
+      const name = () => dialog.querySelector("#preset-name") as HTMLInputElement;
       expect(save().disabled).toBe(true);
-      // And it says WHY: the blank field carries the requirement in words.
+      // At rest the field is marked required (the gold star); the sentence
+      // waits for the caret to leave an empty field (ruling 2026-09-30).
+      expect(dialog.querySelector('label[for="preset-name"]')).not.toBeNull();
+      fireEvent.blur(name());
       expect(dialog.textContent).toContain("A name is required.");
-      fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "   " } });
+      fireEvent.change(name(), { target: { value: "   " } });
+      fireEvent.blur(name());
       expect(save().disabled).toBe(true);
       expect(dialog.textContent).toContain("A name is required.");
-      fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "Fast" } });
+      fireEvent.change(name(), { target: { value: "Fast" } });
+      fireEvent.blur(name());
       expect(save().disabled).toBe(false);
       expect(dialog.textContent).not.toContain("A name is required.");
     } finally {

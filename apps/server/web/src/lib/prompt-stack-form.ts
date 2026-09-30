@@ -86,10 +86,10 @@ export function makePromptStackSchema(minItems: number) {
     })
     .superRefine((values, ctx) => {
       if (values.label.trim() === "") {
-        ctx.addIssue({ code: "custom", path: ["label"], message: "A stack needs a short label", gap: true });
+        ctx.addIssue({ code: "custom", path: ["label"], message: "A stack needs a short label" });
       }
       if (values.blocks.length < minItems) {
-        ctx.addIssue({ code: "custom", path: ["blocks"], message: "A stack needs at least one prompt", gap: true });
+        ctx.addIssue({ code: "custom", path: ["blocks"], message: "A stack needs at least one prompt" });
       }
       const joined = joinedMemberText(values.blocks as PromptBlock[]);
       if (joined.length > STACK_JOINED_CAP) {

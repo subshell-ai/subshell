@@ -9,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { type CreatedSystemKey, keyErrorMessage, useCreateSystemKey } from "@/hooks/use-system-keys";
 
 /**
@@ -108,7 +109,10 @@ export function SystemKeyCreateDialog({
               <DialogDescription>Give the key a name so you can recognise it later.</DialogDescription>
             </DialogHeader>
             <div className="space-y-2 py-2">
-              <Label htmlFor="key-name">Name</Label>
+              <Label htmlFor="key-name">
+                Name
+                <RequiredMark />
+              </Label>
               <Input
                 id="key-name"
                 required

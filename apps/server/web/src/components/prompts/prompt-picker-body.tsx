@@ -13,7 +13,7 @@ import { loadRecentPicks, type RecentPick, recordRecentPick } from "@/lib/prompt
 import { newPromptLocalId, type PromptBlock } from "@/lib/prompt-stack";
 import { type StackRow, type StacksView, stackJoinedText } from "@/lib/prompt-stacks";
 import type { PromptsView } from "@/lib/prompts";
-import { REQUIREMENT_GAP_CLASS } from "@/lib/requirement-tone";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 
 /** What "Write your own..." keeps across an accidental reload (operator
  *  ruling 2026-09-29): the draft lives in sessionStorage (so a closed tab
@@ -446,7 +446,7 @@ export function PromptPickerBody({
                   onBlur={field.handleBlur}
                 />
                 {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                  <p role="alert" className={REQUIREMENT_GAP_CLASS}>
+                  <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
                     {fieldError(field.state.meta.errors)}
                   </p>
                 )}
@@ -478,7 +478,7 @@ export function PromptPickerBody({
                     onBlur={field.handleBlur}
                   />
                   {field.state.meta.isTouched && fieldError(field.state.meta.errors) && (
-                    <p role="alert" className={REQUIREMENT_GAP_CLASS}>
+                    <p role="alert" className={REQUIREMENT_CAPTION_CLASS}>
                       {fieldError(field.state.meta.errors)}
                     </p>
                   )}

@@ -4,6 +4,7 @@ import { entryOriginCandidates, normalizeOriginEntry } from "@/components/auth/e
 import { EntryPointsEditor } from "@/components/auth/entry-points-editor";
 import { RegistrationPanel } from "@/components/auth/registration-panel";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreateAuthProvider, usePatchAuthProvider } from "@/hooks/use-auth-providers";
 import { usePublicSettings } from "@/hooks/use-public-settings";
@@ -220,7 +221,10 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           </Select>
         </div>
         <div className="space-y-2">
-          <Label htmlFor="ap-name">Name</Label>
+          <Label htmlFor="ap-name">
+            Name
+            <RequiredMark />
+          </Label>
           <Input id="ap-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Google" />
           {/* The slug id caption (operator ask 2026-09-25): the login-button NAME is free text that can be renamed
               at any time, and what carries the callback URL and the account links is the slug under it. Show it
@@ -246,7 +250,10 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="ap-issuer">Issuer</Label>
+        <Label htmlFor="ap-issuer">
+          Issuer
+          <RequiredMark />
+        </Label>
         <Input
           id="ap-issuer"
           value={issuer}
@@ -281,7 +288,10 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           questions. */}
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
-          <Label htmlFor="ap-client">Client ID</Label>
+          <Label htmlFor="ap-client">
+            Client ID
+            <RequiredMark />
+          </Label>
           <Input id="ap-client" value={clientId} onChange={(e) => setClientId(e.target.value)} autoComplete="off" />
           {errorText(["CREDENTIALS_REJECTED"]) && (
             <p role="alert" className="text-destructive text-detail">
@@ -290,7 +300,10 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           )}
         </div>
         <div className="space-y-2">
-          <Label htmlFor="ap-secret">Client secret</Label>
+          <Label htmlFor="ap-secret">
+            Client secret
+            {!editing && <RequiredMark />}
+          </Label>
           <Input
             id="ap-secret"
             type="password"

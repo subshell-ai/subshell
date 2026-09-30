@@ -78,26 +78,6 @@ export function useSubmitDisabled(form: AnyFormApi, busy = false): boolean {
 
 /** The field's one sentence, or null. Errors carry the source object shape
  *  once Standard Schema produced them, bare strings otherwise. */
-/**
- * `fieldError` plus the TONE the sentence deserves: an issue tagged `gap: true`
- * names an UNMET REQUIREMENT (render it `REQUIREMENT_GAP_CLASS`), any other
- * names a FAILED value (render it `text-destructive`). Only needed where one
- * slot can carry both kinds; a slot whose schema speaks only requirements
- * colors its className outright.
- */
-export function fieldErrorToned(errors: readonly unknown[]): { text: string; gap: boolean } | null {
-  for (const error of errors) {
-    if (typeof error === "string" && error !== "") return { text: error, gap: false };
-    if (typeof error === "object" && error !== null && "message" in error) {
-      const withGap = error as { message?: unknown; gap?: unknown };
-      if (typeof withGap.message === "string" && withGap.message !== "") {
-        return { text: withGap.message, gap: withGap.gap === true };
-      }
-    }
-  }
-  return null;
-}
-
 export function fieldError(errors: readonly unknown[]): string | null {
   for (const error of errors) {
     if (typeof error === "string" && error !== "") return error;

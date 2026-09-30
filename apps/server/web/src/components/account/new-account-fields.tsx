@@ -1,5 +1,6 @@
 import { cn, Input, Label } from "@internal/node-admin";
 import { useState } from "react";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { MIN_PASSWORD_LENGTH, PASSWORD_REQUIREMENT, passwordTooShort } from "@/lib/password";
 
 /** Everything asked of someone creating an account, in one state a caller holds. */
@@ -96,7 +97,10 @@ export function NewAccountFields({
   return (
     <>
       <div className="space-y-2">
-        <Label htmlFor={id("name")}>Name</Label>
+        <Label htmlFor={id("name")}>
+          Name
+          <RequiredMark />
+        </Label>
         <Input
           id={id("name")}
           required
@@ -106,7 +110,10 @@ export function NewAccountFields({
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor={id("email")}>E-mail</Label>
+        <Label htmlFor={id("email")}>
+          E-mail
+          <RequiredMark />
+        </Label>
         <Input
           id={id("email")}
           type="email"
@@ -116,7 +123,10 @@ export function NewAccountFields({
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor={id("password")}>Password</Label>
+        <Label htmlFor={id("password")}>
+          Password
+          <RequiredMark />
+        </Label>
         <Input
           id={id("password")}
           type="password"
@@ -145,7 +155,10 @@ export function NewAccountFields({
         </p>
       </div>
       <div className="space-y-2">
-        <Label htmlFor={id("password-confirm")}>Confirm password</Label>
+        <Label htmlFor={id("password-confirm")}>
+          Confirm password
+          <RequiredMark />
+        </Label>
         <Input
           id={id("password-confirm")}
           type="password"

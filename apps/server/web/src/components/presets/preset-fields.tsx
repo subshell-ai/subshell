@@ -4,13 +4,14 @@ import { McpSetupSection } from "@/components/mcp-setup-section";
 import { type PairRow, PairRowsEditor } from "@/components/pair-rows-editor";
 import { CommandPasteField } from "@/components/presets/command-paste-field";
 import { PresetLaunchFields } from "@/components/presets/preset-launch-fields";
+import { RequiredMark } from "@/components/ui/required-mark";
 import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useHarnessSchema } from "@/hooks/use-harness-schema";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { parseEnvPaste, parseFlagsPaste } from "@/lib/preset-command";
 import type { PresetFormValue } from "@/lib/preset-form";
-import { REQUIREMENT_GAP_CLASS } from "@/lib/requirement-tone";
+import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import { buildAgentOptions } from "@/lib/subshell-compat";
 
 /**
@@ -84,6 +85,7 @@ export function PresetFields({
   // last looked at is not part of the preset, and both views edit one set of
   // rows. The create dialog's mount IS its open, so this resets per open.
   const [entryMode, setEntryMode] = useState<PresetEntryMode>(defaultEntryMode);
+  const [nameTouched, setNameTouched] = useState(false);
 
   // One usable agent is not a decision worth forcing — pick it. The guard on
   // value.harnessId makes this self-disarming after the pick.
@@ -145,7 +147,10 @@ export function PresetFields({
           </>
         ) : (
           <>
-            <Label htmlFor="preset-harness">Agent</Label>
+            <Label htmlFor="preset-harness">
+              Agent
+              <RequiredMark />
+            </Label>
             <Select
               value={value.harnessId}
               // Base UI widens select values to `Value | null` (null = cleared);
@@ -199,18 +204,23 @@ export function PresetFields({
       {value.harnessId && (
         <>
           <div className="space-y-2">
-            <Label htmlFor="preset-name">Name</Label>
+            <Label htmlFor="preset-name">
+              Name
+              <RequiredMark />
+            </Label>
             <Input
               id="preset-name"
               value={value.name}
               onChange={(e) => onChange({ ...value, name: e.target.value })}
+              onBlur={() => setNameTouched(true)}
               placeholder="e.g. Fast model"
               aria-required
             />
-            {/* Save is gated on this (a blank name is refused server-side too);
-                the caption wears the same amber as the cross-comm gap rows:
-                every unfilled requirement reads alike (operator, 2026-09-30). */}
-            {value.name.trim() === "" && <p className={REQUIREMENT_GAP_CLASS}>A name is required.</p>}
+            {/* The star says required at rest; the sentence waits for the
+                caret to leave an empty field (ruling 2026-09-30). */}
+            {nameTouched && value.name.trim() === "" && (
+              <p className={REQUIREMENT_CAPTION_CLASS}>A name is required.</p>
+            )}
           </div>
           {/* TWO VIEWS OF ONE SET OF VALUES. The rows are the state either
               way, so switching is free and lossless: paste a command and the
