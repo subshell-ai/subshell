@@ -24,7 +24,6 @@ function Harness({ onClosed }: { onClosed: (v: boolean) => void }) {
       {open && (
         <InjectPromptDialog
           subshellId="s1"
-          subshellName="Pane"
           open
           onOpenChange={(next) => {
             setOpen(next);
@@ -143,7 +142,7 @@ describe("InjectPromptDialog", () => {
     // unmount the subtree and discard the pick), and the confirm step
     // named the prompt and the pane.
     expect(closes).toEqual([]);
-    expect(screen.getByText(/Inject "Kickoff" into "Pane"/)).toBeDefined();
+    expect(screen.getByText("Send prompt to agent?")).toBeDefined();
   });
 
   it("Type into pane sends typed-not-submitted and then closes", async () => {
