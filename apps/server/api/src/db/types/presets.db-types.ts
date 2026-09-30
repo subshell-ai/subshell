@@ -40,7 +40,7 @@ export interface PresetTable {
   configIsolation: number;
   /** 1 = new subshells from this preset auto-restart on exit */
   restartOnExit: number;
-  /** 1 = the operator switched on "Cross-shell comms" (migration 0043).
+  /** 1 = the operator switched on "Cross-subshell comms" (migration 0043).
    *  Readiness for agents is this flag AND the three launch fields filled. */
   crossCommEnabled: number;
   /**

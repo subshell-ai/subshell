@@ -131,7 +131,7 @@ export function PresetLaunchFields({
           </>
         )}
       </div>
-      {/* Cross-shell comms (migration 0043): the readiness fact is an OPT-IN
+      {/* Cross-subshell comms (migration 0043): the readiness fact is an OPT-IN
           switch plus the trio, not the trio alone. The switch refuses to arm
           while requirements are missing and names what is missing; once armed
           it holds the form hostage - breaking a requirement disables Save
@@ -144,12 +144,14 @@ export function PresetLaunchFields({
             disabled={gaps.length > 0 && !value.crossCommEnabled}
             onCheckedChange={(crossCommEnabled) => onChange({ ...value, crossCommEnabled })}
           />
-          <Label htmlFor="preset-cross-comm">Cross-shell comms</Label>
+          <Label htmlFor="preset-cross-comm">Cross-subshell comms</Label>
         </div>
-        <p className="text-detail text-muted-foreground">Enable this preset for cross-shell communication via MCP.</p>
+        <p className="text-detail text-muted-foreground">
+          Enable this preset for cross-subshell communication via MCP.
+        </p>
         {crossCommSaveBlocked(value) ? (
           <p className="text-destructive text-detail">
-            Missing: {gaps.join(", ")}. Complete these or switch cross-shell comms off to save.
+            Missing: {gaps.join(", ")}. Complete these or switch cross-subshell comms off to save.
           </p>
         ) : gaps.length > 0 ? (
           <p className="text-detail text-muted-foreground">

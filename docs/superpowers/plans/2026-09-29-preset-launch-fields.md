@@ -122,7 +122,7 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 ## Deviations (recorded at Task 8's review)
 
 - AMENDED AT THE OPERATOR'S TEST DRIVE (spec §4): cross-comm readiness is an
-  OPT-IN switch ("Cross-shell comms", migration 0043, stored, default off)
+  OPT-IN switch ("Cross-subshell comms", migration 0043, stored, default off)
   AND the trio - not the trio alone as planned. Editor section, save gate,
   server 400, badge, and `list_presets` all follow the switch.
 

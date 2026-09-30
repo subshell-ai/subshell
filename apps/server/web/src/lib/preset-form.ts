@@ -33,7 +33,7 @@ export interface PresetFormValue {
   envRows: EnvRow[];
   flagRows: FlagRow[];
   restartOnExit: boolean;
-  /** The "Cross-shell comms" switch (migration 0043): a turned-on preset
+  /** The "Cross-subshell comms" switch (migration 0043): a turned-on preset
    *  with unmet launch requirements is unsavable - see {@link crossCommSaveBlocked}. */
   crossCommEnabled: boolean;
   /**
@@ -134,7 +134,7 @@ function stackSuppliesPrompt(blocks: PromptBlock[]): boolean {
 }
 
 /**
- * Whether the cross-shell comms switch blocks the save (migration 0043):
+ * Whether the cross-subshell comms switch blocks the save (migration 0043):
  * an ON switch is a promise the row must keep - machine, directory, and a
  * non-blank prompt - so an enabled preset with gaps is unsavable until the
  * fields are fixed or the switch is turned off. The server enforces the same
@@ -215,7 +215,7 @@ export interface PresetPayload {
   configIsolation: boolean;
   /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
-  /** "Cross-shell comms" switch state (0043). */
+  /** "Cross-subshell comms" switch state (0043). */
   crossCommEnabled: boolean;
   /** Launch node hint; null = names no machine */
   nodeId: string | null;
@@ -262,7 +262,7 @@ export interface PresetUpdatePayload {
   configIsolation: boolean;
   /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
-  /** "Cross-shell comms" switch state (0043). */
+  /** "Cross-subshell comms" switch state (0043). */
   crossCommEnabled: boolean;
   /** Launch node hint; the editor ALWAYS sends the trio so clearing works */
   nodeId: string | null;

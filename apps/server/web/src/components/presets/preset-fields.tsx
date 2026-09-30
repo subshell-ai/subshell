@@ -290,7 +290,10 @@ export function PresetFields({
               launch form prefills and the server resolves when a request
               leaves a field blank. */}
           <PresetLaunchFields value={value} onChange={onChange} agent={agent ?? null} draftScope={draftScope} />
-          {schema?.mcp && <McpSetupSection mcp={schema.mcp} />}
+          {/* Only MANUAL harnesses get the registration block; an auto harness
+              has nothing to do, and its quiet "wires itself" line read as a
+              second Cross-subshell comms section (removed 2026-09-30). */}
+          {schema?.mcp?.mode === "manual" && <McpSetupSection mcp={schema.mcp} />}
         </>
       )}
     </div>

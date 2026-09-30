@@ -7,7 +7,7 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 
 /**
- * The cross-shell comms switch (spec 2026-09-29, migration 0043): a stored
+ * The cross-subshell comms switch (spec 2026-09-29, migration 0043): a stored
  * opt-in, DEFAULT OFF. Readiness for agents is this column AND the launch
  * trio - the trio alone promises nothing until the operator flips it.
  */

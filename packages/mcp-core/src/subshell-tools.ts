@@ -145,7 +145,7 @@ interface PresetsWireRow {
   id: string;
   name: string;
   harnessId: string;
-  /** 1 = the operator switched on cross-shell comms (migration 0043). */
+  /** 1 = the operator switched on cross-subshell comms (migration 0043). */
   crossCommEnabled: number;
   nodeId: string | null;
   workingDir: string | null;

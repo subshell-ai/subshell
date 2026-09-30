@@ -2,8 +2,8 @@ import type { Kysely } from "kysely";
 
 /**
  * Cross-comm becomes an OPT-IN (operator ruling during the 2026-09-29
- * preset-launch-fields test drive): the editor gains a "Cross-shell comms"
- * toggle labeled "Enable this preset for cross-shell communication via MCP",
+ * preset-launch-fields test drive): the editor gains a "Cross-subshell comms"
+ * toggle labeled "Enable this preset for cross-subshell communication via MCP",
  * and readiness is `cross_comm_enabled AND the three launch fields filled`,
  * not the row values alone. 0042's note said "derived, never stored" — the
  * toggle supersedes that: a filled preset the operator has not switched on

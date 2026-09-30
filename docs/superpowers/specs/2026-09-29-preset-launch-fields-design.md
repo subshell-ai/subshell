@@ -117,8 +117,8 @@ NOT-ready (display surfaces must survive one bad row). The protocol package
 holds the one rule: `presetLaunchRequirementsMet` (the trio) and
 `isPresetCrossCommReady` (switch AND trio).
 
-- Editor: a "Cross-shell comms" section with a Switch labeled "Enable this
-  preset for cross-shell communication via MCP". The switch is DISABLED while
+- Editor: a "Cross-subshell comms" section with a Switch labeled "Enable this
+  preset for cross-subshell communication via MCP". The switch is DISABLED while
   requirements are missing and the section lists what is missing. When the
   switch is ON and a later edit breaks a requirement, SAVE is disabled and the
   missing items highlight - the operator fixes the fields or turns the switch

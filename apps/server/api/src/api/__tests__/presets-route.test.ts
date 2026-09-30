@@ -406,7 +406,7 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
       }),
     );
     expect(bad.status).toBe(400);
-    expect(((await bad.json()) as { message: string }).message).toContain("Cross-shell comms needs");
+    expect(((await bad.json()) as { message: string }).message).toContain("Cross-subshell comms needs");
     // ON with the trio: lands enabled.
     const good = await app.fetch(
       authedRequest("/api/presets", ownerCookie, {

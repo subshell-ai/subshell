@@ -3,21 +3,17 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { McpSetupSection } from "@/components/mcp-setup-section";
 
 /**
- * The preset-form block that answers "how does THIS harness get cross-subshell
- * comms" — the question the UI used to leave unanswered. Auto harnesses get a
- * plain statement; manual harnesses must show their steps VERBATIM — the copy
- * is a command pasted onto the node that runs the harness (portable PATH form
- * since issue #57), and this component has no way to know how to rewrite it.
+ * The preset-form block for a MANUAL harness — the one that answers "how does
+ * THIS harness get cross-subshell comms" with steps to run. Auto harnesses
+ * render no block at all (2026-09-30: their "wires itself" line duplicated the
+ * new Cross-subshell comms switch and asked for no act), so the component's
+ * prop type is manual-only and this suite is its whole contract: steps render
+ * VERBATIM — the copy is a command pasted onto the node that runs the harness
+ * (portable PATH form since issue #57), and this component has no way to know
+ * how to rewrite it.
  */
 describe("McpSetupSection", () => {
   afterEach(cleanup);
-
-  it("auto harness: one quiet line, no steps", () => {
-    render(<McpSetupSection mcp={{ mode: "auto", summary: "Wired in automatically (via --mcp-config)." }} />);
-    expect(screen.getByText("Cross-subshell comms")).toBeDefined();
-    expect(screen.getByText(/Wired in automatically/)).toBeDefined();
-    expect(screen.queryByRole("button", { name: "Copy" })).toBeNull();
-  });
 
   it("manual harness: renders every step label + command with a copy button", () => {
     render(

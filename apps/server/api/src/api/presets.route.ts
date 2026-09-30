@@ -110,7 +110,7 @@ function assertCrossCommCoherent(
   if (crossCommEnabled && !presetLaunchRequirementsMet(row)) {
     throw new PresetError(
       "bad_request",
-      "Cross-shell comms needs a machine, a working directory, and a non-blank prompt - fill them in, or leave it off",
+      "Cross-subshell comms needs a machine, a working directory, and a non-blank prompt - fill them in, or leave it off",
       400,
     );
   }
@@ -156,7 +156,7 @@ const CreatePresetBodySchema = t.Object({
   settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
   configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
   restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
-  crossCommEnabled: t.Optional(t.Boolean({ description: "Enable cross-shell communication (MCP) for this preset" })),
+  crossCommEnabled: t.Optional(t.Boolean({ description: "Enable cross-subshell communication (MCP) for this preset" })),
   nodeId: t.Optional(t.Nullable(t.String({ description: "Optional launch node hint" }))),
   workingDir: t.Optional(t.Nullable(t.String({ maxLength: 4096, description: "Optional absolute working directory" }))),
   promptBlocks: t.Optional(
@@ -189,7 +189,7 @@ const UpdatePresetBodySchema = t.Object(
     settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
     configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
     restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
-    crossCommEnabled: t.Optional(t.Boolean({ description: "Cross-shell communication (MCP) toggle" })),
+    crossCommEnabled: t.Optional(t.Boolean({ description: "Cross-subshell communication (MCP) toggle" })),
     nodeId: t.Optional(t.Nullable(t.String({ description: "Launch node hint (null clears it)" }))),
     workingDir: t.Optional(
       t.Nullable(t.String({ maxLength: 4096, description: "Absolute working directory (null clears it)" })),

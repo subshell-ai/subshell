@@ -14,7 +14,7 @@ export interface PresetRow {
   settingsJson: string | null;
   configIsolation: number;
   restartOnExit: number;
-  /** 1 = cross-shell comms (MCP) enabled (migration 0043); the badge shows
+  /** 1 = cross-subshell comms (MCP) enabled (migration 0043); the badge shows
    *  only when this AND the three launch fields are filled. */
   crossCommEnabled: number;
   /** Optional launch node hint (null = the preset names no machine) */
