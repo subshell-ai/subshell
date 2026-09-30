@@ -114,11 +114,13 @@ export function useCreateSubshell() {
         let source: PresetRow | null = null;
         if (input.presetId != null) {
           // The copy SOURCE is read before anything is created, and every
-          // failure here aborts the whole launch with the COPY named - a
-          // silent fallback to the bare copy is how the settings-loss bug
-          // this step fixes reads (review round 4).
-          const rows = await apiFetch<PresetRow[]>("/api/presets").catch(() => {
-            throw new Error("Could not read your presets to save this launch. Try again.");
+          // failure aborts the whole launch before the POST - a silent
+          // fallback to the bare copy is how the settings-loss bug this
+          // step fixes reads (review round 4; the named read error carries
+          // the original as cause). The three column parses below see only
+          // server-written JSON, so an unnamed SyntaxError stays unreachable.
+          const rows = await apiFetch<PresetRow[]>("/api/presets").catch((err) => {
+            throw new Error("Could not read your presets to save this launch. Try again.", { cause: err });
           });
           source = rows.find((r) => r.id === input.presetId) ?? null;
           if (source === null) {
