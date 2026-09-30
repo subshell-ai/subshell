@@ -44,26 +44,18 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  // The marketing void, so the browser chrome matches the dark-only page.
+  // The product background, so the browser chrome matches the dark-only page.
   themeColor: "#1d182a",
 };
 
 export default function Layout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
-      <head>
-        {/* The marketing site's two faces (apps/website/app/layout.tsx loads
-            the same pair); global.css points --font-sans/--font-mono at them. */}
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
-          rel="stylesheet"
-        />
-      </head>
       <body className="flex flex-col min-h-screen">
         {/* `type: 'static'` — the search dialog runs entirely client-side
             against the prerendered `/api/search` index (static export,
             no server). `forcedTheme` pins dark (with html.className="dark"
-            as the no-JS truth): the docs wear the marketing palette, which
+            as the no-JS truth): the docs use the product palette, which
             only exists in the dark world, so the site ships one theme. The
             sidebar's switch is removed by DocsLayout's `themeSwitch={false}`
             in the (docs) layout — a toggle that changes nothing is worse

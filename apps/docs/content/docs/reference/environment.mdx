@@ -39,7 +39,7 @@ Process environment overrides `config.env`, then development `.env`, then defaul
 
 ## Binary detection
 
-Harness manifests declare `CLAUDE_PATH`, `CODEX_PATH`, `OPENCODE_PATH`, `HERMES_PATH`, and `PI_PATH`. Network manifests declare `TAILSCALE_PATH`, `NETBIRD_PATH`, and `CLOUDFLARED_PATH`.
+Harness manifests declare `CLAUDE_PATH`, `CODEX_PATH`, `OPENCODE_PATH`, `HERMES_PATH`, and `PI_PATH`. Network manifests declare `TAILSCALE_PATH`, `NETBIRD_PATH`, and `CLOUDFLARED_PATH`. Terminal uses `SHELL` to select the execution account's shell.
 
 These select binaries in the applicable execution environment. Setting one in a shell does not automatically change an existing service's environment.
 

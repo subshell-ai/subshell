@@ -18,7 +18,9 @@ subshell-server update
 
 The updater verifies signed release information, stages a database snapshot, replaces the binary, and completes the update when the new server starts.
 
-Use `--to <version>` for a selected release. `--from <file>` uses a local file and requires you to verify its provenance. `--no-restart` leaves restart to the caller. `--force` can allow a downgrade or override a live-pane refusal.
+`--to <version>` requires that version to match the newest server release in the configured index. It does not fetch an arbitrary historical release.
+
+`--from <file>` uses a local file and requires you to verify its provenance. `--no-restart` leaves restart to the caller. `--force` can allow a downgrade or override a live-pane refusal.
 
 ## Desktop app
 

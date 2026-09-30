@@ -19,7 +19,7 @@ Administrative endpoints require a cookie session with the admin role. Bearer cr
 
 ## Pane credentials
 
-A pane token resolves to its owner's identity for permitted operations, without the admin boost or foreign grants on session detail and writes. It can act on other sessions owned by the same user.
+A pane token resolves to its owner's identity for permitted operations, without administrator privileges or another user's sharing grants for session details and changes. It can act on other sessions owned by the same user.
 
 The session list deliberately includes shared rows visible to the owner. A listed foreign row can therefore return 404 when the pane tries to inspect or operate it.
 

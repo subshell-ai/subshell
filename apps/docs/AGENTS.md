@@ -41,6 +41,13 @@ and next steps. Reference pages use lookup tables and command sections.
 - Publish substantive pages. Do not ship draft notices, intent-only stubs, or
   repository source inventories in ordinary user guides.
 
+## Theme
+
+Match the server web app's Dreamframe palette and system font stack. The
+Fumadocs color mapping is in `app/global.css`; update it when the product
+tokens change. Prose links use muted blue without underlines, with visible hover
+and keyboard focus states.
+
 ## MDX and links
 
 Both `title` and `description` frontmatter are required. Quote YAML values

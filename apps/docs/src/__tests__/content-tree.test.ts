@@ -158,6 +158,10 @@ describe("published documentation", () => {
       titles.add(String(fm?.title));
       descriptions.add(String(fm?.description));
       const body = raw.replace(/^---\r?\n[\s\S]*?\r?\n---/, "").trim();
+      const lead = body.split("\n\n")[0];
+      expect(lead, `lead repeats the metadata summary: ${rel}`).not.toBe(fm?.description);
+      expect(lead, `lead must be a plain sentence: ${rel}`).not.toMatch(/\[[^\]]+\]\(|^#/);
+      expect(lead, `lead must end with sentence punctuation: ${rel}`).toMatch(/[.!?]$/);
       expect(body.length, `empty or stub page: ${rel}`).toBeGreaterThan(350);
       expect(body, `draft placeholder: ${rel}`).not.toMatch(/> \[!warning\] Draft|^## Sources|TODO|coming soon/im);
       expect(body, `native mobile content: ${rel}`).not.toMatch(

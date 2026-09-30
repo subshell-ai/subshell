@@ -68,7 +68,7 @@ subshell-server update [--check] [--to <version>] [--from <file>]
 subshell-server update --rollback [--yes] [--json]
 ```
 
-`--check` reads availability. `--from` uses a local file whose trust you must verify. `--force` allows downgrade and accepts pane disruption. Rollback can restore both the previous binary and database snapshot. Containers update by image replacement instead.
+`--check` reports update availability. `--to` requires the requested version to match the newest server release in the configured index. Use `--from` for a local file whose origin and integrity you have verified. `--force` allows downgrade and accepts pane disruption. Rollback can restore both the previous binary and database snapshot. Containers update by image replacement instead.
 
 ## reset and uninstall
 

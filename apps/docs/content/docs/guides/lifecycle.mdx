@@ -18,15 +18,15 @@ A restart keeps the subshell ID and launches from its stored harness, preset, an
 ## Close permanently
 
 > [!warning] Permanent removal
-> In this version, **Close** stops the process and removes the subshell's row and captured history. The confirmation states that it cannot be recovered.
+> **Close** stops the process and removes the subshell's row and captured history. The confirmation states that it cannot be recovered.
 
 Only the owner can close a subshell. Removing a subshell also removes its workspace pane references. This does not delete the project's files or the agent CLI's separate conversation storage.
 
 ## Stop while retaining the row
 
-MCP's `terminate_subshell` and the REST terminate endpoint stop the process and retain its row. Their delete operations remove it. The human interface currently uses **Close** for the destructive delete action.
+MCP's `terminate_subshell` and the REST terminate endpoint stop the process and retain its row. Their delete operations remove it. The dashboard's **Close** action permanently deletes the subshell.
 
-Captured logs of retained terminated subshells are subject to [retention settings](/reference/environment).
+Captured logs of retained terminated subshells are subject to the retention settings listed in [Environment variables](/reference/environment).
 
 ## Next steps
 

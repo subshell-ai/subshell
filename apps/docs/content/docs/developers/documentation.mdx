@@ -16,13 +16,13 @@ description: "Install and initialize the Subshell server on a supported host."
 ---
 ```
 
-Use a factual one-sentence opener. How-to pages continue with prerequisites, numbered actions, expected results, and next steps. Reference pages use lookup tables and command sections.
+Use a factual one-sentence opener as the visible lead subtitle. Keep the metadata description for search and social previews, without displaying a second subtitle. How-to pages continue with prerequisites, numbered actions, expected results, and next steps. Reference pages use lookup tables and command sections.
 
 ## Verify facts
 
 Read the owning app documentation and implementation. Confirm flags, defaults, platform support, UI labels, and permissions. Use `docs/security.md` as the security authority and preserve warnings about trust or destructive operations.
 
-Keep server, node, and client meanings distinct. Follow `apps/docs/STYLE.md`: plain second-person prose, no em dashes or marketing language.
+Keep server, node, and client meanings distinct. Follow `apps/docs/STYLE.md` for plain second-person prose, precise UI labels, installation priorities, and review checks. Recommend the desktop apps first, CLI setup second, and direct installation downloads to [subshell.sh](https://subshell.sh).
 
 ## MDX and navigation
 
@@ -48,4 +48,4 @@ Add a changeset for `@internal/docs` only. Update existing repository links when
 
 ## Next steps
 
-Preview with `bun run dev:docs` on port 3400 and review wide and narrow layouts.
+Preview with `bun run dev:docs` on port 3400 and review wide and narrow layouts. Read the prose as well as running checks; passing tests does not establish factual accuracy.

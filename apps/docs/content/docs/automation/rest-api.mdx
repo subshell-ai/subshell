@@ -20,7 +20,9 @@ Resource families include subshells, workspaces, presets, prompts, nodes, channe
 Set `SUBSHELL_URL` and `SUBSHELL_API_KEY` securely in the integration environment, then send a request without printing the credential:
 
 ```bash
-curl --fail-with-body   -H "Authorization: Bearer $SUBSHELL_API_KEY"   "$SUBSHELL_URL/api/subshells"
+curl --fail-with-body \
+  -H "Authorization: Bearer $SUBSHELL_API_KEY" \
+  "$SUBSHELL_URL/api/subshells"
 ```
 
 The list is scoped to the authenticated identity. Empty results do not prove the instance contains no sessions.

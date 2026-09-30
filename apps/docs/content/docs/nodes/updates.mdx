@@ -18,7 +18,9 @@ subshell update --check
 subshell update
 ```
 
-Review the proposed version and any refusal concerning live panes. Use maintenance when you need a controlled stop.
+The node CLI checks the newest published node release by default. It does not ask the control plane which version is compatible. Review **Server Settings** → **Updates** before applying it, and use `--to <version>` when you need the version offered there.
+
+Review any refusal concerning live panes. Use maintenance when you need a controlled stop.
 
 The control plane can offer compatible updates and drive an update on an enrolled node. A node refused for its version can remain connected for updating while unavailable for normal work.
 

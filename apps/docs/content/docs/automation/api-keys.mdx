@@ -17,7 +17,7 @@ Disable a key to stop it authenticating immediately, or delete it when it is no 
 
 Subshell creates a scoped key for each launched pane. The MCP process receives it through `SUBSHELL_API_KEY`; you do not create it by hand in the system-key page.
 
-The token resolves to the pane's human owner for permitted resource operations, with admin boosts and foreign grants disabled for detail and writes. It is revoked when the pane stops and rotated on restart.
+The token resolves to the pane's human owner for permitted resource operations, without administrator privileges or another user's sharing grants for session details and changes. It is revoked when the pane stops and rotated on restart.
 
 ## Handle secrets
 

@@ -17,7 +17,14 @@ This example publishes port 3080 and mounts your projects at the same absolute p
 
 ```bash
 mkdir -p "$HOME/.config/subshell-server" "$HOME/projects"
-docker run -d --name subshell --restart unless-stopped   --user "$(id -u):$(id -g)"   -p 3080:3080   -v "$HOME/.config/subshell-server:/data"   -v "$HOME/projects:$HOME/projects"   -e DATABASE_PATH=/data/subshell.db   -e APP_BASE_URL=http://localhost:3080   ghcr.io/subshell-ai/subshell:latest
+docker run -d --name subshell --restart unless-stopped \
+  --user "$(id -u):$(id -g)" \
+  -p 3080:3080 \
+  -v "$HOME/.config/subshell-server:/data" \
+  -v "$HOME/projects:$HOME/projects" \
+  -e DATABASE_PATH=/data/subshell.db \
+  -e APP_BASE_URL=http://localhost:3080 \
+  ghcr.io/subshell-ai/subshell:latest
 ```
 
 1. Open `http://localhost:3080/setup` on the Docker host.

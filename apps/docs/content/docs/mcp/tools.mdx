@@ -42,7 +42,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 
 Arguments: `{}`. Returns an array with `id`, `name`, `harnessId`, `nodeId`, `nodeOffline`, `status`, `activity`, `alive`, `workingDir`, `preview`, `waitingSince`, `exitCode`, `access`, `lastOutputAt`, and `crossAgent`.
 
-A false `alive` can accompany a running row. Inspect liveness before sending input. List visibility includes owner and shared rows, but acting on a merely shared foreign row is refused.
+A false `alive` can accompany a running row. Inspect liveness before sending input. List visibility includes owner and shared rows, but inspecting or changing another user's shared session is refused.
 
 ## get_subshell
 
@@ -82,7 +82,7 @@ Returns `{ id, promptDelivered }`. Node, directory, and prompt override or suppl
 
 A creation timeout can occur after the session was created. Inspect the session list before retrying.
 
-The helper is marked cross-agent and created with notifications off. Its creator owes cleanup; see [Helper lifecycle](/mcp/lifecycle).
+The helper is marked cross-agent and created with notifications off. Its creator is responsible for cleanup; see [Helper lifecycle](/mcp/lifecycle).
 
 ## restart_subshell
 
