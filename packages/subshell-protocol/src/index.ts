@@ -164,6 +164,12 @@ export {
   serverArtifactFileName,
 } from "./paths.js";
 export {
+  isPresetCrossCommReady,
+  joinPresetPrompt,
+  type PresetPromptBlock,
+  parsePresetPromptBlocks,
+} from "./preset-prompt.js";
+export {
   DEFAULT_RELEASE_API,
   hostReleaseTarget,
   newestRelease,
