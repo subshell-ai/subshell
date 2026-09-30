@@ -110,7 +110,10 @@ preset that launches from its name alone.
 
 ## 4. Cross-comm ready
 
-Derived, never stored: `nodeId && workingDir && promptBlocks?.length`. Surfaces:
+Derived, never stored: `nodeId` and `workingDir` set, and a prompt
+stack that joins to non-blank text; an unreadable `prompt_blocks` column reads
+NOT-ready (display surfaces must survive one bad row; the readiness
+`isPresetCrossCommReady` in the protocol package is the one predicate).
 
 - `list_presets` flag (§3).
 - Presets list page: a badge on qualifying rows ("cross-comm ready") whose

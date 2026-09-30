@@ -286,6 +286,11 @@ describe("mcp tools (handler-level, real crypto)", () => {
     // replace skips the preset text: 20 chars, under cap, and it fires.
     await createSubshell(deps, { preset: "dev", prompt: "y".repeat(20), promptMode: "replace" });
     expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(1);
+    // In replace mode the advice cannot be "switch to replace": it names the
+    // only remedy left.
+    await expect(
+      createSubshell(deps, { preset: "dev", prompt: "y".repeat(20_001), promptMode: "replace" }),
+    ).rejects.toThrow(/already skipped/);
   });
 
   it("create_subshell reports an unreadable preset prompt stack by name, not as bad_preset_prompt", async () => {

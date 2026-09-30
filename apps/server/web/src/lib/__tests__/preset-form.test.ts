@@ -315,6 +315,17 @@ describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
       }),
     ).toEqual([]);
     expect(presetLaunchGaps({ ...toPresetForm, nodeId: "n1" })).toEqual(["directory", "prompt"]);
+    // One rule with isPresetCrossCommReady: a stack whose bodies are all
+    // whitespace supplies no prompt (the launch would type nothing).
+    expect(
+      presetLaunchGaps({
+        ...toPresetForm,
+        nodeId: "n1",
+        workingDir: "/srv",
+        promptEnabled: true,
+        promptBlocks: [{ localId: "b1", kind: "custom", description: "", body: "   " }],
+      }),
+    ).toEqual(["prompt"]);
   });
 
   it("unparseable stored JSON reads as no blocks (opening a preset never throws)", () => {

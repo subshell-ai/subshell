@@ -276,7 +276,10 @@ export async function listNodes(deps: ToolDeps): Promise<NodeView[]> {
 }
 
 /** The create route's `prompt` body cap (`create-subshell.route.ts`); the
- *  tool checks the COMPOSED text against it because append happens client-side. */
+ *  tool checks the COMPOSED text against it because append happens client-side.
+ *  TODO: the same 20 000 sits in the route schema and in presets.route's
+ *  `MAX_PRESET_PROMPT_CHARS`; if the cap ever moves, move it to
+ *  `@internal/subshell-protocol` first and import it at all three sites. */
 const MAX_CREATE_PROMPT_CHARS = 20_000;
 
 /**
@@ -371,8 +374,12 @@ export async function createSubshell(
     // chars; refuse HERE with the remedy instead of relaying an opaque
     // schema-validation 400 from the route (spec 2026-09-29 Task 3's cap note).
     if (prompt.length > MAX_CREATE_PROMPT_CHARS) {
+      const remedy =
+        args.promptMode === "replace"
+          ? "Shorten the prompt; the preset's own text is already skipped."
+          : `Shorten your prompt, or pass prompt_mode "replace" to skip the preset's text.`;
       throw new Error(
-        `subshell: the composed prompt is ${prompt.length} chars; the launch accepts at most ${MAX_CREATE_PROMPT_CHARS}. Shorten your prompt, or pass prompt_mode "replace" to skip the preset's text.`,
+        `subshell: the composed prompt is ${prompt.length} chars; the launch accepts at most ${MAX_CREATE_PROMPT_CHARS}. ${remedy}`,
       );
     }
   }

@@ -74,9 +74,9 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 - Modify: `packages/mcp-core/src/server.ts` (tool schema + descriptions; `list_presets` projection; the MCP instructions string ~line 342), `packages/mcp-core/src/subshell-tools.ts` (`createSubshell`: preset REQUIRED by name across ALL presets when `harness` omitted (fetch `/api/presets` unfiltered, match name case-exact then case-insensitive, cross-harness tie → refuse naming both harnesses), derive `harnessId` from the row; `workingDir` optional passthrough; prompt composition: no `prompt` → omit (server uses preset); `prompt_mode: "append" | "replace"` default `append` → append joins preset-joined text + "\n\n" + own (or own alone when preset has none); `replace` sends own; `crossCommReady` flows from the server list row)
 - Test: `packages/mcp-core/src/__tests__/` (extend the create_subshell tool tests; mock `deps.api`)
 
-- [ ] **Step 1:** failing tests: `preset` required (schema parse); harness omitted resolves via preset, mismatched explicit harness → error naming both; cross-harness name tie refused; working_dir override beats preset; append vs replace strings exact (fixture preset row with blocks).
-- [ ] **Step 2:** implement; `list_presets` rows gain `crossCommReady`; catalogOnly description rewrite (those rows are NOT launchable via create_subshell anymore - create a preset first; keep the rows, they name harnesses for `create_preset`... CHECK: does an MCP create_preset tool exist? grep `create_preset` in mcp-core; if absent, say so in the description and drop the catalogOnly rows or reword them as informational; do NOT add a new tool in this plan).
-- [ ] **Step 3:** boundary verify + `bunx turbo build` + commit `mcp: create_subshell launches from a preset; dir/prompt override it`.
+- [x] **Step 1:** failing tests: `preset` required (schema parse); harness omitted resolves via preset, mismatched explicit harness → error naming both; cross-harness name tie refused; working_dir override beats preset; append vs replace strings exact (fixture preset row with blocks).
+- [x] **Step 2:** implement; `list_presets` rows gain `crossCommReady`; catalogOnly description rewrite (those rows are NOT launchable via create_subshell anymore - create a preset first; keep the rows, they name harnesses for `create_preset`... CHECK: does an MCP create_preset tool exist? grep `create_preset` in mcp-core; if absent, say so in the description and drop the catalogOnly rows or reword them as informational; do NOT add a new tool in this plan).
+- [x] **Step 3:** boundary verify + `bunx turbo build` + commit `mcp: create_subshell launches from a preset; dir/prompt override it`.
 
 ### Task 5: Web preset editor - node, dir, prompt blocks, readiness badge
 
@@ -84,9 +84,9 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 - Modify: `apps/server/web/src/types/preset.ts` (view fields + `isPresetCrossCommReady(preset)` helper derived from server flag), `apps/server/web/src/lib/preset-form.ts` (form value gains `nodeId`, `workingDir`, `promptBlocks` (form-local, `localId`s added on load per Task 1 rule)), `apps/server/web/src/components/presets/preset-fields.tsx` (+`create-preset-dialog.tsx`, edit route `routes/presets_.$id.tsx`): a Node select (harness-usable nodes, same source the launch form uses - check `launch-form-rules.ts` node rules + `use-nodes`), a working-dir field with the same folder-explore control the launch form uses, and the prompt block stack reused from the launch form (import `prompt-stack.ts` transforms + the picker `components/prompts/prompt-picker-body.tsx`; snapshot semantics identical), plus the completeness line (`detail` role: "Agents can launch this from its name alone" when ready, else "Missing: <list>"); `preset-list-row.tsx` badge "cross-comm ready" + tooltip.
 - Test: `components/presets/__tests__/`, `lib/__tests__/preset-form.test.ts`
 
-- [ ] **Step 1:** failing tests: form→payload carry the three (empty fields omitted/null); block load reassigns fresh `localId`s; completeness line strings both states; badge renders only when ready.
-- [ ] **Step 2:** implement; wire both create + edit paths.
-- [ ] **Step 3:** boundary verify + commit `web: preset editor sets node, dir, and prompt blocks; readiness badge`.
+- [x] **Step 1:** failing tests: form→payload carry the three (empty fields omitted/null); block load reassigns fresh `localId`s; completeness line strings both states; badge renders only when ready.
+- [x] **Step 2:** implement; wire both create + edit paths.
+- [x] **Step 3:** boundary verify + commit `web: preset editor sets node, dir, and prompt blocks; readiness badge`.
 
 ### Task 6: Launch form prefills from the chosen preset
 
@@ -94,9 +94,9 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 - Modify: `apps/server/web/src/components/subshell-picker/use-launch-form-defaults.ts` (+ new: when the chosen preset changes, apply its node/dir/prompt blocks; fields the preset lacks revert to the auto-tier value; explicit user edits after apply are KEPT - track a per-field "dirty since apply" the same way the auto-tier's untouched-form check works, or simply apply on presetId change only, never on field edit), and the preset `Select` onChange in `new-subshell-form.tsx`
 - Test: extend `subshell-picker/__tests__/use-launch-form-defaults.test.tsx` + `new-subshell-form.test.tsx`
 
-- [ ] **Step 1:** failing tests: pick preset-with-all-three → node select shows it, dir filled, prompt stack shows its blocks (labels render); preset missing a field → that control untouched; switching presets replaces (old blocks gone); auto-tier (last launch) yields to preset when both.
-- [ ] **Step 2:** implement + focused green.
-- [ ] **Step 3:** boundary verify + commit `web: launch form prefills node, dir, and prompt from the preset`.
+- [x] **Step 1:** failing tests: pick preset-with-all-three → node select shows it, dir filled, prompt stack shows its blocks (labels render); preset missing a field → that control untouched; switching presets replaces (old blocks gone); auto-tier (last launch) yields to preset when both.
+- [x] **Step 2:** implement + focused green.
+- [x] **Step 3:** boundary verify + commit `web: launch form prefills node, dir, and prompt from the preset`.
 
 ### Task 7: Remove the copy picker
 

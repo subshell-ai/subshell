@@ -120,6 +120,14 @@ export function presetFormPromptBlocks(form: PresetFormValue): PromptBlock[] {
   return form.promptEnabled ? form.promptBlocks : [];
 }
 
+/** Whether a stack supplies a PROMPT at all: bodies that are all whitespace
+ *  join to text the launch types nothing from, so the readiness fact says the
+ *  prompt is NOT set - the same rule `isPresetCrossCommReady` applies to the
+ *  stored row, so editor line, badge, and `list_presets` never disagree. */
+function stackSuppliesPrompt(blocks: PromptBlock[]): boolean {
+  return blocks.some((b) => b.body.trim() !== "");
+}
+
 /**
  * The launch trio's gaps (spec 2026-09-29): a preset is cross-comm ready when
  * a machine, a directory, and a prompt are all set - the editor's completeness
@@ -129,7 +137,7 @@ export function presetLaunchGaps(form: PresetFormValue): string[] {
   const gaps: string[] = [];
   if (form.nodeId === null) gaps.push("machine");
   if (form.workingDir.trim() === "") gaps.push("directory");
-  if (presetFormPromptBlocks(form).length === 0) gaps.push("prompt");
+  if (!stackSuppliesPrompt(presetFormPromptBlocks(form))) gaps.push("prompt");
   return gaps;
 }
 

@@ -62,14 +62,6 @@ export interface SearchableSelectProps {
    *  the caller's own loading/empty/failure sentence. */
   emptyText?: ReactNode;
   /**
-   * When set, the UNFILTERED popup shows at most this many rows of each
-   * `group` (the copy picker's "a few each, search to dig deeper"). A typed query
-   * lifts the cap so a search reaches every match, not just the first few —
-   * the cap is a tidy default list, never a search ceiling. Rows carry their
-   * `group`; ungrouped callers pass nothing and are unaffected.
-   */
-  groupPreviewLimit?: number;
-  /**
    * The input is a CONSUMED search (the pick is an action, the closed state is
    * the placeholder, nothing holds a selection): the typed text is owned here
    * and survives a late `items` swap, which an uncontrolled input loses to
