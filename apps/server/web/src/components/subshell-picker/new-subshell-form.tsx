@@ -11,7 +11,6 @@ import {
   DIALOG_IDS,
   hideMachineField,
   isSelectable,
-  launchableNodes,
   type NewSubshellFormIds,
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/launch-form-rules";
@@ -27,7 +26,7 @@ import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { isOfflineAgent } from "@/lib/node-label";
 import { movePromptBlock, removePromptBlock } from "@/lib/prompt-stack";
-import { buildAgentOptions, buildNodeOptions } from "@/lib/subshell-compat";
+import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subshell-compat";
 
 // The pure half of this form — the value contract, the submit gate, the
 // node-pick rules, the field-id sets — is `launch-form-rules.ts`; the ONE

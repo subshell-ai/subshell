@@ -118,3 +118,21 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 - [ ] **Step 1:** write docs + changeset; full `bun run verify-types && bun run lint:check && bun run lint:prose && bun run test`; `bunx turbo build`.
 - [ ] **Step 2:** code-reviewer agent on the saved diff (read-only, from a /tmp diff file); fix findings; repeat rounds until a clean pass (memory: review until clean).
 - [ ] **Step 3:** commit; then finishing-a-development-branch skill (normal repo: 4 options).
+
+## Deviations (recorded at Task 8's review)
+
+- `docs/presets-system.md` does not exist on main (stale footprint). The
+  editor-fields + cross-comm prose lives in `apps/server/web/docs/
+  launch-form-picker.md` ("A preset can carry the launch" + the prefill
+  section) and the one-liner in `apps/server/web/AGENTS.md`.
+- `crossCommReady` is NOT serialized by `GET /api/presets`; web and MCP each
+  derive it through `isPresetCrossCommReady` - one rule, zero projection
+  drift, no server response-schema change.
+- Badge tooltip (spec §4) omitted: the badge text is the claim, and the
+  editor states both readiness sentences under the fields.
+- Task 2/7's `terminated=1` param never existed on main; nothing removed.
+  The `listVisibleTo` `status` param was removed as planned (it was dead;
+  its repository test went with it).
+- Switching presets KEEPS fields the new preset lacks (spec §6 corrected at
+  implementation); the wire-level explicit-none rule (`prompt: ""` from a
+  web launch that chose a preset) closes the fallback leak.

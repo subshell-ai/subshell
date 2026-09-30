@@ -62,12 +62,24 @@ export function joinPresetPrompt(blocks: PresetPromptBlock[]): string {
 /** Cross-comm ready: an agent can launch from this preset's NAME alone,
  *  because node, directory, and prompt are all set on the row. Derived from
  *  the three fields, never stored (ruling 2026-09-29: "for a preset to be
- *  cross comm available they need to have all optional values filled"). */
+ *  cross comm available they need to have all optional values filled").
+ *
+ * TOLERANT where `parsePresetPromptBlocks` throws: this answers a display
+ * question (a badge, a list row), and one unreadable column must not take a
+ * whole list down - a row nobody can parse is a row nobody can launch
+ * sight-unseen, so it reads as not-ready. A whitespace-only stack is "not
+ * set": the launch would type nothing from it, so it must not claim readiness. */
 export function isPresetCrossCommReady(row: {
   nodeId: string | null;
   workingDir: string | null;
   promptBlocks: string | null;
 }): boolean {
-  const blocks = parsePresetPromptBlocks(row.promptBlocks);
-  return row.nodeId != null && row.workingDir != null && blocks != null && blocks.length > 0;
+  if (row.nodeId == null || row.workingDir == null) return false;
+  let blocks: PresetPromptBlock[] | null;
+  try {
+    blocks = parsePresetPromptBlocks(row.promptBlocks);
+  } catch {
+    return false;
+  }
+  return blocks != null && blocks.length > 0 && joinPresetPrompt(blocks).trim() !== "";
 }

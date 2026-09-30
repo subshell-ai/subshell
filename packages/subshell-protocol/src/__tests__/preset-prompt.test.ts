@@ -73,4 +73,14 @@ describe("isPresetCrossCommReady", () => {
   it("is false for an all-NULL row (the ordinary settings-only preset)", () => {
     expect(isPresetCrossCommReady({ nodeId: null, workingDir: null, promptBlocks: null })).toBe(false);
   });
+
+  it("reads an unreadable column as NOT ready instead of throwing (display surfaces survive)", () => {
+    expect(isPresetCrossCommReady({ ...filled, promptBlocks: "not json" })).toBe(false);
+    expect(isPresetCrossCommReady({ ...filled, promptBlocks: "[42]" })).toBe(false);
+  });
+
+  it("a whitespace-only stack is not a prompt (the launch would type nothing)", () => {
+    const blank = JSON.stringify([{ kind: "custom", description: "", body: "   " }]);
+    expect(isPresetCrossCommReady({ ...filled, promptBlocks: blank })).toBe(false);
+  });
 });

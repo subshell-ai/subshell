@@ -261,6 +261,51 @@ describe("mcp tools (handler-level, real crypto)", () => {
     expect(bodies[2]?.prompt).toBeUndefined();
   });
 
+  it("create_subshell refuses an appended prompt over the route's cap, naming the remedy", async () => {
+    const big = "x".repeat(19_990);
+    const row = {
+      id: "pre-1",
+      name: "Dev",
+      harnessId: "claude-code",
+      nodeId: null,
+      workingDir: "/srv",
+      promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: big }]),
+    };
+    const own = await generateKeypair();
+    const { api, calls } = fakeApi((req) => {
+      if (req.path === "/api/presets") return [row];
+      if (req.path === "/api/subshells") return { id: "s", promptDelivered: true };
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    // 19_990 + join + 20 = 20_011 > 20_000: the tool refuses with the two
+    // remedies, never relaying the route's opaque schema 400.
+    await expect(createSubshell(deps, { preset: "dev", prompt: "y".repeat(20) })).rejects.toThrow(
+      /at most 20000.*prompt_mode "replace"/s,
+    );
+    // replace skips the preset text: 20 chars, under cap, and it fires.
+    await createSubshell(deps, { preset: "dev", prompt: "y".repeat(20), promptMode: "replace" });
+    expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(1);
+  });
+
+  it("create_subshell reports an unreadable preset prompt stack by name, not as bad_preset_prompt", async () => {
+    const row = {
+      id: "pre-1",
+      name: "Dev",
+      harnessId: "claude-code",
+      nodeId: null,
+      workingDir: "/srv",
+      promptBlocks: "{not json",
+    };
+    const own = await generateKeypair();
+    const { api } = fakeApi((req) => {
+      if (req.path === "/api/presets") return [row];
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    await expect(createSubshell(deps, { preset: "dev", prompt: "hello" })).rejects.toThrow(/unreadable prompt stack/);
+  });
+
   it("create_subshell refuses a harness that contradicts the preset, and a cross-harness name tie", async () => {
     const own = await generateKeypair();
     const { api } = fakeApi((req) => {

@@ -70,7 +70,7 @@ export function PresetLaunchFields({
             ))}
           </SelectContent>
         </Select>
-        <p className="text-muted-foreground text-sm">
+        <p className="text-detail text-muted-foreground">
           Where subshells started from this preset run unless the launch says otherwise.
         </p>
       </div>

@@ -94,7 +94,7 @@ export class SubshellsRepository extends BaseRepository {
    * (`lib/subshell-access`) is the access-level half. Both key off the same
    * `granteeUserId IS NULL OR = viewer` rule.
    */
-  async listVisibleTo(viewerId: string, isAdmin: boolean, status?: SubshellTable["status"]): Promise<SubshellTable[]> {
+  async listVisibleTo(viewerId: string, isAdmin: boolean): Promise<SubshellTable[]> {
     let query = this.db.selectFrom("subshells");
     if (!isAdmin) {
       query = query.where((eb) =>
@@ -113,7 +113,6 @@ export class SubshellsRepository extends BaseRepository {
       );
     }
     query = query.orderBy("createdAt", "desc");
-    if (status) query = query.where("status", "=", status);
     return query.selectAll().execute();
   }
 

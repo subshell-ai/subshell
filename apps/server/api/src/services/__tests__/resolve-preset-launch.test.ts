@@ -68,6 +68,20 @@ describe("resolvePresetLaunch", () => {
     expect(r.prompt).toBe("first\n\nsecond");
   });
 
+  it("an explicit empty-string prompt is the request saying NONE, not a gap (spec 2026-09-29)", () => {
+    // The web launch sends `prompt: ""` when a preset was chosen and the
+    // stack is empty; `??` must not read that as absence and resurrect the
+    // preset's blocks.
+    const r = resolvePresetLaunch({ prompt: "" }, presetRow({ promptBlocks: blocks }));
+    expect(r.prompt).toBe("");
+  });
+
+  it("a whitespace-only preset stack supplies no prompt (would type nothing)", () => {
+    const blank = JSON.stringify([{ kind: "custom", description: "", body: "  " }]);
+    const r = resolvePresetLaunch({}, presetRow({ promptBlocks: blank }));
+    expect(r.prompt).toBeUndefined();
+  });
+
   it("an empty prompt-block stack supplies no prompt (the row says nothing)", () => {
     const r = resolvePresetLaunch({ workingDir: "/body" }, presetRow({ promptBlocks: "[]" }));
     expect(r.prompt).toBeUndefined();

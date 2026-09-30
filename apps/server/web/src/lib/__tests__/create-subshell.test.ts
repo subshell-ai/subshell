@@ -54,14 +54,39 @@ describe("toSubshellCreateBody", () => {
     ).toBeUndefined();
   });
 
-  it("sends the preset id when one is chosen", () => {
+  it("sends the preset id when one is chosen, with an empty-string prompt as the explicit none", () => {
     const body = toSubshellCreateBody({ harnessId: "p1", presetId: "pr-9", workingDir: "/tmp/x", name: "n" });
+    // spec 2026-09-29-preset-launch-fields: an ABSENT prompt would fall back
+    // to the preset's own blocks server-side; a form whose stack is empty is
+    // saying "none", which only an explicit "" can carry.
     expect(JSON.parse(JSON.stringify(body))).toEqual({
       harnessId: "p1",
       presetId: "pr-9",
       workingDir: "/tmp/x",
       name: "n",
+      prompt: "",
     });
+  });
+
+  it("a non-empty stack rides the joined text even with a preset chosen (spec 2026-09-29)", () => {
+    const blocks = [
+      { localId: "b1", kind: "custom" as const, description: "", body: "first" },
+      { localId: "b2", kind: "custom" as const, description: "", body: "second" },
+    ];
+    const body = toSubshellCreateBody({
+      harnessId: "p1",
+      presetId: "pr-9",
+      workingDir: "/tmp/x",
+      name: "n",
+      promptEnabled: true,
+      promptBlocks: blocks,
+    });
+    expect(body.prompt).toBe("first\n\nsecond");
+  });
+
+  it("a presetless empty stack still sends NO prompt field (untouched form, no fallback to fear)", () => {
+    const body = toSubshellCreateBody({ harnessId: "p1", workingDir: "/tmp/x", name: "n" });
+    expect(JSON.parse(JSON.stringify(body))).toEqual({ harnessId: "p1", workingDir: "/tmp/x", name: "n" });
   });
 
   it("a presetless launch sends NO presetId — null is absence, not a field (spec §2.2)", () => {

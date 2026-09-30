@@ -15,7 +15,6 @@ import {
   emptyNewSubshellForm,
   hideMachineField,
   isSelectable,
-  launchableNodes,
   type NewSubshellFormValue,
   pickNodeDefault,
 } from "@/components/subshell-picker/launch-form-rules";
@@ -23,6 +22,7 @@ import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form"
 import { toSubshellCreateBody } from "@/hooks/use-create-subshell";
 import type { InstancePluginRow } from "@/hooks/use-instance-plugins";
 import { PRESETS_QUERY_KEY } from "@/hooks/use-presets";
+import { launchableNodes } from "@/lib/subshell-compat";
 
 /**
  * The Agent-first launch form (spec 2026-09-13 §5): searchable Agent picker

@@ -61,11 +61,17 @@ export function toSubshellCreateBody({
   nodeId?: string;
   prompt?: string;
 } {
-  // The joined stack, and ONLY when the section is on and non-empty: an
-  // untouched form must send no `prompt` field at all (the wire treats an
-  // empty string as text to type, and the delivery probe would report on
-  // nothing).
-  const prompt = promptEnabled && promptBlocks && promptBlocks.length > 0 ? joinPromptBlocks(promptBlocks) : undefined;
+  // The joined stack when the section is on and non-empty. With a PRESET
+  // chosen and the stack emptied (never ticked, or every block removed after
+  // the prefill), the launch says "none" OUTRIGHT with `prompt: ""`: the
+  // server falls back to the preset's own blocks for an ABSENT field (spec
+  // 2026-09-29-preset-launch-fields), and an empty string is what distinguishes
+  // "the user said none" from "the user said nothing" (the manager's trim gate
+  // types nothing, `promptLaunchMissed` needs blocks, so the empty override is
+  // silent end to end). Presetless, an untouched form still sends no field.
+  const joined =
+    promptEnabled === true && promptBlocks != null && promptBlocks.length > 0 ? joinPromptBlocks(promptBlocks) : null;
+  const prompt = joined ?? (presetId != null ? "" : undefined);
   return {
     harnessId,
     presetId: presetId ?? undefined,

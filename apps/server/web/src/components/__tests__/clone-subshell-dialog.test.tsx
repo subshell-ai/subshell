@@ -202,6 +202,10 @@ describe("CloneSubshellDialog", () => {
             workingDir: "/home/theo/projects/demo",
             nodeId: "mac-mini",
             name: "demo copy",
+            // Clone NEVER types, and since spec 2026-09-29 a preset may carry
+            // a prompt of its own - only an explicit "" keeps the copy from
+            // resurrecting it server-side.
+            prompt: "",
           },
         }),
       );

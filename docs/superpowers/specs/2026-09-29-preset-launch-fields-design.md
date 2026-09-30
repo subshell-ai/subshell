@@ -120,8 +120,9 @@ Derived, never stored: `nodeId && workingDir && promptBlocks?.length`. Surfaces:
 
 ## 5. Copy picker removal
 
-Delete: `components/subshell-picker/subshell-copy-picker.tsx`, the picker
-checkbox+combobox block in `new-subshell-form.tsx`, `applyCopy` from
+Delete: the picker checkbox+combobox block in `new-subshell-form.tsx`
+(correction at implementation: there was no separate `subshell-copy-picker.tsx`
+- the picker lived inline in the form), `applyCopy` from
 `use-launch-form-defaults.ts` (the hook keeps the auto-tier effect),
 `copySettingsOptions`/`copyOption`/`byEndedRecent`/`ACTIVE_GROUP`/
 `RECENTLY_TERMINATED_GROUP`/`COPY_CATEGORY_PREVIEW` from `lib/launch-defaults.ts`
@@ -129,9 +130,9 @@ checkbox+combobox block in `new-subshell-form.tsx`, `applyCopy` from
 `isUntouchedForm`), `groupPreviewLimit` from `combobox.tsx` (groups, divider,
 and `consumed` stay - the prompt picker uses them), the `copy` id in
 `launch-form-rules.ts` + `setup.tsx`'s override, `launchTemplateFromList`'s
-terminated-feeding, the `terminated=1` query param (its only caller WAS the
-picker) and the unreferenced `status` filter param on `listVisibleTo`
-(verified dead), plus the picker-only describes in
+terminated-feeding (correction: the `terminated=1` query param never existed
+on main; the list was already all-status), and the unreferenced `status`
+filter param on `listVisibleTo` (verified dead), plus the picker-only describes in
 `launch-defaults.test.ts`, `new-subshell-form.test.tsx`, `combobox.test.tsx`.
 No e2e or mobile coverage exists for the picker.
 
@@ -140,8 +141,13 @@ No e2e or mobile coverage exists for the picker.
 Picking a preset in the launch form prefills node, working dir, and the prompt
 blocks (fresh `localId`s), each still editable - prefill, not lock; the auto
 tier yields to it. A preset without one of the fields leaves that control
-untouched. Switching presets re-applies (fields the new preset lacks revert to
-the auto-tier value they would have had).
+untouched. Switching presets re-applies: fields the new preset names are
+overwritten, fields it lacks KEEP their current value (implementation ruling;
+the plan's tests pin it): silently re-writing a control behind the person
+reads worse than a stale value they can still edit or clear by hand. The
+explicit-none leak this used to risk is closed at the wire: a launch from a
+preset with an empty stack sends `prompt: ""`, which the server reads as
+"none" instead of falling back to the preset's blocks.
 
 ## 7. Not doing
 

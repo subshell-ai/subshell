@@ -744,6 +744,20 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       expect(((await res.json()) as { code: string }).code).toBe("NODE_OFFLINE");
     });
 
+    it("a preset naming an INVISIBLE node: the 404 says the preset named it (caller never did)", async () => {
+      // The hint-only refusal must be actionable: "pass another nodeId to
+      // override" is the way out for someone who only ever asked for the
+      // preset by name (spec 2026-09-29 review, major 3).
+      const foreign = await mkNode(otherId);
+      const presetId = await mkLaunchPreset({ harnessId: "pi", nodeId: foreign, workingDir: testDir });
+      const res = await post({ harnessId: "pi", presetId });
+      expect(res.status).toBe(404);
+      const message = ((await res.json()) as { message: string }).message;
+      expect(message).toMatch(/node/i);
+      expect(message).toContain("names this machine");
+      expect(message).toContain("override");
+    });
+
     it("an explicit body nodeId overrides the preset's hint", async () => {
       // Hint says an offline agent; the body says `local`; the pi-harness
       // LOCAL wording ("on this machine") answers - the body's node was gated.

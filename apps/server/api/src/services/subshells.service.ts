@@ -320,7 +320,7 @@ export function resolvePresetLaunch(
   return {
     workingDir: body.workingDir ?? presetRow?.workingDir ?? undefined,
     nodeId: body.nodeId ?? presetRow?.nodeId ?? undefined,
-    prompt: body.prompt ?? (promptText === "" ? undefined : promptText),
+    prompt: body.prompt ?? (promptText.trim() === "" ? undefined : promptText),
   };
 }
 
@@ -480,20 +480,38 @@ export class SubshellsService extends BaseService {
     }
     // §6.6 precedence BEFORE the per-node harness gate: "where" must be
     // settled first, since "usable" is per-node now (spec §6.2).
-    const { nodeId: resolvedNodeId } = await resolveLaunchNode(
-      {
-        userId,
-        machineActor,
-        // A preset's hint reaches the SAME gate as an explicit body nodeId
-        // (resolved above); `undefined` feeds the existing ladder.
-        requestedNodeId: resolved.nodeId,
-        // Read per create, not cached: a PATCH flips it for the NEXT launch,
-        // and the row read is a single indexed SELECT on the same DB this
-        // request already hammers.
-        serverAsNodeEnabled: await serverSubshellsEnabled(this.db),
-      },
-      { nodes: this.repos.nodes, shares: this.repos.nodeShares, userMeta: this.repos.userMeta },
-    );
+    let resolvedNodeId: string;
+    try {
+      resolvedNodeId = (
+        await resolveLaunchNode(
+          {
+            userId,
+            machineActor,
+            // A preset's hint reaches the SAME gate as an explicit body nodeId
+            // (resolved above); `undefined` feeds the existing ladder.
+            requestedNodeId: resolved.nodeId,
+            // Read per create, not cached: a PATCH flips it for the NEXT launch,
+            // and the row read is a single indexed SELECT on the same DB this
+            // request already hammers.
+            serverAsNodeEnabled: await serverSubshellsEnabled(this.db),
+          },
+          { nodes: this.repos.nodes, shares: this.repos.nodeShares, userMeta: this.repos.userMeta },
+        )
+      ).nodeId;
+    } catch (err) {
+      // When a machine refusal rides a PRESET hint the caller never named,
+      // say where the hint came from (spec 2026-09-29-preset-launch-fields):
+      // "pick another machine" cannot be followed by someone who only asked
+      // for the preset by name. The refusal's own code and status stand.
+      if (err instanceof SubshellCreateError && nodeId === undefined && presetRow?.nodeId != null) {
+        throw new SubshellCreateError(
+          err.code,
+          `${err.message} (the preset "${presetRow.name}" names this machine; pass another nodeId to override)`,
+          err.status,
+        );
+      }
+      throw err;
+    }
     if (!(await harnessUsable(harnessId, resolvedNodeId))) {
       // Copy honesty: on an AGENT node "this machine" is a lie — the harness
       // may simply not be installed there (spec §6.2 per-node inventory). The

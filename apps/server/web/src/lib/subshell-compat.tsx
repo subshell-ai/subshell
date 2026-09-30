@@ -133,11 +133,19 @@ export function defaultAgentId(
  * unchanged.
  */
 /**
- * The nodes a launch may target: launch-granted, plus the maintenance window
- * (a machine in a window is listed greyed, not hidden - ending the window is
- * the fix a picker can wait for). Moved out of the launch-form rules (spec
- * 2026-09-29) so the preset editor's node hint select and the launch form
- * share one rule.
+ * The machines a launch picker LISTS - launch-granted, plus the one
+ * unlaunchable kind worth showing.
+ *
+ * A host narrowed by its shares is FILTERED rather than greyed: a greyed row
+ * is a choice with a reason, and "the host you were never granted" is not a
+ * choice at all - the empty state says what to do about it, once, instead of
+ * every row saying it. A node in MAINTENANCE is kept and greyed (spec
+ * 2026-09-14 §6), because it is a choice with a reason and a way back:
+ * somebody is working on that machine, it will take subshells again, and
+ * whoever manages it can end the window from its page. Hiding it would leave
+ * a person hunting for a node that had simply vanished. Single definition
+ * since spec 2026-09-29: the launch form and the preset editor's node hint
+ * select share one rule.
  */
 export function launchableNodes(nodes: Node[]): Node[] {
   return nodes.filter((n) => n.canLaunch || n.maintenance);

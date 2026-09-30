@@ -1,6 +1,7 @@
 import type { Node } from "@internal/node-admin";
 import { isOfflineAgent } from "@/lib/node-label";
 import type { PromptBlock } from "@/lib/prompt-stack";
+import { launchableNodes } from "@/lib/subshell-compat";
 
 /**
  * The launch form's pure contract: the value the caller owns, the submit
@@ -62,23 +63,6 @@ export function isSelectable(n: Node): boolean {
   // the list keeps, so a payload cached before the flip would otherwise offer
   // a launch the node itself refuses at the pane.
   return !isOfflineAgent(n) && n.canLaunch && !n.maintenance;
-}
-
-/**
- * The machines this picker LISTS — launchable, plus the one unlaunchable kind
- * worth showing.
- *
- * A host narrowed by its shares is FILTERED rather than greyed: a greyed row
- * is a choice with a reason, and "the host you were never granted" is not a
- * choice at all — the empty state says what to do about it, once,
- * instead of every row saying it. A node in MAINTENANCE is kept and greyed
- * (spec 2026-09-14 §6), because it is a choice with a reason and a way back:
- * somebody is working on that machine, it will take subshells again, and
- * whoever manages it can end the window from its page. Hiding it would leave
- * a person hunting for a node that had simply vanished.
- */
-export function launchableNodes(nodes: Node[]): Node[] {
-  return nodes.filter((n) => n.canLaunch || n.maintenance);
 }
 
 /**

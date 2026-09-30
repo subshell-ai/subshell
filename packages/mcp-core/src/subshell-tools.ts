@@ -275,6 +275,10 @@ export async function listNodes(deps: ToolDeps): Promise<NodeView[]> {
   }));
 }
 
+/** The create route's `prompt` body cap (`create-subshell.route.ts`); the
+ *  tool checks the COMPOSED text against it because append happens client-side. */
+const MAX_CREATE_PROMPT_CHARS = 20_000;
+
 /**
  * `create_subshell`: an agent launches FROM a preset (required since spec
  * 2026-09-29 preset-launch-fields): the preset's NAME is addressed (ids are
@@ -353,8 +357,23 @@ export async function createSubshell(
     if (args.promptMode === "replace") {
       prompt = args.prompt;
     } else {
-      const presetText = joinPresetPrompt(parsePresetPromptBlocks(presetRow.promptBlocks) ?? []);
-      prompt = presetText === "" ? args.prompt : `${presetText}\n\n${args.prompt}`;
+      let presetText: string;
+      try {
+        presetText = joinPresetPrompt(parsePresetPromptBlocks(presetRow.promptBlocks) ?? []);
+      } catch {
+        throw new Error(
+          `subshell: preset '${args.preset}' has an unreadable prompt stack; fix or clear it in the web preset editor`,
+        );
+      }
+      prompt = presetText.trim() === "" ? args.prompt : `${presetText}\n\n${args.prompt}`;
+    }
+    // The composed text rides the create body, which caps `prompt` at 20 000
+    // chars; refuse HERE with the remedy instead of relaying an opaque
+    // schema-validation 400 from the route (spec 2026-09-29 Task 3's cap note).
+    if (prompt.length > MAX_CREATE_PROMPT_CHARS) {
+      throw new Error(
+        `subshell: the composed prompt is ${prompt.length} chars; the launch accepts at most ${MAX_CREATE_PROMPT_CHARS}. Shorten your prompt, or pass prompt_mode "replace" to skip the preset's text.`,
+      );
     }
   }
   let nodeId: string | undefined;

@@ -62,7 +62,20 @@ async function validatePresetLaunchFields(
     if (!row || !nodeCanLaunch(access)) {
       throw new PresetError("not_found", "Node not found", 404);
     }
-    if (!nodeCanLaunchOn(row.kind, access, granted, false, await serverSubshellsEnabled(db))) {
+    // A maintenance WINDOW is deliberately not a write refusal: the flag is
+    // transient (ending it is the fix), and refusing the SAVE would strand a
+    // legitimate hint that a later launch may lawfully take. The launch-time
+    // gate answers the window on its own merits.
+    const MAINTENANCE_WINDOW_NOT_A_WRITE_REFUSAL = false;
+    if (
+      !nodeCanLaunchOn(
+        row.kind,
+        access,
+        granted,
+        MAINTENANCE_WINDOW_NOT_A_WRITE_REFUSAL,
+        await serverSubshellsEnabled(db),
+      )
+    ) {
       throw new PresetError("node_launch_disabled", `No launch access on ${row.name}`, 403);
     }
     nodeId = fields.nodeId;
