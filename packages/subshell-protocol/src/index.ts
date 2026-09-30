@@ -168,6 +168,7 @@ export {
   joinPresetPrompt,
   type PresetPromptBlock,
   parsePresetPromptBlocks,
+  presetLaunchRequirementsMet,
 } from "./preset-prompt.js";
 export {
   DEFAULT_RELEASE_API,

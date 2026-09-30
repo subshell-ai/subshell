@@ -11,7 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useCreatePreset } from "@/hooks/use-presets";
-import { emptyPresetForm, type PresetFormValue, toPresetPayload } from "@/lib/preset-form";
+import { crossCommSaveBlocked, emptyPresetForm, type PresetFormValue, toPresetPayload } from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 
 /**
@@ -111,7 +111,10 @@ export function CreatePresetDialog({
           <Button variant="outline" disabled={create.isPending} onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
-          <Button onClick={() => void submit()} disabled={create.isPending || !form.harnessId}>
+          <Button
+            onClick={() => void submit()}
+            disabled={create.isPending || !form.harnessId || crossCommSaveBlocked(form)}
+          >
             {create.isPending ? "Creating…" : "Create preset"}
           </Button>
         </DialogFooter>

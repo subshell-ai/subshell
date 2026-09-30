@@ -94,11 +94,14 @@ absence, never null.
 **A preset can carry the launch** (spec 2026-09-29-preset-launch-fields): the
 editor's **Launch defaults** section takes an optional machine, working
 directory, and the SAME prompt block stack the launch form uses (snapshot
-bodies, joined by one blank line at launch). Filling all three makes the
-preset CROSS-COMM READY (`isPresetCrossCommReady` in
-`@internal/subshell-protocol`, derived from the row's values, never stored):
-the `/presets` row badges it, the launch form prefills from it on pick, and
-MCP `create_subshell` can launch from the preset's name alone. Resolution
+bodies, joined by one blank line at launch). CROSS-COMM READY is opt-in
+(migration 0043): the section ends in a "Cross-shell comms" switch, and
+readiness means the switch AND the trio (`isPresetCrossCommReady` in
+`@internal/subshell-protocol`): the `/presets` row badges it, the launch form
+prefills from it on pick, and MCP `create_subshell` can launch from the
+preset's name alone. The switch cannot arm while a requirement is missing,
+and a switched-on preset whose fields later break cannot be saved until the
+fields or the switch are fixed - the server enforces the same rule (400). Resolution
 lives once, server-side, at `subshells.service.createSubshell`: the request
 wins, the preset fills the gaps, and a launch with no directory from either
 is a 400 naming both spellings. The node hint rides an FK: deleting the node

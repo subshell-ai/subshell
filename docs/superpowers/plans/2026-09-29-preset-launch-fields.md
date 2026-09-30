@@ -121,6 +121,11 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 
 ## Deviations (recorded at Task 8's review)
 
+- AMENDED AT THE OPERATOR'S TEST DRIVE (spec §4): cross-comm readiness is an
+  OPT-IN switch ("Cross-shell comms", migration 0043, stored, default off)
+  AND the trio - not the trio alone as planned. Editor section, save gate,
+  server 400, badge, and `list_presets` all follow the switch.
+
 - `docs/presets-system.md` does not exist on main (stale footprint). The
   editor-fields + cross-comm prose lives in `apps/server/web/docs/
   launch-form-picker.md` ("A preset can carry the launch" + the prefill

@@ -23,15 +23,16 @@ import type { PresetRow } from "@/types/preset";
 
 function presetRow(
   p: { id: string; harnessId: string; name: string } & Partial<
-    Pick<PresetRow, "nodeId" | "workingDir" | "promptBlocks">
+    Pick<PresetRow, "nodeId" | "workingDir" | "promptBlocks" | "crossCommEnabled">
   >,
 ): PresetRow {
-  const { nodeId = null, workingDir = null, promptBlocks = null, ...rest } = p;
+  const { nodeId = null, workingDir = null, promptBlocks = null, crossCommEnabled = 0, ...rest } = p;
   return {
     ...rest,
     nodeId,
     workingDir,
     promptBlocks,
+    crossCommEnabled,
     description: null,
     envJson: null,
     flagsJson: null,
@@ -257,13 +258,23 @@ describe("/presets row command visibility", () => {
 describe("cross-comm-ready badge (spec 2026-09-29 preset-launch-fields)", () => {
   afterEach(cleanup);
 
-  it("badges only the row whose machine, directory, and prompt are all set", async () => {
+  it("badges only the switched-on row whose machine, directory, and prompt are all set", async () => {
     const { restore } = mockFetch({
       presets: [
         presetRow({
           id: "ready",
           harnessId: "claude-code",
           name: "Everywhere",
+          crossCommEnabled: 1,
+          nodeId: "n1",
+          workingDir: "/srv/app",
+          promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
+        }),
+        // The same trio WITHOUT the switch: readiness is opt-in (0043).
+        presetRow({
+          id: "unflagged",
+          harnessId: "claude-code",
+          name: "Filled but off",
           nodeId: "n1",
           workingDir: "/srv/app",
           promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
@@ -275,7 +286,8 @@ describe("cross-comm-ready badge (spec 2026-09-29 preset-launch-fields)", () => 
       renderPage();
       await screen.findByText("Everywhere");
       const badges = screen.getAllByText("cross-comm ready");
-      // One badge, on the ready row only (the half row stays unbadged).
+      // One badge: only the enabled row (the filled-but-off row and the half
+      // row both stay unbadged).
       expect(badges).toHaveLength(1);
     } finally {
       restore();

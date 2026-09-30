@@ -33,6 +33,9 @@ export interface PresetFormValue {
   envRows: EnvRow[];
   flagRows: FlagRow[];
   restartOnExit: boolean;
+  /** The "Cross-shell comms" switch (migration 0043): a turned-on preset
+   *  with unmet launch requirements is unsavable - see {@link crossCommSaveBlocked}. */
+  crossCommEnabled: boolean;
   /**
    * Optional launch node hint (spec 2026-09-29): null = the preset names no
    * machine and the launch-time ladder decides, exactly the old behavior.
@@ -64,6 +67,7 @@ export function emptyPresetForm(): PresetFormValue {
     envRows: [{ key: "", value: "" }],
     flagRows: [{ flag: "", value: "" }],
     restartOnExit: true,
+    crossCommEnabled: false,
     nodeId: null,
     workingDir: "",
     promptEnabled: false,
@@ -103,6 +107,7 @@ export function presetFormFromRow(row: PresetRow): PresetFormValue {
     envRows: envRows.length > 0 ? envRows : [{ key: "", value: "" }],
     flagRows: flagTokensToRows(tokens),
     restartOnExit: row.restartOnExit === 1,
+    crossCommEnabled: row.crossCommEnabled === 1,
     nodeId: row.nodeId,
     workingDir: row.workingDir ?? "",
     // A stored stack turns the checkbox on by itself: reopening a preset that
@@ -126,6 +131,17 @@ export function presetFormPromptBlocks(form: PresetFormValue): PromptBlock[] {
  *  stored row, so editor line, badge, and `list_presets` never disagree. */
 function stackSuppliesPrompt(blocks: PromptBlock[]): boolean {
   return blocks.some((b) => b.body.trim() !== "");
+}
+
+/**
+ * Whether the cross-shell comms switch blocks the save (migration 0043):
+ * an ON switch is a promise the row must keep - machine, directory, and a
+ * non-blank prompt - so an enabled preset with gaps is unsavable until the
+ * fields are fixed or the switch is turned off. The server enforces the same
+ * rule on create and update.
+ */
+export function crossCommSaveBlocked(form: PresetFormValue): boolean {
+  return form.crossCommEnabled && presetLaunchGaps(form).length > 0;
 }
 
 /**
@@ -199,6 +215,8 @@ export interface PresetPayload {
   configIsolation: boolean;
   /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
+  /** "Cross-shell comms" switch state (0043). */
+  crossCommEnabled: boolean;
   /** Launch node hint; null = names no machine */
   nodeId: string | null;
   /** Absolute working directory; null = names none */
@@ -225,6 +243,7 @@ export function toPresetPayload(form: PresetFormValue): PresetPayload {
     // No harness consumes config isolation yet — see preset-fields.tsx.
     configIsolation: false,
     restartOnExit: form.restartOnExit,
+    crossCommEnabled: form.crossCommEnabled,
     nodeId: form.nodeId,
     workingDir: form.workingDir.trim() || null,
     promptBlocks: presetBlocksToWire(presetFormPromptBlocks(form)),
@@ -243,6 +262,8 @@ export interface PresetUpdatePayload {
   configIsolation: boolean;
   /** Whether the supervisor restarts the subshell when the harness exits */
   restartOnExit: boolean;
+  /** "Cross-shell comms" switch state (0043). */
+  crossCommEnabled: boolean;
   /** Launch node hint; the editor ALWAYS sends the trio so clearing works */
   nodeId: string | null;
   /** Absolute working directory; null clears */
@@ -270,6 +291,7 @@ export function toPresetUpdatePayload(form: PresetFormValue): PresetUpdatePayloa
     // No harness consumes config isolation yet — see preset-fields.tsx.
     configIsolation: false,
     restartOnExit: form.restartOnExit,
+    crossCommEnabled: form.crossCommEnabled,
     // The trio rides EVERY update (explicit nulls): the editor is the whole
     // truth about the preset, and "absent means untouched" would make a
     // cleared field impossible to save away.

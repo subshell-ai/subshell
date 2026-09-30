@@ -483,25 +483,27 @@ describe("mcp tools (handler-level, real crypto)", () => {
     expect(JSON.stringify(rows)).not.toContain("flags");
   });
 
-  it("list_presets flags a cross-comm-ready preset from its trio", async () => {
+  it("list_presets flags a cross-comm-ready preset: the opt-in AND the trio", async () => {
     const own = await generateKeypair();
+    const trio = {
+      id: "pre-1",
+      name: "Dev",
+      harnessId: "claude-code",
+      crossCommEnabled: 1,
+      nodeId: "node-1",
+      workingDir: "/srv/app",
+      promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
+    };
     const { api } = fakeApi((req) => {
-      if (req.path === "/api/presets")
-        return [
-          {
-            id: "pre-1",
-            name: "Dev",
-            harnessId: "claude-code",
-            nodeId: "node-1",
-            workingDir: "/srv/app",
-            promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
-          },
-        ];
+      if (req.path === "/api/presets") return [trio, { ...trio, id: "pre-2", name: "Draft", crossCommEnabled: 0 }];
       if (req.path === "/api/plugins") return { plugins: [] };
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const rows = await listPresets({ api, own: { principalId: "sess:me", ...own } });
     expect(rows[0]?.crossCommReady).toBe(true);
+    // A filled preset the operator never switched on makes no agent-facing
+    // promise (migration 0043: readiness is opt-in).
+    expect(rows[1]?.crossCommReady).toBe(false);
   });
 
   it("describeToolError turns a 401 into restart guidance", () => {

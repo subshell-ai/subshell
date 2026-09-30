@@ -373,6 +373,7 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
       [
         "configIsolation",
         "createdAt",
+        "crossCommEnabled",
         "description",
         "envJson",
         "flagsJson",
@@ -391,6 +392,57 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
     expect(body.nodeId).toBeNull();
     expect(body.workingDir).toBeNull();
     expect(body.promptBlocks).toBeNull();
+    // Cross-comm is an OPT-IN (migration 0043): a fresh preset is off.
+    expect(body.crossCommEnabled).toBe(0);
+  });
+
+  it("the cross-comm switch only stands on a row that carries the trio (spec 2026-09-29, migration 0043)", async () => {
+    const blocks = [{ kind: "custom", description: "", body: "go" }];
+    // ON without the trio: refused, naming the rule.
+    const bad = await app.fetch(
+      authedRequest("/api/presets", ownerCookie, {
+        method: "POST",
+        body: JSON.stringify({ harnessId: "claude-code", name: "cc-bad", crossCommEnabled: true }),
+      }),
+    );
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as { message: string }).message).toContain("Cross-shell comms needs");
+    // ON with the trio: lands enabled.
+    const good = await app.fetch(
+      authedRequest("/api/presets", ownerCookie, {
+        method: "POST",
+        body: JSON.stringify({
+          harnessId: "claude-code",
+          name: "cc-on",
+          crossCommEnabled: true,
+          nodeId: "local",
+          workingDir: "/srv/app",
+          promptBlocks: blocks,
+        }),
+      }),
+    );
+    expect(good.status).toBe(200);
+    const row = (await good.json()) as { id: string; crossCommEnabled: number };
+    createdPresetIds.push(row.id);
+    expect(row.crossCommEnabled).toBe(1);
+    // PUT: enabling an incomplete row is the same 400...
+    const enableBad = await app.fetch(
+      authedRequest(`/api/presets/${row.id}`, ownerCookie, {
+        method: "PUT",
+        body: JSON.stringify({ crossCommEnabled: true, workingDir: null }),
+      }),
+    );
+    expect(enableBad.status).toBe(400);
+    // ...the trio break alone saves fine while the switch is OFF, and turning
+    // the switch off saves even with gaps.
+    const off = await app.fetch(
+      authedRequest(`/api/presets/${row.id}`, ownerCookie, {
+        method: "PUT",
+        body: JSON.stringify({ crossCommEnabled: false, workingDir: null }),
+      }),
+    );
+    expect(off.status).toBe(200);
+    expect(((await off.json()) as { crossCommEnabled: number; workingDir: string | null }).crossCommEnabled).toBe(0);
   });
 
   it("POST persists a launchable node, dir, and prompt; an unlaunchable node is refused", async () => {

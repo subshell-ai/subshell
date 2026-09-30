@@ -40,6 +40,9 @@ export interface PresetTable {
   configIsolation: number;
   /** 1 = new subshells from this preset auto-restart on exit */
   restartOnExit: number;
+  /** 1 = the operator switched on "Cross-shell comms" (migration 0043).
+   *  Readiness for agents is this flag AND the three launch fields filled. */
+  crossCommEnabled: number;
   /**
    * Optional launch node hint (spec 2026-09-29 preset-launch-fields): a launch
    * with this preset and no explicit node runs here. An EXPLICIT request node
@@ -71,9 +74,10 @@ export interface PresetTable {
  *  all NULL. */
 export type NewPreset = Omit<
   PresetTable,
-  "createdAt" | "updatedAt" | "restartOnExit" | "nodeId" | "workingDir" | "promptBlocks"
+  "createdAt" | "updatedAt" | "restartOnExit" | "crossCommEnabled" | "nodeId" | "workingDir" | "promptBlocks"
 > & {
   restartOnExit?: number;
+  crossCommEnabled?: number;
   nodeId?: string | null;
   workingDir?: string | null;
   promptBlocks?: string | null;

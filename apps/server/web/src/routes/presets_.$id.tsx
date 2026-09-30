@@ -14,7 +14,12 @@ import { useState } from "react";
 import { PresetFields } from "@/components/presets/preset-fields";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useInvalidatePresets, usePresets } from "@/hooks/use-presets";
-import { type PresetFormValue, presetFormFromRow, toPresetUpdatePayload } from "@/lib/preset-form";
+import {
+  crossCommSaveBlocked,
+  type PresetFormValue,
+  presetFormFromRow,
+  toPresetUpdatePayload,
+} from "@/lib/preset-form";
 import type { PresetRow } from "@/types/preset";
 
 export const Route = createFileRoute("/presets_/$id")({
@@ -129,7 +134,7 @@ function PresetEditor({ preset }: { preset: PresetRow }) {
             <Button variant="outline" onClick={() => navigate({ to: "/presets" })} disabled={mutation.isPending}>
               Cancel
             </Button>
-            <Button onClick={() => save()} disabled={mutation.isPending}>
+            <Button onClick={() => save()} disabled={mutation.isPending || crossCommSaveBlocked(form)}>
               {mutation.isPending ? "Saving…" : "Save"}
             </Button>
           </div>

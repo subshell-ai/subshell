@@ -1,4 +1,4 @@
-import { Button, Label } from "@internal/node-admin";
+import { Button, Label, Switch } from "@internal/node-admin";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
@@ -6,7 +6,7 @@ import { PromptStackList } from "@/components/prompts/prompt-stack-list";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
-import { type PresetFormValue, presetLaunchGaps } from "@/lib/preset-form";
+import { crossCommSaveBlocked, type PresetFormValue, presetLaunchGaps } from "@/lib/preset-form";
 import { movePromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import type { LaunchAgent } from "@/lib/subshell-compat";
 import { buildNodeOptions, launchableNodes } from "@/lib/subshell-compat";
@@ -19,9 +19,9 @@ import { buildNodeOptions, launchableNodes } from "@/lib/subshell-compat";
  * snapshots the text, so library edits never change what this preset launches).
  * They are hints, not locks: an explicit request at launch still wins.
  *
- * A preset with all three set is CROSS-COMM READY: an agent can launch it from
- * its name alone (list_presets flags it), and the completeness line below the
- * fields says the same in words, naming whatever is missing.
+ * Below the trio sits the CROSS-SHELL COMMS switch (migration 0043): an agent
+ * can launch the preset from its name alone only when the switch is on AND
+ * all three fields hold - the section states exactly what is missing.
  */
 export function PresetLaunchFields({
   value,
@@ -131,13 +131,42 @@ export function PresetLaunchFields({
           </>
         )}
       </div>
-      <p className="text-detail text-muted-foreground">
-        {gaps.length === 0
-          ? "Machine, directory, and prompt are all set: agents can launch this preset from its name alone."
-          : filled === 0
-            ? "Optional: set a machine, directory, and prompt and agents can launch this preset from its name alone."
-            : `Missing: ${gaps.join(", ")}. With all three set, agents can launch this preset by name.`}
-      </p>
+      {/* Cross-shell comms (migration 0043): the readiness fact is an OPT-IN
+          switch plus the trio, not the trio alone. The switch refuses to arm
+          while requirements are missing and names what is missing; once armed
+          it holds the form hostage - breaking a requirement disables Save
+          until the fields or the switch are fixed (`crossCommSaveBlocked`). */}
+      <div className="space-y-1 border-t pt-3">
+        <div className="flex items-center gap-2">
+          <Switch
+            id="preset-cross-comm"
+            checked={value.crossCommEnabled}
+            disabled={gaps.length > 0 && !value.crossCommEnabled}
+            onCheckedChange={(crossCommEnabled) => onChange({ ...value, crossCommEnabled })}
+          />
+          <Label htmlFor="preset-cross-comm">Cross-shell comms</Label>
+        </div>
+        <p className="text-detail text-muted-foreground">Enable this preset for cross-shell communication via MCP.</p>
+        {crossCommSaveBlocked(value) ? (
+          <p className="text-destructive text-detail">
+            Missing: {gaps.join(", ")}. Complete these or switch cross-shell comms off to save.
+          </p>
+        ) : gaps.length > 0 ? (
+          <p className="text-detail text-muted-foreground">
+            {filled === 0
+              ? "Requirements: a machine, a working directory, and a prompt."
+              : `Requirements left: ${gaps.join(", ")}.`}
+          </p>
+        ) : value.crossCommEnabled ? (
+          <p className="text-detail text-muted-foreground">
+            Agents can launch this preset from its name alone over MCP.
+          </p>
+        ) : (
+          <p className="text-detail text-muted-foreground">
+            All requirements met: switch this on to let agents launch it by name.
+          </p>
+        )}
+      </div>
     </div>
   );
 }

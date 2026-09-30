@@ -21,6 +21,7 @@ export const PresetSchema = t.Object({
   settingsJson: t.Union([t.String({ description: "JSON settings object" }), t.Null()]),
   configIsolation: t.Number({ description: "1 = isolated config sources" }),
   restartOnExit: t.Number({ description: "1 = new subshells auto-restart on exit" }),
+  crossCommEnabled: t.Number({ description: "1 = cross-shell comms (MCP) enabled for this preset" }),
   nodeId: t.Nullable(t.String({ description: "Optional launch node hint (null = names no node)" })),
   workingDir: t.Nullable(t.String({ description: "Optional absolute working directory (null = names none)" })),
   promptBlocks: t.Nullable(t.String({ description: "JSON prompt block stack (snapshot bodies; null = no prompt)" })),

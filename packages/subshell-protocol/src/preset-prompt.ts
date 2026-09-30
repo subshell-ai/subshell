@@ -59,17 +59,17 @@ export function joinPresetPrompt(blocks: PresetPromptBlock[]): string {
   return blocks.map((b) => b.body).join("\n\n");
 }
 
-/** Cross-comm ready: an agent can launch from this preset's NAME alone,
- *  because node, directory, and prompt are all set on the row. Derived from
- *  the three fields, never stored (ruling 2026-09-29: "for a preset to be
- *  cross comm available they need to have all optional values filled").
+/** The launch-field requirement of cross-comm readiness: node, directory, and
+ *  a prompt that joins to non-blank text are all set on the row. This is what
+ *  the editor's form validates the "Cross-shell comms" toggle against, and
+ *  what the server refuses to store an enabled flag without.
  *
  * TOLERANT where `parsePresetPromptBlocks` throws: this answers a display
  * question (a badge, a list row), and one unreadable column must not take a
  * whole list down - a row nobody can parse is a row nobody can launch
  * sight-unseen, so it reads as not-ready. A whitespace-only stack is "not
  * set": the launch would type nothing from it, so it must not claim readiness. */
-export function isPresetCrossCommReady(row: {
+export function presetLaunchRequirementsMet(row: {
   nodeId: string | null;
   workingDir: string | null;
   promptBlocks: string | null;
@@ -82,4 +82,19 @@ export function isPresetCrossCommReady(row: {
     return false;
   }
   return blocks != null && blocks.length > 0 && joinPresetPrompt(blocks).trim() !== "";
+}
+
+/** Cross-comm ready: an agent can launch from this preset's NAME alone.
+ *  Since the operator ruling of 2026-09-29 (same day as the feature's spec,
+ *  made at its test drive) this is an OPT-IN AND a requirement: the stored
+ *  `crossCommEnabled` switch - the editor's "Cross-shell comms" toggle - AND
+ *  the three launch fields filled. A filled preset nobody switched on makes
+ *  no agent-facing promise. */
+export function isPresetCrossCommReady(row: {
+  crossCommEnabled: number | boolean;
+  nodeId: string | null;
+  workingDir: string | null;
+  promptBlocks: string | null;
+}): boolean {
+  return (row.crossCommEnabled === 1 || row.crossCommEnabled === true) && presetLaunchRequirementsMet(row);
 }

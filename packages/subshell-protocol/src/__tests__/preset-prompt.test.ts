@@ -57,10 +57,18 @@ describe("parsePresetPromptBlocks", () => {
 });
 
 describe("isPresetCrossCommReady", () => {
-  const filled = { nodeId: "node-1", workingDir: "/srv/app", promptBlocks: JSON.stringify([saved]) };
+  const filled = {
+    crossCommEnabled: 1,
+    nodeId: "node-1",
+    workingDir: "/srv/app",
+    promptBlocks: JSON.stringify([saved]),
+  };
 
-  it("is true only when node, dir, and a non-empty prompt are all set", () => {
+  it("is true only when the switch is ON and node, dir, and a non-empty prompt are all set", () => {
     expect(isPresetCrossCommReady(filled)).toBe(true);
+    // Opt-in (migration 0043): a filled preset nobody enabled promises nothing.
+    expect(isPresetCrossCommReady({ ...filled, crossCommEnabled: 0 })).toBe(false);
+    expect(isPresetCrossCommReady({ ...filled, crossCommEnabled: true })).toBe(true);
   });
 
   it("is false when any one of the three is missing", () => {
@@ -71,7 +79,9 @@ describe("isPresetCrossCommReady", () => {
   });
 
   it("is false for an all-NULL row (the ordinary settings-only preset)", () => {
-    expect(isPresetCrossCommReady({ nodeId: null, workingDir: null, promptBlocks: null })).toBe(false);
+    expect(isPresetCrossCommReady({ crossCommEnabled: 1, nodeId: null, workingDir: null, promptBlocks: null })).toBe(
+      false,
+    );
   });
 
   it("reads an unreadable column as NOT ready instead of throwing (display surfaces survive)", () => {

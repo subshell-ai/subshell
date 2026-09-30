@@ -1,5 +1,5 @@
 import { getHarness, type SettingsField } from "@internal/pane-runtime";
-import { joinPresetPrompt, type PresetPromptBlock } from "@internal/subshell-protocol";
+import { joinPresetPrompt, type PresetPromptBlock, presetLaunchRequirementsMet } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { getAllHarnessIds } from "@/api/harness-utils.js";
@@ -97,6 +97,25 @@ async function validatePresetLaunchFields(
   return { nodeId, workingDir, promptBlocks };
 }
 
+/** The cross-comm rule (migration 0043): the stored toggle may only stand on
+ *  a row that ACTUALLY carries the trio. The editor blocks the save the same
+ *  way; the server says the same no, because the API is not the only writer
+ *  a readiness promise can come from. PUT checks the MERGED row - toggling
+ *  cross-comm on while dropping the node in the same request is one act, and
+ *  it answers 400 as one. */
+function assertCrossCommCoherent(
+  crossCommEnabled: boolean,
+  row: { nodeId: string | null; workingDir: string | null; promptBlocks: string | null },
+): void {
+  if (crossCommEnabled && !presetLaunchRequirementsMet(row)) {
+    throw new PresetError(
+      "bad_request",
+      "Cross-shell comms needs a machine, a working directory, and a non-blank prompt - fill them in, or leave it off",
+      400,
+    );
+  }
+}
+
 /**
  * A settings field the preset editor can actually hold.
  *
@@ -137,6 +156,7 @@ const CreatePresetBodySchema = t.Object({
   settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
   configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
   restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
+  crossCommEnabled: t.Optional(t.Boolean({ description: "Enable cross-shell communication (MCP) for this preset" })),
   nodeId: t.Optional(t.Nullable(t.String({ description: "Optional launch node hint" }))),
   workingDir: t.Optional(t.Nullable(t.String({ maxLength: 4096, description: "Optional absolute working directory" }))),
   promptBlocks: t.Optional(
@@ -169,6 +189,7 @@ const UpdatePresetBodySchema = t.Object(
     settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
     configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
     restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
+    crossCommEnabled: t.Optional(t.Boolean({ description: "Cross-shell communication (MCP) toggle" })),
     nodeId: t.Optional(t.Nullable(t.String({ description: "Launch node hint (null clears it)" }))),
     workingDir: t.Optional(
       t.Nullable(t.String({ maxLength: 4096, description: "Absolute working directory (null clears it)" })),
@@ -191,6 +212,7 @@ const UPDATE_PRESET_KEYS = new Set([
   "settings",
   "configIsolation",
   "restartOnExit",
+  "crossCommEnabled",
   "nodeId",
   "workingDir",
   "promptBlocks",
@@ -244,6 +266,11 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       }
       const repo = new PresetsRepository(db);
       const launch = await validatePresetLaunchFields(user.id, body);
+      assertCrossCommCoherent(body.crossCommEnabled === true, {
+        nodeId: launch.nodeId ?? null,
+        workingDir: launch.workingDir ?? null,
+        promptBlocks: launch.promptBlocks ?? null,
+      });
       try {
         return await repo.create({
           id: crypto.randomUUID(),
@@ -256,6 +283,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
           settingsJson: body.settings ? JSON.stringify(body.settings) : null,
           configIsolation: body.configIsolation ? 1 : 0,
           restartOnExit: body.restartOnExit ? 1 : 0,
+          crossCommEnabled: body.crossCommEnabled ? 1 : 0,
           ...launch,
         });
       } catch (err) {
@@ -382,6 +410,13 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       }
       const name = body.name ?? existing.name;
       const launch = await validatePresetLaunchFields(user.id, body);
+      const crossCommEnabled =
+        body.crossCommEnabled !== undefined ? (body.crossCommEnabled ? 1 : 0) : existing.crossCommEnabled;
+      assertCrossCommCoherent(crossCommEnabled === 1, {
+        nodeId: launch.nodeId !== undefined ? launch.nodeId : existing.nodeId,
+        workingDir: launch.workingDir !== undefined ? launch.workingDir : existing.workingDir,
+        promptBlocks: launch.promptBlocks !== undefined ? launch.promptBlocks : existing.promptBlocks,
+      });
       let updated: Awaited<ReturnType<typeof repo.update>>;
       try {
         updated = await repo.update(params.id, {
@@ -393,6 +428,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
           configIsolation:
             body.configIsolation !== undefined ? (body.configIsolation ? 1 : 0) : existing.configIsolation,
           restartOnExit: body.restartOnExit !== undefined ? (body.restartOnExit ? 1 : 0) : existing.restartOnExit,
+          crossCommEnabled,
           // The launch fields merge by KEY PRESENCE (explicit null clears),
           // unlike `description`'s `??` line above: these carry a real null
           // meaning - "this preset names no node" - that the row can hold.

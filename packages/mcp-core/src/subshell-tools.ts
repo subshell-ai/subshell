@@ -145,6 +145,8 @@ interface PresetsWireRow {
   id: string;
   name: string;
   harnessId: string;
+  /** 1 = the operator switched on cross-shell comms (migration 0043). */
+  crossCommEnabled: number;
   nodeId: string | null;
   workingDir: string | null;
   promptBlocks: string | null;
@@ -240,11 +242,11 @@ export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
     deps.api.req<PresetsWireRow[]>("/api/presets"),
     deps.api.req<{ plugins: PluginWireRow[] }>("/api/plugins"),
   ]);
-  const presets = rows.map(({ id, name, harnessId, nodeId, workingDir, promptBlocks }) => ({
+  const presets = rows.map(({ id, name, harnessId, crossCommEnabled, nodeId, workingDir, promptBlocks }) => ({
     id,
     name,
     harnessId,
-    crossCommReady: isPresetCrossCommReady({ nodeId, workingDir, promptBlocks }),
+    crossCommReady: isPresetCrossCommReady({ crossCommEnabled, nodeId, workingDir, promptBlocks }),
   }));
   const catalog = plugins
     .filter((p) => (p.type === "agent-harness" || p.type === "terminal") && p.installed && p.enabled)

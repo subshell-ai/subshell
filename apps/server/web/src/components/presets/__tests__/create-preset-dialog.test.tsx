@@ -27,6 +27,7 @@ const ROW: PresetRow = {
   settingsJson: null,
   configIsolation: 0,
   restartOnExit: 0,
+  crossCommEnabled: 0,
   nodeId: null,
   workingDir: null,
   promptBlocks: null,
@@ -46,6 +47,7 @@ const SOURCE: PresetRow = {
   settingsJson: null,
   configIsolation: 0,
   restartOnExit: 1,
+  crossCommEnabled: 0,
   nodeId: null,
   workingDir: null,
   promptBlocks: null,
@@ -87,6 +89,11 @@ function mockFetch(post: { status?: number; body?: unknown } = {}) {
     // The list a page with a live usePresets() would read — an ARRAY, like
     // the real endpoint; the {} fallthrough below is for the schema route.
     if (url.pathname === "/api/presets" && method === "GET") return Promise.resolve(new Response(JSON.stringify([])));
+    // The prompt picker's feeds (opened via the launch-defaults section):
+    // empty own/shared views, the shape both queries expect.
+    if (url.pathname === "/api/prompts" || url.pathname === "/api/prompts/stacks") {
+      return Promise.resolve(new Response(JSON.stringify({ own: [], shared: [] })));
+    }
     return Promise.resolve(new Response(JSON.stringify({})));
   }) as typeof fetch;
   return { calls, restore: () => (globalThis.fetch = original) };
@@ -173,6 +180,7 @@ describe("CreatePresetDialog — locked (launch form)", () => {
             // ON by default since 2026-09-18 — a preset is a way of running
             // something repeatedly, so recovering from an exit is expected.
             restartOnExit: true,
+            crossCommEnabled: false,
             // The launch trio posts as empty nulls until the editor says
             // otherwise (spec 2026-09-29).
             nodeId: null,
@@ -229,6 +237,7 @@ describe("CreatePresetDialog — clone (initialForm)", () => {
             settings: {},
             configIsolation: false,
             restartOnExit: true,
+            crossCommEnabled: false,
             nodeId: null,
             workingDir: null,
             promptBlocks: null,
@@ -303,8 +312,37 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       // The empty directory reads as a choice, exactly like the Machine
       // select's "Decide at launch" empty state.
       expect((dialog.querySelector("#preset-launch-dir") as HTMLInputElement).placeholder).toBe("Decide at launch");
-      // Nothing set yet: the line invites rather than scolds.
-      expect(dialog.textContent).toContain("Optional: set a machine, directory, and prompt");
+      // Nothing set yet: the cross-comm section states its requirements, and
+      // the switch cannot arm without them (migration 0043).
+      expect(dialog.textContent).toContain("Requirements: a machine, a working directory, and a prompt.");
+      expect((dialog.querySelector("#preset-cross-comm") as HTMLButtonElement).disabled).toBe(true);
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("the cross-comm switch arms only when the trio holds, and a broken trio blocks Save", async () => {
+    const m = mockFetch();
+    try {
+      const { client } = await renderDialog({ lockedHarness: "claude-code" });
+      const dialog = await screen.findByRole("dialog");
+      const toggle = () => dialog.querySelector("#preset-cross-comm") as HTMLButtonElement;
+      const save = () => screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement;
+      // Set all three through the form: dir typed, prompt added.
+      fireEvent.change(dialog.querySelector("#preset-launch-dir") as HTMLInputElement, {
+        target: { value: "/srv/app" },
+      });
+      fireEvent.click(within(dialog).getByText("Add a prompt"));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Add prompt" }));
+      fireEvent.click(await within(dialog).findByRole("button", { name: /Write your own/ }));
+      fireEvent.change(within(dialog).getByPlaceholderText("The text to type into the pane"), {
+        target: { value: "go" },
+      });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Add prompt" }));
+      // Node left on "Decide at launch": still a gap, still disabled.
+      await waitFor(() => expect(dialog.textContent).toContain("Requirements left: machine"));
+      expect(toggle().disabled).toBe(true);
+      expect(save().disabled).toBe(false);
     } finally {
       m.restore();
     }

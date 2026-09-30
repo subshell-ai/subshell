@@ -4,6 +4,7 @@ import type { PromptBlock } from "@/lib/prompt-stack";
 import type { PresetRow } from "@/types/preset";
 import { filterSuggestions } from "../autocomplete";
 import {
+  crossCommSaveBlocked,
   emptyPresetForm,
   flagTokensToRows,
   formToEnv,
@@ -25,6 +26,7 @@ const baseRow: PresetRow = {
   settingsJson: null,
   configIsolation: 0,
   restartOnExit: 0,
+  crossCommEnabled: 0,
   nodeId: null,
   workingDir: null,
   promptBlocks: null,
@@ -42,6 +44,7 @@ describe("emptyPresetForm", () => {
       // Operator's call, 2026-09-18: a preset is a way of running something
       // repeatedly, so recovering from an exit is the expected answer.
       restartOnExit: true,
+      crossCommEnabled: false,
       // The launch trio starts EMPTY (spec 2026-09-29): a preset is still
       // just settings until someone says where and with what.
       nodeId: null,
@@ -80,6 +83,7 @@ describe("presetFormFromRow", () => {
         { flag: "--verbose", value: "" },
       ],
       restartOnExit: true,
+      crossCommEnabled: false,
       nodeId: null,
       workingDir: "",
       promptEnabled: false,
@@ -170,6 +174,7 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
     ],
     flagRows: [{ flag: "--model", value: "sonnet" }],
     restartOnExit: true,
+    crossCommEnabled: false,
     nodeId: null,
     workingDir: "",
     promptEnabled: false,
@@ -185,6 +190,7 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
       settings: {},
       configIsolation: false,
       restartOnExit: true,
+      crossCommEnabled: false,
       nodeId: null,
       workingDir: null,
       promptBlocks: null,
@@ -204,6 +210,7 @@ describe("toPresetPayload / toPresetUpdatePayload", () => {
       flags: ["--model", "sonnet"],
       configIsolation: false,
       restartOnExit: true,
+      crossCommEnabled: false,
       nodeId: null,
       workingDir: null,
       promptBlocks: null,
@@ -264,6 +271,7 @@ const toPresetForm: PresetFormValue = {
   envRows: [{ key: "A", value: "1" }],
   flagRows: [{ flag: "--model", value: "sonnet" }],
   restartOnExit: true,
+  crossCommEnabled: false,
   nodeId: null,
   workingDir: "",
   promptEnabled: false,
@@ -301,6 +309,21 @@ describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
   it("a relative dir saves as-is and the server owns the refusal; blank saves as null", () => {
     expect(toPresetPayload({ ...toPresetForm, workingDir: "  " }).workingDir).toBeNull();
     expect(toPresetPayload({ ...toPresetForm, workingDir: " /srv/app " }).workingDir).toBe("/srv/app");
+  });
+
+  it("the cross-comm switch blocks the save exactly when it is ON with gaps (0043)", () => {
+    expect(crossCommSaveBlocked({ ...toPresetForm, crossCommEnabled: false })).toBe(false);
+    expect(crossCommSaveBlocked({ ...toPresetForm, crossCommEnabled: true })).toBe(true);
+    expect(
+      crossCommSaveBlocked({
+        ...toPresetForm,
+        crossCommEnabled: true,
+        nodeId: "n1",
+        workingDir: "/srv",
+        promptEnabled: true,
+        promptBlocks: [{ localId: "b", kind: "custom", description: "", body: "go" }],
+      }),
+    ).toBe(false);
   });
 
   it("gaps name what is missing, in machine/directory/prompt order", () => {

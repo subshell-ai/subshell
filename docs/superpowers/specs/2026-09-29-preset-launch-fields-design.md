@@ -108,18 +108,24 @@ Consequences:
 `list_presets` gains `crossCommReady: boolean` per row so an agent can pick a
 preset that launches from its name alone.
 
-## 4. Cross-comm ready
+## 4. Cross-comm ready (amended same day, at the operator's test drive)
 
-Derived, never stored: `nodeId` and `workingDir` set, and a prompt
-stack that joins to non-blank text; an unreadable `prompt_blocks` column reads
-NOT-ready (display surfaces must survive one bad row; the readiness
-`isPresetCrossCommReady` in the protocol package is the one predicate).
+An OPT-IN, stored since migration 0043, AND a requirement: the row's
+`cross_comm_enabled` switch AND `nodeId`/`workingDir` set AND a prompt stack
+that joins to non-blank text. An unreadable `prompt_blocks` column reads
+NOT-ready (display surfaces must survive one bad row). The protocol package
+holds the one rule: `presetLaunchRequirementsMet` (the trio) and
+`isPresetCrossCommReady` (switch AND trio).
 
-- `list_presets` flag (§3).
-- Presets list page: a badge on qualifying rows ("cross-comm ready") whose
-  tooltip says agents can launch it from its name alone.
-- Preset editor: a one-line `detail` status under the three fields - complete
-  sentence or what is missing ("Missing: prompt").
+- Editor: a "Cross-shell comms" section with a Switch labeled "Enable this
+  preset for cross-shell communication via MCP". The switch is DISABLED while
+  requirements are missing and the section lists what is missing. When the
+  switch is ON and a later edit breaks a requirement, SAVE is disabled and the
+  missing items highlight - the operator fixes the fields or turns the switch
+  off; the server enforces the same rule on create and update (400).
+- `list_presets` flag (§3): `crossCommReady` means the whole rule, so a
+  filled-but-unswitched preset makes no agent-facing promise.
+- Presets list page: the "cross-comm ready" badge shows on ready rows only.
 
 ## 5. Copy picker removal
 
