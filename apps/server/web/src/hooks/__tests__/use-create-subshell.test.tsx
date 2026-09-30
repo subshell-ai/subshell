@@ -76,8 +76,10 @@ async function launch(input: CreateSubshellInput): Promise<{ err?: unknown; ok?:
       <Probe />
     </QueryClientProvider>,
   );
-  if (create === null) throw new Error("the probe never mounted");
-  const run = create;
+  // Read through a fresh binding: TS narrowed the captured `create` to its
+  // initializer (null) and cannot see the render-time assignment.
+  const run = create as ((i: CreateSubshellInput) => Promise<unknown>) | null;
+  if (run === null) throw new Error("the probe never mounted");
   let out: { err?: unknown; ok?: boolean } = { ok: true };
   await act(async () => {
     try {
@@ -142,6 +144,35 @@ describe("useCreateSubshell save-as-preset (review round 3)", () => {
       expect(order).toEqual(["POST", "DELETE"]);
     } finally {
       m.restore();
+    }
+  });
+
+  it("a picked preset that vanished before Start refuses the whole launch, creating nothing", async () => {
+    // Review round 4: the faithful copy must not silently degrade to the
+    // bare one when the source row disappeared (another tab deleted it).
+    // A bare copy is the settings-loss bug wearing a narrower door.
+    const calls: Call[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+      const url = new URL(String(input), "http://localhost");
+      const method = init?.method ?? "GET";
+      calls.push({
+        method,
+        url: url.pathname,
+        body: init?.body ? (JSON.parse(String(init.body)) as Call["body"]) : undefined,
+      });
+      if (url.pathname === "/api/presets" && method === "GET") {
+        return Promise.resolve(new Response(JSON.stringify([])));
+      }
+      return Promise.resolve(new Response(JSON.stringify({})));
+    }) as typeof fetch;
+    try {
+      const out = await launch({ ...BASE, saveAsPreset: true, presetName: "Keeper" });
+      expect(out.err).toBeDefined();
+      expect(String(out.err)).toContain("no longer exists");
+      expect(calls.some((c) => c.method === "POST")).toBe(false);
+    } finally {
+      globalThis.fetch = original;
     }
   });
 

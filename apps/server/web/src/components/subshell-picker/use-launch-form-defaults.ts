@@ -51,7 +51,7 @@ export interface LaunchFormDefaults {
  * why each gate waits on what it waits on.
  */
 export interface LaunchFormActions {
-  /** Choosing a preset: selects it AND prefills the launch fields it names */
+  /** Choosing a preset: RESETS the form and fills what the preset names */
   applyPreset: (preset: PresetRow | null) => void;
 }
 

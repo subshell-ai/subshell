@@ -50,9 +50,10 @@ export function PresetFields({
   /**
    * When set, the agent is this plugin id, fixed: the control renders as
    * static text. True on the edit page (a preset's agent is chosen at
-   * creation and the API does not reassign it) and in the launch dialog's
-   * nested create (the agent was just picked and only its presets make
-   * sense there).
+   * creation and the API does not reassign it) and in the create dialog's
+   * CLONE posture, where the caller passes the lock as the seed's own
+   * harness. (The launch dialog's nested `+` - the third caller - left
+   * with the 2026-09-30 "Save as preset" ruling.)
    */
   lockedHarness?: string;
   /**

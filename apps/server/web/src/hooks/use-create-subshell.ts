@@ -111,10 +111,20 @@ export function useCreateSubshell() {
       // the cross-comm switch - letting agents launch is an opt-in per row.
       let saved: { id: string } | null = null;
       if (input.saveAsPreset === true) {
-        const source =
-          input.presetId != null
-            ? ((await apiFetch<PresetRow[]>("/api/presets")).find((r) => r.id === input.presetId) ?? null)
-            : null;
+        let source: PresetRow | null = null;
+        if (input.presetId != null) {
+          // The copy SOURCE is read before anything is created, and every
+          // failure here aborts the whole launch with the COPY named - a
+          // silent fallback to the bare copy is how the settings-loss bug
+          // this step fixes reads (review round 4).
+          const rows = await apiFetch<PresetRow[]>("/api/presets").catch(() => {
+            throw new Error("Could not read your presets to save this launch. Try again.");
+          });
+          source = rows.find((r) => r.id === input.presetId) ?? null;
+          if (source === null) {
+            throw new Error("The preset you picked no longer exists. Pick again, or launch without saving.");
+          }
+        }
         saved = await apiPost<{ id: string }>("/api/presets", {
           harnessId: input.harnessId,
           name: (input.presetName ?? "").trim(),
@@ -147,6 +157,11 @@ export function useCreateSubshell() {
         // orphan: invisible (the list was never invalidated) and poisonous
         // (the unique-name index would refuse the retry). Take it back
         // before rethrowing; best-effort - the launch error is the story.
+        // Accepted trade (review round 4): a client-side throw AFTER a
+        // server-side success (slow remote spawn outliving the request)
+        // would un-save a preset its running pane references - the same
+        // timeout asymmetry the MCP layer documents; the repo tolerates a
+        // nulled preset_id, and a visible leftover row is the worse half.
         if (saved !== null) {
           try {
             await apiFetch(`/api/presets/${saved.id}`, { method: "DELETE" });

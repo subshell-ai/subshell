@@ -34,15 +34,15 @@ export function useInvalidatePresets(): () => Promise<void> {
 }
 
 /**
- * Creates a preset (`POST /api/presets`, which returns the created row).
- * The caller decides what to do with the row — the launch dialog's inline
- * create selects it, the /presets page just lets the list render it.
+ * Creates a preset (`POST /api/presets`, which returns the created row) and
+ * hands the row to the caller - the /presets page lets the list render it,
+ * and the launch form's "Save as preset" path posts through the launch
+ * mutation instead of this hook.
  *
  * The row is WRITTEN INTO the list cache before the invalidation, not merely
- * invalidated behind it: the launch form selects the new row from this
- * response while its "preset must belong to the held agent" guard reads the
- * SAME cache, and an invalidation-only refetch would leave the row absent
- * long enough for the guard to null the selection back to "None".
+ * invalidated behind it: a surface that just created a preset and reads the
+ * same `["presets"]` cache (a picker opened straight after, the edit
+ * landing) would otherwise see the row absent for a frame.
  */
 export function useCreatePreset() {
   const queryClient = useQueryClient();
