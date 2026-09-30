@@ -176,7 +176,7 @@
     },
     "apps/server/api": {
       "name": "@internal/server",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "dependencies": {
         "@better-auth/api-key": "1.7.1",
         "@better-auth/passkey": "1.7.1",
