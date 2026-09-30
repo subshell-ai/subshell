@@ -207,8 +207,11 @@ export function PresetFields({
               aria-required
             />
             {/* Save is gated on this (a blank name is refused server-side too);
-                the line says so in the same voice the cross-comm gaps use. */}
-            {value.name.trim() === "" && <p className="text-detail text-muted-foreground">A name is required.</p>}
+                the caption wears the same amber as the cross-comm gap rows:
+                every unfilled requirement reads alike (operator, 2026-09-30). */}
+            {value.name.trim() === "" && (
+              <p className="text-amber-600 text-detail dark:text-amber-400">A name is required.</p>
+            )}
           </div>
           {/* TWO VIEWS OF ONE SET OF VALUES. The rows are the state either
               way, so switching is free and lossless: paste a command and the
