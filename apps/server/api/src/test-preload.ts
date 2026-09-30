@@ -1,8 +1,7 @@
 import { afterAll } from "bun:test";
-import { readdirSync, rmSync, unlinkSync } from "node:fs";
+import { readdirSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
-import { spawnSync } from "bun";
+import { join } from "node:path";
 
 /**
  * Test preload: marks the process as a test run before any module that reads
@@ -23,68 +22,16 @@ import { spawnSync } from "bun";
  * Bun loads `.env` before a preload runs — so `DATABASE_PATH` from a
  * developer's `.env` is already present here, and "set it only if absent"
  * silently hands the suites the live database.
+ *
+ * The tmux kill-all sweep that lived in this file until issue #261 is now in
+ * `scripts/test-run.sh`, which wraps the `test` script. Here it was a
+ * preload-registered `afterAll`, which fires once per run serially but after
+ * EVERY file under `--parallel` (measured on 1.4.0) — and a sweep scoped by
+ * the run's shared `TMUX_TMPDIR` would then kill the panes of sibling workers
+ * still mid-suite. The script outlives every worker, so it can sweep the same
+ * namespace safely.
  */
 process.env.SUBSHELL_TEST_MODE = "1";
-
-/**
- * Kills every tmux server this run started, as the net under each suite's own
- * reaper.
- *
- * A per-file `afterAll` is still the right thing to write — it releases the
- * pane when the file ends rather than when the run does, and it is visible to
- * whoever reads that file. This catches what no per-file reaper can: a launch
- * that throws before its socket is registered, a file with no reaper at all,
- * and a per-test timeout that ends a file before its hooks run. What leaks is
- * not a socket file but a live harness process — measured 2026-09-14, 17
- * `claude` panes at ~220 MB each were alive on one developer's machine, the
- * oldest a day old, one per full `bun test` since.
- *
- * SCOPED BY `TMUX_TMPDIR`, which the `test` script creates fresh per
- * invocation (`mktemp -d /tmp/subshell-test-tmux-XXXXXX`): tmux resolves
- * `-L <name>` under it, so "which servers did this run start" becomes a
- * directory listing rather than a guess, and a concurrent run's panes are
- * outside it. Two things make the variable's home the script and not this
- * file, both measured on bun 1.4.2:
- *
- * - **A child does not see a `process.env` written after startup.** Bun hands
- *   a spawned process the environment this one was STARTED with, so setting
- *   it here reaches `tmuxSocketPath()` in this process and NOT the tmux client
- *   — which would be worse than doing nothing: the socket would land in the
- *   default `/tmp`, while `cleanSocket` unlinked a path in the temp dir.
- * - **`/tmp`, not `tmpdir()`.** On macOS `tmpdir()` is a ~49-byte
- *   `/var/folders/...` path, and a unix socket path is capped at 104 bytes
- *   there (`assertSocketPathFits`) — `<tmpdir>/<this dir>/tmux-<uid>/subshell-<12hex>`
- *   lands within a few bytes of the limit, and tripping it fails every launch
- *   in the suite with tmux's bare "File name too long".
- *
- * A bare hand-typed `bun test` sets no such variable and gets no net; it also
- * gets the default socket dir, where killing anything would reach panes this
- * run never started. `kill-server`, not `kill-session`: the pane is the point.
- * Errors are ignored throughout — cleanup may never mask the run's results.
- */
-afterAll(() => {
-  const base = process.env.TMUX_TMPDIR;
-  if (!base || !basename(base).startsWith("subshell-test-tmux-")) return;
-  const socketDir = join(base, `tmux-${process.getuid?.() ?? 0}`);
-  let sockets: string[] = [];
-  try {
-    sockets = readdirSync(socketDir);
-  } catch {
-    // no sockets were ever created — the common case
-  }
-  for (const socket of sockets) {
-    try {
-      // `spawnSync` THROWS ENOENT when tmux is not installed — it does not
-      // report it as a non-zero exit — so without this the comment above
-      // about ignoring errors would be false on the one machine where the
-      // sweep has nothing to do anyway.
-      spawnSync(["tmux", "-L", socket, "kill-server"], { stdout: "ignore", stderr: "ignore" });
-    } catch {
-      // no tmux on this machine; there is nothing it could have started
-    }
-  }
-  rmSync(base, { recursive: true, force: true });
-});
 
 /**
  * Best-effort removal of this process's temp test databases once the run is
@@ -94,9 +41,13 @@ afterAll(() => {
  * This must be the runner's own `afterAll` rather than a `process.on("exit")`
  * hook: `bun test` never fires exit/beforeExit listeners (verified
  * empirically on Bun 1.4.0), so an exit hook would leak a database file on
- * every single run. A preload-registered `afterAll` fires exactly once,
- * after every test file's own `afterAll` hooks — no suite loses its DB
- * mid-run — and it also fires on a failing run.
+ * every single run. A preload-registered `afterAll` fires after every test
+ * file's own `afterAll` hooks and on failing runs — once per run serially,
+ * once per file under `--parallel`. The PID prefix makes that safe in both
+ * modes: a firing removes only this process's files, files run one at a time
+ * inside a worker, and a later file's DB is created when it imports
+ * `constants.ts` — after the earlier sweep. (The tmux sweep could not say the
+ * same; see the header.)
  *
  * The file is matched by this process's `subshell-test-<pid>-` prefix instead of
  * importing `TEST_DATABASE_PATH`: static imports hoist above the flag
