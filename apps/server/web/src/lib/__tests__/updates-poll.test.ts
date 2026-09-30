@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { nodeRow, nodeUpdates, updatesView } from "@/components/__tests__/helpers/updates-view";
+import { nodeRow, nodeUpdates, serverUpdateView, updatesView } from "@/components/__tests__/helpers/updates-view";
 import { updatesPollMs } from "@/lib/updates-poll";
-import type { UpdateTrackerState } from "@/types/updates";
+import type { UpdateJob, UpdateTrackerState } from "@/types/updates";
 
 /** One tracker entry with everything else defaulted. */
 function state(over: Partial<UpdateTrackerState>): UpdateTrackerState {
@@ -12,6 +12,20 @@ function state(over: Partial<UpdateTrackerState>): UpdateTrackerState {
     phase: "working",
     message: null,
     endedAt: null,
+    ...over,
+  };
+}
+
+/** The in-process server job, at one phase, everything else at rest. */
+function job(over: Partial<UpdateJob> = {}): UpdateJob {
+  return {
+    from: "0.6.0",
+    to: "0.7.0",
+    startedAt: "2026-09-30T12:00:00.000Z",
+    phase: "downloading",
+    received: 0,
+    total: null,
+    error: null,
     ...over,
   };
 }
@@ -72,6 +86,22 @@ describe("updatesPollMs", () => {
       }),
       serverUpdate: state({ phase: "done", endedAt: "y" }),
     });
+    expect(updatesPollMs(view, false)).toBe(false);
+  });
+
+  it("polls while the server's own job is running: the self tracker entry starts only at the swap", () => {
+    // The refresh bug this gate closes: a page reloaded mid-download had no
+    // live tracker entry to see, answered false forever, and rendered the
+    // job line frozen at the moment of load. The job is a server fact in the
+    // same payload, so the gate can read it.
+    for (const phase of ["downloading", "verifying", "backing-up", "swapping", "restarting"] as const) {
+      const view = updatesView({ server: serverUpdateView({ job: job({ phase }) }) });
+      expect(updatesPollMs(view, false)).toBe(2_000);
+    }
+  });
+
+  it("stops polling on a failed job, which stays visible until the next start", () => {
+    const view = updatesView({ server: serverUpdateView({ job: job({ phase: "failed", error: "no reason" }) }) });
     expect(updatesPollMs(view, false)).toBe(false);
   });
 });
