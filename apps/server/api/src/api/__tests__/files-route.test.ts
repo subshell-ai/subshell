@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { hashPassword } from "better-auth/crypto";
@@ -12,6 +12,7 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { setFilesRealpathForTests } from "@/services/files-path-rules.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
@@ -115,12 +116,13 @@ describe("files route (folder explorer)", () => {
   describe("a listing macOS refuses (spec 2026-09-14 §5.3)", () => {
     afterEach(() => setFilesReaddirForTests(null));
 
-    /** The exact shape node throws for a TCC refusal / a mode-denied read. */
-    function errnoThrower(code: string): (path: string) => string[] {
+    /** The exact shape node throws for a TCC refusal / a mode-denied read.
+     *  Rejected (not thrown): the read is async now, off the event loop. */
+    function errnoThrower(code: string): (path: string) => Promise<string[]> {
       return () => {
         const err = new Error(`${code}: permission denied`) as NodeJS.ErrnoException;
         err.code = code;
-        throw err;
+        return Promise.reject(err);
       };
     }
 
@@ -170,10 +172,115 @@ describe("files route (folder explorer)", () => {
       const seen: string[] = [];
       setFilesReaddirForTests((path) => {
         seen.push(path);
-        return [];
+        return Promise.resolve([]);
       });
       await explore({ cookieToken: cookie, path: "/tmp" });
       expect(seen).toEqual(["/tmp"]);
+    });
+  });
+
+  // The browse reads moved off the event loop (mac-builder, 2026-09-30: one
+  // SYNCHRONOUS readdir of a directory on a hung mount parked the whole server).
+  // These pin the two visible consequences, both of which the picker relies on.
+  describe("listing is ordered, and a hung read recovers (2026-09-30)", () => {
+    afterEach(() => {
+      setFilesReaddirForTests(null);
+      setFilesRealpathForTests(null);
+    });
+
+    it("sorts entries alphabetically (case-insensitive, numeric-aware), not readdir order", async () => {
+      const dir = mkdtempSync(join(tmpdir(), "subshell-sort-"));
+      try {
+        // Created deliberately out of order, and with digit runs so a naive
+        // byte sort would put "item10" before "item2".
+        for (const name of ["zeta", "beta", "item10", "item2", "Alpha"]) {
+          mkdirSync(join(dir, name));
+        }
+        const res = await explore({ cookieToken: cookie, path: dir });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { entries: { name: string; kind: string }[] };
+        expect(body.entries.map((e) => e.name)).toEqual(["Alpha", "beta", "item2", "item10", "zeta"]);
+        expect(new Set(body.entries.map((e) => e.kind))).toEqual(new Set(["dir"]));
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("a read that never answers is a bounded 200 blocked: 'timeout', not a hung request", async () => {
+      // Drive the deadline down so the test does not wait the real 10s, then
+      // inject a readdir that never settles (the hung-mount shape).
+      const saved = process.env.SUBSHELL_FS_READ_TIMEOUT_MS;
+      process.env.SUBSHELL_FS_READ_TIMEOUT_MS = "30";
+      try {
+        setFilesReaddirForTests(() => new Promise<string[]>(() => {}));
+        const started = Date.now();
+        const res = await explore({ cookieToken: cookie, path: "/tmp" });
+        expect(res.status).toBe(200);
+        expect(Date.now() - started).toBeLessThan(3_000); // bounded, not the 10s wait
+        const body = (await res.json()) as {
+          blocked?: string;
+          entries: unknown[];
+          parent: string | null;
+        };
+        expect(body.blocked).toBe("timeout");
+        expect(body.entries).toEqual([]);
+        // The escape routes the panel needs to recover still ride the response:
+        // the parent (toward a readable folder) and the saved-shortcut sections.
+        expect(body.parent).toBe("/");
+      } finally {
+        if (saved === undefined) delete process.env.SUBSHELL_FS_READ_TIMEOUT_MS;
+        else process.env.SUBSHELL_FS_READ_TIMEOUT_MS = saved;
+      }
+    });
+
+    it("a hung gate realpath is a bounded 200 blocked: 'timeout', not a 500", async () => {
+      // The confinement gate realpaths a candidate for a restricted caller. When
+      // THAT read is the one that hangs (mac-builder's exact fault: a Linux-style
+      // /home path under an auto_home mount), the route must classify it as the
+      // same recoverable blocked listing the readdir path produces, not leak the
+      // FsDeadlineError to the 500 handler. Forces the gate off its fast path via
+      // a set FS_ROOT, then hangs the injected realpath.
+      const saved = process.env.SUBSHELL_FS_READ_TIMEOUT_MS;
+      const savedRoot = process.env.SUBSHELL_FS_ROOT;
+      process.env.SUBSHELL_FS_READ_TIMEOUT_MS = "30";
+      process.env.SUBSHELL_FS_ROOT = savedRoot ?? "/"; // any set root keeps the gate off the fast path
+      try {
+        setFilesRealpathForTests(() => new Promise<string>(() => {}));
+        const started = Date.now();
+        const res = await explore({ cookieToken: cookie, path: "/tmp" });
+        expect(res.status).toBe(200);
+        expect(Date.now() - started).toBeLessThan(3_000);
+        const body = (await res.json()) as { blocked?: string; entries: unknown[] };
+        expect(body.blocked).toBe("timeout");
+        expect(body.entries).toEqual([]);
+      } finally {
+        if (saved === undefined) delete process.env.SUBSHELL_FS_READ_TIMEOUT_MS;
+        else process.env.SUBSHELL_FS_READ_TIMEOUT_MS = saved;
+        if (savedRoot === undefined) delete process.env.SUBSHELL_FS_ROOT;
+        else process.env.SUBSHELL_FS_ROOT = savedRoot;
+      }
+    });
+
+    it("a restricted browse still answers with a clean status, never a 500", async () => {
+      // The async gate now runs under a confinement root that cannot resolve.
+      // Whatever the exact refusal, it must be a well-formed 200/403 — the move
+      // to promises must not turn a confinement reject into an unhandled throw.
+      const saved = process.env.SUBSHELL_FS_READ_TIMEOUT_MS;
+      const savedRoot = process.env.SUBSHELL_FS_ROOT;
+      process.env.SUBSHELL_FS_READ_TIMEOUT_MS = "30";
+      process.env.SUBSHELL_FS_ROOT = "/nonexistent-fs-root-that-cannot-resolve";
+      try {
+        setFilesReaddirForTests(() => new Promise<string[]>(() => {}));
+        const res = await explore({ cookieToken: cookie, path: "/tmp" });
+        // A confinement root that cannot be resolved refuses the path (403) or
+        // times it out (200 blocked) — never a 500 either way.
+        expect([200, 403]).toContain(res.status);
+      } finally {
+        if (saved === undefined) delete process.env.SUBSHELL_FS_READ_TIMEOUT_MS;
+        else process.env.SUBSHELL_FS_READ_TIMEOUT_MS = saved;
+        if (savedRoot === undefined) delete process.env.SUBSHELL_FS_ROOT;
+        else process.env.SUBSHELL_FS_ROOT = savedRoot;
+      }
     });
   });
 

@@ -5,7 +5,7 @@ import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.j
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { loadNodeAccess } from "@/lib/node-access.js";
-import { favoritePathsFor, launchScopeFor, recentPathsFor } from "@/services/files-path-rules.js";
+import { favoritePathsFor, launchScopeFor, recentPathsFor, sortDirEntries } from "@/services/files-path-rules.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
 /**
@@ -179,7 +179,11 @@ export async function exploreNodeDirectory(
   // browsing `/home` with a rule of `/home/theo/projects` would filter out
   // `/home/theo` — an ancestor — and leave an empty panel with no way down to
   // the one directory that is permitted. Ancestors are stepping stones.
-  const entries = dirs.length === 0 ? listing.entries : listing.entries.filter((e) => dirNavigable(e.path, dirs));
+  // Sort at the source, exactly as the local route does: the agent answers in
+  // `readdir` (inode) order and the picker wants a stable alphabetical list on
+  // BOTH transports. `sortDirEntries` is shared so local and remote never drift.
+  const rawEntries = dirs.length === 0 ? listing.entries : listing.entries.filter((e) => dirNavigable(e.path, dirs));
+  const entries = sortDirEntries(rawEntries);
   // The picker opens on the node's HOME (`path: ""`), which is usually outside
   // the rules — so a constrained caller's first view would be an empty,
   // unnavigable panel. Answer with the roots themselves instead. `parent: null`
@@ -202,7 +206,7 @@ export async function exploreNodeDirectory(
     return {
       path: listing.path,
       parent: null,
-      entries: dirs.map((dir) => ({ name: dir, path: dir, kind: "dir" as const })),
+      entries: sortDirEntries(dirs.map((dir) => ({ name: dir, path: dir, kind: "dir" as const }))),
       recent,
       favorites,
     };

@@ -415,6 +415,16 @@ export default function NewSubshell() {
           {dirError ? (
             <Text style={{ ...font("body"), color: colors.destructive, padding: 16 }}>{dirError}</Text>
           ) : null}
+          {dir?.blocked ? (
+            // The folder came back empty because the read was refused or timed
+            // out, not because it is empty. The favourites/recents below still
+            // list, and that is the way out (a blocked home is survivable).
+            <Text style={{ ...font("detail"), color: colors.mutedFg, paddingHorizontal: 16, paddingTop: 8 }}>
+              {dir.blocked === "timeout"
+                ? "This folder took too long to read. It may be on a slow or disconnected drive."
+                : "This server is not allowed to read this folder."}
+            </Text>
+          ) : null}
           {dirBusy && !dir ? (
             <View style={{ padding: 24, alignItems: "center" }}>
               <ActivityIndicator />

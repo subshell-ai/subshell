@@ -26,4 +26,10 @@ export interface ExploreResult {
   recent: { path: string; label: string | null }[];
   /** Starred paths (the picker's favourites section) */
   favorites: { path: string; label: string | null }[];
+  /**
+   * Why the listing came back empty though the request succeeded:
+   * `"permission"` (the OS refused the read) or `"timeout"` (it never answered
+   * the server's deadline, a hung mount). Absent on a genuinely empty folder.
+   */
+  blocked?: "permission" | "timeout";
 }
