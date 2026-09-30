@@ -1,5 +1,20 @@
 # @internal/server
 
+## 1.7.1
+
+### Patch Changes
+
+- [`2e02e0b`](https://github.com/subshell-ai/subshell/commit/2e02e0b747de546e8c700c13fde8bdb6bcaad0a5) Thanks [@theogravity](https://github.com/theogravity)! - A hung directory read can no longer wedge the server: the file picker's
+  walks run off the event loop on a shared ten-second budget, and a read
+  that fails to answer comes back as a bounded "this directory could not
+  be read" panel with Go up one level and Start over instead of a frozen
+  tab. An unreadable directory says so and keeps the favorites and recents
+  you can still reach, and every listing is sorted alphabetically
+  (natural numeric order) wherever it is served from.
+  @internal/desktop-server rides the bump automatically: it bundles this
+  server binary, and that is how the fix reaches a desktop-hosted
+  instance.
+
 ## 1.7.0
 
 ### Minor Changes
