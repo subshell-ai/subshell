@@ -427,10 +427,14 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       const dialog = await screen.findByRole("dialog");
       const save = () => screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement;
       expect(save().disabled).toBe(true);
+      // And it says WHY: the blank field carries the requirement in words.
+      expect(dialog.textContent).toContain("A name is required.");
       fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "   " } });
       expect(save().disabled).toBe(true);
+      expect(dialog.textContent).toContain("A name is required.");
       fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "Fast" } });
       expect(save().disabled).toBe(false);
+      expect(dialog.textContent).not.toContain("A name is required.");
     } finally {
       m.restore();
     }

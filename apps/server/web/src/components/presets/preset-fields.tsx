@@ -204,7 +204,11 @@ export function PresetFields({
               value={value.name}
               onChange={(e) => onChange({ ...value, name: e.target.value })}
               placeholder="e.g. Fast model"
+              aria-required
             />
+            {/* Save is gated on this (a blank name is refused server-side too);
+                the line says so in the same voice the cross-comm gaps use. */}
+            {value.name.trim() === "" && <p className="text-detail text-muted-foreground">A name is required.</p>}
           </div>
           {/* TWO VIEWS OF ONE SET OF VALUES. The rows are the state either
               way, so switching is free and lossless: paste a command and the
