@@ -41,6 +41,7 @@ import * as approvalStateMigration from "@/db/migrations/0038-approval-state.js"
 import * as subshellCrossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
 import * as promptsMigration from "@/db/migrations/0040-prompts.js";
 import * as promptStacksMigration from "@/db/migrations/0041-prompt-stacks.js";
+import * as presetLaunchFieldsMigration from "@/db/migrations/0042-preset-launch-fields.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -120,6 +121,7 @@ export async function runMigrations(): Promise<void> {
           // shifted down (operator ruling 2026-09-29).
           "0040-prompts": promptsMigration,
           "0041-prompt-stacks": promptStacksMigration,
+          "0042-preset-launch-fields": presetLaunchFieldsMigration,
         };
       },
     },

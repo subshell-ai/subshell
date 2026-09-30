@@ -1,11 +1,88 @@
 import { getHarness, type SettingsField } from "@internal/pane-runtime";
+import { joinPresetPrompt, type PresetPromptBlock } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard } from "@/api/auth-guard.js";
 import { getAllHarnessIds } from "@/api/harness-utils.js";
 import { HarnessSchemaResponseSchema, PresetSchema } from "@/api/models.js";
 import { db } from "@/db/index.js";
+import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
+import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
+import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
 import { PORTABLE_MCP_LAUNCH } from "@/services/mcp-resolve.js";
+import { serverSubshellsEnabled } from "@/services/server-as-node.js";
+
+/** Max joined prompt text, same cap as the launch form's `prompt` field. */
+const MAX_PRESET_PROMPT_CHARS = 20_000;
+
+/**
+ * One prompt block as the preset editor sends it: the launch form's stack
+ * minus `localId` (form-local by contract; the SPA adds ids back on load).
+ * Names mirror the protocol type; the descriptions are OpenAPI's.
+ */
+const PresetPromptBlockSchema = t.Object({
+  kind: t.Union([t.Literal("saved"), t.Literal("custom"), t.Literal("stack")], {
+    description: "Library prompt, custom text, or a stack picked whole",
+  }),
+  promptId: t.Optional(t.String({ description: "Library id a saved block came from" })),
+  stackId: t.Optional(t.String({ description: "Library id a stack block came from" })),
+  stackCount: t.Optional(t.Number({ description: "Member count a stack block carries (kept from the pick)" })),
+  description: t.String({ maxLength: 200, description: "Block label as stored ('' = untitled)" }),
+  body: t.String({ maxLength: MAX_PRESET_PROMPT_CHARS, description: "Block text, snapshotted at pick" }),
+});
+
+/**
+ * Validates a preset's optional launch fields, shared by create and update.
+ * The node must be one the caller could LAUNCH on (the same answer the launch
+ * gate gives - invisible ⇒ 404, visible-but-unlaunchable ⇒ 403); maintenance
+ * and liveness are deliberately NOT write-time failures: a window ends and an
+ * offline machine comes back, and the LAUNCH gate is where those refuse. A
+ * working dir must be an absolute path; the node's directory allowlist still
+ * enforces at launch. Prompt blocks must round-trip the protocol shape and
+ * their join must fit the same cap the launch form's prompt carries.
+ */
+async function validatePresetLaunchFields(
+  userId: string,
+  fields: { nodeId?: string | null; workingDir?: string | null; promptBlocks?: PresetPromptBlock[] | null },
+): Promise<{ nodeId?: string | null; workingDir?: string | null; promptBlocks?: string | null }> {
+  // Absent means UNTOUCHED (a PUT that names no node keeps the row's), explicit
+  // null means cleared - so the result carries `undefined` through, and each
+  // caller's spread preserves or clears exactly as the body said.
+  let nodeId: string | null | undefined = fields.nodeId === undefined ? undefined : null;
+  if (fields.nodeId !== undefined && fields.nodeId !== null) {
+    const deps: NodeAccessDeps = {
+      nodes: new NodesRepository(db),
+      shares: new NodeSharesRepository(db),
+      userMeta: new UserMetaRepository(db),
+    };
+    const { row, access, granted } = await loadNodeAccess(deps, userId, fields.nodeId, {
+      allowAdminAndShares: true,
+    });
+    if (!row || !nodeCanLaunch(access)) {
+      throw new PresetError("not_found", "Node not found", 404);
+    }
+    if (!nodeCanLaunchOn(row.kind, access, granted, false, await serverSubshellsEnabled(db))) {
+      throw new PresetError("node_launch_disabled", `No launch access on ${row.name}`, 403);
+    }
+    nodeId = fields.nodeId;
+  }
+  let workingDir: string | null | undefined = fields.workingDir === undefined ? undefined : null;
+  if (fields.workingDir !== undefined && fields.workingDir !== null) {
+    if (!fields.workingDir.startsWith("/")) {
+      throw new PresetError("bad_request", "A preset's working directory must be an absolute path", 400);
+    }
+    workingDir = fields.workingDir;
+  }
+  let promptBlocks: string | null | undefined = fields.promptBlocks === undefined ? undefined : null;
+  if (fields.promptBlocks !== undefined && fields.promptBlocks !== null) {
+    if (joinPresetPrompt(fields.promptBlocks).length > MAX_PRESET_PROMPT_CHARS) {
+      throw new PresetError("bad_request", "A preset's prompt must stay under 20000 characters", 400);
+    }
+    promptBlocks = JSON.stringify(fields.promptBlocks);
+  }
+  return { nodeId, workingDir, promptBlocks };
+}
 
 /**
  * A settings field the preset editor can actually hold.
@@ -47,6 +124,11 @@ const CreatePresetBodySchema = t.Object({
   settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
   configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
   restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
+  nodeId: t.Optional(t.Nullable(t.String({ description: "Optional launch node hint" }))),
+  workingDir: t.Optional(t.Nullable(t.String({ maxLength: 4096, description: "Optional absolute working directory" }))),
+  promptBlocks: t.Optional(
+    t.Nullable(t.Array(PresetPromptBlockSchema, { maxItems: 50, description: "Optional prompt block stack" })),
+  ),
 });
 
 /**
@@ -74,6 +156,15 @@ const UpdatePresetBodySchema = t.Object(
     settings: t.Optional(t.Record(t.String(), t.Any(), { description: "Settings JSON object" })),
     configIsolation: t.Optional(t.Boolean({ description: "Config source isolation" })),
     restartOnExit: t.Optional(t.Boolean({ description: "New subshells auto-restart on exit" })),
+    nodeId: t.Optional(t.Nullable(t.String({ description: "Launch node hint (null clears it)" }))),
+    workingDir: t.Optional(
+      t.Nullable(t.String({ maxLength: 4096, description: "Absolute working directory (null clears it)" })),
+    ),
+    promptBlocks: t.Optional(
+      t.Nullable(
+        t.Array(PresetPromptBlockSchema, { maxItems: 50, description: "Prompt block stack (null clears it)" }),
+      ),
+    ),
   },
   { additionalProperties: false },
 );
@@ -87,6 +178,9 @@ const UPDATE_PRESET_KEYS = new Set([
   "settings",
   "configIsolation",
   "restartOnExit",
+  "nodeId",
+  "workingDir",
+  "promptBlocks",
 ]);
 
 /**
@@ -136,6 +230,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         );
       }
       const repo = new PresetsRepository(db);
+      const launch = await validatePresetLaunchFields(user.id, body);
       try {
         return await repo.create({
           id: crypto.randomUUID(),
@@ -148,6 +243,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
           settingsJson: body.settings ? JSON.stringify(body.settings) : null,
           configIsolation: body.configIsolation ? 1 : 0,
           restartOnExit: body.restartOnExit ? 1 : 0,
+          ...launch,
         });
       } catch (err) {
         if (isDuplicateName(err)) {
@@ -272,6 +368,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
         throw new PresetError("not_found", "Preset not found");
       }
       const name = body.name ?? existing.name;
+      const launch = await validatePresetLaunchFields(user.id, body);
       let updated: Awaited<ReturnType<typeof repo.update>>;
       try {
         updated = await repo.update(params.id, {
@@ -283,6 +380,12 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
           configIsolation:
             body.configIsolation !== undefined ? (body.configIsolation ? 1 : 0) : existing.configIsolation,
           restartOnExit: body.restartOnExit !== undefined ? (body.restartOnExit ? 1 : 0) : existing.restartOnExit,
+          // The launch fields merge by KEY PRESENCE (explicit null clears),
+          // unlike `description`'s `??` line above: these carry a real null
+          // meaning - "this preset names no node" - that the row can hold.
+          nodeId: launch.nodeId !== undefined ? launch.nodeId : existing.nodeId,
+          workingDir: launch.workingDir !== undefined ? launch.workingDir : existing.workingDir,
+          promptBlocks: launch.promptBlocks !== undefined ? launch.promptBlocks : existing.promptBlocks,
         });
       } catch (err) {
         if (isDuplicateName(err)) {
