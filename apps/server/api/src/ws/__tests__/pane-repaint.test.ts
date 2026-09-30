@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PANE_LOG_FILE_FLAG, TmuxRunner, tmuxSocketFor } from "@internal/pane-runtime";
@@ -182,13 +182,28 @@ describe("fitPaneAndRepaint", () => {
     // after pane birth; the prompt arrived later as live bytes, and the
     // client rendered prompt-at-top with its cursor stranded at the bottom.
     // A pane that paints within the budget must come back repainted=true.
-    // `seed` already spent 500ms, so the paint is armed to land ~100ms INTO
-    // the watch — growth observed, 60ms of quiet, return — well inside the
-    // 200ms no-growth budget the silent case above pays instead.
-    const p = await seed("boot-paint", "sh -c 'sleep 0.6; printf hello; sleep 30'");
+    //
+    // The paint is EVENT-DRIVEN, not a wall-clock offset. The first version
+    // slept 600 ms in the pane against `seed`'s 500 ms sleep - a 100 ms
+    // margin the throttled CI container ate (shard 2/2, 2026-09-30, the
+    // `booting` case): a stretched seed sleep started the watch AFTER the
+    // single-shot paint, and a late capture child missed the one byte that
+    // never reappeared. The pane now waits on a go-file, so NOTHING paints
+    // before the watch is about to run (the blank-replay risk stays live at
+    // `before`), and once it starts it repaints every 150 ms - inside the
+    // 200 ms no-growth budget whatever the scheduler does. The quiet beat
+    // (60 ms) sits under the interval, so the watch still ends on the FIRST
+    // paint going quiet, which is the claim this test pins.
+    const goFile = join(tmpdir(), `subshell-repaint-go-${process.pid}.f`);
+    rmSync(goFile, { force: true });
+    const p = await seed(
+      "boot-paint",
+      `sh -c 'while [ ! -f ${goFile} ]; do sleep 0.05; done; while :; do printf hello; sleep 0.15; done'`,
+    );
     try {
       const before = await p.sizeOf();
       expect(before).toBe(0); // nothing painted yet — the blank-replay risk is live
+      writeFileSync(goFile, "");
       const r = await fitPaneAndRepaint(launcher, p.socket, p.id, p.size, p.sizeOf, {
         baseline: 0,
         canNudge: true,
@@ -198,6 +213,7 @@ describe("fitPaneAndRepaint", () => {
       expect(await p.sizeOf()).toBeGreaterThan(before);
     } finally {
       await p.dispose();
+      rmSync(goFile, { force: true });
     }
   });
 
