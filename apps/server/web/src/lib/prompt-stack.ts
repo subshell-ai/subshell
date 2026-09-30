@@ -6,15 +6,21 @@ import { newRandomId } from "@/lib/random-id";
  * without a form on screen.
  */
 
-/** One block of the stack: a saved prompt's text, or a custom one. */
+/** One block of the stack: a saved prompt, a stack picked whole, or a custom one. */
 export interface PromptBlock {
   /** Form-local identity (uuid at add); never crosses the wire. */
   localId: string;
-  /** Saved rows remember their library id so the block says what it is. */
-  kind: "saved" | "custom";
-  /** The library id a saved block came from; absent for custom. */
+  /** A stack pick is ONE unit block (spec 2026-09-29): its joined text, snapshot at pick. */
+  kind: "saved" | "custom" | "stack";
+  /** The library id a saved block came from; absent for custom and stack. */
   promptId?: string;
-  /** The label the row shows (a custom unsaved block may read "Untitled"). */
+  /** The library id a stack block came from; the row says "from stack" with it. */
+  stackId?: string;
+  /** Member count a stack block carries, kept from the pick (NOT re-derived:
+   *  a member's own text may contain the blank-line join). */
+  stackCount?: number;
+  /** The block's label as stored; an unlabeled custom row carries "" and the
+   *  list rows render "Untitled" as a display fallback (never baked in). */
   description: string;
   body: string;
 }

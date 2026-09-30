@@ -33,12 +33,36 @@ const sharedRow = {
   updatedAt: "2026-09-28T00:00:00.000Z",
 };
 
-function mockFetch(own: unknown[] = [ownRow], shared: unknown[] = [sharedRow]) {
+/** A stack the picker may offer (spec 2026-09-29): two live members. */
+const stackRow = {
+  id: "st1",
+  label: "Morning set",
+  shared: false,
+  createdAt: "2026-09-29T00:00:00.000Z",
+  updatedAt: "2026-09-29T00:00:00.000Z",
+  items: [
+    { id: "i1", promptId: "pr1", description: "Kickoff", body: "start the task now" },
+    { id: "i2", description: "Note", body: "inline text" },
+  ],
+};
+const emptyStack = { ...stackRow, id: "st-empty", label: "Emptied out", items: [] };
+
+/** The stacks default to NONE so the older empty-state sentences keep their
+ *  meaning; the stack cases below pass rows explicitly (spec 2026-09-29). */
+function mockFetch(
+  own: unknown[] = [ownRow],
+  shared: unknown[] = [sharedRow],
+  ownStacks: unknown[] = [],
+  sharedStacks: unknown[] = [],
+) {
   const realFetch = globalThis.fetch;
   const posts: { url: string; body: Record<string, unknown> }[] = [];
   globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
+    if (url === "/api/prompts/stacks") {
+      return Promise.resolve(new Response(JSON.stringify({ own: ownStacks, shared: sharedStacks })));
+    }
     if (url === "/api/prompts" && method !== "POST") {
       return Promise.resolve(new Response(JSON.stringify({ own, shared })));
     }
@@ -51,13 +75,21 @@ function mockFetch(own: unknown[] = [ownRow], shared: unknown[] = [sharedRow]) {
   return { posts, restore: () => (globalThis.fetch = realFetch) };
 }
 
-function renderPicker(props: { onPick: (block: PromptBlock) => void; onExit?: () => void; mode?: "multi" | "single" }) {
+function renderPicker(props: {
+  onPick: (block: PromptBlock) => void;
+  onExit?: () => void;
+  mode?: "multi" | "single";
+  allowStacks?: boolean;
+  draftScope?: string;
+}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <PromptPickerBody
         surface="inline"
         mode={props.mode ?? "multi"}
+        allowStacks={props.allowStacks ?? true}
+        draftScope={props.draftScope}
         onExit={props.onExit ?? (() => {})}
         onPick={props.onPick}
       />
@@ -88,9 +120,16 @@ const settle = async () => {
   });
 };
 
-beforeEach(() => sessionStorage.clear());
+beforeEach(() => {
+  sessionStorage.clear();
+  // The "Recently used" list lives in localStorage; clear it so a pick in one
+  // case cannot surface as a recent in the next (and seed it explicitly where a
+  // case wants recents).
+  localStorage.clear();
+});
 afterEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   cleanup();
 });
 
@@ -291,5 +330,236 @@ describe("PromptPickerBody", () => {
     await settle();
     fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
     expect((screen.getByPlaceholderText("The text to type into the pane") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("the draft is scoped per SURFACE: a launch-form scratch cannot hijack the stack editor's step", async () => {
+    restore = mockFetch().restore;
+    // Type an unfinished line in the launch form's step (no scope) and walk away.
+    renderPicker({ onPick: () => {} });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
+    fireEvent.change(screen.getByPlaceholderText("The text to type into the pane"), {
+      target: { value: "launch-form scratch" },
+    });
+    await settle();
+    cleanup();
+    // The stack editor's step is its OWN front door: no cross-surface revival.
+    renderPicker({ onPick: () => {}, draftScope: "stack-editor" });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
+    expect((screen.getByPlaceholderText("The text to type into the pane") as HTMLTextAreaElement).value).toBe("");
+    // And the launch form's own surface still resumes what IT left: durability
+    // holds WITHIN a scope, it just no longer crosses between them.
+    cleanup();
+    renderPicker({ onPick: () => {} });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: /Write your own/ }));
+    expect((screen.getByPlaceholderText("The text to type into the pane") as HTMLTextAreaElement).value).toBe(
+      "launch-form scratch",
+    );
+  });
+
+  // Stacks in the listing (spec 2026-09-29): they appear the same as singles,
+  // empty ones are never offered, and a pick lands ONE unit block.
+  it("a stack rides the listing and its pick is ONE block with the joined text", async () => {
+    restore = mockFetch([ownRow], [sharedRow], [stackRow]).restore;
+    const picked: PromptBlock[] = [];
+    renderPicker({ onPick: (b) => picked.push(b) });
+    await settle();
+    openSearch();
+    await settle();
+    fireEvent.click(screen.getByText("Morning set"));
+    expect(picked).toHaveLength(1);
+    expect(picked[0]).toMatchObject({
+      kind: "stack",
+      stackId: "st1",
+      stackCount: 2,
+      description: "Morning set",
+      body: "start the task now\n\ninline text", // members joined, ONE blank line
+    });
+  });
+
+  it("EMPTY stacks are never offered (nothing to type is a trap, not a row)", async () => {
+    restore = mockFetch([ownRow], [sharedRow], [emptyStack]).restore;
+    renderPicker({ onPick: () => {} });
+    await settle();
+    openSearch();
+    await settle();
+    expect(screen.queryByText("Emptied out")).toBeNull();
+    expect(screen.getByText("Kickoff")).toBeTruthy(); // the singles keep their listing
+  });
+
+  it("a stack matches the search by member text, like a single matches its body", async () => {
+    restore = mockFetch([ownRow], [sharedRow], [stackRow]).restore;
+    renderPicker({ onPick: () => {} });
+    await settle();
+    openSearch();
+    await settle();
+    const input = document.getElementById("prompt-picker-search") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "inline text" } });
+    await settle();
+    expect(screen.getByText("Morning set")).toBeTruthy(); // found through a member
+    expect(screen.queryByText("Kickoff")).toBeNull();
+  });
+
+  it("allowStacks=false lists singles only (the stack editor never nests)", async () => {
+    restore = mockFetch([ownRow], [sharedRow], [stackRow]).restore;
+    renderPicker({ onPick: () => {}, allowStacks: false });
+    await settle();
+    openSearch();
+    await settle();
+    expect(screen.queryByText("Morning set")).toBeNull();
+    expect(screen.getByText("Kickoff")).toBeTruthy();
+  });
+});
+
+// The "Recently used" memory (operator ruling 2026-09-29): your last picks lead
+// the list under one header, then a divider, then the rest, each row ONCE.
+describe("PromptPickerBody — Recently used", () => {
+  let restore: (() => void) | undefined;
+  afterEach(() => {
+    restore?.();
+    restore = undefined;
+  });
+
+  const KEY = "subshell/recent-prompt-picks";
+
+  it("leads with the recently picked rows under one header, each shown once", async () => {
+    localStorage.setItem(
+      KEY,
+      JSON.stringify([
+        { kind: "stack", id: "st1" },
+        { kind: "saved", id: "pr1" },
+      ]),
+    );
+    restore = mockFetch(
+      [ownRow, { ...ownRow, id: "pr9", description: "Notes", body: "note body" }],
+      [],
+      [stackRow],
+    ).restore;
+    renderPicker({ onPick: () => {} });
+    await settle();
+    openSearch();
+    await settle();
+    expect(screen.getByText("Recently used")).toBeDefined();
+    // The two recents lead, and are NOT repeated in the rest of the list.
+    expect(screen.getAllByText("Morning set")).toHaveLength(1);
+    expect(screen.getAllByText("Kickoff")).toHaveLength(1);
+    // The non-recent row still rides below.
+    expect(screen.getByText("Notes")).toBeDefined();
+  });
+
+  it("shows no Recently used header on a fresh browser", async () => {
+    restore = mockFetch([ownRow], [], [stackRow]).restore;
+    renderPicker({ onPick: () => {} });
+    await settle();
+    openSearch();
+    await settle();
+    expect(screen.queryByText("Recently used")).toBeNull();
+    expect(screen.getByText("Kickoff")).toBeDefined();
+  });
+
+  it("caps the Recently used run at three", async () => {
+    const four = ["Alpha", "Bravo", "Charlie", "Delta"].map((d, i) => ({
+      id: `p${i}`,
+      description: d,
+      body: d.toLowerCase(),
+      shared: false,
+      createdAt: "t",
+      updatedAt: "t",
+    }));
+    localStorage.setItem(KEY, JSON.stringify(four.map((r) => ({ kind: "saved" as const, id: r.id }))));
+    restore = mockFetch(four, [], []).restore;
+    renderPicker({ onPick: () => {} });
+    await settle();
+    openSearch();
+    await settle();
+    expect(screen.getByText("Recently used")).toBeDefined();
+    // The cap asserted on ORDER, not presence: the recent run is exactly the
+    // first three, and Delta is DEMOTED to the rest (still pickable, one row,
+    // and no longer a "recent"). Presence alone would pass even with no cap.
+    // The label span (first truncate) - the row's textContent also carries
+    // the muted reason (the body preview).
+    const labels = screen.getAllByRole("option").map((el) => el.querySelector("span.truncate")?.textContent);
+    expect(labels.slice(0, 3)).toEqual(["Alpha", "Bravo", "Charlie"]);
+    expect(labels[3]).toBe("Delta");
+    expect(labels.filter((t) => t === "Delta")).toHaveLength(1);
+  });
+});
+
+// The round-5 review: the picker is UNcapped but consumed-posture (value ""),
+// and its stacks feed lands AFTER the prompts feed on a cold open - a real
+// `items` swap under the user's fingers. An uncontrolled input loses the typed
+// text to Base UI's collection reset; the controlled one must not.
+describe("PromptPickerBody — a late items swap keeps the typed query", () => {
+  let restore: (() => void) | undefined;
+  afterEach(() => {
+    restore?.();
+    restore = undefined;
+  });
+
+  it("typed text survives the stacks payload landing mid-session", async () => {
+    const realFetch = globalThis.fetch;
+    // Stacks resolve on a PROMISE we control; prompts resolve immediately.
+    let releaseStacks: (v: Response) => void = () => {};
+    globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (url === "/api/prompts/stacks") {
+        return new Promise<Response>((res) => {
+          releaseStacks = res;
+        });
+      }
+      if (url === "/api/prompts" && method !== "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ own: [ownRow], shared: [] })));
+      }
+      return realFetch(input as never, init as never);
+    }) as typeof fetch;
+    restore = () => (globalThis.fetch = realFetch);
+
+    renderPicker({ onPick: () => {} });
+    await settle(); // prompts land; stacks still pending
+    openSearch();
+    await settle();
+    const input = document.getElementById("prompt-picker-search") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "kick" } });
+    await settle();
+    expect(input.value).toBe("kick");
+    // The stacks payload lands WHILE the text stands: the items array changes
+    // identity - the very swap that wiped the uncontrolled field.
+    await act(async () => {
+      releaseStacks(new Response(JSON.stringify({ own: [stackRow], shared: [] })));
+      await settle();
+    });
+    expect(input.value).toBe("kick");
+    // And the search still answers from both feeds.
+    expect(screen.getAllByRole("option").length).toBeGreaterThan(0);
+  });
+});
+
+// The round-6 nit: a member whose first line is blank (a custom body may
+// start with a newline) must drop its segment, not dangle the separator -
+// the launch-defaults rule applied to the stack option's reason line.
+describe("PromptPickerBody — stack reason line (no dangling separator)", () => {
+  let restore: (() => void) | undefined;
+  afterEach(() => {
+    restore?.();
+    restore = undefined;
+  });
+
+  it("a first-line-empty member yields '1 prompt', not '1 prompt · '", async () => {
+    const newlineStack = {
+      ...stackRow,
+      items: [{ id: "i1", description: "Lead", body: "\nsecond line only" }],
+    };
+    restore = mockFetch([ownRow], [], [newlineStack]).restore;
+    renderPicker({ onPick: () => {} });
+    await settle();
+    openSearch();
+    await settle();
+    const opt = screen.getByRole("option", { name: /Morning set/ });
+    const reason = opt.querySelector("span:last-child")?.textContent ?? "";
+    expect(reason).toBe("1 prompt");
+    expect(reason).not.toContain(" · ");
   });
 });

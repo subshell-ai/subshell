@@ -25,8 +25,17 @@ export interface LaunchTemplate {
   workingDir: string;
 }
 
-/** How many recent subshells the copy picker lists (newest first). */
-export const COPY_SETTINGS_LIMIT = 10;
+/** The copy picker's two categories (operator ruling 2026-09-29). */
+export const ACTIVE_GROUP = "Active";
+export const RECENTLY_TERMINATED_GROUP = "Recently terminated";
+
+/**
+ * How many rows of EACH category the picker shows before you search. The
+ * unfiltered list is deliberately short and tidy (max 3 active over max 3 just
+ * ended); typing lifts the cap, so a search still reaches every row — the cap
+ * is a calm default, never a ceiling.
+ */
+export const COPY_CATEGORY_PREVIEW = 3;
 
 /**
  * The launch settings one row carries, with the older-payload coercions the
@@ -95,32 +104,72 @@ function nodeShortName(nodes: readonly Node[], nodeId: string): string {
   return found?.name ?? nodeId.slice(0, 8);
 }
 
+/** One copy-picker row: the subshell's name, and `agent · node · dir` detail. */
+function copyOption(
+  s: SubshellView,
+  nodes: readonly Node[],
+  plugins: readonly LaunchAgent[],
+  group?: string,
+): ComboboxOption {
+  return {
+    value: s.id,
+    // `name` is required in the view type but fixtures and older payloads
+    // can omit it; the id is the only other thing a row is sure to carry.
+    label: s.name || s.id,
+    // A missing directory (older payload) drops its segment rather than
+    // dangling a separator it cannot fill.
+    reason: [agentName(plugins, s.harnessId), nodeShortName(nodes, s.nodeId ?? "local"), s.workingDir ?? ""]
+      .filter((part) => part !== "")
+      .join(" · "),
+    ...(group === undefined ? {} : { group }),
+  };
+}
+
+/** Ended-most-recent first; a null `endedAt` (a row that died before the
+ *  stamp existed) sinks below the dated ones rather than throwing. */
+function byEndedRecent(a: SubshellView, b: SubshellView): number {
+  const x = a.endedAt ?? "";
+  const y = b.endedAt ?? "";
+  if (x !== y) return x < y ? 1 : -1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
 /**
- * The "Copy settings from" options: up to `limit` newest rows, label = the
- * subshell's name, muted `reason` = `agent · node · dir` (the combobox's
- * detail slot). NEVER disabled — copying settings from a row on an offline
- * node or with a vanished preset is useful, and the form's existing arms
- * (re-home clearing the dir like a machine switch, the preset-membership
+ * The "Copy settings from" options, split into two categories (operator
+ * ruling 2026-09-29): **Recently terminated** (just-stopped rows, newest
+ * ended first, led by `endedAt`) then **Active** (everything still running,
+ * newest created first). Every eligible row is returned so a typed search
+ * reaches the deep list — the short per-category view is the combobox's
+ * preview cap (`COPY_CATEGORY_PREVIEW`), not a slice here.
+ *
+ * label = the subshell's name, muted `reason` = `agent · node · dir` (the
+ * combobox's detail slot). NEVER disabled — copying settings from a row on an
+ * offline node or with a vanished preset is useful, and the form's existing
+ * arms (re-home clearing the dir like a machine switch, the preset-membership
  * guard) degrade the applied copy exactly as they degrade anything else.
  */
 export function copySettingsOptions(
   list: readonly SubshellView[] | undefined | null,
   nodes: readonly Node[],
   plugins: readonly LaunchAgent[],
-  limit: number = COPY_SETTINGS_LIMIT,
 ): ComboboxOption[] {
   if (!Array.isArray(list)) return [];
-  return sortByCreation(list)
-    .slice(0, limit)
-    .map((s) => ({
-      value: s.id,
-      // `name` is required in the view type but fixtures and older payloads
-      // can omit it; the id is the only other thing a row is sure to carry.
-      label: s.name || s.id,
-      // A missing directory (older payload) drops its segment rather than
-      // dangling a separator it cannot fill.
-      reason: [agentName(plugins, s.harnessId), nodeShortName(nodes, s.nodeId ?? "local"), s.workingDir ?? ""]
-        .filter((part) => part !== "")
-        .join(" · "),
-    }));
+  // ONE entry per subshell, by id: the two categories are already status-
+  // disjoint, but a payload that carries the same id twice (an older cache
+  // mid-merge) must never list one subshell twice (operator rule 2026-09-29).
+  // First occurrence wins, so the ordering below is unaffected for real data.
+  const seen = new Set<string>();
+  const rows = list.filter((s) => {
+    if (seen.has(s.id)) return false;
+    seen.add(s.id);
+    return true;
+  });
+  const terminated = rows.filter((s) => s.status === "terminated").sort(byEndedRecent);
+  // "Active" is everything not terminated (a running row, or an older cached
+  // payload that predates the field — never silently dropped from the picker).
+  const active = sortByCreation(rows.filter((s) => s.status !== "terminated"));
+  return [
+    ...terminated.map((s) => copyOption(s, nodes, plugins, RECENTLY_TERMINATED_GROUP)),
+    ...active.map((s) => copyOption(s, nodes, plugins, ACTIVE_GROUP)),
+  ];
 }

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import type { Node } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -117,6 +117,8 @@ type RecentStub = { paths: { path: string; label: string | null }[]; home: strin
 interface MockOpts {
   /** Answer GET /api/prompts (the launch picker's list, spec 2026-09-28). */
   prompts?: { own: unknown[]; shared: unknown[] };
+  /** Answer GET /api/prompts/stacks (the launch picker's stacks, spec 2026-09-29). */
+  stacks?: { own: unknown[]; shared: unknown[] };
   /** Answer GET /api/nodes this many ms late — the ordering where recents
    *  resolve while the node pick is still unsettled (review round 2). */
   nodesDelayMs?: number;
@@ -176,6 +178,9 @@ function mockFetch(
     }
     if (path === "/api/prompts") {
       return Promise.resolve(new Response(JSON.stringify(opts.prompts ?? { own: [], shared: [] })));
+    }
+    if (path === "/api/prompts/stacks") {
+      return Promise.resolve(new Response(JSON.stringify(opts.stacks ?? { own: [], shared: [] })));
     }
     if (path === "/api/files/recent") {
       const scope = url.searchParams.get("node");
@@ -250,7 +255,13 @@ async function renderForm(initial: NewSubshellFormValue = emptyNewSubshellForm()
   return { latest: () => latest, client };
 }
 
-afterEach(cleanup);
+// The form's inline picker records picks into localStorage (process-wide);
+// clear both sides so a later lib suite never sees these picks (round-4).
+beforeEach(() => localStorage.clear());
+afterEach(() => {
+  localStorage.clear();
+  cleanup();
+});
 
 describe("pickNodeDefault", () => {
   it("keeps a valid pick and the local default while local is present", () => {
@@ -1014,7 +1025,11 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
     try {
       const { latest } = await renderForm();
       await waitFor(() => expect(latest().harnessId).toBe("pi"));
-      expect(screen.getByText("Copy settings from")).toBeDefined();
+      // The section is a checkbox until asked for: the label is there, the
+      // picker is not, until it is ticked.
+      expect(screen.getByText("Copy settings from a subshell")).toBeDefined();
+      expect(document.getElementById("picker-copy")).toBeNull();
+      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
       const input = document.getElementById("picker-copy") as HTMLInputElement;
       fireEvent.focus(input);
       fireEvent.keyDown(input, { key: "ArrowDown" });
@@ -1041,6 +1056,7 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
     );
     try {
       const { latest } = await renderForm();
+      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
       const input = document.getElementById("picker-copy") as HTMLInputElement;
       fireEvent.focus(input);
       fireEvent.keyDown(input, { key: "ArrowDown" });
@@ -1054,18 +1070,50 @@ describe("NewSubshellForm prior-launch defaults + copy picker", () => {
     }
   });
 
+  it("leads the picker with a just-terminated subshell, under its own category", async () => {
+    const restore = mockFetch(
+      [LOCAL],
+      [CLAUDE],
+      [],
+      [
+        launchRow({ id: "r-run", name: "Still going", status: "running", createdAt: "2026-09-20T00:00:00.000Z" }),
+        launchRow({
+          id: "r-end",
+          name: "Just ended",
+          status: "terminated",
+          endedAt: "2026-09-25T00:00:00.000Z",
+          createdAt: "2026-09-01T00:00:00.000Z",
+        }),
+      ],
+    );
+    try {
+      await renderForm();
+      fireEvent.click(screen.getByLabelText("Copy settings from a subshell"));
+      const input = document.getElementById("picker-copy") as HTMLInputElement;
+      fireEvent.focus(input);
+      fireEvent.keyDown(input, { key: "ArrowDown" });
+      await screen.findByRole("option", { name: /Still going/ });
+      // The category header shows, and the ended row LEADS despite the running
+      // row being newer by creation (endedAt, not createdAt, drives the tier).
+      expect(screen.getByText("Recently terminated")).toBeDefined();
+      expect(screen.getAllByRole("option")[0]?.textContent).toContain("Just ended");
+    } finally {
+      restore();
+    }
+  });
+
   it("absent with nothing to copy, and on first run", async () => {
     const empty = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE]);
     try {
       await renderForm();
-      expect(screen.queryByText("Copy settings from")).toBeNull();
+      expect(screen.queryByText("Copy settings from a subshell")).toBeNull();
     } finally {
       empty();
     }
     const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [launchRow({})], undefined, undefined);
     try {
       await renderForm(emptyNewSubshellForm(), false, true);
-      expect(screen.queryByText("Copy settings from")).toBeNull();
+      expect(screen.queryByText("Copy settings from a subshell")).toBeNull();
     } finally {
       restore();
     }
@@ -1265,6 +1313,51 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
       fireEvent.click(removes[0]);
       await settle();
       expect(latest().promptBlocks.map((b) => b.description)).toEqual(["Kickoff"]);
+    } finally {
+      restore();
+    }
+  });
+
+  it("a STACK pick is ONE unit block whose body is the members joined", async () => {
+    const stacks = {
+      own: [
+        {
+          id: "st1",
+          label: "Morning set",
+          shared: false,
+          createdAt: "t",
+          updatedAt: "t",
+          items: [
+            { id: "i1", promptId: "pr1", description: "Kickoff", body: "start the task" },
+            { id: "i2", description: "Note", body: "inline note" },
+          ],
+        },
+      ],
+      shared: [],
+    };
+    const restore = mockFetch([LOCAL, ENROLLED_ONLINE], [CLAUDE], [], [], undefined, { stacks });
+    try {
+      const { latest } = await renderForm();
+      fireEvent.click(screen.getByLabelText("Add a prompt"));
+      await settle();
+      fireEvent.click(screen.getByRole("button", { name: "Add prompt" }));
+      await settle();
+      openPickerSearch();
+      await settle();
+      fireEvent.click(await screen.findByText("Morning set"));
+      await settle();
+      // ONE block, not one per member (the one-unit ruling, spec 2026-09-29).
+      expect(latest().promptBlocks).toHaveLength(1);
+      const block = latest().promptBlocks[0];
+      expect(block.kind).toBe("stack");
+      expect(block.stackId).toBe("st1");
+      expect(block.body).toBe("start the task\n\ninline note");
+      // The row says it is a stack, and the joined text still joins into the
+      // create body's one prompt field (the launch seam, unchanged).
+      fireEvent.change(document.querySelector("#picker-working-dir") as Element, { target: { value: "/x" } });
+      await settle();
+      const body = toSubshellCreateBody({ ...latest(), harnessId: "claude-code" });
+      expect(body.prompt).toBe("start the task\n\ninline note");
     } finally {
       restore();
     }

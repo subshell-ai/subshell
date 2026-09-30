@@ -15,13 +15,18 @@ export function PromptStackList({
   blocks,
   onReorder,
   onRemove,
+  labelledBy,
 }: {
   blocks: PromptBlock[];
   onReorder: (localId: string, dir: -1 | 1) => void;
   onRemove: (localId: string) => void;
+  /** Id of the element naming this list (the editor's "Members" label): a
+   *  screen reader tabbing the rows hears the section they belong to (the
+   *  round-8 nit: an unassociated Label is stray text to that cursor). */
+  labelledBy?: string;
 }) {
   return (
-    <ul className="space-y-1">
+    <ul className="space-y-1" aria-labelledby={labelledBy}>
       {blocks.map((b, i) => (
         <PromptStackRow
           key={b.localId}
@@ -55,7 +60,12 @@ function PromptStackRow({
   // (the page row's lesson).
   const bodyId = useId();
   return (
-    <li className="rounded-lg border" aria-label={`Prompt ${block.description}, position ${position} of ${total}`}>
+    // The label answers the same question the visible row does, so the
+    // "Untitled" fallback belongs here too - a bare "" reads "Prompt ,".
+    <li
+      className="rounded-lg border"
+      aria-label={`Prompt ${block.description === "" ? "Untitled" : block.description}, position ${position} of ${total}`}
+    >
       <div className="flex items-center gap-2 px-3 py-2">
         {/* The EXPANDER is its own button (the page row's shape): the row
             also carries the reorder and remove buttons, and a button inside
@@ -71,8 +81,25 @@ function PromptStackRow({
             className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`}
           />
           <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="truncate font-strong text-label">{block.description}</span>
-            <span className="truncate text-detail text-muted-foreground">{block.body.split("\n", 1)[0]}</span>
+            {/* "Untitled" is a display fallback, never data (the editor keeps
+                an inline row's absent label absent). A stack block says what
+                it is: one unit carrying N members (spec 2026-09-29). */}
+            <span className="truncate font-strong text-label">
+              {block.description === "" ? "Untitled" : block.description}
+            </span>
+            {/* Filter-and-join (the launch-defaults rule, round-6 nit): a
+                body whose first line is blank drops its segment instead of
+                dangling the separator. */}
+            <span className="truncate text-detail text-muted-foreground">
+              {[
+                block.kind === "stack" && block.stackCount !== undefined
+                  ? `stack · ${block.stackCount} ${block.stackCount === 1 ? "prompt" : "prompts"}`
+                  : "",
+                block.body.split("\n", 1)[0],
+              ]
+                .filter((p) => p.trim() !== "")
+                .join(" · ")}
+            </span>
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-1">

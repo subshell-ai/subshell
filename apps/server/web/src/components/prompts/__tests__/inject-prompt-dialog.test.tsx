@@ -70,9 +70,16 @@ const settle = async () => {
   });
 };
 
-beforeEach(() => sessionStorage.clear());
+// Picks in this suite write the picker's "Recently used" memory
+// (localStorage, process-wide): clear the PREcondition too, or a lib suite
+// sharing the bun test process reads these picks as pollution (round-4).
+beforeEach(() => {
+  sessionStorage.clear();
+  localStorage.clear();
+});
 afterEach(() => {
   sessionStorage.clear();
+  localStorage.clear();
   cleanup();
 });
 
@@ -89,6 +96,12 @@ describe("InjectPromptDialog", () => {
     globalThis.fetch = ((input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
+      // The picker now reads stacks too (spec 2026-09-29); this suite is
+      // about singles, so none are offered (empty is a valid answer, not an
+      // error, and keeps the fetch deterministic).
+      if (url === "/api/prompts/stacks") {
+        return Promise.resolve(new Response(JSON.stringify({ own: [], shared: [] })));
+      }
       if (url === "/api/prompts" && method !== "POST") {
         return Promise.resolve(
           new Response(

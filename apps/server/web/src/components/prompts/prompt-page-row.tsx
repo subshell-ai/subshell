@@ -1,7 +1,8 @@
-import { Badge, Button, relativeElapsed } from "@internal/node-admin";
-import { Check, ChevronDown, ChevronRight, Copy } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { Badge, relativeElapsed } from "@internal/node-admin";
+import { ChevronDown, ChevronRight, Layers } from "lucide-react";
+import { useId, useState } from "react";
 import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
+import { CopyButton } from "@/components/copy-button";
 
 /**
  * One prompt on the Prompts page (spec 2026-09-28): label over detail (the
@@ -9,12 +10,18 @@ import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
  * line and the updated stamp in `detail`/muted). The ROW click expands, not
  * a side button — the whole row is the question "what is this prompt?"; the
  * menu and copy buttons stop propagation the way the menu already does.
+ *
+ * The stack count shows DIRECTLY (operator ruling 2026-09-29): the `stacks`
+ * chip states how many stacks the prompt belongs to without opening a menu,
+ * and pressing it toggles the caller's list of those stacks (which jump to
+ * each). A prompt in no stack renders no chip.
  */
 export function PromptPageRow({
   description,
   body,
   updatedAt,
   badge,
+  stacks,
   items,
 }: {
   description: string;
@@ -22,6 +29,10 @@ export function PromptPageRow({
   updatedAt: string;
   /** Right-side chip: "shared" on the owner tab, the author on the shared tab */
   badge?: string;
+  /** How many stacks this prompt is a member of, the toggle for that list, and
+   *  the id of the disclosure panel the toggle opens (so aria-expanded points
+   *  at something real, the way the row's body expander does). */
+  stacks?: { count: number; open: boolean; onToggle: () => void; panelId: string };
   items: ActionItem[];
 }) {
   const [open, setOpen] = useState(false);
@@ -30,25 +41,6 @@ export function PromptPageRow({
   // an id into two IDREF tokens and silently unlink aria-controls
   // (round-2 review fix).
   const bodyId = useId();
-  const [copied, setCopied] = useState(false);
-  // One live timer, cleared on unmount and by a second press (review fix):
-  // an unclean 1500 ms reset outlives a row that closed, and a plain-http
-  // clipboard rejects on some hosts, where silence means no checkmark, not a
-  // console error.
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  useEffect(() => () => clearTimeout(timer.current), []);
-
-  async function copy(e: React.MouseEvent) {
-    e.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(body);
-    } catch {
-      return;
-    }
-    setCopied(true);
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(false), 1500);
-  }
 
   return (
     <div className="rounded-lg border transition-colors hover:border-primary/60">
@@ -75,16 +67,38 @@ export function PromptPageRow({
                 </Badge>
               )}
             </span>
+            {/* Filter-and-join, the third site of the round-6 rule: a body
+                starting with a newline drops its preview segment instead of
+                dangling " · updated". */}
             <span className="min-w-0 truncate text-detail text-muted-foreground" title={body}>
-              {body.split("\n", 1)[0]} · updated {relativeElapsed(updatedAt)}
+              {[body.split("\n", 1)[0], `updated ${relativeElapsed(updatedAt)}`]
+                .filter((p) => p.trim() !== "")
+                .join(" · ")}
             </span>
           </span>
         </button>
         <div className="flex shrink-0 items-center gap-1">
-          <Button variant="ghost" size="icon-sm" onClick={(e) => void copy(e)} aria-label="Copy prompt">
-            {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
-          </Button>
-          <ActionsMenu label={description} items={items} />
+          {stacks && stacks.count > 0 && (
+            // The count is the row's own answer (not a menu hunt); pressing it
+            // opens the caller's list of stacks. In the controls row (a sibling
+            // of the expander), it never nests a button in a button.
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                stacks.onToggle();
+              }}
+              aria-expanded={stacks.open}
+              aria-controls={stacks.panelId}
+              title="View the stacks this prompt is in"
+              className="flex items-center gap-1 rounded-md px-2 py-1 text-detail text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+            >
+              <Layers className="h-3.5 w-3.5 shrink-0" />
+              In {stacks.count} {stacks.count === 1 ? "stack" : "stacks"}
+            </button>
+          )}
+          <CopyButton text={body} label="prompt" />
+          {items.length > 0 && <ActionsMenu label={description} items={items} />}
         </div>
       </div>
       {/* Unmounted while closed, the preset row's rule: hidden text should

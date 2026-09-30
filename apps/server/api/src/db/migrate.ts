@@ -40,6 +40,7 @@ import * as authProvidersMigration from "@/db/migrations/0037-auth-providers.js"
 import * as approvalStateMigration from "@/db/migrations/0038-approval-state.js";
 import * as subshellCrossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
 import * as promptsMigration from "@/db/migrations/0041-prompts.js";
+import * as promptStacksMigration from "@/db/migrations/0042-prompt-stacks.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -117,6 +118,7 @@ export async function runMigrations(): Promise<void> {
           // The 0040 number belongs to the harness-version column PR; prompts
           // lands as 0041 on its own schedule (operator ruling 2026-09-28).
           "0041-prompts": promptsMigration,
+          "0042-prompt-stacks": promptStacksMigration,
         };
       },
     },

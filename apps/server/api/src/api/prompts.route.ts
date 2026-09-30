@@ -1,5 +1,6 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
+import { promptStackRoutes } from "@/api/prompt-stacks.route.js";
 import { db } from "@/db/index.js";
 import { PromptsRepository } from "@/db/repositories/prompts.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -11,6 +12,13 @@ import type { PromptTable } from "@/db/types/prompts.db-types.js";
  * The shape follows `presets.route.ts` (a flat module, a local error class)
  * and mounts in `computeRoutes` beside it for the depth-budget reason named
  * in `routes.ts`.
+ *
+ * Stacks (spec 2026-09-29) ride this SAME mount: `promptStackRoutes` folds in
+ * here rather than earning its own `computeRoutes` line (the depth rule), and
+ * it folds in BEFORE the `/:id` routes below so `/stacks` and `/stacks/:id`
+ * register ahead of the dynamic `:id` capture. Reads and writes reuse the
+ * `prompts` token scope - a stack is made of prompts and discloses no more
+ * than they do.
  *
  * Unlike presets, WRITES are open to bearer actors: a prompt body is plain
  * text with no credential layer (preset.env OUTRANKS the SUBSHELL_* launch
@@ -111,6 +119,7 @@ function cleanDescription(value: string): string {
 
 export const promptsRoutes = new Elysia({ prefix: "/api/prompts" })
   .use(authGuard)
+  .use(promptStackRoutes)
   .get(
     "/",
     async ({ user, actor, apiKeyPermissions }) => {

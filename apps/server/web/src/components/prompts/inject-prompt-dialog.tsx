@@ -67,13 +67,16 @@ export function InjectPromptDialog({
   }
 
   // The confirm step is the SAME Dialog component: name, body, what the
-  // button does, send.
+  // button does, send. An unlabelled custom block carries an empty description
+  // (the picker never bakes in "Untitled"), so the title falls back here too -
+  // otherwise it reads `Inject "" into "Pane"`.
+  const pickedLabel = picked.description === "" ? "Untitled" : picked.description;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            Inject "{picked.description}" into "{subshellName}"
+            Inject "{pickedLabel}" into "{subshellName}"
           </DialogTitle>
           <DialogDescription>
             This types into the pane without sending. Press Enter there when you are ready.

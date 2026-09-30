@@ -4,9 +4,11 @@ import type { NewPrompt, PromptTable, PromptUpdate } from "@/db/types/prompts.db
 
 /**
  * Repository for saved prompts (spec 2026-09-28). Deleting one removes the
- * row outright: unlike a preset, nothing references a prompt, so the only
- * trace of it after a delete is text already typed into a pane or an already
- * launched subshell, which is the user's own doing.
+ * row outright; the only persistent things that referenced a prompt are
+ * stack membership rows, which the FK cascade sweeps with it (the stack keeps
+ * existing, possibly empty - spec 2026-09-29). Beyond that, the only trace
+ * after a delete is text already typed into a pane or an already launched
+ * subshell, which is the user's own doing.
  */
 export class PromptsRepository extends BaseRepository {
   async create(prompt: NewPrompt): Promise<PromptTable> {
@@ -61,6 +63,21 @@ export class PromptsRepository extends BaseRepository {
         .orderBy("id", "asc")
         .execute()
     );
+  }
+
+  /**
+   * A batched read of the prompts named by `ids` (the stack list view resolves
+   * every referenced member in ONE query, not one findById per item). Rows the
+   * id set does not name are simply absent; the caller (the stack route) decides
+   * visibility per member from the row's `userId` / `shared`.
+   */
+  async listByIds(ids: readonly string[]): Promise<PromptTable[]> {
+    if (ids.length === 0) return [];
+    return this.db
+      .selectFrom("prompts")
+      .selectAll()
+      .where("id", "in", [...ids])
+      .execute();
   }
 
   async update(id: string, update: PromptUpdate): Promise<PromptTable | undefined> {

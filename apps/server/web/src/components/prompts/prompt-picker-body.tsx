@@ -1,15 +1,17 @@
 import { Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
 import { useStore } from "@tanstack/react-form";
-import { PenLine } from "lucide-react";
+import { Layers, PenLine } from "lucide-react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
-import { SearchableSelect } from "@/components/ui/combobox";
+import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
 import { DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Segmented } from "@/components/ui/segmented";
 import { Textarea } from "@/components/ui/textarea";
-import { useCreatePrompt, usePrompts } from "@/hooks/use-prompts";
+import { useCreatePrompt, usePromptStacks, usePrompts } from "@/hooks/use-prompts";
 import { fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { loadRecentPicks, type RecentPick, recordRecentPick } from "@/lib/prompt-recents";
 import { newPromptLocalId, type PromptBlock } from "@/lib/prompt-stack";
+import { type StackRow, type StacksView, stackJoinedText } from "@/lib/prompt-stacks";
 import type { PromptsView } from "@/lib/prompts";
 
 /** What "Write your own..." keeps across an accidental reload (operator
@@ -20,13 +22,19 @@ interface PickerDraft {
   description: string;
 }
 
-function draftKey(mode: "multi" | "single"): string {
-  return `subshell/prompt-picker-draft/${mode}`;
+/** `scope` separates two surfaces that share a MODE: the launch form and the
+ *  stack editor are both "multi", and a draft keyed on mode alone would leak
+ *  an abandoned "Write your own" text from one into the other (the same
+ *  cross-context stale-draft class the round-8 ruling closed). Defaults to
+ *  the mode, so the surfaces that have no twin (the single-mode inject
+ *  dialog, the lone launch form) need no explicit scope. */
+function draftKey(mode: "multi" | "single", scope: string): string {
+  return `subshell/prompt-picker-draft/${scope || mode}`;
 }
 
-function loadDraft(mode: "multi" | "single"): PickerDraft | null {
+function loadDraft(mode: "multi" | "single", scope: string): PickerDraft | null {
   try {
-    const raw = sessionStorage.getItem(draftKey(mode));
+    const raw = sessionStorage.getItem(draftKey(mode, scope));
     if (raw === null) return null;
     const parsed = JSON.parse(raw) as Partial<PickerDraft>;
     // An empty body is no draft, whatever an older tab left in storage:
@@ -87,25 +95,40 @@ const customStepSchema = z
 export function PromptPickerBody({
   mode,
   surface,
+  allowStacks = true,
+  draftScope,
   onPick,
   onExit,
 }: {
   mode: "multi" | "single";
   /** dialog: header and actions ride the dialog primitives; inline: plain boxes */
   surface: "dialog" | "inline";
+  /** The stack editor passes false: a stack is a flat list, it never nests. */
+  allowStacks?: boolean;
+  /** Draft namespace; see draftKey. The stack editor needs its own. */
+  draftScope?: string;
   onPick: (block: PromptBlock) => void;
   onExit: () => void;
 }) {
+  const scope = draftScope ?? "";
   const { data, isLoading, isError } = usePrompts();
+  // The editor (allowStacks=false) can never render a stack, so it does not
+  // ask for any: no cold-cache request rides a list that cannot nest.
+  const stacksQ = usePromptStacks({ enabled: allowStacks });
   const view: PromptsView = data ?? { own: [], shared: [] };
+  const stacksView: StacksView = stacksQ.data ?? { own: [], shared: [] };
   const [tab, setTab] = useState<"own" | "shared">("own");
+  // The last few prompts/stacks picked in THIS browser (localStorage, durable
+  // across sessions; see lib/prompt-recents). A pick bubbles here immediately
+  // so a picker that stays open (multi) re-sorts without a reload.
+  const [recents, setRecents] = useState<RecentPick[]>(() => loadRecentPicks());
   // The custom step: "list" = the list, "custom" = the editor for one
   // free-text block. The LIST is always the front door (operator ruling
   // 2026-09-29, second pass: reopening AT a stored draft read as the
   // picker "going directly to write" and skipping the pick). The draft
   // still survives in sessionStorage and seeds the form below, so the
   // text resumes the moment the person enters the step.
-  const [draft] = useState(() => loadDraft(mode));
+  const [draft] = useState(() => loadDraft(mode, scope));
   const [step, setStep] = useState<"list" | "custom">("list");
   const [serverError, setServerError] = useState<string | null>(null);
   const create = useCreatePrompt();
@@ -135,14 +158,18 @@ export function PromptPickerBody({
       // clean (the durability covers accidents, not a second copy of a sent
       // prompt).
       try {
-        sessionStorage.removeItem(draftKey(mode));
+        sessionStorage.removeItem(draftKey(mode, scope));
       } catch {
         // Nothing to do if even the removal fails.
       }
       onPick({
         localId: newPromptLocalId(),
         kind: "custom",
-        description: trimmed.description === "" ? "Untitled" : trimmed.description,
+        // An unlabeled custom row carries an EMPTY label, not the word
+        // "Untitled": that is the display fallback (the list rows say it), and
+        // in the stack editor the block's description is real stored data, so
+        // baking the placeholder in would save it to the row.
+        description: trimmed.description,
         body,
       });
       // The surface closes or collapses on the report; the body holds no
@@ -163,47 +190,124 @@ export function PromptPickerBody({
     if (step !== "custom") return;
     try {
       if (customValues.body === "") {
-        sessionStorage.removeItem(draftKey(mode));
+        sessionStorage.removeItem(draftKey(mode, scope));
       } else {
         sessionStorage.setItem(
-          draftKey(mode),
+          draftKey(mode, scope),
           JSON.stringify({ body: customValues.body, description: customValues.description } satisfies PickerDraft),
         );
       }
     } catch {
       // Storage full or blocked: the draft just is not durable this time.
     }
-  }, [mode, step, customValues]);
+  }, [mode, scope, step, customValues]);
 
   const rows = tab === "own" ? view.own : view.shared;
+  // Stacks ride the SAME listing as singles (the user's rule: "they would
+  // appear the same in the search listing"), under the tab that owns them.
+  // EMPTY STACKS ARE NEVER OFFERED: a stack with no visible members has
+  // nothing to type, and a pick that lands an empty block is a trap.
+  const offeredStacks: StackRow[] = allowStacks
+    ? (tab === "own" ? stacksView.own : stacksView.shared).filter((s) => s.items.length > 0)
+    : [];
+  const totalRows = rows.length + offeredStacks.length;
+
+  // The picker's list, as two sections (operator ruling 2026-09-29): a
+  // "Recently used" run of the up-to-3 last-picked rows still on offer, then a
+  // hairline divider and the rest. An entry appears in ONE section only — the
+  // rest excludes anything the recent run already lists. With no recents (a
+  // fresh browser, or none of them on this tab) the list is the plain offer,
+  // unchanged.
+  const stackOption = (s: StackRow): ComboboxOption => ({
+    value: `stack:${s.id}`,
+    label: s.label,
+    searchText: s.items.map((i) => `${i.description}\n${i.body}`).join("\n"),
+    // Filter-and-join, the launch-defaults rule: a member whose first line
+    // is blank (a custom body may start with a newline) drops its segment
+    // rather than dangling the separator it cannot fill (round-6 nit).
+    reason: [
+      `${s.items.length} ${s.items.length === 1 ? "prompt" : "prompts"}`,
+      s.items[0]?.body.split("\n", 1)[0] ?? "",
+    ]
+      .filter((p) => p.trim() !== "")
+      .join(" · "),
+    icon: <Layers className="h-4 w-4 text-muted-foreground" aria-hidden />,
+  });
+  const promptOption = (p: { id: string; description: string; body: string }): ComboboxOption => ({
+    value: p.id,
+    label: p.description,
+    searchText: p.body,
+    reason: p.body.split("\n", 1)[0],
+  });
+  const allOptions = [...offeredStacks.map(stackOption), ...rows.map(promptOption)];
+  const recentValues = new Set<string>();
+  const recentOptions: ComboboxOption[] = [];
+  for (const e of recents) {
+    if (recentOptions.length >= 3) break;
+    const value = e.kind === "stack" ? `stack:${e.id}` : e.id;
+    if (recentValues.has(value)) continue;
+    const opt = allOptions.find((o) => o.value === value);
+    if (opt === undefined) continue;
+    recentOptions.push({ ...opt, group: "Recently used" });
+    recentValues.add(value);
+  }
+  const restOptions = allOptions
+    .filter((o) => !recentValues.has(o.value))
+    .map((o, i) => (recentOptions.length > 0 && i === 0 ? { ...o, divider: true } : o));
+  const listOptions = [...recentOptions, ...restOptions];
+
+  // The sentences describe what the field LISTS (round-4 review): when stacks
+  // are on offer, a stacks-aware search must not answer with a prompts-only
+  // sentence - the same rule as the sr-only label and the placeholder.
+  const kinds = offeredStacks.length > 0 ? "prompts or stacks" : "prompts";
   const emptyText = isLoading ? (
     "Loading…"
   ) : isError ? (
     // The one sentence that is not neutral: the page's rule (a failure
     // never reads as "none yet") keeps the destructive colour too.
     <span className="text-destructive">The prompts could not be loaded.</span>
-  ) : rows.length === 0 ? (
+  ) : totalRows === 0 ? (
     tab === "own" ? (
-      "No prompts yet"
+      `No ${kinds} yet`
     ) : (
-      "No shared prompts yet"
+      `No shared ${kinds} yet`
     )
   ) : (
-    "No prompts match the search."
+    `No ${kinds} match the search.`
   );
 
   function pick(row: { id: string; description: string; body: string }) {
-    onPick({
+    const block: PromptBlock = {
       localId: newPromptLocalId(),
       kind: "saved",
       promptId: row.id,
       description: row.description,
       body: row.body,
-    });
+    };
+    // Remember the pick so it leads the list next time (the picker stays open
+    // in multi mode, so reflect it in state too, not just storage).
+    setRecents(recordRecentPick(block));
+    onPick(block);
     // One press, one decisive action: the SURFACE decides what the pick
     // means (live report 2026-09-29) - the launch form lands the block and
     // collapses back to "Add prompt", the inject dialog swaps to its
     // confirm.
+  }
+
+  /** A stack pick is ONE unit block (spec 2026-09-29): its members' text,
+   *  joined once, snapshot at the press. Later edits to the stack or its
+   *  members do not reach a block that already landed. */
+  function pickStack(stack: StackRow) {
+    const block: PromptBlock = {
+      localId: newPromptLocalId(),
+      kind: "stack",
+      stackId: stack.id,
+      stackCount: stack.items.length,
+      description: stack.label,
+      body: stackJoinedText(stack),
+    };
+    setRecents(recordRecentPick(block));
+    onPick(block);
   }
 
   // The buttons as a VALUE, not a nested component: a function defined
@@ -277,8 +381,11 @@ export function PromptPickerBody({
             />
           </div>
           <div className="space-y-1">
+            {/* The name follows the same rule as the placeholder below: a
+                screen reader should not hear "prompts" for a field that lists
+                stacks too. */}
             <Label htmlFor="prompt-picker-search" className="sr-only">
-              Search prompts
+              {offeredStacks.length > 0 ? "Search prompts or stacks" : "Search prompts"}
             </Label>
             {/* The consumed posture, shared with "Copy settings from": the
                   pick is an action, so the input returns to its placeholder
@@ -289,15 +396,22 @@ export function PromptPickerBody({
             <SearchableSelect
               id="prompt-picker-search"
               value=""
-              placeholder="Search prompts"
+              // The list answers both kinds when stacks are on offer (the
+              // editor's picker is prompts-only, and would promise a search
+              // over rows it never lists).
+              placeholder={offeredStacks.length > 0 ? "Search prompts or stacks" : "Search prompts"}
               emptyText={emptyText}
-              options={rows.map((p) => ({
-                value: p.id,
-                label: p.description,
-                searchText: p.body,
-                reason: p.body.split("\n", 1)[0],
-              }))}
+              options={listOptions}
+              // Consumed: the pick lands a block and the search is spent. The
+              // stacks feed lands after the prompts feed on a cold open, and
+              // only the owned (controlled) text survives that items swap.
+              consumed
               onValueChange={(id) => {
+                if (id.startsWith("stack:")) {
+                  const stack = offeredStacks.find((s) => s.id === id.slice("stack:".length));
+                  if (stack) pickStack(stack);
+                  return;
+                }
                 const row = rows.find((p) => p.id === id);
                 if (row) pick(row);
               }}
