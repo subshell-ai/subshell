@@ -244,7 +244,10 @@ function LoginPage() {
                     />
                   </div>
                   {error && <p className="text-destructive text-detail">{error}</p>}
-                  <Button type="submit" className="w-full" disabled={busy}>
+                  {/* The one rule every credential form now shares: a required
+                      field still empty is not a submit. The passkey and
+                      provider buttons below answer on their own, blank-free. */}
+                  <Button type="submit" className="w-full" disabled={busy || email.trim() === "" || password === ""}>
                     {busy ? "Signing in…" : "Sign in"}
                   </Button>
                 </form>
