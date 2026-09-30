@@ -48,7 +48,12 @@ async function seed(label: string, cmd: string) {
   await Bun.sleep(500);
   const size = await launcher.paneSize(socket, id);
   if (!size) throw new Error("pane has no size");
-  const sizeOf = async () => (await Bun.file(log).stat()).size;
+  // The log appears when the capture child starts; on a throttled runner that
+  // can outlast the sleep above, and a file not yet there reads as zero bytes -
+  // the same equation `paneReadsAsBooting` draws for "no log to read". A bare
+  // stat() ENOENTed there (CI shard 2/2, 2026-09-30) and `--retry` could not
+  // clear it: the budget is spent the same way on the second attempt.
+  const sizeOf = async () => ((await Bun.file(log).exists()) ? (await Bun.file(log).stat()).size : 0);
   const dispose = async () => {
     tmux.killSubshell(socket, id);
     await launcher.removeArtifacts([log]);
