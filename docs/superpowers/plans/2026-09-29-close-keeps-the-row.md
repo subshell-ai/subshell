@@ -1,5 +1,7 @@
 # Close keeps the row; one New button on Prompts — Implementation Plan
 
+> **SUPERSEDED 2026-09-29, never implemented.** The operator kept main's verb behavior and removed the copy picker that motivated this change; the only surviving piece is the prompts-page "New" button, preserved as commit `b5bf8205`. See `2026-09-29-preset-launch-fields-design.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** "Close" softens to terminate (row + history survive, row reaches the copy picker's "Recently terminated"); a new owner-only "Delete" on closed rows does what Close did; the `/prompts` header's two create buttons become one "New" dropdown.

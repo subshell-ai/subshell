@@ -1,6 +1,6 @@
 # Close keeps the row; the prompts page gets one New button
 
-Date: 2026-09-29. Status: approved (operator rulings taken in dialogue).
+Date: 2026-09-29. Status: SUPERSEDED the same day, never implemented (operator: verb behavior stays as on main; the copy picker this fed is removed - see 2026-09-29-preset-launch-fields-design.md).
 
 ## Summary
 
