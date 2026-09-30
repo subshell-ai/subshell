@@ -16,8 +16,7 @@ import {
 } from "@/components/subshell-picker/launch-form-rules";
 import { NoLaunchTargets } from "@/components/subshell-picker/no-launch-targets";
 import { useLaunchFormDefaults } from "@/components/subshell-picker/use-launch-form-defaults";
-import { SearchableSelect } from "@/components/ui/combobox";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { type InstancePluginRow, useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
@@ -25,6 +24,7 @@ import { usePresets } from "@/hooks/use-presets";
 import { useRecentPaths } from "@/hooks/use-recent-paths";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { isOfflineAgent } from "@/lib/node-label";
+import { loadRecentPresetPicks, recordRecentPresetPick } from "@/lib/preset-recents";
 import { movePromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subshell-compat";
 
@@ -39,12 +39,14 @@ import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subs
  * screen. State lives in the caller (so each can gate and reset its own
  * submit), this file owns the layout and the pairing (spec 2026-09-13 §5).
  *
- * The PRESET leads (operator ruling 2026-09-30): it lists every preset, and
- * picking one COPIES the fields below it — agent, machine, directory, prompt
- * — each still editable, because a preset is a starting point, not a lock.
- * The trigger returns to its placeholder after the pick: the row names an
- * act ("copy this in"), not a held state, so the filled form reads as a copy
- * and edits visibly belong to the launch, not to the preset. Its `+` opens a nested create dialog (the agent locked
+ * The PRESET leads (operator ruling 2026-09-30): a type-to-filter list of
+ * every preset — the last three picked lead under "Recently used", the rest
+ * follow a divider, "None" exits at the bottom — and picking one COPIES the
+ * fields below it (agent, machine, directory, prompt), each still editable,
+ * because a preset is a starting point, not a lock. The input returns to its
+ * placeholder after the pick: the row names an act ("copy this in"), not a
+ * held state, so the filled form reads as a copy and edits visibly belong to
+ * the launch, not to the preset. Its `+` opens a nested create dialog (the agent locked
  * when one is already chosen, asked there when not), and a created preset
  * becomes the selection. The AGENT below it stays a direct question: options
  * are the whole plugin set, greyed never hidden (the 2026-09-02 rule,
@@ -140,17 +142,36 @@ export function NewSubshellForm({
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
   const selectedAgent: InstancePluginRow | undefined = (plugins ?? []).find((p) => p.id === value.harnessId);
   const agentName = selectedAgent?.name ?? value.harnessId;
-  // Every preset is offerable now that the row leads: a name is unique per
-  // agent, so a shared spelling gets its agent appended - the row has to say
-  // which one it is picking.
-  const presetOptions = (() => {
-    const spellings = new Map<string, number>();
-    for (const p of presets) spellings.set(p.name, (spellings.get(p.name) ?? 0) + 1);
+  // The section order re-renders the moment a pick lands, so the pick rides
+  // state as well as the store.
+  const [recentPresetIds, setRecentPresetIds] = useState<string[]>(() => loadRecentPresetPicks());
+
+  // The picker's list, in the prompt picker's shape (ruling 2026-09-30):
+  // the up-to-3 last-picked presets under one "Recently used" header, a
+  // divider, the rest, and "None" last on its own rule - dropping the
+  // preset is the row's exit, not its headline. A name is unique per agent,
+  // so each row carries its agent as the muted reason: two "Fast" rows read
+  // Fast  Claude Code / Fast  Pi.
+  const presetList: ComboboxOption[] = (() => {
     const names = new Map((plugins ?? []).map((p) => [p.id, p.name]));
-    return presets.map((p) => ({
+    const all: ComboboxOption[] = presets.map((p) => ({
       value: p.id,
-      label: (spellings.get(p.name) ?? 0) > 1 ? `${p.name} (${names.get(p.harnessId) ?? p.harnessId})` : p.name,
+      label: p.name,
+      reason: names.get(p.harnessId) ?? p.harnessId,
     }));
+    const recentValues = new Set<string>();
+    const recents: ComboboxOption[] = [];
+    for (const id of recentPresetIds) {
+      if (recents.length >= 3) break;
+      const opt = all.find((o) => o.value === id);
+      if (opt === undefined || recentValues.has(id)) continue;
+      recents.push({ ...opt, group: "Recently used" });
+      recentValues.add(id);
+    }
+    const rest = all
+      .filter((o) => !recentValues.has(o.value))
+      .map((o, i) => (recents.length > 0 && i === 0 ? { ...o, divider: true } : o));
+    return [...recents, ...rest, { value: "none", label: "None", reason: "Launch without a preset", divider: true }];
   })();
 
   const [createPresetOpen, setCreatePresetOpen] = useState(false);
@@ -203,44 +224,36 @@ export function NewSubshellForm({
           <Label htmlFor={ids.preset}>Preset</Label>
           <div className="flex items-center gap-2">
             <div className="min-w-0 flex-1">
-              <Select
-                // The row COPIES (ruling 2026-09-30, second pass): the value
-                // stays null on purpose, so after a pick the trigger returns
-                // to its placeholder instead of wearing the preset's name.
-                // What was picked now lives in the editable fields below -
-                // holding a "selected" state would claim a tie the copy
-                // severed. presetId still rides the launch (the preset's
-                // flags and env come with it); "None" drops it, fields kept.
-                value={null}
-                onValueChange={(v) =>
-                  v !== null && applyPreset(v === "none" ? null : (presets.find((p) => p.id === v) ?? null))
-                }
-                // Base UI's Value prints the raw value without this map;
-                // labels must match the item texts below exactly.
-                items={[{ value: "none", label: "None" }, ...presetOptions]}
-              >
-                <SelectTrigger
-                  id={ids.preset}
-                  aria-describedby={`${ids.preset}-hint${presets.length === 0 ? ` ${ids.preset}-empty` : ""}`}
-                >
-                  <SelectValue placeholder="Choose a preset" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">None</SelectItem>
-                  {presetOptions.map((o) => (
-                    <SelectItem key={o.value} value={o.value}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                id={ids.preset}
+                // CONSUMED (the prompt picker's posture, now the ruling's too):
+                // the pick is an action, the closed state is the placeholder,
+                // nothing holds a selection. presetId still rides the launch
+                // (the preset's flags and env come with it); "None" drops it
+                // and keeps the filled fields.
+                consumed
+                value=""
+                placeholder="Choose a preset"
+                options={presetList}
+                describedBy={`${ids.preset}-hint${presets.length === 0 ? ` ${ids.preset}-empty` : ""}`}
+                onValueChange={(v) => {
+                  if (v === "" || v === "none") {
+                    if (v === "none") applyPreset(null);
+                    return;
+                  }
+                  const row = presets.find((p) => p.id === v);
+                  if (row === undefined) return;
+                  applyPreset(row);
+                  setRecentPresetIds(recordRecentPresetPick(row.id));
+                }}
+              />
             </div>
             <Button variant="outline" size="icon" aria-label="New preset" onClick={() => setCreatePresetOpen(true)}>
               <Plus />
             </Button>
           </div>
           <p id={`${ids.preset}-hint`} className="text-detail text-muted-foreground">
-            Picking one copies its launch settings into this form. Editing here never changes the preset.
+            Picking one copies its launch settings into this form.
           </p>
           {presets.length === 0 && (
             <p id={`${ids.preset}-empty`} className="text-detail text-muted-foreground">
@@ -257,7 +270,10 @@ export function NewSubshellForm({
               open
               lockedHarness={value.harnessId !== "" ? value.harnessId : undefined}
               onOpenChange={(next) => !next && setCreatePresetOpen(false)}
-              onCreated={(row) => applyPreset(row)}
+              onCreated={(row) => {
+                applyPreset(row);
+                setRecentPresetIds(recordRecentPresetPick(row.id));
+              }}
             />
           )}
         </div>

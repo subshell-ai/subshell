@@ -275,6 +275,18 @@ afterEach(() => {
   cleanup();
 });
 
+function openPresetInRow(): void {
+  const input = screen.getByPlaceholderText("Choose a preset");
+  act(() => {
+    for (const type of ["pointerdown", "pointerup"]) {
+      input.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: "mouse" }));
+    }
+    for (const type of ["mousedown", "mouseup", "click"]) {
+      input.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
+    }
+  });
+}
+
 describe("pickNodeDefault", () => {
   it("keeps a valid pick and the local default while local is present", () => {
     const nodes = [LOCAL, ENROLLED_ONLINE, ENROLLED_OFFLINE];
@@ -459,7 +471,7 @@ describe("NewSubshellForm agent/preset defaults", () => {
 });
 
 describe("NewSubshellForm preset row", () => {
-  it("lists None first and keeps a foreign preset from surviving the guard", async () => {
+  it("keeps a foreign preset from surviving the guard", async () => {
     const restore = mockFetch(
       [LOCAL, ENROLLED_ONLINE],
       [CLAUDE, plugin({ id: "pi", name: "Pi", type: "agent-harness" })],
@@ -479,9 +491,9 @@ describe("NewSubshellForm preset row", () => {
         promptBlocks: [],
       });
       await waitFor(() => expect(latest().presetId).toBeNull());
-      // The row is a COPY, not a tie (ruling 2026-09-30): the trigger never
+      // The row is a COPY, not a tie (ruling 2026-09-30): the input never
       // wears a preset's name, it asks. What stands is the form value, above.
-      await waitFor(() => expect(screen.getByText("Choose a preset")).toBeDefined());
+      await waitFor(() => expect(screen.getByPlaceholderText("Choose a preset")).toBeDefined());
     } finally {
       restore();
     }
@@ -587,11 +599,7 @@ describe("NewSubshellForm preset row", () => {
     try {
       await renderForm();
       await waitFor(() =>
-        expect(
-          screen.getByText(
-            "Picking one copies its launch settings into this form. Editing here never changes the preset.",
-          ),
-        ).toBeDefined(),
+        expect(screen.getByText("Picking one copies its launch settings into this form.")).toBeDefined(),
       );
       // The row lists EVERY preset now, so emptiness is about the account,
       // not the agent nobody has picked yet.
@@ -646,8 +654,12 @@ describe("NewSubshellForm preset row", () => {
       );
       await waitFor(() => expect(latest().presetId).toBe("p-new"));
       // The new row is the selection IN THE FORM VALUE and the dialog is
-      // gone; the trigger stays on its placeholder (the copy posture).
-      expect(screen.getByText("Choose a preset")).toBeDefined();
+      // gone; the input stays on its placeholder (the copy posture).
+      expect(screen.getByPlaceholderText("Choose a preset")).toBeDefined();
+      // And the created preset counts as a use: it leads the next open.
+      openPresetInRow();
+      await settle();
+      expect(screen.getByText("Recently used")).toBeDefined();
       expect(screen.queryByRole("dialog", { name: "New preset for Claude Code" })).toBeNull();
     } finally {
       restore();
@@ -1305,12 +1317,17 @@ describe("NewSubshellForm Add a prompt (spec 2026-09-28)", () => {
 describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
   // Base UI's press path (same lesson as switch-preset-dialog.test): a bare
   // click never reaches onValueChange under happy-dom; pointer down/up/click does.
+  // The Preset row is a CONSUMED searchable input (ruling 2026-09-30): the
+  // popup opens on the Base UI pointer path, happy-dom cannot click a bare
+  // input, and the typed text is the picker's own (prompt-picker precedent).
+  const openPresetSearch = openPresetInRow;
   async function pressPreset(name: string): Promise<void> {
-    fireEvent.click(screen.getByRole("combobox", { name: "Preset" }));
-    const option = await screen.findByRole("option", { name });
-    fireEvent.pointerDown(option);
-    fireEvent.pointerUp(option);
-    fireEvent.click(option);
+    openPresetSearch();
+    await settle();
+    const option = await screen.findByText(name);
+    act(() => {
+      fireEvent.click(option);
+    });
     await settle();
   }
   it("choosing a preset applies its machine, directory, and prompt - and they stay editable", async () => {
@@ -1331,9 +1348,8 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
       // wearing the picked name (the dropdown's own option node stays in
       // the tree, so ask the trigger element) - the values now live in the
       // editable rows below, and the preset is not editable from here.
-      const trigger = screen.getByRole("combobox", { name: "Preset" });
-      expect(trigger.textContent).toContain("Choose a preset");
-      expect(trigger.textContent).not.toContain("Everywhere");
+      const input = screen.getByPlaceholderText("Choose a preset") as HTMLInputElement;
+      expect(input.value).toBe("");
       expect(latest().nodeId).toBe("a1");
       expect(latest().workingDir).toBe("/srv/app");
       // The stored stack opens the checkbox and lands as blocks (fresh
@@ -1378,11 +1394,63 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
     );
     try {
       await renderForm(emptyNewSubshellForm());
-      fireEvent.click(screen.getByRole("combobox", { name: "Preset" }));
-      // A name is unique per agent, so the agent is the only honest tiebreak
-      // when two agents' presets share a spelling across the whole list.
-      await screen.findByRole("option", { name: "Fast (Pi)" });
-      expect(screen.getByRole("option", { name: "Fast (Claude Code)" }).textContent).toBe("Fast (Claude Code)");
+      openPresetInRow();
+      await settle();
+      // A name is unique per agent, so every row carries its agent as the
+      // muted reason (the combobox's detail column): both "Fast" rows say
+      // whose Fast they are.
+      const fasts = screen.getAllByText("Fast");
+      expect(fasts).toHaveLength(2);
+      const owners = fasts.map((el) => el.parentElement?.textContent ?? "");
+      expect(owners.some((t) => t.includes("Claude Code"))).toBe(true);
+      expect(owners.some((t) => t.includes("Pi"))).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("the last picked presets lead under one Recently used header, each once", async () => {
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE],
+      [
+        preset({ id: "p-1", harnessId: "claude-code", name: "One" }),
+        preset({ id: "p-2", harnessId: "claude-code", name: "Two" }),
+        preset({ id: "p-3", harnessId: "claude-code", name: "Three" }),
+      ],
+    );
+    try {
+      const { latest } = await renderForm(emptyNewSubshellForm());
+      await pressPreset("One");
+      await pressPreset("Two");
+      expect(latest().presetId).toBe("p-2");
+      openPresetSearch();
+      await settle();
+      expect(screen.getByText("Recently used")).toBeDefined();
+      // Each recent appears ONCE (the rest excludes them), and recents lead
+      // the list in pick order, ahead of the never-picked "Three".
+      expect(screen.getAllByText("Two")).toHaveLength(1);
+      expect(screen.getAllByText("One")).toHaveLength(1);
+      const text = document.body.textContent ?? "";
+      expect(text.indexOf("Two")).toBeLessThan(text.indexOf("One"));
+      expect(text.indexOf("One")).toBeLessThan(text.indexOf("Three"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("no Recently used header before the first pick", async () => {
+    const restore = mockFetch(
+      [LOCAL, ENROLLED_ONLINE],
+      [CLAUDE],
+      [preset({ id: "p-1", harnessId: "claude-code", name: "One" })],
+    );
+    try {
+      await renderForm(emptyNewSubshellForm());
+      openPresetSearch();
+      await settle();
+      expect(screen.queryByText("Recently used")).toBeNull();
+      expect(screen.getByText("One")).toBeDefined();
     } finally {
       restore();
     }
