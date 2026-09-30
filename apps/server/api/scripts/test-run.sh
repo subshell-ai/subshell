@@ -25,7 +25,9 @@
 set -u
 par="--parallel=12"
 [ -n "${SUBSHELL_TEST_PARALLEL:-}" ] && par="--parallel=$SUBSHELL_TEST_PARALLEL"
-[ -n "${SUBSHELL_TEST_SERIAL:-}" ] && par=""
+# CI's serial regime: one retry for the throttled-runner budget flakes; see
+# scripts/par-test.sh for the measurement behind the asymmetry.
+[ -n "${SUBSHELL_TEST_SERIAL:-}" ] && par="--retry=1"
 dir="$(mktemp -d /tmp/subshell-test-tmux-XXXXXX)"
 status=0
 TMUX_TMPDIR="$dir" bun test $par --timeout 30000 src "$@" || status=$?

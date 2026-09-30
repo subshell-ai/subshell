@@ -1481,7 +1481,13 @@ test("undecryptable bytes of EVERY admitted binary shape close the link 4410, ne
       const pump = pumps.at(-1);
       if (!pump) throw new Error("no socket was opened");
       pump.deliverBurst([shape]);
-      await waitFor(h, () => h.plane.opens >= i + 2, `reconnect after undecryptable frame #${i + 1}`);
+      // Gate on the `kx` RECORDING, not the socket count: the assertion below
+      // reads `firstFrames`, and on a throttled runner the reconnected socket
+      // could open (satisfying an `opens` gate) with its handshake frame not
+      // yet recorded — CI read 3 kx where the opens-gate said 4 sockets
+      // (shard 2/2, 2026-09-30). Waiting on the fact the test consumes makes
+      // the final `toEqual` deterministic.
+      await waitFor(h, () => h.plane.firstFrames.length >= i + 2, `handshake frame of reconnect #${i + 1}`);
     }
     // The refusal line itself, once per shape — NOT the loop's `disconnected`
     // echo of the close reason (which repeats the text).

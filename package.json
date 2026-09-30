@@ -44,6 +44,7 @@
     "lint:prose": "bun scripts/prose-dashes.ts",
     "audit:deps": "bun scripts/dep-audit.ts",
     "test": "turbo run test --continue --",
+    "test:timings": "bash scripts/test-timings.sh",
     "test:scripts": "bun test ./scripts/__tests__/",
     "test:cli": "bash scripts/cli-e2e/run.sh",
     "test:e2e": "turbo run test:e2e",

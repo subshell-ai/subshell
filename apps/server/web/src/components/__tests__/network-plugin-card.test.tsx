@@ -1356,13 +1356,17 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
   // the web suite gets a starved slice of the container's CPUs — measured
   // 7.6s wall for this act/NDJSON chain at 0.4 CPU (it passes in 25ms
   // idle). bun's default 5s per-test timeout was firing mid-chain. The
-  // per-wait budgets stay honest; this ceiling is only the load allowance.
+  // per-wait budgets stay honest; the load allowance is NOT here anymore -
+  // the package's script carries `--timeout 30000` (issue #261 round 2,
+  // after CI's serial run measured this file's sibling chain at 26.2 s
+  // against a 20 s per-test ceiling), and one knob per package is the rule
+  // the server package's testing-notes record for exactly this whack-a-mole.
   it("a failed act says so", async () => {
     failedPublishThenLeave();
     await renderCard(JOINED);
     fireEvent.click(screen.getByRole("button", { name: /^Publish/ }));
     await waitFor(() => expect(screen.getByText(/the daemon went away/)).toBeTruthy(), { timeout: 1200 });
-  }, 20000);
+  });
 
   it("a later act clears the previous one's failure", async () => {
     // A mutation's result outlives the state it describes. The error banner
@@ -1397,9 +1401,11 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog", {}, { timeout: 1200 });
     fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     await waitFor(() => expect(screen.queryByText(/the daemon went away/)).toBeNull(), { timeout: 1200 });
-    // 20000 per the rationale on the test above; this one runs the full
-    // fail-then-succeed chain and measured 12–16s on CI's slice.
-  }, 20000);
+    // No per-test ceiling: the package's 30 s script budget governs, per the
+    // rationale on the test above. This one runs the full fail-then-succeed
+    // chain - measured 12-16 s on CI's slice when the 20 s ceiling was set,
+    // 26.2 s on 2026-09-30's, which is what moved it onto the package knob.
+  });
 
   it("uses the vendor's own words for the credential and for publishing", async () => {
     // A generic word is WRONG rather than bland here: NetBird takes a setup

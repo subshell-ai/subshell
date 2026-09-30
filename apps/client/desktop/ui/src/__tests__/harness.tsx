@@ -129,6 +129,7 @@ export function installFakeIpc(
     },
     invoke: async (cmd: string, args: Record<string, unknown> = {}) => {
       calls.push({ cmd, args });
+      if (cmd === "node_probe") console.log(`PROBE-STACK ${process.pid} ${new Error().stack}`);
       const handler = handlers[cmd];
       if (handler) return handler(args);
       if (cmd === "node_probe") return probe;
@@ -171,9 +172,26 @@ export function installFakeIpc(
     },
     restore: () => {
       host.__TAURI_INTERNALS__ = previous;
+      // Retire every client rendered since the last install, BEFORE its work
+      // can be attributed here: `invoke` resolves through the CURRENT
+      // `__TAURI_INTERNALS__`, so a refetch an earlier test left mid-flight
+      // (the action runner's awaited re-probe, its settle beats) otherwise
+      // lands in the NEXT test's call list — the `pacing` suites'
+      // "does not poll while an action is in flight" measured exactly that on
+      // throttled CI runners, where the beat drifts into a later test's
+      // window. Clearing the caches ends that work without waiting:
+      // `refetchQueries` only refetches queries still in the cache, and the
+      // interval polls live on unmounted observers that are already gone.
+      for (const client of pendingClients) {
+        client.getQueryCache().clear();
+        client.getMutationCache().clear();
+      }
+      pendingClients.length = 0;
     },
   };
 }
+
+const pendingClients: QueryClient[] = [];
 
 /** Render a tree under a fresh query client with retries off. */
 export function renderApp(element: ReactElement) {
@@ -183,6 +201,7 @@ export function renderApp(element: ReactElement) {
       mutations: { retry: false },
     },
   });
+  pendingClients.push(client);
   // `client` rides along for the tests that need to drive a query directly —
   // a probe refetch the page no longer has a Refresh button for (operator
   // ruling 2026-09-22: the poll is the refresh), and a test asserting the
