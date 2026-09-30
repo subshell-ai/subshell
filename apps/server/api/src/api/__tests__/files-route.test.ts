@@ -12,6 +12,7 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { RecentPathsRepository } from "@/db/repositories/recent-paths.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { setFilesRealpathForTests } from "@/services/files-path-rules.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
@@ -182,7 +183,10 @@ describe("files route (folder explorer)", () => {
   // SYNCHRONOUS readdir of a directory on a hung mount parked the whole server).
   // These pin the two visible consequences, both of which the picker relies on.
   describe("listing is ordered, and a hung read recovers (2026-09-30)", () => {
-    afterEach(() => setFilesReaddirForTests(null));
+    afterEach(() => {
+      setFilesReaddirForTests(null);
+      setFilesRealpathForTests(null);
+    });
 
     it("sorts entries alphabetically (case-insensitive, numeric-aware), not readdir order", async () => {
       const dir = mkdtempSync(join(tmpdir(), "subshell-sort-"));
@@ -226,6 +230,34 @@ describe("files route (folder explorer)", () => {
       } finally {
         if (saved === undefined) delete process.env.SUBSHELL_FS_READ_TIMEOUT_MS;
         else process.env.SUBSHELL_FS_READ_TIMEOUT_MS = saved;
+      }
+    });
+
+    it("a hung gate realpath is a bounded 200 blocked: 'timeout', not a 500", async () => {
+      // The confinement gate realpaths a candidate for a restricted caller. When
+      // THAT read is the one that hangs (mac-builder's exact fault: a Linux-style
+      // /home path under an auto_home mount), the route must classify it as the
+      // same recoverable blocked listing the readdir path produces, not leak the
+      // FsDeadlineError to the 500 handler. Forces the gate off its fast path via
+      // a set FS_ROOT, then hangs the injected realpath.
+      const saved = process.env.SUBSHELL_FS_READ_TIMEOUT_MS;
+      const savedRoot = process.env.SUBSHELL_FS_ROOT;
+      process.env.SUBSHELL_FS_READ_TIMEOUT_MS = "30";
+      process.env.SUBSHELL_FS_ROOT = savedRoot ?? "/"; // any set root keeps the gate off the fast path
+      try {
+        setFilesRealpathForTests(() => new Promise<string>(() => {}));
+        const started = Date.now();
+        const res = await explore({ cookieToken: cookie, path: "/tmp" });
+        expect(res.status).toBe(200);
+        expect(Date.now() - started).toBeLessThan(3_000);
+        const body = (await res.json()) as { blocked?: string; entries: unknown[] };
+        expect(body.blocked).toBe("timeout");
+        expect(body.entries).toEqual([]);
+      } finally {
+        if (saved === undefined) delete process.env.SUBSHELL_FS_READ_TIMEOUT_MS;
+        else process.env.SUBSHELL_FS_READ_TIMEOUT_MS = saved;
+        if (savedRoot === undefined) delete process.env.SUBSHELL_FS_ROOT;
+        else process.env.SUBSHELL_FS_ROOT = savedRoot;
       }
     });
 

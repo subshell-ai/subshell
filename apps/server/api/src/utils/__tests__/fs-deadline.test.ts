@@ -54,13 +54,15 @@ describe("withFsDeadline", () => {
   });
 
   it("ignores a malformed env budget rather than trusting it", async () => {
-    // "0"/garbage must not disable the guard (an unbounded read is the wedge
-    // this exists to stop); a fast read still resolves, proving it did not
-    // collapse to a 0ms instant-fail either.
+    // A garbage value must fall back to the 10s default, NOT be trusted as
+    // NaN (which setTimeout turns into a 0ms timer = an instant-fail that would
+    // break every healthy read). A read that settles after 50ms still resolves:
+    // under a naive NaN-as-0ms budget this would reject at ~0ms and fail.
     const saved = process.env.SUBSHELL_FS_READ_TIMEOUT_MS;
     process.env.SUBSHELL_FS_READ_TIMEOUT_MS = "not-a-number";
     try {
-      expect(await withFsDeadline(() => Promise.resolve("ok"))).toBe("ok");
+      const value = await withFsDeadline(() => new Promise((r) => setTimeout(() => r("ok"), 50)));
+      expect(value).toBe("ok");
     } finally {
       if (saved === undefined) delete process.env.SUBSHELL_FS_READ_TIMEOUT_MS;
       else process.env.SUBSHELL_FS_READ_TIMEOUT_MS = saved;

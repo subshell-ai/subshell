@@ -1,6 +1,7 @@
-import { lstat, realpath } from "node:fs/promises";
+import { lstat, realpath as realpathAsync } from "node:fs/promises";
 import { isAbsolute, resolve, sep } from "node:path";
 import { dirAllowed, dirNavigable } from "@internal/subshell-protocol";
+import { IS_TEST } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { FavoritesRepository } from "@/db/repositories/favorites.repository.js";
 import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
@@ -39,12 +40,30 @@ import { FsDeadlineError, withFsDeadline } from "@/utils/fs-deadline.js";
  * silently confining to the lexical form — a root that cannot be resolved in
  * time is a browse to refuse, not one to mis-confinement.
  */
+type RealpathFn = (path: string) => Promise<string>;
+
+/**
+ * Test seam for the ONLY symlink-resolving read the confinement gate performs.
+ * A hung `realpath` (a candidate sitting on a dead autofs/network mount, the
+ * mac-builder fault) cannot be produced with real paths in a suite, so a test
+ * injects a never-settling probe here to pin the gate's timeout path. Passing
+ * `null` restores the real call. Same IS_TEST hard refusal as the route's
+ * readdir seam: production must never be able to swap the filesystem.
+ * @internal
+ */
+let probeRealpath: RealpathFn = (path) => realpathAsync(path);
+
+export function setFilesRealpathForTests(fn: RealpathFn | null): void {
+  if (!IS_TEST) throw new Error("setFilesRealpathForTests is a test-only seam");
+  probeRealpath = fn ?? ((path) => realpathAsync(path));
+}
+
 async function confinementRoot(signal?: AbortSignal): Promise<{ lexical: string; real: string } | null> {
   const root = process.env.SUBSHELL_FS_ROOT?.trim();
   if (!root) return null;
   const lexical = resolve(root);
   try {
-    return { lexical, real: await withFsDeadline(() => realpath(lexical), { signal }) };
+    return { lexical, real: await withFsDeadline(() => probeRealpath(lexical), { signal }) };
   } catch (err) {
     if (err instanceof FsDeadlineError) throw err;
     return { lexical, real: lexical };
@@ -131,7 +150,7 @@ export async function isAllowedRoot(
   // parking the loop.
   let real: string | null;
   try {
-    real = await withFsDeadline(() => realpath(resolved), { signal: opts.signal });
+    real = await withFsDeadline(() => probeRealpath(resolved), { signal: opts.signal });
   } catch (err) {
     if (err instanceof FsDeadlineError) throw err;
     real = null; // absent or a broken symlink — handled per-branch below

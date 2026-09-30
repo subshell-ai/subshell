@@ -287,6 +287,11 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
               await withFsDeadline(
                 async () => {
                   for (let i = 0; i < targets.length; i += WINDOW) {
+                    // The wrapper already rejected at the deadline, but nothing
+                    // inside this thunk observes it; bail so an abandoned pass
+                    // over a huge directory does not keep issuing stats (review
+                    // NIT1). The response is already fixed to an empty listing.
+                    if (budget.aborted) break;
                     await Promise.all(
                       targets.slice(i, i + WINDOW).map(async (name) => {
                         const full = join(resolved, name);

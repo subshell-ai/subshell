@@ -438,11 +438,7 @@ export function DirectoryPickerInput({
                             THIS machine" and can never be a dead click in
                             another machine's panel — the defect the star used
                             to be hidden for. It is offered everywhere. */}
-                        <StarButton
-                          path={e.path}
-                          starred={false}
-                          onToggle={(on) => favorite.mutate({ path: e.path, on })}
-                        />
+                        <StarButton path={e.path} starred={false} onToggle={(on) => toggleFavorite(e.path, on)} />
                       </div>
                     ))}
                 </div>
