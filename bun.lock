@@ -34,6 +34,7 @@
       "dependencies": {
         "@base-ui/react": "1.7.0",
         "@internal/assistant": "workspace:*",
+        "@internal/node": "workspace:*",
         "@internal/subshell-protocol": "workspace:*",
         "@tanstack/react-query": "5.101.4",
         "@tauri-apps/api": "2.11.1",
@@ -225,6 +226,7 @@
       "dependencies": {
         "@base-ui/react": "1.7.0",
         "@internal/assistant": "workspace:*",
+        "@internal/server": "workspace:*",
         "@internal/subshell-protocol": "workspace:*",
         "@tauri-apps/api": "2.11.1",
         "@tauri-apps/plugin-dialog": "2.7.3",
