@@ -558,23 +558,28 @@ one path string per process, so the app's Kysely connection and better-auth's
 handle share one DB, and concurrent `bun test` invocations cannot contend)
 and a throwaway log directory. `NODE_ARTIFACTS_DIR` derives from that temp
 data dir under the test env, which is how the download-route tests write
-fixtures straight in. All test files within one invocation share
-that DB, so suites must not assume it starts empty. Tests never touch
-`data/`.
+fixtures straight in. A bare `bun test` runs files serially in one process,
+so they all share that DB; the `test` script adds `--parallel=12` (issue
+#261), where every file gets a fresh module registry and so its own DB
+file. Suites must therefore migrate their own DB (`@/__tests__/helpers/
+test-database.js`) and may assume neither an empty one nor a sibling file's
+boot. Tests never touch `data/`.
 
-**A run reaps its own tmux servers**: the `test` script prefixes
-`TMUX_TMPDIR=$(mktemp -d /tmp/subshell-test-tmux-XXXXXX)` and the
-preload's `afterAll` `kill-server`s exactly what that directory lists,
-so a concurrent run's panes are outside it. A bare hand-typed `bun test`
-sets no such variable and gets no net, which is correct, since it also
-gets the shared default socket dir, where killing anything would reach panes
-the run never started. The net covers THIS package only;
+**A run reaps its own tmux servers**: `test` runs `scripts/test-run.sh`,
+which owns the run's `TMUX_TMPDIR=$(mktemp -d /tmp/subshell-test-tmux-XXXXXX)`
+namespace and, after `bun test` exits, `kill-server`s every socket it lists
+and removes the directory. It lives in the script, not the preload, because
+issue #261 measured that a preload `afterAll` fires after EVERY file under
+`--parallel` - a directory-scoped sweep there would kill sibling workers'
+live panes. A bare hand-typed `bun test` gets no net, which is correct,
+since it also gets the shared default socket dir, where killing anything
+would reach panes the run never started. The net covers THIS package only;
 `packages/pane-runtime` and `apps/node/agent` stand on each suite's own
 register-before-spawn `afterAll`. The `--timeout 30000` in the script is
-measured: this package's DB + better-auth setup against the shared temp
-DB is what blows bun's 5 s default under CI load, not the tests. Why
-each is shaped this way (the leaked-harness incident, where the variable
-may and may not be set, the CI run numbers):
+measured: this package's DB + better-auth setup against the temp DB is
+what blows bun's 5 s default under CI load, not the tests. Why each is
+shaped this way (the leaked-harness incident, the parallel per-file firing
+that moved the sweep out of the preload, the CI run numbers):
 `apps/server/api/docs/testing-notes.md`.
 
 **A new column on a shared table must also join the HAND-CURATED migration

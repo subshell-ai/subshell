@@ -158,11 +158,16 @@ describe("the build wiring", () => {
 describe("the test runs", () => {
   it("runs the release-script tests, then the page's under its own harness", () => {
     // The client app's two-half wiring, mirrored at the moment this page
-    // gained component tests: `bun test src` (the release script, plain bun,
-    // no DOM) first, then `cd ui && bun test`, whose cwd is what resolves
-    // `ui/bunfig.toml`.
-    expect(pkg.scripts.test).toContain(`bun test --path-ignore-patterns "**/ui/**" src`);
-    expect(pkg.scripts.test).toContain("cd ui && bun test");
+    // gained component tests: the release-script `bun test src` (plain bun,
+    // no DOM) first, then `cd ui && <the same> bun test`, whose cwd is what
+    // resolves `ui/bunfig.toml`. Issue #261 wrapped each half in
+    // scripts/par-test.sh (the bun --parallel flag must be omittable for CI,
+    // which neither bun's script shell nor a package.json string can express)
+    // - both halves still start at `bun test`, which is what this pins.
+    expect(pkg.scripts.test).toContain(`par-test.sh" 4 bun test --path-ignore-patterns "**/ui/**" src`);
+    expect(pkg.scripts.test).toContain(
+      'cd ui && bash "$(git rev-parse --show-toplevel)/scripts/par-test.sh" 4 bun test',
+    );
   });
 
   it("carries the happy-dom preload in ui/bunfig.toml and nowhere the release script can see", () => {

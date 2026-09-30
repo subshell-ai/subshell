@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { NODE_CLOSE_SUPERSEDED } from "@internal/subshell-protocol";
+import { until } from "@/__tests__/helpers/until.js";
 import {
   attachConnection,
   disconnectNode,
@@ -181,13 +182,14 @@ describe("held connections", () => {
     expect(ws.sent).toHaveLength(0);
 
     // `update` still reaches it — that is the whole reason the socket is held.
-    void sendCommand("n1", {
+    const update = sendCommand("n1", {
       type: "update",
       version: "9.9.9",
       url: "http://127.0.0.1:1/subshell-node-cli-linux-x64",
       sha256: "0".repeat(64),
-    }).catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 5));
+    });
+    update.catch(() => undefined); // the URL is a dead port; delivery is the assertion
+    await until(() => ws.sent.length > 0, "the update frame");
     expect(ws.sent).toHaveLength(1);
   });
 

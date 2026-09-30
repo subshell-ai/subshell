@@ -63,6 +63,16 @@ on:
     branches:
       - main
 
+# CI runs every suite SERIALLY inside its package (issue #261's scripts
+# still parallelize local runs). The hosted container gets a fraction of its
+# 4 labels (0.4 CPU measured in apps/server/web's budgets, twice), and bun's
+# --parallel at ANY width - even 1, which is not serial - starved
+# time-budgeted suites into per-test timeouts across three CI attempts on
+# PR #277. scripts/par-test.sh omits the flag on this variable; the shard
+# matrix is CI's speed, not worker threads.
+env:
+  SUBSHELL_TEST_SERIAL: "1"
+
 permissions:
   contents: read
   # The container jobs pull ghcr.io/subshell-ai/desktop-builder, which inherits

@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import type { JsonValue, NodeCommandBody } from "@internal/subshell-protocol";
+import { until } from "@/__tests__/helpers/until.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
@@ -41,15 +42,6 @@ const BSU = "\x1b[?2026h";
 const ESU = "\x1b[?2026l";
 
 const b64 = (s: string): string => Buffer.from(s, "utf8").toString("base64");
-
-/** Poll `cond` until true (signing/RPC settle on real async paths). */
-async function until(cond: () => boolean, what = "condition", budgetMs = 4000): Promise<void> {
-  for (let waited = 0; ; waited += 5) {
-    if (cond()) return;
-    if (waited > budgetMs) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((r) => setTimeout(r, 5));
-  }
-}
 
 /** One unwrapped command frame: the claims' jti plus the plain command body. */
 interface WireCmd {

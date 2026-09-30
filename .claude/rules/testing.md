@@ -6,6 +6,19 @@
 turbo test                 # Run tests across all packages
 ```
 
+Each package's `test` script passes `--parallel=N` (issue #261): test files
+run in worker processes and **every file gets a fresh module registry** - a
+fresh `db` singleton with its own database file. Two consequences for suite
+authors: a suite that touches the DB must migrate it itself (server/api:
+`@/__tests__/helpers/test-database.js`) and may assume neither an empty DB
+nor a sibling file's boot; and runner-wide cleanup cannot live in a preload
+`afterAll` (those fire per file under `--parallel`), it belongs in the
+package's `test` script. A bare `bun test` still runs serially - bun ignores
+a `parallel` key in `bunfig.toml [test]` (measured on 1.4.0 and 1.4.2), so
+the flag lives in the scripts only. `SUBSHELL_TEST_PARALLEL` overrides a
+package's default (CI pins 4 for its 4-core runners; 12 starved the web
+suite's timeouts there).
+
 ## Guidelines
 
 **Always write tests for new features.** Every new service, repository, route, or significant function should have corresponding tests. Tests should cover:

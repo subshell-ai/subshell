@@ -1,4 +1,5 @@
-import { describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
+import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { db } from "@/db/index.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -12,6 +13,10 @@ import { getLogger } from "@/utils/logger.js";
  * rebuilding) and arrive fully wired — repos and services included.
  * The per-process temp-file test DB from test-preload applies automatically.
  */
+// Parallel `bun test` gives this file its own fresh (unmigrated) database,
+// so the tables arrive here by right, not by whoever imported first.
+beforeAll(ensureMigratedTestDb);
+
 describe("getRequestlessContext", () => {
   it("returns the same instance on every call", () => {
     expect(getRequestlessContext()).toBe(getRequestlessContext());

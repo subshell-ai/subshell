@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { TmuxRunner } from "@internal/pane-runtime";
 import { CamelCasePlugin, Kysely } from "kysely";
 import { BunSqliteDialect } from "kysely-bun-sqlite-dialect";
+import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import * as initMigration from "@/db/migrations/0001-init.js";
 import * as operatorUxMigration from "@/db/migrations/0002-operator-ux.js";
 import * as remoteOpsMigration from "@/db/migrations/0003-remote-ops.js";
@@ -26,6 +27,7 @@ import type { Database } from "@/db/types/index.js";
 import type { SubshellTable, SubshellUpdate } from "@/db/types/subshells.db-types.js";
 import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
 import { subshellMcpConfigPath } from "@/services/mcp-launch.js";
+import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { SubshellManagerService, type SubshellTokenProvider } from "@/services/subshell-manager.service.js";
 
 /**
@@ -105,6 +107,17 @@ let presetId: string;
 let previousClaudePath: string | undefined;
 
 beforeAll(async () => {
+  // The manager reaches past this file's injected db for the launch allowlist
+  // gate and the auto-restart gate, which read the SHARED `@/db` singleton.
+  // Parallel `bun test` gives every file its own fresh singleton, so the old
+  // ride-on-whatever-file-migrated-first arrangement is gone: migrate and
+  // seed here, explicitly. An unmigrated singleton throws `no such table`;
+  // a migrated-but-pluginless one makes every harness unusable, the auto-
+  // restart silently defers, and the respawn-count assertions below read as
+  // off-by-one. `subshell-manager.service.test.ts` documents the same pairing.
+  await ensureMigratedTestDb();
+  await prepareLocalPlugins();
+
   const harnessStub = join(testDir, "claude-stub");
   writeFileSync(harnessStub, "#!/bin/sh\nexec sleep 300\n", { mode: 0o755 });
   previousClaudePath = process.env.CLAUDE_PATH;

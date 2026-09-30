@@ -2,6 +2,7 @@ import { afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { appendFileSync } from "node:fs";
 import { tmuxSocketFor } from "@internal/pane-runtime";
 import type { NodeCommandBody } from "@internal/subshell-protocol";
+import { until } from "@/__tests__/helpers/until.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -33,15 +34,6 @@ const NODE_ID = "node-it-ws-1";
 const LOG = "ab\ncd\n"; // 7 bytes — small enough that the whole window replays
 
 const b64 = (s: string): string => Buffer.from(s, "utf8").toString("base64");
-
-/** Poll `cond` until true (signing/RPC settle on real async paths). */
-async function until(cond: () => boolean, what = "condition", budgetMs = 4000): Promise<void> {
-  for (let waited = 0; ; waited += 5) {
-    if (cond()) return;
-    if (waited > budgetMs) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((r) => setTimeout(r, 5));
-  }
-}
 
 /** Give a late second send a bounded chance to land (then it never should). */
 async function sawWithin(cond: () => boolean, budgetMs: number): Promise<boolean> {

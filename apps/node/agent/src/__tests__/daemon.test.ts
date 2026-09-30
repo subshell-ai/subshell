@@ -2366,9 +2366,15 @@ describe("the update transaction, settled by the daemon (spec 2026-09-15 ยง5.1/ย
     // is what proves this plane is talking TO this binary.
     await signAndSend(h, { type: "set_allowed_dirs", dirs: [] });
     const deadline = Date.now() + 2000;
-    while (existsSync(previous) && Date.now() < deadline) await sleep(10);
+    // Wait for BOTH drops, not one then an immediate peek at the other: the
+    // settle unlinks are not atomic against each other, and on a loaded
+    // runner (CI's 4-core box under `--parallel=12`) the gap between them
+    // outlived the single-file wait - the shape of the 2026-09-30 flake,
+    // `.previous` gone while the marker still read present.
+    const marker = join(h.config.dataDir, "update-pending.json");
+    while ((existsSync(previous) || existsSync(marker)) && Date.now() < deadline) await sleep(10);
     expect(existsSync(previous)).toBe(false);
-    expect(existsSync(join(h.config.dataDir, "update-pending.json"))).toBe(false);
+    expect(existsSync(marker)).toBe(false);
     expect(readFileSync(binary, "utf8")).toBe("NEW");
   });
 
