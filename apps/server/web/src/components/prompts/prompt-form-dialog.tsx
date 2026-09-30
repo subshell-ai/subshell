@@ -3,7 +3,6 @@ import { useState } from "react";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -73,7 +72,6 @@ export function PromptFormDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editingId ? "Edit prompt" : "New prompt"}</DialogTitle>
-          <DialogDescription>A saved prompt you can drop into any subshell.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <form.Field name="description">
