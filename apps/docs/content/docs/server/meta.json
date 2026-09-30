@@ -1,4 +1,0 @@
-{
-  "title": "Run the Server",
-  "pages": ["index", "desktop-app", "headless", "docker", "proxmox", "configuration", "networking", "service", "reset", "users", "sign-in-providers", "registration", "backups", "updating", "logs", "audit-log", "network-plugins"]
-}
