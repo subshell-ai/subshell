@@ -779,9 +779,10 @@ jobs:
           APP: ${{ matrix.app }}
           # The app's directory under apps/ — see the plan job's `app_dir` table.
           DIR: ${{ matrix.dir }}
-          # stageSidecar FETCHES the released CLI asset over the GitHub API;
-          # the repo is private, so the lookup and download are authenticated
-          # with the job token (cli-release-fetch.ts refuses without it).
+          # stageSidecar FETCHES the released CLI asset over the GitHub API.
+          # The fetch is an authorized read by design, not by the repo's
+          # visibility (which is an operator setting): the lookup and download
+          # carry the job token, and cli-release-fetch.ts refuses without one.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel
@@ -1401,9 +1402,10 @@ jobs:
           APP: ${{ matrix.app }}
           # The app's directory under apps/ — see the plan job's `app_dir` table.
           DIR: ${{ matrix.dir }}
-          # stageSidecar FETCHES the released CLI asset over the GitHub API;
-          # the repo is private, so the lookup and download are authenticated
-          # with the job token (cli-release-fetch.ts refuses without it).
+          # stageSidecar FETCHES the released CLI asset over the GitHub API.
+          # The fetch is an authorized read by design, not by the repo's
+          # visibility (which is an operator setting): the lookup and download
+          # carry the job token, and cli-release-fetch.ts refuses without one.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel
