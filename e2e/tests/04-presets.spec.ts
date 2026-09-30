@@ -137,8 +137,10 @@ test(`the launch form's "Save as preset" makes a preset from the form`, async ({
   await page.fill("#picker-working-dir", "/tmp");
   // The directory panel opened on focus and dismisses only outside the
   // picker root - click the heading, which stays inside the dialog (see
-  // dismissDirectoryPanel in 05).
-  await page.getByRole("heading", { name: "Add a subshell" }).click();
+  // dismissDirectoryPanel in 05). This dialog is the RAIL's launch dialog
+  // (/new raises it), whose title is "New subshell"; "Add a subshell" is the
+  // workspace picker's dialog, which 05 opens.
+  await page.getByRole("heading", { name: "New subshell" }).click();
 
   await page.locator("#picker-save-as-preset").check();
   await expect(page.getByText("Name")).toBeVisible();
