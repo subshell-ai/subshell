@@ -201,6 +201,13 @@ export function DirectoryPickerInput({
     },
   });
 
+  // Shared by every star in the panel (Recent, Favorites, and the listing rows),
+  // so the shortcut section can render identically in the listing and the
+  // blocked-recovery states without a second copy.
+  function toggleFavorite(path: string, on: boolean) {
+    favorite.mutate({ path, on });
+  }
+
   function openPicker() {
     setPickerPath(value || "~");
     setPickerOpen(true);
@@ -324,7 +331,7 @@ export function DirectoryPickerInput({
             // feeling as the hung server this flag now bounds). The server
             // echoes parent/recent/favorites on a blocked read, so offer the
             // ways out that need no read of THIS folder.
-            <div className="flex h-56 flex-col items-start justify-center gap-2 px-2">
+            <div className="h-56 overflow-y-auto px-2 py-2">
               {explore.blocked === "permission" ? (
                 <>
                   {/* The server flags EACCES as well as EPERM, on every
@@ -348,7 +355,7 @@ export function DirectoryPickerInput({
               {/* The recovery row: back up toward a folder that reads, or
                   abandon the dead path for home. "Up" is offered only when the
                   server could name a parent (never at the filesystem root). */}
-              <div className="flex gap-2">
+              <div className="mt-2 flex gap-2">
                 {explore.parent && (
                   <button
                     type="button"
@@ -366,6 +373,15 @@ export function DirectoryPickerInput({
                   Start over
                 </button>
               </div>
+              {/* And the saved shortcuts: the escape that survives a folder this
+                  server cannot read (a favorite is a different path, and a
+                  browse into it starts fresh). Without them a blocked home left
+                  only Start over, which re-opens the same blocked folder. */}
+              {(explore.recent.length > 0 || explore.favorites.length > 0) && (
+                <div className="mt-2 border-t pt-2">
+                  <ShortcutSections explore={explore} onPick={pick} onToggleFavorite={toggleFavorite} />
+                </div>
+              )}
             </div>
           ) : explore ? (
             <div className="h-56 overflow-y-auto">
@@ -384,48 +400,7 @@ export function DirectoryPickerInput({
                   hold dozens of entries, and shortcuts buried under them
                   would be useless; the listing is the one section meant to
                   scroll. */}
-              {explore.recent.length > 0 && (
-                <div>
-                  <p className="mb-1 px-2 text-detail text-muted-foreground">Recent</p>
-                  {explore.recent.map((r) => (
-                    <div key={r.path} className="group flex items-center">
-                      <button
-                        type="button"
-                        title={r.path}
-                        onClick={() => pick(r.path)}
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
-                      >
-                        <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{r.label ?? r.path}</span>
-                      </button>
-                      <StarButton
-                        path={r.path}
-                        starred={false}
-                        onToggle={(on) => favorite.mutate({ path: r.path, on })}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-              {explore.favorites.length > 0 && (
-                <div className={explore.recent.length > 0 ? "mt-2 border-t pt-2" : undefined}>
-                  <p className="mb-1 px-2 text-detail text-muted-foreground">Favorites</p>
-                  {explore.favorites.map((f) => (
-                    <div key={f.path} className="group flex items-center">
-                      <button
-                        type="button"
-                        title={f.path}
-                        onClick={() => pick(f.path)}
-                        className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
-                      >
-                        <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
-                        <span className="truncate">{f.label ?? f.path}</span>
-                      </button>
-                      <StarButton path={f.path} starred onToggle={(on) => favorite.mutate({ path: f.path, on })} />
-                    </div>
-                  ))}
-                </div>
-              )}
+              <ShortcutSections explore={explore} onPick={pick} onToggleFavorite={toggleFavorite} />
 
               {(explore.parent !== null || explore.entries.length > 0) && (
                 <div className="mt-2 border-t pt-2">
@@ -516,5 +491,67 @@ function StarButton({
     >
       <Star className={starred ? "h-3.5 w-3.5 fill-current" : "h-3.5 w-3.5"} />
     </button>
+  );
+}
+
+/**
+ * The panel's saved-shortcut sections — Recent (top 3) over Favorites — each
+ * rendered only when it has rows. Shared by the normal listing AND the blocked
+ * (permission / timeout) recovery state: a folder you cannot read is exactly
+ * when the starred and recent paths matter most, because they are the escape
+ * that needs no read of the dead folder (review M1). Kept as one component so
+ * the two states can never drift.
+ */
+function ShortcutSections({
+  explore,
+  onPick,
+  onToggleFavorite,
+}: {
+  explore: ExploreResult;
+  onPick: (path: string) => void;
+  onToggleFavorite: (path: string, on: boolean) => void;
+}): JSX.Element | null {
+  if (explore.recent.length === 0 && explore.favorites.length === 0) return null;
+  return (
+    <>
+      {explore.recent.length > 0 && (
+        <div>
+          <p className="mb-1 px-2 text-detail text-muted-foreground">Recent</p>
+          {explore.recent.map((r) => (
+            <div key={r.path} className="group flex items-center">
+              <button
+                type="button"
+                title={r.path}
+                onClick={() => onPick(r.path)}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+              >
+                <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="truncate">{r.label ?? r.path}</span>
+              </button>
+              <StarButton path={r.path} starred={false} onToggle={(on) => onToggleFavorite(r.path, on)} />
+            </div>
+          ))}
+        </div>
+      )}
+      {explore.favorites.length > 0 && (
+        <div className={explore.recent.length > 0 ? "mt-2 border-t pt-2" : undefined}>
+          <p className="mb-1 px-2 text-detail text-muted-foreground">Favorites</p>
+          {explore.favorites.map((f) => (
+            <div key={f.path} className="group flex items-center">
+              <button
+                type="button"
+                title={f.path}
+                onClick={() => onPick(f.path)}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1 text-left text-sm hover:bg-accent"
+              >
+                <FolderOpen className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="truncate">{f.label ?? f.path}</span>
+              </button>
+              <StarButton path={f.path} starred onToggle={(on) => onToggleFavorite(f.path, on)} />
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }

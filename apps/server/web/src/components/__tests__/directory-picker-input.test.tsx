@@ -674,6 +674,67 @@ describe("DirectoryPickerInput", () => {
     });
   });
 
+  // The three dead ends that used to trap the user in the panel (mac-builder,
+  // 2026-09-30): the generic browse failure had no escape, and the blocked
+  // states replaced the whole body, discarding the saved shortcuts the server
+  // still ships for exactly this recovery.
+  describe("blocked / error recovery affordances (2026-09-30)", () => {
+    it("a timed-out folder offers Go up + Start over", async () => {
+      const { restore } = mockExplore({
+        "/mnt/nas": { ...exploreBody("/mnt/nas", []), blocked: "timeout" as const },
+      });
+      try {
+        renderField({ value: "/mnt/nas" });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByText(/took too long to read/);
+        expect(screen.getByRole("button", { name: "Go up one level" })).toBeDefined();
+        expect(screen.getByRole("button", { name: "Start over" })).toBeDefined();
+      } finally {
+        restore();
+      }
+    });
+
+    it("a blocked folder still lists the favourites — the escape that needs no read", async () => {
+      // The whole point of M1: a blocked home is survivable because a starred
+      // path is a DIFFERENT path. The server ships favourites/recents on the
+      // blocked response; the panel must show them, not a message alone.
+      const { restore } = mockExplore({
+        "/Users/ada/Desktop": {
+          ...exploreBody("/Users/ada/Desktop", []),
+          blocked: "permission" as const,
+          favorites: [{ path: "/srv/keep", label: null }],
+        },
+      });
+      try {
+        const picks: string[] = [];
+        renderField({ value: "/Users/ada/Desktop", onChange: (p) => picks.push(p) });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByText("Not allowed to read this folder");
+        const fav = await screen.findByText("/srv/keep");
+        // Clicking it browses away from the dead folder.
+        fireEvent.click(fav);
+        expect(picks).toEqual(["/srv/keep"]);
+      } finally {
+        restore();
+      }
+    });
+
+    it("a generic browse failure offers a working Start over", async () => {
+      const picks: string[] = [];
+      const restore = mockFetch(() => Promise.resolve(new Response("nope", { status: 500 })));
+      try {
+        renderField({ value: "/srv/dead", onChange: (p) => picks.push(p) });
+        fireEvent.focus(screen.getByRole("textbox"));
+        await screen.findByText("Couldn't browse this path.");
+        fireEvent.click(screen.getByRole("button", { name: "Start over" }));
+        expect(picks).toContain("");
+        expect((screen.getByRole("textbox") as HTMLInputElement).value).toBe("");
+      } finally {
+        restore();
+      }
+    });
+  });
+
   it("a pointerdown outside the field closes the panel", async () => {
     const { restore } = mockExplore({ "/tmp": exploreBody("/tmp", ["cache"]) });
     try {

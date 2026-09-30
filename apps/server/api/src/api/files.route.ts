@@ -21,7 +21,7 @@ import {
 } from "@/services/files-path-rules.js";
 import { exploreNodeDirectory } from "@/services/files-remote-browse.service.js";
 import { getLive } from "@/services/nodes/node-registry.js";
-import { FsDeadlineError, withFsDeadline } from "@/utils/fs-deadline.js";
+import { FsDeadlineError, newReadBudget, withFsDeadline } from "@/utils/fs-deadline.js";
 import { expandTilde } from "@/utils/path.js";
 
 interface DirEntry {
@@ -207,6 +207,15 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       }
       const parent = resolved === "/" ? null : join(resolved, "..");
 
+      // ONE wall-clock budget for every filesystem read of THIS listing: the
+      // gate's realpath, the candidate stat, the readdir and the child stats all
+      // race the same clock, so a restricted browse cannot stack a 10s deadline
+      // per phase into ~30s (review M6; and the operator's "10s timeout" ask).
+      // The saved-shortcut sections below are deliberately NOT on this budget —
+      // they keep their own, so a listing that times out still returns the
+      // favorites that let the user escape it.
+      const budget = newReadBudget();
+
       const entries: DirEntry[] = [];
       // Why THIS directory could not be listed, when the request itself
       // succeeded: `"permission"` (the OS refused the read — macOS TCC or unix
@@ -223,15 +232,15 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         // realpath (a restricted caller, symlinked path); a timeout there is a
         // browse we cannot vouch for, reported as blocked rather than a 500.
         const inRoots =
-          (await isAllowedRoot(path, allowedDirs, { navigation: true })) &&
-          (await isAllowedRoot(resolved, allowedDirs, { navigation: true }));
+          (await isAllowedRoot(path, allowedDirs, { navigation: true, signal: budget })) &&
+          (await isAllowedRoot(resolved, allowedDirs, { navigation: true, signal: budget }));
         if (!inRoots) {
           throw new FilesError("forbidden", "Path outside allowed roots", 403);
         }
 
         let isDirectory = false;
         try {
-          isDirectory = (await withFsDeadline(() => statAsync(resolved))).isDirectory();
+          isDirectory = (await withFsDeadline(() => statAsync(resolved), { signal: budget })).isDirectory();
         } catch (err) {
           if (err instanceof FsDeadlineError) blocked = "timeout";
           // A stat failure other than a timeout means the path is not there to
@@ -244,7 +253,7 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
         if (blocked === undefined && isDirectory) {
           let names: string[] = [];
           try {
-            names = await withFsDeadline(() => readdir(resolved));
+            names = await withFsDeadline(() => readdir(resolved), { signal: budget });
           } catch (err) {
             if (err instanceof FsDeadlineError) blocked = "timeout";
             else {
@@ -263,29 +272,37 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
           }
           if (blocked === undefined) {
             // One `stat` per child (never a `readdir` — that is the act that
-            // fires a macOS prompt per folder under ~ on first open). Statted
-            // CONCURRENTLY, off the event loop, all under one deadline: the
-            // listing is trustworthy only if EVERY child answered, so a mount
-            // that hangs a child fails the whole read to `timeout` and clears
-            // the partial entries rather than shipping a folder that looks
-            // half-empty. A child that merely errors (a raced death, an
-            // unreadable mode) is skipped, exactly as the sync loop did.
+            // fires a macOS prompt per folder under ~ on first open). The whole
+            // pass is under the shared `budget`: the listing is trustworthy only
+            // if EVERY child answered, so a mount that hangs a child fails the
+            // read to `timeout` and clears the partial entries rather than
+            // shipping a folder that looks half-empty. A child that merely
+            // errors (a raced death, an unreadable mode) is skipped, exactly as
+            // the sync loop did. Stats run a bounded window at a time (review
+            // M5) so a directory of tens of thousands of entries on a slow
+            // volume cannot exhaust the shared deadline on its own concurrency.
+            const targets = names.filter((name) => !name.startsWith("."));
+            const WINDOW = 64;
             try {
-              await withFsDeadline(async () => {
-                await Promise.all(
-                  names.map(async (name) => {
-                    if (name.startsWith(".")) return;
-                    const full = join(resolved, name);
-                    try {
-                      const s = await statAsync(full);
-                      if (s.isDirectory()) entries.push({ name, path: full, kind: "dir" });
-                      else if (s.isFile()) entries.push({ name, path: full, kind: "file" });
-                    } catch {
-                      // skip — mirrors the sync `catch { continue }`
-                    }
-                  }),
-                );
-              });
+              await withFsDeadline(
+                async () => {
+                  for (let i = 0; i < targets.length; i += WINDOW) {
+                    await Promise.all(
+                      targets.slice(i, i + WINDOW).map(async (name) => {
+                        const full = join(resolved, name);
+                        try {
+                          const s = await statAsync(full);
+                          if (s.isDirectory()) entries.push({ name, path: full, kind: "dir" });
+                          else if (s.isFile()) entries.push({ name, path: full, kind: "file" });
+                        } catch {
+                          // skip — mirrors the sync `catch { continue }`
+                        }
+                      }),
+                    );
+                  }
+                },
+                { signal: budget },
+              );
             } catch (err) {
               if (err instanceof FsDeadlineError) {
                 blocked = "timeout";
@@ -316,10 +333,14 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       // folder. A path is listed once — favorites win over recents. Both
       // sections are scoped to the browsed machine on EITHER transport
       // (a remote explore ships that node's rows — see exploreNode).
-
-      const favorites = await favoritePathsFor(user.id);
+      //
+      // Fetched CONCURRENTLY on their own deadlines (not the listing `budget`):
+      // a listing that timed out still answers with the saved shortcuts, which
+      // is the user's escape from the dead folder, so their reads must not be
+      // cut off by the very timeout they are recovering from (review M1/M6).
+      const [favorites, recents] = await Promise.all([favoritePathsFor(user.id), recentPathsFor(user.id)]);
       const starred = new Set(favorites.map((f) => f.path));
-      const recent = (await recentPathsFor(user.id))
+      const recent = recents
         .filter((r) => !starred.has(r.path))
         .slice(0, 3)
         .map(({ path: p, label }) => ({ path: p, label }));
@@ -476,7 +497,20 @@ export const filesRoutes = new Elysia({ prefix: "/api/files" })
       // otherwise a favorite could be created that the picker then filters
       // straight back out, which reads as the star silently failing.
       const allowedDirs = await launchScopeFor(user.id, LOCAL_NODE_ID);
-      if (!(await isAllowedRoot(resolved, allowedDirs))) {
+      // The gate may realpath the path (a restricted caller). When that read
+      // times out the confinement is UNPROVABLE, so refuse the star the same
+      // way a proven-out-of-bounds path is refused — a 403, never an
+      // unhandled FsDeadlineError 500 (review M2).
+      let allowed: boolean;
+      try {
+        allowed = await isAllowedRoot(resolved, allowedDirs);
+      } catch (err) {
+        if (err instanceof FsDeadlineError) {
+          throw new FilesError("forbidden", "Path could not be verified", 403);
+        }
+        throw err;
+      }
+      if (!allowed) {
         throw new FilesError("forbidden", "Path outside allowed roots", 403);
       }
       await repo.setFavorite(user.id, "directory", resolved, body.favorite);

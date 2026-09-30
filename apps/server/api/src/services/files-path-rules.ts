@@ -39,12 +39,12 @@ import { FsDeadlineError, withFsDeadline } from "@/utils/fs-deadline.js";
  * silently confining to the lexical form — a root that cannot be resolved in
  * time is a browse to refuse, not one to mis-confinement.
  */
-async function confinementRoot(): Promise<{ lexical: string; real: string } | null> {
+async function confinementRoot(signal?: AbortSignal): Promise<{ lexical: string; real: string } | null> {
   const root = process.env.SUBSHELL_FS_ROOT?.trim();
   if (!root) return null;
   const lexical = resolve(root);
   try {
-    return { lexical, real: await withFsDeadline(() => realpath(lexical)) };
+    return { lexical, real: await withFsDeadline(() => realpath(lexical), { signal }) };
   } catch (err) {
     if (err instanceof FsDeadlineError) throw err;
     return { lexical, real: lexical };
@@ -92,7 +92,7 @@ function isWithin(path: string, root: string): boolean {
 export async function isAllowedRoot(
   path: string,
   allowedDirs: readonly string[] = [],
-  opts: { navigation?: boolean } = {},
+  opts: { navigation?: boolean; signal?: AbortSignal } = {},
 ): Promise<boolean> {
   if (!isAbsolute(path)) return false;
   // The LOCAL node's directory allowlist (spec 2026-09-05), layered on top of
@@ -131,14 +131,14 @@ export async function isAllowedRoot(
   // parking the loop.
   let real: string | null;
   try {
-    real = await withFsDeadline(() => realpath(resolved));
+    real = await withFsDeadline(() => realpath(resolved), { signal: opts.signal });
   } catch (err) {
     if (err instanceof FsDeadlineError) throw err;
     real = null; // absent or a broken symlink — handled per-branch below
   }
   if (real !== null && allowedDirs.length > 0 && !inScope(real, allowedDirs)) return false;
 
-  const root = await confinementRoot();
+  const root = await confinementRoot(opts.signal);
   if (!root) return true; // no SUBSHELL_FS_ROOT → host FS is browsable by design
   // The cheap reject compares LIKE WITH LIKE. Testing an unresolved candidate
   // against the realpath-resolved root refused the root itself whenever the
@@ -150,7 +150,7 @@ export async function isAllowedRoot(
   if (!isWithin(resolved, root.lexical) && !isWithin(resolved, root.real)) return false;
   if (real !== null) return isWithin(real, root.real);
   try {
-    await withFsDeadline(() => lstat(resolved)); // present-but-unresolvable (broken symlink)
+    await withFsDeadline(() => lstat(resolved), { signal: opts.signal }); // present-but-unresolvable (broken symlink)
     return false; // cannot prove where it leads → refuse
   } catch (err) {
     if (err instanceof FsDeadlineError) throw err;

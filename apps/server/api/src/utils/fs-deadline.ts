@@ -62,42 +62,88 @@ function deadlineFor(ms: number | undefined): number {
 }
 
 /**
- * Run `make` under a deadline. `make` returns the read's promise; if it has not
- * settled in `ms`, the returned promise rejects with {@link FsDeadlineError}
- * while the underlying read is left to finish (or never) on its own thread.
+ * A single wall-clock budget shared by every read of one request.
+ *
+ * One deadline PER read lets a request stack them — gate (10s) + listing (10s)
+ * + each saved-shortcut (10s) — so a pathological request answers only after
+ * ~40s, which is not what "a 10 second timeout" promised. A request instead
+ * mints ONE of these and threads its `signal` through each {@link withFsDeadline}
+ * in the phase; the first read to overrun the SHARED clock fails the phase, and
+ * a read that starts late gets only what the budget still has. {@link AbortSignal.timeout}'s
+ * timer does not hold the event loop open.
+ */
+export function newReadBudget(ms?: number): AbortSignal {
+  return AbortSignal.timeout(deadlineFor(ms));
+}
+
+/**
+ * Run `make` under a deadline. If the operation has not settled before the
+ * deadline, the returned promise rejects with {@link FsDeadlineError} while the
+ * underlying read is left to finish (or never) on its own thread — there is no
+ * interrupting an uninterruptible mount wait from userspace.
  *
  * The thunk (not a pre-started promise) keeps the timer and the syscall
  * starting on the same line, so a caller cannot accidentally race the clock
  * against work begun before the call.
  *
  * @param make - starts the fs operation and returns its promise
- * @param ms - deadline; defaults to {@link FS_READ_TIMEOUT_MS} (or the env
- *             override), so callers normally omit it and share one knob
+ * @param opts.signal - a shared {@link newReadBudget} signal; when supplied it
+ *             is the ONLY clock (no per-call timer), so one budget bounds many
+ * @param opts.ms - standalone deadline when no signal is given; defaults to
+ *             {@link FS_READ_TIMEOUT_MS} (or the env override)
  */
-export function withFsDeadline<T>(make: () => Promise<T>, ms?: number): Promise<T> {
-  const budget = deadlineFor(ms);
+export function withFsDeadline<T>(
+  make: () => Promise<T>,
+  opts: { signal?: AbortSignal; ms?: number } = {},
+): Promise<T> {
+  const { signal, ms } = opts;
   return new Promise<T>((resolve, reject) => {
     let settled = false;
-    const timer = setTimeout(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      if (timer !== undefined) clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const onAbort = () => {
       if (settled) return;
       settled = true;
+      cleanup();
       reject(new FsDeadlineError());
-    }, budget);
-    // Keep the timer from holding a test's event loop open past an early return.
-    (timer as { unref?: () => void }).unref?.();
-    make().then(
-      (value) => {
-        if (settled) return;
+    };
+    if (signal) {
+      if (signal.aborted) {
         settled = true;
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (err) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        reject(err);
-      },
-    );
+        reject(new FsDeadlineError());
+        return;
+      }
+      signal.addEventListener("abort", onAbort, { once: true });
+    } else {
+      timer = setTimeout(onAbort, deadlineFor(ms));
+      // Keep the timer from holding a test's event loop open past an early return.
+      (timer as { unref?: () => void }).unref?.();
+    }
+    try {
+      // A thunk that THROWS SYNCHRONOUSLY still settles cleanly (and clears the
+      // timer/listener) rather than leaving one to fire onto a settled promise.
+      make().then(
+        (value) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(value);
+        },
+        (err) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(err);
+        },
+      );
+    } catch (err) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    }
   });
 }
