@@ -153,7 +153,14 @@ describe("release.yml darwin-x64 venue (settled by run 36196527394 + the hosted-
           "set -euo pipefail",
           "FOO=1 /bin/sleep 2 >/dev/null 2>&1 &",
           "pid=$!",
-          'comm=$(ps -p "$pid" -o comm= 2>/dev/null || echo GONE)',
+          // bash forks the child AS "bash" and execs /bin/sleep a moment later.
+          // A single `ps` can read the still-unexeced child as "bash" - a
+          // sub-millisecond fork/exec race that flakes on some runners. Poll
+          // until the name settles: the assertion still proves "the backgrounded
+          // PID runs the command itself", and a wrapper form would never become
+          // "sleep", so the check keeps its teeth.
+          "comm=''",
+          'for i in $(seq 1 30); do comm=$(ps -p "$pid" -o comm= 2>/dev/null || true); case "$comm" in *sleep*) break;; esac; sleep 0.1; done',
           'kill "$pid" 2>/dev/null || true',
           'wait "$pid" 2>/dev/null || true',
           'echo "BG=$comm"',
