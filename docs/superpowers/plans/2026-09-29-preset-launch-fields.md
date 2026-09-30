@@ -32,10 +32,10 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 **Interfaces:**
 - Produces: `PresetPromptBlock` (wire type: `{ kind: "saved" | "custom" | "stack"; promptId?: string; stackId?: string; stackCount?: number; description: string; body: string }`), `parsePresetPromptBlocks(json: string | null): PresetPromptBlock[] | null` (throws `Error("bad_preset_prompt")` on malformed), `joinPresetPrompt(blocks: PresetPromptBlock[]): string`, `isPresetCrossCommReady(row: { nodeId: string | null; workingDir: string | null; promptBlocks: string | null }): boolean`.
 
-- [ ] **Step 1:** failing tests: join equals the web `joinPromptBlocks` rule (`bodies.join("\n\n")`), empty array joins `""`, parse round-trips a valid array, parse throws on non-array / non-object member / missing `body` / unknown `kind`, `isPresetCrossCommReady` true only when all three present and blocks non-empty.
-- [ ] **Step 2:** implement; export from `index.ts` (NOTE: barrel must stay Metro-safe - pure TS, no `node:` imports).
-- [ ] **Step 3:** `cd packages/subshell-protocol && bun test src/__tests__/preset-prompt.test.ts`, then `bunx turbo build` (other tasks consume from dist).
-- [ ] **Step 4:** commit `protocol: preset prompt blocks (shape, join, cross-comm readiness)`.
+- [x] **Step 1:** failing tests: join equals the web `joinPromptBlocks` rule (`bodies.join("\n\n")`), empty array joins `""`, parse round-trips a valid array, parse throws on non-array / non-object member / missing `body` / unknown `kind`, `isPresetCrossCommReady` true only when all three present and blocks non-empty.
+- [x] **Step 2:** implement; export from `index.ts` (NOTE: barrel must stay Metro-safe - pure TS, no `node:` imports).
+- [x] **Step 3:** `cd packages/subshell-protocol && bun test src/__tests__/preset-prompt.test.ts`, then `bunx turbo build` (other tasks consume from dist).
+- [x] **Step 4:** commit `protocol: preset prompt blocks (shape, join, cross-comm readiness)`.
 
 ### Task 2: Migration + preset API carry node/dir/prompt-blocks
 
@@ -48,11 +48,11 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 - Consumes: Task 1's `parsePresetPromptBlocks`, `joinPresetPrompt`, `isPresetCrossCommReady`-relevant fields.
 - Produces: `PresetTable.nodeId: string | null`, `.workingDir: string | null`, `.promptBlocks: string | null`; create body optional `nodeId`/`workingDir`/`promptBlocks: t.Array(PresetPromptBlockSchema)`; `GET /api/presets` rows carry all three (bearer reads already allowed - they gain disclosure of preset node/dir/prompt text; that's the same disclosure `list_presets` is designed to give); derived `crossCommReady: boolean` ADDED to the response projection (compute with `isPresetCrossCommReady`, keep `PresetSchema` fields + `crossCommReady`).
 
-- [ ] **Step 1:** migration: three nullable columns (`node_id TEXT REFERENCES nodes(id) ON DELETE SET NULL`, `working_dir TEXT`, `prompt_blocks TEXT`). Run `bun test src/__tests__ -f preset` green (migrations run in test boot).
-- [ ] **Step 2:** route validation on create AND update: `workingDir` must start with `/` (same shape rule as the launch form's `isAbsolutePath` - mirror the server's existing check if one exists in `create-subshell.route.ts`; else `minLength 1` + `/^[\/]/` handler check); `promptBlocks`: each `body` non-blank after trim is NOT required (a blank body joins fine) but total `joinPresetPrompt` ≤ 20000 (same cap as the create body's prompt) else 400; `nodeId`: must resolve to a node the caller could launch on - reuse the same visibility/`canLaunch` answer `resolveLaunchNode`'s gate gives (extract or call `loadNodeAccess`; a foreign node id is a 404-style refusal naming nothing; unknown id 400).
-- [ ] **Step 3:** `PUT /:id` accepts the three keys (clear-settable: explicit `null` clears), `UPDATE_PRESET_KEYS` gains them, transform unchanged. `harnessId` stays fixed.
-- [ ] **Step 4:** tests: create/update round-trip; bad node 400; foreign node 404/403; relative dir 400; blocks over cap 400; `crossCommReady` true only when all filled; FK test: deleting the node nulls `node_id` (insert + `DELETE FROM nodes` + re-read).
-- [ ] **Step 5:** boundary verify + commit `server: presets carry node, working dir, and prompt blocks`.
+- [x] **Step 1:** migration: three nullable columns (`node_id TEXT REFERENCES nodes(id) ON DELETE SET NULL`, `working_dir TEXT`, `prompt_blocks TEXT`). Run `bun test src/__tests__ -f preset` green (migrations run in test boot).
+- [x] **Step 2:** route validation on create AND update: `workingDir` must start with `/` (same shape rule as the launch form's `isAbsolutePath` - mirror the server's existing check if one exists in `create-subshell.route.ts`; else `minLength 1` + `/^[\/]/` handler check); `promptBlocks`: each `body` non-blank after trim is NOT required (a blank body joins fine) but total `joinPresetPrompt` ≤ 20000 (same cap as the create body's prompt) else 400; `nodeId`: must resolve to a node the caller could launch on - reuse the same visibility/`canLaunch` answer `resolveLaunchNode`'s gate gives (extract or call `loadNodeAccess`; a foreign node id is a 404-style refusal naming nothing; unknown id 400).
+- [x] **Step 3:** `PUT /:id` accepts the three keys (clear-settable: explicit `null` clears), `UPDATE_PRESET_KEYS` gains them, transform unchanged. `harnessId` stays fixed.
+- [x] **Step 4:** tests: create/update round-trip; bad node 400; foreign node 404/403; relative dir 400; blocks over cap 400; `crossCommReady` true only when all filled; FK test: deleting the node nulls `node_id` (insert + `DELETE FROM nodes` + re-read).
+- [x] **Step 5:** boundary verify + commit `server: presets carry node, working dir, and prompt blocks`.
 
 ### Task 3: Launch resolution (request wins, preset fills gaps)
 
@@ -64,9 +64,9 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 - Consumes: Task 2 columns.
 - Produces: resolution order `nodeId = body.nodeId ?? preset.nodeId ?? undefined` (undefined feeds the existing ladder; a preset-set unknown/deleted-then-nulled value cannot occur after FK, but a node that exists yet is offline/off-allowlist still errors exactly like an explicit one); `workingDir = body.workingDir ?? preset.workingDir` else existing 400; `prompt = body.prompt ?? joinPresetPrompt(parsePresetPromptBlocks(preset.promptBlocks) ?? [])`; `promptDelivered` semantics unchanged.
 
-- [ ] **Step 1:** matrix tests FIRST (red): explicit-over-preset for all three; preset-only dir launches; neither dir → 400 naming both spellings; preset node honored (its row's `nodeId` = preset's); preset prompt typed (assert `promptDelivered` + the deliver call); preset with FK-nulled node behaves like an unnamed node.
-- [ ] **Step 2:** implement; run the focused files.
-- [ ] **Step 3:** boundary verify + commit `server: launch resolves node/dir/prompt from the preset`.
+- [x] **Step 1:** matrix tests FIRST (red): explicit-over-preset for all three; preset-only dir launches; neither dir → 400 naming both spellings; preset node honored (its row's `nodeId` = preset's); preset prompt typed (assert `promptDelivered` + the deliver call); preset with FK-nulled node behaves like an unnamed node.
+- [x] **Step 2:** implement; run the focused files.
+- [x] **Step 3:** boundary verify + commit `server: launch resolves node/dir/prompt from the preset`.
 
 ### Task 4: MCP create_subshell requires a preset
 

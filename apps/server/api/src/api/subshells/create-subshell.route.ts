@@ -12,7 +12,13 @@ const CreateSubshellBodySchema = t.Object({
       description: "Preset to launch with; omitted = launch the harness with no saved settings",
     }),
   ),
-  workingDir: t.String({ minLength: 1, description: "Absolute working directory" }),
+  workingDir: t.Optional(
+    t.String({
+      minLength: 1,
+      description:
+        "Absolute working directory; omit only when the chosen preset carries one (the launch resolves the pair and 400s when neither does)",
+    }),
+  ),
   name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Subshell display name" })),
   prompt: t.Optional(
     t.String({ maxLength: 20000, description: "Task text typed into the pane once the harness settles" }),

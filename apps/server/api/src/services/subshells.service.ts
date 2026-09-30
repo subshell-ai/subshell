@@ -7,12 +7,13 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 // is a state change, nothing rings for it.
 import type { AttentionKind } from "@internal/mcp-core";
 import { allHarnesses, getHarness, tmuxSocketFor } from "@internal/pane-runtime";
-import { NODE_RESULT_MAINTENANCE } from "@internal/subshell-protocol";
+import { joinPresetPrompt, NODE_RESULT_MAINTENANCE, parsePresetPromptBlocks } from "@internal/subshell-protocol";
 import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { ShareEntry } from "@/db/repositories/subshell-shares.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import type { PresetTable } from "@/db/types/presets.db-types.js";
 import type { SubshellSharePermission } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
@@ -158,8 +159,14 @@ function rethrowLaunchRefusal(err: unknown): never {
  *    filtered here by hand: an implicit launch must never relocate onto a
  *    machine whose owner took it out of service.
  *
- * The preset pin died with spec 2026-09-13 §2.3 — a preset never names a
- * node, so "where" is the body, then the host, then the lone online agent.
+ * The preset PIN died with spec 2026-09-13 §2.3 (a preset could pin a node
+ * and relocate a launch the human pointed elsewhere); spec 2026-09-29
+ * preset-launch-fields brought a HINT back, not the pin: a preset may name a
+ * node, but the create path resolves `body.nodeId ?? preset.nodeId` BEFORE
+ * calling this, so the resolver sees one plain requested node (or none) and
+ * the precedence body → host → lone-online stays exactly as written. The
+ * resolver never reads a preset, and nothing here can relocate a stated
+ * request.
  *
  * MACHINE actors (`machineActor: true` — any bearer token, subshell or
  * system key) get the STRICT loader everywhere: no admin boost, no shares,
@@ -295,6 +302,29 @@ export async function resolveLaunchNode(
 }
 
 /**
+ * THE launch resolution (spec 2026-09-29 preset-launch-fields): the chosen
+ * preset may name a node, a directory, and a prompt; the REQUEST wins wherever
+ * it said something, the preset fills every gap it left. Pure so the whole
+ * matrix is testable without a machine on the other side; every door - web,
+ * mobile, and MCP - arrives at it through `createSubshell`, and the manager
+ * keeps receiving plain resolved facts, never a row to interpret. A preset's
+ * node hint comes back as an ordinary requested node: the SAME gate a typed
+ * one faces, refusal included. Determinism is the whole cross-comm promise;
+ * there is no silent fallback.
+ */
+export function resolvePresetLaunch(
+  body: { workingDir?: string; prompt?: string; nodeId?: string },
+  presetRow: PresetTable | undefined,
+): { workingDir?: string; nodeId?: string; prompt?: string } {
+  const promptText = joinPresetPrompt(parsePresetPromptBlocks(presetRow?.promptBlocks) ?? []);
+  return {
+    workingDir: body.workingDir ?? presetRow?.workingDir ?? undefined,
+    nodeId: body.nodeId ?? presetRow?.nodeId ?? undefined,
+    prompt: body.prompt ?? (promptText === "" ? undefined : promptText),
+  };
+}
+
+/**
  * Business logic behind `/api/subshells`, one method per endpoint.
  *
  * A thin layer over {@link SubshellManagerService} (the subshell lifecycle truth,
@@ -348,13 +378,21 @@ export class SubshellsService extends BaseService {
     harnessId: string;
     /** Preset to launch with; absent/null = a presetless launch (EMPTY_PRESET). */
     presetId?: string | null;
-    /** Absolute working directory. */
-    workingDir: string;
+    /**
+     * Absolute working directory. Optional since spec 2026-09-29: the chosen
+     * preset may carry one. Request wins; when neither does, the caller gets
+     * the 400 below.
+     */
+    workingDir?: string;
     /** Optional subshell display name. */
     name?: string;
-    /** Optional task text typed into the pane once the harness settles. */
+    /**
+     * Optional task text typed into the pane once the harness settles. When
+     * the request says none, the preset's prompt blocks (if any) supply it.
+     */
     prompt?: string;
-    /** Node to launch on (spec §6.6); omitted/`local` = control-plane host. */
+    /** Node to launch on (spec §6.6); omitted/`local` = control-plane host.
+     *  A preset's node hint fills this when the request names none. */
     nodeId?: string;
     /**
      * True for any bearer (non-cookie) actor — enforced by the user-ratified
@@ -386,8 +424,9 @@ export class SubshellsService extends BaseService {
     // Gate new subshells here, not inside SubshellManagerService: its own
     // restart path reuses createSubshell, and an existing subshell's harness
     // must keep starting even once its harness is disabled.
+    let presetRow: PresetTable | undefined;
     if (presetId) {
-      const presetRow = await this.repos.presets.findById(presetId);
+      presetRow = await this.repos.presets.findById(presetId);
       if (!presetRow || presetRow.userId !== userId) {
         throw new SubshellCreateError("not_found", "Preset not found", 404);
       }
@@ -402,6 +441,18 @@ export class SubshellsService extends BaseService {
         );
       }
     }
+    // THE launch resolution (spec 2026-09-29 preset-launch-fields), pure form
+    // in {@link resolvePresetLaunch}; the throws and gates below stay here.
+    const resolved = resolvePresetLaunch({ workingDir, prompt, nodeId }, presetRow);
+    if (resolved.workingDir === undefined) {
+      throw new SubshellCreateError(
+        "bad_request",
+        "A working directory is required: pass one, or launch from a preset that carries one",
+        400,
+      );
+    }
+    const resolvedWorkingDir = resolved.workingDir;
+    const resolvedPrompt = resolved.prompt;
     // An id that resolves to NO plugin names nothing — a typo, or a plugin
     // that failed to load (broken plugins enter neither the registry nor the
     // overlay). Say so (400, the same status `POST /api/presets` uses) before
@@ -433,7 +484,9 @@ export class SubshellsService extends BaseService {
       {
         userId,
         machineActor,
-        requestedNodeId: nodeId,
+        // A preset's hint reaches the SAME gate as an explicit body nodeId
+        // (resolved above); `undefined` feeds the existing ladder.
+        requestedNodeId: resolved.nodeId,
         // Read per create, not cached: a PATCH flips it for the NEXT launch,
         // and the row read is a single indexed SELECT on the same DB this
         // request already hammers.
@@ -461,9 +514,9 @@ export class SubshellsService extends BaseService {
         userId,
         harnessId,
         presetId: presetId ?? null,
-        workingDir,
+        workingDir: resolvedWorkingDir,
         name,
-        prompt,
+        prompt: resolvedPrompt,
         nodeId: resolvedNodeId,
         crossAgent: crossAgent ? 1 : 0,
         // Notifications default ON for new subshells (spec 2026-08-31); the
@@ -480,7 +533,7 @@ export class SubshellsService extends BaseService {
     // remote machine's paths never surface in the local picker (and vice
     // versa). Best-effort: the subshell EXISTS at this point, and a book-
     // keeping insert failing must not turn a successful launch into an error.
-    await this.repos.recentPaths.touch(userId, workingDir, name ?? null, resolvedNodeId).catch(() => {});
+    await this.repos.recentPaths.touch(userId, resolvedWorkingDir, name ?? null, resolvedNodeId).catch(() => {});
     // The MCP apiKey is returned by the manager for env injection only; it is
     // a secret issued once and NEVER echoed to the HTTP client.
     return { id: created.id, tmuxSocket: created.tmuxSocket, promptDelivered: created.promptDelivered };
