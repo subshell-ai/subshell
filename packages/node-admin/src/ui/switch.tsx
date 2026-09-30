@@ -10,25 +10,26 @@ import { cn } from "../lib/utils";
  * A DISABLED switch must never read as merely OFF (operator ruling
  * 2026-09-30): "you may not touch this yet" is a different fact from "this is
  * off", and the old one-step dim blurred exactly there. Disabled therefore
- * keeps its full contrast and rides a THIRD track color: a neutral light
- * gray (`muted-foreground` at half), distinct from both the OFF track and
- * the ON purple. (Two cuts preceded it: the requirements amber was refused
- * - gold already means a missing requirement; the dashed outline was
- * refused too - the operator asked for a background color, and got one.)
+ * OFF rides the neutral light gray (`muted-foreground` at half) and ON the
+ * primary purple; DISABLED recedes to the dark input track - inert, sunk,
+ * unmistakably not the one you are looking to flip (operator ruling
+ * 2026-09-30, after a swap test: the same three colors, read better with
+ * disabled wearing the recessed one). An earlier dim-only treatment blurred
+ * disabled and off into one sight; the requirements amber and a dashed
+ * outline were both refused before the colors landed here.
  *
- * The `!` is load-bearing, not a shortcut: Tailwind sorts the data-variants
- * alphabetically, so `data-unchecked:bg-input` lands AFTER the disabled rule
- * in the sheet and silently recolored every disabled-and-off switch back to
- * the plain OFF track (measured in the built CSS, and what the operator's
- * "not seeing the difference" was). Important is the only weight that wins
- * the pair.
+ * The `!` is load-bearing, not a shortcut: Tailwind sorts these rules so the
+ * checked/unchecked track colors land AFTER the disabled rule in the sheet,
+ * and without the weight they silently repaint every disabled switch (which
+ * is always also checked-or-unchecked) back to a normal state's color -
+ * measured in the built CSS.
  */
 export function Switch({ className, ...props }: SwitchPrimitive.Root.Props) {
   return (
     <SwitchPrimitive.Root
       data-slot="switch"
       className={cn(
-        "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:cursor-not-allowed data-checked:bg-primary data-disabled:bg-muted-foreground/50! data-unchecked:bg-input",
+        "peer inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-disabled:cursor-not-allowed data-checked:bg-primary data-disabled:bg-input! data-unchecked:bg-muted-foreground/50",
         className,
       )}
       {...props}
