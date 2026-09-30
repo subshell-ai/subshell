@@ -104,6 +104,34 @@ after PR 1; split another job only if a real long pole remains.
   48 cores keep 12/4), and the daemon test now waits for both unlinks.
   No package fell back to `parallel = 1`.
 
+## Round 2 (post-#277, issue #261 continued)
+
+The flag landed (#278, merged 2026-09-30) with CI serial + `--retry=1` + a
+2-way `--shard` matrix; the server+node job's CI floor halved (4 m 36 s serial
+single-job → 2 m 28 s for the longer shard). The remaining CI reds turned out
+to be five distinct load-sensitive tests, each a real flake the sharding made
+visible, fixed on that PR: `pane-repaint` ENOENT (missing capture-child log now
+reads as zero bytes, the `paneReadsAsBooting` equation), the desktop action
+runner's re-probe landing in the NEXT test's fake (the harness now retires the
+query clients on `restore()`), `daemon.test.ts` peeking `firstFrames` off an
+`opens` gate, and two remote-attach/repaint waits that gated on one async fact
+and consumed a sibling. `apps/server/web` gained `--timeout 30000` (its act
+chains measured 26 s on the throttled container); the two `NetworkPluginCard`
+per-test 20 s ceilings came off to that package knob. CI reached full green
+on the third desktop attempt - the reset-dialog test is a known intermittent
+load flake (the fake's `node_settings` always returns a plane, so a reset's
+re-fetch resurrects the Control Plane screen), tracked as its own follow-up.
+
+Two suite splits followed, both the same mechanism (under `--parallel` a
+single file is a single worker, so the longest file sets the package floor):
+`subshell-ws-local-attach.test.ts` (26.1 s, 41 tests) into three files over a
+shared harness (#279), and `tmux-runner.test.ts` (13.8 s, 49 tests) into
+stub-argv / real-input / liveness files (#280), which took the pane-runtime
+package from 13.9 s to 5.3 s at width 12. Both preserve every test verbatim
+(reviewer-verified byte-identical bodies); both read the launcher recorder
+through ESM live bindings + a `bumpCaptureCalls()` because import assignment
+is illegal.
+
 ## Non-goals
 
 `--no-isolate`, Playwright e2e, `test:cli`, cargo tests, turbo config
