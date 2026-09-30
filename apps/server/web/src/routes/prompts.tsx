@@ -637,7 +637,7 @@ function PromptsPage() {
             activeView === "stacked"
               ? "A stack is a named, ordered set of prompts a subshell receives as one text. Deleting a prompt later removes it from the stacks it is in."
               : activeView === "all"
-                ? "A prompt is saved text you can type into a subshell; a stack is an ordered set sent as one text. The description is required; it is what the list shows."
+                ? undefined
                 : "A prompt is saved text you can type into a new subshell or inject into a running one. The description is required; it is what the list shows."
           }
           actionLabel={activeView === "stacked" ? "Create your first stack" : "Create your first prompt"}
