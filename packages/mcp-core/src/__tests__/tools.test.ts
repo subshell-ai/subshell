@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ApiError, SubshellApi } from "../api-client.js";
+import { ApiError } from "../api-client.js";
 import { postChannel, readChannel } from "../channel-tools.js";
 import { generateKeypair, open, seal } from "../crypto.js";
 import { reloadPinSettingsForTests } from "../pin-store.js";
@@ -169,7 +169,7 @@ describe("mcp tools (handler-level, real crypto)", () => {
     expect(calls[1].query).toMatchObject({ since: 7 });
   });
 
-  it("create_subshell resolves the preset by name within its harness and reports prompt delivery", async () => {
+  it("create_subshell resolves the preset by ID and reports prompt delivery", async () => {
     const own = await generateKeypair();
     const { api, calls } = fakeApi((req) => {
       if (req.path === "/api/presets") return [{ id: "pre-1", name: "Dev", harnessId: "claude-code" }];
@@ -179,14 +179,15 @@ describe("mcp tools (handler-level, real crypto)", () => {
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
     const res = await createSubshell(deps, {
       harness: "claude-code",
-      preset: "dev",
+      preset: "pre-1",
       workingDir: "/tmp",
       prompt: "do it",
     });
     expect(res).toEqual({ id: "s1", promptDelivered: true });
-    // Name lookup is scoped to the harness — preset names are only unique per harness.
+    // Ids are unique across the instance, so the list is pulled unscoped and
+    // matched exactly (the harness param is only an assert afterwards).
     const list = calls.find((c) => c.path === "/api/presets");
-    expect(list?.query).toEqual({ harnessId: "claude-code" });
+    expect(list?.query).toBeUndefined();
     const create = calls.find((c) => c.path === "/api/subshells");
     expect(create?.body?.harnessId).toBe("claude-code");
     expect(create?.body?.presetId).toBe("pre-1");
@@ -207,7 +208,7 @@ describe("mcp tools (handler-level, real crypto)", () => {
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    const res = await createSubshell(deps, { preset: "dev" });
+    const res = await createSubshell(deps, { preset: "pre-1" });
     expect(res).toEqual({ id: "s2", promptDelivered: false });
     const list = calls.find((c) => c.path === "/api/presets");
     expect(list?.query).toBeUndefined(); // whole-list search when no harness is asserted
@@ -228,7 +229,7 @@ describe("mcp tools (handler-level, real crypto)", () => {
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    await createSubshell(deps, { preset: "dev", workingDir: "/override" });
+    await createSubshell(deps, { preset: "pre-1", workingDir: "/override" });
     const create = calls.find((c) => c.path === "/api/subshells");
     expect(create?.body?.workingDir).toBe("/override");
   });
@@ -250,11 +251,11 @@ describe("mcp tools (handler-level, real crypto)", () => {
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
     // append: the preset's text first, the agent's after it, one blank line.
-    await createSubshell(deps, { preset: "dev", prompt: "then push" });
+    await createSubshell(deps, { preset: "pre-1", prompt: "then push" });
     // replace: only the agent's.
-    await createSubshell(deps, { preset: "dev", prompt: "forget all that", promptMode: "replace" });
+    await createSubshell(deps, { preset: "pre-1", prompt: "forget all that", promptMode: "replace" });
     // no prompt: the field stays absent and the SERVER uses the preset's.
-    await createSubshell(deps, { preset: "dev" });
+    await createSubshell(deps, { preset: "pre-1" });
     const bodies = calls.filter((c) => c.path === "/api/subshells").map((c) => c.body);
     expect(bodies[0]?.prompt).toBe("standup first\n\nthen push");
     expect(bodies[1]?.prompt).toBe("forget all that");
@@ -280,20 +281,20 @@ describe("mcp tools (handler-level, real crypto)", () => {
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
     // 19_990 + join + 20 = 20_011 > 20_000: the tool refuses with the two
     // remedies, never relaying the route's opaque schema 400.
-    await expect(createSubshell(deps, { preset: "dev", prompt: "y".repeat(20) })).rejects.toThrow(
+    await expect(createSubshell(deps, { preset: "pre-1", prompt: "y".repeat(20) })).rejects.toThrow(
       /at most 20000.*prompt_mode "replace"/s,
     );
     // replace skips the preset text: 20 chars, under cap, and it fires.
-    await createSubshell(deps, { preset: "dev", prompt: "y".repeat(20), promptMode: "replace" });
+    await createSubshell(deps, { preset: "pre-1", prompt: "y".repeat(20), promptMode: "replace" });
     expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(1);
     // In replace mode the advice cannot be "switch to replace": it names the
     // only remedy left.
     await expect(
-      createSubshell(deps, { preset: "dev", prompt: "y".repeat(20_001), promptMode: "replace" }),
+      createSubshell(deps, { preset: "pre-1", prompt: "y".repeat(20_001), promptMode: "replace" }),
     ).rejects.toThrow(/already skipped/);
   });
 
-  it("create_subshell reports an unreadable preset prompt stack by name, not as bad_preset_prompt", async () => {
+  it("create_subshell reports an unreadable preset prompt stack by the id given, not as bad_preset_prompt", async () => {
     const row = {
       id: "pre-1",
       name: "Dev",
@@ -308,149 +309,30 @@ describe("mcp tools (handler-level, real crypto)", () => {
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    await expect(createSubshell(deps, { preset: "dev", prompt: "hello" })).rejects.toThrow(/unreadable prompt stack/);
+    await expect(createSubshell(deps, { preset: "pre-1", prompt: "hello" })).rejects.toThrow(/unreadable prompt stack/);
   });
 
-  it("create_subshell refuses a harness that contradicts the preset, and a cross-harness name tie", async () => {
-    const own = await generateKeypair();
-    const { api } = fakeApi((req) => {
-      if (req.path === "/api/presets")
-        return req.query?.harnessId === "codex"
-          ? []
-          : [
-              {
-                id: "pre-1",
-                name: "Dev",
-                harnessId: "claude-code",
-                nodeId: null,
-                workingDir: null,
-                promptBlocks: null,
-              },
-            ];
-      throw new Error(`unexpected ${req.method} ${req.path}`);
-    });
-    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    // Asserted harness with a scoped search that finds nothing: the unknown-name
-    // refusal already covers it; the direct contradiction is the unscoped tie.
-    const cross = await fakeApi((req) => {
-      if (req.path === "/api/presets")
-        return [
-          { id: "a", name: "Dev", harnessId: "claude-code", nodeId: null, workingDir: null, promptBlocks: null },
-          { id: "b", name: "Dev", harnessId: "codex", nodeId: null, workingDir: null, promptBlocks: null },
-        ];
-      throw new Error(`unexpected ${req.method} ${req.path}`);
-    });
-    const crossDeps: ToolDeps = { api: cross.api, own: { principalId: "sess:me", ...own } };
-    await expect(createSubshell(crossDeps, { preset: "dev" })).rejects.toThrow(
-      /names presets on 'claude-code' and 'codex'; pass the harness/,
-    );
-    await expect(createSubshell(deps, { harness: "codex", preset: "dev" })).rejects.toThrow(
-      /no preset named 'dev' for harness 'codex'/,
-    );
-  });
-
-  it("create_subshell over the REAL SubshellApi with fetch stubbed makes the expected REST calls", async () => {
-    // Folded in from the agent's port-parity suite (which this package replaced):
-    // no fakeApi — a stubbed global fetch (api-client.test pattern), so the full
-    // client path (SubshellApi.req → fetch) is proven: GET /api/presets scoped
-    // by harnessId (bearer), then POST /api/subshells with the NAME-resolved
-    // presetId and the prompt.
-    const savedFetch = globalThis.fetch;
-    const seen: Request[] = [];
-    globalThis.fetch = (async (input: URL | RequestInfo, init?: RequestInit) => {
-      const req = new Request(String(input), init);
-      seen.push(req);
-      if (req.url === "http://h:3080/api/presets?harnessId=claude-code") {
-        return new Response(JSON.stringify([{ id: "pre-1", name: "Dev", harnessId: "claude-code" }]));
-      }
-      return new Response(JSON.stringify({ id: "s1", promptDelivered: true }));
-    }) as never;
-    try {
-      const own = await generateKeypair();
-      const deps: ToolDeps = {
-        api: new SubshellApi({ apiKey: "subshell_key123", baseUrl: "http://h:3080" }),
-        own: { principalId: "sess:me", ...own },
-      };
-      const res = await createSubshell(deps, {
-        harness: "claude-code",
-        preset: "dev",
-        workingDir: "/tmp",
-        prompt: "do it",
-      });
-      expect(res).toEqual({ id: "s1", promptDelivered: true });
-      expect(seen.map((r) => `${r.method} ${r.url}`)).toEqual([
-        "GET http://h:3080/api/presets?harnessId=claude-code",
-        "POST http://h:3080/api/subshells",
-      ]);
-      expect(seen[0]?.headers.get("authorization")).toBe("Bearer subshell_key123");
-      const body = (await seen[1]?.json()) as Record<string, unknown>;
-      expect(body.harnessId).toBe("claude-code");
-      expect(body.presetId).toBe("pre-1");
-      expect(body.prompt).toBe("do it");
-      expect(body.workingDir).toBe("/tmp");
-    } finally {
-      globalThis.fetch = savedFetch;
-    }
-  });
-
-  it("create_subshell refuses an AMBIGUOUS preset name instead of picking a winner", async () => {
-    // Preset names are not unique per user+harness — no index constrains them
-    // and create does not check — so with the name as the agent's addressing
-    // key, a tie must never be won by whichever row sorts first: a
-    // wrong-preset launch writes the wrong credential layer.
+  it("create_subshell refuses a harness that contradicts the preset, and an unknown id", async () => {
+    // Ids are unique per instance, so the old name machinery (harness-scoped
+    // search, cross-harness tie, exact-spelling rule) is gone: two refusals
+    // remain, and both name their remedy.
     const own = await generateKeypair();
     const { api, calls } = fakeApi((req) => {
       if (req.path === "/api/presets")
         return [
-          { id: "pre-1", name: "Dev", harnessId: "claude-code" },
-          { id: "pre-2", name: "DEV", harnessId: "claude-code" }, // distinct spellings, ONE lowercase key
+          { id: "pre-1", name: "Dev", harnessId: "claude-code", nodeId: null, workingDir: null, promptBlocks: null },
         ];
       throw new Error(`unexpected ${req.method} ${req.path}`);
     });
     const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    // 'dev' matches NEITHER spelling exactly, so the case-insensitive set of
-    // two stands and the tie is real.
-    await expect(createSubshell(deps, { harness: "claude-code", preset: "dev", workingDir: "/tmp" })).rejects.toThrow(
-      /more than one preset named 'dev' for harness 'claude-code'/,
+    await expect(createSubshell(deps, { harness: "codex", preset: "pre-1" })).rejects.toThrow(
+      /is for harness 'claude-code', not the asserted 'codex'/,
     );
-    // The spellings are NAMED: with a case-only collision they are the whole
-    // actionable content of "rename one".
-    await expect(createSubshell(deps, { harness: "claude-code", preset: "dev", workingDir: "/tmp" })).rejects.toThrow(
-      /'Dev', 'DEV'/,
+    await expect(createSubshell(deps, { preset: "nope" })).rejects.toThrow(
+      /no preset with id 'nope'; call list_presets - create_subshell addresses presets by their id/,
     );
-    // Refused at resolution — no launch was ever attempted.
-    expect(calls).toHaveLength(2);
-  });
-
-  it("create_subshell takes an EXACT spelling over a case-insensitive tie", async () => {
-    // `Dev` and `DEV` collide only case-insensitively. Asking for `Dev` names
-    // exactly one row, so refusing it would be a refusal invented by the
-    // lookup rather than found in the data.
-    const own = await generateKeypair();
-    const { api, calls } = fakeApi((req) => {
-      if (req.path === "/api/presets")
-        return [
-          { id: "pre-1", name: "Dev", harnessId: "claude-code" },
-          { id: "pre-2", name: "DEV", harnessId: "claude-code" },
-        ];
-      if (req.path === "/api/subshells") return { id: "sub-1" };
-      throw new Error(`unexpected ${req.method} ${req.path}`);
-    });
-    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    const res = await createSubshell(deps, { harness: "claude-code", preset: "Dev", workingDir: "/tmp" });
-    expect(res.id).toBe("sub-1");
-    // The launch carried the EXACTLY spelled row, not the other one.
-    const launch = calls.find((c) => c.path === "/api/subshells");
-    expect((launch?.body as { presetId?: string } | undefined)?.presetId).toBe("pre-1");
-  });
-
-  it("create_subshell with an unknown preset name gives guidance, not a stack trace", async () => {
-    const own = await generateKeypair();
-    const { api } = fakeApi(() => [{ id: "pre-1", name: "Dev", harnessId: "claude-code" }]);
-    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
-    await expect(createSubshell(deps, { harness: "codex", preset: "nope", workingDir: "/tmp" })).rejects.toThrow(
-      /no preset named 'nope' for harness 'codex'; call list_presets/,
-    );
+    // Refused at resolution - no launch was ever attempted.
+    expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(0);
   });
 
   it("list_presets projects rows down to {id, name, harnessId} — no field passthrough", async () => {
@@ -672,7 +554,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
       });
       const res = await createSubshell(deps, {
         harness: "terminal",
-        preset: "dev",
+        preset: "pre-1",
         workingDir: "/srv/app",
         node: want,
       });
@@ -696,7 +578,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
       req.path === "/api/presets" ? [presetRow] : req.path === "/api/nodes" ? { nodes: tied } : [],
     );
     await expect(
-      createSubshell(deps, { harness: "terminal", preset: "dev", workingDir: "/tmp", node: "mac" }),
+      createSubshell(deps, { harness: "terminal", preset: "pre-1", workingDir: "/tmp", node: "mac" }),
     ).rejects.toThrow(/more than one node matches 'mac' \('Mac', 'MAC'\)/);
     // Refused at resolution; no launch was attempted.
     expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(0);
@@ -709,7 +591,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
           : [],
     );
     await expect(
-      createSubshell(alone, { harness: "terminal", preset: "dev", workingDir: "/tmp", node: "nope" }),
+      createSubshell(alone, { harness: "terminal", preset: "pre-1", workingDir: "/tmp", node: "nope" }),
     ).rejects.toThrow(/no node 'nope'; available: Build Box, Laptop/);
   });
 
@@ -728,7 +610,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
           : [],
     );
     await expect(
-      createSubshell(deps, { harness: "terminal", preset: "dev", workingDir: "/tmp", node: "any" }),
+      createSubshell(deps, { harness: "terminal", preset: "pre-1", workingDir: "/tmp", node: "any" }),
     ).rejects.toThrow(/no node 'any'; no machines are enrolled; call list_nodes/);
     expect(calls.filter((c) => c.path === "/api/subshells")).toHaveLength(0);
   });
@@ -739,7 +621,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
         ? [{ id: "pre-1", name: "Dev", harnessId: "terminal", nodeId: null, workingDir: null, promptBlocks: null }]
         : { id: "s", tmuxSocket: "sk", promptDelivered: false },
     );
-    await createSubshell(deps, { harness: "terminal", preset: "dev", workingDir: "/tmp" });
+    await createSubshell(deps, { harness: "terminal", preset: "pre-1", workingDir: "/tmp" });
     expect(calls.map((c) => c.path)).toEqual(["/api/presets", "/api/subshells"]);
     expect(calls[1]?.body?.nodeId).toBeUndefined();
   });
@@ -808,7 +690,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
         ? [{ id: "pre-1", name: "Dev", harnessId: "terminal", nodeId: null, workingDir: null, promptBlocks: null }]
         : { id: "s-1", tmuxSocket: "sock-9", promptDelivered: true },
     );
-    const res = await createSubshell(deps, { harness: "terminal", preset: "dev", workingDir: "/tmp" });
+    const res = await createSubshell(deps, { harness: "terminal", preset: "pre-1", workingDir: "/tmp" });
     expect(res).toEqual({ id: "s-1", promptDelivered: true });
     expect(JSON.stringify(res)).not.toContain("sock-9");
   });

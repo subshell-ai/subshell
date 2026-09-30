@@ -162,7 +162,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "List presets",
       description:
-        "List what create_subshell can launch: preset rows are saved settings + optional launch defaults (address them by name; crossCommReady rows name a machine and a directory the operator committed to, so a launch needs nothing but the name; a prompt rides along when the preset has one), and rows flagged catalogOnly name a harness id the instance offers with no saved preset behind it yet - informational only: create_subshell cannot launch one, a human must save a preset for that harness in the web UI first. Both carry the harness plugin id.",
+        "List what create_subshell can launch: preset rows are saved settings + optional launch defaults (address them by id - create_subshell takes that id; crossCommReady rows name a machine and a directory the operator committed to, so a launch needs nothing but the id; a prompt rides along when the preset has one), and rows flagged catalogOnly name a harness id the instance offers with no saved preset behind it yet - informational only: create_subshell cannot launch one, a human must save a preset for that harness in the web UI first. Both carry the harness plugin id.",
       inputSchema: z.object({}),
     },
     guard(() => listPresets(deps)),
@@ -172,7 +172,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "Create subshell",
       description:
-        'Spawn a new agent subshell FROM a named preset (required): the preset carries the harness and its saved settings, and when it is cross-comm ready (list_presets says so) its node, working directory, and prompt launch from the name alone. Anything this call states OVERRIDES the preset: node, working_dir, and prompt - the preset\'s own prompt is used as-is when no prompt is given, appended to when the agent adds one (the default), or replaced outright with prompt_mode "replace". If the call times out the subshell may already exist: call list_subshells before retrying. Subshells you open are cross-agent comms: created silent (no push to a human) and filed under "Cross-agent comms" in the rail. You own their cleanup: terminate_subshell (or delete_subshell) them once the exchange is done.',
+        'Spawn a new agent subshell FROM a preset (required), addressed by its id from list_presets: the preset carries the harness and its saved settings, and when it is cross-comm ready (list_presets says so) its node, working directory, and prompt launch from the id alone. Anything this call states OVERRIDES the preset: node, working_dir, and prompt - the preset\'s own prompt is used as-is when no prompt is given, appended to when the agent adds one (the default), or replaced outright with prompt_mode "replace". If the call times out the subshell may already exist: call list_subshells before retrying. Subshells you open are cross-agent comms: created silent (no push to a human) and filed under "Cross-agent comms" in the rail. You own their cleanup: terminate_subshell (or delete_subshell) them once the exchange is done.',
       inputSchema: z.object({
         preset: z
           .string()
@@ -180,14 +180,14 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
           // A fresh instance has zero presets (list_presets then answers
           // catalogOnly rows) - the remedy is a human saving one, not an
           // agent inventing a bare launch.
-          .describe("Preset NAME to launch from (addressable by name from list_presets; it carries the harness)"),
+          .describe("Preset ID to launch from (from list_presets; the preset carries the harness)"),
         harness: z
           .string()
           .optional()
           // An ASSERT, not the addressing key: the preset names its harness.
           // Given, it must agree (400 naming both) - it decides which harness
           // a cross-harness name tie resolves against.
-          .describe("Optional assert: must equal the preset's harness; also breaks cross-harness name ties"),
+          .describe("Optional assert: must equal the preset's harness"),
         name: z.string().optional(),
         working_dir: z
           .string()

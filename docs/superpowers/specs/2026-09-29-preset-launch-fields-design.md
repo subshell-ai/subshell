@@ -13,7 +13,7 @@ agent can then launch from a preset alone: `create_subshell` REQUIRES a preset
 and takes the preset's values as the launch, with the agent's own `node`,
 `working_dir`, and prompt as explicit overrides. A preset with a machine and a
 directory filled can be switched cross-comm ready: any agent can then start
-from its name alone and know exactly where it will run.
+from its id alone and know exactly where it will run.
 
 Close/Terminate/Delete behavior stays exactly as on `main`. The
 `feat/close-keeps-the-row` branch is deleted after its one unrelated commit (the
@@ -87,7 +87,8 @@ current meaning.
 
 ## 3. MCP `create_subshell`
 
-`packages/mcp-core`: `preset` becomes a REQUIRED string (resolved by name
+`packages/mcp-core`: `preset` becomes a REQUIRED string (addressed by id since the 2026-09-30
+re-ruling below; it was first resolved by name
 against `GET /api/presets` as today; unknown name refuses with the remedy).
 Consequences:
 
@@ -106,14 +107,14 @@ Consequences:
   cross-comm-ready preset needs only its name.
 
 `list_presets` gains `crossCommReady: boolean` per row so an agent can pick a
-preset that launches from its name alone.
+preset that launches from its id alone.
 
 ## 4. Cross-comm ready (amended same day, at the operator's test drive)
 
 An OPT-IN, stored since migration 0043, AND a requirement: the row's
 `cross_comm_enabled` switch AND `nodeId`/`workingDir` set. The prompt is
 OPTIONAL launch data (operator re-ruling 2026-09-30, same day): a preset that
-names where to run can be launched by name even when it says nothing to type;
+names where to run can be launched by an agent even when it says nothing to type;
 the stack rides along as launch data when present. An unreadable
 `prompt_blocks` column no longer bears on readiness - it surfaces only at
 launch, where the MCP append path refuses it by name. The protocol package

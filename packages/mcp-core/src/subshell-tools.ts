@@ -128,7 +128,8 @@ export interface PresetRow {
    * True on a real preset the operator switched on for cross-subshell comms
    * that also names a machine and a directory (spec 2026-09-29
    * preset-launch-fields, readiness amended 0043): this one launches from its
-   * name alone; a prompt, when the preset carries one, rides along. Absent on
+   * id alone (addressing re-ruled 2026-09-30); a prompt, when the preset
+   * carries one, rides along. Absent on
    * catalog entries, which are not presets.
    */
   crossCommReady?: boolean;
@@ -287,15 +288,18 @@ const MAX_CREATE_PROMPT_CHARS = 20_000;
 
 /**
  * `create_subshell`: an agent launches FROM a preset (required since spec
- * 2026-09-29 preset-launch-fields): the preset's NAME is addressed (ids are
- * not shared context), its harness is derived unless the call asserts one, and
- * everything else the call says OVERRIDES what the preset carries - node,
- * directory, and the prompt. A call that names no dir when the preset names
- * none gets the server's 400 naming both spellings. The prompt relationship is
- * the agent's choice (ruling 2026-09-29): no `prompt` uses the preset's,
- * `"append"` (the default) puts the agent's text AFTER it, `"replace"` sends
- * only the agent's. The node, when given, resolves client-side as an id OR
- * display name so the server only ever sees an id.
+ * 2026-09-29 preset-launch-fields), ADDRESSED BY ID (operator re-ruling
+ * 2026-09-30, replacing name addressing): `preset` is the id `list_presets`
+ * returned, unique per instance, so the lookup is exact and a miss is a
+ * refusal naming the remedy rather than a near-match. The harness is derived
+ * unless the call asserts one, and everything else the call says OVERRIDES
+ * what the preset carries - node, directory, and the prompt. A call that
+ * names no dir when the preset names none gets the server's 400 naming both
+ * spellings. The prompt relationship is the agent's choice (ruling
+ * 2026-09-29): no `prompt` uses the preset's, `"append"` (the default) puts
+ * the agent's text AFTER it, `"replace"` sends only the agent's. The node,
+ * when given, resolves client-side as an id OR display name so the server
+ * only ever sees an id.
  */
 export async function createSubshell(
   deps: ToolDeps,
@@ -310,47 +314,16 @@ export async function createSubshell(
     node?: string;
   },
 ): Promise<{ id: string; promptDelivered: boolean }> {
-  // With a harness asserted, the lookup stays scoped to it (names are unique
-  // per harness); without one, the WHOLE list is searched and the winning row
-  // decides the harness.
-  const presets = await deps.api.req<PresetsWireRow[]>(
-    "/api/presets",
-    args.harness !== undefined ? { query: { harnessId: args.harness } } : {},
-  );
-  // The name is the agent's addressing key, so a tie is REFUSED, never
-  // silently won by whichever row sorts first: launching the wrong preset
-  // writes the wrong credential layer. Migration 0028 made the tie
-  // unreachable on a current instance (a NOCASE unique index), and this
-  // stays anyway: the lookup runs over whatever list the SERVER returned,
-  // which may be an older instance, and a client cannot check another
-  // machine's constraints. Harness-less ties are named by their HARNESSes:
-  // that is the tie's actionable content, and the `harness` param is the fix.
-  const matches = nameMatches(presets, args.preset, (p) => p.name);
-  if (matches.length === 0) {
+  // Ids are unique across the instance, so the lookup is over the whole list
+  // and EXACT: the `harness` param is only an assert afterwards, never a
+  // lookup scope (with name addressing it had been both).
+  const presets = await deps.api.req<PresetsWireRow[]>("/api/presets");
+  const presetRow = presets.find((p) => p.id === args.preset);
+  if (presetRow === undefined) {
     throw new Error(
-      `subshell: no preset named '${args.preset}'${
-        args.harness !== undefined ? ` for harness '${args.harness}'` : ""
-      }; call list_presets for options`,
+      `subshell: no preset with id '${args.preset}'; call list_presets - create_subshell addresses presets by their id`,
     );
   }
-  if (matches.length > 1) {
-    const harnesses = [...new Set(matches.map((p) => p.harnessId))];
-    if (args.harness === undefined && harnesses.length > 1) {
-      throw new Error(
-        `subshell: '${args.preset}' names presets on ${harnesses.map((h) => `'${h}'`).join(" and ")}; pass the harness`,
-      );
-    }
-    throw new Error(
-      `subshell: more than one preset named '${args.preset}'${
-        args.harness !== undefined ? ` for harness '${args.harness}'` : ""
-      } (${spellingsOrIds(
-        matches,
-        (p) => p.name,
-        (p) => p.id,
-      )}); rename one, or ask for an exact spelling`,
-    );
-  }
-  const presetRow = matches[0];
   if (args.harness !== undefined && presetRow.harnessId !== args.harness) {
     throw new Error(
       `subshell: preset '${args.preset}' is for harness '${presetRow.harnessId}', not the asserted '${args.harness}'`,

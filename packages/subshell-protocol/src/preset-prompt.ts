@@ -62,13 +62,14 @@ export function joinPresetPrompt(blocks: PresetPromptBlock[]): string {
 /** The launch-field requirement of cross-comm readiness: a machine and a
  *  working directory are set on the row. The prompt is OPTIONAL here
  *  (operator re-ruling 2026-09-30, same day as the switch): a preset that
- *  names where to run can be launched by name even when it says nothing to
+ *  names where to run can be launched by an agent even when it says nothing to
  *  type; the prompt blocks ride along as launch data when present. */
 export function presetLaunchRequirementsMet(row: { nodeId: string | null; workingDir: string | null }): boolean {
   return row.nodeId != null && row.workingDir != null;
 }
 
-/** Cross-comm ready: an agent can launch from this preset's NAME alone.
+/** Cross-comm ready: an agent can launch from this preset's ID alone
+ *  (create_subshell addresses presets by id, operator re-ruling 2026-09-30).
  *  An OPT-IN AND a requirement (rulings of 2026-09-30): the stored
  *  `crossCommEnabled` switch - the editor's "Cross-subshell comms" toggle -
  *  AND the machine + directory (`presetLaunchRequirementsMet`). A preset

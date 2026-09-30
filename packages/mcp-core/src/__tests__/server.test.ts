@@ -150,7 +150,7 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect((byName.create_subshell.inputSchema.required as string[]).sort()).toEqual(["preset"]);
     expect(createProps).toHaveProperty("prompt_mode");
     expect(JSON.stringify(createProps.prompt_mode)).toContain("append");
-    expect(byName.create_subshell.description).toContain("FROM a named preset");
+    expect(byName.create_subshell.description).toContain("FROM a preset (required), addressed by its id");
     expect(byName.create_subshell.description).toContain("list_subshells before retrying");
     expect(byName.create_subshell.description).toContain("You own their cleanup");
     expect(byName.send_to_subshell.description).toContain("SUBSHELL_NOT_RUNNING");
@@ -164,6 +164,8 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect(byName.send_to_subshell.description).toContain("untrusted");
     expect(byName.read_subshell_log.description).toContain("ANSI-stripped");
     expect(byName.list_presets.description).toContain("catalogOnly");
+    expect(byName.list_presets.description).toContain("address them by id");
+    expect(JSON.stringify(byName.create_subshell.inputSchema.properties.preset)).toContain("Preset ID");
     // The prompt tools name the sharing consequence in their own description
     // (the disclosure is the agent-visible decision).
     expect(byName.create_prompt.description).toContain("shared");

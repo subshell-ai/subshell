@@ -23,7 +23,7 @@ import { buildNodeOptions } from "@/lib/subshell-compat";
  * They are hints, not locks: an explicit request at launch still wins.
  *
  * Below the trio sits the CROSS-SUBSHELL COMMS switch (migration 0043): an
- * agent can launch the preset from its name alone when the switch is on AND a
+ * agent can launch the preset by id when the switch is on AND a
  * machine and a directory are set - the prompt is optional launch data
  * (re-ruling 2026-09-30), so it is offered here but never required.
  */
@@ -189,11 +189,9 @@ export function PresetLaunchFields({
           // The confirmed state reads as one (the success token), the same
           // way a missing requirement reads as amber: the sentence's color
           // says which fact it is (operator ruling 2026-09-30).
-          <p className="text-detail text-success">Agents can launch this preset from its name alone over MCP.</p>
+          <p className="text-detail text-success">Agents can launch this preset over MCP.</p>
         ) : gaps.length === 0 ? (
-          <p className="text-detail text-success">
-            All requirements met: switch this on to let agents launch it by name.
-          </p>
+          <p className="text-detail text-success">All requirements met: switch this on to let agents launch it.</p>
         ) : null}
       </div>
     </div>
