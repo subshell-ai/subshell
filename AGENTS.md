@@ -423,13 +423,15 @@ the whole suite SERIALLY - minutes slower, and not the regime the script
 defines. A bare `bun test <file>` is still fine for one focused file mid-edit
 (see `.claude/rules/testing.md`); the rule is about suite runs.
 
-**Automation shells may poison the script: run it with `env -u SHELLOPTS`.**
-Measured repeatedly on this harness: the tool shell exports
-`SHELLOPTS=onecmd:posix`, and a bash-launched script then executes ZERO
-commands and exits 0 - a "green" test run in 1 ms with no output is that
-failure, not speed. Prefix script-invoked test runs with `env -u SHELLOPTS`,
-and treat an implausibly fast or empty suite run as a broken invocation worth
-re-running, never as a pass.
+**Automation shells may poison bash: run with `env -u SHELLOPTS -u BASHOPTS`.**
+Measured repeatedly on this harness: the tool shell can export `SHELLOPTS`
+including `onecmd:posix`, and any `/usr/bin/bash <file>` then executes ZERO
+commands and exits 0 - it strikes the package's own test script AND a bash
+script a test spawns (installer-script tests), and it looks exactly like a
+broken script or a phantom red. CI never sets these, so local-red-CI-green on
+anything bash-shaped is this. Prefix script-invoked test runs with
+`env -u SHELLOPTS -u BASHOPTS`, and treat an implausibly fast or empty suite
+run as a broken invocation worth re-running, never as a pass.
 
 The e2e suite lives in `e2e/` and is NOT part of `bun run test` or the pre-push
 hook: it needs a real tmux server and a one-time `bunx playwright install
