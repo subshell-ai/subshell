@@ -86,6 +86,16 @@ describe("cut phases: CLI first, desktop after", () => {
     // needs no such clause: every conjunct reads false on a dead plan's
     // empty outputs, so its gate skips on its own.)
     expect(header("build-desktop")).toContain("needs.plan.result == 'success'");
+    // The token-permission lesson of the 2026-09-30 403: under GitHub's
+    // per-key GITHUB_TOKEN mapping, release operations are the RELEASES
+    // permission, not contents. Every job that touches the Releases API
+    // must say so by key, or a server-side mapping change 403s it with the
+    // scope headers still printing Contents: write (which is exactly how
+    // that cut failed).
+    expect(header("publish-cli")).toContain("releases: write");
+    expect(header("publish-desktop")).toContain("releases: write");
+    // And the sidecar fetch reads release assets with the job token.
+    expect(header("build-desktop")).toContain("releases: read");
     // And no header may use always(), which would displace the gate the other
     // way — papering over a FAILED or CANCELLED chain. (The one always() in
     // the build bodies is a STEP guard, un-rooting the container workspace,

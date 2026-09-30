@@ -36,6 +36,10 @@ on:
 permissions:
   contents: read
   packages: write
+  # `gh release download` is a Releases-API act, and reading releases is
+  # its own permission under GitHub's per-key GITHUB_TOKEN mapping (the
+  # 2026-09-30 publish 403, documented at release.yml's publish-cli).
+  releases: read
 
 concurrency:
   group: docker-image

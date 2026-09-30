@@ -1031,6 +1031,15 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      # RELEASES IS ITS OWN PERMISSION under GitHub's per-key re-mapping of
+      # GITHUB_TOKEN (the fine-grained model, rolling out org by org); the
+      # classic map where release operations rode contents: write is what
+      # softprops' README still describes. The 2026-09-30 desktop cut proved
+      # the difference is live here: POST /releases answered 403 "Resource
+      # not accessible by integration" on a token whose granted scopes
+      # printed Contents: write, while the same token pushed tags minutes
+      # earlier. Declaring it names the permission under either mapping.
+      releases: write
     strategy:
       fail-fast: false
       matrix:
@@ -1210,6 +1219,13 @@ jobs:
       needs.plan.result == 'success' &&
       needs.plan.outputs.desktop_matrix != '[]' &&
       (needs.publish-cli.result == 'success' || needs.publish-cli.result == 'skipped')
+    # stageSidecar FETCHES the CLI release's assets with the job token, and
+    # reading releases is the Releases permission under GitHub's per-key
+    # GITHUB_TOKEN mapping (see publish-cli). Narrowed from the workflow
+    # default because this job pushes nothing itself.
+    permissions:
+      contents: read
+      releases: read
     # One sign+notarize round trip per darwin artifact again — the mcp
     # companion is retired (the server binary serves its own `mcp` subcommand).
     # A desktop shard additionally compiles ~500 Rust crates (its sidecar is
@@ -1653,6 +1669,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      # The cut that 403'd; see publish-cli for why this is its own key.
+      releases: write
     strategy:
       fail-fast: false
       matrix:

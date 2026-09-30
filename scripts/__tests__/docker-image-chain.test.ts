@@ -16,6 +16,14 @@ import { join } from "node:path";
 const WORKFLOW = readFileSync(join(import.meta.dir, "../../.github/workflows/docker-image.yml"), "utf8");
 
 describe("docker-image.yml chain", () => {
+  test("the release-asset download declares the Releases permission", () => {
+    // Same per-key GITHUB_TOKEN mapping as release.yml's publish jobs (the
+    // 2026-09-30 403, documented at publish-cli): gh release download is a
+    // Releases-API act and must not assume contents covers it.
+    const m = /^permissions:\n(?:[ \t]+\S.*\n)+/m.exec(WORKFLOW);
+    if (m === null) throw new Error("docker-image.yml: the permissions block is gone (reshaped?)");
+    expect(m[0]).toContain("releases: read");
+  });
   test("triggered by workflow_run on Release, never by the dead on: release", () => {
     expect(WORKFLOW).toMatch(/workflow_run:\s*\n\s*workflows: \["Release"\]/);
     // An `on: release` block would sit at the triggers' indentation level.
