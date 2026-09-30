@@ -41,7 +41,13 @@
 #                 JOB (draft, flip, assets), and job-level `needs` is the only
 #                 surface that can say "after that went live" — so the phases
 #                 are jobs and the bodies are test-pinned copies
-#                 (scripts/__tests__/release-cut-order.test.ts).
+#                 (scripts/__tests__/release-cut-order.test.ts). Its gate
+#                 carries `!cancelled()` for GitHub's implicit-success trap:
+#                 without a status function the whole `if` is wrapped in
+#                 success()-over-needs, and a desktop-only cut (publish-cli
+#                 SKIPPED) would skip this job before the skip-tolerance
+#                 could run. site-manifest carries the same fix for the same
+#                 reason; the cut-order test pins both.
 #                 The matrix, per triple:
 #                 linux-* → ubuntu-24.04 (pinned for the glibc-2.39 floor;
 #                 linux-arm64 is CROSS-BUILT — bytecode cross is proven on
@@ -1181,18 +1187,22 @@ jobs:
           name: ${{ matrix.tag }}
           body_path: ${{ steps.notes.outputs.path }}
 
-  # The website's install column reads the root releases.json (spec
-  # 2026-09-23 §3); this job is what keeps it true. It runs after EVERY shard
-  # of a real cut has published (publish is a matrix; this is the one place
-  # all components exist together), and on its own for an `app=refresh`
-  # repair dispatch.
   build-desktop:
     name: ${{ matrix.app }} ${{ matrix.triple }}
     needs: [plan, publish-cli]
     # Guard BEFORE the matrix is expanded: an empty include array makes this
     # job fail the run (measured — the job never materialises) because its
     # runs-on reads from the matrix. A false `if` skips it cleanly.
+    # The `!cancelled()` is LOAD-BEARING, not style: an `if` expression that
+    # contains no status-check function gets GitHub's implicit success() over
+    # ALL needs, and that gate runs BEFORE this expression. On exactly the
+    # desktop-only cut the `== 'skipped'` clause exists for, publish-cli is
+    # skipped, the implicit gate skips this job, and the tolerance never
+    # evaluates. `!cancelled()` displaces the implicit gate; the two result
+    # checks then carry the real rule (a skipped CLI phase may pass, a failed
+    # or cancelled one stops the desktop half).
     if: >-
+      !cancelled() &&
       needs.plan.outputs.desktop_matrix != '[]' &&
       (needs.publish-cli.result == 'success' || needs.publish-cli.result == 'skipped')
     # One sign+notarize round trip per darwin artifact again — the mcp
@@ -1794,12 +1804,16 @@ jobs:
           name: ${{ matrix.tag }}
           body_path: ${{ steps.notes.outputs.path }}
 
-  # The website's install column reads the root releases.json (spec
-  # 2026-09-23 §3); this job is what keeps it true. It runs after EVERY shard
-  # of a real cut has published (publish is a matrix; this is the one place
-  # all components exist together), and on its own for an `app=refresh`
-  # repair dispatch.
   site-manifest:
+    # The website's install column reads the root releases.json (spec
+    # 2026-09-23 §3); this job is what keeps it true. It runs after EVERY
+    # shard of a real cut has published (publish is a matrix; this is the one
+    # place all components exist together), and on its own for an
+    # `app=refresh` repair dispatch. (The text lives INSIDE the job on
+    # purpose: the cut-order parity test slices job bodies up to the next
+    # top-level key, so a comment above this key rides at the end of the
+    # publish-desktop body and breaks steps-parity with publish-cli unless
+    # publish-cli carries an identical orphan copy.)
     name: Refresh releases.json for the website
     needs: [plan, publish-cli, publish-desktop]
     # The main-ref guard: the commit below pushes to main, so this job may
@@ -1811,7 +1825,14 @@ jobs:
     # build stopped it, plan had already pushed the tags, and announcing one
     # would put a 404 link on the website. The bare `refresh` dispatch stays
     # the repair path for a run that died before this job.
+    # `!cancelled()` displaces GitHub's implicit success()-over-needs for the
+    # same reason as build-desktop above, and here the stakes are the
+    # `desktop_apps == '[]'` clause: on a CLI-only cut publish-desktop is
+    # SKIPPED, so with the implicit gate this job never runs and releases.json
+    # silently stops tracking CLI cuts — the `refresh` dispatch is the repair
+    # path, but nothing here says "you must repair after every CLI-only cut".
     if: >-
+      !cancelled() &&
       github.ref == 'refs/heads/main' && (
       needs.plan.outputs.refresh_manifest == 'true' ||
       ((needs.plan.outputs.cli_apps == '[]' || needs.publish-cli.result == 'success') &&

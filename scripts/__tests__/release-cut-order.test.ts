@@ -71,11 +71,22 @@ describe("cut phases: CLI first, desktop after", () => {
     expect(header("build-desktop")).toContain("needs.publish-cli.result == 'success'");
     expect(header("publish-cli")).not.toContain("result ==");
     expect(header("publish-desktop")).not.toContain("result ==");
-    // Nothing may paper over a failed NEEDS with always(). The one always()
-    // in the build bodies is a STEP guard (un-root the container workspace),
-    // not a gate, so the check is scoped to headers.
-    expect(header("build-cli")).not.toContain("always()");
-    expect(header("build-desktop")).not.toContain("always()");
+    // GitHub's implicit-success trap: an `if` with NO status-check function
+    // is wrapped in success() over all needs, and that gate runs before the
+    // expression. A `result == 'skipped'` tolerance is therefore inert on
+    // exactly the cut it exists for: the skipped need skips the job first.
+    // Every header that reads needs.*.result must displace the implicit gate
+    // with `!cancelled()` — the weakest function that does it, since a
+    // cancelled run must still stop publishes and pushes.
+    expect(header("build-desktop")).toContain("!cancelled()");
+    expect(header("site-manifest")).toContain("!cancelled()");
+    // And no header may use always(), which would displace the gate the other
+    // way — papering over a FAILED or CANCELLED chain. (The one always() in
+    // the build bodies is a STEP guard, un-rooting the container workspace,
+    // not a gate, so the check stays scoped to headers.)
+    for (const name of ["build-cli", "build-desktop", "publish-cli", "publish-desktop", "site-manifest"]) {
+      expect(header(name)).not.toContain("always()");
+    }
     // The website's manifest refresh waits for every phase that ran.
     expect(job("site-manifest")).toContain("needs: [plan, publish-cli, publish-desktop]");
   });

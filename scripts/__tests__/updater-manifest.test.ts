@@ -182,10 +182,10 @@ describe("the merge", () => {
    * One platform missing is not an error anywhere: the document is valid, the
    * release uploads, and every installed app on the other platform asks for
    * updates forever and is told there are none. Half the fleet works
-   * perfectly, which is precisely how it would go unnoticed. The publish job's
-   * `needs: [plan, build]` already fails the release when a shard dies, so
-   * this is the second lock on that door — and the one that is in the file
-   * somebody reads when it happens anyway.
+   * perfectly, which is precisely how it would go unnoticed. The publish
+   * job's `needs` on its build job already fails the release when a shard
+   * dies, so this is the second lock on that door — and the one that is in
+   * the file somebody reads when it happens anyway.
    */
   it("refuses a merged set that is missing an expected platform", () => {
     const only = [shard("darwin-arm64", DESKTOP_SERVER_PRODUCT, "desktop-server-v0.7.0")];
