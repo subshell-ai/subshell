@@ -11,9 +11,9 @@ Its job - reusing a prior launch's node, directory, and prompt - moves to
 prompt stored as the same block stack the new-subshell form composes. An MCP
 agent can then launch from a preset alone: `create_subshell` REQUIRES a preset
 and takes the preset's values as the launch, with the agent's own `node`,
-`working_dir`, and prompt as explicit overrides. A preset with all three
-optional fields filled is "cross-comm ready": any agent can start from its name
-alone and know exactly where and on what it will run.
+`working_dir`, and prompt as explicit overrides. A preset with a machine and a
+directory filled can be switched cross-comm ready: any agent can then start
+from its name alone and know exactly where it will run.
 
 Close/Terminate/Delete behavior stays exactly as on `main`. The
 `feat/close-keeps-the-row` branch is deleted after its one unrelated commit (the
@@ -111,15 +111,20 @@ preset that launches from its name alone.
 ## 4. Cross-comm ready (amended same day, at the operator's test drive)
 
 An OPT-IN, stored since migration 0043, AND a requirement: the row's
-`cross_comm_enabled` switch AND `nodeId`/`workingDir` set AND a prompt stack
-that joins to non-blank text. An unreadable `prompt_blocks` column reads
-NOT-ready (display surfaces must survive one bad row). The protocol package
-holds the one rule: `presetLaunchRequirementsMet` (the trio) and
-`isPresetCrossCommReady` (switch AND trio).
+`cross_comm_enabled` switch AND `nodeId`/`workingDir` set. The prompt is
+OPTIONAL launch data (operator re-ruling 2026-09-30, same day): a preset that
+names where to run can be launched by name even when it says nothing to type;
+the stack rides along as launch data when present. An unreadable
+`prompt_blocks` column no longer bears on readiness - it surfaces only at
+launch, where the MCP append path refuses it by name. The protocol package
+holds the one rule: `presetLaunchRequirementsMet` (machine + directory) and
+`isPresetCrossCommReady` (switch AND machine + directory).
 
-- Editor: a "Cross-subshell comms" section with a Switch labeled "Enable this
-  preset for cross-subshell communication via MCP". The switch is DISABLED while
-  requirements are missing and the section lists what is missing. When the
+- Editor: a Switch labeled "Enable agents to create subshells with this preset"
+  (copy restated at the 2026-09-30 test drive; help text "Enables agents to
+  create subshells with this preset using MCP."). The switch is DISABLED while
+  a requirement is missing, and the section lists ONLY the missing items, in
+  the warning amber. When the
   switch is ON and a later edit breaks a requirement, SAVE is disabled and the
   missing items highlight - the operator fixes the fields or turns the switch
   off; the server enforces the same rule on create and update (400).

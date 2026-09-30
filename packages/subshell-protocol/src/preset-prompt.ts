@@ -59,42 +59,24 @@ export function joinPresetPrompt(blocks: PresetPromptBlock[]): string {
   return blocks.map((b) => b.body).join("\n\n");
 }
 
-/** The launch-field requirement of cross-comm readiness: node, directory, and
- *  a prompt that joins to non-blank text are all set on the row. This is what
- *  the editor's form validates the "Cross-shell comms" toggle against, and
- *  what the server refuses to store an enabled flag without.
- *
- * TOLERANT where `parsePresetPromptBlocks` throws: this answers a display
- * question (a badge, a list row), and one unreadable column must not take a
- * whole list down - a row nobody can parse is a row nobody can launch
- * sight-unseen, so it reads as not-ready. A whitespace-only stack is "not
- * set": the launch would type nothing from it, so it must not claim readiness. */
-export function presetLaunchRequirementsMet(row: {
-  nodeId: string | null;
-  workingDir: string | null;
-  promptBlocks: string | null;
-}): boolean {
-  if (row.nodeId == null || row.workingDir == null) return false;
-  let blocks: PresetPromptBlock[] | null;
-  try {
-    blocks = parsePresetPromptBlocks(row.promptBlocks);
-  } catch {
-    return false;
-  }
-  return blocks != null && blocks.length > 0 && joinPresetPrompt(blocks).trim() !== "";
+/** The launch-field requirement of cross-comm readiness: a machine and a
+ *  working directory are set on the row. The prompt is OPTIONAL here
+ *  (operator re-ruling 2026-09-30, same day as the switch): a preset that
+ *  names where to run can be launched by name even when it says nothing to
+ *  type; the prompt blocks ride along as launch data when present. */
+export function presetLaunchRequirementsMet(row: { nodeId: string | null; workingDir: string | null }): boolean {
+  return row.nodeId != null && row.workingDir != null;
 }
 
 /** Cross-comm ready: an agent can launch from this preset's NAME alone.
- *  Since the operator ruling of 2026-09-29 (same day as the feature's spec,
- *  made at its test drive) this is an OPT-IN AND a requirement: the stored
- *  `crossCommEnabled` switch - the editor's "Cross-shell comms" toggle - AND
- *  the three launch fields filled. A filled preset nobody switched on makes
- *  no agent-facing promise. */
+ *  An OPT-IN AND a requirement (rulings of 2026-09-30): the stored
+ *  `crossCommEnabled` switch - the editor's "Cross-subshell comms" toggle -
+ *  AND the machine + directory (`presetLaunchRequirementsMet`). A preset
+ *  nobody switched on makes no agent-facing promise. */
 export function isPresetCrossCommReady(row: {
   crossCommEnabled: number | boolean;
   nodeId: string | null;
   workingDir: string | null;
-  promptBlocks: string | null;
 }): boolean {
   return (row.crossCommEnabled === 1 || row.crossCommEnabled === true) && presetLaunchRequirementsMet(row);
 }

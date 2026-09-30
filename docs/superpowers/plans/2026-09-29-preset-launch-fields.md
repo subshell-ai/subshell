@@ -122,9 +122,17 @@ Spec: `docs/superpowers/specs/2026-09-29-preset-launch-fields-design.md`
 ## Deviations (recorded at Task 8's review)
 
 - AMENDED AT THE OPERATOR'S TEST DRIVE (spec §4): cross-comm readiness is an
-  OPT-IN switch ("Cross-subshell comms", migration 0043, stored, default off)
-  AND the trio - not the trio alone as planned. Editor section, save gate,
-  server 400, badge, and `list_presets` all follow the switch.
+  OPT-IN switch (migration 0043, stored, default off) AND the machine +
+  directory - not the trio alone as planned. The prompt was first kept as a
+  requirement, then RE-RULED OPTIONAL the same day (2026-09-30): readiness and
+  the server 400 speak of machine and directory only; the stack is launch data
+  that rides along. The switch's label is "Enable agents to create subshells
+  with this preset" (help: "Enables agents to create subshells with this preset using
+  MCP."), and while it cannot arm the section lists ONLY the missing
+  requirements, in the warning amber. Editor save gate, server 400, badge, and
+  `list_presets` all follow the switch. A blank Name now disables Save on both
+  editor surfaces (the same test drive), and the directory picker gained a
+  "Decide at launch" clear row for the same reason the Machine select has one.
 
 - `docs/presets-system.md` does not exist on main (stale footprint). The
   editor-fields + cross-comm prose lives in `apps/server/web/docs/

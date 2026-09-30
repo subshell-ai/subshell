@@ -41,7 +41,8 @@ export interface PresetTable {
   /** 1 = new subshells from this preset auto-restart on exit */
   restartOnExit: number;
   /** 1 = the operator switched on "Cross-subshell comms" (migration 0043).
-   *  Readiness for agents is this flag AND the three launch fields filled. */
+   *  Readiness for agents is this flag AND a machine AND a directory (the
+   *  prompt is optional launch data, not a requirement). */
   crossCommEnabled: number;
   /**
    * Optional launch node hint (spec 2026-09-29 preset-launch-fields): a launch

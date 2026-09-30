@@ -3,13 +3,15 @@ import { Plus } from "lucide-react";
 import { useState } from "react";
 import { PromptPickerBody } from "@/components/prompts/prompt-picker-body";
 import { PromptStackList } from "@/components/prompts/prompt-stack-list";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { ComboboxOption } from "@/components/ui/combobox";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { WorkingDirField } from "@/components/working-dir-field";
 import { useNodes } from "@/hooks/use-nodes";
+import { isOfflineAgent } from "@/lib/node-label";
 import { crossCommSaveBlocked, type PresetFormValue, presetLaunchGaps } from "@/lib/preset-form";
 import { movePromptBlock, removePromptBlock } from "@/lib/prompt-stack";
 import type { LaunchAgent } from "@/lib/subshell-compat";
-import { buildNodeOptions, launchableNodes } from "@/lib/subshell-compat";
+import { buildNodeOptions } from "@/lib/subshell-compat";
 
 /**
  * The preset's OPTIONAL launch defaults (spec 2026-09-29 preset-launch-fields):
@@ -19,9 +21,10 @@ import { buildNodeOptions, launchableNodes } from "@/lib/subshell-compat";
  * snapshots the text, so library edits never change what this preset launches).
  * They are hints, not locks: an explicit request at launch still wins.
  *
- * Below the trio sits the CROSS-SHELL COMMS switch (migration 0043): an agent
- * can launch the preset from its name alone only when the switch is on AND
- * all three fields hold - the section states exactly what is missing.
+ * Below the trio sits the CROSS-SUBSHELL COMMS switch (migration 0043): an
+ * agent can launch the preset from its name alone when the switch is on AND a
+ * machine and a directory are set - the prompt is optional launch data
+ * (re-ruling 2026-09-30), so it is offered here but never required.
  */
 export function PresetLaunchFields({
   value,
@@ -38,14 +41,32 @@ export function PresetLaunchFields({
 }) {
   const { data: nodeData } = useNodes();
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : [];
-  // Same rule the launch form applies (shared since this change): launchable
-  // rows, plus a maintenance window listed greyed rather than hidden.
-  const nodeOptions = buildNodeOptions(launchableNodes(nodes), agent);
+  // A preset names a machine INSTANCE-scoped: a machine that is down (or in a
+  // maintenance window) right now may well host this preset's launches later,
+  // so this picker lists EVERY node - split into Online/Offline when both
+  // kinds exist - instead of the launch form's launchable-only filter. The
+  // offline rows stay selectable; the online rows keep the live greys
+  // (maintenance, agent fit), because the agent question is asked now.
+  const onlineOptions = buildNodeOptions(
+    nodes.filter((n) => !isOfflineAgent(n)),
+    agent,
+  );
+  const offlineOptions = buildNodeOptions(
+    nodes.filter((n) => isOfflineAgent(n)),
+    agent,
+  ).map((o) => ({ ...o, disabled: false }));
+  const nodeOptions: ComboboxOption[] = [...onlineOptions, ...offlineOptions];
+  const splitGroups = onlineOptions.length > 0 && offlineOptions.length > 0;
+  const renderNodeOption = (o: ComboboxOption) => (
+    <SelectItem key={o.value} value={o.value} disabled={o.disabled === true}>
+      {o.label}
+      {o.reason !== undefined && <span className="text-muted-foreground"> ({o.reason})</span>}
+    </SelectItem>
+  );
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const selectedNode = nodes.find((n) => n.id === value.nodeId);
   const gaps = presetLaunchGaps(value);
-  const filled = 3 - gaps.length;
 
   return (
     <div className="space-y-3">
@@ -62,17 +83,21 @@ export function PresetLaunchFields({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="">Decide at launch</SelectItem>
-            {nodeOptions.map((o) => (
-              <SelectItem key={o.value} value={o.value} disabled={o.disabled === true}>
-                {o.label}
-                {o.reason !== undefined && <span className="text-muted-foreground"> ({o.reason})</span>}
-              </SelectItem>
-            ))}
+            {splitGroups && (
+              <>
+                <SelectGroup>
+                  <p className="px-2 pt-2 text-detail text-muted-foreground">Online</p>
+                  {onlineOptions.map(renderNodeOption)}
+                </SelectGroup>
+                <SelectGroup>
+                  <p className="px-2 pt-2 text-detail text-muted-foreground">Offline</p>
+                  {offlineOptions.map(renderNodeOption)}
+                </SelectGroup>
+              </>
+            )}
+            {!splitGroups && nodeOptions.map(renderNodeOption)}
           </SelectContent>
         </Select>
-        <p className="text-detail text-muted-foreground">
-          Where subshells started from this preset run unless the launch says otherwise.
-        </p>
       </div>
       <div className="space-y-2">
         <Label htmlFor="preset-launch-dir">Working directory</Label>
@@ -144,30 +169,41 @@ export function PresetLaunchFields({
             disabled={gaps.length > 0 && !value.crossCommEnabled}
             onCheckedChange={(crossCommEnabled) => onChange({ ...value, crossCommEnabled })}
           />
-          <Label htmlFor="preset-cross-comm">Cross-subshell comms</Label>
+          <Label htmlFor="preset-cross-comm">Enable agents to create subshells with this preset</Label>
         </div>
         <p className="text-detail text-muted-foreground">
-          Enable this preset for cross-subshell communication via MCP.
+          Enables agents to create subshells with this preset using MCP.
         </p>
+        {/* What is MISSING, named and listed (all amber - the app's warning
+            colour, missingness worth acting on, not an error): the lead says
+            the list's job - these hold the switch back. Met requirements are
+            simply absent from the list. */}
+        {gaps.length > 0 && (
+          <>
+            <p className="text-detail text-muted-foreground">
+              To enable, this preset still needs
+              {value.crossCommEnabled ? " (switched on, but cannot launch yet):" : ":"}
+            </p>
+            <ul id="preset-cross-comm-gaps" className="ml-5 list-disc space-y-0.5">
+              {gaps.map((gap) => (
+                <li key={gap} className="text-amber-600 text-detail dark:text-amber-400">
+                  {gap === "machine" ? "A machine" : "A working directory"}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
         {crossCommSaveBlocked(value) ? (
-          <p className="text-destructive text-detail">
-            Missing: {gaps.join(", ")}. Complete these or switch cross-subshell comms off to save.
-          </p>
-        ) : gaps.length > 0 ? (
-          <p className="text-detail text-muted-foreground">
-            {filled === 0
-              ? "Requirements: a machine, a working directory, and a prompt."
-              : `Requirements left: ${gaps.join(", ")}.`}
-          </p>
-        ) : value.crossCommEnabled ? (
+          <p className="text-destructive text-detail">Complete every item above, or switch this off, to save.</p>
+        ) : gaps.length === 0 && value.crossCommEnabled ? (
           <p className="text-detail text-muted-foreground">
             Agents can launch this preset from its name alone over MCP.
           </p>
-        ) : (
+        ) : gaps.length === 0 ? (
           <p className="text-detail text-muted-foreground">
             All requirements met: switch this on to let agents launch it by name.
           </p>
-        )}
+        ) : null}
       </div>
     </div>
   );

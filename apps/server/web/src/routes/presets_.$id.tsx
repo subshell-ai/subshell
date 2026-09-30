@@ -134,7 +134,10 @@ function PresetEditor({ preset }: { preset: PresetRow }) {
             <Button variant="outline" onClick={() => navigate({ to: "/presets" })} disabled={mutation.isPending}>
               Cancel
             </Button>
-            <Button onClick={() => save()} disabled={mutation.isPending || crossCommSaveBlocked(form)}>
+            <Button
+              onClick={() => save()}
+              disabled={mutation.isPending || form.name.trim() === "" || crossCommSaveBlocked(form)}
+            >
               {mutation.isPending ? "Saving…" : "Save"}
             </Button>
           </div>

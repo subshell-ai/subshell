@@ -125,10 +125,11 @@ export interface PresetRow {
   name: string;
   harnessId: string;
   /**
-   * True on a real preset whose node, directory, and prompt are ALL set: this
-   * one launches from its name alone (spec 2026-09-29 preset-launch-fields -
-   * the readiness is derived from the row, never stored). Absent on catalog
-   * entries, which are not presets.
+   * True on a real preset the operator switched on for cross-subshell comms
+   * that also names a machine and a directory (spec 2026-09-29
+   * preset-launch-fields, readiness amended 0043): this one launches from its
+   * name alone; a prompt, when the preset carries one, rides along. Absent on
+   * catalog entries, which are not presets.
    */
   crossCommReady?: boolean;
   /**
@@ -246,7 +247,7 @@ export async function listPresets(deps: ToolDeps): Promise<PresetRow[]> {
     id,
     name,
     harnessId,
-    crossCommReady: isPresetCrossCommReady({ crossCommEnabled, nodeId, workingDir, promptBlocks }),
+    crossCommReady: isPresetCrossCommReady({ crossCommEnabled, nodeId, workingDir }),
   }));
   const catalog = plugins
     .filter((p) => (p.type === "agent-harness" || p.type === "terminal") && p.installed && p.enabled)

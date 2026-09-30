@@ -125,18 +125,10 @@ export function presetFormPromptBlocks(form: PresetFormValue): PromptBlock[] {
   return form.promptEnabled ? form.promptBlocks : [];
 }
 
-/** Whether a stack supplies a PROMPT at all: bodies that are all whitespace
- *  join to text the launch types nothing from, so the readiness fact says the
- *  prompt is NOT set - the same rule `isPresetCrossCommReady` applies to the
- *  stored row, so editor line, badge, and `list_presets` never disagree. */
-function stackSuppliesPrompt(blocks: PromptBlock[]): boolean {
-  return blocks.some((b) => b.body.trim() !== "");
-}
-
 /**
  * Whether the cross-subshell comms switch blocks the save (migration 0043):
- * an ON switch is a promise the row must keep - machine, directory, and a
- * non-blank prompt - so an enabled preset with gaps is unsavable until the
+ * an ON switch is a promise the row must keep - a machine and a directory -
+ * so an enabled preset with gaps is unsavable until the
  * fields are fixed or the switch is turned off. The server enforces the same
  * rule on create and update.
  */
@@ -145,15 +137,16 @@ export function crossCommSaveBlocked(form: PresetFormValue): boolean {
 }
 
 /**
- * The launch trio's gaps (spec 2026-09-29): a preset is cross-comm ready when
- * a machine, a directory, and a prompt are all set - the editor's completeness
- * line and the list badge read the same fact.
+ * The cross-subshell requirement gaps (spec 2026-09-29, amended 0043 and by
+ * the 2026-09-30 re-ruling): a machine and a directory make a preset
+ * launchable by name; the prompt is optional launch data, never a gap. The
+ * editor's checklist, the save gate, and `isPresetCrossCommReady` read this
+ * one rule.
  */
 export function presetLaunchGaps(form: PresetFormValue): string[] {
   const gaps: string[] = [];
   if (form.nodeId === null) gaps.push("machine");
   if (form.workingDir.trim() === "") gaps.push("directory");
-  if (!stackSuppliesPrompt(presetFormPromptBlocks(form))) gaps.push("prompt");
   return gaps;
 }
 

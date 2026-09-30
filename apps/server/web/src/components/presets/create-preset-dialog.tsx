@@ -113,7 +113,7 @@ export function CreatePresetDialog({
           </Button>
           <Button
             onClick={() => void submit()}
-            disabled={create.isPending || !form.harnessId || crossCommSaveBlocked(form)}
+            disabled={create.isPending || !form.harnessId || form.name.trim() === "" || crossCommSaveBlocked(form)}
           >
             {create.isPending ? "Creating…" : "Create preset"}
           </Button>

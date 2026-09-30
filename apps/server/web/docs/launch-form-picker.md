@@ -95,8 +95,9 @@ absence, never null.
 editor's **Launch defaults** section takes an optional machine, working
 directory, and the SAME prompt block stack the launch form uses (snapshot
 bodies, joined by one blank line at launch). CROSS-COMM READY is opt-in
-(migration 0043): the section ends in a "Cross-subshell comms" switch, and
-readiness means the switch AND the trio (`isPresetCrossCommReady` in
+(migration 0043): the section ends in a switch "Enable agents to create
+subshells with this preset", and readiness means the switch AND machine +
+directory - the prompt is optional launch data (`isPresetCrossCommReady` in
 `@internal/subshell-protocol`): the `/presets` row badges it, the launch form
 prefills from it on pick, and MCP `create_subshell` can launch from the
 preset's name alone. The switch cannot arm while a requirement is missing,

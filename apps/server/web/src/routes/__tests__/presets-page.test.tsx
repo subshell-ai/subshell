@@ -258,7 +258,7 @@ describe("/presets row command visibility", () => {
 describe("cross-comm-ready badge (spec 2026-09-29 preset-launch-fields)", () => {
   afterEach(cleanup);
 
-  it("badges only the switched-on row whose machine, directory, and prompt are all set", async () => {
+  it("badges only the switched-on row that names a machine and a directory", async () => {
     const { restore } = mockFetch({
       presets: [
         presetRow({
@@ -279,6 +279,15 @@ describe("cross-comm-ready badge (spec 2026-09-29 preset-launch-fields)", () => 
           workingDir: "/srv/app",
           promptBlocks: JSON.stringify([{ kind: "custom", description: "", body: "go" }]),
         }),
+        // Machine + directory, no prompt, switched on: ready (prompt optional).
+        presetRow({
+          id: "no-prompt",
+          harnessId: "claude-code",
+          name: "Silent and ready",
+          crossCommEnabled: 1,
+          nodeId: "n1",
+          workingDir: "/srv/app",
+        }),
         presetRow({ id: "half", harnessId: "claude-code", name: "Settings only", nodeId: "n1" }),
       ],
     });
@@ -286,9 +295,9 @@ describe("cross-comm-ready badge (spec 2026-09-29 preset-launch-fields)", () => 
       renderPage();
       await screen.findByText("Everywhere");
       const badges = screen.getAllByText("cross-comm ready");
-      // One badge: only the enabled row (the filled-but-off row and the half
-      // row both stay unbadged).
-      expect(badges).toHaveLength(1);
+      // Two badges: the enabled rows (with and without a prompt). The
+      // filled-but-off row and the half row stay unbadged.
+      expect(badges).toHaveLength(2);
     } finally {
       restore();
     }

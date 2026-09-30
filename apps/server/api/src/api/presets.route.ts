@@ -105,12 +105,12 @@ async function validatePresetLaunchFields(
  *  it answers 400 as one. */
 function assertCrossCommCoherent(
   crossCommEnabled: boolean,
-  row: { nodeId: string | null; workingDir: string | null; promptBlocks: string | null },
+  row: { nodeId: string | null; workingDir: string | null },
 ): void {
   if (crossCommEnabled && !presetLaunchRequirementsMet(row)) {
     throw new PresetError(
       "bad_request",
-      "Cross-subshell comms needs a machine, a working directory, and a non-blank prompt - fill them in, or leave it off",
+      "Enabling this needs a machine and a working directory - fill them in, or leave it off",
       400,
     );
   }
@@ -269,7 +269,6 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       assertCrossCommCoherent(body.crossCommEnabled === true, {
         nodeId: launch.nodeId ?? null,
         workingDir: launch.workingDir ?? null,
-        promptBlocks: launch.promptBlocks ?? null,
       });
       try {
         return await repo.create({
@@ -415,7 +414,6 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
       assertCrossCommCoherent(crossCommEnabled === 1, {
         nodeId: launch.nodeId !== undefined ? launch.nodeId : existing.nodeId,
         workingDir: launch.workingDir !== undefined ? launch.workingDir : existing.workingDir,
-        promptBlocks: launch.promptBlocks !== undefined ? launch.promptBlocks : existing.promptBlocks,
       });
       let updated: Awaited<ReturnType<typeof repo.update>>;
       try {

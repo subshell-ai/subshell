@@ -162,7 +162,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "List presets",
       description:
-        "List what create_subshell can launch: preset rows are saved settings + optional launch defaults (address them by name; crossCommReady rows carry node, directory, and prompt, so a launch needs nothing but the name), and rows flagged catalogOnly name a harness id the instance offers with no saved preset behind it yet - informational only: create_subshell cannot launch one, a human must save a preset for that harness in the web UI first. Both carry the harness plugin id.",
+        "List what create_subshell can launch: preset rows are saved settings + optional launch defaults (address them by name; crossCommReady rows name a machine and a directory the operator committed to, so a launch needs nothing but the name; a prompt rides along when the preset has one), and rows flagged catalogOnly name a harness id the instance offers with no saved preset behind it yet - informational only: create_subshell cannot launch one, a human must save a preset for that harness in the web UI first. Both carry the harness plugin id.",
       inputSchema: z.object({}),
     },
     guard(() => listPresets(deps)),

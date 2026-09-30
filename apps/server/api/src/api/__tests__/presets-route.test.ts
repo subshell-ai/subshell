@@ -397,7 +397,7 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
   });
 
   it("the cross-comm switch only stands on a row that carries the trio (spec 2026-09-29, migration 0043)", async () => {
-    const blocks = [{ kind: "custom", description: "", body: "go" }];
+    const _blocks = [{ kind: "custom", description: "", body: "go" }];
     // ON without the trio: refused, naming the rule.
     const bad = await app.fetch(
       authedRequest("/api/presets", ownerCookie, {
@@ -406,8 +406,18 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
       }),
     );
     expect(bad.status).toBe(400);
-    expect(((await bad.json()) as { message: string }).message).toContain("Cross-subshell comms needs");
-    // ON with the trio: lands enabled.
+    expect(((await bad.json()) as { message: string }).message).toContain("needs a machine");
+    // ON with a machine but NO directory: still refused.
+    const noDir = await app.fetch(
+      authedRequest("/api/presets", ownerCookie, {
+        method: "POST",
+        body: JSON.stringify({ harnessId: "claude-code", name: "cc-nodir", crossCommEnabled: true, nodeId: "local" }),
+      }),
+    );
+    expect(noDir.status).toBe(400);
+    // ON with a machine and a directory: lands enabled - the prompt is NOT a
+    // requirement (re-ruling 2026-09-30), so nothing is typed and the promise
+    // still holds.
     const good = await app.fetch(
       authedRequest("/api/presets", ownerCookie, {
         method: "POST",
@@ -417,7 +427,6 @@ describe("preset writes carry the launch fields (spec 2026-09-29)", () => {
           crossCommEnabled: true,
           nodeId: "local",
           workingDir: "/srv/app",
-          promptBlocks: blocks,
         }),
       }),
     );

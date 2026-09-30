@@ -57,40 +57,24 @@ describe("parsePresetPromptBlocks", () => {
 });
 
 describe("isPresetCrossCommReady", () => {
-  const filled = {
-    crossCommEnabled: 1,
-    nodeId: "node-1",
-    workingDir: "/srv/app",
-    promptBlocks: JSON.stringify([saved]),
-  };
+  const filled = { crossCommEnabled: 1, nodeId: "node-1", workingDir: "/srv/app" };
 
-  it("is true only when the switch is ON and node, dir, and a non-empty prompt are all set", () => {
+  it("is true when the switch is ON and a machine and a directory are set", () => {
     expect(isPresetCrossCommReady(filled)).toBe(true);
-    // Opt-in (migration 0043): a filled preset nobody enabled promises nothing.
-    expect(isPresetCrossCommReady({ ...filled, crossCommEnabled: 0 })).toBe(false);
     expect(isPresetCrossCommReady({ ...filled, crossCommEnabled: true })).toBe(true);
+    // Opt-in (migration 0043): a ready preset nobody switched on promises nothing.
+    expect(isPresetCrossCommReady({ ...filled, crossCommEnabled: 0 })).toBe(false);
   });
 
-  it("is false when any one of the three is missing", () => {
+  it("the prompt is NOT a requirement (re-ruling 2026-09-30)", () => {
+    // Machine + directory + the switch is ready even with nothing to type;
+    // a preset that says WHERE still launches by name.
+    expect(isPresetCrossCommReady(filled)).toBe(true);
+  });
+
+  it("is false when either launch field is missing", () => {
     expect(isPresetCrossCommReady({ ...filled, nodeId: null })).toBe(false);
     expect(isPresetCrossCommReady({ ...filled, workingDir: null })).toBe(false);
-    expect(isPresetCrossCommReady({ ...filled, promptBlocks: null })).toBe(false);
-    expect(isPresetCrossCommReady({ ...filled, promptBlocks: "[]" })).toBe(false);
-  });
-
-  it("is false for an all-NULL row (the ordinary settings-only preset)", () => {
-    expect(isPresetCrossCommReady({ crossCommEnabled: 1, nodeId: null, workingDir: null, promptBlocks: null })).toBe(
-      false,
-    );
-  });
-
-  it("reads an unreadable column as NOT ready instead of throwing (display surfaces survive)", () => {
-    expect(isPresetCrossCommReady({ ...filled, promptBlocks: "not json" })).toBe(false);
-    expect(isPresetCrossCommReady({ ...filled, promptBlocks: "[42]" })).toBe(false);
-  });
-
-  it("a whitespace-only stack is not a prompt (the launch would type nothing)", () => {
-    const blank = JSON.stringify([{ kind: "custom", description: "", body: "   " }]);
-    expect(isPresetCrossCommReady({ ...filled, promptBlocks: blank })).toBe(false);
+    expect(isPresetCrossCommReady({ crossCommEnabled: 1, nodeId: null, workingDir: null })).toBe(false);
   });
 });

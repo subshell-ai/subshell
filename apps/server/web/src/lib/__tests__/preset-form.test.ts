@@ -327,7 +327,7 @@ describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
   });
 
   it("gaps name what is missing, in machine/directory/prompt order", () => {
-    expect(presetLaunchGaps(toPresetForm)).toEqual(["machine", "directory", "prompt"]);
+    expect(presetLaunchGaps(toPresetForm)).toEqual(["machine", "directory"]);
     expect(
       presetLaunchGaps({
         ...toPresetForm,
@@ -337,18 +337,10 @@ describe("the launch trio (spec 2026-09-29 preset-launch-fields)", () => {
         promptBlocks: blocks,
       }),
     ).toEqual([]);
-    expect(presetLaunchGaps({ ...toPresetForm, nodeId: "n1" })).toEqual(["directory", "prompt"]);
-    // One rule with isPresetCrossCommReady: a stack whose bodies are all
-    // whitespace supplies no prompt (the launch would type nothing).
-    expect(
-      presetLaunchGaps({
-        ...toPresetForm,
-        nodeId: "n1",
-        workingDir: "/srv",
-        promptEnabled: true,
-        promptBlocks: [{ localId: "b1", kind: "custom", description: "", body: "   " }],
-      }),
-    ).toEqual(["prompt"]);
+    expect(presetLaunchGaps({ ...toPresetForm, nodeId: "n1" })).toEqual(["directory"]);
+    // The prompt is NOT a gap (re-ruling 2026-09-30): machine + directory
+    // alone close the list, with or without any stack.
+    expect(presetLaunchGaps({ ...toPresetForm, nodeId: "n1", workingDir: "/srv" })).toEqual([]);
   });
 
   it("unparseable stored JSON reads as no blocks (opening a preset never throws)", () => {

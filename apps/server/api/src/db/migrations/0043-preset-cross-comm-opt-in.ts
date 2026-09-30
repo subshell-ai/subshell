@@ -2,9 +2,10 @@ import type { Kysely } from "kysely";
 
 /**
  * Cross-comm becomes an OPT-IN (operator ruling during the 2026-09-29
- * preset-launch-fields test drive): the editor gains a "Cross-subshell comms"
- * toggle labeled "Enable this preset for cross-subshell communication via MCP",
- * and readiness is `cross_comm_enabled AND the three launch fields filled`,
+ * preset-launch-fields test drive): the editor gains a cross-comm toggle
+ * (label copy since restated: "Enable agents to create subshells with this
+ * preset"), and readiness is `cross_comm_enabled AND machine + directory` -
+ * the prompt is optional launch data (re-ruled 2026-09-30) -
  * not the row values alone. 0042's note said "derived, never stored" — the
  * toggle supersedes that: a filled preset the operator has not switched on
  * makes no agent-facing promise. Existing rows default to OFF (0); the

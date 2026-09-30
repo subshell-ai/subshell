@@ -55,7 +55,7 @@ const SOURCE: PresetRow = {
   updatedAt: "2026-09-13T00:00:00.000Z",
 };
 
-function mockFetch(post: { status?: number; body?: unknown } = {}) {
+function mockFetch(post: { status?: number; body?: unknown } = {}, nodes: unknown[] = []) {
   const calls: { method: string; url: string; body: unknown }[] = [];
   const original = globalThis.fetch;
   globalThis.fetch = ((input: unknown, init?: RequestInit) => {
@@ -89,6 +89,9 @@ function mockFetch(post: { status?: number; body?: unknown } = {}) {
     // The list a page with a live usePresets() would read — an ARRAY, like
     // the real endpoint; the {} fallthrough below is for the schema route.
     if (url.pathname === "/api/presets" && method === "GET") return Promise.resolve(new Response(JSON.stringify([])));
+    if (url.pathname === "/api/nodes" && method === "GET") {
+      return Promise.resolve(new Response(JSON.stringify({ nodes })));
+    }
     // The prompt picker's feeds (opened via the launch-defaults section):
     // empty own/shared views, the shape both queries expect.
     if (url.pathname === "/api/prompts" || url.pathname === "/api/prompts/stacks") {
@@ -288,7 +291,7 @@ describe("CreatePresetDialog — unlocked (/presets page)", () => {
       const dialog = await screen.findByRole("dialog", { name: "Create preset" });
       expect(dialog.querySelector("#preset-harness")).not.toBeNull();
       expect(dialog.textContent).toContain("Which agent CLI subshells started with this preset will run.");
-      // No agent yet → no second description sentence, and no submit.
+      // No agent and no name yet → no second description sentence, and no submit.
       expect(screen.queryByText("Every subshell you start with it launches Claude Code this way.")).toBeNull();
       expect((screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement).disabled).toBe(true);
       void container;
@@ -301,7 +304,7 @@ describe("CreatePresetDialog — unlocked (/presets page)", () => {
 describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => {
   afterEach(cleanup);
 
-  it("renders the trio with the completeness line naming all three gaps", async () => {
+  it("renders the launch defaults with the amber requirement checklist", async () => {
     const m = mockFetch();
     try {
       await renderDialog({ lockedHarness: "claude-code" });
@@ -312,23 +315,25 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
       // The empty directory reads as a choice, exactly like the Machine
       // select's "Decide at launch" empty state.
       expect((dialog.querySelector("#preset-launch-dir") as HTMLInputElement).placeholder).toBe("Decide at launch");
-      // Nothing set yet: the cross-comm section states its requirements, and
-      // the switch cannot arm without them (migration 0043).
-      expect(dialog.textContent).toContain("Requirements: a machine, a working directory, and a prompt.");
+      // Nothing set yet: the two requirements show as a checklist, every item
+      // amber (the warning colour), and the switch cannot arm (migration 0043).
+      expect(Array.from(dialog.querySelectorAll("li"))).toHaveLength(2);
+      expect((dialog.querySelectorAll("li")[0] as HTMLElement).className).toContain("text-amber-600");
       expect((dialog.querySelector("#preset-cross-comm") as HTMLButtonElement).disabled).toBe(true);
     } finally {
       m.restore();
     }
   });
 
-  it("the cross-comm switch arms only when the trio holds, and a broken trio blocks Save", async () => {
+  it("the cross-subshell switch arms only on machine + directory, and a broken pair blocks Save", async () => {
     const m = mockFetch();
     try {
       await renderDialog({ lockedHarness: "claude-code" });
       const dialog = await screen.findByRole("dialog");
       const toggle = () => dialog.querySelector("#preset-cross-comm") as HTMLButtonElement;
       const save = () => screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement;
-      // Set all three through the form: dir typed, prompt added.
+      // Set all three through the form: name + dir typed, prompt added.
+      fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "Fast" } });
       fireEvent.change(dialog.querySelector("#preset-launch-dir") as HTMLInputElement, {
         target: { value: "/srv/app" },
       });
@@ -339,9 +344,92 @@ describe("launch defaults fields (spec 2026-09-29 preset-launch-fields)", () => 
         target: { value: "go" },
       });
       fireEvent.click(within(dialog).getByRole("button", { name: "Add prompt" }));
-      // Node left on "Decide at launch": still a gap, still disabled.
-      await waitFor(() => expect(dialog.textContent).toContain("Requirements left: machine"));
+      // Node left on "Decide at launch": only the machine is MISSING - met
+      // requirements leave the list. The prompt was never a requirement
+      // (re-ruling 2026-09-30).
+      await waitFor(() => expect(Array.from(dialog.querySelectorAll("#preset-cross-comm-gaps li"))).toHaveLength(1));
+      const first = dialog.querySelector("#preset-cross-comm-gaps li") as HTMLLIElement;
+      expect(first.textContent).toBe("A machine");
+      expect(first.className).toContain("text-amber-600");
       expect(toggle().disabled).toBe(true);
+      expect(save().disabled).toBe(false);
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("the machine picker lists EVERY node, split Online/Offline, and offline rows arm the switch", async () => {
+    // A preset names a machine instance-scoped: the box that is down now may
+    // host this preset's launches later, so it is a CHOICE, not a hidden row.
+    const desk = {
+      id: "a1",
+      name: "desk",
+      kind: "agent",
+      status: "online",
+      os: null,
+      arch: null,
+      maintenance: false,
+      inventoryStale: false,
+      canLaunch: true,
+      harnesses: [{ harnessId: "claude-code", name: "Claude Code", installed: true }],
+    };
+    const oldLaptop = {
+      id: "a2",
+      name: "old laptop",
+      kind: "agent",
+      status: "offline",
+      os: null,
+      arch: null,
+      maintenance: false,
+      inventoryStale: false,
+      canLaunch: true,
+      harnesses: [],
+    };
+    const m = mockFetch({}, [desk, oldLaptop]);
+    try {
+      await renderDialog({ lockedHarness: "claude-code" });
+      const dialog = await screen.findByRole("dialog");
+      // The help sentence is gone: the select says "Decide at launch" and the
+      // section below says everything else.
+      expect(screen.queryByText(/Where subshells started/)).toBeNull();
+      fireEvent.click(dialog.querySelector("#preset-launch-node") as HTMLElement);
+      const offline = await screen.findByRole("option", { name: /old laptop \(offline\)/ });
+      expect(screen.getByRole("option", { name: /desk/ })).toBeDefined();
+      // Section headers, in order, and the offline row is SELECTABLE.
+      expect(screen.getByText("Online")).toBeDefined();
+      expect(screen.getByText("Offline")).toBeDefined();
+      expect(offline.getAttribute("aria-disabled")).toBeNull();
+      // Base UI commits a pick on the full pointer sequence (see the
+      // provider dialog's pickOption).
+      fireEvent.pointerDown(offline);
+      fireEvent.pointerUp(offline);
+      fireEvent.click(offline);
+      // Chosen: the machine gap closes even though the node is DOWN.
+      await waitFor(() =>
+        expect(dialog.querySelector("#preset-cross-comm-gaps")?.textContent).toBe("A working directory"),
+      );
+      expect((dialog.querySelector("#preset-cross-comm") as HTMLButtonElement).disabled).toBe(true); // dir still missing
+      fireEvent.change(dialog.querySelector("#preset-launch-dir") as HTMLInputElement, {
+        target: { value: "/srv/app" },
+      });
+      // Both met: the list empties and the switch arms.
+      await waitFor(() => expect(dialog.querySelector("#preset-cross-comm-gaps")).toBeNull());
+      expect((dialog.querySelector("#preset-cross-comm") as HTMLButtonElement).disabled).toBe(false);
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("Create stays disabled while the Name is blank, even with the agent locked", async () => {
+    const m = mockFetch();
+    try {
+      await renderDialog({ lockedHarness: "claude-code" });
+      const dialog = await screen.findByRole("dialog");
+      const save = () => screen.getByRole("button", { name: "Create preset" }) as HTMLButtonElement;
+      expect(save().disabled).toBe(true);
+      fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "   " } });
+      expect(save().disabled).toBe(true);
+      fireEvent.change(dialog.querySelector("#preset-name") as HTMLInputElement, { target: { value: "Fast" } });
       expect(save().disabled).toBe(false);
     } finally {
       m.restore();
