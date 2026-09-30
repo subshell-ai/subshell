@@ -610,6 +610,32 @@ which is why they share their own smoke, parameterized by app id.
 - **Retry:** a mid-flight failure leaves the tag without a release:
   re-dispatching COMPLETES the half-cut. Re-cutting a PUBLISHED version
   requires deleting the release and its tag first.
+- **A desktop cut re-ships a CLI.** Each desktop app bundles the binary it
+  wraps, built from the same commit, so a fix to `apps/server/api` or `apps/node/agent`
+  does NOT reach desktop users until the matching desktop cut. Since
+  2026-09-30 that matching bump is machinery (`updateInternalDependents`,
+  see the version-PR section above), so a normal CLI changeset lands both
+  bumps; `app=all` is what then CUTS them together.
+
+### The GHCR image rail (CI: `.github/workflows/docker-image.yml`)
+
+The container image (`ghcr.io/subshell-ai/subshell`) packages the
+**published** cli-server release: it downloads, signature-verifies and bakes
+the release assets, never compiling the server (spec 2026-09-28 §4). The
+chain is `workflow_run` on Release, NOT `on: release`: a cut's release is
+published under GITHUB_TOKEN, and GitHub starts no workflows from
+Actions-created events, so the original trigger was dead on arrival and the
+rail recorded zero runs through cli-server v1.7.0. On every Release
+completion the plan job re-derives the version from the parent's own head
+commit and skips when that version is already baked, which makes every
+re-arm (a cut that moved no server version) a no-op. A fresh chained build
+runs the container scenario (`scripts/cli-e2e/docker-image.sh`) and then
+moves `:latest`; a manual dispatch (`-f version=`) rebuilds any release into
+its version tag and moves `:latest` only when the package has none (the
+bootstrap the hand-run history now needs). The Proxmox LXC rail consumes
+exactly this: `proxmox-server.sh update` pulls the new image and recreates
+the container, the "image is the unit of update" rule the server itself
+prints (`server-deployment.ts`).
 
 ### Docs site (CI: `.github/workflows/docs.yml`)
 

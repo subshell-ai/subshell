@@ -3,14 +3,29 @@ name: docker-image
 # Package the published cli-server release into the GHCR image (spec
 # 2026-09-28 § 4). The release shards are the input: this workflow downloads,
 # signature-verifies, bakes, and pushes. It never compiles the server.
-# Dispatchable with a version to rebuild an older release into a new image.
-# :latest is NOT part of that rebuild: only a release event whose smoke job
-# passed moves the floating tag (the `latest` job, the run's last step).
+#
+# The chain is `workflow_run` on the Release workflow, NOT `on: release`.
+# A cut's release is published by softprops under GITHUB_TOKEN, so it is an
+# Actions-created event, and GitHub starts no workflows from those (the
+# recursion guard): the original `on: release` trigger was dead on arrival,
+# and the rail recorded ZERO runs through cli-server v1.7.0 while the header
+# COMMENT described it working. workflow_run is the sanctioned exception.
+# Every completion of Release re-arms this trigger, so the plan job decides:
+# version from the parent's own head commit, skip when that version is
+# already packaged (the common case; a cut that didn't move the server
+# version is no work here), build when it is not. Dispatch with a version
+# rebuilds any release into its tag on purpose.
+#
+# :latest moves on a fresh chained build (the parent's smoke gates are
+# exactly the old design's "release event whose smoke job passed") and, as
+# the one dispatch exception, when the package has NO :latest yet (the rail
+# bootstrapped by hand after its trigger fix). A dispatch rebuild of an older
+# release repoints the version tag it names and never regresses the float.
 
 on:
-  release:
-    types: [published]
-    tags: ["cli-server-v*"]
+  workflow_run:
+    workflows: ["Release"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       version:
@@ -30,7 +45,103 @@ env:
   IMAGE: ghcr.io/subshell-ai/subshell
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+      skip: ${{ steps.decide.outputs.skip }}
+      move_latest: ${{ steps.decide.outputs.move_latest }}
+    steps:
+      - name: Check out the parent's head commit
+        # workflow_run checks out the DEFAULT BRANCH by default, but the
+        # version to package is the one the parent run shipped, so check out
+        # the parent's own head sha. (The push of a releases.json commit
+        # completes a Release run too; its head carries the same versions,
+        # and the already-packaged check below makes that re-arm a no-op.)
+        if: github.event_name == 'workflow_run'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Resolve the version
+        id: resolve
+        # Values arrive from the event payload, so they cross into the script
+        # as env, never as interpolated text the shell would then parse.
+        env:
+          EVENT: ${{ github.event_name }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          DISPATCH_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION=""
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            VERSION="$DISPATCH_VERSION"
+          elif [ "$CONCLUSION" != "success" ] || [ "$BRANCH" != "main" ]; then
+            # A failed or off-main parent published nothing new.
+            echo "version=" >> "$GITHUB_OUTPUT"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "move_latest=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          else
+            VERSION=$(node -e 'process.stdout.write(require("./apps/server/api/package.json").version)')
+          fi
+          # A pre-release version fails this guard on purpose: the image rail
+          # packages full releases only.
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a semver: $VERSION"; exit 1; }
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        if: steps.resolve.outputs.version != ''
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Fresh cut, re-arm, or rebuild?
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "$VERSION" ]; then
+            # The resolve step already emitted the skip triple.
+            exit 0
+          fi
+          if docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
+            # This version is already baked: the re-arm case for chained
+            # events (every Release completion re-fires this trigger, and
+            # most move no server version), and a deliberate dispatch
+            # re-bake of an existing tag (after a base-image fix, say).
+            if [ "$EVENT" = "workflow_dispatch" ]; then
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              echo "move_latest=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "move_latest=false" >> "$GITHUB_OUTPUT"
+            fi
+          elif [ "$EVENT" = "workflow_run" ]; then
+            # A chained build of a version that was NOT packaged yet is
+            # exactly the old design's fresh release: smoke gates this run,
+            # so :latest may move.
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "move_latest=true" >> "$GITHUB_OUTPUT"
+          else
+            # A dispatch of a never-packaged version moves :latest ONLY when
+            # the package has no :latest at all: a rail bootstrapped by hand
+            # (this rail's real history: zero chained runs existed before the
+            # workflow_run fix) otherwise waits with version tags and no
+            # floating tag. A rebuild of an older release can never pass
+            # both tests, so the no-regression rule stands.
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            if docker buildx imagetools inspect "$IMAGE:latest" >/dev/null 2>&1; then
+              echo "move_latest=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "move_latest=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
   build:
+    needs: plan
+    if: needs.plan.outputs.skip != 'true'
     # One job per architecture, each on a NATIVE runner: the harness installers
     # run inside the image build and must execute real arm64/amd64 code.
     strategy:
@@ -43,46 +154,23 @@ jobs:
             asset: linux-arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    outputs:
-      # Both matrix legs validate the same event-derived version with the same
-      # guard, so they emit the identical string and last-finisher-wins here
-      # is by construction, not a race.
-      version: ${{ steps.plan.outputs.version }}
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
-      - name: Resolve the version
-        id: plan
-        # Both values arrive from the event payload, so they cross into the
-        # script as env (the docs.yml / website.yml / release.yml convention),
-        # never as interpolated text the shell would then parse.
-        env:
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          DISPATCH_VERSION: ${{ inputs.version }}
-        run: |
-          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
-            TAG="$RELEASE_TAG"
-          else
-            TAG="cli-server-v$DISPATCH_VERSION"
-          fi
-          VERSION="${TAG#cli-server-v}"
-          # A pre-release tag (1.6.0-rc.1) fails this guard on purpose: the
-          # image rail packages full releases only.
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::not a semver: $VERSION"; exit 1; }
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
       - name: Download the release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p docker/dl docker/bin
-          gh release download "${{ steps.plan.outputs.tag }}" -R subshell-ai/subshell \
+          gh release download "cli-server-v$VERSION" -R subshell-ai/subshell \
             -p 'release-manifest.json' -p 'release-manifest.json.sig' \
             -p "subshell-server-cli-${{ matrix.asset }}" -D docker/dl
       - name: Verify signature and digests (refused by name on anything else)
-        run: bun run scripts/docker-release-verify.ts docker/dl "${{ steps.plan.outputs.version }}"
+        run: bun run scripts/docker-release-verify.ts docker/dl "$VERSION"
       - name: Stage the verified binary
         run: cp "docker/dl/subshell-server-cli-${{ matrix.asset }}" "docker/bin/subshell-server-${{ matrix.arch }}"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -96,13 +184,13 @@ jobs:
           context: .
           push: true
           platforms: linux/${{ matrix.arch }}
-          tags: ${{ env.IMAGE }}:${{ steps.plan.outputs.version }}-${{ matrix.arch }}
+          tags: ${{ env.IMAGE }}:${{ env.VERSION }}-${{ matrix.arch }}
           provenance: false
           cache-from: type=gha,scope=docker-image-${{ matrix.arch }}
           cache-to: type=gha,scope=docker-image-${{ matrix.arch }},mode=max
 
   manifest:
-    needs: build
+    needs: [plan, build]
     runs-on: ubuntu-24.04
     steps:
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # same pin as above
@@ -113,13 +201,13 @@ jobs:
       - name: Compose and push the multi-arch version tag
         # :latest is deliberately NOT one of these tags: it moves only in the
         # `latest` job, after the smoke job has run this exact version.
+        env:
+          V: ${{ needs.plan.outputs.version }}
+          IMAGE: ${{ env.IMAGE }}
         run: |
-          V="${{ needs.build.outputs.version }}"
           docker buildx imagetools create \
             -t "$IMAGE:$V" \
             "$IMAGE:$V-amd64" "$IMAGE:$V-arm64"
-        env:
-          IMAGE: ${{ env.IMAGE }}
       - name: Ensure the package is public (idempotent; first push would otherwise land private)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -128,7 +216,7 @@ jobs:
             || echo "::warning::could not flip package visibility - set it once at https://github.com/orgs/subshell-ai/packages"
 
   smoke:
-    needs: [build, manifest]
+    needs: [plan, build, manifest]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -143,15 +231,16 @@ jobs:
       - name: Drive the container scenario against the pushed image
         env:
           IMAGE: ${{ env.IMAGE }}
-          V: ${{ needs.build.outputs.version }}
+          V: ${{ needs.plan.outputs.version }}
         run: bash scripts/cli-e2e/docker-image.sh "$IMAGE:$V" "$V"
 
   latest:
-    # Last, and only for release events: :latest moves to bytes the smoke job
-    # just passed. A dispatch rebuild of an OLDER release repoints the version
-    # tag it names but must never regress the floating tag.
-    needs: [manifest, smoke]
-    if: github.event_name == 'release'
+    # Last, and only when the plan says this run is the fresh chained build
+    # of a never-packaged version: :latest moves to bytes the smoke job just
+    # passed. A dispatch rebuild of an older release repoints the version tag
+    # it names but must never regress the floating tag.
+    needs: [plan, manifest, smoke]
+    if: needs.plan.outputs.move_latest == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # same pin as above
@@ -162,7 +251,5 @@ jobs:
       - name: Move :latest to the smoke-tested version
         env:
           IMAGE: ${{ env.IMAGE }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-        run: |
-          V="${RELEASE_TAG#cli-server-v}"
-          docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:$V"
+          V: ${{ needs.plan.outputs.version }}
+        run: docker buildx imagetools create -t "$IMAGE:latest" "$IMAGE:$V"
