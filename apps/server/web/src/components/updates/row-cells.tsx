@@ -1,3 +1,5 @@
+import { SUBSHELL_REPO_SLUG } from "@internal/subshell-protocol";
+
 /**
  * The cells every row of the Components table shares.
  *
@@ -9,6 +11,13 @@
 
 /** What every cell says when a version is not known. */
 export const DASH = "—";
+
+/** Where a release's own page lives, for every browser-surface link in this
+ * table (desktop rows, the Server row, the Nodes section). One definition:
+ * a tag-to-URL rule that drifts per row would point rows at the wrong repo. */
+export function releasePageUrl(tag: string): string {
+  return `https://github.com/${SUBSHELL_REPO_SLUG}/releases/tag/${tag}`;
+}
 
 /**
  * One version cell (Running or Newest). Hidden below `sm`, where the pair

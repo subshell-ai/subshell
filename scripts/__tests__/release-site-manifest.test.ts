@@ -78,6 +78,11 @@ describe("release.yml site-manifest wiring", () => {
     // NOT a schemaVersion grep: readable-but-not-ours would pass that, and
     // the whole point of the verify loop is that raw serves THESE bytes.
     expect(yml).toContain("cmp -s - releases.json");
+    // The 2026-09-30 ruling: the sight-line gets ~2 minutes, not ~30 seconds
+    // (raw lag exceeds the short window on ordinary evenings; the first red
+    // was that lag, not a real outage). A silent shrink here would rebuild
+    // the flake this budget exists to retire.
+    expect(yml).toMatch(/for attempt in \$\(seq 1 12\)/);
   });
 });
 

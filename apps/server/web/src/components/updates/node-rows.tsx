@@ -1,9 +1,11 @@
 import { Button } from "@internal/node-admin";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
-import { DASH, MobilePair, RowRule, VersionCell } from "@/components/updates/row-cells";
+import { DASH, MobilePair, RowRule, releasePageUrl, VersionCell } from "@/components/updates/row-cells";
 import { useNodeUpdate } from "@/hooks/use-node-update";
+import { desktopShell } from "@/lib/desktop";
 import { endOnce } from "@/lib/update-copy";
+import { isUpdateLive } from "@/lib/updates-poll";
 import type { NodeUpdateRow, NodeUpdates, UpdateTrackerState } from "@/types/updates";
 
 /**
@@ -69,98 +71,78 @@ function updateLine(row: NodeUpdateRow, update: UpdateTrackerState): string {
 /**
  * The fleet: what every enrolled node is running, and what it could run.
  *
- * **Update all is sequential and stops at the first failure**, naming the node
- * it stopped on — in that row's own failure line, since the hook keeps the
- * failure and the row renders it. Firing them in parallel would have every machine downloading
- * from the release source at once and would leave a partial fleet with no
- * statement about which half moved; stopping is what makes the next press
- * resumable by simply pressing it again.
+ * **Update all fires every updatable row at once** (spec 2026-09-30). The
+ * original sequence stopped at the first failure so a partial fleet could
+ * not read as unexplained; the server tracker (design 2026-09-25) states
+ * each machine's own story on its own row now, so the sequence protected a
+ * silence that no longer exists - and nodes download from the plane, which
+ * memoizes its own release fetch, so a parallel batch is N LAN reads, not
+ * N hits on the release source. A dispatched update cannot be recalled,
+ * which is what the old stop actually bought.
  *
- * The section opens with a full-width rule carrying its label and Update all:
- * the fleet is a section of the same table rather than its own card, and the
- * rule is both its heading and its separation from the Server row.
+ * A row is busy when the tracker says live, or this tab's POST is in
+ * flight; the second covers only the window before the payload catches up,
+ * the first is what keeps spinning and locking through a REFRESH or on a
+ * tab that never pressed. `Update all` and every row button lock on that;
+ * the tab's own batch additionally labels the header "Updating…".
+ *
+ * The section opens with a full-width rule carrying its label, the offered
+ * release's Notes link (one for the section: every row is offered the same
+ * release page), and Update all.
  */
 export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
   const nodeUpdate = useNodeUpdate();
-  // The run carries the fleet the press CAPTURED, ids in press order, for
-  // the whole sequence's length: a mid-run refetch takes a restarting node
-  // offline, its canUpdate goes false, and a counter reading the live
-  // updatable list would read "Updating 1 of 1" while the operator's own
-  // press said two.
-  const [run, setRun] = useState<{ ids: string[] } | null>(null);
-  // Which row the page is working on RIGHT NOW, owned by the sequence rather
-  // than by the shared mutation: `useMutation` can only name its latest call,
-  // so a busy state read from it left every "Update all" but the first row
-  // silent for the minutes that one POST takes (operator report 2026-09-25).
-  // The spinner is this tab's press only; every SENTENCE about what happens
-  // after the press belongs to the server's tracker, mirrored on each row.
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const updatable = fleet.rows.filter((row) => row.canUpdate.ok);
+  // True while THIS tab's batch has unsettled POSTs. Row busy no longer
+  // reads this (the tracker owns busy); it only labels the header and keeps
+  // the whole fleet locked while the tab's own press is half-dispatched.
+  const [batch, setBatch] = useState(false);
+  // Browser surfaces only: the dash-inside-the-app rule the desktop rows
+  // already follow (`link = shell === null && release !== null`), because a
+  // target="_blank" anchor is inert in a Tauri webview, a dead control.
+  const inBrowser = desktopShell() === null;
 
-  /** Work one node: this tab owns the row spinner while its POST runs; the
-   * tracker on the server owns everything the row says afterwards. */
-  async function updateOne(nodeId: string): Promise<void> {
-    setActiveId(nodeId);
-    try {
-      await nodeUpdate.update(nodeId);
-    } finally {
-      // The next row has usually already claimed the spinner by the time a
-      // failing or finished call gets here; only release OURS.
-      setActiveId((cur) => (cur === nodeId ? null : cur));
-    }
-  }
+  const updatable = fleet.rows.filter((row) => row.canUpdate.ok);
+  const rowBusy = (row: NodeUpdateRow): boolean => nodeUpdate.pendingNodeIds.has(row.id) || isUpdateLive(row.update);
+  const anyBusy = batch || fleet.rows.some(rowBusy);
 
   async function updateAll(): Promise<void> {
-    // The single-press handler resets before it runs; the sequence must too,
-    // or a refusal from before stays pinned on its row through (and after) a
-    // run in which that row was never even asked.
+    // The run clears prior refusals first, or a refusal from before stays
+    // pinned on a row this run never even asked.
     nodeUpdate.reset();
-    setRun({ ids: updatable.map((row) => row.id) });
+    setBatch(true);
     try {
-      for (const row of updatable) {
-        try {
-          await updateOne(row.id);
-        } catch {
-          // Stop the sequence, and say it ONCE. The hook keeps the failure and
-          // the row it is on renders its own destructive line — the same
-          // mechanism a single-row press uses, whose comment below names it —
-          // so a section-bottom copy here printed the identical message twice
-          // (review 2026-09-17). The row IS the "stopped here" statement: its
-          // name cell labels the machine the line sits under.
-          return;
-        }
-      }
+      // allSettled, not all: every row's outcome owns its own row, and one
+      // rejection must not silence, or march past, the others.
+      await Promise.allSettled(updatable.map((row) => nodeUpdate.update(row.id)));
     } finally {
-      setRun(null);
+      setBatch(false);
     }
   }
 
   const newest = fleet.release?.version ?? DASH;
-  // The sequence's 1-based position WITHIN THE CAPTURED RUN. Zero means
-  // either no run (idle, or a single press - there the header keeps its own
-  // "Update all (N)" count) or the active row is momentarily outside the
-  // run; only that second case paints, as a bare un-numbered "Updating…"
-  // inside a running sequence.
-  const seqPos = run === null || activeId === null ? 0 : run.ids.indexOf(activeId) + 1;
 
   return (
     <>
       <div className="col-span-full flex flex-wrap items-center justify-between gap-3 border-t pt-2">
         <span className="font-strong text-label">Nodes</span>
-        {fleet.rows.length > 0 && (
-          <Button
-            variant="outline"
-            disabled={updatable.length === 0 || run !== null || activeId !== null}
-            onClick={() => void updateAll()}
-          >
-            {run !== null && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}
-            {run === null
-              ? `Update all (${updatable.length})`
-              : seqPos > 0
-                ? `Updating ${seqPos} of ${run.ids.length}…`
-                : "Updating…"}
-          </Button>
-        )}
+        <div className="flex items-center gap-3">
+          {inBrowser && fleet.release !== null && (
+            <a
+              href={releasePageUrl(fleet.release.tag)}
+              target="_blank"
+              rel="noreferrer"
+              className="text-detail underline hover:text-foreground"
+            >
+              Notes
+            </a>
+          )}
+          {fleet.rows.length > 0 && (
+            <Button variant="outline" disabled={updatable.length === 0 || anyBusy} onClick={() => void updateAll()}>
+              {batch && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}
+              {batch ? "Updating…" : `Update all (${updatable.length})`}
+            </Button>
+          )}
+        </div>
       </div>
 
       {fleet.release === null && (
@@ -175,11 +157,15 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
 
       {fleet.rows.map((row, index) => {
         const runningValue = row.agentVersion ?? "version unknown";
-        const updating = activeId === row.id;
-        // The tracker entry rides the row (design 2026-09-25): every sentence
-        // about an ordered update comes from the server's fact, so a refresh
-        // or a second tab reads the same story mid-flight.
+        // Busy FIRST from the server's fact, then this tab's POST: the
+        // spinner survives the refresh, the second covers the gap before
+        // the payload catches up.
+        const updating = rowBusy(row);
+        // The tracker entry rides the row (design 2026-09-25): every
+        // sentence about an ordered update comes from the server's fact,
+        // so a refresh or a second tab reads the same story mid-flight.
         const tracked = row.update;
+        const failure = nodeUpdate.failures[row.id];
         return (
           <div key={row.id} className="contents">
             {index > 0 && <RowRule />}
@@ -196,20 +182,20 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={!row.canUpdate.ok || run !== null || activeId !== null}
+                disabled={!row.canUpdate.ok || batch || updating}
                 title={row.canUpdate.reason ?? undefined}
                 onClick={() => {
-                  nodeUpdate.reset();
-                  void updateOne(row.id).catch(() => {
-                    // The hook keeps the failure and the row renders it; a
-                    // rejection here is the sequence's contract, not an error
-                    // this press has anywhere else to put.
+                  void nodeUpdate.update(row.id).catch(() => {
+                    // The failure map keeps the refusal and the row renders
+                    // it; the rejection is the hook's batch contract, not
+                    // an error this press has anywhere else to put.
                   });
                 }}
               >
                 {/* The POST blocks for the node's whole download-and-restart
-                    window, up to five minutes, so a bare disabled button reads
-                    as nothing happening. */}
+                    window, up to five minutes, and the tracker keeps this
+                    spinner on after the POST answers, so a bare disabled
+                    button reads as nothing happening. */}
                 {updating && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}
                 {updating ? "Updating…" : "Update"}
               </Button>
@@ -217,7 +203,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
             {!row.canUpdate.ok && row.canUpdate.reason !== null && (
               <p className="col-span-full truncate text-detail text-muted-foreground">{row.canUpdate.reason}</p>
             )}
-            {tracked !== null && (
+            {tracked != null && (
               <p
                 className={`col-span-full text-detail ${
                   tracked.phase === "done" || tracked.phase === "working" || tracked.phase === "restarting"
@@ -234,9 +220,9 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
                 has not also recorded the failure: once the entry exists, the
                 sentence above carries the same words, and 2026-09-17's lesson
                 says one failing row shows a refusal exactly once. */}
-            {nodeUpdate.failure?.nodeId === row.id && tracked?.phase !== "failed" && (
+            {failure !== undefined && tracked?.phase !== "failed" && (
               <p role="alert" className="col-span-full text-destructive text-detail">
-                {nodeUpdate.failure.message}
+                {failure}
               </p>
             )}
           </div>

@@ -142,9 +142,10 @@ on:
 
 permissions:
   contents: write
-  # The desktop Linux shard authenticates pulls of the desktop-builder
-  # package. Package visibility is configured separately from this public
-  # repository; retain read access for registry-authenticated CI pulls.
+  # The desktop Linux shard pulls ghcr.io/subshell-ai/desktop-builder, which
+  # inherits this repo's visibility. Without this the runner's docker pull is
+  # denied by the registry and the job dies in "Initialize containers", before
+  # a single step runs.
   packages: read
 
 concurrency:
@@ -778,9 +779,10 @@ jobs:
           APP: ${{ matrix.app }}
           # The app's directory under apps/ — see the plan job's `app_dir` table.
           DIR: ${{ matrix.dir }}
-          # stageSidecar FETCHES the released CLI asset over the GitHub API;
-          # this public repository uses authenticated CI requests for reliable
-          # API access (cli-release-fetch.ts requires the job token).
+          # stageSidecar FETCHES the released CLI asset over the GitHub API.
+          # The fetch is an authorized read by design, not by the repo's
+          # visibility (which is an operator setting): the lookup and download
+          # carry the job token, and cli-release-fetch.ts refuses without one.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel
@@ -1400,9 +1402,10 @@ jobs:
           APP: ${{ matrix.app }}
           # The app's directory under apps/ — see the plan job's `app_dir` table.
           DIR: ${{ matrix.dir }}
-          # stageSidecar FETCHES the released CLI asset over the GitHub API;
-          # this public repository uses authenticated CI requests for reliable
-          # API access (cli-release-fetch.ts requires the job token).
+          # stageSidecar FETCHES the released CLI asset over the GitHub API.
+          # The fetch is an authorized read by design, not by the repo's
+          # visibility (which is an operator setting): the lookup and download
+          # carry the job token, and cli-release-fetch.ts refuses without one.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TRIPLE: ${{ matrix.triple }}
           DEST: ${{ github.workspace }}/dist-rel
@@ -1880,8 +1883,16 @@ jobs:
           # FOR BYTE: generation already ran against the remote tags, so a
           # raw copy that is merely readable but not OURS means the push did
           # not land what we built (or something else landed after us).
-          for attempt in 1 2 3 4 5 6; do
-            sleep 5
+          # The budget is ~2 minutes, not ~30 seconds. This check (2026-09-24)
+          # went RED for the first time on the 2026-09-30 version-PR merge
+          # run: it pushed fine, and runs minutes apart were passing it on
+          # attempt 1 the same evening, so raw lag simply exceeds a 30 s
+          # window sometimes. The push is the fact; this loop only proves the
+          # site can SEE it. A red here then means a real serving outage, or a
+          # newer refresh superseded this run mid-window (which a generous
+          # window makes MORE likely, and the error line says so).
+          for attempt in $(seq 1 12); do
+            sleep 10
             if curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/releases.json" | cmp -s - releases.json; then
               echo "raw releases.json byte-matches what we built (attempt $attempt)"
               exit 0

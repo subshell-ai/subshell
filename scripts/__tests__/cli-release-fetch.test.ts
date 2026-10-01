@@ -75,8 +75,10 @@ describe("cli-release-fetch", () => {
   });
 
   test("the index fetch refuses outright when GH_TOKEN is absent", async () => {
-    // The CI helper requires authenticated requests even for the public repo.
-    // Missing credentials must fail explicitly before a request is attempted.
+    // The throw must land BEFORE any request: the fetch is an authorized
+    // read by design, and letting it degrade to an anonymous call would
+    // make every visibility or rate-limit answer part of what a cut can
+    // mean. No fetch may even be attempted.
     const saved = process.env.GH_TOKEN;
     delete process.env.GH_TOKEN;
     try {

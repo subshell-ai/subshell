@@ -8,9 +8,11 @@
  * carries no `gh` (and every future shard would need one more apt line in
  * the image). A cut must not depend on which image happens to run the job.
  *
- * Auth is `GH_TOKEN`, the job token the workflow exports. This repository
- * is public; the CI fetch helper still requires authenticated requests for
- * consistent API access and refuses a missing token before any request.
+ * Auth is `GH_TOKEN` — the job token the workflow exports. It is mandatory
+ * by design, not by the repo's visibility (which is an operator setting that
+ * changes): a fetch that embeds a RELEASED binary into a build must read as
+ * an authorized party, so 404 means "does not exist" rather than "cannot
+ * see", and a cut never sits behind the anonymous API ceiling.
  */
 
 import {
@@ -188,7 +190,9 @@ export async function fetchReleaseIndex(
 ): Promise<ReleaseIndex> {
   const token = process.env.GH_TOKEN ?? "";
   if (token === "")
-    throw new Error("GH_TOKEN is not set; the CI release fetch helper requires authenticated GitHub API requests");
+    throw new Error(
+      "GH_TOKEN is not set; the release fetch is an authorized read by design, never an unauthenticated guess",
+    );
   const res = await fetchWithTransientRetry(releaseTagUrl(component, version), apiHeaders(token), deps);
   if (!res.ok) return releaseIndexFrom(res.status, {});
   return releaseIndexFrom(
@@ -207,9 +211,13 @@ export async function fetchReleaseBytes(
   deps: TransportDeps = {},
 ): Promise<{ status: number; bytes: Uint8Array | undefined }> {
   const token = process.env.GH_TOKEN ?? "";
-  // Apply the same authenticated-request policy as the index lookup.
+  // The same named refusal as the index lookup: an empty bearer is a
+  // guaranteed 401, and a 401 surfacing verbatim reads as an auth problem
+  // with a REAL token rather than the actual cause (there is no token).
   if (token === "")
-    throw new Error("GH_TOKEN is not set; the CI release fetch helper requires authenticated GitHub API requests");
+    throw new Error(
+      "GH_TOKEN is not set; the release fetch is an authorized read by design, never an unauthenticated guess",
+    );
   const res = await fetchWithTransientRetry(url, apiHeaders(token, true), deps);
   if (!res.ok) return { status: res.status, bytes: undefined };
   return { status: res.status, bytes: await readBounded(res, deps.maxBytes ?? MAX_ASSET_BYTES) };
