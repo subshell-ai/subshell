@@ -10,8 +10,8 @@ them from a browser or desktop app. Close the window and come back from another
 device: your sessions keep running in tmux, with the same live terminal and
 conversation waiting for you.
 
-<a href="https://docs.subshell.sh/about">
-  <img src="apps/docs/public/screenshots/active-codex-dashboard.png" width="640" alt="Subshell dashboard showing a Codex review session, session sidebar, and workspace navigation" />
+<a href="apps/website/public/demos/desktop.mp4">
+  <img src="docs/assets/subshell-demo.gif" width="640" alt="Subshell workspace: send a prompt to Codex, see a notification sample, and switch to Claude Code" />
 </a>
 
 - **Your machines, your data.** Host the server yourself and run agents on its
