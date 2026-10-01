@@ -10,6 +10,19 @@ changeset rules, "never cut tags by hand", pointers to the update rules and
 the specs) stays in `AGENTS.md` under "Changesets & releases" and
 "Updates".
 
+### License texts in binary downloads
+
+The server and node CLIs embed the complete root `LICENSE`,
+`apps/server/LICENSE` (including the API Type Surface exception), and `NOTICE`.
+Their `license` command prints these documents without a network connection or
+adjacent files, so installation and binary replacement retain the terms.
+
+`packages/subshell-protocol/src/license-texts.json` is generated data.
+`bun run lint:licenses` refuses stale copies; after editing a source document,
+run `bun run lint:licenses:fix` and rebuild. Do not edit the generated copy.
+This embeds Subshell's license documents; dependency-specific attribution and
+license requirements must still be handled for the dependencies a release ships.
+
 ### Publishing subshell binaries (Nodes)
 
 The prebuilt `subshell` binaries served by `GET /api/downloads/node/*` (the

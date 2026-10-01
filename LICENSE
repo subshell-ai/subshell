@@ -20,6 +20,9 @@ declarations -- its routes, request/response shapes, WebSocket frames and MCP
 tools, including the exported `App` type -- under Apache-2.0 rather than the
 AGPL. Only the control plane's implementation is copyleft.
 
+These license assignments apply to Subshell's own code. Third-party components
+retain their respective licenses and attribution notices.
+
 Self-hosting Subshell is free under both licenses: no time limit, no user cap,
 and no feature clock.
 

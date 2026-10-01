@@ -12,6 +12,9 @@ need an AGPL licence to integrate with Subshell -- you almost certainly do not.
 Everything outside apps/server/ is licensed under the Apache License, Version
 2.0. See the LICENSE file at the repository root.
 
+These license assignments apply to Subshell's own code. Third-party components
+retain their respective licenses and attribution notices.
+
 Non-AGPL commercial licenses for this software are available for
 organizations whose policies forbid the AGPL. Contact
 Theo Gravity <theo@disaresta.com>.

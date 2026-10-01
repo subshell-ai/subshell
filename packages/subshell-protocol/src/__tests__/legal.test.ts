@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   COMPANY_URL,
   COPYRIGHT_HOLDER,
@@ -60,8 +61,8 @@ describe("licenseNotice", () => {
 
   // A terminal is the only consumer that cannot reflow, so the wrap is the
   // one formatting promise this function makes.
-  test("wraps every line inside 80 columns", () => {
-    for (const line of notice.split("\n")) expect(line.length).toBeLessThanOrEqual(79);
+  test("wraps the introductory summary inside 80 columns", () => {
+    for (const line of notice.split("===== LICENSE =====")[0].split("\n")) expect(line.length).toBeLessThanOrEqual(79);
   });
 
   test("the exception sentence survives wrapping with its words intact", () => {
@@ -69,3 +70,14 @@ describe("licenseNotice", () => {
     expect(flattened).toContain(LICENSE_EXCEPTION_SUMMARY);
   });
 });
+
+// Exact document comparisons catch truncation and stale generated copies.
+for (const binary of ["subshell", "subshell-server"]) {
+  test(`${binary} provides complete license documents without runtime files`, () => {
+    const output = licenseNotice(binary, "1.2.3");
+    for (const name of ["LICENSE", "apps/server/LICENSE", "NOTICE"]) {
+      const text = readFileSync(new URL(`../../../../${name}`, import.meta.url), "utf8");
+      expect(output).toContain(text.trimEnd());
+    }
+  });
+}
