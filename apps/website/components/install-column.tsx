@@ -101,7 +101,7 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
           at the moment of the pick (issue #233). The Client is where a
           machine enrolls as a node; nothing on this page used to say so. */}
       <p className="mb-3 max-w-[38ch] text-[12px] text-[var(--dimmer)]">
-        {kind === "server" ? "Host Subshell for your devices." : "Manage sessions and run agents on this machine."}
+        {kind === "server" ? "The control plane for your agents." : "Manage sessions and run agents on this machine."}
       </p>
       {kind === "client" && (
         <p className="mb-3 max-w-[38ch] text-[12px] text-[var(--dimmer)]">

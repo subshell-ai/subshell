@@ -53,7 +53,7 @@ test("the fork names jobs, not product names, and states the picked role", async
   expect(screen.getByRole("group", { name: "What this machine should do" })).toBeDefined();
   expect(screen.getByRole("button", { name: "Server" })).toBeDefined();
   expect(screen.getByRole("button", { name: "Client / Node" })).toBeDefined();
-  expect(screen.getByText("Host Subshell for your devices.")).toBeDefined();
+  expect(screen.getByText("The control plane for your agents.")).toBeDefined();
 });
 
 test("picking the client chip says what the client is, node enrollment included", async () => {
@@ -62,7 +62,7 @@ test("picking the client chip says what the client is, node enrollment included"
   expect(screen.getByText("Manage sessions and run agents on this machine.")).toBeDefined();
   expect(screen.getByText("curl -fsSL https://subshell.sh/install-client.sh | bash")).toBeDefined();
   // Exactly one role sentence stands: both rendering at once would re-ask the fork's own question.
-  expect(screen.queryByText("Host Subshell for your devices.")).toBeNull();
+  expect(screen.queryByText("The control plane for your agents.")).toBeNull();
 });
 
 test("the non-download third path points at the node setup documentation", async () => {
