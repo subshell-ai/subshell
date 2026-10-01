@@ -1,35 +1,23 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { cleanup, render, screen } from "@testing-library/react";
+import { BROWSER_UA, CLIENT_UA, restoreUA, setUA } from "@/components/__tests__/helpers/desktop-ua";
 import { updatesView } from "@/components/__tests__/helpers/updates-view";
-import { DesktopRows, releasePageUrl } from "@/components/updates/desktop-rows";
-import { resetDesktopShellForTests } from "@/lib/desktop";
+import { DesktopRows } from "@/components/updates/desktop-rows";
+import { releasePageUrl } from "@/components/updates/row-cells";
 
 /**
  * The rows ask `desktopShell()`, which parses (and memoizes) the User-Agent,
  * so the three surfaces are three UAs. Stubbing the UA — not the module — is
  * the same route `open-in-browser.test.tsx` takes, and it exercises the real
- * app-version parsing the behind-check runs on.
+ * app-version parsing the behind-check runs on. The shared surfaces come from
+ * the `desktop-ua` helper; these two name what only this file tests.
  */
 const SERVER_BEHIND_UA = "Mozilla/5.0 SubshellDesktop/0.6.0 (macos; p=1; b=0.6.0)";
 const SERVER_CURRENT_UA = "Mozilla/5.0 SubshellDesktop/0.7.0 (macos; p=1; b=0.7.0)";
-const CLIENT_UA = "Mozilla/5.0 SubshellClient/0.3.0 (linux; p=1)";
-const BROWSER_UA = "Mozilla/5.0 (Macintosh) AppleWebKit/605.1.15 Version/17.0 Safari/605.1.15";
-
-const nav = globalThis.navigator as unknown as Record<string, unknown>;
-let previousUserAgent: PropertyDescriptor | undefined;
-
-function setUA(userAgent: string) {
-  previousUserAgent ??= Object.getOwnPropertyDescriptor(nav, "userAgent");
-  Object.defineProperty(nav, "userAgent", { value: userAgent, configurable: true, writable: true });
-  resetDesktopShellForTests();
-}
 
 afterEach(() => {
   cleanup();
-  if (previousUserAgent) Object.defineProperty(nav, "userAgent", previousUserAgent);
-  else delete nav.userAgent;
-  previousUserAgent = undefined;
-  resetDesktopShellForTests();
+  restoreUA();
 });
 
 /**

@@ -2,10 +2,10 @@ import { Button } from "@internal/node-admin";
 import { semverLt } from "@internal/subshell-protocol";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
-import { DASH, MobilePair, VersionCell } from "@/components/updates/row-cells";
+import { DASH, MobilePair, releasePageUrl, VersionCell } from "@/components/updates/row-cells";
 import { UpdateDialog } from "@/components/updates/update-dialog";
 import type { StartServerUpdate } from "@/hooks/use-updates";
-import type { DesktopShell } from "@/lib/desktop";
+import { type DesktopShell, desktopShell } from "@/lib/desktop";
 import { endOnce } from "@/lib/update-copy";
 import type { ServerUpdateView, UpdateJob, UpdateTrackerState } from "@/types/updates";
 
@@ -119,6 +119,11 @@ export function ServerRow({
   serverUpdate: UpdateTrackerState | null;
 }) {
   const [confirming, setConfirming] = useState(false);
+  // Browser surfaces only: the dash-inside-the-app rule the desktop rows
+  // already follow (`link = shell === null && release !== null`), because a
+  // target="_blank" anchor is inert in a Tauri webview, a dead control. The
+  // Update button is NOT surface-gated here; that is existing behavior.
+  const inBrowser = desktopShell() === null;
   // A job is a fact about the SERVER, so it outlives this page: an admin who
   // reloads mid-update must still see the phase. `update.outcome` is this
   // tab's own story on top of it.
@@ -134,6 +139,20 @@ export function ServerRow({
       <VersionCell value={view.current} />
       <VersionCell value={view.latest?.version ?? DASH} />
       <div className="flex flex-wrap items-center justify-end gap-2">
+        {/* The release page of exactly what the Newest cell names, beside the act
+            that would install it (operator request 2026-09-30: the CLI rows read
+            their notes nowhere while the desktop rows linked theirs). Shown even
+            when up to date: the notes describe the release, not the act. */}
+        {inBrowser && view.latest !== null && (
+          <a
+            href={releasePageUrl(view.latest.tag)}
+            target="_blank"
+            rel="noreferrer"
+            className="text-detail underline hover:text-foreground"
+          >
+            Notes
+          </a>
+        )}
         <Button
           disabled={!view.updateAvailable || !view.canApply.ok || busy}
           title={view.canApply.ok ? undefined : view.canApply.reasons[0]}
