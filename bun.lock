@@ -178,7 +178,7 @@
     },
     "apps/server/api": {
       "name": "@internal/server",
-      "version": "1.7.2",
+      "version": "1.7.3",
       "dependencies": {
         "@better-auth/api-key": "1.7.1",
         "@better-auth/passkey": "1.7.1",
@@ -223,7 +223,7 @@
     },
     "apps/server/desktop": {
       "name": "@internal/desktop-server",
-      "version": "1.3.2",
+      "version": "1.3.3",
       "dependencies": {
         "@base-ui/react": "1.7.0",
         "@internal/assistant": "workspace:*",
@@ -308,7 +308,7 @@
     },
     "apps/website": {
       "name": "@internal/website",
-      "version": "0.2.4",
+      "version": "0.2.5",
       "dependencies": {
         "@internal/subshell-protocol": "workspace:*",
         "class-variance-authority": "0.7.1",

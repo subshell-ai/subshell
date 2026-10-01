@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.5
+
+### Patch Changes
+
+- [#306](https://github.com/subshell-ai/subshell/pull/306) [`a377e5b`](https://github.com/subshell-ai/subshell/commit/a377e5bb66bfd84c6823f393a2b3353f8746e503) Thanks [@theogravity](https://github.com/theogravity)! - Keep update progress spinners moving with reduced motion enabled. Start visible website demos automatically and reload their lazily attached video sources, while preserving data-saving and manual pause controls.
+
 ## 0.2.4
 
 ### Patch Changes

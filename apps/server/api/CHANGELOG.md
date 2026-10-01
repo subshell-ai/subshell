@@ -1,5 +1,27 @@
 # @internal/server
 
+## 1.7.3
+
+### Patch Changes
+
+- [#306](https://github.com/subshell-ai/subshell/pull/306) [`a377e5b`](https://github.com/subshell-ai/subshell/commit/a377e5bb66bfd84c6823f393a2b3353f8746e503) Thanks [@theogravity](https://github.com/theogravity)! - Keep update progress spinners moving with reduced motion enabled. Start visible website demos automatically and reload their lazily attached video sources, while preserving data-saving and manual pause controls.
+
+- [#306](https://github.com/subshell-ai/subshell/pull/306) [`a377e5b`](https://github.com/subshell-ai/subshell/commit/a377e5bb66bfd84c6823f393a2b3353f8746e503) Thanks [@theogravity](https://github.com/theogravity)! - Put mobile terminal controls on one horizontally scrollable row with a native scrollbar. Add direct clipboard paste and a copy/input mode toggle, with confirmation when switching from the bar or action menu.
+  
+  Allow the bar to scroll while the terminal is focused on iOS. Place Esc, arrows, Enter, newline, image upload, and scroll controls before the remaining controls.
+  
+  Move confirmation toasts to the top of the screen and match their surface, typography, and status icons to the app theme.
+  
+  Preserve the button bar's layout and scroll position in text copying mode, disabling input controls rather than hiding them.
+  
+  Show a pressed highlight on terminal controls while held and briefly after a tap.
+  
+  Add a refresh button to redraw the current terminal screen without restarting the session.
+  
+  Add an Inject prompt button that opens the existing prompt picker and confirmation flow.
+  
+  Group Page Up and Page Down with the top/bottom history controls, separated from the other buttons by dividers.
+
 ## 1.7.2
 
 ### Patch Changes
