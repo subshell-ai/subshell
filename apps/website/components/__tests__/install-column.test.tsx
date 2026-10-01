@@ -70,3 +70,11 @@ test("the non-download third path points at the node setup documentation", async
   const link = screen.getByRole("link", { name: "Add another machine" });
   expect(link.getAttribute("href")).toBe("https://docs.subshell.sh/nodes");
 });
+
+test("the single-machine note switches back to the server install", async () => {
+  await mounted();
+  fireEvent.click(screen.getByRole("button", { name: "Client / Node" }));
+  fireEvent.click(screen.getByRole("button", { name: "Server app" }));
+  expect(screen.getByRole("button", { name: "Server" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByText("curl -fsSL https://subshell.sh/install-server.sh | bash")).toBeDefined();
+});

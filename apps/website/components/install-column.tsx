@@ -105,7 +105,15 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
       </p>
       {kind === "client" && (
         <p className="mb-3 max-w-[38ch] text-[12px] text-[var(--dimmer)]">
-          For a single-machine setup, the Server app is all you need.
+          For a single-machine setup, the{" "}
+          <button
+            type="button"
+            className="text-[var(--frost)] hover:text-[var(--orchid)] focus-visible:outline-2 focus-visible:outline-offset-2"
+            onClick={() => setKind("server")}
+          >
+            Server app
+          </button>{" "}
+          is all you need.
         </p>
       )}
       <p className={headingClass}>{copy.appHeading}</p>
