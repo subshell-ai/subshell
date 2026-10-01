@@ -6,4 +6,4 @@ Replace the mobile and desktop product screenshots with compact ten-second recor
 
 Add the wide demonstration to the README as an animated preview linked to the full-quality video.
 
-Clarify website installation labels, link node CLI setup to the server-generated enrollment flow, and standardize product terminology, platform descriptions, and license wording.
+Clarify website installation labels, retain terminal installation commands for both products, and standardize product terminology, platform descriptions, and license wording.

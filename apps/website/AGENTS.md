@@ -65,6 +65,7 @@ agent, and session. Introduce a node as a machine that runs agents. Use “your
 server” and “dashboard” in visitor-facing instructions rather than “control
 plane”. Describe what an installation does; keep digest algorithms, binary
 paths, and other implementation details in documentation. Both installation
-choices use “or the CLI”; node CLI setup links to the server-generated command
-and setup key, not the desktop installer. Use sentence case, the serial comma,
+choices use “or the CLI” above their terminal installation command. The client
+command installs the desktop app, including its bundled node; headless node
+setup uses a command and setup key from the server dashboard. Use sentence case, the serial comma,
 and descriptive captions that do not require knowing abbreviations such as PWA.

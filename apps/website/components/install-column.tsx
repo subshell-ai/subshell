@@ -164,17 +164,6 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
           </div>
         </>
       )}
-      {kind === "client" && (
-        <>
-          <p className={`${headingClass} mt-[18px]`}>{copy.curlHeading}</p>
-          <a
-            className="text-[13.5px] text-[var(--frost)] hover:text-[var(--orchid)]"
-            href="https://docs.subshell.sh/nodes/enroll"
-          >
-            Set up a node
-          </a>
-        </>
-      )}
       <p className="mt-3 max-w-[36ch] text-[12px] text-[var(--dimmer)]">
         macOS 13+ · Linux x86_64 (Ubuntu 24.04+ / Debian 13+)
       </p>

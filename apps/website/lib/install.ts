@@ -72,6 +72,9 @@ export function installCopy(
   if (kind === "server") {
     const script = manifest.components["cli-server"]?.installScript;
     if (script) curlCommand = `curl -fsSL ${SITE_ORIGIN}/${script} | bash`;
+  } else {
+    const script = desktop?.installScript;
+    if (script) curlCommand = `curl -fsSL ${SITE_ORIGIN}/${script} | bash`;
   }
 
   // DIRECT asset URLs. The manifest entry's `url` is the release PAGE, but
