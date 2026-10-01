@@ -1,5 +1,23 @@
 # @internal/server
 
+## 1.7.2
+
+### Patch Changes
+
+- [#303](https://github.com/subshell-ai/subshell/pull/303) [`b3ffa69`](https://github.com/subshell-ai/subshell/commit/b3ffa696f66748fa65abd88e7520bf94b571d157) Thanks [@theogravity](https://github.com/theogravity)! - The Components table grew up around its three rough edges. The Server row and
+  the Nodes section now carry a Notes link to the release they name, the same
+  way the desktop rows always have. "Update all" orders every updatable machine
+  at once instead of one at a time, and each row states its own outcome, so one
+  refusal no longer silences the fleet. And refreshing the page mid-update keeps
+  its story: a server update still downloading resumes its progress lines, and
+  a node still installing keeps its spinner and its locked buttons, read from
+  the server rather than from the tab's memory.
+  
+  @internal/desktop-server rides the bump automatically: it bundles this server
+  binary, and that is how the fix reaches a desktop-hosted instance.
+
+- [#305](https://github.com/subshell-ai/subshell/pull/305) [`13e1b3b`](https://github.com/subshell-ai/subshell/commit/13e1b3bf44ae97807dbda33fe9469ae9b5eec1d2) Thanks [@theogravity](https://github.com/theogravity)! - Embed complete Subshell license texts, the API Type Surface exception, and NOTICE in the bundled CLI binaries. The license command now provides the terms offline after installation and updates.
+
 ## 1.7.1
 
 ### Patch Changes

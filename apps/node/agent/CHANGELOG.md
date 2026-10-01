@@ -1,5 +1,11 @@
 # @internal/node
 
+## 1.4.1
+
+### Patch Changes
+
+- [#305](https://github.com/subshell-ai/subshell/pull/305) [`13e1b3b`](https://github.com/subshell-ai/subshell/commit/13e1b3bf44ae97807dbda33fe9469ae9b5eec1d2) Thanks [@theogravity](https://github.com/theogravity)! - Embed complete Subshell license texts, the API Type Surface exception, and NOTICE in the bundled CLI binaries. The license command now provides the terms offline after installation and updates.
+
 ## 1.4.0
 
 ### Minor Changes
