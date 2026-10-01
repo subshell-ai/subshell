@@ -94,9 +94,12 @@ export function ArchSplitButton<K extends string>({
     }
   };
 
-  const shell = "text-[14.5px] font-semibold text-[var(--void)] bg-[var(--orchid)] hover:bg-[#e3a2e8]";
+  const shell = "text-[14.5px] font-semibold text-[var(--frost)] bg-[var(--download)] hover:bg-[var(--download-hover)]";
   return (
-    <span ref={root} className="relative inline-flex w-fit items-stretch rounded-xl border border-[var(--orchid)]">
+    <span
+      ref={root}
+      className="relative inline-flex w-fit items-stretch rounded-xl border border-[var(--download-border)]"
+    >
       <a href={href} className={`${shell} rounded-l-xl px-5 py-3`}>
         {label}
       </a>
@@ -119,7 +122,7 @@ export function ArchSplitButton<K extends string>({
             setOpen(false);
           }
         }}
-        className={`${shell} rounded-r-xl border-l border-[rgba(54,11,60,.35)] px-2.5`}
+        className={`${shell} rounded-r-xl border-l border-[var(--download-border)] px-2.5`}
       >
         <span aria-hidden className="text-[11px]">
           ▼

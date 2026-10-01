@@ -7,7 +7,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        hero: "rounded-xl border border-[var(--orchid)] bg-[var(--orchid)] text-[var(--void)] hover:bg-[#e3a2e8] hover:border-[#e3a2e8]",
+        hero: "rounded-xl border border-[var(--download-border)] bg-[var(--download)] text-[var(--frost)] hover:bg-[var(--download-hover)]",
         chip: "border rounded-lg bg-[var(--term)] font-mono font-medium hover:text-[var(--frost)]",
         plain: "border rounded-lg bg-[var(--card)] hover:border-[var(--orchid)]",
       },

@@ -17,6 +17,9 @@
   --dim: #b3a5c4;
   --dimmer: #7d7195;
   --orchid: #d98be0;
+  --download: #47334f;
+  --download-hover: #553c5f;
+  --download-border: #75577f;
   --hairline: rgba(230, 219, 239, 0.12);
   color-scheme: dark;
 }
