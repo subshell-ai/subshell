@@ -128,7 +128,7 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
       ) : (
         <a
           href={copy.downloadHref}
-          className="block w-fit rounded-xl border border-[var(--download-border)] bg-[var(--download)] px-5 py-3 text-[14.5px] font-semibold text-[var(--frost)] hover:bg-[var(--download-hover)]"
+          className="block w-fit rounded-xl border border-[var(--download-border)] bg-[image:var(--download)] px-5 py-3 text-[14.5px] font-semibold text-[var(--download-foreground)] hover:bg-[image:var(--download-hover)]"
         >
           <span suppressHydrationWarning>{copy.downloadLabel}</span>
         </a>

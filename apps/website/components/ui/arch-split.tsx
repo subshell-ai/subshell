@@ -94,7 +94,8 @@ export function ArchSplitButton<K extends string>({
     }
   };
 
-  const shell = "text-[14.5px] font-semibold text-[var(--frost)] bg-[var(--download)] hover:bg-[var(--download-hover)]";
+  const shell =
+    "text-[14.5px] font-semibold text-[var(--download-foreground)] bg-[image:var(--download)] hover:bg-[image:var(--download-hover)]";
   return (
     <span
       ref={root}
