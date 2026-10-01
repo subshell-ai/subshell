@@ -1,5 +1,19 @@
 # @internal/website
 
+## 0.2.6
+
+### Patch Changes
+
+- [#308](https://github.com/subshell-ai/subshell/pull/308) [`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15) Thanks [@theogravity](https://github.com/theogravity)! - Show the newly saved address settings instead of startup snapshots, report whether changes applied or need a restart, and enable dashboard restarts for Docker installs explicitly configured with a restart policy. Confirm that restarting Docker closes running subshells.
+
+- [#308](https://github.com/subshell-ai/subshell/pull/308) [`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15) Thanks [@theogravity](https://github.com/theogravity)! - Fix Proxmox installation with Proxmox-managed template downloads, compatible Debian templates, cluster-wide container IDs, and selection of active container, template, and backup storage. Stop before container creation when template discovery or download fails.
+  
+  Check anonymous access to the server image before creating a container, and require anonymous pulls in image publishing smoke checks.
+  
+  Detect and persist the Proxmox container browser address before startup so first-run signup succeeds from another device and remains configured across updates.
+  
+  Prompt for additional comma-separated browser IPs, domains, and URLs, link to the address documentation and dashboard settings, and increase the server container disk default to 20 GB.
+
 ## 0.2.5
 
 ### Patch Changes

@@ -1,5 +1,15 @@
 # @internal/docs
 
+## 0.6.1
+
+### Patch Changes
+
+- [#308](https://github.com/subshell-ai/subshell/pull/308) [`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15) Thanks [@theogravity](https://github.com/theogravity)! - Show the newly saved address settings instead of startup snapshots, report whether changes applied or need a restart, and enable dashboard restarts for Docker installs explicitly configured with a restart policy. Confirm that restarting Docker closes running subshells.
+
+- [#308](https://github.com/subshell-ai/subshell/pull/308) [`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15) Thanks [@theogravity](https://github.com/theogravity)! - Document automatic Proxmox browser address configuration, Docker host networking for automatic LAN access on Linux, and the browser URL required with Docker bridge networking.
+
+- [#308](https://github.com/subshell-ai/subshell/pull/308) [`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15) Thanks [@theogravity](https://github.com/theogravity)! - Use the configured public base URL for OAuth callbacks by default, with an optional per-provider override instead of ordered entry points. Show the effective full callback URI and request Google account selection.
+
 ## 0.6.0
 
 ### Minor Changes
