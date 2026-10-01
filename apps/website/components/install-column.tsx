@@ -103,6 +103,11 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
       <p className="mb-3 max-w-[38ch] text-[12px] text-[var(--dimmer)]">
         {kind === "server" ? "Host Subshell for your devices." : "Manage sessions and run agents on this machine."}
       </p>
+      {kind === "client" && (
+        <p className="mb-3 max-w-[38ch] text-[12px] text-[var(--dimmer)]">
+          For a single-machine setup, the Server app is all you need.
+        </p>
+      )}
       <p className={headingClass}>{copy.appHeading}</p>
       {offerArch ? (
         <ArchSplitButton
