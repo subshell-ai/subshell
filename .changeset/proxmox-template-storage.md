@@ -1,6 +1,5 @@
 ---
-"@internal/server": patch
-"@internal/node": patch
+"@internal/website": patch
 ---
 
 Fix Proxmox installation with Proxmox-managed template downloads, compatible Debian templates, cluster-wide container IDs, and selection of active container, template, and backup storage. Stop before container creation when template discovery or download fails.
