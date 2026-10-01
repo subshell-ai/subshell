@@ -1,5 +1,5 @@
 import { Check, Copy } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "./button";
 
 /**
@@ -21,14 +21,30 @@ import { Button } from "./button";
  */
 export function CopyableValue({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => clearTimeout(timer.current), []);
 
   async function copy(): Promise<void> {
     try {
-      await navigator.clipboard.writeText(value);
+      clearTimeout(timer.current);
+      setCopied(false);
+      setFailed(false);
+      if (navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(value);
+        } catch {
+          copyWithSelection(value);
+        }
+      } else {
+        // HTTP LAN pages have no Clipboard API. Keep the fallback in the
+        // click gesture so browsers can authorize the legacy copy command.
+        copyWithSelection(value);
+      }
       setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      timer.current = setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Clipboard can be blocked (a non-secure context); the text stays on screen.
+      setFailed(true);
     }
   }
 
@@ -36,6 +52,7 @@ export function CopyableValue({ value, label }: { value: string; label: string }
     <span className="flex items-start gap-1">
       <span className="min-w-0 break-all">{value}</span>
       <Button
+        type="button"
         variant="ghost"
         size="icon-sm"
         // 28px is a BUTTON-sized target; in a dense fact list the box read
@@ -50,6 +67,30 @@ export function CopyableValue({ value, label }: { value: string; label: string }
       >
         {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
       </Button>
+      {failed && <span role="alert">Could not copy. Select the value and copy it manually.</span>}
     </span>
   );
+}
+
+/** Legacy clipboard path for browsers on HTTP; restore focus and selection. */
+function copyWithSelection(value: string): void {
+  const focused = document.activeElement;
+  const selection = window.getSelection();
+  const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, i) => selection.getRangeAt(i)) : [];
+  const input = document.createElement("textarea");
+  input.value = value;
+  input.setAttribute("readonly", "");
+  input.style.position = "fixed";
+  input.style.opacity = "0";
+  document.body.append(input);
+  try {
+    input.focus({ preventScroll: true });
+    input.select();
+    if (!document.execCommand("copy")) throw new Error("Clipboard copy refused");
+  } finally {
+    input.remove();
+    if (focused instanceof HTMLElement) focused.focus({ preventScroll: true });
+    selection?.removeAllRanges();
+    for (const range of ranges) selection?.addRange(range);
+  }
 }
