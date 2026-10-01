@@ -2,8 +2,10 @@ import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+import { networkInterfaces } from "node:os";
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv } from "vite";
+import { devProxyOrigin } from "./src/lib/dev-proxy-origin";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -17,6 +19,13 @@ export default defineConfig(({ mode }) => {
     .split(",")
     .map((host) => host.trim())
     .filter(Boolean);
+  // Kernel-reported interfaces and explicitly configured hosts only. Never
+  // derive trust from request headers; a foreign origin must remain foreign.
+  const devHosts = ["localhost", ...allowedHosts,
+    ...Object.values(networkInterfaces()).flatMap((entries) =>
+      (entries ?? []).map(({ address, family }) => family === "IPv6" ? `[${address}]` : address)),
+  ];
+  const devOrigins = devHosts.map((host) => `http://${host}:5174`);
 
   return {
     // Bundle stamp shown in the About dialog (user menu). iOS PWA caches are
@@ -37,6 +46,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       port: 5174,
+      strictPort: true,
       // All interfaces, so a proxy on another host (or a NetBird peer) can
       // reach the dev server; the port itself stays dev-only.
       host: "0.0.0.0",
@@ -47,10 +57,22 @@ export default defineConfig(({ mode }) => {
         "/api": {
           target: "http://127.0.0.1:3080",
           changeOrigin: true,
+          configure(proxy) {
+            proxy.on("proxyReq", (proxyReq, req) => {
+              const origin = devProxyOrigin(req.headers.origin, devOrigins);
+              if (origin) proxyReq.setHeader("origin", origin);
+            });
+          },
         },
         "/ws": {
           target: "ws://127.0.0.1:3080",
           ws: true,
+          configure(proxy) {
+            proxy.on("proxyReqWs", (proxyReq, req) => {
+              const origin = devProxyOrigin(req.headers.origin, devOrigins);
+              if (origin) proxyReq.setHeader("origin", origin);
+            });
+          },
         },
       },
     },

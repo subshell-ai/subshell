@@ -53,6 +53,20 @@ function renderPane(el: ReactNode) {
 afterEach(cleanup);
 
 describe("SubshellPane touch key bar", () => {
+  it("allows the key bar to scroll while the terminal's touch scroll guard is engaged", () => {
+    const spy = stubCoarsePointer(true);
+    try {
+      renderPane(<SubshellPane pane={paneRow()} active showKeyBar onRestart={() => {}} onRemovePane={() => {}} />);
+      const row = screen.getByRole("button", { name: "Send arrow left" }).parentElement as HTMLDivElement;
+      row.scrollLeft = 120;
+      fireEvent.scroll(row);
+      expect(row.scrollLeft).toBe(120);
+    } finally {
+      cleanup();
+      spy.mockRestore();
+    }
+  });
+
   it("renders no bar for a fine pointer even when the pane is active", () => {
     const spy = stubCoarsePointer(false);
     renderPane(<SubshellPane pane={paneRow()} active showKeyBar onRestart={() => {}} onRemovePane={() => {}} />);

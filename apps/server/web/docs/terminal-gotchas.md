@@ -59,6 +59,40 @@ the contract; the classification is unit-tested):
 
 ### Swipe navigation
 
+The touch key bar uses one horizontally scrollable row with fixed minimum
+touch targets and the native horizontal scrollbar. The initial controls are Esc, arrows, Enter, newline,
+photo upload, and scroll jumps, followed by mode, Paste, and the remaining keys.
+The copy/input toggle remains available in both modes, with a confirmation toast
+shared with the action menu. Copy mode preserves the full row and its scroll
+position, disabling input buttons instead of removing them. The bar's scroller is explicitly exempt from the
+terminal's iOS page-scroll guard; every other shell scroller stays pinned.
+Paste reads text
+from the clipboard during the tap and calls xterm's `paste()` for newline
+normalization and bracketed-paste framing; raw key input is a different path.
+Clipboard denial, missing browser support, and an empty clipboard show a toast,
+with no text-box fallback. Copy mode and a disconnected terminal disable Paste;
+view access hides it.
+
+Refresh redraws every visible row from xterm's current buffer without sending
+input or restarting the session. It remains available alongside the scroll
+controls in copy mode, view access, and while disconnected. Buttons show a pressed
+highlight during a hold and briefly after a tap; cancellation clears the highlight
+without sending a key.
+
+The history controls are grouped between dividers: top, Page Up, Page Down,
+and bottom. Page buttons scroll local terminal history by one screen, without
+sending Page Up/Down keystrokes to the program in the pane.
+
+Inject prompt opens the same picker and confirmation as the action menu. It
+types the selected text without submitting it; the operator presses Enter when
+ready. Only live panes with input access offer it, and copy mode disables the
+button while preserving its position.
+
+The Vite dev proxy translates exact dev origins from kernel-reported interface
+addresses and explicitly allowed dev hosts to the backend's trusted localhost
+dev origin. Foreign origins pass through unchanged for rejection. This applies
+to API and WebSocket requests and does not change production origin trust.
+
 `useSwipeNav` publishes `data-swipe-nav="ready"|"idle"` on the zone it binds
 to, from the same effect that governs binding. It exists for the e2e suite,
 whose difficulty with this feature was that nothing observable said when a

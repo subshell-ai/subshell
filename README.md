@@ -6,9 +6,7 @@
 
 Subshell is an open-source, self-hosted dashboard for interactive coding agents.
 Run Claude Code, Codex, and other agent CLIs on your own machines, then access
-them from a browser or desktop app. Close the window and come back from another
-device: your sessions keep running in tmux, with the same live terminal and
-conversation waiting for you.
+them from a browser or desktop app.
 
 <a href="apps/website/public/demos/desktop.mp4">
   <img src="docs/assets/subshell-demo.gif" width="640" alt="Subshell workspace: send a prompt to Codex, see a notification sample, and switch to Claude Code" />

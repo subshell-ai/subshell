@@ -11,8 +11,9 @@
 
 /**
  * Whether a scroll event should be undone (pure, tested). The rule: on a
- * touch UI, while the terminal is engaged, NO scroll outside the terminal is
- * the user's — it can only be iOS chasing the helper textarea. Crucially,
+ * touch UI, while the terminal is engaged, shell scrolling outside the terminal
+ * is iOS chasing the helper textarea. The key bar's intentional horizontal
+ * scroller is explicitly exempt. Crucially,
  * iOS pans `overflow: hidden` ancestors too (scrollIntoView does not care),
  * and those invisible pans are exactly the ones a swipe can never undo — and
  * they SURVIVE the keyboard closing, which is why "engaged" covers the idle
@@ -29,8 +30,10 @@ export function shouldResetForeignScroll(args: {
   engaged: boolean;
   /** The scrolled thing lives inside the terminal container. */
   insideTerminal: boolean;
+  /** The key bar deliberately scrolls horizontally while terminal focus stays put. */
+  terminalControls?: boolean;
 }): boolean {
-  return args.touchUi && args.engaged && !args.insideTerminal;
+  return args.touchUi && args.engaged && !args.insideTerminal && !args.terminalControls;
 }
 
 /** How far the keyboard may cover before it counts as up (px of slack for

@@ -10,7 +10,7 @@ interface ProductDemoProps {
   webm?: boolean;
 }
 
-/** Load clips only on screen; keep posters for reduced motion and data saving. */
+/** Load clips only on screen; keep posters when data saving is enabled. */
 export function ProductDemo({ name, width, height, label, webm = true }: ProductDemoProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [loaded, setLoaded] = useState(false);
@@ -23,11 +23,8 @@ export function ProductDemo({ name, width, height, label, webm = true }: Product
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
-    const updatePreference = () => setAutomatic(!motion.matches && !connection?.saveData);
-    updatePreference();
-    motion.addEventListener("change", updatePreference);
+    setAutomatic(!connection?.saveData);
     let intersecting = false;
     const updateVisibility = () => setVisible(intersecting && !document.hidden);
     const observer = new IntersectionObserver(([entry]) => {
@@ -38,10 +35,13 @@ export function ProductDemo({ name, width, height, label, webm = true }: Product
     document.addEventListener("visibilitychange", updateVisibility);
     return () => {
       observer.disconnect();
-      motion.removeEventListener("change", updatePreference);
       document.removeEventListener("visibilitychange", updateVisibility);
     };
   }, []);
+
+  useEffect(() => {
+    if (loaded) videoRef.current?.load();
+  }, [loaded]);
 
   useEffect(() => {
     if (visible && (automatic || requested)) setLoaded(true);
@@ -76,6 +76,7 @@ export function ProductDemo({ name, width, height, label, webm = true }: Product
         className="block h-auto w-full"
         aria-label={label}
         muted
+        autoPlay={automatic && visible && !paused}
         loop
         playsInline
         preload="none"

@@ -41,7 +41,7 @@ describe("EditableText", () => {
 
     // A saved commit closes the field, so the second half needs it opened again —
     // firing on the detached node would test nothing and pass by accident.
-    fireEvent.click(screen.getByRole("button", { name: "Rename node" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Rename node" }));
     const again = screen.getByRole("textbox", { name: "Rename node" });
     fireEvent.change(again, { target: { value: "a".repeat(65) } });
     fireEvent.keyDown(again, { key: "Enter" });

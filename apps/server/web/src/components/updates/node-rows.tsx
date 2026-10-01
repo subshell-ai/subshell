@@ -138,7 +138,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
           )}
           {fleet.rows.length > 0 && (
             <Button variant="outline" disabled={updatable.length === 0 || anyBusy} onClick={() => void updateAll()}>
-              {batch && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}
+              {batch && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
               {batch ? "Updating…" : `Update all (${updatable.length})`}
             </Button>
           )}
@@ -196,7 +196,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
                     window, up to five minutes, and the tracker keeps this
                     spinner on after the POST answers, so a bare disabled
                     button reads as nothing happening. */}
-                {updating && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 motion-safe:animate-spin" />}
+                {updating && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
                 {updating ? "Updating…" : "Update"}
               </Button>
             </div>

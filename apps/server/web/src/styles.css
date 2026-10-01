@@ -18,6 +18,32 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* Keep Sonner's positioning and gestures; render its surface with our tokens. */
+.app-toaster[data-sonner-toaster] {
+  font-family: inherit;
+}
+.app-toaster [data-sonner-toast][data-styled="true"] {
+  @apply gap-3 rounded-lg border-border bg-popover p-4 text-body text-popover-foreground shadow-lg;
+}
+.app-toaster [data-sonner-toast][data-styled="true"] [data-title] {
+  @apply text-body font-strong;
+}
+.app-toaster [data-sonner-toast][data-styled="true"] [data-description] {
+  @apply text-detail text-muted-foreground;
+}
+.app-toaster [data-sonner-toast][data-type="success"] [data-icon] {
+  @apply text-success;
+}
+.app-toaster [data-sonner-toast][data-type="error"] [data-icon] {
+  @apply text-destructive;
+}
+.app-toaster [data-sonner-toast][data-type="warning"] [data-icon] {
+  @apply text-warning;
+}
+.app-toaster [data-sonner-toast][data-type="info"] [data-icon] {
+  @apply text-primary;
+}
+
 /*
  * Subshell UI theme: dark only by design (no light variants exist).
  * Tokens follow the shadcn/ui convention (oklch values).
