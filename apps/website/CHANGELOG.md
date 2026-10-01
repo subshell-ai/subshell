@@ -1,5 +1,15 @@
 # @internal/website
 
+## 0.2.4
+
+### Patch Changes
+
+- [#305](https://github.com/subshell-ai/subshell/pull/305) [`13e1b3b`](https://github.com/subshell-ai/subshell/commit/13e1b3bf44ae97807dbda33fe9469ae9b5eec1d2) Thanks [@theogravity](https://github.com/theogravity)! - Replace the mobile and desktop product screenshots with compact ten-second recordings switching between real Codex and Claude Code workspace tabs, submitting a prompt and displaying a notification preview, at double pixel density with larger terminal text. Load videos when visible, pause offscreen, and retain posters for reduced-motion and data-saving preferences with playback toggled directly on the video.
+  
+  Add the wide demonstration to the README as an animated preview linked to the full-quality video.
+  
+  Clarify website installation labels, retain terminal installation commands for both products, and standardize product terminology, platform descriptions, and license wording.
+
 ## 0.2.3
 
 ### Patch Changes
