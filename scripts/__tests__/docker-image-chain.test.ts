@@ -49,6 +49,14 @@ describe("docker-image.yml chain", () => {
     expect(decide).toMatch(/skip=true/);
   });
 
+  test("smoke requires an anonymous pull before advancing latest", () => {
+    const smoke = WORKFLOW.slice(WORKFLOW.indexOf("  smoke:"), WORKFLOW.indexOf("  latest:"));
+    expect(smoke).not.toContain("docker/login-action");
+    expect(smoke).toContain("DOCKER_CONFIG=$(mktemp -d)");
+    expect(smoke).toContain('docker pull "$IMAGE:$V" || {');
+    expect(smoke).toContain("exit 1");
+  });
+
   test(":latest moves on a fresh chained build, and on a dispatch only when absent", () => {
     const decide = WORKFLOW.slice(WORKFLOW.indexOf("id: decide"));
     // Chained fresh build: move.

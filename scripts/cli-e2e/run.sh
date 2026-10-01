@@ -29,6 +29,7 @@ echo "==> compiling both CLIs"
 
 # published-release.sh is deliberately NOT run here: it needs the public
 # internet and a real release, so it is the post-cut check, run by hand.
+"$HERE/server-origins.sh"
 "$HERE/headless-server-and-node.sh"
 echo
 "$HERE/install-script.sh"

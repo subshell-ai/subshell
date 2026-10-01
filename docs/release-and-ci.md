@@ -682,7 +682,14 @@ re-arm (a cut that moved no server version) a no-op. A fresh chained build
 runs the container scenario (`scripts/cli-e2e/docker-image.sh`) and then
 moves `:latest`; a manual dispatch (`-f version=`) rebuilds any release into
 its version tag and moves `:latest` only when the package has none (the
-bootstrap the hand-run history now needs). The Proxmox LXC rail consumes
+bootstrap the hand-run history now needs).
+
+The smoke job pulls without registry credentials before running the container
+scenario. The GHCR package must be Public, set once by an organization admin
+in its [package settings](https://github.com/orgs/subshell-ai/packages/container/subshell/settings).
+A private image fails smoke and cannot advance `:latest`; successful pushes
+with Actions credentials alone do not establish that installers can pull it.
+The Proxmox LXC rail consumes
 exactly this: `proxmox-server.sh update` pulls the new image and recreates
 the container, the "image is the unit of update" rule the server itself
 prints (`server-deployment.ts`).
