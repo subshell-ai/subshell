@@ -8,7 +8,7 @@ import { authDatabase } from "@/auth/database.js";
 import { createHeldEmailGuardBeforeHook } from "@/auth/held-email-guards.js";
 import { createProviderGuardBeforeHook } from "@/auth/provider-guards.js";
 import { evaluateProviderPolicy, type ProviderValidationData } from "@/auth/provider-policy.js";
-import { loadProviderRowsSync, toGenericOAuthConfig } from "@/auth/provider-rows.js";
+import { callbackBaseFor, loadProviderRowsSync, toGenericOAuthConfig } from "@/auth/provider-rows.js";
 import { APP_BASE_URL, AUTH_SECRET } from "@/constants.js";
 import { AuthProvidersRepository } from "@/db/repositories/auth-providers.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
@@ -239,7 +239,7 @@ function buildAuth() {
   // a plain config string (measured: plugins/generic-oauth/types.d.mts:116)
   // and the core builder emits it verbatim, so follow-the-visitor waits on
   // the upstream capability — flow-matrix case 14 pins the emitted URI.
-  const config = providers.map((r) => toGenericOAuthConfig(r, r.entryOrigins[0] ?? APP_BASE_URL));
+  const config = providers.map((r) => toGenericOAuthConfig(r, callbackBaseFor(r, APP_BASE_URL)));
   return betterAuth({
     ...AUTH_OPTIONS,
     database: authDatabase(),

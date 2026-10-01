@@ -17,7 +17,7 @@ This example publishes port 3080 and mounts your projects at the same absolute p
 
 ```bash
 mkdir -p "$HOME/.config/subshell-server" "$HOME/projects"
-docker run -d --name subshell --restart unless-stopped \
+docker run -d --name subshell --restart unless-stopped -e SUBSHELL_CONTAINER_RESTART=1 \
   --user "$(id -u):$(id -g)" \
   -p 3080:3080 \
   -v "$HOME/.config/subshell-server:/data" \
@@ -39,7 +39,7 @@ On a Linux Docker host, host networking lets the server discover and trust the h
 
 ```bash
 mkdir -p "$HOME/.config/subshell-server" "$HOME/projects"
-docker run -d --name subshell --restart unless-stopped \
+docker run -d --name subshell --restart unless-stopped -e SUBSHELL_CONTAINER_RESTART=1 \
   --user "$(id -u):$(id -g)" \
   --network host \
   -v "$HOME/.config/subshell-server:/data" \
@@ -62,3 +62,18 @@ Persist `/data`, including `config.env`, the SQLite database, and other instance
 ## Next steps
 
 See [Update the server](/administration/updates), [Backups and restoration](/administration/backups), and [HTTPS and reverse proxies](/networking/https).
+
+## Save addresses and restart
+
+Change browser addresses in **Server Settings → Networking → Addresses**.
+Other addresses apply immediately; changes to the public base URL, bind address,
+or listening port need a restart. The examples above pair
+`SUBSHELL_CONTAINER_RESTART=1` with `--restart unless-stopped`, allowing the
+server to offer a dashboard restart. Restarting the Docker container closes
+running subshells. Only set this variable when Docker is configured to restart
+the container after the server exits.
+
+For an existing container without that variable, save the settings and run
+`docker restart subshell` on its Docker host. On a Proxmox install, run
+`pct exec <CT ID> -- docker restart subshell` on the Proxmox host. See
+[Addresses](/networking/addresses) for the full settings reference.

@@ -71,9 +71,11 @@ export const restartRoute = new Elysia()
           apiErrorBody({
             code: BackendErrorCodes.RESTART_KILLS_PANES,
             message:
-              view.service.paneSafety === "kills"
-                ? "The installed service definition would close every running subshell on restart; reinstall the service definition, or pass force to restart anyway"
-                : "The installed service definition could not be read, so whether a restart keeps the running subshells is unknown; reinstall the definition, or pass force to restart anyway",
+              view.service.manager === "docker"
+                ? "Restarting the Docker container closes every running subshell; pass force to confirm the restart"
+                : view.service.paneSafety === "kills"
+                  ? "The installed service definition would close every running subshell on restart; reinstall the service definition, or pass force to restart anyway"
+                  : "The installed service definition could not be read, so whether a restart keeps the running subshells is unknown; reinstall the definition, or pass force to restart anyway",
           }),
         );
       }

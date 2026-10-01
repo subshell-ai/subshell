@@ -152,6 +152,13 @@ function NetworkingPage() {
               <CardTitle>Networks</CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
+              {deployment.data?.containerized && (
+                <p className="mb-4 text-detail text-muted-foreground">
+                  Network status checks run inside this Docker container. A mesh client installed on the Docker host or
+                  surrounding Proxmox LXC can provide access while appearing as not installed here. Manage that client
+                  on its host and add its browser addresses in the Addresses card above.
+                </p>
+              )}
               {/* Rendered on the unanswered read too: the page's error
                   statement lives inside this card now, and a card that
                   carried a failure on the Service page but loses it here

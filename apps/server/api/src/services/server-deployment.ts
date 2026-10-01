@@ -44,7 +44,7 @@ export interface DeploymentSetting {
 /** The service manager's view plus the one fact only the running process can add. */
 export interface DeploymentService {
   /** `launchd` on darwin, `systemd` on linux, null elsewhere. */
-  manager: "launchd" | "systemd" | "app" | null;
+  manager: "launchd" | "systemd" | "app" | "docker" | null;
   /** Whether a unit/plist exists on disk. */
   installed: boolean;
   /** Where that definition lives, or would. */
@@ -200,7 +200,7 @@ const RESTART_UNSUPERVISED_REASON =
  * produces: a hand-copied reason drifts and the test passes silently.
  */
 export const RESTART_CONTAINERIZED_REASON =
-  "This server runs inside a container, where the image is the unit of update. Pull a new image and recreate the container; from the Proxmox helper install, that is: bash proxmox-server.sh update on the host.";
+  "This server runs inside a container, where the image is the unit of update. Restart the Docker container to apply saved settings (docker restart subshell inside the LXC, or pct exec <CT ID> -- docker restart subshell on the Proxmox host). Image updates are separate: bash proxmox-server.sh update on the host.";
 
 /**
  * The value THIS process runs with, per key: the boot-time constant for the
@@ -424,6 +424,28 @@ function buildDeployment(deps: DeploymentDeps): DeploymentView {
     platform,
     generatedAt: new Date().toISOString(),
   };
+  // The launch rail opts in only alongside Docker's restart policy. A plain
+  // container marker does not prove that exiting will bring this server back.
+  // PID 1 ensures exiting ends the container, including all pane processes.
+  if (isContainerized(env) && env.SUBSHELL_CONTAINER_RESTART === "1" && pid === 1) {
+    return {
+      ...base,
+      service: {
+        manager: "docker",
+        installed: true,
+        definitionPath: null,
+        state: "running",
+        pid,
+        enabled: true,
+        linger: null,
+        paneSafety: "kills",
+        logPath: null,
+        logHint: "docker logs -f subshell",
+        supervised: true,
+      },
+      restart: { available: true, reason: null },
+    };
+  }
   if (byApp) {
     return {
       ...base,

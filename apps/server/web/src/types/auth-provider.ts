@@ -44,7 +44,8 @@ export interface ProviderAdminView {
   /** Whether a client secret is stored (never the secret itself) */
   hasSecret: boolean;
   /** Entry origins, position 0 canonical (§5a); empty only on the `email` row */
-  entryOrigins: string[];
+  entryOrigins?: string[];
+  callbackBaseUrl?: string | null;
   /** Allowed email domains, empty/null = any (§5); normalized server-side */
   allowedDomains: string[] | null;
   /** Master switch: an unchecked provider does nothing, however open its half-switches are */
@@ -69,7 +70,8 @@ export interface CreateAuthProviderBody {
   issuer: string;
   clientId: string;
   clientSecret: string;
-  entryOrigins: string[];
+  entryOrigins?: string[];
+  callbackBaseUrl?: string | null;
   /** Comma-separated; the route normalizes, empty means any domain */
   allowedDomains?: string;
   enabled: boolean;

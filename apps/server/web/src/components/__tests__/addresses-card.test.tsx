@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { ApiError } from "@internal/node-admin";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { deploymentView, idleRestart } from "@/components/__tests__/helpers/deployment-view";
 import { AddressesCard, invalidField } from "@/components/networking/addresses-card";
+import { SERVER_DEPLOYMENT_QUERY_KEY } from "@/lib/query-keys";
 
 const restore: (() => void)[] = [];
 afterEach(() => {
@@ -280,4 +281,48 @@ describe("the keys the server reads live", () => {
     renderCard();
     expect(screen.getByText(/joined under Networking are trusted automatically/)).toBeTruthy();
   });
+});
+
+it("refreshes saved fields and offers Docker restart after saving the public URL", async () => {
+  const before = deploymentView();
+  before.service.manager = "docker";
+  before.service.paneSafety = "kills";
+  const after = deploymentView({
+    APP_BASE_URL: {
+      saved: "https://subshell.in.heavymetal.network",
+      source: "config.env",
+      running: before.settings.APP_BASE_URL.running,
+    },
+  });
+  after.service = before.service;
+  after.restartRequired = true;
+  const original = globalThis.fetch;
+  restore.push(() => {
+    globalThis.fetch = original;
+  });
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ ...after, warnings: [] }), {
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+  function ObservedCard() {
+    const query = useQuery({
+      queryKey: SERVER_DEPLOYMENT_QUERY_KEY,
+      queryFn: async () => before,
+      initialData: before,
+      staleTime: Infinity,
+    });
+    return <AddressesCard view={query.data} restart={idleRestart} />;
+  }
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <ObservedCard />
+    </QueryClientProvider>,
+  );
+  fireEvent.change(screen.getByLabelText("Public base URL"), { target: { value: after.settings.APP_BASE_URL.saved } });
+  fireEvent.click(screen.getByRole("button", { name: "Save and restart" }));
+  await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+  expect((screen.getByLabelText("Public base URL") as HTMLInputElement).value).toBe(after.settings.APP_BASE_URL.saved);
+  expect(screen.getByRole("status", { hidden: true }).textContent).toContain("Restart required");
+  expect(screen.getByText(/Restarting the Docker container closes/)).toBeTruthy();
 });

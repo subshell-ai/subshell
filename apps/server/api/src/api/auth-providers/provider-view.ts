@@ -38,9 +38,9 @@ export const ProviderViewSchema = t.Object({
   issuer: t.Nullable(t.String({ description: "OIDC issuer URL; null only on the email row" })),
   clientId: t.Nullable(t.String({ description: "OAuth client id; null only on the email row" })),
   hasSecret: t.Boolean({ description: "Whether a client secret is stored. Never the secret itself" }),
+  callbackBaseUrl: t.Nullable(t.String()),
   entryOrigins: t.Array(t.String({ description: "Bare origin, canonical URL.origin spelling" }), {
-    description:
-      "Origins this provider may be reached from; position 0 is canonical (spec §5a). Empty only on the email row",
+    description: "Legacy entry origins; OAuth callbacks use APP_BASE_URL or callbackBaseUrl instead",
   }),
   allowedDomains: t.Nullable(
     t.Array(t.String({ description: "One allowed e-mail domain, lowercase bare form" }), {
@@ -72,6 +72,7 @@ export function toView(row: AuthProviderRow) {
     clientId: row.clientId,
     hasSecret: row.clientSecret !== null,
     entryOrigins: parseStoredOrigins(row.entryOrigins),
+    callbackBaseUrl: row.callbackBaseUrl ?? null,
     allowedDomains: storedDomainsToView(row.allowedDomains),
     enabled: row.enabled === 1,
     signInEnabled: row.signInEnabled === 1,

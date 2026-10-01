@@ -384,7 +384,11 @@ export function AddressesCard({ view, restart }: { view: ServerDeployment; resta
           >
             {update.isPending ? "Saving…" : canRestart && needsRestart ? "Save and restart" : "Save"}
           </Button>
-          {update.isSuccess && touched.length === 0 && <span className="text-detail text-success">saved</span>}
+          {update.isSuccess && touched.length === 0 && (
+            <span role="status" className="text-detail text-success">
+              {view.restartRequired ? "Saved. Restart required to apply the changes." : "Saved and applied."}
+            </span>
+          )}
         </div>
 
         {/* The restart this button can start needs its failure face HERE, not

@@ -264,7 +264,7 @@ install_docker_in_ct() {
     # Updates reuse config.env, including later operator changes.
     docker run --rm -v "$data:/data" "$img" configure --yes --base-url "$base_url" --trusted-origins "$origins"
     docker rm -f "$name" >/dev/null 2>&1 || true
-    docker run -d --name "$name" --restart unless-stopped \
+    docker run -d --name "$name" --restart unless-stopped -e SUBSHELL_CONTAINER_RESTART=1 \
       -p "$port:3080" -v "$data:/data" "$img" >/dev/null
 REMOTE
   [[ $? -eq 0 ]] || msg_err "the ${APP} container failed to start"
@@ -315,7 +315,7 @@ update_app() {
     # - the rollback would destroy the healthy container to restore nothing.
     docker rename "$NAME" "$NAME-old" || { echo "rename failed: the running container was left alone" >&2; exit 1; }
     docker stop "$NAME-old" >/dev/null || rollback
-    docker run -d --name "$NAME" --restart unless-stopped \
+    docker run -d --name "$NAME" --restart unless-stopped -e SUBSHELL_CONTAINER_RESTART=1 \
       -p "$APP_PORT:3080" -v "$DATA:/data" "$IMAGE" >/dev/null || rollback
     ok=""
     for _ in $(seq 1 60); do

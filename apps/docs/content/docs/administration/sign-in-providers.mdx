@@ -14,12 +14,16 @@ Use an administrator account and retain a working sign-in method. For OIDC, obta
 1. In the server dashboard's sidebar, open **Server Settings** → **Auth**.
 2. Add the provider and give it a recognizable name.
 3. Enter its issuer and client credentials.
-4. Configure the browser entry origins and matching identity-provider callback.
+4. Register the displayed redirect URI at your identity provider. Leave the callback base URL override blank to use the public base URL.
 5. Save the provider and test sign-in in a separate browser session.
 
 Saving performs discovery and verifies credentials when the issuer supports the corresponding grant. The login button uses the provider's configured name.
 
-The current integration uses the first configured entry origin as the canonical callback origin. Do not assume it follows whichever hostname a visitor used.
+OAuth callbacks use the public base URL configured under **Server Settings → Networking → Addresses**. Changing that URL updates callbacks after restarting the server; register the new redirect URI with your identity provider too.
+
+A provider's optional **Callback base URL override** replaces that base only for that provider. Enter a full HTTP or HTTPS origin, without a path; Subshell adds `/api/auth/callback/<provider-id>`. Clear the override to follow the public base URL again. The callback never comes from the hostname a visitor happens to open or from the order of an address list.
+
+For Google, use an HTTPS hostname for a remote server. Google rejects private-IP callback URLs such as `http://10.1.10.50:3080/api/auth/callback/google`. The Google preset requests account selection during sign-in. See [Google’s redirect URI rules](https://developers.google.com/identity/protocols/oauth2/web-server#uri-validation) for its callback requirements.
 
 ## Registration and approval
 

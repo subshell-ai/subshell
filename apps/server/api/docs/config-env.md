@@ -217,3 +217,16 @@ to get the offer back, where some installer exists to honor the promise;
 where none does, that run lands in "every other case" and gets the rerun
 note naming the installed binary. `service install` takes no `--yes`, so its offer keeps the
 2026-09-03 TTY-only rule unchanged.
+
+
+Saved-value reads use `configEnvAppliedKeys()` to distinguish values copied into
+`process.env` at boot from actual environment overrides. A later file edit must
+show up in `resolveConfig().get()` and the deployment view without changing the
+boot-time constants; otherwise the Addresses card silently resets to old values
+and never reports that a restart is pending.
+
+Docker launchers may set `SUBSHELL_CONTAINER_RESTART=1` only alongside a Docker
+restart policy that respawns a successful exit. The deployment view enables
+self-restart only with that claim, `SUBSHELL_CONTAINER=1`, and PID 1. The server
+cannot inspect the host Docker daemon from inside the container. A container
+restart closes pane processes, so its confirmation requires `force`.

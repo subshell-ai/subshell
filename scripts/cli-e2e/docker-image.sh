@@ -19,14 +19,15 @@ NAME="subshell-e2e-$$"
 VOL="subshell-e2e-$$"
 HOST_NAME="${NAME}-host"
 HOST_VOL="${VOL}-host"
+COOKIE_JAR=$(mktemp)
 PORT=31998
 BROWSER_ORIGIN="http://192.0.2.17:$PORT"
-cleanup() { docker rm -f "$NAME" "$HOST_NAME" >/dev/null 2>&1 || true; docker volume rm "$VOL" "$HOST_VOL" >/dev/null 2>&1 || true; }
+cleanup() { rm -f "$COOKIE_JAR"; docker rm -f "$NAME" "$HOST_NAME" >/dev/null 2>&1 || true; docker volume rm "$VOL" "$HOST_VOL" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker volume create "$VOL" >/dev/null
 
 boot() {
-  docker run -d --name "$NAME" --restart unless-stopped -p "$PORT:3080" -v "$VOL:/data" "$IMAGE" >/dev/null
+  docker run -d --name "$NAME" --restart unless-stopped -e SUBSHELL_CONTAINER_RESTART=1 -p "$PORT:3080" -v "$VOL:/data" "$IMAGE" >/dev/null
   for _ in $(seq 1 60); do
     curl -sf "http://127.0.0.1:$PORT/api/setup/status" >/dev/null && return 0
     sleep 1
@@ -61,13 +62,41 @@ check_signup_origin() {
 }
 check_signup_origin "$BROWSER_ORIGIN" 400
 check_signup_origin "https://unrelated.example.com" 403
-status=$(curl -sS -o /dev/null -w '%{http_code}' \
+status=$(curl -sS -c "$COOKIE_JAR" -o /dev/null -w '%{http_code}' \
   -H "Origin: $BROWSER_ORIGIN" -H 'Content-Type: application/json' \
   --data '{"email":"origin-check@example.test","password":"origin-check-password-12345","name":"Origin check"}' \
   "http://127.0.0.1:$PORT/api/auth/sign-up/email")
 [ "$status" = 200 ] || { echo "FAIL: Docker signup returned $status" >&2; exit 1; }
 curl -sf "http://127.0.0.1:$PORT/api/setup/status" | grep -q '"needsSetup":false' \
   || { echo "FAIL: Docker signup did not finish setup" >&2; exit 1; }
+
+echo "==> dashboard config save and supervised Docker restart"
+SAVED_ORIGIN="http://192.0.2.18:$PORT"
+DEPLOYMENT=$(curl -fsS -b "$COOKIE_JAR" -H "Origin: $BROWSER_ORIGIN" \
+  -H 'Content-Type: application/json' -X PATCH \
+  --data "{\"baseUrl\":\"$SAVED_ORIGIN\",\"trustedOrigins\":[\"$BROWSER_ORIGIN\"]}" \
+  "http://127.0.0.1:$PORT/api/admin/server/config")
+echo "$DEPLOYMENT" | grep -q "\"saved\":\"$SAVED_ORIGIN\"" || { echo "FAIL: saved base URL did not refresh" >&2; exit 1; }
+echo "$DEPLOYMENT" | grep -q '"restartRequired":true' || { echo "FAIL: saved base URL did not require restart" >&2; exit 1; }
+echo "$DEPLOYMENT" | grep -q '"manager":"docker"' || { echo "FAIL: Docker supervision was not recognized" >&2; exit 1; }
+status=$(curl -sS -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -H "Origin: $BROWSER_ORIGIN" \
+  -H 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$PORT/api/admin/server/restart")
+[ "$status" = 409 ] || { echo "FAIL: Docker restart did not require pane-loss confirmation" >&2; exit 1; }
+STARTED=$(docker inspect --format '{{.State.StartedAt}}' "$NAME")
+status=$(curl -sS -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -H "Origin: $BROWSER_ORIGIN" \
+  -H 'Content-Type: application/json' --data '{"force":true}' "http://127.0.0.1:$PORT/api/admin/server/restart")
+[ "$status" = 202 ] || { echo "FAIL: confirmed Docker restart returned $status" >&2; exit 1; }
+RESTARTED=""
+for _ in $(seq 1 60); do
+  if [ "$(docker inspect --format '{{.State.StartedAt}}' "$NAME")" != "$STARTED" ] && \
+      curl -sf "http://127.0.0.1:$PORT/api/setup/status" >/dev/null; then
+    RESTARTED=1; break
+  fi
+  sleep 1
+done
+[ -n "$RESTARTED" ] || { echo "FAIL: Docker did not restart the server" >&2; exit 1; }
+DEPLOYMENT=$(curl -fsS -b "$COOKIE_JAR" -H "Origin: $BROWSER_ORIGIN" "http://127.0.0.1:$PORT/api/admin/server")
+echo "$DEPLOYMENT" | grep -q '"restartRequired":false' || { echo "FAIL: restart did not apply saved settings" >&2; exit 1; }
 
 echo "==> version"
 VERSION_OUT=$(docker exec "$NAME" subshell-server version)
@@ -95,7 +124,7 @@ docker exec "$NAME" bash -c 'grep -q "^BETTER_AUTH_SECRET=.\{32,\}" /data/config
 
 if [ "$(uname -s)" = Linux ]; then
   echo "==> automatic LAN signup with Docker host networking"
-  host_ip=$(hostname -I | awk '{print $1}')
+  host_ip=$(hostname -I | awk '{for (i=1;i<=NF;i++) if ($i ~ /^[0-9]+\./ && $i !~ /^169\.254\./) {print $i; exit}}')
   [ -n "$host_ip" ] || { echo 'FAIL: no host address for the host networking check' >&2; exit 1; }
   host_port=31996
   host_origin="http://$host_ip:$host_port"

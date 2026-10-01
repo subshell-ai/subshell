@@ -46,7 +46,7 @@ export type PaneSafety = "keeps" | "kills" | "unknown";
 /** What the platform's service manager says about this server. */
 export interface ServiceState {
   /** What supervises the process: a service manager, the desktop app, or null when nothing does */
-  manager: "launchd" | "systemd" | "app" | null;
+  manager: "launchd" | "systemd" | "app" | "docker" | null;
   /** Whether a unit/plist for this server is installed */
   installed: boolean;
   /** Path of that unit/plist, null when not installed */
@@ -105,6 +105,8 @@ export interface McpEntrypoint {
 
 /** `GET /api/admin/server` — how this server is deployed (spec § 3.1). */
 export interface ServerDeployment {
+  /** Older servers may omit the image deployment marker. */
+  containerized?: boolean;
   /** The config file this server reads, and whether it is there */
   configEnv: { path: string; exists: boolean };
   /** One entry per configurable key */

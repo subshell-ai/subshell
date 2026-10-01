@@ -29,6 +29,7 @@ export interface AuthProviderTable {
   endpointsJson: Generated<string | null>;
   /** JSON array of origin strings, position 0 canonical (§5a). */
   entryOrigins: Generated<string | null>;
+  callbackBaseUrl: Generated<string | null>;
   /** Comma-separated bare domains, or null = any (§5). */
   allowedDomains: Generated<string | null>;
   enabled: Generated<number>;

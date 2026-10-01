@@ -71,6 +71,8 @@ services:
       # At boot the env value takes precedence over the file, and an existing
       # config.env is kept as-is:
       # BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set it in .env or delete this line}
+      # Matches the restart policy below; enables dashboard restart.
+      SUBSHELL_CONTAINER_RESTART: "1"
       NODE_ENV: production
     # The service comes back with the Docker daemon — i.e. on boot.
     restart: unless-stopped

@@ -55,7 +55,7 @@ export const DeploymentViewSchema = t.Object({
     serverLog: t.String({ description: "The server's own log file (200 KB cap, replaced when full)" }),
   }),
   service: t.Object({
-    manager: t.Nullable(t.Union([t.Literal("launchd"), t.Literal("systemd"), t.Literal("app")]), {
+    manager: t.Nullable(t.Union([t.Literal("launchd"), t.Literal("systemd"), t.Literal("app"), t.Literal("docker")]), {
       description:
         "What supervises this process: the platform's per-user service manager, `app` when the Subshell Server desktop app runs it as a child, or null",
     }),

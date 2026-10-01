@@ -37,8 +37,9 @@ export interface StoredProviderRow {
   clientSecret: string | null;
   /** Endpoints captured at save time; null when the provider was saved without them (§3: rebuilds never re-fetch discovery). */
   endpoints: StoredEndpoints | null;
-  /** Entry origins from the stored list; position 0 is canonical (§5a). */
+  /** Legacy entry list, retained for compatibility; not used to select callbacks. */
   entryOrigins: string[];
+  callbackBaseUrl?: string | null;
   /** Allowed e-mail domains; empty list = any domain (§5). */
   allowedDomains: string[];
   /** Whether this provider may sign in at all. */
@@ -94,7 +95,7 @@ export function loadProviderRowsSync(path: string = DATABASE_PATH): StoredProvid
 
 const PROVIDER_QUERY = `
   SELECT id, kind, name, issuer, client_id, client_secret, endpoints_json,
-         entry_origins, allowed_domains, enabled, sign_in_enabled,
+         entry_origins, callback_base_url, allowed_domains, enabled, sign_in_enabled,
          registration_enabled, require_approval
   FROM auth_providers
   WHERE enabled = 1 AND (sign_in_enabled = 1 OR registration_enabled IS NOT NULL)
@@ -136,6 +137,7 @@ function shapeRow(raw: Record<string, unknown>): StoredProviderRow {
     clientSecret: optText(raw.client_secret),
     endpoints: parseEndpoints(raw.endpoints_json),
     entryOrigins: parseJsonArray(raw.entry_origins),
+    callbackBaseUrl: optText(raw.callback_base_url),
     allowedDomains: splitDomains(raw.allowed_domains),
     signInEnabled: raw.sign_in_enabled === 1,
     // NULL stays NULL: it is the legacy dynamic gate's meaning (§2), and
@@ -213,6 +215,7 @@ export function toGenericOAuthConfig(row: StoredProviderRow, canonicalOrigin: st
     }),
     redirectURI: `${canonicalOrigin}/api/auth/callback/${row.id}`,
     scopes: ["openid", "email", "profile"],
+    ...(row.kind === "google" ? { prompt: "select_account" as const } : {}),
     // `disableSignUp` is deliberately NOT set from registrationEnabled, and
     // that is a MEASURED decision (spec 2026-09-24 §4, Task 7 finding): the
     // callback's create path checks the config flag BEFORE it reaches
@@ -232,25 +235,13 @@ export function toGenericOAuthConfig(row: StoredProviderRow, canonicalOrigin: st
   };
 }
 
-/**
- * Which entry origin a round trip should use: exact membership, else
- * canonical (§5a). Request input is matched, never spliced.
- *
- * THE PIN, NOT THE PRODUCTION PATH (final review, Important 3 — measured):
- * better-auth 1.7.1's genericOAuth `redirectURI` is a plain config string
- * (`types.d.mts:116`), set once at build from list position 0 (`auth.ts`),
- * and nothing in the package ever CALLS a redirectURI (no call site exists;
- * a function there would be URL-serialized into the request). So today no
- * production caller passes a visitor origin here — `buildAuth` always takes
- * position 0. This function IS §5a's membership rule, kept honest by
- * `provider-rows.test.ts` (which exercises every branch) and by flow-matrix
- * case 14 (which pins what the IdP actually receives); when an upstream
- * better-auth gains a per-request `redirectURI`, the swap is a config
- * expression — `pickEntryOrigin(row.entryOrigins, visitorOrigin, row
- * .entryOrigins[0])` — not a redesign. That is what §5a's degradation clause
- * reserved, and it is why this is shipped-but-pin-tested rather than deleted.
- */
+/** Legacy pure membership helper; callback selection uses callbackBaseFor. */
 export function pickEntryOrigin(entryOrigins: string[], visitorOrigin: string | null, fallback: string): string {
   if (visitorOrigin !== null && entryOrigins.includes(visitorOrigin)) return visitorOrigin;
   return fallback;
+}
+
+/** Only an explicit override can replace the instance's public callback base. */
+export function callbackBaseFor(row: Pick<StoredProviderRow, "callbackBaseUrl">, publicBaseUrl: string): string {
+  return new URL(row.callbackBaseUrl ?? publicBaseUrl).origin;
 }

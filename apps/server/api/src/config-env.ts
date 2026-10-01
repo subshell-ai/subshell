@@ -111,7 +111,7 @@ export function resolveConfig(): ResolvedConfigEnv {
     text = readFileSync(path, "utf8");
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return { path, exists: false, values: {}, get: (key) => process.env[key] };
+      return { path, exists: false, values: {}, get: (key) => (appliedKeys.has(key) ? undefined : process.env[key]) };
     }
     const reason = err instanceof Error ? err.message : String(err);
     throw new Error(`subshell-server: cannot read config file ${path}: ${reason}`);
@@ -121,7 +121,9 @@ export function resolveConfig(): ResolvedConfigEnv {
     path,
     exists: true,
     values,
-    get: (key) => process.env[key] ?? values[key],
+    // Values copied into the environment at boot are running snapshots,
+    // not overrides of later edits to the file. Status must report the saved value.
+    get: (key) => (appliedKeys.has(key) ? values[key] : (process.env[key] ?? values[key])),
   };
 }
 

@@ -3,7 +3,12 @@ import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { b2n, PatchProviderSchema } from "@/api/auth-providers/provider-fields.js";
-import { LAST_PROVIDER_MESSAGE, normalizeOriginList, PROVIDER_NAME_MAX } from "@/api/auth-providers/provider-inputs.js";
+import {
+  LAST_PROVIDER_MESSAGE,
+  normalizeCallbackBase,
+  normalizeOriginList,
+  PROVIDER_NAME_MAX,
+} from "@/api/auth-providers/provider-inputs.js";
 import { domainsInput, ProviderViewSchema, toView } from "@/api/auth-providers/provider-view.js";
 import { EntryInputError, normalizeDomains, verifyOnSave } from "@/auth/oidc-discovery.js";
 import { invalidateAuth } from "@/auth.js";
@@ -65,7 +70,8 @@ export const patchProviderRoute = new Elysia()
         (body.issuer !== undefined ||
           body.clientId !== undefined ||
           body.clientSecret !== undefined ||
-          body.entryOrigins !== undefined)
+          body.entryOrigins !== undefined ||
+          body.callbackBaseUrl !== undefined)
       ) {
         return status(
           400,
@@ -173,6 +179,16 @@ export const patchProviderRoute = new Elysia()
         }
         patch.endpointsJson = JSON.stringify(check.endpoints);
         changed.push("endpoints");
+      }
+      if (body.callbackBaseUrl !== undefined) {
+        try {
+          patch.callbackBaseUrl = body.callbackBaseUrl === null ? null : normalizeCallbackBase(body.callbackBaseUrl);
+          changed.push("callbackBaseUrl");
+        } catch (err) {
+          if (err instanceof EntryInputError)
+            return status(400, apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: err.message }));
+          throw err;
+        }
       }
       if (body.entryOrigins !== undefined) {
         try {
