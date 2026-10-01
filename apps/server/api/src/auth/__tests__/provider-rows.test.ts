@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import type { GenericOAuthUserInfo } from "better-auth/plugins";
 import {
+  callbackBaseFor,
   loadProviderRowsSync,
   pickEntryOrigin,
   type StoredProviderRow,
@@ -145,6 +146,7 @@ describe("loadProviderRowsSync (shared temp DB)", () => {
         clientSecret: "sec",
         endpoints: { authorizationUrl: "https://id.sync/a", tokenUrl: "https://id.sync/t", userInfoUrl: null },
         entryOrigins: ["https://one.sync", "https://two.sync"],
+        callbackBaseUrl: null,
         allowedDomains: ["one.sync", "two.sync"],
         signInEnabled: true,
         registrationEnabled: false,
@@ -190,5 +192,26 @@ describe("loadProviderRowsSync (shared temp DB)", () => {
       await repo.remove(later);
       await repo.remove(earlier);
     }
+  });
+});
+
+describe("callback base selection", () => {
+  test("uses public base URL regardless of legacy entry ordering", () => {
+    expect(callbackBaseFor(row({ entryOrigins: ["http://10.1.10.50:3080"] }), "https://subshell.example")).toBe(
+      "https://subshell.example",
+    );
+    expect(callbackBaseFor(row({}), "https://new-public.example")).toBe("https://new-public.example");
+  });
+  test("only an explicit override replaces the public base", () => {
+    expect(callbackBaseFor(row({ callbackBaseUrl: "https://override.example" }), "https://subshell.example")).toBe(
+      "https://override.example",
+    );
+    expect(callbackBaseFor(row({ callbackBaseUrl: null }), "https://subshell.example")).toBe(
+      "https://subshell.example",
+    );
+  });
+  test("Google asks for account selection without imposing it on other OIDC providers", () => {
+    expect(toGenericOAuthConfig(row({ kind: "google" }), "https://subshell.example").prompt).toBe("select_account");
+    expect(toGenericOAuthConfig(row({}), "https://subshell.example").prompt).toBeUndefined();
   });
 });

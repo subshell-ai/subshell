@@ -375,6 +375,22 @@ describe("auth-providers admin CRUD (spec §8)", () => {
       await req("POST", "/", adminCookie, createBody(targetId, { allowedDomains: "acme.com" }));
     });
 
+    it("sets, validates, and clears the callback override without changing legacy addresses", async () => {
+      const before = await providers.getById(targetId);
+      const changed = await req("PATCH", `/${targetId}`, adminCookie, { callbackBaseUrl: "https://callback.example/" });
+      expect(changed.status).toBe(200);
+      expect(changed.json.callbackBaseUrl).toBe("https://callback.example");
+      expect((await providers.getById(targetId))?.entryOrigins).toBe(before?.entryOrigins);
+      const invalid = await req("PATCH", `/${targetId}`, adminCookie, {
+        callbackBaseUrl: "https://callback.example/path",
+      });
+      expect(invalid.status).toBe(400);
+      expect((await providers.getById(targetId))?.callbackBaseUrl).toBe("https://callback.example");
+      const cleared = await req("PATCH", `/${targetId}`, adminCookie, { callbackBaseUrl: null });
+      expect(cleared.status).toBe(200);
+      expect(cleared.json.callbackBaseUrl).toBeNull();
+    });
+
     it("renames and clears domains to NULL with an empty string (SPA contract)", async () => {
       const res = await req("PATCH", `/${targetId}`, adminCookie, { name: "Renamed", allowedDomains: "" });
       expect(res.status).toBe(200);
@@ -481,6 +497,7 @@ describe("auth-providers admin CRUD (spec §8)", () => {
         { issuer: "https://nowhere.invalid" },
         { clientId: "nope" },
         { entryOrigins: ["https://nowhere.invalid"] },
+        { callbackBaseUrl: "https://nowhere.invalid" },
       ]) {
         const res = await req("PATCH", "/email", adminCookie, body);
         expect(res.status).toBe(400);

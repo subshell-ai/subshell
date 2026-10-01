@@ -1,7 +1,6 @@
 import { ApiError, Button, errMessage, Input, Label, Switch } from "@internal/node-admin";
-import { useEffect, useRef, useState } from "react";
-import { entryOriginCandidates, normalizeOriginEntry } from "@/components/auth/entry-origins";
-import { EntryPointsEditor } from "@/components/auth/entry-points-editor";
+import { useState } from "react";
+import { normalizeOriginEntry } from "@/components/auth/entry-origins";
 import { RegistrationPanel } from "@/components/auth/registration-panel";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RequiredMark } from "@/components/ui/required-mark";
@@ -66,16 +65,7 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
   const editing = provider !== null;
   const { data: publicSettings } = usePublicSettings();
 
-  // The canonical entry for a fresh dialog (spec §5a, list position 1):
-  // APP_BASE_URL's origin, falling back to this browser's origin ONLY while
-  // appBaseUrl is unknown — the same source order `lib/install-addresses`
-  // documents for its pickers.
-  // The instance's public base URL WITHOUT the window fallback — the badge in
-  // the entry list may only claim "Public base URL" of an address it can
-  // actually see (review M-3, operator ruling 2026-09-25).
   const publicBaseOrigin = normalizeOriginEntry(publicSettings?.appBaseUrl ?? "");
-  const canonicalEntry = publicBaseOrigin ?? normalizeOriginEntry(window.location.origin);
-
   // Create starts with kind "google" AND its issuer seeded: a dialog that
   // shows Google chosen but demands a paste of the issuer URL pretends the
   // preset is a click rather than the default.
@@ -86,17 +76,11 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
   // Edit starts BLANK: the list never carries the secret (§8), and a blank
   // save means "leave stored" — explicit clearing does not exist server-side.
   const [secret, setSecret] = useState("");
-  // Create pre-adds the canonical entry (spec §5a); the seeded-array identity
-  // lets the effect below tell our untouched seed from a list the admin has
-  // edited (every edit mints a new array).
-  const [entries, setEntries] = useState<string[]>(() =>
-    provider ? [...(provider.entryOrigins ?? [])] : canonicalEntry === null ? [] : [canonicalEntry],
-  );
-  const seededEntries = useRef<string[] | null>(editing ? null : entries);
-  useEffect(() => {
-    if (editing || canonicalEntry === null) return;
-    setEntries((prev) => (prev === seededEntries.current && prev[0] !== canonicalEntry ? [canonicalEntry] : prev));
-  }, [editing, canonicalEntry]);
+  const [callbackOverride, setCallbackOverride] = useState(provider?.callbackBaseUrl ?? "");
+  const overrideOrigin = callbackOverride.trim() === "" ? null : normalizeOriginEntry(callbackOverride);
+  const callbackOrigin = overrideOrigin ?? publicBaseOrigin;
+  const entries = callbackOrigin === null ? [] : [callbackOrigin];
+  const invalidOverride = callbackOverride.trim() !== "" && overrideOrigin === null;
   const [signInEnabled, setSignInEnabled] = useState(provider?.signInEnabled ?? true);
   const [registrationEnabled, setRegistrationEnabled] = useState(provider?.registrationEnabled ?? false);
   const [requireApproval, setRequireApproval] = useState(provider?.requireApproval ?? false);
@@ -112,19 +96,14 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
   // sends this exact slug as `id`, so the preview and the truth are one
   // string (§5a's "live while filling").
   const displayId = editing ? provider.id : slug;
-  const candidates = entryOriginCandidates({
-    here: window.location.origin,
-    baseUrl: publicSettings?.appBaseUrl,
-    trustedOrigins: publicSettings?.trustedOrigins,
-  });
-
   async function save(): Promise<void> {
     setSaveError(null);
+    if (invalidOverride) return;
     const shared = {
       name: name.trim(),
       issuer: issuer.trim(),
       clientId: clientId.trim(),
-      entryOrigins: entries,
+      callbackBaseUrl: overrideOrigin,
       signInEnabled,
       registrationEnabled,
       requireApproval,
@@ -177,7 +156,8 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
     issuer.trim() === "" ||
     clientId.trim() === "" ||
     (!editing && (secret === "" || slug === "" || slug === EMAIL_PROVIDER_ID)) ||
-    entries.length === 0;
+    entries.length === 0 ||
+    invalidOverride;
 
   return (
     <div className="space-y-4">
@@ -271,12 +251,25 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
         )}
       </div>
 
-      <EntryPointsEditor
-        entries={entries}
-        setEntries={setEntries}
-        candidates={candidates}
-        publicBaseOrigin={publicBaseOrigin}
-      />
+      <div className="space-y-2">
+        <Label htmlFor="ap-callback-base">Callback base URL override (optional)</Label>
+        <Input
+          id="ap-callback-base"
+          value={callbackOverride}
+          placeholder={publicSettings?.appBaseUrl ?? "https://subshell.example.com"}
+          onChange={(e) => setCallbackOverride(e.target.value)}
+          aria-invalid={invalidOverride || undefined}
+        />
+        <p className="text-detail text-muted-foreground">
+          Leave blank to use the public base URL configured under Networking → Addresses. Changing that URL updates
+          OAuth callbacks after a server restart. Set an override only when this provider needs a different address.
+        </p>
+        {invalidOverride && (
+          <p role="alert" className="text-destructive text-detail">
+            Enter a full HTTP or HTTPS origin with no path, query, or fragment.
+          </p>
+        )}
+      </div>
 
       <RegistrationPanel entries={entries} providerId={displayId} />
 

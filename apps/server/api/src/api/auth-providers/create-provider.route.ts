@@ -3,7 +3,7 @@ import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { b2n, CreateProviderFieldsSchema } from "@/api/auth-providers/provider-fields.js";
-import { normalizeOriginList, PROVIDER_NAME_MAX } from "@/api/auth-providers/provider-inputs.js";
+import { normalizeCallbackBase, normalizeOriginList, PROVIDER_NAME_MAX } from "@/api/auth-providers/provider-inputs.js";
 import { domainsInput, ProviderViewSchema, toView } from "@/api/auth-providers/provider-view.js";
 import {
   EntryInputError,
@@ -163,6 +163,7 @@ export const createProviderRoute = new Elysia()
       let domains: string[];
       try {
         origins = normalizeOriginList(body.entryOrigins ?? [normalizeEntryOrigin(APP_BASE_URL)]);
+        if (body.callbackBaseUrl != null) normalizeCallbackBase(body.callbackBaseUrl);
         domains = normalizeDomains(domainsInput(body.allowedDomains ?? ""));
       } catch (err) {
         if (err instanceof EntryInputError) {
@@ -179,6 +180,7 @@ export const createProviderRoute = new Elysia()
         clientSecret,
         endpointsJson: JSON.stringify(endpoints),
         entryOrigins: JSON.stringify(origins),
+        callbackBaseUrl: body.callbackBaseUrl == null ? null : normalizeCallbackBase(body.callbackBaseUrl),
         allowedDomains: domains.length > 0 ? domains.join(",") : null,
         enabled: b2n(body.enabled),
         signInEnabled: b2n(body.signInEnabled),

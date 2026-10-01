@@ -7,7 +7,7 @@ Deploy Subshell Server in a dedicated Proxmox LXC container.
 
 ## Before you start
 
-Use a Proxmox host where you can create containers as root. The helper downloads a Debian template and creates an unprivileged container with nesting enabled for Docker.
+Use a Proxmox VE 8 or newer host where you can create containers as root. The server container defaults to a 20 GB disk; use at least 16 GB for the image and updates. The helper downloads a Debian template and creates an unprivileged container with nesting enabled for Docker.
 
 Review the [server helper](https://github.com/subshell-ai/subshell/blob/main/proxmox-server.sh) before running it. The server helper and node helper create different kinds of installation.
 
@@ -22,10 +22,19 @@ bash proxmox-server.sh
 
 1. Choose installation in the helper's menu.
 2. Review the container ID, storage, bridge, resources, and hostname.
-3. Complete the installation and open the setup address it prints.
-4. Create the first admin account.
+3. Enter any additional browser IPs, domains, or full URLs as a comma-separated list. Bare IPs and domains use HTTP and your selected web port; use full HTTPS URLs for proxies.
+4. Complete the installation and open the setup address it prints.
+5. Create the first admin account.
 
-The helper installs Docker inside the container and runs the published server image. Server data remains in the mounted data directory.
+The helper installs Docker inside the container and runs the published server image. It detects the container's address and saves it as the server's base URL before startup, so you can create the admin account from the printed address. Server data and this configuration remain in the mounted data directory across updates.
+
+If you plan to use a DNS name or reverse proxy, set `APP_BASE_URL` to that browser URL when launching the helper:
+
+```bash
+APP_BASE_URL=https://subshell.example.com bash proxmox-server.sh install
+```
+
+After signing in as an administrator, open **Server Settings** → **Networking** → **Addresses** to change the public base URL or additional browser addresses. See [Addresses and trusted origins](/networking/addresses) for the complete procedure, and [Files and paths](/reference/paths) for the server configuration inside the container.
 
 ## Maintain the installation
 
@@ -39,3 +48,16 @@ The helper also exposes backup, restore, and removal operations. Backups contain
 ## Next steps
 
 For a separate machine that runs agents, use [Proxmox nodes](/nodes/proxmox). Review [Backups and restoration](/administration/backups).
+
+
+## Mesh clients installed in the LXC
+
+Subshell runs in Docker inside the Debian LXC. NetBird or another mesh client
+installed directly in Debian stays installed when the helper updates Subshell,
+because the update replaces the Docker container, not the LXC.
+
+The dashboard's network plugins check inside Docker. They cannot detect or
+manage a mesh client installed in the surrounding LXC; a “not installed” status
+there does not mean the Debian client stopped working. Manage that client in
+Debian and add its IPs or domains under **Server Settings → Networking → Addresses**.
+See [Addresses](/networking/addresses) for the browser address settings.

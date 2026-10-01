@@ -22,7 +22,7 @@ export const LINGER_COMMAND = "loginctl enable-linger $USER";
 /** The facts that decide whether a machine brings this process back by itself. */
 export interface PersistenceInput {
   /** What supervises it, or null when nothing does */
-  manager: "launchd" | "systemd" | "app" | null;
+  manager: "launchd" | "systemd" | "app" | "docker" | null;
   /** Whether a unit/plist exists at all */
   installed: boolean;
   /** Whether that definition starts at login, null when the manager would not say */
@@ -75,6 +75,9 @@ export function persistence(
   input: PersistenceInput,
   machine: string,
 ): { sentence: string; fix: PersistenceFix | null } {
+  if (input.manager === "docker") {
+    return { sentence: "Docker restarts this server when it stops and when the Docker daemon starts.", fix: null };
+  }
   if (input.manager === "app") {
     return {
       sentence: `Runs while the Subshell Server app is open on ${machine}; quitting the app stops it.`,

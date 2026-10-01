@@ -31,10 +31,13 @@ export const CreateProviderFieldsSchema = t.Object({
         "OAuth client secret. Required for google/oidc kinds on create. On PATCH an empty string means leave the stored secret untouched; it is never read back, only replaced",
     }),
   ),
+  callbackBaseUrl: t.Optional(
+    t.Nullable(t.String({ description: "Optional OAuth callback base origin; null uses APP_BASE_URL" })),
+  ),
   entryOrigins: t.Optional(
     t.Array(t.String({ description: "One entry origin; http(s), bare host[:port], canonicalized to URL.origin" }), {
       description:
-        "Origins this provider is reached from. When none are sent, the instance's own APP_BASE_URL origin is used; position 0 is the canonical one the redirect URI is built from (spec §5a)",
+        "Legacy entry origins retained for compatibility; they do not select the OAuth callback. Use callbackBaseUrl for an explicit override",
     }),
   ),
   allowedDomains: t.Optional(

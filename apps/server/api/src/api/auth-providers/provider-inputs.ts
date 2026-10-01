@@ -25,3 +25,13 @@ export function normalizeOriginList(list: string[]): string[] {
   }
   return seen;
 }
+
+/** Override is one bare origin, so the preview and server use the same value. */
+export function normalizeCallbackBase(raw: string): string {
+  const origin = normalizeEntryOrigin(raw);
+  const url = new URL(raw.trim());
+  if ((url.pathname !== "" && url.pathname !== "/") || url.search || url.hash) {
+    throw new EntryInputError("callback base URL must have no path, query, or fragment");
+  }
+  return origin;
+}

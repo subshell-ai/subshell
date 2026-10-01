@@ -41,11 +41,14 @@ LAST open sign-in provider (409 `LAST_SIGN_IN_PROVIDER`). The PATCH also refuses
 exchange; the route used to accept them and even probe discovery against a
 nonsense email-row issuer), and every provider's `name` goes through the shared
 `normalizeLabel` + 120-code-point cap like every other user-visible NAME;
-it renders on the anonymous login buttons. On the §5a entry origins: what
-reaches the IdP is ALWAYS the stored canonical entry (list position 0),
-because 1.7.1's genericOAuth `redirectURI` is a static config string
-(measured, `types.d.mts:116`; a function value would be URL-serialized, not
-called); follow-the-visitor waits on the upstream capability,
-`pickEntryOrigin` stands as the pinned membership rule, and flow-matrix
-case 14 pins the emitted URI. The security accounting is
-`docs/security.md` §2's "OIDC sign-in with approval".
+it renders on the anonymous login buttons.
+
+OAuth callback bases follow `APP_BASE_URL`, unless the provider stores an explicit
+`callback_base_url` override. Migration 0044 adds the nullable column; existing
+`entry_origins` lists remain readable for compatibility but do not choose a
+callback. Both create and patch normalize overrides to a bare origin; null clears
+one. The form displays exactly one effective callback URI. Public base URL
+changes need a server restart; provider overrides invalidate auth immediately.
+`genericOAuth.redirectURI` remains a static string, never derived from a request.
+The Google preset sends `prompt=select_account`. Flow-matrix case 14 pins the
+explicit override through the emitted authorization URL.

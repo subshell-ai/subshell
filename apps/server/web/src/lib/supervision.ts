@@ -22,6 +22,7 @@ export type SupervisionMode = "service" | "app";
 export function currentMode(view: ServerDeployment): SupervisionMode | null {
   const service = view.service;
   if (service.manager === "app") return "app";
+  if (service.manager === "docker") return null;
   // **`installed` alone.** A definition on disk is what "in the background"
   // MEANS here, and it stays the answer while the service is merely stopped.
   //
@@ -55,6 +56,7 @@ export function currentMode(view: ServerDeployment): SupervisionMode | null {
  */
 export function loginDisabledReason(view: ServerDeployment): string | null {
   const service = view.service;
+  if (service.manager === "docker") return "Docker owns automatic startup; change its restart policy on the host.";
   if (service.manager === "app") {
     // Not "unavailable" — the question is real in this mode too, it just has
     // a different answer, and that answer is actionable by the person.

@@ -714,9 +714,9 @@ describe("OIDC sign-in matrix (spec §4/§5/§6/§7, fake issuer)", () => {
   // the flow started on this host — never the request's origin, never the
   // list's other entry. (A function-valued `redirectURI` is not an option:
   // line 29 would URL-serialize the function source; measured.)
-  it("14. the emitted redirect_uri is the stored canonical entry byte-for-byte (§5a pin)", async () => {
+  it("14. the emitted redirect_uri uses the explicit callback override byte-for-byte", async () => {
     const CANON = "http://canonical.pin.example:4321"; // deliberately NOT this host
-    const provider = await mkProvider({ entryOrigins: JSON.stringify([CANON, ORIGIN]) });
+    const provider = await mkProvider({ entryOrigins: JSON.stringify([ORIGIN]), callbackBaseUrl: CANON });
     const email = emailN("canon-pin");
 
     idp.setProfile(profileFor(email));

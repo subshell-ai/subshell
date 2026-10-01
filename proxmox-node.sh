@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Subshell - Proxmox VE NODE helper (spec 2026-09-29), run on the PROXMOX
-# HOST as root. Creates an unprivileged Debian trixie container and runs
+# HOST as root. Creates an unprivileged Debian container and runs
 # YOUR Subshell instance's own node install rail inside it - the exact
 # command the app shows under its Nodes screen. Paste that URL once; it
 # carries a one-time setup key, so there is nothing to save and nothing to
@@ -13,6 +13,8 @@
 
 set -u
 
+HELPER_SOURCE="${BASH_SOURCE[0]:-}"
+
 APP="Subshell node"
 CT_ID="${CT_ID:-}"
 CT_HOSTNAME="${CT_HOSTNAME:-subshell-node}"
@@ -21,11 +23,28 @@ CT_RAM_MB="${CT_RAM_MB:-1024}"
 CT_DISK_GB="${CT_DISK_GB:-4}"
 CT_BRIDGE="${CT_BRIDGE:-vmbr0}"
 SETUP_URL="${SETUP_URL:-}"
-TEMPLATE_CACHE="/var/lib/vz/template/cache"
+CT_STORAGE="${CT_STORAGE:-}"
+TEMPLATE_STORAGE="${TEMPLATE_STORAGE:-}"
+BACKUP_STORAGE="${BACKUP_STORAGE:-}"
 
 msg_ok() { echo -e "\e[32m[OK]\e[0m $*"; }
 msg_err() { echo -e "\e[31m[ERROR]\e[0m $*" >&2; exit 1; }
 header() { echo -e "\e[32m ==>\e[0m \e[1m$1\e[0m"; }
+
+# Keep the version that actually performed the install, even before a newer
+# website deployment. A piped invocation has no source file, so fetch it.
+save_helper() {
+  local destination="/root/proxmox-node.sh"
+  if [[ -f "$HELPER_SOURCE" ]]; then
+    if [[ "$HELPER_SOURCE" -ef "$destination" ]]; then
+      chmod 755 "$destination"
+    else
+      install -m 755 "$HELPER_SOURCE" "$destination"
+    fi
+  else
+    curl -fsSL "https://subshell.sh/proxmox-node.sh" -o "$destination" && chmod 755 "$destination"
+  fi
+}
 
 # fn_prompt VAR QUESTION DEFAULT  (PVE_NO_PROMPT=1 takes every default, for
 # unattended runs, exactly like the community scripts' var_check posture)
@@ -50,19 +69,40 @@ need_ct_id() {
   pct status "$CT_ID" >/dev/null 2>&1 || msg_err "no CT $CT_ID on this host"
 }
 
+# Only active storages supporting the requested content are candidates.
 default_storage() {
-  local s
-  s=$(pvesm status -content images 2>/dev/null | awk 'NR>1 {print $1; exit}')
-  echo "${s:-local}"
+  local content="${1:-rootdir}" stores
+  stores=$(pvesm status -content "$content") || return 1
+  awk 'NR>1 && $3 == "active" {print $1; exit}' <<< "$stores"
 }
 
-# Newest debian-13 standard template filename for this host's arch.
+select_storage() {
+  local var="$1" content="$2" question="$3" stores chosen
+  stores=$(pvesm status -content "$content") || msg_err "cannot list $content storage"
+  chosen="${!var}"
+  [[ -n "$chosen" ]] || chosen=$(default_storage "$content")
+  [[ -n "$chosen" ]] || msg_err "no active storage supports $content"
+  echo "$stores"
+  fn_prompt "$var" "$question" "$chosen"
+  chosen="${!var}"
+  awk -v name="$chosen" 'NR>1 && $1 == name && $3 == "active" {found=1} END {exit !found}' <<< "$stores" \
+    || msg_err "storage $chosen is not active or does not support $content"
+}
+
+# Use PVE's catalogue and downloader, including its integrity checks.
+# PVE 8 supports Debian 12; PVE 9 adds Debian 13 support.
 latest_template() {
-  local arch file
-  [[ "$(uname -m)" == "x86_64" ]] && arch="amd64" || arch="arm64"
-  file=$(curl -fsSL "https://download.proxmox.com/images/system/" |
-    grep -oE "debian-13-standard_[0-9.]+-[0-9]+_${arch}\.tar\.zst" | sort -V | tail -1)
-  [[ -n "$file" ]] || msg_err "no Debian 13 CT template found on download.proxmox.com"
+  local arch catalogue file version major debian=12
+  arch=$(dpkg --print-architecture) || msg_err "cannot determine host architecture"
+  version=$(pveversion) || msg_err "cannot determine Proxmox version"
+  major="${version#pve-manager/}"; major="${major%%.*}"
+  [[ "$major" =~ ^[0-9]+$ && "$major" -ge 8 ]] || msg_err "Proxmox VE 8 or newer is required"
+  [[ "$major" -lt 9 ]] || debian=13
+  pveam update >&2 || msg_err "cannot refresh Proxmox template catalogue"
+  catalogue=$(pveam available --section system) || msg_err "cannot list Proxmox templates"
+  file=$(awk '{print $2}' <<< "$catalogue" |
+    grep -E "^debian-${debian}-standard_[0-9.]+-[0-9]+_${arch}\.tar\.(zst|gz|xz)$" | sort -V | tail -1)
+  [[ -n "$file" ]] || msg_err "no Debian $debian template for $arch in Proxmox's catalogue"
   echo "$file"
 }
 
@@ -91,12 +131,12 @@ validate_setup_url() {
 install_ct() {
   preflight
   header "Create the ${APP} container"
-  local last
-  last=$(pct list 2>/dev/null | tail -n +2 | awk '{print $1}' | sort -n | tail -1)
+  local next_id
+  next_id=$(pvesh get /cluster/nextid) || msg_err "cannot get an unused cluster container ID"
   if [[ -n "$CT_ID" ]]; then
     msg_ok "using CT_ID=$CT_ID from the environment"
   else
-    fn_prompt CT_ID "Container ID" "$(( ${last:-100} + 1 ))"
+    fn_prompt CT_ID "Container ID" "$next_id"
   fi
   fn_prompt CT_HOSTNAME "Hostname (the node names itself after it)" "$CT_HOSTNAME"
   fn_prompt CT_CORES "Cores" "$CT_CORES"
@@ -112,22 +152,20 @@ install_ct() {
   fi
   validate_setup_url "$SETUP_URL" || msg_err "not a usable install URL from the app (expected http(s)://<reachable-host>/install.sh?setup_key=nsk_...[&server=...]); nothing was created"
 
-  local tmpl st rootpass
-  st=$(default_storage)
-  tmpl=$(latest_template)
-  if [[ ! -f "${TEMPLATE_CACHE}/${tmpl}" ]]; then
-    header "Downloading ${tmpl} (this can take a minute)"
-    ( cd "$TEMPLATE_CACHE" && wget -q --show-progress "https://download.proxmox.com/images/system/${tmpl}" ) \
-      || msg_err "template fetch failed"
-  fi
+  local tmpl rootpass
+  select_storage CT_STORAGE rootdir "Container disk storage"
+  select_storage TEMPLATE_STORAGE vztmpl "Template storage"
+  tmpl=$(latest_template) || msg_err "template discovery failed; nothing was created"
+  header "Downloading ${tmpl} (this can take a minute)"
+  pveam download "$TEMPLATE_STORAGE" "$tmpl" || msg_err "template download failed; nothing was created"
   rootpass=$(openssl rand -base64 12)
 
   local args
-  args=("$CT_ID" "local:vztmpl/${tmpl}"
+  args=("$CT_ID" "${TEMPLATE_STORAGE}:vztmpl/${tmpl}"
     --unprivileged 1
     --hostname "$CT_HOSTNAME" --ostype debian
     --memory "$CT_RAM_MB" --swap 512 --cores "$CT_CORES"
-    --disk "size=${CT_DISK_GB}G" --storage "$st"
+    --rootfs "${CT_STORAGE}:${CT_DISK_GB}"
     --net0 "name=eth0,bridge=${CT_BRIDGE},ip=dhcp"
     --password "$rootpass")
   pct create "${args[@]}" || msg_err "pct create failed"
@@ -171,7 +209,7 @@ REMOTE
   # A `curl | bash` install leaves no file to re-run; save our own copy
   # best-effort (the update verb needs it) so the print below is a promise.
   local update_hint=""
-  if curl -fsSL https://subshell.sh/proxmox-node.sh -o /root/proxmox-node.sh && chmod 755 /root/proxmox-node.sh; then
+  if save_helper; then
     update_hint="Update the agent later with: bash /root/proxmox-node.sh update (a copy you kept works too)"
   else
     update_hint="WARN: could not save /root/proxmox-node.sh - keep your copy for the update verb"
@@ -215,7 +253,8 @@ remove_ct() {
 backup_ct() {
   preflight
   need_ct_id
-  vzdump "$CT_ID" --mode snapshot --compress zstd --storage "$(default_storage)"
+  select_storage BACKUP_STORAGE backup "Backup storage"
+  vzdump "$CT_ID" --mode snapshot --compress zstd --storage "$BACKUP_STORAGE"
 }
 
 restore_help() {

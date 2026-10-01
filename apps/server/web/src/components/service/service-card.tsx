@@ -18,6 +18,7 @@ export const REINSTALL_COMMAND = "subshell-server service install";
 
 /** What the supervisor is CALLED in a sentence; the id `app` is not a name. */
 function managerName(manager: ServerDeployment["service"]["manager"]): string {
+  if (manager === "docker") return "Docker";
   return manager === "app" ? "Subshell Server" : (manager ?? "a service manager");
 }
 
@@ -104,17 +105,21 @@ export function ServiceCard({
       {service.installed && service.paneSafety !== "keeps" && (
         <div className="col-span-full space-y-1.5 text-sm text-warning">
           <p>
-            {service.paneSafety === "kills"
-              ? "Restarting will close every running subshell: this machine's service definition predates the setting that spares live panes."
-              : "This machine's service definition could not be read, so whether a restart keeps running subshells is unknown."}
+            {service.manager === "docker"
+              ? "Restarting the Docker container closes every running subshell."
+              : service.paneSafety === "kills"
+                ? "Restarting will close every running subshell: this machine's service definition predates the setting that spares live panes."
+                : "This machine's service definition could not be read, so whether a restart keeps running subshells is unknown."}
           </p>
           {/* The actual act, named. "Reinstall the service definition" is not
               something a person can do — this is. `install` rewrites the
               definition in place, so it IS the reinstall. */}
-          <p className="text-detail text-muted-foreground">
-            Rewrite it by running <CopyableValue value={REINSTALL_COMMAND} label="Reinstall command" /> on that machine,
-            then restart the server.
-          </p>
+          {service.manager !== "docker" && (
+            <p className="text-detail text-muted-foreground">
+              Rewrite it by running <CopyableValue value={REINSTALL_COMMAND} label="Reinstall command" /> on that
+              machine, then restart the server.
+            </p>
+          )}
         </div>
       )}
       <div className="col-span-full flex items-center gap-3">

@@ -172,95 +172,42 @@ describe("ProviderDialog", () => {
     }
   });
 
-  it("create mode's Other escape stays reachable when the seed exhausts the candidates", async () => {
-    const { restore } = mockFetch({}); // candidates: this browser's origin alone
+  it("uses the public base URL even when the stored legacy list starts with a LAN address", async () => {
+    const { restore } = mockFetch({ appBaseUrl: "https://plane.example" });
     try {
-      renderDialog();
+      renderDialog({ provider: view({ entryOrigins: ["http://10.1.10.50:3080", "https://plane.example"] }) });
       await settle();
-      // The create seed IS the only candidate, so Other is all the Select has
-      // left. It must be usable, not gated away with the button.
-      const addButton = () => screen.getByRole("button", { name: "Add" }) as HTMLButtonElement;
-      expect(addButton().disabled).toBe(true); // empty text
-      fireEvent.change(screen.getByLabelText("Other address"), { target: { value: "https://off-registry.example" } });
-      await settle();
-      expect(addButton().disabled).toBe(false);
-      fireEvent.click(addButton());
-      await settle();
-      expect(screen.getByRole("button", { name: "Remove https://off-registry.example" })).toBeDefined();
+      expect(screen.getByText("https://plane.example/api/auth/callback/google")).toBeTruthy();
+      expect(screen.queryByText("http://10.1.10.50:3080/api/auth/callback/google")).toBeNull();
+      expect((screen.getByLabelText("Callback base URL override (optional)") as HTMLInputElement).value).toBe("");
     } finally {
       restore();
     }
   });
 
-  it("create pre-adds the app base URL as the canonical entry", async () => {
-    const { restore } = mockFetch({ trustedOrigins: ["https://plane.example"], appBaseUrl: "https://plane.example" });
+  it("previews an explicit override and returns to the public URL when cleared", async () => {
+    const { restore } = mockFetch({ appBaseUrl: "https://plane.example" });
     try {
-      renderDialog();
+      renderDialog({ provider: view({ callbackBaseUrl: "https://override.example" }) });
       await settle();
-      // Spec §5a: position 1 on create is APP_BASE_URL's origin. It is the
-      // PUBLIC BASE URL row and pinned there (operator 2026-09-25): badged,
-      // and with no Remove or move controls at all.
-      expect(screen.getAllByText("Public base URL").length).toBeGreaterThan(0);
-      expect(screen.queryByRole("button", { name: "Remove https://plane.example" })).toBeNull();
+      expect(screen.getByText("https://override.example/api/auth/callback/google")).toBeTruthy();
+      fireEvent.change(screen.getByLabelText("Callback base URL override (optional)"), { target: { value: "" } });
+      expect(screen.getByText("https://plane.example/api/auth/callback/google")).toBeTruthy();
     } finally {
       restore();
     }
   });
 
-  it("falls back to this browser's origin only while appBaseUrl is unknown", async () => {
-    const { restore } = mockFetch({}); // a server predating the field
+  it("explains invalid overrides and refuses saving", async () => {
+    const { restore } = mockFetch({ appBaseUrl: "https://plane.example" });
     try {
-      renderDialog();
+      renderDialog({ provider: view() });
       await settle();
-      // The fallback seed is the pinned row too, so it carries no Remove —
-      // but "Callback base", never "Public base URL": with appBaseUrl unknown
-      // the dialog cannot SEE a public base URL to claim the row is one
-      // (review M-3, operator ruling 2026-09-25).
-      expect(screen.getAllByText("Callback base").length).toBeGreaterThan(0);
-      expect(screen.queryByText("Public base URL")).toBeNull();
-      expect(screen.queryByRole("button", { name: `Remove ${window.location.origin}` })).toBeNull();
-    } finally {
-      restore();
-    }
-  });
-
-  it("an edit row whose canonical is not the instance's base URL badges Callback base", async () => {
-    // The M-3 case: an API-created door stores an arbitrary address first.
-    // The badge may name the position's role, not assert a fact it cannot see.
-    const { restore } = mockFetch({ trustedOrigins: ["https://plane.example"], appBaseUrl: "https://plane.example" });
-    try {
-      renderDialog({ provider: view({ entryOrigins: ["https://other.example", "https://plane.example"] }) });
-      await settle();
-      expect(screen.getByText("Callback base")).toBeDefined();
-      expect(screen.queryByText("Public base URL")).toBeNull();
-    } finally {
-      restore();
-    }
-  });
-
-  it("the Other escape unlocks Add when every candidate is already an entry", async () => {
-    const { restore } = mockFetch({ trustedOrigins: ["https://plane.example"], appBaseUrl: "https://plane.example" });
-    try {
-      // Edit mode with both candidates (this browser's, the base URL's) already
-      // entries: the case `offered.length === 1` used to deadlock — Add
-      // disabled exactly when Other exists.
-      renderDialog({ provider: view({ entryOrigins: [window.location.origin, "https://plane.example"] }) });
-      await settle();
-      const addButton = () => screen.getByRole("button", { name: "Add" }) as HTMLButtonElement;
-      const otherInput = () => screen.getByLabelText("Other address") as HTMLInputElement;
-      // Empty text: nothing to add yet.
-      expect(addButton().disabled).toBe(true);
-      // Garbage: still disabled, the guard is validity, not presence.
-      fireEvent.change(otherInput(), { target: { value: "not a url" } });
-      await settle();
-      expect(addButton().disabled).toBe(true);
-      // A valid bare origin: Add lives, and the entry lands in the list.
-      fireEvent.change(otherInput(), { target: { value: "https://still-learning.example" } });
-      await settle();
-      expect(addButton().disabled).toBe(false);
-      fireEvent.click(addButton());
-      await settle();
-      expect(screen.getByRole("button", { name: "Remove https://still-learning.example" })).toBeDefined();
+      fireEvent.change(screen.getByLabelText("Callback base URL override (optional)"), {
+        target: { value: "https://override.example/path" },
+      });
+      expect(screen.getByRole("alert").textContent).toContain("no path");
+      expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     } finally {
       restore();
     }
@@ -288,7 +235,7 @@ describe("ProviderDialog", () => {
     }
   });
 
-  it("the copy panel lists the redirect URI and JS origin for every entry", async () => {
+  it("the copy panel lists only the effective callback base and full redirect URI", async () => {
     const { restore } = mockFetch({ trustedOrigins: ["https://plane.example"], appBaseUrl: "https://plane.example" });
     try {
       renderDialog({ provider: view() });
@@ -297,9 +244,9 @@ describe("ProviderDialog", () => {
       // rows above, and the test is about the copy fields.
       const panel = within(screen.getByRole("group", { name: "Finish the setup at your provider" }));
       expect(panel.getByText("https://plane.example/api/auth/callback/google")).toBeDefined();
-      expect(panel.getByText("http://localhost:3080/api/auth/callback/google")).toBeDefined();
+      expect(panel.queryByText("http://localhost:3080/api/auth/callback/google")).toBeNull();
       expect(panel.getByText("https://plane.example")).toBeDefined();
-      expect(panel.getByText("http://localhost:3080")).toBeDefined();
+      expect(panel.queryByText("http://localhost:3080")).toBeNull();
     } finally {
       restore();
     }

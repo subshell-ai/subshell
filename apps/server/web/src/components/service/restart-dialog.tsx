@@ -96,7 +96,9 @@ export function RestartDialog({
           <DialogTitle>Restart the server?</DialogTitle>
           <DialogDescription>
             {kills
-              ? `This server's service definition will close every running subshell. Rewrite it by running ${REINSTALL_COMMAND} on this machine, or restart anyway.`
+              ? view.service.manager === "docker"
+                ? "Restarting the Docker container closes every running subshell. Open terminals reconnect after the server returns."
+                : `This server's service definition will close every running subshell. Rewrite it by running ${REINSTALL_COMMAND} on this machine, or restart anyway.`
               : "Running subshells keep running; open terminals reconnect in a few seconds."}
           </DialogDescription>
         </DialogHeader>

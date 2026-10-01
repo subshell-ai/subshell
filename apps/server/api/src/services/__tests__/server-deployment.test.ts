@@ -118,6 +118,24 @@ describe("collectDeployment", () => {
     expect(view.restart.reason).toContain("proxmox-server.sh update");
   });
 
+  it("enables Docker restart only with an explicit restart-policy claim and PID 1", () => {
+    const docker = (pid: number, restart: string | undefined) =>
+      collectDeployment({
+        platform: "linux",
+        pid,
+        env: { SUBSHELL_CONTAINER: "1", SUBSHELL_CONTAINER_RESTART: restart },
+        applied: new Set(),
+        queryService: () => service as never,
+      });
+    const view = docker(1, "1");
+    expect(view.service.manager).toBe("docker");
+    expect(view.restart.available).toBe(true);
+    expect(view.service.supervised).toBe(true);
+    expect(view.service.paneSafety).toBe("kills");
+    expect(docker(2, "1").restart.available).toBe(false);
+    expect(docker(1, undefined).restart.available).toBe(false);
+  });
+
   it("reads the container fact from the marker only, not from anything else in the env", () => {
     expect(isContainerized({})).toBe(false);
     expect(isContainerized({ SUBSHELL_CONTAINER: "true" })).toBe(false);

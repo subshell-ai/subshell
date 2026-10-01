@@ -17,7 +17,7 @@ This example publishes port 3080 and mounts your projects at the same absolute p
 
 ```bash
 mkdir -p "$HOME/.config/subshell-server" "$HOME/projects"
-docker run -d --name subshell --restart unless-stopped \
+docker run -d --name subshell --restart unless-stopped -e SUBSHELL_CONTAINER_RESTART=1 \
   --user "$(id -u):$(id -g)" \
   -p 3080:3080 \
   -v "$HOME/.config/subshell-server:/data" \
@@ -31,7 +31,24 @@ docker run -d --name subshell --restart unless-stopped \
 2. Create the admin account.
 3. Confirm that the mounted project directory is available in the launch picker.
 
-For another device or proxy, set `APP_BASE_URL` to the actual browser URL in your Docker command or Compose environment and recreate the container. [Files and paths](/reference/paths) explains the configuration files and persistent state; this example mounts the host directory at `/data`.
+For another device or proxy, set `APP_BASE_URL` to the actual browser URL in your Docker command or Compose environment and recreate the container. For example, use `-e APP_BASE_URL=http://192.168.1.20:3080` when that is your Docker host's address. Docker bridge networking hides the host's addresses from the server, so loading the page by another address can succeed while signup returns “Invalid origin.” See [Addresses and trusted origins](/networking/addresses) for additional browser URLs. [Files and paths](/reference/paths) explains the configuration files and persistent state; this example mounts the host directory at `/data`.
+
+## Automatic LAN access on Linux
+
+On a Linux Docker host, host networking lets the server discover and trust the host's own LAN addresses automatically, just as a native CLI installation does:
+
+```bash
+mkdir -p "$HOME/.config/subshell-server" "$HOME/projects"
+docker run -d --name subshell --restart unless-stopped -e SUBSHELL_CONTAINER_RESTART=1 \
+  --user "$(id -u):$(id -g)" \
+  --network host \
+  -v "$HOME/.config/subshell-server:/data" \
+  -v "$HOME/projects:$HOME/projects" \
+  -e DATABASE_PATH=/data/subshell.db \
+  ghcr.io/subshell-ai/subshell:latest
+```
+
+Open `http://your-host-ip:3080/setup`. Host networking uses the host's ports directly, so port 3080 must be available. For a DNS name or reverse proxy, set `APP_BASE_URL` to that browser URL. On Docker Desktop, use the bridged example above and set `APP_BASE_URL` to the URL you open.
 
 ## Credentials and persistence
 
@@ -45,3 +62,18 @@ Persist `/data`, including `config.env`, the SQLite database, and other instance
 ## Next steps
 
 See [Update the server](/administration/updates), [Backups and restoration](/administration/backups), and [HTTPS and reverse proxies](/networking/https).
+
+## Save addresses and restart
+
+Change browser addresses in **Server Settings → Networking → Addresses**.
+Other addresses apply immediately; changes to the public base URL, bind address,
+or listening port need a restart. The examples above pair
+`SUBSHELL_CONTAINER_RESTART=1` with `--restart unless-stopped`, allowing the
+server to offer a dashboard restart. Restarting the Docker container closes
+running subshells. Only set this variable when Docker is configured to restart
+the container after the server exits.
+
+For an existing container without that variable, save the settings and run
+`docker restart subshell` on its Docker host. On a Proxmox install, run
+`pct exec <CT ID> -- docker restart subshell` on the Proxmox host. See
+[Addresses](/networking/addresses) for the full settings reference.
