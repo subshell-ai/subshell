@@ -48,14 +48,9 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
   const offerArch = isMac && macIntelAvailable(manifest, kind);
   const copy = installCopy(manifest, kind, isMac, offerArch ? macArch : "darwin-arm64");
   const why =
-    kind === "server" ? (
-      <>
-        Downloads the CLI for your platform, verifies its SHA-256, installs to <code>~/.local/bin/subshell-server</code>
-        , runs <code>init</code>.
-      </>
-    ) : (
-      "Downloads Subshell Client for your platform, verifies its SHA-256, and sets it up to watch and run sessions."
-    );
+    kind === "server"
+      ? "Installs the server CLI and starts setup."
+      : "Open Subshell Client to connect to your server. To run agents on this machine, enroll it as a node.";
   // The two small headings answer "which of these is the app and which is
   // the CLI", the question the cards used to leave unasked (operator
   // observation, 2026-09-25). Same voice as the h2, one size down.
@@ -111,8 +106,8 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
           machine enrolls as a node; nothing on this page used to say so. */}
       <p className="mb-3 max-w-[38ch] text-[12px] text-[var(--dimmer)]">
         {kind === "server"
-          ? "This machine becomes the control plane every other device connects to."
-          : "Your interface to Subshell, and the app that enrolls this machine as a node."}
+          ? "Host your Subshell server on this machine and connect to it from your other devices."
+          : "Connect to your server and manage sessions. You can also run agents on this machine by enrolling it as a node."}
       </p>
       <p className={headingClass}>{copy.appHeading}</p>
       {offerArch ? (
@@ -175,8 +170,22 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
           </div>
         </>
       )}
+      {kind === "client" && (
+        <>
+          <p className={`${headingClass} mt-[18px]`}>{copy.curlHeading}</p>
+          <a
+            className="text-[13.5px] text-[var(--frost)] hover:text-[var(--orchid)]"
+            href="https://docs.subshell.sh/nodes/enroll"
+          >
+            Install and enroll a node with the CLI
+          </a>
+          <p className="mt-2 max-w-[38ch] text-[12px] text-[var(--dimmer)]">
+            In your server dashboard, open Nodes and select Add node to get the installation command and setup key.
+          </p>
+        </>
+      )}
       <p className="mt-3 max-w-[36ch] text-[12px] text-[var(--dimmer)]">
-        macOS 13+ on Apple silicon · Linux x86_64 Ubuntu 24.04+ / Debian 13+
+        macOS 13+ · Linux x86_64 (Ubuntu 24.04+ / Debian 13+)
       </p>
       <p className="mt-2.5 max-w-[38ch] text-[12px] text-[var(--dimmer)]">{why}</p>
       {/* The third path is not a download (issue #233): adding a machine to a
@@ -192,7 +201,7 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
         >
           Add another machine
         </a>{" "}
-        from a setup key minted on its control plane.
+        using a setup key from your server’s Nodes page.
       </p>
     </div>
   );

@@ -1,25 +1,28 @@
 const FEATURES = [
   [
     "Self-hosted",
-    "Designed to run on your LAN or VPN, with built-in support for Tailscale, Headscale, NetBird and Cloudflare Tunnel.",
+    "Designed to run on your LAN or VPN, with built-in support for Tailscale, Headscale, NetBird, and Cloudflare Tunnel.",
   ],
   [
     "Access your agents from anywhere",
-    "Every session in one list, on your phone, a tablet or any browser. Same session, same scrollback, with a key bar for Esc, Ctrl-C and the arrows.",
+    "Reconnect to the same sessions and terminal history from your phone, tablet, or desktop browser. A mobile key bar provides Esc, Ctrl-C, and arrow keys.",
   ],
   [
     "Get notified when an agent needs you",
-    "Subshell sends push notifications when agents are waiting for your input after finishing tasks.",
+    "Get push notifications when an agent finishes a task or needs your input or approval.",
   ],
   [
-    "Spin up agents on remote machines",
-    "Register your machines as nodes to launch agents from. Every node connection is encrypted and authenticated.",
+    "Run agents on other machines",
+    "Enroll your machines as nodes and launch agents on them from the dashboard. Node connections are encrypted and authenticated.",
   ],
   [
     "Upload files from any device",
-    "Drop a screenshot, a log or any file into a session from your phone or another machine for your agent to use.",
+    "Upload screenshots, logs, and other files to a session from your phone or another device for your agent to use.",
   ],
-  ["Free and open source", "Subshell Server is licensed under AGPL-3.0, while all other components are Apache-2.0."],
+  [
+    "Free and open source",
+    "The server code is licensed under AGPL-3.0-only. All other components are licensed under Apache-2.0.",
+  ],
 ] as const;
 
 export function Features() {

@@ -50,7 +50,7 @@ test("client+linux: direct deb href, alt dmg href, client curl", () => {
     "https://github.com/subshell-ai/subshell/releases/download/desktop-client-v0.6.0/Subshell-Client-Desktop-0.6.0-darwin-arm64.dmg",
   );
   expect(c.artifactFile).toBe("subshell-client-desktop_0.6.0_amd64.deb");
-  expect(c.curlCommand).toBe("curl -fsSL https://subshell.sh/install-client.sh | bash");
+  expect(c.curlCommand).toBeNull();
 });
 
 test("client without installScript: download only, curl row gone (Review Focus 3)", () => {
@@ -64,11 +64,10 @@ test("client without installScript: download only, curl row gone (Review Focus 3
 
 test("headings name what each path delivers (operator note, 2026-09-25)", () => {
   expect(installCopy(m, "server", true).appHeading).toBe("Subshell Server desktop app");
-  // Server's one-liner is the CLI; the client's installs the same desktop
-  // app, so the curl heading is per kind by design, not an inconsistency.
+  // Both choices offer CLI setup; node setup comes from the operator’s server.
   expect(installCopy(m, "server", true).curlHeading).toBe("or the CLI");
   expect(installCopy(m, "client", true).appHeading).toBe("Subshell Client desktop app");
-  expect(installCopy(m, "client", true).curlHeading).toBe("The same app, one command");
+  expect(installCopy(m, "client", true).curlHeading).toBe("or the CLI");
 });
 
 test("missing desktop entry: generic releases href, no filename, no crash (Review Focus 2)", () => {

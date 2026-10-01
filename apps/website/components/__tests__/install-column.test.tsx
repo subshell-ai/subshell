@@ -53,17 +53,27 @@ test("the fork names jobs, not product names, and states the picked role", async
   expect(screen.getByRole("group", { name: "What this machine should do" })).toBeDefined();
   expect(screen.getByRole("button", { name: "Server" })).toBeDefined();
   expect(screen.getByRole("button", { name: "Client / Node" })).toBeDefined();
-  expect(screen.getByText("This machine becomes the control plane every other device connects to.")).toBeDefined();
+  expect(
+    screen.getByText("Host your Subshell server on this machine and connect to it from your other devices."),
+  ).toBeDefined();
 });
 
 test("picking the client chip says what the client is, node enrollment included", async () => {
   await mounted();
   fireEvent.click(screen.getByRole("button", { name: "Client / Node" }));
   expect(
-    screen.getByText("Your interface to Subshell, and the app that enrolls this machine as a node."),
+    screen.getByText(
+      "Connect to your server and manage sessions. You can also run agents on this machine by enrolling it as a node.",
+    ),
   ).toBeDefined();
+  expect(screen.getByRole("link", { name: "Install and enroll a node with the CLI" }).getAttribute("href")).toBe(
+    "https://docs.subshell.sh/nodes/enroll",
+  );
+  expect(screen.queryByText(/install-client.sh/)).toBeNull();
   // Exactly one role sentence stands: both rendering at once would re-ask the fork's own question.
-  expect(screen.queryByText("This machine becomes the control plane every other device connects to.")).toBeNull();
+  expect(
+    screen.queryByText("Host your Subshell server on this machine and connect to it from your other devices."),
+  ).toBeNull();
 });
 
 test("the non-download third path points at the node setup documentation", async () => {

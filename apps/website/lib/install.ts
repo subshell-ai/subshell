@@ -28,9 +28,7 @@ export function detectIsMac(ua: string, plat: string): boolean {
 export interface InstallCopy {
   /** Small heading over the button: WHAT the button delivers. */
   appHeading: string;
-  /** Small heading over the curl row. Server's one-liner installs the CLI,
-   * the client's installs the SAME desktop app, so the heading is per kind
-   * rather than one word stretched over both. */
+  /** Small heading over the CLI installation option. */
   curlHeading: string;
   downloadHref: string;
   downloadLabel: string;
@@ -74,9 +72,6 @@ export function installCopy(
   if (kind === "server") {
     const script = manifest.components["cli-server"]?.installScript;
     if (script) curlCommand = `curl -fsSL ${SITE_ORIGIN}/${script} | bash`;
-  } else {
-    const script = desktop?.installScript;
-    if (script) curlCommand = `curl -fsSL ${SITE_ORIGIN}/${script} | bash`;
   }
 
   // DIRECT asset URLs. The manifest entry's `url` is the release PAGE, but
@@ -94,7 +89,7 @@ export function installCopy(
 
   return {
     appHeading: `${productName} desktop app`,
-    curlHeading: kind === "server" ? "or the CLI" : "The same app, one command",
+    curlHeading: "or the CLI",
     downloadHref: assetHref(target) ?? generic,
     // The arch names itself on the button only when there IS a choice to
     // name; a release without an Intel bundle keeps the plain macOS label

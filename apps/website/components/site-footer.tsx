@@ -7,7 +7,7 @@ export function SiteFooter() {
           Disaresta
         </a>
       </span>
-      <span>AGPL-3.0 server · Apache-2.0 everything else</span>
+      <span>Server code: AGPL-3.0-only · Other components: Apache-2.0</span>
     </p>
   );
 }

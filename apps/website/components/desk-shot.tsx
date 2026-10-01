@@ -16,7 +16,9 @@ export function DeskShot() {
         height={800}
         label="Subshell desktop workspace sending a prompt to Codex, showing a notification sample, and switching to Claude Code"
       />
-      <p className="mt-2.5 text-center text-[12px] text-[var(--dimmer)]">The control plane in tablet / desktop mode</p>
+      <p className="mt-2.5 text-center text-[12px] text-[var(--dimmer)]">
+        The Subshell dashboard on desktop and tablet
+      </p>
     </section>
   );
 }

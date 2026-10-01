@@ -57,3 +57,14 @@ or data-saving preferences. The video itself is a keyboard-accessible toggle;
 do not add visible Play/Pause links beneath it.
 Verify duration, stream metadata, export assets, responsive layout, playback,
 manual pause/resume, and preference handling after replacing clips.
+
+## Website copy
+
+Use plain, concise language and consistent product terms: Server, Client, node,
+agent, and session. Introduce a node as a machine that runs agents. Use “your
+server” and “dashboard” in visitor-facing instructions rather than “control
+plane”. Describe what an installation does; keep digest algorithms, binary
+paths, and other implementation details in documentation. Both installation
+choices use “or the CLI”; node CLI setup links to the server-generated command
+and setup key, not the desktop installer. Use sentence case, the serial comma,
+and descriptive captions that do not require knowing abbreviations such as PWA.
