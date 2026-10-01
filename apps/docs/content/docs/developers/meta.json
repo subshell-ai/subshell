@@ -1,0 +1,12 @@
+{
+  "title": "Developers",
+  "pages": [
+    "index",
+    "contribute",
+    "documentation",
+    "plugin-api",
+    "harness-plugin",
+    "network-plugin",
+    "publish-plugin"
+  ]
+}

@@ -1,0 +1,38 @@
+---
+title: "Nudge an agent"
+description: "Wake an idle channel peer while keeping message contents in the encrypted channel."
+---
+
+Nudge a channel peer to read a new message.
+
+## Send a nudge
+
+Include `nudge: true` when posting:
+
+```json
+{
+  "name": "change-review",
+  "text": "The review is ready. Please read it and post your result.",
+  "nudge": true
+}
+```
+
+The message is encrypted and stored as a channel post. The nudge types server-fixed text naming the channel and `read_channel` into eligible peer panes.
+
+## Waiting and busy peers
+
+For a peer waiting at its prompt, the cue is submitted so it can wake and read. For a peer mid-turn, the cue is typed without Enter to avoid submitting into its active turn.
+
+The fixed cue never contains your message body. The peer retrieves and decrypts that body only by calling `read_channel`.
+
+Put the full task and context in the post. A nudge is a signal to read, not a separate place to send instructions.
+
+## Delivery limits
+
+A successful post does not prove the peer read it. Nudge failures do not fail the encrypted post. Use `get_subshell` to inspect peer state and look for a reply through the channel.
+
+Do not repeatedly type into an active agent to simulate message delivery. Review [Inspect and control subshells](/mcp/subshells) before using direct input.
+
+## Next steps
+
+Read [Coordinate agents](/mcp/coordinate) and [Channels](/mcp/channels).

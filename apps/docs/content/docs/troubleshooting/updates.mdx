@@ -1,0 +1,34 @@
+---
+title: "Update troubleshooting"
+description: "Diagnose refused updates, signature failures, container installs, and pending restart phases."
+---
+
+Diagnose an update that is refused or has not completed.
+
+## Read the installation type
+
+A standalone CLI replaces its binary. A desktop flow updates the app and bundled component. Docker and the Proxmox server image path replace the container image.
+
+An update command inside a container can report availability without applying a binary replacement. Pull and recreate the image instead.
+
+## Live-pane refusal
+
+An updater or service restart can refuse disruption to running panes. Review them and use maintenance or an explicit stop. `--force` accepts the stated consequences; it does not prove that work is safe to interrupt.
+
+## Signature or download failure
+
+Check the configured release source and asset target. Do not bypass a signature failure. Use a coherent set of artifacts from a trusted release.
+
+An empty release URL disables network fetching. Use the documented local-file path for an intentionally air-gapped installation.
+
+## Update staged but not running
+
+`--no-restart` installs bytes without restarting. An absent or stopped service may also leave restart to you. Check the executing version after the new process starts rather than only the version of a file on disk.
+
+## Rollback
+
+Keep a separate backup before rolling back the server database. A binary rollback on a node can fail the server's exact protocol check.
+
+## Next steps
+
+Read [Update the server](/administration/updates), [Node updates](/nodes/updates), and [Backups and restoration](/administration/backups).

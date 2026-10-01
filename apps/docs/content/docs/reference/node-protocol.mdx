@@ -1,264 +1,207 @@
 ---
-title: Node protocol
-description: "The wire contract between the control plane and an enrolled node: enrollment, the encrypted handshake, the two connect gates, the signed command envelope, every command and event, close codes, and versioning."
+title: "Node protocol"
+description: "Understand node enrollment, encrypted connection setup, signed commands, terminal streaming, compatibility gates, and connection failures."
 ---
 
-This page is the wire contract between the control plane and a node: a machine running the `subshell` daemon.
+Understand how an enrolled node authenticates, receives work, and reports session output to its server.
 
-It is written for the operator debugging a node and the contributor implementing something node-side. The contract itself lives in the shared protocol package (frames, validators, the envelope, the version gates), and both sides import it, so there is no second copy to drift. For what the link is for and what it defends against, see [How it works](/concepts/how-it-works) and [Security model](/concepts/security-model); the command payloads a node answers with are covered by [Manage a node](/nodes/manage).
+## Scope and transport
 
-## 1. Shape of the link
+The node daemon opens an outbound WebSocket connection to the server's `/ws/node` endpoint. The server uses that connection for commands; the node uses it for results, machine reports, terminal output, and process-exit events. Browsers connect to the server, so they do not need direct access to a node's ports.
 
-Each node keeps one WebSocket, dialed out by the node to `/ws/node`. The control plane never connects to a node. That direction is the whole reason nodes work behind NAT and on laptops: nothing has to be reachable except the control plane.
+This protocol is an internal contract between the server and node releases. It is separate from the browser API and MCP tool interface. Use [REST API](/automation/rest-api) or [MCP tool reference](/mcp/tools) for external integrations.
 
-The trust is asymmetric on purpose:
-
-- Commands (control plane → node) are signed. The node verifies every envelope before executing anything. It holds the control plane's public key from enrollment, so a compromised relay cannot forge work for it.
-- Events (node → control plane) are not signed. The bearer node key authenticated the socket at upgrade; events inherit exactly that key's trust and nothing more. Signing them would prove nothing the connection has not already proved.
-- The link itself is encrypted, since protocol 14. Before any frame is read, the two sides complete a key exchange bound to the long-term identities each pinned at pairing. After that, the socket carries only authenticated ciphertext. A control plane on plain `http://` therefore no longer puts node traffic on the network in the clear: encryption is per-connection and independent of TLS. §3 covers the handshake and the `register` self-heal. A link that will not speak them is refused with close code `4410`, or with `4411`, which specifically means the node must re-pair its identity.
-
-Both directions cap frames at 1 MiB (1,048,576 bytes). Each handler enforces the ceiling by byte length rather than trusting server config. The inbound rule on the control plane closes the socket with `1009`. The node's rule drops the frame and keeps talking: an oversize frame from the plane is a bug to log, not a reason to drop the link. Since protocol 14 the same ceiling binds both spellings of a frame, and it binds at the wire. The raw bytes are capped before the machine runs, and a ciphertext is always 17 bytes larger than the plaintext it carries. Whatever a decrypt yields is therefore bounded by that same ceiling structurally (plaintext ≤ ciphertext − 17 ≤ cap), and nothing is measured a second time after it opens.
-
-## 2. Enrollment
-
-A node is enrolled once, with a single-use setup key (`nsk_…`). The key is valid for 24 hours, is stored in plaintext, and is listed in full on the Setup keys page until it is used, expires, or is revoked; revocation is audited. Mint one on the Nodes page ([Add a node](/nodes/add-a-node)).
-
-1. The node checks for tmux first, so a machine that cannot host a pane never spends a setup key. It then generates its identity keypair (P-256, for sealed channel delivery; a present-but-corrupt key file is quarantined, never silently rotated) and its link keypair (X25519, for the encrypted `/ws/node` handshake).
-2. It posts `POST /api/nodes/enroll` with the setup key, a name (≤ 64 characters), `os`/`arch`/`hostname`/`agentVersion`, its public JWK, and its link public key (`encryptPublicKey`). A body without the link key still enrolls: the row simply starts unpaired, and its node pairs through §3's `register` self-heal on its first connect. This is the one node route with no auth guard: the setup key is the credential.
-3. The route peeks the key's state before consuming it, so an invalid, expired, or spent key answers with a specific error rather than a generic one. Consumption itself is a single-winner transaction; the steps after it are not atomic, so a failure past that point honestly reports the key as spent and a new one is needed.
-4. The response carries, exactly once: the assigned `nodeId`, the long-lived bearer `nodeKey` (only its hash is stored server-side), the control plane's command-signing public JWK, its link-encryption public key (`controlEncryptPublicKey`), and the `wsUrl` the plane says it lives at. The node derives nothing until it holds the link key. The `wsUrl` is persisted, so a reverse-proxy subpath mount is dialed as described rather than re-derived.
-5. The node writes all of it to `config.json` (0600). That file is the node key's only home, and it also holds the node's private link half. No CLI command echoes either secret, `--json` included.
-
-A node key can do nothing on the REST API. The auth guard rejects node-kind bearer keys outright and permanently; its entire blast radius is impersonating this node on its WebSocket.
-
-## 3. Connect and the two gates
-
-The node dials `/ws/node` with `Authorization: Bearer <nodeKey>`. The upgrade authenticates before any socket exists: an absent, disabled, expired, or wrong-kind key refuses with HTTP 401, and so does a key whose node row has vanished. A valid node key aimed at the local node (the control-plane host's own row, which never runs a node daemon) is refused with 403, and so is a key no longer bound to the node row it names: rotation flips the binding, and deletion disables it. A socket that somehow reaches the handler without a verified identity is closed `4401`. Encryption is not the authenticator. The bearer still decides whose socket this is, and the handshake that follows decides what the socket may carry.
-
-### The encrypted handshake (protocol 14)
-
-The row's own state (checked at upgrade time) classifies the socket:
-
-- The row carries an `encryptPublicKey`. The link is required: no frame is read until the handshake completes, and the `ready` arrives encrypted like everything else.
-- The row carries none, which is true of every node enrolled before protocol 14 shipped. The row is legacy, and plaintext is still accepted on it, so an old agent meets the two gates below exactly as it always did: held as below-floor, and updatable. A protocol-14 agent that finds no pin in its own config does not handshake; it registers first (below).
-
-A provisioned agent (its `config.json` holds both link fields) derives immediately on socket open, without waiting for anything inbound:
-
-1. It mints a fresh per-connection ephemeral and derives its side of the session keys against the pinned control-plane static: `crypto_kx`, a single X25519 DH plus a hash binding, with independent receive/send keys. Server authentication falls out of that one DH: only a holder of the private half can produce bytes the agent can open.
-2. It sends the text frame `{ "t": "kx", "eph": <ephemeral pubkey>, "pub": <long-term node static> }` and, in the same turn, its first binary frame: the sealed binding, `crypto_secretstream` ciphertext of `{ "nodeId": …, "nodeKey": …, "protocolVersion": 14 }` (the stream's 24-byte header rides this first push).
-3. The plane checks the claim before it computes anything: frame shape, 32-byte decodes, then a constant-time compare of `pub` against the row's pin. A mismatch never reaches key derivation.
-4. It opens the binding and checks three facts: the `nodeId` names the row the bearer authenticated; the `nodeKey` re-proves through the same verification chain the upgrade ran (the plane stores only a hash, so this is a re-verification, never a string compare); and the `protocolVersion` matches exactly. Each refusal names which fact failed, per the two-gates doctrine.
-5. The plane's `kx` answer is silence: a single DH gives it no ephemeral to hand back, and the agent needed none. Its first push is the sealed `{ "t": "ok" }`. Opening that ack establishes the link, and `ready` follows immediately.
-
-Anything else at the wrong moment is a refusal: ciphertext before the `kx`, plaintext before the binding, plaintext on an established link, or ciphertext that will not open. Each closes the socket with `4410` and a one-line reason, which the agent relays into its own log. The ratchet never resyncs: a broken stream is a dead link and a redial, because resyncing on attacker-chosen bytes is not a recovery. A socket that is classified, open, and handshake-less past the 10-second deadline is refused with the same generic `4410` rather than waited on forever. That deadline says nothing about the pin, so it is deliberately not the re-pair signal below.
-
-Both `4410` and `4411` are non-terminal. Unlike `4406` and `4409`, the agent never exits on them; the backoff loop simply redials, with a 60-second cap. From the agent they report the mirror-image failures: the server's first frame would not open (the pinned control key is wrong), or the stream broke mid-session. One close is deliberately neither refusal: the normal close that follows a successful `register` (below). That close is the success path, not a refusal.
-
-### The self-heal: pairing an old row, and re-pairing after rotation
-
-Rows that predate protocol 14, and rows whose pin a key rotation has just cleared, are brought onto the link by the agent itself. This happens over the socket the bearer key already authenticates: the bearer is the trust root, exactly as it authenticates every legacy frame.
-
-- First pairing. An agent with no `controlEncryptPublicKey` in its config sends `{ "t": "register", "pub": <long-term static> }`. It generates its keypair and persists it before sending the claim, so a lost reply resumes with the same static rather than a mint that can never match the pin. The plane writes the claim into the row's `encryptPublicKey` and answers `{ "t": "register-ok", "controlEncryptPublicKey": … }` in plaintext, then closes the socket normally; the redial is handshake mode under the pin just written.
-- After key rotation. `POST /api/nodes/:id/key_rotate` clears the row's encryption pin alongside the key itself, so a provisioned node redials in handshake mode at a row that no longer holds its identity. The plane answers its real `kx` claim with a named `4411` ("re-pair via register"). Pairing is a handshake between the two endpoints, not a thing to be arranged around them, and a named refusal beats the silent stall this state used to be. `4411` is a distinct code precisely because it is the only signal that means the node's pin is stale. On the agent side, a `4411` that arrives before the link established drops the pinned control key, and nothing else: never its own pair. The next connect is therefore a `register` of the same static, and the row re-pairs. A generic `4410` (the handshake deadline, a pin or binding mismatch) leaves the config byte-identical, so a stalled-but-healthy node redials in handshake mode and heals on the fresh ephemeral. Clearing the pin on `4410` would send the redial to `register` against a still-pinned row and offline a good machine on a network blip. A stream that established and later died still redials fully provisioned either way.
-- A plaintext `ready` wearing 14 on a legacy row is the downgrade attempt this machinery exists to refuse. The plane holds the node under the pairing reason (offline for every purpose but `update`) and never writes the node's self-claimed identity onto the row. What is genuinely old (a below-floor `ready`) keeps the ordinary gates and hold path unchanged.
-
-Replacing the plane's link keypair (`<data dir>/node-encryption.json`, 0600, generated on first use) breaks every node's pinned server identity at once. Such a node does not self-heal. Its `kx` claim is still accepted, because the row's pin is the node's own key, which did not change, but the sealed binding fails to open against the new plane key. The agent then drops its control pin and falls to `register`, and the row is still pinned, so the plane refuses that `register` with a generic `4410` whose reason names the remedy ("the row already pins an encryption identity; rotating the node key re-pairs it"). This is the register crash-window, and `4411` does not heal it: a `register` is not the re-pair signal, and the agent has no control pin left to drop. The same state also arises when the plane persists a row's pin and then dies before the agent stores its own control pin. The loop stays stuck, not healing, until an operator rotates that node's key (`POST /api/nodes/:id/key_rotate`, which clears the row's pin so a fresh `register` is accepted again). Because rotation disables the old bearer too, the operator must then install the new node key on the machine (`subshell configure --key <new>`) and restart the agent. Nothing regenerates the plane keypair silently: an unreadable file is refused loudly, because auto-rotating it would strand every enrolled node this way.
-
-The node's first protocol frame on an established link (or, for a legacy plaintext socket, on the socket itself) is `ready`:
-
-```jsonc
-{
-  "type": "ready",
-  "agentVersion": "0.17.0",
-  "protocolVersion": 14,
-  "os": "darwin",              // linux | darwin | unknown
-  "arch": "arm64",
-  "hostname": "mac-mini",
-  "dataDir": "/Users/x/.config/subshell/data",
-  "capabilities": ["uploads", "mcp"],
-  "selfInvoke": { "command": "/Users/x/.local/bin/subshell", "args": [] },
-  "homeDir": "/Users/x",                      // resume-path defaults hang off it
-  "runtime": { /* how this process runs; see below */ },
-  "maintenance": { "on": false, "changedAt": "2026-09-15T09:00:00.000Z" }
-}
+```mermaid
+%% The node opens an outbound connection to the server. The server relays browser input to the node and node output back to the browser.
+flowchart LR
+  B[Browser or Subshell Client] <-->|Authenticated HTTP and WebSocket access| S[Server]
+  N[Node daemon] -->|Opens outbound WebSocket| S
+  S -->|Signed commands over encrypted link| N
+  N --> A[Agent or shell]
 ```
 
-- `selfInvoke` is how to re-enter this node's binary: the `{ command, args }` prefix a subcommand is appended to. A compiled binary answers `{ command: <self>, args: [] }`; a bun-interpreted run answers `{ command: <bun>, args: [<absolute entry>] }`. The plane cannot derive this from any single path, because under an interpreter run the process's exec path is `bun`, and `bun mcp` is not a command. When absent, the plane falls back to `subshell` on PATH.
-- `runtime` is the supervision snapshot (service manager state, pid, autostart, Linux linger, pane safety, config/log/binary paths, debug-logging state, tmux), shown on the node's detail page to its owner and edit-grantees. A malformed one is dropped without refusing the connection, and so is a malformed `maintenance` mirror: a node whose file is unreadable must still reach a plane that can repair it. Both are optional on the wire.
+No public node listener is required for this connection. The node's separate loopback management dashboard is not the server-to-node transport; see [Node CLI](/reference/node-cli) and [Security model](/concepts/security).
 
-The identity is persisted before either gate below, so a refused node still shows its version on the Nodes page instead of being invisible. The row briefly reads online; the refusal then puts it back to offline.
+## Enrollment and identity
 
-Gate 1 is the version floor. `MIN_NODE_VERSION` (currently `0.17.0`) states: this server needs subshell ≥ X. A node is refused when the reported version is lower, unparseable, or absent: a build that cannot say what it is cannot be assumed current. This gate runs first because it is the gate a person can act on: the refusal names both the required and the found version.
+Enrollment redeems a single-use setup key for a persistent node ID and node credential, along with the server's public signing identity. The node stores its connection and identity state in its local configuration. [Files and paths](/reference/paths) identifies that file and the associated key storage.
 
-Gate 2 is the protocol, matched exactly. Any `protocolVersion` differing from `NODE_PROTOCOL_VERSION` (currently `14`) fails in either direction. There is no window and no per-feature gating: the pair ships together, so a mismatch is a deployment out of step, not a node to be carried. This gate is a backstop: at or above the floor a node should always speak the current protocol, and if it does not, the floor is set wrong.
+Three identities serve different purposes:
 
-Neither gate closes the socket. A refused node is held: moved out of the live registry, so every liveness answer, launch path, and tail treats the node as offline exactly as before, but kept connected for exactly one command, `update`, whose wire shape is frozen so any older node can parse it. Only the `result` frame of that command is accepted from a held socket; everything else the node sends is dropped unread. After ten idle minutes the plane closes the socket with `4406` and the refusal reason, so an operator at the machine still reads "update required" in its log, ten minutes later rather than at once; that delay is the price of the window in which the browser could fix it instead. A held socket is superseded by a newer connection (4409), and evicted by key rotation or node deletion, exactly as a live one is. On the `4406` the node exits; if the refused binary is one it just installed, it first rolls itself back (see §7).
+| Identity | Purpose |
+| --- | --- |
+| Node credential | Authenticate the WebSocket upgrade and prove the same credential inside the encrypted link. It is not a REST API credential. |
+| Server signing public key | Verify that commands were signed by the trusted control plane. |
+| Link encryption public keys | Pin the endpoints used for application-layer encryption. These are distinct from the command-signing identity. |
 
-Both gates are logged on the node's side too: the node relays the plane's reason into its own log, which is how a headless machine accounts for itself.
+Changing the server address preserves the node's identity and trust state. It is suitable for another address of the same server. Joining a different server requires enrollment there; changing a URL does not make its signing keys interchangeable. Repointing also sends the node credential to the newly named host, so use a trusted address. See [Repoint a node](/nodes/repoint).
 
-## 4. Command envelope and replay defense
+## Connection setup
 
-Every command is a compact JWS signed ES256 (ECDSA, P-256) by the control plane's keypair, sent as `{"jws": "<compact>"}`. The payload:
+For a paired node, connection setup proceeds as follows:
 
-```jsonc
-{
-  "iss": "subshell-control",
-  "aud": "node:<nodeId>",     // bound to ONE node
-  "jti": "<unique per command>",
-  "iat": 1757030400,
-  "exp": 1757030430,          // 30 s lifetime
-  "seq": 42,                  // per-connection ordering hint
-  "cmd": { "type": "…", /* … */ }
-}
+1. The daemon connects to `/ws/node` with its node bearer credential. The server checks the credential, node record, and owner's enabled state before admitting it.
+2. The node sends a `kx` frame with a fresh ephemeral public key. It derives connection keys using the server encryption key it already trusts.
+3. The server derives its side of the connection keys. It does not send a plaintext key-exchange reply.
+4. The node sends an encrypted binding containing its node ID, node credential, and protocol version. The server re-verifies that the credential belongs to the node admitted at upgrade.
+5. The server sends an encrypted `ok` acknowledgment.
+6. The node sends its encrypted `ready` report. The server applies release-version and protocol gates before marking it online.
+
+```mermaid
+%% A paired node authenticates its socket, sends key exchange and an encrypted credential binding, receives an encrypted acknowledgment, and reports readiness before becoming online.
+sequenceDiagram
+  participant N as Node daemon
+  participant S as Server
+  N->>S: WebSocket upgrade with node credential
+  N->>S: kx with fresh ephemeral public key
+  N->>S: Encrypted node ID, credential, protocol binding
+  S->>S: Re-verify credential and node binding
+  S->>N: Encrypted ok acknowledgment
+  N->>S: Encrypted ready report
+  S->>S: Check release floor and exact protocol
+  S->>S: Mark node online if compatible
 ```
 
-Signing proves authenticity, freshness, and target. It has never provided confidentiality; that moved to the encrypted link in §3 when protocol 14 shipped, and the sealed binding re-proves the node's bearer inside the channel. It also never claimed resilience to control-plane compromise: the signing key rules every enrolled node. Confidentiality and authenticity are separate mechanisms on purpose, so a bug in one is not fatal to the other.
+Connection keys use libsodium `crypto_kx`; established traffic uses `crypto_secretstream_xchacha20poly1305`. Commands and events are carried in encrypted binary WebSocket frames. A broken stream or unexpected plaintext frame ends the encrypted connection rather than causing a fallback to plaintext.
 
-Verification order is load-bearing:
+The encrypted handshake has a 10-second deadline. An open socket with an incomplete handshake is not eligible for ordinary commands.
 
-1. Signature and compact-JWS format, with the accepted algorithm pinned to ES256 so a header swap cannot downgrade the check. The payload is parsed from the bytes that call just verified, never by a second unverified decode of the wire string.
-2. Registered claims: `iss`, `aud` (must name this node), `exp`, `iat` (with 5 seconds of skew tolerance).
-3. `jti` replay, against a bounded LRU (2,048 entries).
-4. `seq`, the ordering hint.
-5. `cmd` well-formedness, via hand-rolled structural validators. An unknown frame type or a wrong-shaped field is dropped at the parse, before dispatch.
+### Pairing a node without an encryption pin
 
-| | Lifetime | Why |
-| --- | --- | --- |
-| The `jti` LRU | per node / per process, surviving every reconnect | a fresh LRU per socket reopens the full 30-second replay window on every reconnect |
-| The `seq` tracker | per connection, reset when a new socket opens | ordering only means anything within one stream |
+A node record without a pinned encryption identity uses a registration flow. The node sends `register` with its public encryption key. The server records the pin, returns `register-ok` with its public encryption key, and closes that socket normally. The node saves the returned identity and reconnects through the encrypted handshake above.
 
-`seq` is explicitly not the replay defense; `exp` and `jti` are. A reconnect resets `seq`, so a replayed command carries a "fresh" value. What `seq` catches is reordering and stale replays inside the TTL window on one socket. A frame rejected on `seq` still records its `jti`: stale or hostile, it must never get a second evaluation. A seq regression is also expensive from the node's side. Its frame handling is serialized precisely because concurrent verifies land out of order, so the node treats a genuine regression as a broken stream and drops the connection to start a fresh one.
+Registration is a pairing operation, not normal execution over plaintext. The node credential and enrollment address are its trust root. Protect enrollment with trusted network access and HTTPS where appropriate; encryption after pairing does not independently authenticate the first server address.
 
-Verification failures are reported as an `error` frame (`code: "verify"`, reason in `message`) so the control plane sees the anomaly. A replay of a command that already ran re-sends the cached answer: a jti that ran once never runs twice.
+## Readiness and machine reports
 
-## 5. Commands
+The `ready` event identifies the node's release version, protocol version, operating system, architecture, hostname, data directory, and capabilities. It can also report its home directory, invocation path, runtime and service details, and maintenance state.
 
-Every command is dispatched with a `ref` (its `jti`) and answered by exactly one `result` event. Subshell ids interpolated into node-side paths are gated both ways: hex and hyphen, ≤ 64 characters; `../../../../x` must never reach a path.
+These reports let the server plan launches for the execution machine rather than guessing its paths from the server host. They can disclose machine names, local paths, and selected environment information to the trusted control plane.
 
-Lifecycle
+The server requests binary detection using `detect` with manifest-derived detection rules and named environment variables. The node returns raw detection results; the server's plugins interpret them. Nodes do not download or load a separate harness plugin set. Cached detection information while offline does not prove a binary is still available or that the node can launch work.
 
-| Command | |
+## Signed commands and results
+
+The server wraps each command in a compact JWS signed with **ES256**. The claims include:
+
+| Claim | Check |
 | --- | --- |
-| `launch` | Start a harness pane. The node builds nothing itself since protocol 3: `argv` (required) is the complete command line the control plane built, with `@@HARNESS_BINARY@@` in the binary slot, and `resolve` (required) is the plugin manifest's lookup rule (`binaryName`, optional `envOverride`, optional `knownPaths`) the node runs at the moment of spawn to fill that slot: late binding of the one fact the node owns. Alongside: `cwd` (absolute, stat-verified), `harnessId`, the `preset` (env, flags, settings, config isolation), the `SUBSHELL_*` credential env, an optional MCP registration file (`path`, `fileContent`, and the harness-dialect `args`/`env`, written 0600 before spawn), an optional resume pin, initial geometry, and `bestEffortLog` (downgrade a log-attach failure to a note instead of failing a live pane). |
-| `terminate` / `kill` | Graceful stop / hard kill of a subshell's tmux tree. |
-| `prompt_deliver` | Agent-side settle loop: capture-poll until the pane is quiet, then type the text and Enter. |
+| `iss` | Expected control-plane issuer, `subshell-control`. |
+| `aud` | The specific target node ID. |
+| `iat` and `exp` | Freshness and a 30-second command lifetime. |
+| `jti` | Single-use command identifier for replay checks and result correlation. |
+| `seq` | Connection-local ordering. It is not a substitute for replay detection. |
+| `cmd` | Structurally validated command body. |
 
-Pane I/O
+The signed envelope is then encrypted for the node connection. Signing authorizes the command and binds its target; encryption protects the bytes in transit. Neither prevents a trusted or compromised server from requesting real program execution.
 
-| Command | |
+The daemon decrypts the frame, verifies the signature and claims, validates the command body, and dispatches it. Verification is ordered per connection. Replay tracking survives reconnects; connection-local sequence tracking resets for a new connection.
+
+```mermaid
+%% The server signs and encrypts a command. The node decrypts, verifies target, freshness and replay checks, executes it, and returns an encrypted result correlated with its command identifier.
+sequenceDiagram
+  participant S as Server
+  participant N as Node daemon
+  S->>S: Build command and assign jti and seq
+  S->>N: Encrypted signed command
+  N->>N: Decrypt and verify signature and claims
+  N->>N: Validate command and execute
+  N->>S: Encrypted result with ref matching jti
+  S->>S: Resolve or reject waiting request
+```
+
+A success event has `type: "result"`, `ref`, `ok: true`, and optional `data`. A refusal has `ok: false` and an `error` string. Node events inherit the authenticated encrypted connection's identity; they are not separately JWS-signed commands.
+
+The server normally waits up to 10 seconds for a command result. Updates use a five-minute deadline. The command's signature expiry governs acceptance, not the maximum duration of an already-accepted operation. A timeout does not prove that the node performed no work; inspect state before retrying an operation that could create or change something.
+
+### Command families
+
+| Purpose | Command types |
 | --- | --- |
-| `input` | Keystrokes into the pane. |
-| `resize` | Set the pane grid. |
-| `capture` | Pane snapshot; optional `lines` prepends reflowed history for attach replay. |
-| `pane_size` | The pane's real grid as tmux reports it. Answering `null` (pane gone) is a legal result, distinct from an error. |
-| `pane_cursor` | The pane's cursor in viewport coordinates (`x`, `y`, 0-based), since protocol 13. The attach replay ends with an absolute move to it so the first live byte lands on the right row; `null` (pane gone) ships the replay without the restore. |
-| `log_read` | Byte-ranged read of the pane log. |
-| `tail_start` / `tail_stop` | Subscribe/unsubscribe a byte-offset tail, keyed by `subId`. |
+| Session processes | `launch`, `terminate`, `kill`, `probe`, `prompt_deliver`. |
+| Terminal interaction and snapshots | `input`, `resize`, `capture`, `pane_size`, `pane_cursor`. |
+| Transcript reads and live subscriptions | `log_read`, `tail_start`, `tail_stop`. |
+| Files and directories | `stat_dir`, `fs_ls`, `path_exists`, `write_file`, `remove_paths`, `set_allowed_dirs`. |
+| Machine information | `inventory`, `detect`, `ping`. |
+| Node management | `service`, `agent_log_read`, `set_server_url`, `set_log_level`, `set_maintenance`, `update`. |
 
-Filesystem. The writes and deletions are path-policy enforced on the node; the probes deliberately are not. A probe is not a launch, and gating `stat_dir` once made an allowlist rule unaddable.
+A command existing on the wire does not grant every user access to it. Server routes enforce ownership, grants, and administrator requirements before dispatch. The daemon also applies local checks, including directory rules, maintenance refusals, and service-manager safety checks.
 
-| Command | |
+### Launch data
+
+A `launch` command carries the session ID, tmux socket and session names, absolute working directory, harness ID, preset configuration, pane credentials, initial terminal dimensions, and server-built `argv` plus a binary-resolution rule. Optional fields include MCP registration data and a harness conversation identity for resumption.
+
+The node resolves the agent binary on its own machine and launches it under its OS account. The server owns plugin interpretation; the node executes the prepared launch. Directory restrictions limit the starting location, not the agent's later filesystem access. See [Directory restrictions](/nodes/directories).
+
+## Terminal output and process liveness
+
+Browser input passes through the server's access checks and becomes node `input` commands. Size changes become `resize` commands. The server requests captures, pane dimensions, cursor position, and log data when reconstructing a terminal view.
+
+Live output uses `tail_start` subscriptions. The node sends `output` events identifying the session, subscription ID, byte range, and base64-encoded bytes. Base64 is a byte representation, not encryption; the node link encrypts the event in transit. The server can read terminal output and relays it to authorized browser viewers.
+
+```mermaid
+%% Browser input reaches the agent through server-authorized input commands. The agent's captured output returns through node output events, the server, and the browser connection.
+sequenceDiagram
+  participant B as Browser
+  participant S as Server
+  participant N as Node daemon
+  participant A as Agent or shell
+  B->>S: Terminal input
+  S->>N: Signed encrypted input command
+  N->>A: Type into session
+  S->>N: Signed encrypted tail_start subscription
+  A->>N: Captured terminal output
+  N->>S: Encrypted output event with byte offsets
+  S->>B: Terminal bytes for authorized viewer
+```
+
+The diagram separates input and output paths; it does not require a new subscription for each keystroke. `tail_stop` ends a subscription when it is no longer needed.
+
+A node emits `exit` when a process dies and `subshells_report` to reconcile session liveness. It also sends `heartbeat` events every 15 seconds by default. A heartbeat establishes daemon activity, not proof that every agent process is alive.
+
+Node disconnection makes remote sessions unreachable through the server. It does not itself prove their processes stopped: tmux processes can remain on the execution machine. Reconnection permits the server to reconcile liveness and restore output subscriptions. See [Session lifecycle](/guides/lifecycle).
+
+## Compatibility and held connections
+
+The server applies two distinct gates to readiness:
+
+1. The node release must meet the server's minimum supported release version.
+2. Its protocol version must match the server's protocol exactly.
+
+The implemented protocol is **14**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
+
+A refused node can remain connected in a **held** state for updates while staying unavailable for launches and ordinary management commands. Only `update` can use that held connection. Older nodes on the legacy path receive that update command in its frozen plaintext recovery format; they are not admitted for normal plaintext operation. Invalid credentials and disabled owners are authentication failures, not update holds.
+
+An update still requires the node to verify its signed release manifest and artifact digest. After updating and reconnecting, it must pass the same readiness gates. See [Version compatibility](/reference/versions) and [Node updates](/nodes/updates).
+
+## Limits and connection failures
+
+Raw node frames are capped at **1 MiB** before decoding. An oversized frame closes the connection with WebSocket code `1009`. Structural parsers reject malformed command and event shapes. These checks bound individual frames; they are not general denial-of-service protection.
+
+Common close signals include:
+
+| Code | Meaning and response |
 | --- | --- |
-| `stat_dir` | Verify a directory exists and is usable; answers the realpath. |
-| `path_exists` | Does this path exist? `{ exists }` answers; absent is a successful `false`, never an error. The path arrives computed: the plane builds it with the plugin's pure `resumePath` against this node's reported home and detection env. |
-| `fs_ls` | One-level listing for the folder picker. An empty `path` means the node's home: the plane cannot expand `~` against a filesystem it cannot see. Directories only, dotfiles hidden, capped at 1,000 entries. |
-| `write_file` | Chunked base64 write (the terminal-uploads relay): `chunk_b64`, `chunk`, `eof`. |
-| `remove_paths` | Delete paths (same policy). |
-| `set_allowed_dirs` | Replace this node's persisted directory allowlist. The node checks every launch against its own copy, because signing proves who sent a launch, never whether the directory is permitted. An empty array means unrestricted. The list is pushed on every owner edit and again after each `ready`; that reconnect push is what heals an edit made while the node was offline. |
+| `1000` | Normal close, including completed encryption registration. The daemon normally reconnects unless stopping. |
+| `4401` | Node authentication is no longer valid, such as after key revocation. Review the node credential. |
+| `4403` | The node owner's account is disabled. Re-enable the account only after resolving the reason for disabling it. |
+| `4406` | Update-required compatibility signal. Review the server's reported release or protocol requirement. |
+| `4409` | Another connection superseded this daemon. The daemon exits rather than competing in a reconnect loop; stop duplicate instances. |
+| `4410` | Encrypted handshake or stream failure. Reconnect; this is not permission to discard a trusted key pin. |
+| `4411` | The server requires re-pairing because the row has no matching encryption pin. The daemon's pre-establishment repair flow can re-register its existing identity. |
 
-Operations
+The daemon uses full-jitter exponential reconnect backoff with a one-second initial ceiling and a 60-second maximum ceiling. A successful socket open resets the backoff ladder. Authentication or pairing failures require diagnosis rather than repeated launch attempts.
 
-| Command | |
-| --- | --- |
-| `service` | Drive this machine's own service manager: `start`, `stop`, `restart`, `install`, `uninstall`, optional `force`. One command for five verbs because they are one manager and one set of refusals, and the node decides every refusal, since signing proves who asked, not what this machine can survive: `not supervised` (exiting would not be a restart), `kills panes` (the definition predates the pane-sparing directive; `stop`/`restart`/`uninstall` answer this without `force`), `no service definition` (`start`/`stop` on a hand-launched node; `uninstall` is a no-op, not a refusal). |
-| `agent_log_read` | Read a slice of the node's own log file (`fromByte`, `maxBytes`), never the same thing as `log_read`, which reads a pane's transcript. |
-| `set_server_url` | Rewrite `serverUrl` in the node's own `config.json`, keeping the identity (the remote twin of `subshell configure --server`, gated on node ownership, not the edit grant). |
-| `set_log_level` | Flip the node's log-file debug level live and persist it, refused while `SUBSHELL_DEBUG_LOGGING` forces the answer in that machine's environment. |
-| `set_maintenance` | Write this machine's maintenance mirror with the plane's `{ on, changedAt }` bytes verbatim: re-stamping a relayed value would make the two copies differ by exactly the delay between them. It kills nothing: a plane-side flip has already terminated the rows it knew about through the ordinary path, which does the bookkeeping a blind kill on the machine would not. |
-| `update` | Replace this node's own binary: `{ version, url, sha256, force? }`. The node streams the download, checks the digest before the first `chmod`, refuses to install a binary that does not answer `version` with the named one, applies the same supervision and pane-safety refusals as `service restart`, answers `{ ok: true }` before exiting so the plane reads a success rather than a timeout, and keeps the old binary as `<binary>.previous` under the update marker. Its shape is frozen across all future protocol bumps because it is the one command the plane sends across a protocol boundary, to a held node whose wire it does not share. |
+Key rotation replaces the node credential and clears the server-side encryption pin. Apply the new node credential on the execution machine and restart; automatic re-pairing does not supply the replacement credential. A lost node-side encryption identity against an already-pinned server record may require explicit credential rotation and repair. See [Repoint a node](/nodes/repoint#store-a-rotated-key) and [Node troubleshooting](/troubleshooting/nodes).
 
-Status
+## Security boundaries and implementation reference
 
-| Command | |
-| --- | --- |
-| `probe` | Liveness of a set of subshell ids. |
-| `inventory` | Pull the harness inventory on demand. Since protocol 3 the node holds no plugin concept, so its answer is an empty `harnesses` list (protocol filler); the plane treats empty as "nothing to apply", and the real rows arrive via `detect`. |
-| `detect` | Probe this node for the binaries the plane's named detection rules point at, and answer values for exactly the environment variables the plane names (`envNames`, required; the node never scans its whole environment). Answers raw version text: parsing it is plugin code, and plugin code runs on the control plane. Detection happens only when asked: page load, Re-check, or a launch kick. There is no sweep. |
-| `ping` | Liveness. |
+The server and enrolled execution account are trusted endpoints. A server compromise can authorize commands across the fleet; a compromised node account can read its processes, accessible credentials, and transcripts. Command signing and encrypted transport do not provide an agent sandbox. Browser transport, enrollment, and storage need their own protection.
 
-## 6. Events
+Read [Security model](/concepts/security) for the complete boundary and [Communication security](/mcp/security) for MCP channel encryption, which is separate from this link.
 
-All unsigned (the socket is the authentication):
+For exact field definitions and validation, consult the public protocol source:
 
-| Event | |
-| --- | --- |
-| `ready` | First frame: identity, versions, capabilities, `selfInvoke`, `homeDir`, and optionally the `runtime` supervision snapshot and the `maintenance` mirror (§3). Malformed optionals are dropped; the connection still comes up. |
-| `inventory` | Per-harness `{ harnessId, installed, version?, binaryPath?, reason?, checkedAt? }` + timestamp. Pushed once on connect and every 5 minutes; since protocol 3 it carries no plugin set, and the post-inversion node's harness list is empty; the node's real harness facts are its `detect` answers. |
-| `maintenance` | `{ on, changedAt }`: the machine flipped its own flag at the keyboard. It exists because a CLI process cannot talk to the running daemon: the verb writes the mirror file and the daemon detects the change. Sent on the heartbeat tick when the file moved, and, load-bearing, immediately before the `exit` frames a flip causes, so the plane records "the operator took this machine down", not N crashes. |
-| `heartbeat` | Every 15 seconds. |
-| `result` | `{ ref, ok: true, data? }` or `{ ref, ok: false, error }`, the answer to one command. Refusals the plane maps are exact strings: `not supervised`, `kills panes`, `no service definition`, `in maintenance`, `not a compiled agent`, `download failed`, `digest mismatch`, `installed binary reports a different version`, `unsupported`. |
-| `output` | Tail bytes: `subId`, `fromByte`, `toByte`, `data_b64`. |
-| `exit` | A pane died: `exitCode` (or `null` when the socket was not answering) + timestamp. |
-| `subshells_report` | Connect-time census of panes that survived a node restart, so the plane heals its rows before anything else reads them. |
-| `error` | `{ code, message }`, including `verify` anomalies from §4. |
-
-The launch gate demands a fresh detection answer, not an inventory claim. A harness is launchable on a node when the instance has the plugin installed and enabled, and that node's detection (inside a 10-minute TTL) found the binary. Exit detection is a 2-second tick per socket group. An authoritative "no such pane" reports death immediately with the real exit code, while two consecutive failed probes report `exitCode: null`: a tmux blip never kills a live pane, and a relaunch resets the count.
-
-## 7. Dispatch ordering and results
-
-- Commands are serialized per node in call order. Signing is async, so without one promise-chain mutex per connection two back-to-back sends could emit `seq 2` before `seq 1`, and a chunked upload or a type-before-launch could land out of order. On the node's side, verified commands also queue for execution in arrival order across the whole daemon life, surviving reconnects.
-- The newest socket wins. A second node dialing with the same identity closes the older socket with `4409`, and the superseded node exits rather than reconnecting into a fight; that is why `subshell status --probe` warns so loudly.
-- Inbound frames are queued per socket on the control plane, because a node sends events (`inventory`) interleaved with the `result` that answers a command, and concurrent handling could settle the RPC before the event's write landed.
-- Results correlate by `ref` and are settled only on the connection the command left on. Each result payload (probe entries, stat/ls/log/prompt/path-exists/write-file/pane-size/detect answers) is parsed, never cast: a node's answer is untrusted input like any other.
-- The deadlines are the plane's. A command must answer within 10 seconds (one tmux call or stat or less), except `update`, which gets five minutes because it downloads the node binary, roughly 80 MB on Apple Silicon and 100 MB on Linux, over whatever link a node has. Raising the default would let a hung `launch` look alive for five minutes, so per-command overrides are the shape instead.
-- A swap is a transaction the new binary settles. The node's update writes a marker and keeps `.previous`; its boot treats an accepted plane as completion. Acceptance is any verified command that is not `update`, or 15 quiet minutes, a number deliberately above the plane's ten-minute hold budget, because an open socket alone no longer proves acceptance. A `4406` refusal is the rollback signal: restore `.previous`, record the failure, and exit for the service manager.
-
-## 8. Terminal attach over a node
-
-The launcher interface is the only local-vs-remote branch in the system: the local path wraps tmux and the filesystem directly, and the remote path implements every method as a signed command. The browser's WebSocket contract is byte-identical either way: xterm.js cannot tell a remote pane from a local one.
-
-Both attach paths follow the same four steps in order: subscribe to the shared pump before reading the pane; fit to the smallest shared grid; send the replay capture; open the subscription and broadcast presence. Subscribing before admitting is the join-point rule expressed as a subscription; a refusal after subscribing must tear it down.
-
-Geometry is confirmed on both paths: the pane's real grid is asked (`pane_size` remotely), and `null` means "could not be read", never a guess. An earlier revision had a remote pane announce the size it had been asked for; that asymmetry is gone.
-
-## 9. Offline semantics
-
-Absence of a socket is not absence of the process. The node may be down while its panes keep running under tmux. So:
-
-- Launching onto an offline node returns `409 NODE_OFFLINE`.
-- The reconcile sweep skips rows whose node is offline: it must not mark panes dead that it simply cannot see.
-- Subshell views carry a "node unreachable" state, distinct from "crashed".
-- On reconnect, `subshells_report` re-projects surviving panes and the plane heals.
-
-## 10. Close codes
-
-| Code | Meaning | Emitted by |
-| --- | --- | --- |
-| `4401` | a socket that reached the handler without a verified identity; also the courtesy close when a node's key is rotated or deleted mid-connection | control plane |
-| `4406` | the update-required refusal (below floor, or protocol mismatch), carried by the held socket's ten-minute idle close, and terminal for the node, which logs the reason (and rolls back a just-installed binary) before exiting | control plane |
-| `4409` | newest-wins replace: a second node dialed with this node's identity; terminal for the superseded node | control plane registry |
-| `4410` | the encrypted link refused to speak: a handshake failure or refusal (§3), a wrong-kind frame for the phase, pin mismatch, binding mismatch, undecryptable ciphertext on an established stream, or the handshake timeout. Not terminal for the agent: the reason rides into its own log and the backoff loop redials, with the config left byte-identical (a still-pinned row is not a re-pair case). The agent emits it too, for its mirror-image failures (its pinned control key would not open the server's first frame; the stream broke) | both |
-| `4411` | the re-pair signal (§3, ruling R12b): a `kx` claim arrived at a row with no pin the claim matches (key rotation just cleared it); present a `register` to re-pair. Not terminal, and it is the only code on which the agent drops its stale control pin before establishment, so the redial re-registers the node's same static | control plane |
-| `1009` | an inbound frame exceeded 1 MiB | control plane |
-| `1000` | graceful on both ends: the node's own shutdown or seq-regression drop; a control-plane self-restart closes node sockets with a reason the node's reconnect loop treats as ordinary | either |
-
-`4406` and `4409` are shared constants precisely because the node decides whether to exit rather than reconnect based on them. `4410` and `4411` are shared for the opposite decision they drive (always reconnect), but only `4411` additionally drops the agent's pinned control key when it arrives from the plane before the link established, so the redial re-registers (the rotation arc of §3); the generic `4410` keeps the config byte-identical.
-
-## 11. Versioning
-
-Two numbers with distinct meanings and distinct refusals, raised together, both defined in the shared protocol package:
-
-- `NODE_PROTOCOL_VERSION`: bump whenever a frame changes, additive or not, and release both sides. Server first: a node that leads the server is refused, and one that lags is refused just as clearly; the Nodes page names which. The numbering restarted at 1 on 2026-09-09 (the old numbers predated any deployment). Since then: 1 → 2 registry installs; 2 → 3 the inversion: plugins left the wire, `launch` began requiring the plane-built `argv` and its `resolve` rule, `detect` arrived, and the inventory event lost its plugin set (the first breaking bump, and the point of exact match); 3 → 4 `ready.selfInvoke` replaced the MCP-specific launch field so `mcp` and `report` compose from one fact; 4 → 5 the node Service surface: `restart` folded into `service`, `agent_log_read` and `set_server_url` added; 5 → 6 `set_log_level`; 6 → 7 the preset rename (`profile` → `preset`, wire-shaped only); 7 → 8 node maintenance (three frames: `ready.maintenance`, the `maintenance` event, `set_maintenance`); 8 → 9 `service.linger`: the Linux fact that decides whether a headless node comes back after a reboot; 9 → 10 the `update` command, whose shape is now frozen; 10 → 12 the signed `update` (the number skips 11 deliberately: a concurrent branch held it, and no build ever spoke 11 on main); 12 → 13 `pane_cursor`: the attach replay ends on the pane's real cursor; 13 → 14 the encrypted link: the `kx` handshake, sealed frames, the `register` self-heal, and closes `4410`/`4411`. This one changed the transport itself: nothing about it is additive, and no frame of a v14 link is ever plaintext.
-- `MIN_NODE_VERSION`: currently `0.17.0`. Raise it in the same commit as a protocol bump, and raise the node package to the same value alongside, so the refusal an operator sees always names a version that exists.
-
-The floor rides every protocol bump, so today it rides 14. The command that makes riding it safe is `update`: a refused node is held, not dropped, precisely so it can still be rescued from a browser, and a node too old to know the command answers `unsupported`, which the route turns into "update this node by hand".
-
-Settings → Updates lists held nodes and those under the floor in one place, since a refused node otherwise looks like an ordinary offline node.
-
-## Other pages
-
-- [Version compatibility](/reference/versions): the gates from the operator's chair.
-- [Manage a node](/nodes/manage) and [Update a node](/nodes/updating): driving this link from the dashboard.
-- [Security model](/concepts/security-model): what signing proves and what it does not.
-- [Files and paths](/reference/files-and-paths): the files this link maintains on the node.
-- [subshell CLI](/reference/node-cli): the verbs that compose with this protocol.
+- [Command and event schemas](https://github.com/subshell-ai/subshell/blob/main/packages/subshell-protocol/src/node-frames.ts).
+- [Command signing and replay checks](https://github.com/subshell-ai/subshell/blob/main/packages/subshell-protocol/src/node-signing.ts).
+- [Link encryption and handshake frames](https://github.com/subshell-ai/subshell/blob/main/packages/subshell-protocol/src/node-link-crypto.ts).

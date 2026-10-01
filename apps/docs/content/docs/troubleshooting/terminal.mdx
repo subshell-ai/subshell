@@ -1,0 +1,35 @@
+---
+title: "Terminal troubleshooting"
+description: "Diagnose input permissions, disconnected streams, display corruption, and viewer sizing."
+---
+
+Diagnose terminal input and rendering problems.
+
+## Input unavailable
+
+Check whether the process is alive and whether you have edit access. A view-only share intentionally prevents input.
+
+On touch devices, **Enable text copying** switches away from input mode. Choose **Enable text input** when you want to type again.
+
+An offline node makes its stream unreachable even if its process continues on the machine.
+
+## Page loads but output does not stream
+
+Verify WebSocket forwarding through the proxy and confirm that the API can mint the terminal's single-use token. A successful static page load does not test either operation.
+
+Try the server's direct trusted address from an appropriate device to isolate a proxy problem.
+
+## Terminal becomes smaller
+
+The pane shares one grid across visible viewers. A smaller attached view can determine the grid size for everyone. Review the attached device information and close an unnecessary visible view.
+
+## Corrupted display
+
+Record the agent, component versions, and whether corruption appears after reconnect or resize. Server journal entries for terminal attachment can help diagnose geometry and replay.
+
+> [!warning] Screen dumps
+> Attach-debug output can include secrets and project contents. Do not enable it or upload its files without reviewing what will be captured.
+
+## Next steps
+
+Read [Launch a subshell](/guides/launch), [HTTPS and reverse proxies](/networking/https), and [Status and logs](/administration/logs).

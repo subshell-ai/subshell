@@ -1,0 +1,32 @@
+---
+title: "Install Subshell Server"
+description: "Install the desktop server app and use its assistant to prepare the control plane."
+---
+
+Install Subshell Server with the desktop setup assistant.
+
+The desktop app is the recommended way to install the server on a machine with a graphical environment. It bundles the server binary and provides setup, update, and recovery controls.
+
+## Before you start
+
+Choose the Linux or macOS Subshell Server download matching your machine. On Linux, the desktop app needs a graphical environment and WebKitGTK dependencies; use [Install on Linux](/install/linux) for a headless host.
+
+## Install and open the app
+
+1. Open [Subshell downloads](https://subshell.sh) and select the option to run the control plane.
+2. Download the appropriate installer or application bundle.
+3. Install and open **Subshell Server**.
+4. Let the assistant prepare the bundled server, then follow any tmux installation or platform-permission instructions it reports.
+5. Open the dashboard and complete the server's setup experience.
+
+On macOS, grant the permissions needed for the folders where your agents will work. An existing running server may open the dashboard immediately.
+
+## Keep the server running
+
+The server can run as a background service or under the desktop app's supervision. A service can continue after you close the app; an app-supervised server stops with its parent. Review [Service and autostart](/administration/service) before relying on unattended access.
+
+Manage a running instance in **Server Settings**. The desktop assistant handles operations that need to work while the server is unavailable, including recovery, bundled updates, and reset.
+
+## Next steps
+
+Follow [Launch a subshell](/guides/launch).

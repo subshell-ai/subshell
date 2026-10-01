@@ -1,0 +1,34 @@
+---
+title: "Node troubleshooting"
+description: "Diagnose offline nodes, connection conflicts, missing downloads, and compatibility refusals."
+---
+
+Diagnose a node that is offline or unavailable for launches.
+
+## Check the machine
+
+Run `subshell status` and `subshell service status` on the node. Confirm its configured server address and whether the daemon is actually running.
+
+A terminal-started daemon can work while the service is absent. A service may use a different binary or environment from your interactive shell.
+
+## Connectivity
+
+Verify the node can reach the server's address. It connects outward to the control plane, so a loopback URL referring to the node itself cannot reach a remote server.
+
+A duplicate daemon or restored copy of the same identity can displace an existing connection. Avoid `status --probe` as a routine test because it also connects as that identity.
+
+## Version refusal
+
+Check both minimum node release and exact protocol compatibility. A refused node can remain held for updating while still unavailable for launches. Use the offered compatible update instead of bypassing the gate.
+
+## Missing installation binary
+
+The server can lazily fetch and verify missing node binaries from its configured release source. An air-gapped server with fetching disabled must have compatible artifacts staged locally, or use a compatible desktop client bundle.
+
+## Launch availability
+
+Online status is not enough. Maintenance, node grants, instance lockdown, and harness detection can make a node unlaunchable.
+
+## Next steps
+
+Read [Node updates](/nodes/updates), [Repoint a node](/nodes/repoint), and [Agent and launch errors](/troubleshooting/agents).

@@ -1,0 +1,43 @@
+---
+title: "Use a reusable prompt"
+description: "Add saved tasks to a new subshell or type instructions into an active agent without automatically submitting them."
+---
+
+Give an agent instructions from your prompt library.
+
+## Use at launch
+
+1. In the server dashboard sidebar, open **Subshells** → **New subshell**.
+2. Choose the agent, optional preset, machine, and working directory.
+3. Under **Add prompts**, select **Add prompt**.
+4. Search your library in **Yours**, or choose **Shared** for other users' shared entries. Select a prompt or stack.
+5. Add more entries if needed and use the up and down controls to order them.
+6. Review the task and launch.
+
+The form combines the selected text in order, separated by blank lines. The complete task must fit the 20,000-character limit. Task text selected here is a copy; later library edits do not rewrite it.
+
+For task defaults you use repeatedly with the same configuration, follow [Set launch defaults](/presets/launch-defaults).
+
+## Type into a running session
+
+You need edit access to the subshell, and its process and execution machine must be available.
+
+1. In the dashboard sidebar, open **Subshells**.
+2. Open the session card or row's **⋯** menu and choose **Inject prompt...**.
+3. Choose a saved prompt or stack, or select **Write your own...** to enter custom text.
+4. Review **Send prompt to agent?** and select **Type into pane**.
+5. Open the session's terminal, inspect the typed text, and press Enter when the agent is ready.
+
+**Type into pane** does not submit the task. It sends text to the existing process without creating another subshell or changing the preset. Check the agent's state first; text sent during a turn or to another CLI screen may not become a new task.
+
+When writing custom text, **Save to my prompts** can also save it to your private library. Provide a description if you enable that option.
+
+## Check delivery
+
+For a new session, confirm that the agent received the initial task. If Subshell reports missed delivery, inspect the terminal before retrying to avoid duplicating input. With MCP, check `promptDelivered` when you requested a task.
+
+For injection, confirm the text is present and submit it yourself. An agent response, not a successful typing request alone, tells you the task was processed.
+
+## Next steps
+
+Follow [Build prompt stacks](/prompts/stacks) to reuse a sequence of instructions.

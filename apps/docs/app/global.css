@@ -3,47 +3,160 @@
 @import "fumadocs-ui/css/neutral.css";
 @import "fumadocs-ui/css/preset.css";
 
-/* Fonts match the marketing site (apps/website/app/globals.css): Inter for
-   prose, JetBrains Mono for code, loaded by the same Google Fonts link in
-   the root layout. */
-@theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+/* An 18px base scales rem-based type and spacing consistently. */
+html {
+  font-size: 18px;
 }
 
-/* The MARKETING palette, dark-only (operator ruling 2026-09-25): the docs
-   wear subshell.sh's skin. The names are Fumadocs' own tokens
-   (--color-fd-*), overridden for BOTH :root and .dark so every surface
-   resolves to it whichever class the theme provider leaves on <html>. The
-   values are the marketing hexes verbatim: void, card, frost, dim, orchid,
-   border. Contrast: frost and dim clear AA on void; the orchid-on-void
-   button pair is the marketing's own hero link colour. */
+/* Match the application's Dreamframe palette and system typography.
+   Keep the Fumadocs namespace local to this independently built site. */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
 :root,
 .dark {
-  --color-fd-background: #1d182a;
-  --color-fd-foreground: #e6dbef;
-  --color-fd-card: #241e33;
-  --color-fd-card-foreground: #e6dbef;
-  --color-fd-popover: #241e33;
-  --color-fd-popover-foreground: #e6dbef;
-  --color-fd-primary: #d98be0;
-  --color-fd-primary-foreground: #1d182a;
-  --color-fd-secondary: #241e33;
-  --color-fd-secondary-foreground: #e6dbef;
-  --color-fd-muted: #241e33;
-  --color-fd-muted-foreground: #b3a5c4;
-  --color-fd-accent: #332c48;
-  --color-fd-accent-foreground: #e6dbef;
-  --color-fd-border: #332c48;
-  --color-fd-ring: #d98be0;
+  --color-fd-background: oklch(0.224 0.035 296);
+  --color-fd-foreground: oklch(0.92 0.03 312);
+  --color-fd-card: oklch(0.255 0.032 296);
+  --color-fd-card-foreground: oklch(0.92 0.03 312);
+  --color-fd-popover: oklch(0.255 0.032 296);
+  --color-fd-popover-foreground: oklch(0.92 0.03 312);
+  --color-fd-primary: oklch(0.75 0.17 322);
+  --color-fd-primary-foreground: oklch(0.16 0.05 322);
+  --color-fd-secondary: oklch(0.29 0.034 296);
+  --color-fd-secondary-foreground: oklch(0.9 0.025 312);
+  --color-fd-muted: oklch(0.29 0.034 296);
+  --color-fd-muted-foreground: oklch(0.74 0.04 310);
+  --color-fd-accent: oklch(0.33 0.04 296);
+  --color-fd-accent-foreground: oklch(0.95 0.02 315);
+  --color-fd-border: oklch(0.33 0.035 296);
+  --color-fd-ring: oklch(0.62 0.13 322);
+  --docs-strong: oklch(0.76 0.1 84.429);
+  --docs-link: oklch(0.78 0.085 245);
+  --docs-link-hover: oklch(0.88 0.065 245);
+  --docs-nav-active-from: oklch(0.3 0.1 322);
+  --docs-nav-active-to: oklch(0.38 0.11 340);
 }
 
-/* neutral.css pins the sidebar's own muted/secondary pair with a
-   `.dark #nd-sidebar` rule that outranks the block above; restate the
-   palette at the same specificity so the sidebar is void-and-card too, with
-   dim (not neutral's 72% grey) as its secondary text. */
+/* Override the sidebar-specific neutral preset with the product tokens. */
 .dark #nd-sidebar {
-  --color-fd-muted: #241e33;
-  --color-fd-secondary: #241e33;
-  --color-fd-muted-foreground: #b3a5c4;
+  --color-fd-muted: oklch(0.29 0.034 296);
+  --color-fd-secondary: oklch(0.29 0.034 296);
+  --color-fd-muted-foreground: oklch(0.74 0.04 310);
+}
+
+#nd-sidebar a[data-active="true"] {
+  background: linear-gradient(90deg, var(--docs-nav-active-from), var(--docs-nav-active-to));
+  color: var(--color-fd-accent-foreground);
+}
+
+/* Blue distinguishes article links from prose and the orchid navigation.
+   Hover and keyboard focus identify interactive text without underlines. */
+#nd-page .prose :is(p, li, td, th, blockquote) a {
+  color: var(--docs-link);
+  text-decoration: none;
+  transition: color 150ms ease;
+}
+
+#nd-page .prose :is(p, li, td, th, blockquote) a:hover {
+  color: var(--docs-link-hover);
+  text-decoration: none;
+}
+
+#nd-page a:focus-visible {
+  outline: 2px solid var(--color-fd-ring);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Compact reading rhythm: section headings remain distinct without the
+   preset's 48px lead-in and 24px gap before their content. */
+#nd-page > .prose > h2 {
+  margin-top: 1.75rem;
+  margin-bottom: 0.75rem;
+}
+
+#nd-page > .prose > h3 {
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+#nd-page > .prose > :is(p, ul, ol) {
+  margin-block: 0.75rem;
+}
+
+#nd-page > .prose > :first-child {
+  margin-top: 0;
+}
+
+/* The opening sentence is the visible lead, separate from body prose. */
+#nd-page > .prose > p:first-child {
+  margin-top: 0;
+  margin-bottom: 1.25rem;
+  font-size: 1.125rem;
+  line-height: 1.6;
+  color: var(--color-fd-muted-foreground);
+}
+
+/* Screenshots supplement instructions without taking over the reading area. */
+#nd-page .prose .docs-screenshot {
+  margin-block: 1rem;
+}
+
+#nd-page .prose .docs-screenshot > [data-rmiz] {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+}
+
+#nd-page .prose .docs-screenshot img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: min(100%, 640px);
+  max-height: 320px;
+  object-fit: contain;
+  padding: 0.5rem;
+  background: var(--color-fd-card);
+  border: 1px solid var(--color-fd-border);
+  border-radius: 0.5rem;
+  margin: 0;
+}
+
+#nd-page .prose .docs-screenshot figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  color: var(--color-fd-muted-foreground);
+}
+
+/* Match the gold used by required fields in Subshell's dark theme. */
+#nd-page .prose strong {
+  color: var(--docs-strong);
+  font-weight: 700;
+}
+
+/* Mermaid is rendered at build time and follows the documentation theme. */
+#nd-page .prose .docs-diagram {
+  margin-block: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--color-fd-border);
+  border-radius: 0.5rem;
+  overflow-x: auto;
+}
+
+#nd-page .prose .docs-diagram svg {
+  display: block;
+  width: auto;
+  max-width: none;
+  height: auto;
+  max-height: 440px;
+  margin-inline: auto;
+}
+
+#nd-page .prose .docs-diagram:focus-visible {
+  outline: 2px solid var(--docs-link);
+  outline-offset: 2px;
 }

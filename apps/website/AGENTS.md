@@ -25,3 +25,47 @@ it is a site, not one of server/node/client, which is why it sits directly under
 - The palette in `app/globals.css` is the MARKETING token set, deliberately not
   the SPA design system; `lint:design` does not scan this app.
 - Copy changes are product decisions: Theo approves the words.
+
+## Product demonstration clips
+
+`components/product-demo.tsx` replaces the phone and desktop screenshots with
+silent, ten-second recordings from a real session on an isolated demo server.
+Mobile shows browser/PWA access, not the native mobile app. Keep recordings at
+fixed viewport sizes and use sample projects and accounts without credentials
+or personal content.
+
+Assets live under `public/demos/`: both use H.264 MP4 because it is smaller
+than VP9 WebM at the selected quality. Both have WebP
+posters. Encode without audio at 15 fps, preserve terminal legibility, and use
+MP4 fast-start metadata. Current viewport sizes are 390×844 and 1280×800, captured at 2× pixel density
+(780×1688 and 2560×1600 encoded frames). Both clips switch between Codex
+and Claude Code in the same workspace and show a real prompt submission and
+response; preserve the visible tab strip. The notification is an editing overlay
+using the browser notification payload wording
+“Done, waiting for you”. It previews an OS notification outside the browser
+capture, not an in-app toast. Show the session name and notification body
+without an added sample label.
+The root README uses an optimized animated GIF linked to the full-quality MP4
+because GitHub strips repository-hosted HTML video elements.
+Terminal font sizes are 20px on desktop and 18px on mobile.
+Inspect frames for layout changes before encoding; changing viewport during a
+recording is not an acceptable device transition.
+
+The player attaches sources only when visible, pauses offscreen and when the
+document is hidden, and shows posters until explicit playback for reduced-motion
+or data-saving preferences. The video itself is a keyboard-accessible toggle;
+do not add visible Play/Pause links beneath it.
+Verify duration, stream metadata, export assets, responsive layout, playback,
+manual pause/resume, and preference handling after replacing clips.
+
+## Website copy
+
+Use plain, concise language and consistent product terms: Server, Client, node,
+agent, and session. Introduce a node as a machine that runs agents. Use “your
+server” and “dashboard” in visitor-facing instructions rather than “control
+plane”. Describe what an installation does; keep digest algorithms, binary
+paths, and other implementation details in documentation. Both installation
+choices use “or the CLI” above their terminal installation command. The client
+command installs the desktop app, including its bundled node; headless node
+setup uses a command and setup key from the server dashboard. Use sentence case, the serial comma,
+and descriptive captions that do not require knowing abbreviations such as PWA.

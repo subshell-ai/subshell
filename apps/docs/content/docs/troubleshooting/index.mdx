@@ -1,0 +1,39 @@
+---
+title: "Troubleshooting"
+description: "Find the cause of installation, sign-in, node, terminal, notification, and update failures."
+---
+
+Diagnose a Subshell problem from its observable symptoms.
+
+## Start with diagnostics
+
+On a server host:
+
+```bash
+subshell-server status
+subshell-server service status
+```
+
+On an enrolled node:
+
+```bash
+subshell status
+subshell service status
+```
+
+Capture the component version, exact error, and whether the problem occurs in a browser, desktop window, or host command. Do not include credentials in your report.
+
+## Choose a symptom
+
+- [Installation errors](/troubleshooting/install) covers downloads, initialization, and missing binaries.
+- [Sign-in and origin errors](/troubleshooting/sign-in) covers authentication addresses and providers.
+- [Node troubleshooting](/troubleshooting/nodes) covers connectivity and refused versions.
+- [Agent and launch errors](/troubleshooting/agents) covers detection, directories, and startup.
+- [Terminal troubleshooting](/troubleshooting/terminal) covers input, streaming, and geometry.
+- [Notification troubleshooting](/troubleshooting/notifications) covers browser delivery.
+- [MCP troubleshooting](/mcp/troubleshooting) covers tools, credentials, and channels.
+- [Update troubleshooting](/troubleshooting/updates) covers updater and container behavior.
+
+## Report an issue
+
+Read [Support and releases](/troubleshooting/support) for public issues and private security reporting. [FAQ](/troubleshooting/faq) answers common setup questions.

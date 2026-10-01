@@ -1,0 +1,36 @@
+---
+title: "Unenroll a node"
+description: "Remove node enrollment safely while understanding which files and server records remain."
+---
+
+Remove this machine's stored node enrollment.
+
+## Before you start
+
+Review running subshells and decide what should happen to them. Stop the daemon before removing its credentials; `--yes` cannot bypass the live-daemon refusal.
+
+## Stop and unenroll
+
+```bash
+subshell service stop
+subshell unenroll
+```
+
+For a daemon running in a terminal or another supervisor, stop it there first.
+
+If live panes remain, unenrollment refuses unless you explicitly accept orphaning them with `--yes`. That flag does not signal or stop those panes.
+
+> [!warning] Orphaned work
+> Accepting orphaning can leave processes running without their normal node-management connection. Prefer maintenance and a verified stop before unenrollment.
+
+## What remains
+
+The CLI removes its lock and configuration. It retains the binary, data directory, and service definition. The node's row remains on the control plane until its owner removes it there.
+
+For desktop cleanup, choose **Window** → **Open Client App** in Subshell Client's menu bar, or **Open Client App** in its tray menu, then select **Reset** in the local window's sidebar. Review its deletion plan; desktop reset can remove additional local enrollment data. It remains separate from a server reset.
+
+Avoid running a restored copy of the same node credentials concurrently with the original; the newer connection can displace the older one.
+
+## Next steps
+
+Use [Enroll a node with the CLI](/nodes/enroll) for a new identity or [Repoint a node](/nodes/repoint) when only the existing server's address changed.

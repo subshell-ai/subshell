@@ -595,6 +595,23 @@ const shouldFix = process.argv.includes("--fix");
 const manifests = collect();
 const wrong = manifests.filter((m) => m.declared !== m.expected);
 
+// Bare CLI downloads must carry the terms offline. Generate data only; this
+// copies license documents, not executable server implementation.
+const embeddedLicensePath = "packages/subshell-protocol/src/license-texts.json";
+const embeddedLicenseText = `${JSON.stringify(
+  Object.fromEntries(
+    ["LICENSE", "apps/server/LICENSE", "NOTICE"].map((path) => [path, readFileSync(resolve(REPO_ROOT, path), "utf8")]),
+  ),
+  null,
+  2,
+)}\n`;
+let embeddedActual = "";
+try {
+  embeddedActual = readFileSync(resolve(REPO_ROOT, embeddedLicensePath), "utf8");
+} catch {
+  // Missing data is repaired only in explicit fix mode.
+}
+
 if (shouldFix) {
   for (const manifest of wrong) {
     fix(manifest);
@@ -611,7 +628,12 @@ if (shouldFix) {
     if (manifest) fixMetadata(manifest.path, manifest.dir);
     console.log(`  ${problem.path}: ${problem.missing.join(", ")} → written`);
   }
-  const total = wrong.length + missingText.length + missingMeta.length;
+  const embeddedChanged = embeddedActual !== embeddedLicenseText;
+  if (embeddedChanged) {
+    writeFileSync(resolve(REPO_ROOT, embeddedLicensePath), embeddedLicenseText);
+    console.log(`  ${embeddedLicensePath}: refreshed from repository license documents`);
+  }
+  const total = wrong.length + missingText.length + missingMeta.length + Number(embeddedChanged);
   console.log(total ? `✓ fixed ${total} file(s)` : "✓ nothing to fix");
   process.exit(0);
 }
@@ -714,6 +736,14 @@ if (distinct.length > 1) {
 if (!failed) {
   const permitted = Object.keys(PERMITTED_CROSSINGS).length;
   console.log(`✓ no ${APACHE}→${AGPL} edges beyond the ${permitted} permitted, type-only ones`);
+}
+
+if (embeddedActual !== embeddedLicenseText) {
+  failed = true;
+  console.error("✗ embedded CLI license texts differ from LICENSE, apps/server/LICENSE, or NOTICE");
+  console.error("  Run bun run lint:licenses:fix, then rebuild the CLI binaries.");
+} else {
+  console.log("✓ CLI binaries embed the current license texts and NOTICE");
 }
 
 process.exit(failed ? 1 : 0);

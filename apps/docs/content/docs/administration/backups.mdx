@@ -1,0 +1,40 @@
+---
+title: "Backups and restoration"
+description: "Create consistent database snapshots and preserve the complete state needed to restore an instance."
+---
+
+Back up the database and accompanying instance files before recovery or migration.
+
+## Create a database snapshot
+
+```bash
+subshell-server backup
+subshell-server backup --json
+```
+
+The command creates a consistent SQLite snapshot under the server data directory's `backups` folder. It can run while the database is in use. The default retention keeps five snapshots; `SUBSHELL_DB_BACKUPS_KEEP` controls that count.
+
+Automatic update backups protect the update transition. They do not replace backups stored outside the machine.
+
+## Preserve the rest of the instance
+
+A database snapshot does not include every file. Preserve `config.env`, signing and channel identity keys, plugin storage and secrets, and any captured logs you need. Preserve project files and agent credentials separately.
+
+Use `subshell-server status --json` to locate this installation's actual paths rather than assuming defaults.
+
+> [!warning] Backup credentials
+> Instance backups can contain keys and credentials. Protect them at least as carefully as the live data directory.
+
+## Restore
+
+1. Stop the server and confirm no process is writing its database.
+2. Preserve the current database and its `-wal` and `-shm` sidecars as a recovery copy.
+3. Restore the snapshot at the configured database path without retaining stale sidecars from the replaced database.
+4. Restore the matching configuration and identity files with restrictive permissions.
+5. Start a compatible server and check sign-in, node connectivity, and sessions.
+
+Test restoration on an isolated instance before relying on a backup. Restoring an old database can discard newer state. Running duplicate node or server identities concurrently can disrupt connections.
+
+## Next steps
+
+Read [Files and paths](/reference/paths) and [Update the server](/administration/updates).

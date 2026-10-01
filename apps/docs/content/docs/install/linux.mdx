@@ -1,0 +1,46 @@
+---
+title: "Install on Linux"
+description: "Install the standalone Subshell server on Linux and open its setup page."
+---
+
+Install the standalone Subshell server and complete its initialization.
+
+## Before you start
+
+Use an x86-64 or arm64 Linux machine with curl and a supported user-service environment. Run the installer as the account that will run the server and its local agents.
+
+## Install the server
+
+```bash
+curl -fsSL https://subshell.sh/install-server.sh | bash
+```
+
+The installer selects a published release for your platform, checks its SHA-256 digest, installs `subshell-server` under `~/.local/bin`, and runs initialization. The checksum detects corrupted downloads; it comes from the same release host as the binary.
+
+1. Follow the tmux preflight instructions.
+2. Review the configured port, bind address, and browser address.
+3. Choose whether to run a background service and start at login.
+4. Open the setup address printed by initialization.
+
+The background option installs a systemd user service. If you skip it, start the server in your terminal:
+
+```bash
+subshell-server
+```
+
+Check the resolved installation with:
+
+```bash
+subshell-server status
+subshell-server service status
+```
+
+## Notes
+
+`init --yes` accepts the tmux installation, PATH changes, and background service as well as configuration defaults. Use `init --no-service` when you want to manage the process yourself.
+
+On Linux, a user service may need lingering to continue after logout. Read [Service and autostart](/administration/service).
+
+## Next steps
+
+Complete the server's setup experience. For offline or selected releases, use [Install the server manually](/install/manual).

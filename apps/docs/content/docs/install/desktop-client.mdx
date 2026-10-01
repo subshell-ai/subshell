@@ -1,0 +1,35 @@
+---
+title: "Install Subshell Client"
+description: "Install the desktop app that sets up a node and connects you to an existing Subshell server."
+---
+
+Install Subshell Client to run agents on your machine and access an existing server.
+
+## Before you start
+
+You need a reachable Subshell server address and an account on that server. Subshell Client does not create a control plane.
+
+Subshell Client is the recommended way to install a node on a desktop machine. It bundles the node binary and provides its local management window.
+
+## Download and connect
+
+1. Open [Subshell downloads](https://subshell.sh), select the option to run agents here or watch, and download **Subshell Client** for your platform.
+2. Install and open **Subshell Client**.
+3. Choose **Connect to a server** and enter the server's reachable address.
+4. Open the dashboard and sign in with your Subshell account.
+
+The client loads the server's own web interface. In the server dashboard, choose **Subshells** in the sidebar, open a session's **⋯** menu, and select **Open in browser** to open the corresponding page in your system browser, where you may need to sign in again.
+
+## Run agents on this machine
+
+Node management is a separate window in Subshell Client. Choose **Window** → **Open Client App** in its menu bar, or **Open Client App** in its tray menu to reach it. Follow [Desktop node setup](/nodes/desktop) to enter a setup key, enroll the bundled node, and choose how it stays running. You can also use the client only to watch sessions without enrolling this machine.
+
+Use the node-management window to configure local execution. The dashboard window displays sessions and settings from your server.
+
+## Updates and reset
+
+To update the app and its bundled node, choose **Check for Updates…** from Subshell Client's tray menu, or select the available-update item when one is offered. To reset the node, open the local window with **Open Client App** and select **Reset** in its sidebar. Resetting the node removes its enrollment; it does not reset the remote server. Read [Unenroll a node](/nodes/unenroll) before removing its identity.
+
+## Next steps
+
+See [Connect from another device](/get-started/another-device) or [Manage nodes](/nodes).

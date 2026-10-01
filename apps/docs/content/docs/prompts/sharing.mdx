@@ -1,0 +1,43 @@
+---
+title: "Share prompts"
+description: "Understand instance-wide sharing, owner-only edits, stack member visibility, and the limits of withdrawing shared text."
+---
+
+Make reusable instructions readable by other accounts on your instance.
+
+## Share an entry
+
+1. In the server dashboard sidebar, open **Prompts** and find one of your prompts or stacks.
+2. Open its **⋯** menu and choose **Share with everyone**.
+3. Confirm that it is marked as shared. Other signed-in accounts can find it under **Shared with you**.
+
+You can also enable **Share with everyone** when creating or editing an entry.
+
+> [!warning] Instance-wide visibility
+> Sharing publishes readable text to every account on the instance, not a selected group. Do not include passwords, API keys, private customer data, or instructions you do not intend to disclose.
+
+## Ownership and permissions
+
+| Entry | Read and reuse | Edit, share, or delete |
+| --- | --- | --- |
+| Your private prompt or stack | You and agents using your pane identity. | You and agents using your pane identity. |
+| Your shared prompt or stack | Every signed-in account. | Its owner and agents using that owner's pane identity. |
+| Another account's shared entry | You can read, copy, and reuse it. | You cannot change that entry. |
+
+Server administrators do not gain ownership of other users' prompt entries through these library routes. Shared instructions are content to review, not trusted commands or permission to act beyond your intended task.
+
+## Shared stacks
+
+Each referenced prompt keeps its own visibility. Sharing a stack does not share a private prompt inside it. A reader sees only the member prompts they are allowed to read, plus the stack's inline text.
+
+If another owner stops sharing a referenced prompt, it disappears from your view of the stack. Sharing it again makes it visible again. Review the combined text before use, especially when you depend on another account's instructions.
+
+## Stop sharing or delete
+
+Open your entry's **⋯** menu and choose **Stop sharing**. Other users lose library access, but copies they already selected, saved, or submitted remain. Withdrawing access cannot recall previously disclosed text.
+
+**Delete** permanently removes your library entry. Deleting a prompt removes it from stacks; deleting a stack keeps its saved prompts. Neither action changes tasks already delivered to agents. There is no undo.
+
+## Next steps
+
+Read [Prompt access through MCP](/prompts/mcp) for agent permissions and tools.

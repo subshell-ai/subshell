@@ -10,13 +10,15 @@
     "build": "next build",
     "preview": "bunx wrangler dev",
     "clean": "rm -rf .turbo .next out .source node_modules/.cache",
-    "lint": "biome check --no-errors-on-unmatched --write --unsafe app lib components src content",
-    "lint:check": "biome check --no-errors-on-unmatched app lib components src content",
-    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged app lib components src content",
+    "lint": "biome check --no-errors-on-unmatched --write --unsafe app lib components src content scripts",
+    "lint:check": "biome check --no-errors-on-unmatched app lib components src content scripts",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged app lib components src content scripts",
     "test": "bash \"$(git rev-parse --show-toplevel)/scripts/par-test.sh\" 4 bun test",
-    "verify-types": "tsc --noEmit"
+    "verify-types": "tsc --noEmit",
+    "verify:export": "bun scripts/verify-export.ts"
   },
   "dependencies": {
+    "beautiful-mermaid": "1.1.3",
     "fumadocs-core": "16.15.11",
     "fumadocs-mdx": "15.4.1",
     "fumadocs-ui": "16.15.11",

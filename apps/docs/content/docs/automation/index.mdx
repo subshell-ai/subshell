@@ -1,0 +1,30 @@
+---
+title: "API and automation"
+description: "Integrate tools with the Subshell REST API and manage machine credentials."
+---
+
+Integrate external tools through the Subshell REST API.
+
+## Choose an interface
+
+For an agent running inside a subshell, use [MCP and agent communication](/mcp). It supplies pane identity and handles channel encryption for the agent.
+
+For host-side scripts and external integrations, use [REST API](/automation/rest-api). The server also exposes interactive OpenAPI documentation at `/docs` on the server's own origin.
+
+[Build an API integration](/automation/integrations) covers schema discovery, TypeScript clients, permission boundaries, structured errors, safe retries, and WebSocket authentication.
+
+## Authentication
+
+Browser sessions use cookies. [API keys](/automation/api-keys) explains system keys and the narrower credentials issued to individual panes.
+
+A system key is an integration credential, not an administrator cookie. Administrative endpoints reject bearer credentials even when the key's permissions otherwise allow API writes.
+
+## Reliable operations
+
+Inspect the current state after a timeout before retrying a create or restart. A connection failure does not prove the server made no change.
+
+Keep credential handling separate from command logging, and use an isolated instance to test destructive operations. A terminal input API writes to a live process rather than placing a message in a queue.
+
+## Next steps
+
+Read [Build an API integration](/automation/integrations) and [REST API](/automation/rest-api) before building an integration.

@@ -47,15 +47,6 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
   // "Intel" would render a 404 button.
   const offerArch = isMac && macIntelAvailable(manifest, kind);
   const copy = installCopy(manifest, kind, isMac, offerArch ? macArch : "darwin-arm64");
-  const why =
-    kind === "server" ? (
-      <>
-        Downloads the CLI for your platform, verifies its SHA-256, installs to <code>~/.local/bin/subshell-server</code>
-        , runs <code>init</code>.
-      </>
-    ) : (
-      "Downloads Subshell Client for your platform, verifies its SHA-256, and sets it up to watch and run sessions."
-    );
   // The two small headings answer "which of these is the app and which is
   // the CLI", the question the cards used to leave unasked (operator
   // observation, 2026-09-25). Same voice as the h2, one size down.
@@ -91,7 +82,7 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
             kind === "server" && "border-[rgba(217,139,224,.5)] bg-[rgba(217,139,224,.07)] !text-[var(--orchid)]",
           )}
         >
-          run the control plane
+          Server
         </Button>
         <Button
           variant="chip"
@@ -103,17 +94,28 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
             kind === "client" && "border-[rgba(217,139,224,.5)] bg-[rgba(217,139,224,.07)] !text-[var(--orchid)]",
           )}
         >
-          run agents here, or watch
+          Client / Node
         </Button>
       </fieldset>
       {/* The chips pick the role; this line says what the picked role IS,
           at the moment of the pick (issue #233). The Client is where a
           machine enrolls as a node; nothing on this page used to say so. */}
       <p className="mb-3 max-w-[38ch] text-[12px] text-[var(--dimmer)]">
-        {kind === "server"
-          ? "This machine becomes the control plane every other device connects to."
-          : "Your interface to Subshell, and the app that enrolls this machine as a node."}
+        {kind === "server" ? "The control plane for your agents." : "Manage sessions and run agents on this machine."}
       </p>
+      {kind === "client" && (
+        <p className="mb-3 max-w-[38ch] text-[12px] text-[var(--dimmer)]">
+          For a single-machine setup, the{" "}
+          <button
+            type="button"
+            className="text-[var(--frost)] hover:text-[var(--orchid)] focus-visible:outline-2 focus-visible:outline-offset-2"
+            onClick={() => setKind("server")}
+          >
+            Server app
+          </button>{" "}
+          is all you need.
+        </p>
+      )}
       <p className={headingClass}>{copy.appHeading}</p>
       {offerArch ? (
         <ArchSplitButton
@@ -126,7 +128,7 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
       ) : (
         <a
           href={copy.downloadHref}
-          className="block w-fit rounded-xl border border-[var(--orchid)] bg-[var(--orchid)] px-5 py-3 text-[14.5px] font-semibold text-[var(--void)] hover:bg-[#e3a2e8]"
+          className="block w-fit rounded-xl border border-[var(--download-border)] bg-[image:var(--download)] px-5 py-3 text-[14.5px] font-semibold text-[var(--download-foreground)] hover:bg-[image:var(--download-hover)]"
         >
           <span suppressHydrationWarning>{copy.downloadLabel}</span>
         </a>
@@ -176,23 +178,22 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
         </>
       )}
       <p className="mt-3 max-w-[36ch] text-[12px] text-[var(--dimmer)]">
-        macOS 13+ on Apple silicon · Linux x86_64 Ubuntu 24.04+ / Debian 13+
+        macOS 13+ · Linux x86_64 (Ubuntu 24.04+ / Debian 13+)
       </p>
-      <p className="mt-2.5 max-w-[38ch] text-[12px] text-[var(--dimmer)]">{why}</p>
       {/* The third path is not a download (issue #233): adding a machine to a
           control plane that already runs happens from that plane's own setup
           key, and the user who wanted that stood here guessing between two
           installers. The sentence they searched docs for, on the surface they
           were actually on. */}
       <p className="mt-3 max-w-[38ch] text-[12px] text-[var(--dim)]">
-        Already running Subshell?{" "}
+        Already have a server?{" "}
         <a
           className="text-[var(--frost)] underline-offset-2 hover:text-[var(--orchid)]"
-          href="https://docs.subshell.sh/get-started/add-a-machine"
+          href="https://docs.subshell.sh/nodes"
         >
           Add another machine
-        </a>{" "}
-        from a setup key minted on its control plane.
+        </a>
+        .
       </p>
     </div>
   );

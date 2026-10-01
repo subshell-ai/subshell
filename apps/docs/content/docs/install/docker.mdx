@@ -1,0 +1,47 @@
+---
+title: "Run Subshell in Docker"
+description: "Deploy the published Subshell container image with persistent data and project directories."
+---
+
+Run the published Subshell server image with persistent data.
+
+## Before you start
+
+Install Docker and make a data directory writable by the container's runtime user. Decide which project directories and agent credentials the container may access.
+
+The published image is `ghcr.io/subshell-ai/subshell`. The repository's Compose example includes host-specific credential mounts; review them before using it.
+
+## Start a minimal server
+
+This example publishes port 3080 and mounts your projects at the same absolute path inside the container:
+
+```bash
+mkdir -p "$HOME/.config/subshell-server" "$HOME/projects"
+docker run -d --name subshell --restart unless-stopped \
+  --user "$(id -u):$(id -g)" \
+  -p 3080:3080 \
+  -v "$HOME/.config/subshell-server:/data" \
+  -v "$HOME/projects:$HOME/projects" \
+  -e DATABASE_PATH=/data/subshell.db \
+  -e APP_BASE_URL=http://localhost:3080 \
+  ghcr.io/subshell-ai/subshell:latest
+```
+
+1. Open `http://localhost:3080/setup` on the Docker host.
+2. Create the admin account.
+3. Confirm that the mounted project directory is available in the launch picker.
+
+For another device or proxy, set `APP_BASE_URL` to the actual browser URL in your Docker command or Compose environment and recreate the container. [Files and paths](/reference/paths) explains the configuration files and persistent state; this example mounts the host directory at `/data`.
+
+## Credentials and persistence
+
+The image's home directory is `/home/subshell`. Agent credentials mounted from the host must use that container destination. Running under a different UID may also require supplying your own agent binaries and state.
+
+> [!warning] Credential mounts
+> Agents can read credentials mounted into their runtime account. Mount only credentials and projects you intend those agents to use.
+
+Persist `/data`, including `config.env`, the SQLite database, and other instance state. Updating replaces the image, not the running server binary.
+
+## Next steps
+
+See [Update the server](/administration/updates), [Backups and restoration](/administration/backups), and [HTTPS and reverse proxies](/networking/https).

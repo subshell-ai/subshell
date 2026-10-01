@@ -1,38 +1,29 @@
 ---
-title: OpenCode
-description: "The open-source omnichannel coding CLI as a Subshell harness: config-layer MCP wiring that keeps your own config intact."
+title: "OpenCode"
+description: "Install and launch OpenCode with Subshell, including its MCP and session behavior."
 ---
 
-OpenCode is the open-source omnichannel agentic coding CLI, and as a Subshell harness it runs the interactive TUI in a pane with the [MCP server](/automation/mcp) wired into every launch through a merged config layer.
+Run OpenCode as a Subshell agent.
 
-Your own OpenCode configuration keeps working untouched.
+## Before you start
 
-## Finding the binary
+Install `opencode` using the [vendor instructions](https://opencode.ai/docs/cli/) and authenticate it under the execution account. Ask an administrator to enable the harness under **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
 
-Subshell resolves `opencode` on the machine that will run the pane. It first tries the `opencode` on the PATH there, which includes what a login shell would find. It then checks the installer's own location under `~/.opencode/bin`. Set `OPENCODE_PATH` on that machine's environment to name the binary explicitly.
+## Launch
 
-If detection finds nothing, [Install an agent CLI](/agents/install-a-cli) covers the one-line installer, and the [vendor CLI docs](https://opencode.ai/docs/cli/) describe the manual path.
+1. In the server dashboard's sidebar, choose **Subshells**, select **New subshell**, and choose **OpenCode**.
+2. Select a preset or configure the supported launch settings.
+3. Choose the target node and an existing project directory.
+4. Launch and confirm that the CLI opens normally.
 
-## What a launch looks like
+The plugin detects `opencode` through PATH and its known locations. `OPENCODE_PATH` can identify the binary explicitly in the execution environment. Before changing that override, see [Files and paths](/reference/paths) for configuration locations and service-environment guidance.
 
-A bare OpenCode launch opens the TUI, so that is what a subshell runs. Settings arrive as per-invocation flags: the launch reads the preset's settings as model (`-m`, in `provider/model` form), agent (`--agent`), and auto-approve permissions (`--auto`). The [preset editor](/use/presets) suggests the flags and environment variables OpenCode users tend to want.
+## MCP and session behavior
 
-OpenCode has no create-time flag for naming its session, so the subshell's display name is not forwarded to it. Subshell's own naming, sharing, and logs still apply.
+Subshell injects a local MCP entry into the launch configuration. Preset configuration is merged with the required Subshell MCP configuration. The built-in plugin declares MCP and settings capabilities; it does not declare automatic conversation resumption or attention hooks.
 
-## Automatic cross-subshell tools
+Subshell runs the real CLI rather than proxying its provider API. Provider configuration, usage limits, and CLI-specific permissions remain the agent's own settings.
 
-The MCP server provides [channels, sibling inspection, and coordination](/automation/mcp). It is registered for every OpenCode subshell automatically, using OpenCode's own config-merge behaviour: OpenCode loads any config file named by `OPENCODE_CONFIG` and merges it between its global and project configs.
+## Next steps
 
-Subshell composes a small per-subshell config layer holding just the `subshell` MCP entry, and points `OPENCODE_CONFIG` at it. The control plane builds the layer at launch. On a [node](/nodes), the launch command carries the layer to that machine, where it lands beside the pane and names that machine's own `subshell` binary as the server. Either way the result is the same: the entry is added, your global and project config are preserved, and every MCP server you configured yourself is still there.
-
-The registration names only the command to spawn, so the `subshell mcp` child inherits the credential baked into its pane's environment (each subshell's own scoped API key). No secret ever sits in the config layer.
-
-> [!important] Leave `OPENCODE_CONFIG` to Subshell
-> That variable is how the wiring arrives, so a preset that sets it itself would shadow the subshell's own cross-subshell comms. If you want to add your own config layer to a subshell, use OpenCode's independent merge sources instead (`OPENCODE_CONFIG_CONTENT` for inline JSON, or `OPENCODE_CONFIG_DIR`), and both yours and Subshell's entries apply.
-
-## See also
-
-- [Codex](/agents/codex): the same automatic wiring, done with per-invocation overrides instead of a config layer
-- [Presets](/use/presets): saved per-harness configuration, including OpenCode's settings fields
-- [The MCP server](/automation/mcp): what the registered tools actually give the agent
-- [Install an agent CLI](/agents/install-a-cli): the in-page installer for the `opencode` binary
+Read [MCP configuration](/mcp/configure), [Presets](/presets), and [Agent and launch errors](/troubleshooting/agents).

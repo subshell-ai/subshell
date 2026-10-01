@@ -1,0 +1,41 @@
+---
+title: "Workspaces"
+description: "Arrange subshells in reusable layouts and understand draft workspaces."
+---
+
+Arrange existing subshells in a workspace layout.
+
+## Before you start
+
+Create the subshells you want to arrange. A workspace organizes references to those sessions; it does not create a separate copy of their processes.
+
+## Build a layout
+
+1. In the server dashboard's sidebar, choose **Workspaces** and select **New workspace** at the top of the page.
+2. Under **Existing subshells**, select the sessions you want to include and choose **Create workspace**.
+3. Click the workspace title at the top of its page to give it a recognizable name.
+4. Select **Add subshell** at the top of the workspace to include an existing session or launch a new one.
+5. On a wide screen, drag a session's pane tab toward an edge of another pane and release it when the split preview appears.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/workspace-layout.png" alt="Code review workspace with Codex and Claude Code running side by side." width="1423" height="898" loading="lazy" decoding="async" unoptimized />
+  <figcaption>A workspace can display Codex and Claude Code side by side. Use Add subshell to include another session. Select the image to enlarge it.</figcaption>
+</figure>
+
+On a small screen, the workspace presents its panes as tabs instead of side-by-side terminals.
+
+## Drafts
+
+Splitting a session can create a draft workspace. To keep an unsaved workspace, use the **Save workspace** icon beside its title and enter a name. Drafts appear separately from saved workspaces and can be discarded without creating a named workspace.
+
+Removing a pane from a draft with fewer than two panes deletes that draft. A subshell can still exist independently after its workspace reference is removed.
+
+## Closing sessions
+
+Closing a subshell permanently removes the session and its pane references from workspaces. Review [Session lifecycle](/guides/lifecycle) before confirming the action.
+
+Changing a layout is different from changing a session's working directory or agent settings. Use [Clone and switch presets](/guides/clone) for those launch operations.
+
+## Next steps
+
+Use [Presets](/presets) to repeat launch settings and [Share a subshell](/guides/sharing) to grant session access.

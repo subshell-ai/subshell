@@ -1,0 +1,61 @@
+---
+title: "Run agents on another machine"
+description: "Enroll another computer as a node, install its agent CLI, and launch remote sessions from your existing Subshell server."
+---
+
+Run a coding agent on another machine by enrolling it as a node with your existing server.
+
+Your server manages the instance and serves the dashboard. The node runs the agent under its own OS account, using its local files and provider credentials. Opening the dashboard from another device gives you access to that running agent.
+
+## Before you start
+
+- Complete the server's setup experience and sign in.
+- Choose a supported Linux or macOS machine to run the agent.
+- Make sure that machine can reach the server. Use a LAN or private-network address, not `localhost` from a different machine. See [Networking](/networking).
+- Use an account with permission to enroll nodes. An administrator can restrict enrollment.
+
+> [!warning] Node access
+> Enrollment lets the trusted server launch programs under the node's OS account. Choose that account carefully and review [Directory restrictions](/nodes/directories).
+
+## Connect the machine
+
+For a desktop machine, use **Subshell Client**:
+
+1. Download Subshell Client from [subshell.sh](https://subshell.sh) and install it on the machine that will run the agent.
+2. In your server's dashboard sidebar, choose **Nodes**, then select **Add node** at the top of the page.
+3. Select a server address the new machine can reach and generate a setup key.
+4. Choose **Desktop App** to find the server address and key for enrollment.
+5. On the new machine, open Subshell Client and choose **Run subshells on this machine**. Enter the server address and setup key in its registration form. If the dashboard is already open, choose **Window** → **Open Client App** in the app's menu bar, or **Open Client App** in its tray menu to return to the local node window.
+6. Choose a recognizable machine name and follow the tmux and background-service instructions.
+7. Return to **Nodes** in the server dashboard and confirm the machine is online.
+
+If the client is already configured only to watch sessions, follow [Desktop node setup](/nodes/desktop) to find **Register this machine** in its local **Service** section.
+
+The setup key is single-use. Keep it private and generate another if the first has already been used. [Desktop node setup](/nodes/desktop) describes the node window in more detail.
+
+For a headless machine or terminal-based installation, follow [Enroll a node with the CLI](/nodes/enroll).
+
+## Prepare the agent on the node
+
+1. [Install an agent CLI](/agents/install-cli) on the new node, under the OS account that runs its daemon.
+2. Complete the agent's provider sign-in on that machine.
+3. Make the project available in an existing directory on that machine, for example by cloning its repository there.
+4. Confirm Subshell detects the agent on the node. If it does not, follow [Agent and launch errors](/troubleshooting/agents).
+
+Installing a harness plugin on the server does not install the agent CLI on the node. Signing in to Subshell also does not sign the agent in to its provider.
+
+## Launch on the node
+
+1. In the server dashboard's sidebar, choose **Subshells**, then select **New subshell** at the top of the page.
+2. Choose the agent and select your new node as the execution machine.
+3. Select the project's working directory on that node.
+4. Add your task and launch the subshell.
+5. Open its terminal and confirm the agent reaches its normal prompt.
+
+The directory belongs to the selected node. A path on your laptop does not identify files on another machine unless you have made those files available there.
+
+The session can continue when you close the browser tab, while the node and agent process remain running. Keeping the node's daemon in a background service helps it reconnect without an open terminal; see [Node services](/nodes/service).
+
+## Next steps
+
+Use [Presets](/presets) to save launch defaults, [Workspaces](/guides/workspaces) to organize related sessions, or [Connect from another device](/get-started/another-device) to return to the same agent elsewhere.

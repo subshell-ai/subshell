@@ -41,4 +41,4 @@ dialect (claude: `--mcp-config` file; opencode: merged config layer +
 no per-subshell file), while harnesses without a per-subshell format (hermes, pi)
 write nothing and expose one-time registration steps via `GET
 /api/presets/harnesses/:id/schema` (rendered by the preset editor). The component map in
-`apps/docs/content/docs/develop/architecture.mdx` places the MCP half.
+`apps/docs/content/docs/concepts/architecture.mdx` places the MCP half.

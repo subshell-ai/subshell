@@ -1,0 +1,62 @@
+---
+title: "Node updates"
+description: "Update enrolled nodes from the dashboard, use the desktop node controls, or apply CLI and offline updates."
+---
+
+Update the node daemon while accounting for its running sessions.
+
+## Before you start
+
+Review current work and the server's compatibility requirements. The server checks a minimum node version and an exact protocol version independently.
+
+## Update from the dashboard
+
+For the instance-wide update page, sign in as an administrator. In the server dashboard sidebar, open **Server Settings** → **Updates**. In **Components**, select **Re-check** to refresh release information and find the **Nodes** rows below the server and desktop apps.
+
+1. Compare the target node's **Running** and **Newest** versions.
+2. Read its status and any explanation of why an update is unavailable.
+3. Select **Update** on that node's row.
+4. Wait for installation and reconnection, then confirm the reported running version.
+
+The server offers a node release compatible with its requirements and the node's platform. **Update all** processes the eligible nodes in order and stops at the first failure. The failed node's row explains the problem; check which machines completed before trying again.
+
+A truly offline node cannot receive an update command. A connected node held for compatibility can be unavailable for normal work while still accepting an offered update. The page distinguishes minimum-version, protocol, and encryption-pairing issues. See [Version compatibility](/reference/versions) for those checks.
+
+An accepted update is not proof of completion. If the page says the node has not reported the target version yet, reload and inspect that machine's service before retrying. The running version after reconnection establishes what was installed.
+
+## Update from a node's detail page
+
+A node owner or a user with edit access can also open **Nodes** in the dashboard sidebar and select the node. In its **Updates** card, choose **Update to latest** to request the newest release this server can offer. The card displays the installed version and any refusal.
+
+For a node managed by Subshell Client, open the app's tray menu → **This Machine…** → **Update** for its local update workflow. Updating the node daemon and updating the desktop app are separate operations; check the app's release when you need a newer bundled version.
+
+## Check and update with the CLI
+
+On the node:
+
+```bash
+subshell update --check
+subshell update
+```
+
+The node CLI checks the newest published node release by default. It does not ask the control plane which version is compatible. Review the dashboard update page described above before applying it, and use `--to <version>` when you need the version offered there.
+
+Review any refusal concerning live panes. Use maintenance when you need a controlled stop.
+
+## Offline and selected updates
+
+`--to <version>` selects a published version. `--from <file>` uses a staged local binary; you are responsible for the trustworthiness of that file. `--no-restart` replaces the binary but leaves restart to the caller.
+
+`--force` can accept a downgrade and override a live-pane refusal. It is not a substitute for reviewing compatibility and session impact.
+
+## Rollback
+
+```bash
+subshell update --rollback
+```
+
+Rollback restores the previous binary when available. Check the server's protocol requirements before expecting an older node to reconnect.
+
+## Next steps
+
+Read [Version compatibility](/reference/versions) and [Update troubleshooting](/troubleshooting/updates).

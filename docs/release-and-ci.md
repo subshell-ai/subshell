@@ -10,6 +10,19 @@ changeset rules, "never cut tags by hand", pointers to the update rules and
 the specs) stays in `AGENTS.md` under "Changesets & releases" and
 "Updates".
 
+### License texts in binary downloads
+
+The server and node CLIs embed the complete root `LICENSE`,
+`apps/server/LICENSE` (including the API Type Surface exception), and `NOTICE`.
+Their `license` command prints these documents without a network connection or
+adjacent files, so installation and binary replacement retain the terms.
+
+`packages/subshell-protocol/src/license-texts.json` is generated data.
+`bun run lint:licenses` refuses stale copies; after editing a source document,
+run `bun run lint:licenses:fix` and rebuild. Do not edit the generated copy.
+This embeds Subshell's license documents; dependency-specific attribution and
+license requirements must still be handled for the dependencies a release ships.
+
 ### Publishing subshell binaries (Nodes)
 
 The prebuilt `subshell` binaries served by `GET /api/downloads/node/*` (the
@@ -355,10 +368,10 @@ already carries bun (1.4.2, pinned to
 the root `packageManager` so CI runs what developers run), rustup stable and
 Tauri's system dependencies; `tmux`, `rustfmt` and `clippy` were added for
 CI's sake. That is what lets `setup-bun`, `dtolnay/rust-toolchain` and every
-`sudo apt-get` stay out of the workflow. The image is PRIVATE (it inherits
-the repo's visibility), and a container job pulls a same-repo ghcr image
-with the job token: the `packages: read` permission is what authenticates
-it; a PAT is not needed and none is used. Inside a container we simply ARE
+`sudo apt-get` stay out of the workflow. The repository is public. Container
+package visibility is configured separately, and CI authenticates pulls of the same-repo GHCR image with
+the job token. The `packages: read` permission enables that access; a PAT
+is not needed and none is used. Inside a container we simply ARE
 root, which is also what makes Playwright's `install-deps` possible.
 
 `lint.yml` and `cla.yml` run BARE: bun and a JS action need no system

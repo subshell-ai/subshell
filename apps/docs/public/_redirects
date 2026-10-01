@@ -1,8 +1,86 @@
-# Cloudflare Workers static assets read this file from the assets directory
-# (copied here from public/ by `next build`); rules are
-# `<source> <destination> <status>`, and `#` lines are comments.
-#
-# Empty on purpose — the site's URLs are stable from the first deploy, so
-# there is nothing to redirect. This file EXISTS because the deploy asserts
-# it lands in the export, and a slug that moves (a page renamed, a section
-# reorganised) gains its redirect here rather than silently 404ing old links.
+# Preserve links from the previous documentation structure.
+# Cloudflare static assets applies these permanent redirects.
+/get-started/install-server /install 301
+/get-started/create-admin /get-started 301
+/get-started/first-agent /guides/launch 301
+/get-started/add-a-machine /get-started/another-machine 301
+/get-started/add-a-node /get-started/another-machine 301
+/get-started/desktop-node /nodes/desktop 301
+/nodes/add-node /nodes/enroll 301
+/nodes/client-as-node /nodes/desktop 301
+/use /guides 301
+/use/subshells /guides/lifecycle 301
+/use/workspaces-panes /guides/workspaces 301
+/use/workspaces /guides/workspaces 301
+/use/presets /presets 301
+/use/sharing /guides/sharing 301
+/use/notifications /guides/notifications 301
+/use/channels /mcp/channels 301
+/use/devices /guides/devices 301
+/server /administration 301
+/server/desktop /install/desktop-server 301
+/server/headless /install/manual 301
+/server/headless-install /install/manual 301
+/server/docker /install/docker 301
+/server/configuration /administration/configuration 301
+/server/networking /networking 301
+/server/service /administration/service 301
+/server/users /administration/users 301
+/server/users-roles /administration/users 301
+/server/sign-in-providers /administration/sign-in-providers 301
+/server/registration /administration/registration 301
+/server/registration-enrollment /administration/registration 301
+/server/backups /administration/backups 301
+/server/updating /administration/updates 301
+/server/logs /administration/logs 301
+/server/logs-debug /administration/logs 301
+/server/audit-log /administration/audit 301
+/server/reset /administration/reset 301
+/server/api-keys /automation/api-keys 301
+/automation/system-api-keys /automation/api-keys 301
+/reference/mcp-tools /mcp/tools 301
+/develop /developers 301
+/develop/contribute-to-subshell /developers/contribute 301
+/develop/contribute-to-these-docs /developers/documentation 301
+/develop/write-docs /developers/documentation 301
+/help /troubleshooting 301
+/help/troubleshooting /troubleshooting 301
+/help/sign-in /troubleshooting/sign-in 301
+/help/nodes /troubleshooting/nodes 301
+/help/install /troubleshooting/install 301
+/help/panes /troubleshooting/terminal 301
+/help/faq /troubleshooting/faq 301
+/help/support /troubleshooting/support 301
+/automation/mcp /mcp 301
+/automation/mcp-server /mcp 301
+/automation/mcp-tools /mcp/tools 301
+/concepts/how-it-works /concepts/architecture 301
+/concepts/security-model /concepts/security 301
+/about/how-it-works /concepts/architecture 301
+/about/security-model /concepts/security 301
+/about/supported-platforms /install 301
+/reference/environment-variables /reference/environment 301
+/reference/files-and-paths /reference/paths 301
+/reference/ports-and-firewalls /reference/ports 301
+/reference/version-compatibility /reference/versions 301
+/help/install-updates /troubleshooting/updates 301
+/develop/contribute /developers/contribute 301
+/develop/architecture /concepts/architecture 301
+/develop/plugin-api /developers/plugin-api 301
+/develop/harness-plugin /developers/harness-plugin 301
+/develop/network-plugin /developers/network-plugin 301
+/develop/publish-plugin /developers/publish-plugin 301
+/develop/publish-a-plugin /developers/publish-plugin 301
+
+# Setup now covers account creation and the first session.
+/get-started/admin-account /get-started 301
+/get-started/first-subshell /guides/launch 301
+
+/guides/terminal /guides/launch 301
+
+/concepts/platforms /install 301
+
+/reference/api /automation/integrations 301
+
+/guides/presets /presets 301
+/guides/prompts /prompts 301

@@ -75,10 +75,9 @@ env:
 
 permissions:
   contents: read
-  # The container jobs pull ghcr.io/subshell-ai/desktop-builder, which inherits
-  # this repo's visibility. Without this the runner's docker pull is DENIED and
-  # the job dies in "Initialize containers" before a single step runs — the
-  # same trap release.yml documents.
+  # Container jobs authenticate pulls of ghcr.io/subshell-ai/desktop-builder.
+  # Package visibility is separate from this public repository; retain read
+  # access for registry-authenticated CI pulls.
   packages: read
 
 # A superseded push must not keep CI busy: pushing three times to a PR used to

@@ -1,0 +1,36 @@
+---
+title: "Access model"
+description: "Distinguish ownership, grants, administrator access, and machine-credential boundaries."
+---
+
+Understand the permissions applied to people and machine credentials.
+
+## Ownership and grants
+
+A subshell is private to its owner by default. The owner can grant view or edit to named users or Everyone on the instance.
+
+View grants include output and live terminal viewing. Edit adds input, rename, restart, and termination. Neither grants deletion, re-sharing, or control of the owner's notification bell.
+
+## Administrators
+
+Administrators have effective edit access across sessions and can manage the instance. Ownership-only operations stay with the real owner, including for an administrator.
+
+Administrative endpoints require a cookie session with the admin role. Bearer credentials are refused there.
+
+## Pane credentials
+
+A pane token resolves to its owner's identity for permitted operations, without administrator privileges or another user's sharing grants for session details and changes. It can act on other sessions owned by the same user.
+
+The session list deliberately includes shared rows visible to the owner. A listed foreign row can therefore return 404 when the pane tries to inspect or operate it.
+
+Node enumeration with a pane token is owner-only. The server-host node belongs to the system identity by default and is not automatically in a human pane's node list.
+
+## System keys
+
+A system integration key belongs to the system service identity. It does not inherit the administrator's human resource ownership.
+
+Node sharing permits execution on a machine; session sharing permits viewing or editing a particular session. They are separate grants.
+
+## See also
+
+[Share a subshell](/guides/sharing), [Share a node](/nodes/sharing), and [API keys](/automation/api-keys).

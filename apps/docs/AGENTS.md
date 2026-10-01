@@ -1,107 +1,120 @@
 # apps/docs: authoring contract
 
-This is the public documentation site: a Fumadocs 16 / Next.js app that builds
-to a **static export** and ships at docs.subshell.sh. Pages are MDX files under
-`content/docs/`, and the sidebar is the file tree (`meta.json` per folder).
-The human-facing twin, the contributor walkthrough, is
-`content/docs/develop/write-docs.mdx`; this file is the agent-facing contract.
-Where they disagree, this one is more current.
+This is the public Fumadocs / Next.js documentation site at docs.subshell.sh.
+It builds to a static export. Pages are MDX under `content/docs/`, with explicit
+`meta.json` navigation in every folder. The contributor guide is
+`content/docs/developers/documentation.mdx`.
 
-## Finishing a stub page
+## Coverage and structure
 
-Many pages are honest stubs: a future-tense intent paragraph, a
-`> [!warning] Draft` callout, and a `## Sources` list naming the repository
-files the content migrates from. Finishing one means all four steps:
+The root sidebar order is `index`, `about`, `get-started`, `install`, `guides`, `presets`, `prompts`, `agents`,
+`nodes`, `administration`, `networking`, `mcp`, `automation`, `concepts`,
+`reference`, `troubleshooting`, and `developers`. `lib/navigation.ts` defines
+this order and the AI index's section names. Every section has an index page.
+Update that contract and the root metadata together when changing navigation.
 
-1. **Read every listed source.** They are real paths. Where two disagree, the
-   app's own `AGENTS.md` wins, and for security claims `docs/security.md` is
-   the authority.
-2. **Replace the intent paragraph with real prose** covering everything the
-   intent promised. Honour it without narrowing it.
-3. **Delete the Draft callout.** That is the lifecycle event that makes the
-   page real.
-4. **Convert `## Sources` into a short reader-facing "See also"**: site links,
-   plus the GitHub URL for `docs/security.md` when security claims need their
-   authority. Repo-internal source paths (`apps/...`, `docs/...`) come OUT of
-   the page.
+Document shipped behavior, including browser/PWA access from phones and
+tablets. Do not document the native mobile app, its setup, availability,
+development workflow, or roadmap. The product documentation excludes it.
 
-Keep the `title` and `description` frontmatter (both required; a description
-containing ": " must be quoted; it is YAML).
+Presets and Reusable Prompts have their own sections. Keep prompt text, library-stack references, and copied launch defaults distinct. Dashboard injection types text without submitting it.
 
-## Voice
+MCP has its own section. Keep tool reference at `/mcp/tools`; link there from
+Reference instead of maintaining a second tool list. Cover identity, ownership,
+helper cleanup, encrypted channels, and the distinction between nudges and posts.
 
-`STYLE.md` (next to this file) governs prose: the one-sentence opener,
-sentence discipline, the banned-tell list, and the calibration pairs. It is
-binding on humans and agents alike, and the re-imagine audit was run against
-it.
+## Voice and factual accuracy
 
-## Vocabulary and voice
+`STYLE.md` governs prose. Use plain second-person language and a one-sentence
+factual opener. How-tos state prerequisites, numbered actions, expected results,
+and next steps. Reference pages use lookup tables and command sections.
 
-- **Three words, one meaning each**: **server** = the control plane (API,
-  database, the SPA it serves); it is NOT a machine that runs agents. **node**
-  = a machine that runs agents (the `subshell` daemon); it is NOT an app.
-  **client** = a person's interface to a control plane (web, mobile, desktop);
-  it is NOT the node daemon. Reusing a word for two things is the one style
-  violation that bounces a PR.
-- **Device-neutral positioning.** Lead with "from anywhere / any device";
-  phone-specific copy belongs on the mobile page only. The maintainer rejected
-  phone-first framing: the product is not "a phone app for agents".
-- Second person, plain, user-facing. "You grant view access…", not "the system
-  permits…".
-- **No em dashes.** Not in prose, headings, frontmatter or callouts. A comma,
-  a colon, parentheses, or a full stop and a new sentence carry the same
-  breath honestly; the dash is the tell of a sentence that kept growing. This
-  is the UI-copy rule (operator ruling, 2026-09-21) extended to the docs by the
-  operator's ruling of 2026-09-25. The content test fails any `.mdx` file
-  carrying U+2014, so the rule is enforced, not aspirational. En dashes (date
-  and version ranges) and hyphens are untouched by this; do not "fix" them.
+- Server means the control plane; node means an execution machine; client
+  means a person's interface. Never give these words a second meaning.
+- Use device-neutral positioning. Browser guidance can name phones and tablets.
+- No em dashes in prose, headings, frontmatter, or callouts. Literal code is exempt.
+- Give UI actions a verified entry point: interface, sidebar or menu path,
+  control label, and required role. Never introduce a card or dialog by name
+  alone; link to its procedure when needed.
+- Link environment-variable editing instructions to `/reference/paths` near
+  the action, identifying the relevant machine and configuration layer.
+- Verify flags, defaults, versions, permissions, UI labels, and error strings
+  against the owning app documentation and current implementation.
+- `docs/security.md` is the security authority. Resolve disagreement before
+  publishing a claim. Historical specs are coverage hints, not proof a change shipped.
+- Preserve data-loss and trust warnings at equal strength. In this checkout,
+  the UI's Close action deletes; MCP terminate retains the row. Recheck the
+  implementation before changing that documentation.
+- Publish substantive pages. Do not ship draft notices, intent-only stubs, or
+  repository source inventories in ordinary user guides.
 
-## MDX traps (each has broken a build)
+## Theme
 
-- **Curly braces and angle brackets are JSX.** Keep flags, placeholders and
-  paths in code font: `` `--from <file>` `` renders; a bare `<file>` is a JSX
-  parse error.
-- **Frontmatter is YAML**: quote values containing ": ".
-- **Internal links are root-relative** (`[Nodes](/nodes)`) and must point at
-  **existing pages**. `get-started`, `use`, `agents`, `nodes`, `server`,
-  `concepts` and `help` have index pages (the bare path resolves);
-  `automation`, `reference` and `develop` do NOT - never link their bare
-  section path. The content test enforces resolution.
+Match the server web app's Dreamframe palette and system font stack. The
+Fumadocs color mapping is in `app/global.css`; update it when the product
+tokens change. Prose links use muted blue without underlines, with visible hover
+and keyboard focus states. Bold article text uses the product's required-field
+gold in a subdued tone with a bold weight.
 
-## Structure rules (the test enforces all of these)
+## MDX and links
 
-- A `.mdx` file not listed in its folder's `meta.json` `pages` array fails the
-  suite as an orphan. The root `meta.json` is additionally pinned by
-  `ROOT_PAGES` in `src/__tests__/content-tree.test.ts`. Changing the root
-  sidebar order means editing that test.
-- **No new MDX components.** Bare fumadocs-ui defaults only: callouts (GitHub
-  alerts `> [!note]` / `tip` / `important` / `warning` / `caution`), code
-  blocks, tables. No Tabs, no Cards, no Steps.
-- **No screenshots.** None exist; describe screens in words until the
-  screenshot pass lands.
+Both `title` and `description` frontmatter are required. Quote YAML values
+containing `: `. Curly braces and angle brackets are JSX: put paths,
+placeholders, flags, and JSON in code spans or fenced code blocks.
 
-## Never invent
+Internal links are root-relative and must resolve to an existing page. Every
+MDX page must appear in its folder's `meta.json`. Prefer the destination's title
+as link text. Update repository-owned links when changing a route.
 
-Never invent a flag, a default, a version floor, or a permission. Verify
-against the code or the app's `AGENTS.md`; when a source is silent, ask the
-maintainer rather than guessing product behavior. Old repo docs DO contain
-stale counts. Verify numbers against current source before writing them.
+Use default Fumadocs components only: code blocks, tables, and GitHub alert
+callouts. Selective UI screenshots use Fumadocs `ImageZoom` inside native `figure`
+and `figcaption` elements with the `docs-screenshot` class. Set `unoptimized`
+for static-export image assets. No Tabs, Cards, Steps,
+or unrelated custom MDX components. Mermaid diagrams use fenced `mermaid` blocks,
+compiled with `remarkMdxMermaid` and rendered to static SVG by the provided
+`Mermaid` component. Include a `%%` description for accessibility and prose
+explaining the relationships. Follow the visual rules in `STYLE.md`.
 
-## Shipping a change
+## SEO and AI exports
 
-- `bunx changeset` naming **only `@internal/docs`**. Never write a changeset
-  for an ignored package: it is inert and wedges the version PR.
-- The `docs-v*` tag is cut by the docs workflow, never by hand.
+Use unique descriptive titles and summaries, one rendered H1, logical headings,
+and crawlable links. Keep essential content in statically rendered HTML.
+Canonical and social metadata must identify the actual page. Visible breadcrumbs
+and breadcrumb structured data come from the same list.
+
+The sitemap, `/llms.txt`, `/llms-full.txt`, and static search use the published
+content source. The AI index is grouped by section. Full text preserves headings,
+commands, warnings, and canonical attribution. Never fabricate modification dates.
 
 ## Verification
 
+From the repository root:
+
 ```bash
-cd apps/docs && bun test                      # content tree + link check + em-dash ban
-bunx turbo build --filter=@internal/docs      # the real MDX compile check
-bun run lint && bun run lint:check            # biome over content + src
-bun run verify-types
-bun run dev:docs                              # serve at :3400
+env -u SHELLOPTS -u BASHOPTS bun run --cwd apps/docs test
+bunx turbo build --filter=@internal/docs
+bun run --cwd apps/docs lint:check
+bun run --cwd apps/docs verify-types
+bun run --cwd apps/docs verify:export
+bun run dev:docs
 ```
 
-`bun test` and `lint:check` pass on prose the compiler will still reject;
-the turbo build is the MDX truth.
+The build is the real MDX compile check. Export verification must run against a
+fresh build; content or sitemap absence is a failure, not a skipped success.
+Review wide and narrow layouts and confirm a no-JavaScript document is readable.
+
+## Shipping
+
+Add a changeset naming only `@internal/docs`. Do not hand-edit generated
+changelogs or cut tags. The docs workflow owns deployment and `docs-v*` tags.
+The source repository is public; npm-private workspace flags only prevent npm publication.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes: APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev`; verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

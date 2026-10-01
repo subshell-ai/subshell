@@ -1,0 +1,48 @@
+---
+title: "Node services"
+description: "Run the node as a background user service and control start-at-login behavior."
+---
+
+Run the node daemon as a background service.
+
+## Before you start
+
+Enroll the node and verify its configuration. Linux uses a systemd user unit; macOS uses a launchd user agent.
+
+## Install and inspect
+
+```bash
+subshell service install
+subshell service status
+```
+
+Installation starts the daemon and enables start at login. Use `service install --no-autostart` to start it now without enabling future login startup.
+
+Change that preference later without stopping the running daemon:
+
+```bash
+subshell service autostart off
+subshell service autostart on
+```
+
+## Start, stop, and restart
+
+```bash
+subshell service start
+subshell service stop
+subshell service restart
+```
+
+These commands operate on an installed service. They do not install one automatically.
+
+A restart can refuse when the service definition would kill live panes. Inspect the running work before considering `--force`; it accepts the reported disruption.
+
+## Linux logout behavior
+
+A user service may stop when the account logs out. For unattended operation, arrange lingering through the host administrator. Start-at-login and lingering are separate settings.
+
+To remove the service definition, use `subshell service uninstall`. That does not remove enrollment credentials.
+
+## Next steps
+
+See [Manage a node](/nodes/manage) and [Node maintenance](/nodes/maintenance).

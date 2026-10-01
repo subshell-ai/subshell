@@ -64,9 +64,11 @@ triples the server actually serves) and names the missing ones IN THE TERMINAL P
 (both the refusal and the copyable `subshell setup` fallback it drives live beside the
 command they describe, not in the generate slot above; `setup`, not `enroll`, because
 `enroll` requires `--name` and a person reading a command off a browser should be
-ASKED for the name instead): a binary-only server install publishes no node
-binaries until `release:cli-node` runs, and the one-liner 404s on every machine
-until then. The field being ABSENT (older server behind a cached PWA) stays
+ASKED for the name instead): a binary-only server install may have no staged
+node artifacts. The server can fetch compatible missing artifacts from its configured release source, verifying
+them against the signed manifest. When release fetching is disabled, the
+operator must stage artifacts locally or use the compatible bundled node in
+Subshell Client. The field being ABSENT (older server behind a cached PWA) stays
 silent; the query still loading or errored shows a "could not check" line
 instead: no verdict without data. Opening the dialog refetches so a just-
 published artifact set is visible at once. The **Desktop App** panel sees NONE of

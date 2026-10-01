@@ -1,46 +1,39 @@
 ---
-title: Hermes
-description: "Nous Research's open agent CLI as a Subshell harness, and the one-time MCP registration it needs."
+title: "Hermes Agent"
+description: "Install and launch Hermes Agent with Subshell, including its MCP and session behavior."
 ---
 
-Hermes is Nous Research's open agent CLI, and as a Subshell harness it runs Hermes' own interactive interface in a pane.
+Run Hermes Agent as a Subshell agent.
 
-It differs from Claude Code, OpenCode, and Codex in one way: Subshell cannot wire the [MCP server](/automation/mcp) in per launch, so you register it **once per machine**. The [preset editor](/use/presets) shows the exact command.
+## Before you start
 
-## Finding the binary
+Install `hermes` using the [vendor instructions](https://hermes-agent.nousresearch.com/docs/getting-started/installation) and authenticate it under the execution account. Ask an administrator to enable the harness under **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
 
-Subshell resolves `hermes` on the machine that will run the pane. It first tries the `hermes` on the PATH there, which includes what a login shell would find. It then checks its known install location under your home directory. Set `HERMES_PATH` on that machine's environment to name the binary explicitly.
+## Launch
 
-If detection finds nothing, [Install an agent CLI](/agents/install-a-cli) covers the one-line installer, and the [vendor installation docs](https://hermes-agent.nousresearch.com/docs/getting-started/installation) describe the manual path.
+1. In the server dashboard's sidebar, choose **Subshells**, select **New subshell**, and choose **Hermes Agent**.
+2. Select a preset or configure the supported launch settings.
+3. Choose the target node and an existing project directory.
+4. Launch and confirm that the CLI opens normally.
 
-## What a launch looks like
+The plugin detects `hermes` through PATH and its known locations. `HERMES_PATH` can identify the binary explicitly in the execution environment. Before changing that override, see [Files and paths](/reference/paths) for configuration locations and service-environment guidance.
 
-A bare launch starts Hermes' interactive chat. You get either the classic REPL or the TUI, depending on your own Hermes display setting, and Subshell never overrides it. The launch reads the preset's settings as Hermes' per-invocation flags: model (`-m`), provider (`--provider`), and toolsets (`-t`), and the [preset editor](/use/presets) suggests its flags.
+## MCP and session behavior
 
-Hermes has no create-time flag for naming its session, so the subshell's display name is not forwarded to it. Subshell's own naming, sharing, and logs still apply.
+Hermes uses one-time MCP registration on each execution host. Follow [MCP configuration](/mcp/configure) to locate the registration command in the preset form and run it on the execution host before using cross-agent tools. The built-in plugin declares MCP and settings capabilities; it does not declare automatic conversation resumption or attention hooks.
 
-## Registering Subshell once
+Subshell runs the real CLI rather than proxying its provider API. Provider configuration, usage limits, and CLI-specific permissions remain the agent's own settings.
 
-Hermes reads MCP servers only from its fixed global config file, `~/.hermes/config.yaml`. There is no per-launch config flag or environment override, so a per-subshell registration is impossible, and Subshell writes nothing to that file on its own.
+## Register MCP
 
-Open the preset editor for Hermes from the Presets page. Its MCP section shows what to do: one labeled step to register `subshell`, and one to undo it. The registration is a single non-interactive command of this shape:
+When the node binary is on PATH, the portable registration is:
 
+```bash
+hermes mcp add subshell --command subshell --args mcp
 ```
-hermes mcp add subshell --command 'subshell' --args 'mcp'
-```
 
-The editor shows the command in full; it does not ask you to fill anything in. The command is deliberately the portable PATH spelling rather than one machine's absolute launch path, because the entry lands in the `~/.hermes/config.yaml` of whichever machine you run it on. `subshell` is every enrolled node's own daemon binary, so what you paste is correct on every node. Run it **once on each machine where Hermes panes run**.
+Use the host-specific command shown by Subshell if its binary has a different name or path.
 
-The one machine the PATH spelling can miss is a control-plane host that runs the server with no agent installed. There, `subshell-server status` prints that host's own resolved MCP entrypoint, and you can paste its `command` and `args` in place of the two names shown above.
+## Next steps
 
-> [!note] Why one global entry is per-subshell-correct
-> The registered command only names how to start `subshell mcp`. The process inherits the environment of the pane that spawned it, including that subshell's own baked-in API key, so one registration serves every Hermes subshell on the machine, and no pane can authenticate as another. This is what makes the shared-host case safe: the credential is per-pane, not per-config-entry.
-
-"Already registered" means the `subshell` entry is present in `~/.hermes/config.yaml`. The command `hermes mcp remove subshell`, which the editor shows as the second step, takes it out again. Until you register, Hermes subshells launch and run normally; you have no channels or agent-to-agent tools inside them.
-
-## See also
-
-- [pi](/agents/pi): the other harness with one-time registration
-- [Channels](/use/channels): what the MCP registration unlocks inside the pane
-- [The MCP server](/automation/mcp): how the tools and credentials work
-- [Install an agent CLI](/agents/install-a-cli): the in-page installer for the `hermes` binary
+Read [MCP configuration](/mcp/configure), [Presets](/presets), and [Agent and launch errors](/troubleshooting/agents).

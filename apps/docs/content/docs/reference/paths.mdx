@@ -1,0 +1,53 @@
+---
+title: "Files and paths"
+description: "Locate server configuration, databases, node credentials, pane logs, and MCP identities."
+---
+
+Locate the files that define your installation's state.
+
+## Ask the installed binary
+
+```bash
+subshell-server status --json
+subshell status --json
+```
+
+These report the installation's resolved paths. Use them before backup, relocation, or removal, especially when defaults were overridden.
+
+## Server files
+
+| File or directory | Contents |
+| --- | --- |
+| `~/.config/subshell-server/config.env` | Default persistent server configuration. |
+| Configured SQLite database | Accounts, sessions, presets, prompts, sharing, and instance records. |
+| Server data `plugins/` | Instance-wide installed plugin store. |
+| Server data `backups/` | Consistent database snapshots. |
+| Server data `node-artifacts/` | Cached or staged node release binaries. |
+| Pane log storage | Captured terminal transcripts. |
+| MCP identity storage | Recipient keypairs and peer pins. |
+
+Database path, data directory, and log directory can differ. The database's raw default is relative to the boot working directory; initialized production configuration uses its selected persistent location.
+
+## Where to change environment values
+
+For persistent server address settings, open **Server Settings** → **Networking** in the dashboard sidebar and use the **Addresses** card, or run `subshell-server configure` on the server host. When editing a file directly, use the configuration path reported by `subshell-server status --json`; the default is `~/.config/subshell-server/config.env`. `SUBSHELL_SERVER_CONFIG_DIR` can move that file.
+
+Process environment values override saved configuration. For a foreground process, set variables in the shell that starts the binary. For a background service, configure the environment supplied by its service manager and restart it. Changing an interactive shell does not change an already-running service's environment. See [Service and autostart](/administration/service) and [Node services](/nodes/service).
+
+Agent binary overrides belong to the machine and execution account running the agent. A node's enrollment configuration stores its server identity and credential; do not treat it as the server's `config.env`. Environment values saved in a preset are edited in the preset form.
+
+For Docker, edit the container command or Compose environment and recreate the container. Keep configuration files and instance data in the persistent volume.
+
+## Node files
+
+The node reports its configuration file, daemon lock, data directory, binary, and agent log. Configuration contains the node credential and trusted control-plane key.
+
+`unenroll` removes configuration and lock but retains other data. Reset has a broader deletion plan. Do not treat every path in status output as a deletion target.
+
+## Project and agent storage
+
+Uploads live under `<workingDir>/.subshell/uploads/` and are not automatically swept. Agent provider credentials and conversation transcripts belong to the CLI's home or project state, not solely to the Subshell database.
+
+## See also
+
+[Backups and restoration](/administration/backups), [Reset and uninstall](/administration/reset), and [Unenroll a node](/nodes/unenroll).

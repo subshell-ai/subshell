@@ -1,0 +1,42 @@
+---
+title: "Enroll a node with the CLI"
+description: "Generate a setup key and install the node daemon on another machine."
+---
+
+Enroll a machine with your Subshell server using a single-use setup key.
+
+Use this path for a headless machine or terminal-based installation. For most desktop machines, use [Desktop node setup](/nodes/desktop) with Subshell Client.
+
+## Before you start
+
+Sign in to the server with permission to enroll nodes. Use a supported Linux or macOS target with an execution account, tmux, and a reachable server address.
+
+> [!warning] Delegated execution
+> Enrollment lets the control plane launch programs under the node's OS account. Use a trusted server and restrict directories where appropriate.
+
+## Install from the server
+
+1. In the server dashboard's sidebar, choose **Nodes**, then select **Add node** at the top of the page.
+2. Select an address reachable from the target machine.
+3. Generate a setup key.
+4. Copy the terminal installation command and run it on the target machine.
+5. Choose the machine's display name and whether to install the background service.
+6. Confirm that the new node appears online.
+
+The command downloads a compatible node binary from the control plane and runs `subshell setup`. The name is chosen on the node, not by the setup key.
+
+## Use an existing binary
+
+When `subshell` is already installed, use the server and key from the dialog:
+
+```bash
+subshell setup --server https://server.example.com --key nsk_REPLACE_ME
+```
+
+Replace the example address and key before running it. A setup key is single-use and must not be confused with a rotated node credential.
+
+Setup-key rows remain available to their owner; an unused key's **Setup** action reopens the instructions.
+
+## Next steps
+
+Configure [Directory restrictions](/nodes/directories), then [Install an agent CLI](/agents/install-cli).

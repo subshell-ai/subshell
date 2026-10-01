@@ -1,0 +1,38 @@
+---
+title: "FAQ"
+description: "Find answers about persistent sessions, execution locations, sharing, and installation roles."
+---
+
+Find answers to common Subshell usage questions.
+
+## Does closing a browser stop my agent?
+
+Closing a tab disconnects your view. The agent continues while its machine and process remain running. The subshell's **Close** menu action permanently deletes the session and its captured history.
+
+## Where do project files live?
+
+Files belong to the execution machine's working directory. The browser displays the terminal; it does not move the project to your viewing device.
+
+## Do I need a node on every viewing device?
+
+No. A browser is enough to view a reachable server. Enroll a device only when you want it to execute agents.
+
+## Does a harness plugin install the agent everywhere?
+
+No. The control plane holds the plugin, while each execution machine needs the agent CLI and its provider configuration.
+
+## Can an administrator delete another user's session?
+
+No. Administrators have operator edit access, but permanent deletion and sharing changes stay with the owner.
+
+## Are terminal logs encrypted like channel messages?
+
+No. Channel bodies are recipient-encrypted. Terminal streams, captured logs, and channel metadata have different exposure.
+
+## Why can an MCP agent list a session it cannot control?
+
+List disclosure includes shared rows. Detail and write operations with a pane token remain constrained to its owner's sessions.
+
+## Next steps
+
+See [Session lifecycle](/guides/lifecycle), [Architecture](/concepts/architecture), and [Access model](/concepts/access).

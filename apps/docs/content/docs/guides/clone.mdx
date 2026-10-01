@@ -1,0 +1,32 @@
+---
+title: "Clone and switch presets"
+description: "Create another session from existing settings or restart a session with a different preset."
+---
+
+Reuse a session's settings through cloning or a preset switch.
+
+## Clone a session
+
+1. In the server dashboard's sidebar, choose **Subshells** and open the **⋯** menu on a session you own.
+2. Choose **Clone…**.
+3. Review the new session's name and launch values.
+4. Confirm the launch and open the new terminal.
+
+Cloning creates a new subshell with its own identity. It does not give another user ownership of the source session. Only the owner can clone because the source preset belongs to that account.
+
+## Switch a preset
+
+From the session's **⋯** menu on the **Subshells** page, choose **Switch preset…** when you want the existing subshell to use another preset for the same harness. A live pane is restarted; an exited pane is started using the selected preset.
+
+Switching affects the session's launch configuration. **Edit preset** changes the saved definition instead, and those edits do not affect a process already running.
+
+## Check the result
+
+Confirm the agent and working directory after launch. If you supplied a task prompt, check that it reached the agent rather than assuming successful process creation means prompt delivery succeeded.
+
+> [!warning] Process restart
+> Switching a preset restarts the agent process. Finish or record work that must survive before switching.
+
+## Next steps
+
+Read [Session lifecycle](/guides/lifecycle) and [Presets](/presets).

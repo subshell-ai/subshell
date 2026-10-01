@@ -1,0 +1,34 @@
+---
+title: "Installation errors"
+description: "Diagnose release downloads, PATH, tmux preflight, and missing desktop sidecars."
+---
+
+Diagnose a failed installation or initialization.
+
+## Download failures
+
+Check the operating system and architecture against [Installation](/install). Select a release for the correct component; the latest release overall can belong to a different component.
+
+A missing release asset is different from an unreachable release host. Read the installer's HTTP error and confirm that the selected release actually contains your target.
+
+If the checksum fails, do not run the binary. Download a matching binary and checksum pair again from the intended release.
+
+## Command not found
+
+The server installer places its binary under `~/.local/bin`. Initialization can offer a PATH update. Confirm that the shell or service invoking the binary uses that location.
+
+Do not assume restarting a browser changes a host process's PATH.
+
+## tmux preflight
+
+Initialization checks tmux before writing server setup. A declined or failed tmux install can abort that flow. Install tmux under the intended execution environment and rerun initialization.
+
+## Desktop binary missing
+
+A desktop development checkout needs its staged sidecar before Tauri starts. Contributors should use `bun run dev:desktop-server` or `bun run dev:desktop-client` from the repository root, not bare `tauri dev`.
+
+For published bundles, confirm the platform and release asset before treating a missing binary as a source-build problem.
+
+## Next steps
+
+Read [Install the server manually](/install/manual), [Status and logs](/administration/logs), and [Support and releases](/troubleshooting/support).

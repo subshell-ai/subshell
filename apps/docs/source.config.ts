@@ -1,3 +1,4 @@
+import { remarkMdxMermaid } from 'fumadocs-core/mdx-plugins';
 import { defineConfig } from 'fumadocs-mdx/config';
 import { remarkGithubAlerts } from './lib/remark-github-alerts';
 
@@ -16,6 +17,6 @@ import { remarkGithubAlerts } from './lib/remark-github-alerts';
  */
 export default defineConfig({
   mdxOptions: {
-    remarkPlugins: (plugins) => [...plugins, remarkGithubAlerts],
+    remarkPlugins: (plugins) => [...plugins, remarkGithubAlerts, remarkMdxMermaid],
   },
 });

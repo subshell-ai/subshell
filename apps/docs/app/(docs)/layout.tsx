@@ -9,12 +9,18 @@ export default function Layout({ children }: { children: ReactNode }) {
       // Dark-only site (see app/layout.tsx): no light theme to switch to.
       themeSwitch={{ enabled: false }}
       nav={{
-        // The marketing wordmark (the header image on subshell.sh), so the
-        // two sites read as one product; the title stays in alt for AT and
-        // for the img-less fallback.
+        // Brand-pipeline wordmark, with a high-DPI source and rem-based size
+        // that follows the documentation typography.
         title: (
           // biome-ignore lint/performance/noImgElement: static export, same raw-img call the marketing header made
-          <img src="/wordmark-docs-96.png" alt="Subshell Docs" width={445} height={96} className="h-[22px] w-auto" />
+          <img
+            src="/wordmark-docs-96.png"
+            srcSet="/wordmark-docs-96.png 1x, /wordmark-docs-192.png 2x"
+            alt="Subshell Docs"
+            width={646}
+            height={96}
+            className="h-[1.5rem] w-auto max-w-full"
+          />
         ),
       }}
     >

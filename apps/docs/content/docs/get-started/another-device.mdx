@@ -1,0 +1,47 @@
+---
+title: "Connect from another device"
+description: "Open your existing Subshell server and sessions from another browser or device."
+---
+
+Open the same Subshell session from another device.
+
+## Before you start
+
+Your other device must reach the server over your LAN or configured private network. A loopback address such as `localhost` refers to the device opening it, so it cannot reach a server on another machine.
+
+## Open the server
+
+1. Ask the administrator for a reachable server address. Administrators can find network addresses by opening **Server Settings** → **Networking** in the dashboard sidebar and selecting **Configure** for the connected network.
+2. Open that address in the other device's browser.
+3. Sign in with your existing account.
+4. Select the subshell from the sidebar.
+
+You see the same session rather than a copy of it. Multiple viewers can affect terminal dimensions; see [Devices](/guides/devices).
+
+To open a particular session, choose **Subshells** in the dashboard sidebar, open its **⋯** menu, choose **QR code…**, and scan the code with the other device. The link still requires sign-in and permission to view that subshell.
+
+## Connect a phone or tablet
+
+1. In the server dashboard on your current device, select **Subshell for Mobile** near the bottom of the sidebar.
+2. In the dialog, choose a server address under **Address to open** that your phone or tablet can reach.
+3. Scan the QR code with that device and open the address in its browser.
+4. Sign in with your existing account.
+
+The dialog includes **Browser**, **iPhone & iPad**, and **Android** tabs with instructions for installing the browser-based web app. Choose the tab for your device and follow its steps to add Subshell to your home screen.
+
+If no QR code appears, ask an administrator to configure a reachable address using [LAN access](/networking/lan) or [Networking](/networking). The QR code does not sign you in or grant access to sessions.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/mobile-web-install.png" alt="Subshell for Mobile dialog with an address picker, QR code area, and installation instructions under the iPhone and iPad tab." width="748" height="1025" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Select Subshell for Mobile in the dashboard sidebar to open the address picker and installation steps. The private address and QR code are masked in this example. Select the image to enlarge it.</figcaption>
+</figure>
+
+For browser requirements and notification support, see [Browser and PWA access](/install/browser).
+
+## If the address does not work
+
+Check [LAN access](/networking/lan) for reachability and [Sign-in and origin errors](/troubleshooting/sign-in) for rejected addresses. Passkeys are tied to the configured server hostname.
+
+## Next steps
+
+Use [Workspaces](/guides/workspaces) to organize several sessions, or [Desktop node setup](/nodes/desktop) to run agents on another machine.

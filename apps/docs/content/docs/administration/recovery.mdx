@@ -1,0 +1,38 @@
+---
+title: "Account recovery"
+description: "Restore admin access using the emergency password and remove it after recovery."
+---
+
+Recover an administrator account when ordinary sign-in is unavailable.
+
+## Before you start
+
+You need access to the server's process configuration and the email address of an existing administrator. Locate the active configuration with [Files and paths](/reference/paths) before enabling recovery. Protect the machine and keep a backup before changing authentication.
+
+## Enable recovery
+
+1. Set `SUBSHELL_EMERGENCY_PASSWORD` to a temporary secret in the server's environment or configuration.
+2. Restart the server so it reads the value.
+3. Sign in using the administrator's email and that exact password.
+
+> [!warning] Credential replacement
+> Emergency sign-in overwrites that administrator's stored password. It is a password reset, not a temporary bypass.
+
+Every signed-in user sees a recovery warning while this setting is active, and the credential rewrite is audited.
+
+## Disable recovery
+
+1. Remove `SUBSHELL_EMERGENCY_PASSWORD` from every configuration layer that supplies it.
+2. Restart the server.
+3. Verify the recovery warning has cleared.
+4. Open the profile menu at the bottom of the dashboard sidebar, choose **Account settings**, and use **Change password** to set the intended password. The emergency password is now the current stored password. Test normal sign-in afterward.
+
+Anyone who can read the active emergency value can use it to become an administrator. Do not leave it set after recovery.
+
+## Other sign-in failures
+
+An origin rejection, unavailable OIDC provider, or passkey hostname mismatch may not require resetting a password. Review [Sign-in and origin errors](/troubleshooting/sign-in) before enabling recovery.
+
+## Next steps
+
+Review [Sign-in providers](/administration/sign-in-providers) and [Backups and restoration](/administration/backups) to prepare for future recovery.

@@ -1,0 +1,13 @@
+{
+  "title": "Use Subshell",
+  "pages": [
+    "index",
+    "launch",
+    "lifecycle",
+    "workspaces",
+    "clone",
+    "sharing",
+    "notifications",
+    "devices"
+  ]
+}

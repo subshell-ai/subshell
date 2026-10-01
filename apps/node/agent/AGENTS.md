@@ -5,7 +5,7 @@ daemon: it enrolls with the control plane, holds the `/ws/node` socket, and
 executes signed commands (launch/tmux/fs) as the invoking user on its machine.
 Design: `docs/superpowers/specs/2026-08-31-nodes-design.md` §7 + the Phase-3
 distribution design beside it. Architecture-role prose: the component map in
-`apps/docs/content/docs/develop/architecture.mdx`; wire-level contract in
+`apps/docs/content/docs/concepts/architecture.mdx`; wire-level contract in
 `apps/docs/content/docs/reference/node-protocol.mdx`.
 
 **Deep-dives live in `apps/node/agent/docs/`, one file per topic.** This file

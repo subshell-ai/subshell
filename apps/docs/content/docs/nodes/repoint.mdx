@@ -1,0 +1,39 @@
+---
+title: "Repoint a node"
+description: "Change an enrolled node\u2019s server address or rotated credential without creating another identity."
+---
+
+Change the server address or credential stored by an enrolled node.
+
+## Before you start
+
+Use this operation when the same control plane moves to another reachable address or rotates the node key. It preserves the node ID and pinned control-plane public key.
+
+## Change the address
+
+```bash
+subshell configure --server https://server.example.com
+subshell service restart
+```
+
+Use the actual new address. A foreground daemon needs to be restarted through its own supervisor instead.
+
+The stored WebSocket address is cleared when the server URL changes so the node can discover the new connection target.
+
+## Store a rotated key
+
+After rotating the key on the node's page, store the new node credential on that machine:
+
+```bash
+subshell configure --key REPLACE_WITH_ROTATED_NODE_KEY
+```
+
+Restart the daemon to apply it. A setup key beginning with `nsk_` is not a rotated node key; it belongs to `setup` or `enroll`.
+
+## Change control planes
+
+Repointing does not replace the trusted control-plane signing identity. To join a different instance, stop and unenroll the node, then enroll with the new instance's setup key.
+
+## Next steps
+
+See [Unenroll a node](/nodes/unenroll) and [Enroll a node with the CLI](/nodes/enroll).

@@ -17,6 +17,10 @@
   --dim: #b3a5c4;
   --dimmer: #7d7195;
   --orchid: #d98be0;
+  --download: linear-gradient(135deg, oklch(0.34 0.1 322), oklch(0.4 0.1 340));
+  --download-hover: linear-gradient(135deg, oklch(0.4 0.11 322), oklch(0.46 0.11 340));
+  --download-border: transparent;
+  --download-foreground: oklch(0.9 0.05 320);
   --hairline: rgba(230, 219, 239, 0.12);
   color-scheme: dark;
 }

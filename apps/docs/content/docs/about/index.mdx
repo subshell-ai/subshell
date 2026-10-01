@@ -1,0 +1,82 @@
+---
+title: "What is Subshell?"
+description: "Learn what Subshell does, why you might use it, and how persistent agent sessions, remote machines, workspaces, and MCP fit together."
+---
+
+Subshell gives you a shared web interface for running CLI coding agents and terminal sessions on machines you own.
+
+You launch a session, choose where it runs, and interact with its terminal from a browser or Subshell Client. Subshell keeps the session available when you close the browser tab, so you can return to the same running process from another device.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/active-codex-dashboard.png" alt="Full Subshell dashboard with an active Codex session reviewing a TypeScript function, session navigation, workspaces, nodes, and presets in the sidebar." width="1280" height="800" loading="lazy" decoding="async" unoptimized />
+  <figcaption>An active Codex session inside Subshell, with the dashboard sidebar for switching sessions and managing workspaces, nodes, and presets. Select the image to enlarge it.</figcaption>
+</figure>
+
+## Why use Subshell?
+
+Subshell is self-hosted and open source. You run the server on your own infrastructure and control its accounts, configuration, and access to enrolled machines. The [source code](https://github.com/subshell-ai/subshell) is public, so you can inspect how it works, contribute improvements, or modify it under its licenses. Server code is AGPL-3.0-only; the rest of the project is Apache-2.0. See [Contribute to Subshell](/developers/contribute) for licensing and contribution details.
+
+Use Subshell to keep coding agents running beyond a single terminal window, work across machines, or manage several sessions together. Agent CLIs still use their own provider accounts; self-hosting Subshell does not make a cloud-based agent run locally.
+
+| What you want to do | How Subshell helps |
+| --- | --- |
+| Host the session dashboard yourself | Run the server on infrastructure you control and manage who can access it. |
+| Inspect or adapt the software | Read the public source, contribute improvements, or modify it under its licenses. |
+| Check a task from another device | Open the server in a browser and reconnect to the running session. |
+| Run an agent on a different machine | Enroll that machine as a node and select it when launching a subshell. |
+| Work with several agents or shells | Keep sessions in one dashboard and arrange them in workspaces. |
+| Repeat a launch configuration | Save agent settings and optional machine, directory, and prompt defaults in a preset. |
+| Let someone inspect a session | Share it with another account on the same instance, with view or edit access. |
+| Let agents coordinate a task | Configure Subshell MCP so agents can inspect sessions, exchange channel messages, and launch helpers from eligible presets. |
+
+## Keep sessions in one place
+
+The dashboard groups your sessions by machine and shows their activity and recent output. Open a session to use its live terminal. You can run a plain shell with **Terminal**, or install a supported coding agent CLI on the execution machine.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/session-dashboard.png" alt="Subshell dashboard listing Claude Code review and Codex review, with working directories, last-output times, uptime, and a New subshell button." width="1420" height="655" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The dashboard brings sessions on a machine into one view. This example shows Codex and Claude Code sessions reviewing a sample project. Select the image to enlarge it.</figcaption>
+</figure>
+
+Subshell includes harnesses for [Claude Code](/agents/claude-code), [Codex](/agents/codex), [OpenCode](/agents/opencode), [Hermes Agent](/agents/hermes), and [pi](/agents/pi). You install and authenticate the agent CLI under the OS account where it runs. Subshell manages the session and provides access to it; the agent uses its own provider account and credentials.
+
+Closing a browser tab disconnects your view. The session can keep running while its machine and process remain available. Stopping the machine or exiting the process affects the session, and the **Close** action deletes it and its captured history. See [Session lifecycle](/guides/lifecycle).
+
+## Organize related work
+
+A workspace brings related sessions into a saved layout. For example, you can keep a coding agent and a shell for checking its changes together. On smaller screens, workspace panes appear as tabs.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/workspace-layout.png" alt="Code review workspace with Codex and Claude Code running side by side." width="1423" height="898" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Codex and Claude Code review the same sample project in separate workspace panes. Select the image to enlarge it.</figcaption>
+</figure>
+
+[Presets](/presets) save settings you want to reuse. [Reusable Prompts](/prompts) keep reusable task text. [Workspaces](/guides/workspaces) organize the sessions themselves.
+
+## Run on machines you choose
+
+Subshell has three components:
+
+- The **server** is the control plane. It manages the instance, stores its database, and serves the web interface.
+- A **node** is a machine that runs agents and shells. The server's host can run sessions too; enroll additional nodes when you want to use other machines.
+- A **client** is your interface to the server, such as a browser or Subshell Client.
+
+You can run the server on a machine that stays available, use your laptop as a node, and open the dashboard from another device. The agent runs on the selected node and uses that machine's working directory and OS account. Remote access requires a reachable server address; [Networking](/networking) covers LAN access, private networks, and HTTPS.
+
+For most desktop installations, **Subshell Server** installs and manages the server, and **Subshell Client** bundles the node and its enrollment window. CLI installation suits headless machines. Downloads are available at [subshell.sh](https://subshell.sh).
+
+## Coordinate agents through MCP
+
+Subshell's Model Context Protocol server gives configured agents tools to inspect sessions, send input, exchange encrypted channel messages, and create helpers from saved presets that allow agent launches.
+
+This is useful when one agent needs to delegate a bounded task or ask another session for information. The workflow still needs instructions about scope, permissions, and cleanup. The agent that creates a helper is responsible for terminating or deleting it when the work is done. Start with [MCP and agent communication](/mcp).
+
+## Understand the trust boundary
+
+Agents run real programs with their execution account's permissions. Subshell does not sandbox their filesystem access. Enrolling a node gives the trusted server the ability to launch programs under that node's account, and sharing a session exposes its terminal output to the recipients.
+
+Read [Security model](/concepts/security) before enrolling machines or sharing sensitive work.
+
+## Start using Subshell
+
+Follow [Get started](/get-started) to install the server and launch your first Terminal session. If you already have an instance, [Install an agent CLI](/agents/install-cli) and [Launch a subshell](/guides/launch).

@@ -1,4 +1,9 @@
 {
-  "title": "Automate",
-  "pages": ["mcp", "rest-api", "api-keys"]
+  "title": "API and automation",
+  "pages": [
+    "index",
+    "rest-api",
+    "integrations",
+    "api-keys"
+  ]
 }

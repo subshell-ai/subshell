@@ -1,0 +1,41 @@
+---
+title: "Run the server in Proxmox LXC"
+description: "Use the Proxmox helper to deploy the Subshell server image in a dedicated LXC container."
+---
+
+Deploy Subshell Server in a dedicated Proxmox LXC container.
+
+## Before you start
+
+Use a Proxmox host where you can create containers as root. The helper downloads a Debian template and creates an unprivileged container with nesting enabled for Docker.
+
+Review the [server helper](https://github.com/subshell-ai/subshell/blob/main/proxmox-server.sh) before running it. The server helper and node helper create different kinds of installation.
+
+## Install
+
+Download the helper on the Proxmox host:
+
+```bash
+curl -fsSL https://subshell.sh/proxmox-server.sh -o proxmox-server.sh
+bash proxmox-server.sh
+```
+
+1. Choose installation in the helper's menu.
+2. Review the container ID, storage, bridge, resources, and hostname.
+3. Complete the installation and open the setup address it prints.
+4. Create the first admin account.
+
+The helper installs Docker inside the container and runs the published server image. Server data remains in the mounted data directory.
+
+## Maintain the installation
+
+Use the helper's update operation to pull the image and recreate the container. Do not replace the binary inside a running image with the server's CLI update command.
+
+The helper also exposes backup, restore, and removal operations. Backups contain instance credentials and require protected storage.
+
+> [!warning] Container removal
+> Removing the LXC container can remove the server and its data. Verify a usable backup before confirming removal.
+
+## Next steps
+
+For a separate machine that runs agents, use [Proxmox nodes](/nodes/proxmox). Review [Backups and restoration](/administration/backups).

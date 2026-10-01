@@ -1,0 +1,33 @@
+---
+title: "Launch a subshell"
+description: "Choose an agent, preset, node, working directory, and task for a new session."
+---
+
+Launch an agent or shell in a new subshell.
+
+## Before you start
+
+Sign in and choose a machine where you have launch access. The node must be online, outside maintenance, and have the required agent CLI installed. An administrator can also disable server-host launches or place the instance in lockdown.
+
+## Launch
+
+1. In the server dashboard's sidebar, choose **Subshells**, then select **New subshell** at the top of the page.
+2. Choose the agent you want to run.
+3. Select a preset if you want saved settings. A human launch can run without a preset.
+4. Choose a launchable node.
+5. Choose an existing working directory on that node.
+6. Add task text if needed, then launch.
+
+The form can prefill values from your last session or from a preset. Review those values, especially after choosing a different node: working directories belong to a particular machine.
+
+A preset's defaults are hints in the human launch form and remain editable. Agent-created launches over MCP require a saved preset ID.
+
+## Check the result
+
+Open the terminal and confirm that the CLI reaches its normal prompt. Complete provider authentication on the execution machine if the agent needs it.
+
+If launch fails, check [Agent and launch errors](/troubleshooting/agents) before repeating the request.
+
+## Next steps
+
+Create [Presets](/presets) for repeatable launches, or arrange sessions in [Workspaces](/guides/workspaces).

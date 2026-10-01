@@ -1,5 +1,7 @@
+import { ImageZoom } from "fumadocs-ui/components/image-zoom";
 import defaultMdxComponents from "fumadocs-ui/mdx";
 import type { MDXComponents } from "mdx/types";
+import { Mermaid } from "./mermaid";
 
 /**
  * The component map every MDX page renders with: Fumadocs' defaults
@@ -8,6 +10,8 @@ import type { MDXComponents } from "mdx/types";
 export function getMDXComponents(components?: MDXComponents): MDXComponents {
   return {
     ...defaultMdxComponents,
+    ImageZoom,
+    Mermaid,
     ...components,
   };
 }

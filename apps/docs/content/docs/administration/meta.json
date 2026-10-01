@@ -1,0 +1,18 @@
+{
+  "title": "Server administration",
+  "pages": [
+    "index",
+    "configuration",
+    "users",
+    "sign-in-providers",
+    "registration",
+    "plugins",
+    "service",
+    "updates",
+    "backups",
+    "logs",
+    "audit",
+    "recovery",
+    "reset"
+  ]
+}

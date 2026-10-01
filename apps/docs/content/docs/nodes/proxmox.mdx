@@ -1,0 +1,39 @@
+---
+title: "Proxmox nodes"
+description: "Create a Proxmox LXC execution node with the dedicated node helper."
+---
+
+Create a dedicated Subshell node in a Proxmox LXC container.
+
+## Before you start
+
+Use a Proxmox host with root access and obtain the node installation URL containing an unused setup key from your server.
+
+The node helper creates an unprivileged Debian container and installs a plain node daemon. It does not run the server image or Docker.
+
+## Install
+
+Review the [node helper](https://github.com/subshell-ai/subshell/blob/main/proxmox-node.sh), then download it on the Proxmox host:
+
+```bash
+curl -fsSL https://subshell.sh/proxmox-node.sh -o proxmox-node.sh
+bash proxmox-node.sh
+```
+
+1. Choose the install operation.
+2. Review the container ID, storage, resources, network bridge, and hostname.
+3. Supply the setup URL when requested.
+4. Wait for setup and confirm the node is online in the server.
+
+The helper creates a `subshell` execution account and installs the user service. Install agent CLIs and project files for that account inside the container.
+
+## Maintenance
+
+Use the helper's update, backup, restore, and removal operations as appropriate. A restored node identity should not run concurrently with the original machine.
+
+> [!warning] Removal
+> Removing the container can remove its projects and node credentials. Keep backups outside the container before confirming removal.
+
+## Next steps
+
+Read [Directory restrictions](/nodes/directories) and [Node updates](/nodes/updates).

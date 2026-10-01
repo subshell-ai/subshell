@@ -51,23 +51,30 @@ async function mounted() {
 test("the fork names jobs, not product names, and states the picked role", async () => {
   await mounted();
   expect(screen.getByRole("group", { name: "What this machine should do" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "run the control plane" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "run agents here, or watch" })).toBeDefined();
-  expect(screen.getByText("This machine becomes the control plane every other device connects to.")).toBeDefined();
+  expect(screen.getByRole("button", { name: "Server" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Client / Node" })).toBeDefined();
+  expect(screen.getByText("The control plane for your agents.")).toBeDefined();
 });
 
 test("picking the client chip says what the client is, node enrollment included", async () => {
   await mounted();
-  fireEvent.click(screen.getByRole("button", { name: "run agents here, or watch" }));
-  expect(
-    screen.getByText("Your interface to Subshell, and the app that enrolls this machine as a node."),
-  ).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Client / Node" }));
+  expect(screen.getByText("Manage sessions and run agents on this machine.")).toBeDefined();
+  expect(screen.getByText("curl -fsSL https://subshell.sh/install-client.sh | bash")).toBeDefined();
   // Exactly one role sentence stands: both rendering at once would re-ask the fork's own question.
-  expect(screen.queryByText("This machine becomes the control plane every other device connects to.")).toBeNull();
+  expect(screen.queryByText("The control plane for your agents.")).toBeNull();
 });
 
-test("the non-download third path points at the docs add-a-machine page", async () => {
+test("the non-download third path points at the node setup documentation", async () => {
   await mounted();
   const link = screen.getByRole("link", { name: "Add another machine" });
-  expect(link.getAttribute("href")).toBe("https://docs.subshell.sh/get-started/add-a-machine");
+  expect(link.getAttribute("href")).toBe("https://docs.subshell.sh/nodes");
+});
+
+test("the single-machine note switches back to the server install", async () => {
+  await mounted();
+  fireEvent.click(screen.getByRole("button", { name: "Client / Node" }));
+  fireEvent.click(screen.getByRole("button", { name: "Server app" }));
+  expect(screen.getByRole("button", { name: "Server" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByText("curl -fsSL https://subshell.sh/install-server.sh | bash")).toBeDefined();
 });

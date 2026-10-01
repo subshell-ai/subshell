@@ -1,0 +1,13 @@
+{
+  "title": "Networking",
+  "pages": [
+    "index",
+    "addresses",
+    "lan",
+    "https",
+    "tailscale",
+    "headscale",
+    "netbird",
+    "cloudflare"
+  ]
+}

@@ -1,0 +1,41 @@
+---
+title: "Create and edit prompts"
+description: "Save discoverable task text, edit your own entries, and clone a prompt without changing the original."
+---
+
+Save instructions you want to give an agent again.
+
+## Before you start
+
+Sign in to the server dashboard. Prompts belong to your account; you do not need an administrator role to create your own.
+
+## Create a prompt
+
+1. In the dashboard sidebar, open **Prompts** and choose your own entries rather than **Shared with you**.
+2. Select **New** → **New prompt**.
+3. Enter a short **Description**, such as `Review changes`.
+4. Enter the task in **Prompt**.
+5. Leave **Share with everyone** off unless you intend every signed-in account to read the text.
+6. Select **Create prompt**.
+
+For example:
+
+```text
+Review the uncommitted changes in this repository. Identify correctness
+issues and missing tests. Report findings with file paths and line numbers.
+Do not modify files.
+```
+
+The entry appears in your library and in prompt pickers. Descriptions are limited to 120 characters and bodies to 20,000 characters; both must contain text.
+
+## Edit or clone
+
+In **Prompts**, find one of your entries and open its **⋯** menu. Choose **Edit**, change the text, and select **Save**.
+
+Choose **Clone** to create another prompt from one you own. The copy starts private; give it a description that distinguishes its purpose. Other users' shared prompts are readable, but you cannot edit their entries. To customize their instructions, copy the text into a new prompt of your own.
+
+Editing a library prompt updates stacks that reference it. A preset or launch form that already copied its text keeps that copy. See [Build prompt stacks](/prompts/stacks).
+
+## Next steps
+
+Follow [Use a reusable prompt](/prompts/use) or [Build prompt stacks](/prompts/stacks).

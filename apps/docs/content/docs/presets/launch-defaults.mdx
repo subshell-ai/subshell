@@ -1,0 +1,51 @@
+---
+title: "Set launch defaults"
+description: "Add a machine, working directory, and reusable task instructions to a preset without locking human launch choices."
+---
+
+Prefill a preset's execution machine, project directory, and initial task.
+
+## Before you start
+
+Create a preset and have launch access to the intended machine. Use an absolute working-directory path on that machine. The directory must exist and satisfy its directory rules when you launch.
+
+## Add defaults
+
+1. In the server dashboard sidebar, open **Presets** and select your preset's name.
+2. Under **Launch defaults**, choose a node in **Machine**. The server host's node is named by your administrator and defaults to **Server**.
+3. Enter the project's absolute path in **Working directory**, such as `/tmp/subshell-demo-project` for the sample project.
+4. Under **Add prompts**, select **Add prompt** and choose saved instructions or **Write your own...**.
+5. Add more prompts if needed. Use their up and down controls to set the order, and remove any you do not want.
+6. Select **Save**.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preset-launch-defaults.png" alt="Launch defaults showing the Server machine, a project directory, Review changes prompt, and enabled agent-created launches." width="598" height="456" loading="lazy" decoding="async" unoptimized />
+  <figcaption>The example combines a project location with review instructions. Its optional MCP switch allows agents to use the preset. Select the image to enlarge it.</figcaption>
+</figure>
+
+For the review example, the task text is:
+
+```text
+Review the uncommitted changes. Report correctness issues and missing tests
+with file paths and line numbers. Do not modify files.
+```
+
+Prompt text guides the agent; it is not a security boundary. Agent flags and permissions still govern what the process can do.
+
+## Review before launching
+
+Human launch forms prefill these defaults and let you change them. Review the working directory when choosing another machine; the same path may not exist there.
+
+You can save a default for a machine that is temporarily offline. Launch still checks availability, maintenance, agent detection, permissions, and directory rules. Saving defaults does not bypass those checks.
+
+Prompt text is copied when you select it. Editing the prompt library later does not update the preset's saved text. Remove and re-add a library prompt or stack to refresh the saved copy, then save the preset. See [Build prompt stacks](/prompts/stacks).
+
+## Allow agent-created helpers
+
+On the same preset editor, turn on **Enable agents to create subshells with this preset**, then select **Save**. This requires a machine and working directory; an initial prompt is optional.
+
+The switch permits MCP launches with this preset. It does not grant access to another account's node or bypass launch checks. See [Use and manage presets](/presets/use) and [Coordinate agents](/mcp/coordinate).
+
+## Next steps
+
+Follow [Use and manage presets](/presets/use) to launch the saved configuration.

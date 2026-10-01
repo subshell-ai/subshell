@@ -1,3 +1,5 @@
+import licenseTexts from "./license-texts.json" with { type: "json" };
+
 /**
  * Ownership and licensing, as the product states them to a user.
  *
@@ -55,7 +57,9 @@ export const PRODUCT_NAME = "Subshell";
  * spells it out), and the CLIs are shipped as BARE single-file binaries — a
  * download renamed into `~/.local/bin` with no LICENSE beside it and nowhere
  * to put one. For a single-file distributable this subcommand IS the
- * accompanying licence file.
+ * accompanying licence file. Full texts and NOTICE are embedded as generated
+ * data, checked against their repository sources by lint:licenses; no runtime
+ * file access or network connection is needed.
  *
  * It is a separate subcommand rather than extra lines on `version` because
  * `version` is a machine contract: the release smoke compares the server's
@@ -72,6 +76,15 @@ export function licenseNotice(binary: string, version: string): string {
     // Wrapped here rather than stored wrapped: a GUI reflows the sentence to
     // its own width, and only the terminal needs a fixed column.
     ...wrap(LICENSE_EXCEPTION_SUMMARY, 76),
+    "",
+    "===== LICENSE =====",
+    licenseTexts.LICENSE.trimEnd(),
+    "",
+    "===== apps/server/LICENSE =====",
+    licenseTexts["apps/server/LICENSE"].trimEnd(),
+    "",
+    "===== NOTICE =====",
+    licenseTexts.NOTICE.trimEnd(),
     "",
   ].join("\n");
 }
