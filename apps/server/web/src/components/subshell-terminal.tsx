@@ -224,6 +224,8 @@ export interface SubshellTerminalHandles {
   search: SearchAddon;
   /** Sends raw bytes to the subshell as if typed (e.g. Ctrl-D) */
   sendInput: (data: string) => void;
+  /** Paste text with xterm's newline normalization and bracketed-paste framing. */
+  pasteInput: (text: string) => void;
   /** Opens the OS image picker; picks upload and inject like a dropped file */
   openImagePicker: () => void;
   /**
@@ -234,6 +236,11 @@ export interface SubshellTerminalHandles {
   scrollToTop: () => void;
   /** See {@link SubshellTerminalHandles.scrollToTop}. */
   scrollToBottom: () => void;
+  /** Move through local terminal history one screen at a time. */
+  scrollPageUp: () => void;
+  scrollPageDown: () => void;
+  /** Redraw every visible row from xterm's current buffer. */
+  refreshScreen: () => void;
   /**
    * Chooses how the pane is sized while several devices watch it: `auto`
    * hands it to the smallest visible one, `pinned` to the named viewer.
@@ -809,8 +816,8 @@ export function SubshellTerminal({
     // is exactly the reported behavior ("jumps on space, typing works
     // blindly, swipe does nothing, close keyboard restores"). Capture-phase
     // listener so EVERY scroller is seen, document included; anything
-    // outside the terminal gets pinned to its origin while the keyboard is
-    // up and the terminal holds focus.
+    // outside the terminal, except the key bar's intentional scroller, gets
+    // pinned to its origin while the keyboard is up and the terminal holds focus.
     const onAnyScroll = (e: Event) => {
       const t = e.target;
       const focus = document.activeElement;
@@ -821,6 +828,7 @@ export function SubshellTerminal({
           // the idle half undoes pans that survive the keyboard closing.
           engaged: container.contains(focus) || !focus || focus === document.body,
           insideTerminal: t instanceof Element && container.contains(t),
+          terminalControls: t instanceof Element && t.matches("[data-terminal-controls-scroller]"),
         })
       ) {
         if (t === document) {
@@ -853,9 +861,17 @@ export function SubshellTerminal({
       serialize,
       search: searchAddon,
       sendInput: (data) => sendToSubshellRef.current(data),
+      pasteInput: (text) => {
+        if (readOnlyRef.current || copyModeRef.current) return;
+        term.paste(text);
+        term.focus();
+      },
       openImagePicker: () => openImagePickerRef.current(),
       scrollToTop: () => term.scrollToTop(),
       scrollToBottom: () => term.scrollToBottom(),
+      scrollPageUp: () => term.scrollPages(-1),
+      scrollPageDown: () => term.scrollPages(1),
+      refreshScreen: () => term.refresh(0, term.rows - 1),
       setSizing: (mode, viewerId) => setSizingRef.current(mode, viewerId),
     });
 

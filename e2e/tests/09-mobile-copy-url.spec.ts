@@ -18,7 +18,7 @@ const TYPE_TOKEN_OFF = "zztypedoff9";
  *
  * Proven here in a real browser: the menu toggle flips the mode (label + the
  * `.copy-mode` class), typing is suppressed while it is on (keystrokes never
- * reach the pane), the key bar drops its byte keys to scroll-only, a clean tap
+ * reach the pane), the key bar keeps its byte keys visible but disabled, a clean tap
  * on an `https` token runs the shipped `terminalUrlAtPoint` → scheme gate →
  * `window.open`, and a trusted drag-select captures the URL.
  *
@@ -127,11 +127,10 @@ test("copy mode turns typing off, drag selects a URL, and a clean tap opens it (
   await actions.click();
   await page.getByRole("menuitem", { name: "Enable text copying" }).click();
   await expect(page.locator(".copy-mode")).toHaveCount(1);
-  // The key bar goes scroll-only in copy mode (suppressInput): the byte-sending
-  // keys are gone, so a thumb can drag-select without firing keystrokes.
+  // Copy mode preserves the key bar's layout while disabling input controls.
   await expect(
     page.getByRole("toolbar", { name: "Terminal special keys" }).getByRole("button", { name: "Send Ctrl-C" }),
-  ).toHaveCount(0);
+  ).toBeDisabled();
   // Same gesture, now inert: type ONLY through the browser path (an API
   // `input` post is server-side sendInput and would land regardless of the
   // UI gate, so it cannot be the probe). With copy mode the key must not

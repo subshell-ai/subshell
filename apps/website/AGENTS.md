@@ -52,8 +52,8 @@ Inspect frames for layout changes before encoding; changing viewport during a
 recording is not an acceptable device transition.
 
 The player attaches sources only when visible, pauses offscreen and when the
-document is hidden, and shows posters until explicit playback for reduced-motion
-or data-saving preferences. The video itself is a keyboard-accessible toggle;
+document is hidden, and shows posters until explicit playback for data-saving preferences.
+Silent product clips autoplay even with reduced motion enabled. The video itself is a keyboard-accessible toggle;
 do not add visible Play/Pause links beneath it.
 Verify duration, stream metadata, export assets, responsive layout, playback,
 manual pause/resume, and preference handling after replacing clips.

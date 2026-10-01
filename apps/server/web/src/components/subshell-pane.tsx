@@ -1,13 +1,15 @@
 import { Button } from "@internal/node-admin";
 import type { ViewersState } from "@internal/subshell-protocol";
 import { RotateCcw, Trash2 } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { LogTail } from "@/components/log-tail";
+import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { SubshellDevices } from "@/components/subshell-devices";
 import { SubshellTerminal, type SubshellTerminalHandles } from "@/components/subshell-terminal";
 import { TerminalKeyBar } from "@/components/terminal-key-bar";
 import { TrustIndicators } from "@/components/trust-indicators";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
+import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
@@ -41,8 +43,7 @@ export interface SubshellPaneProps {
   onDispose?: () => void;
   /**
    * Forwarded to the underlying `SubshellTerminal`'s copy mode (issue 242).
-   * The workspace dock NEVER passes it — copy mode is the detail page's
-   * per-subshell toggle, and a dock pane has no menu of its own to offer one.
+   * When absent, the touch bar owns the persisted per-subshell mode.
    */
   copyMode?: boolean;
 }
@@ -81,8 +82,12 @@ export function SubshellPane({
   // the socket state stay local — captured from `onReady` (and dropped on
   // dispose) beside the forwarding the maximized header's finder needs.
   const coarse = useIsCoarsePointer();
+  const paneCopyMode = usePaneCopyMode(pane.subshellId);
+  const copyOn = coarse && (copyMode ?? paneCopyMode.on);
   const handlesRef = useRef<SubshellTerminalHandles | null>(null);
   const [connected, setConnected] = useState(false);
+  const [injectTarget, setInjectTarget] = useState<string | null>(null);
+  useEffect(() => setInjectTarget((target) => (target === pane.subshellId ? target : null)), [pane.subshellId]);
   /**
    * Who else is watching this pane's subshell. A pane is exactly where the
    * question bites — the terminal is already small, so "is this the layout or
@@ -182,7 +187,7 @@ export function SubshellPane({
       onDispose={handleDispose}
       onStatusChange={(status) => setConnected(status.connected)}
       onViewers={setViewers}
-      copyMode={copyMode}
+      copyMode={copyOn}
     />
   );
 
@@ -236,12 +241,31 @@ export function SubshellPane({
         {devices}
       </div>
       <TerminalKeyBar
+        key={pane.subshellId}
         disabled={!connected}
         onBytes={(bytes) => handlesRef.current?.sendInput(bytes)}
+        onPaste={(text) => handlesRef.current?.pasteInput(text)}
+        onInjectPrompt={
+          subshellRow && subshellRow.access !== "view" ? () => setInjectTarget(pane.subshellId) : undefined
+        }
+        suppressInput={copyOn}
+        readOnly={subshellRow?.access === "view"}
+        copyMode={copyMode === undefined ? paneCopyMode : undefined}
         onPickImage={() => handlesRef.current?.openImagePicker()}
         onScrollTop={() => handlesRef.current?.scrollToTop()}
         onScrollBottom={() => handlesRef.current?.scrollToBottom()}
+        onScrollPageUp={() => handlesRef.current?.scrollPageUp()}
+        onScrollPageDown={() => handlesRef.current?.scrollPageDown()}
+        onRefresh={() => handlesRef.current?.refreshScreen()}
       />
+      {injectTarget === pane.subshellId && (
+        <InjectPromptDialog
+          key={pane.subshellId}
+          subshellId={pane.subshellId}
+          open
+          onOpenChange={() => setInjectTarget(null)}
+        />
+      )}
     </div>
   );
 }

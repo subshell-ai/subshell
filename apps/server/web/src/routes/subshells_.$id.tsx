@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
+import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { SplitSubshellButton } from "@/components/split-subshell-button";
 import { StatusPill } from "@/components/status-pill";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
@@ -25,13 +26,13 @@ import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useNodes } from "@/hooks/use-nodes";
 import { useSwipeOrderedSubshells } from "@/hooks/use-ordered-subshells";
+import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { usePresets } from "@/hooks/use-presets";
 import { useSubshellData } from "@/hooks/use-subshell-data";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
 import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
-import { paneCopyModeIds, setPaneCopyModeIds, togglePaneCopyMode } from "@/lib/pane-copy-mode-pref";
 import { paneDiagnosticsIds, setPaneDiagnosticsIds, togglePaneDiagnostics } from "@/lib/pane-diagnostics-pref";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
@@ -56,11 +57,15 @@ function SubshellPage() {
   // terminal through them.
   const termRef = useRef<Terminal | null>(null);
   const sendInputRef = useRef<((data: string) => void) | null>(null);
+  const pasteInputRef = useRef<((text: string) => void) | null>(null);
   const openImagePickerRef = useRef<(() => void) | null>(null);
   const scrollToTopRef = useRef<(() => void) | null>(null);
   const scrollToBottomRef = useRef<(() => void) | null>(null);
+  const refreshScreenRef = useRef<(() => void) | null>(null);
   const [search, setSearch] = useState<SearchAddon | null>(null);
   const [connected, setConnected] = useState(false);
+  const [injectTarget, setInjectTarget] = useState<string | null>(null);
+  useEffect(() => setInjectTarget((target) => (target === id ? target : null)), [id]);
   /**
    * Who else is watching, straight off the terminal's socket. Null while the
    * socket is down — the device list is live state, not a cache.
@@ -99,16 +104,7 @@ function SubshellPage() {
   // navigation repoints this page without remounting it). Touch-only: the
   // menu item is offered only on a coarse pointer, where a finger cannot
   // drag-select the grid today; on a mouse surface selection already works.
-  const [copyOn, setCopyOn] = useState(false);
-  useEffect(() => {
-    setCopyOn(paneCopyModeIds().includes(id));
-  }, [id]);
-  /** Flips this subshell's copy mode and persists the per-device set. */
-  function toggleCopyMode() {
-    const next = togglePaneCopyMode(paneCopyModeIds(), id);
-    setPaneCopyModeIds(next);
-    setCopyOn(next.includes(id));
-  }
+  const { on: copyOn, onToggle: toggleCopyMode } = usePaneCopyMode(id);
   // The HUD names the machine the pane runs on, on the SAME ladder the
   // sidebar's node groups use (`nodeLabelFor`): the resolved name, the short
   // id only while the nodes read has never succeeded, "unknown node" once it
@@ -188,9 +184,11 @@ function SubshellPage() {
   function handleTerminalReady(handles: SubshellTerminalHandles) {
     termRef.current = handles.term;
     sendInputRef.current = handles.sendInput;
+    pasteInputRef.current = handles.pasteInput;
     openImagePickerRef.current = handles.openImagePicker;
     scrollToTopRef.current = handles.scrollToTop;
     scrollToBottomRef.current = handles.scrollToBottom;
+    refreshScreenRef.current = handles.refreshScreen;
     setSizingRef.current = handles.setSizing;
     setSearch(handles.search);
   }
@@ -199,9 +197,11 @@ function SubshellPage() {
   function handleTerminalDispose() {
     termRef.current = null;
     sendInputRef.current = null;
+    pasteInputRef.current = null;
     openImagePickerRef.current = null;
     scrollToTopRef.current = null;
     scrollToBottomRef.current = null;
+    refreshScreenRef.current = null;
     setSizingRef.current = null;
     setSearch(null);
   }
@@ -420,16 +420,26 @@ function SubshellPage() {
         clipboard-pasting files has no equivalent on a phone. */}
       {coarse && subshell && (
         <TerminalKeyBar
+          key={id}
           disabled={!connected}
           readOnly={subshell.access === "view"}
           // Copy mode's "typing yields to selecting" holds for the bar too:
-          // in the mode the bar is exactly the viewer's scroll row.
+          // in the mode its input controls stay visible but disabled.
           suppressInput={coarse && copyOn}
           onBytes={handleKeyBarBytes}
+          onPaste={(text) => pasteInputRef.current?.(text)}
+          onInjectPrompt={subshell.alive && subshell.access !== "view" ? () => setInjectTarget(id) : undefined}
+          copyMode={{ on: copyOn, onToggle: toggleCopyMode }}
           onPickImage={subshell.access === "view" ? undefined : () => openImagePickerRef.current?.()}
           onScrollTop={handleScrollTop}
           onScrollBottom={handleScrollBottom}
+          onScrollPageUp={() => termRef.current?.scrollPages(-1)}
+          onScrollPageDown={() => termRef.current?.scrollPages(1)}
+          onRefresh={() => refreshScreenRef.current?.()}
         />
+      )}
+      {injectTarget === id && (
+        <InjectPromptDialog key={id} subshellId={id} open onOpenChange={() => setInjectTarget(null)} />
       )}
     </main>
   );

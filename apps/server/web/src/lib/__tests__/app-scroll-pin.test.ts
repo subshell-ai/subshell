@@ -19,6 +19,11 @@ describe("shouldResetForeignScroll", () => {
   it("always allows the terminal's own scrolling (swipe-to-read, scrollToBottom)", () => {
     expect(shouldResetForeignScroll({ ...typing, insideTerminal: true })).toBe(false);
   });
+
+  it("allows intentional key-bar scrolling while continuing to pin the page shell", () => {
+    expect(shouldResetForeignScroll({ ...typing, terminalControls: true })).toBe(false);
+    expect(shouldResetForeignScroll({ ...typing, terminalControls: false })).toBe(true);
+  });
 });
 
 describe("isKeyboardUp", () => {

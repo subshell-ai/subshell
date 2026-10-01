@@ -9,6 +9,8 @@
  */
 
 /** JSON array of subshell ids whose pane is in copy mode on this device. */
+export const PANE_COPY_MODE_CHANGED = "subshell:copy-mode-changed";
+
 const KEY = "subshell.paneCopyMode";
 
 /**
@@ -42,6 +44,7 @@ export function setPaneCopyModeIds(ids: readonly string[]): string[] {
     // Storage refused: the choice still holds for this page load, which is
     // the part the user is looking at.
   }
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(PANE_COPY_MODE_CHANGED));
   return next;
 }
 

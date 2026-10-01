@@ -2,8 +2,8 @@ import { apiFetch, cn } from "@internal/node-admin";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
-import { Toaster } from "sonner";
 import { AppSidebar } from "@/components/app-sidebar";
+import { AppToaster } from "@/components/app-toaster";
 import { DesktopBridge } from "@/components/desktop/desktop-bridge";
 import { DesktopNotifications } from "@/components/desktop/desktop-notifications";
 import { DesktopSidebar } from "@/components/desktop/desktop-sidebar";
@@ -51,7 +51,7 @@ function RootComponent() {
           mount above every route: the launch flow raises one across a
           navigation, which is the whole reason it is not inline. Dark-only
           app, dark toaster (main.tsx stamps the theme). */}
-      <Toaster theme="dark" position="bottom-right" />
+      <AppToaster />
     </QueryClientProvider>
   );
 }
