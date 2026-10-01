@@ -51,9 +51,9 @@ It verifies the release's `.sha256` before making anything executable, then runs
 account. Rather not touch a CLI? The
 [Subshell Server desktop app](https://docs.subshell.sh/install/desktop-server)
 installs the same binary behind a button. To run agents on other machines,
-[enroll a node](https://docs.subshell.sh/nodes/desktop); to work from your own,
+[enroll a node](https://docs.subshell.sh/get-started/another-machine); to work from your own,
 open the server in any browser or use the
-[Subshell Client](https://docs.subshell.sh/nodes/desktop).
+[Subshell Client](https://docs.subshell.sh/install/desktop-client).
 
 ## Documentation
 
