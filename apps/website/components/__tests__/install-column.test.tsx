@@ -51,14 +51,14 @@ async function mounted() {
 test("the fork names jobs, not product names, and states the picked role", async () => {
   await mounted();
   expect(screen.getByRole("group", { name: "What this machine should do" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "run the control plane" })).toBeDefined();
-  expect(screen.getByRole("button", { name: "run agents here, or watch" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Server" })).toBeDefined();
+  expect(screen.getByRole("button", { name: "Client / Node" })).toBeDefined();
   expect(screen.getByText("This machine becomes the control plane every other device connects to.")).toBeDefined();
 });
 
 test("picking the client chip says what the client is, node enrollment included", async () => {
   await mounted();
-  fireEvent.click(screen.getByRole("button", { name: "run agents here, or watch" }));
+  fireEvent.click(screen.getByRole("button", { name: "Client / Node" }));
   expect(
     screen.getByText("Your interface to Subshell, and the app that enrolls this machine as a node."),
   ).toBeDefined();

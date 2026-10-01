@@ -91,7 +91,7 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
             kind === "server" && "border-[rgba(217,139,224,.5)] bg-[rgba(217,139,224,.07)] !text-[var(--orchid)]",
           )}
         >
-          run the control plane
+          Server
         </Button>
         <Button
           variant="chip"
@@ -103,7 +103,7 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
             kind === "client" && "border-[rgba(217,139,224,.5)] bg-[rgba(217,139,224,.07)] !text-[var(--orchid)]",
           )}
         >
-          run agents here, or watch
+          Client / Node
         </Button>
       </fieldset>
       {/* The chips pick the role; this line says what the picked role IS,
