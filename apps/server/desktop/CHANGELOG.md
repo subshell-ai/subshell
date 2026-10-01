@@ -1,5 +1,12 @@
 # @internal/desktop-server
 
+## 1.3.4
+
+### Patch Changes
+
+- Updated dependencies [[`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15), [`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15), [`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15)]:
+  - @internal/server@1.7.4
+
 ## 1.3.3
 
 ### Patch Changes

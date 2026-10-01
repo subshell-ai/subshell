@@ -1,5 +1,11 @@
 # @internal/node
 
+## 1.4.2
+
+### Patch Changes
+
+- [#308](https://github.com/subshell-ai/subshell/pull/308) [`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15) Thanks [@theogravity](https://github.com/theogravity)! - Make inline value copying work on HTTP LAN pages using a clipboard fallback, preserve complete OAuth callback URLs, and show a clear message when the browser refuses copying.
+
 ## 1.4.1
 
 ### Patch Changes

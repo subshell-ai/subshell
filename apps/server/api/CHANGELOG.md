@@ -1,5 +1,15 @@
 # @internal/server
 
+## 1.7.4
+
+### Patch Changes
+
+- [#308](https://github.com/subshell-ai/subshell/pull/308) [`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15) Thanks [@theogravity](https://github.com/theogravity)! - Show the newly saved address settings instead of startup snapshots, report whether changes applied or need a restart, and enable dashboard restarts for Docker installs explicitly configured with a restart policy. Confirm that restarting Docker closes running subshells.
+
+- [#308](https://github.com/subshell-ai/subshell/pull/308) [`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15) Thanks [@theogravity](https://github.com/theogravity)! - Make inline value copying work on HTTP LAN pages using a clipboard fallback, preserve complete OAuth callback URLs, and show a clear message when the browser refuses copying.
+
+- [#308](https://github.com/subshell-ai/subshell/pull/308) [`918a52c`](https://github.com/subshell-ai/subshell/commit/918a52c69954f0bbbe3ce0570897394c0d682e15) Thanks [@theogravity](https://github.com/theogravity)! - Use the configured public base URL for OAuth callbacks by default, with an optional per-provider override instead of ordered entry points. Show the effective full callback URI and request Google account selection.
+
 ## 1.7.3
 
 ### Patch Changes
