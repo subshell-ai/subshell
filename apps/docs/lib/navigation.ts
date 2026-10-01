@@ -1,8 +1,11 @@
 /** Published section order shared by the sidebar contract and AI index. */
 export const DOC_SECTIONS = [
+  { slug: "about", title: "What is Subshell?" },
   { slug: "get-started", title: "Get started" },
   { slug: "install", title: "Installation" },
   { slug: "guides", title: "Use Subshell" },
+  { slug: "presets", title: "Presets" },
+  { slug: "prompts", title: "Reusable Prompts" },
   { slug: "agents", title: "Agents" },
   { slug: "nodes", title: "Manage nodes" },
   { slug: "administration", title: "Server administration" },

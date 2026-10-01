@@ -3,11 +3,8 @@
   "pages": [
     "index",
     "launch",
-    "terminal",
     "lifecycle",
     "workspaces",
-    "presets",
-    "prompts",
     "clone",
     "sharing",
     "notifications",

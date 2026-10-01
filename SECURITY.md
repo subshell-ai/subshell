@@ -2,7 +2,7 @@
 
 Subshell is designed to run on your own machines and private networks; its
 full security model, including where it deliberately falls short, is documented
-in [docs/security-overview.md](docs/security-overview.md), with the engineering
+in the [public security model](https://docs.subshell.sh/concepts/security), with the engineering
 threat model in [docs/security.md](docs/security.md).
 
 ## Reporting a vulnerability

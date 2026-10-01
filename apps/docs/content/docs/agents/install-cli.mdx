@@ -14,7 +14,7 @@ Choose an enabled harness and a target node. Use the OS account that runs the se
 1. Follow the installation instructions linked from the agent's guide.
 2. Authenticate the CLI with its provider on the target machine.
 3. Run the CLI directly under the execution account to verify it opens.
-4. Open the node's harness information in Subshell and run **Re-check**.
+4. In the server dashboard's sidebar, choose **Nodes**, select the execution machine, and open **Overview**. In its **Harnesses** card, select **Re-check**.
 5. Launch a test subshell in an existing directory.
 
 For supported installable harnesses, an administrator can request installation on the server host. This executes the vendor installer as the server's OS user. Install CLIs yourself on remote nodes.
@@ -22,6 +22,8 @@ For supported installable harnesses, an administrator can request installation o
 ## Binary detection
 
 Plugins declare a binary name, known paths, and an optional environment override such as `CLAUDE_PATH`. Detection runs on the selected machine and is requested by the control plane.
+
+See [Files and paths](/reference/paths) for configuration locations and how foreground and service environments differ before setting a binary override.
 
 A service may have a different PATH from an interactive terminal. If manual CLI launch works but detection fails, inspect the service's runtime environment and the plugin's binary override.
 

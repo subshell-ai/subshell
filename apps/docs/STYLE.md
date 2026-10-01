@@ -112,6 +112,8 @@ expected results, necessary caveats, and **Next steps**. Do not add empty
 sections to satisfy a template. Keep recommendations after the lead under an
 appropriate heading when prerequisites should follow immediately.
 
+Whenever instructions change environment variables or directly edit configuration, link to [Files and paths](/reference/paths) near the action. Name the machine and configuration layer; distinguish host/service variables, container environment, integration variables, and preset values. Do not imply every value belongs in the server's `config.env`.
+
 Use numbered steps for ordered actions and bullets for genuinely parallel
 choices. Put one action in each step. Identify the machine or account where a
 command runs, especially for enrollment, provider authentication, and recovery.
@@ -120,6 +122,27 @@ End with a verification result or a relevant next step.
 Use tables for comparisons, permissions, arguments, and other lookups. Do not
 turn paragraphs into tables merely to shorten a page. Keep shell examples
 readable with line continuations when needed, and preserve their exact argv.
+
+## Navigation context
+
+Do not assume readers know where a control lives. On the first actionable
+mention in each page or procedure, name the interface, navigation path, and
+control: “In the server dashboard's sidebar, open **Server Settings** →
+**Networking**. In **Addresses**, edit **Other addresses browsers will use**.”
+State required roles before administrative actions. If sign-in is unavailable,
+give the host-side CLI alternative rather than directing readers to an
+inaccessible dashboard.
+
+Locate dialogs by the action that opens them, such as **Subshells** →
+**New subshell**. Locate session actions through their **⋯** menu. Account
+settings and Preferences start in the profile menu at the bottom of the
+sidebar; distinguish those pages from instance-wide Server Settings. Desktop
+instructions must name the app and how to open its local management window.
+
+Link to a focused guide when the navigation would distract from the current
+task. Later references can use the short control name once the procedure has
+established its location. Do not invent labels or assume a screenshot supplies
+missing navigation steps. Verify paths and labels against the shipped UI.
 
 Use bold for UI labels, app names in instructions, or a term being defined.
 Use code spans for commands, flags, paths, environment variables, IDs, schema
@@ -159,6 +182,22 @@ or invariant is needed and verified. State shipped behavior directly. Keep
 review evidence in engineering notes or change descriptions rather than
 adding repository source inventories to ordinary user guides.
 
+## Developer tutorials
+
+Provide a complete runnable example when a guide teaches implementation: project setup, dependency and contract versions, manifest, full source, meaningful tests, build commands, archive inspection, and installation or execution checks. Distinguish npm package versions from protocol or manifest API versions. Verify examples by extracting the documented files, type-checking, testing, building, and exercising packed output with the compiled host when runtime loading matters.
+
+Label fixtures and fictional integrations explicitly. A fixture-tested adapter demonstrates a contract; it does not establish compatibility with a real vendor or network. Explain the remaining validation needed before claiming production support. Include failure cases, permissions, and trust boundaries beside the relevant operation. Do not imply that a source-checkout test proves a plugin can resolve dependencies in a compiled installation.
+
+Use diagrams for plugin loading, command flow, and dependencies when they clarify the implementation. Give contributors a runnable isolated setup that avoids installed service ports and state. Keep detailed engineering evidence in review notes rather than adding source inventories to ordinary user guides.
+
+## Presets and reusable prompts
+
+Keep Presets and Reusable Prompts as distinct task-oriented sections. A preset records agent configuration and optional launch defaults; a reusable prompt records task instructions. A library stack references current saved prompts, while selecting a prompt or stack into a launch form or preset copies its text. Explain that distinction when describing edits, reuse, and deletion.
+
+Distinguish typing from submitting: the dashboard's **Inject prompt...** action types text without Enter; the reader reviews it and submits it in the pane. Sharing means every account on the instance, not a selected group. Withdrawing library access cannot recall already-copied text. Prompt instructions are not enforceable security permissions.
+
+Use coding-agent examples with a stated task and meaningful settings. Screenshots should show the configuration or workflow the prose explains, with enough context to identify it; an isolated generic field or trivial shell flag is not a useful example. Document dashboard controls before CLI alternatives when both serve the task, including update pages and their unavailable states.
+
 ## Warnings and security language
 
 Preserve the strength of security and data-loss warnings during a rewrite.
@@ -186,13 +225,46 @@ Keep reading density compact: H2 margins are 1.75rem above and 0.75rem below;
 H3 margins are 1.25rem above and 0.5rem below. Ordinary paragraph and list
 margins are 0.75rem. Avoid stacking component margins with layout gaps.
 
+Bold article text uses a subdued version of Subshell's required-field gold
+(`oklch(0.76 0.1 84.429)`) and a 700 weight. Preserve semantic `strong`
+markup; color supplements the emphasis.
+
 Article links use muted blue, without underlines, and brighten on hover.
 Keyboard focus must remain visible. Use the existing brand wordmark and
 high-DPI assets from the brand pipeline; do not hand-edit generated PNGs.
 
 Use the default MDX code blocks, tables, and GitHub alerts. Do not add custom
-MDX components or screenshots without changing the authoring contract. Review
+MDX components. Review
 wide and narrow screens after presentation changes.
+
+## Diagrams
+
+Use diagrams when a relationship, trust boundary, or lifecycle is clearer visually than in prose. Use fenced `mermaid` blocks for flowcharts and sequence diagrams. The renderer emits themed SVG at build time, so diagrams remain visible without JavaScript. Start each block with a `%%` comment describing its relationships for the accessible label. Keep the full Mermaid source in AI exports. Compact `text` blocks remain suitable for simple ASCII diagrams. Keep labels descriptive, line widths short, and a prose explanation beside each diagram. Explain arrow direction and distinguish encryption from authorization. Do not imply that a directory rule is a sandbox, every connection is encrypted, or a retained record guarantees retained history. Avoid adding diagrams to routine one-step instructions.
+
+## UI screenshots
+
+Use screenshots selectively when they help locate controls or explain a layout.
+Skip self-explanatory screens, including account creation, and pages focused on
+commands or concepts. Capture the shipped UI in Chrome against an isolated dev
+server with a temporary database and sample account. Never use the live instance.
+
+Preserve a small margin of the actual app background around the relevant content. Do not crop flush against text, controls, or panel edges. The documentation image frame adds a small surface-colored inset; keep the complete framed image within the display limits.
+
+Crop to the relevant dialog, controls, or panel; omit empty terminal space and
+unrelated navigation. Use native HTML figures with the `docs-screenshot` class,
+Fumadocs `ImageZoom` with `unoptimized`, and a short caption. Images display at no more than 320px high
+and 640px wide, shrink on narrow screens, and enlarge in an overlay when selected.
+Keep control labels readable at the displayed size; crop further when necessary.
+
+Store PNGs in `public/screenshots/`. Include intrinsic width and height, lazy
+loading, descriptive alt text, and a caption explaining the relevant controls.
+Keep all steps and warnings in prose so search engines, AI exports, screen
+readers, and readers without images receive the complete instructions.
+
+Use nonsensitive sample data. Do not expose passwords, tokens, setup keys, or
+private addresses. Capture before generating a key when possible; use browser
+screenshot masks for necessary redaction and explain it in the caption. Do not
+fabricate UI states. Recheck screenshots when related controls change.
 
 ## SEO, AI readability, and review
 
@@ -210,7 +282,7 @@ Before completing a review:
 
 1. Read the pages and verify actionable claims against their current sources.
 2. Check grammar, vocabulary, title/lead duplication, step order, link labels,
-   and the strength of warnings.
+   navigation context, required roles, and the strength of warnings.
 3. Run content tests, lint, type checks, a fresh production build, and export
    verification using the commands in `AGENTS.md`.
 4. Check desktop and narrow-screen layouts when presentation changes, and

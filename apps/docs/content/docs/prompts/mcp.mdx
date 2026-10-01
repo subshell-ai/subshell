@@ -1,0 +1,43 @@
+---
+title: "Prompt access through MCP"
+description: "Let agents read and maintain the pane owner\u2019s reusable prompt library with explicit sharing and deletion boundaries."
+---
+
+Let an agent use your prompt library through Subshell MCP.
+
+## Before you start
+
+Run an agent with Subshell MCP available. Follow [MCP configuration](/mcp/configure) for setup. The pane token identifies the subshell's owner; prompt access is based on that account.
+
+## Prompt tools
+
+| Tool | Behavior |
+| --- | --- |
+| `list_prompts` | Lists the owner's prompts and other users' shared prompts with descriptions and short previews. |
+| `get_prompt` | Reads a visible prompt's full body by ID. |
+| `create_prompt` | Saves a prompt belonging to the pane owner; sharing defaults to false. |
+| `update_prompt` | Changes the owner's description, body, or sharing flag. |
+| `delete_prompt` | Deletes the owner's prompt permanently. |
+
+Use IDs returned by `list_prompts`, then call `get_prompt` to read the complete instructions. A preview is not the full task. Reading a prompt does not automatically submit it to another agent.
+
+There are no dedicated prompt-stack MCP tools. The prompt tools above operate on individual saved prompts; do not treat a stack ID as a prompt ID. For authorized API automation, stack endpoints are under `/api/prompts/stacks`; see [Build an API integration](/automation/integrations) for authentication and schema discovery.
+
+## Ask an agent to save instructions
+
+For example, tell the agent:
+
+```text
+Save our repository review instructions as a private reusable prompt named
+"Review changes". Do not include credentials or share it with other accounts.
+```
+
+The agent can create and edit your entries and read other accounts' shared entries. It cannot edit another owner's prompt. A `shared: true` write publishes the text to every account on the instance; agents should leave it private unless sharing was requested.
+
+Deleting through MCP has the same consequences as deleting in the dashboard, including removing the prompt from stacks and providing no undo.
+
+## Launch helpers with task text
+
+An agent can read a prompt and supply its body when creating a helper using an eligible preset. It should choose whether to append to or replace the preset's saved task, inspect `promptDelivered`, and clean up the helper when done.
+
+See [Use and manage presets](/presets/use), [Coordinate agents](/mcp/coordinate), and [MCP tool reference](/mcp/tools) for the launch and cleanup contracts.

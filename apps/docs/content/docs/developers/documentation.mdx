@@ -26,9 +26,15 @@ Keep server, node, and client meanings distinct. Follow `apps/docs/STYLE.md` for
 
 ## MDX and navigation
 
-Use default code blocks, tables, and GitHub alerts. Keep placeholders such as `<path>` and JSON braces inside code. Internal links are root-relative and must resolve to a real page. Do not add draft placeholders, screenshots, or custom MDX components.
+Use default code blocks, tables, and GitHub alerts. Keep placeholders such as `<path>` and JSON braces inside code. Internal links are root-relative and must resolve to a real page. Do not add draft placeholders or unrelated custom MDX components. Use fenced `mermaid` blocks for diagrams; start each with a `%%` description for its accessible label. Diagrams render to themed SVG during the build and remain visible without JavaScript. Keep an explanation in prose and verify the exported SVG. For screenshots, use the built-in Fumadocs `ImageZoom` component with `unoptimized` inside a native figure; selecting it opens a larger image overlay. Use screenshots only where they clarify controls or layouts. Follow the style guide for cropped figures, alt text, captions, redaction, and the 320px display-height limit. Keep complete instructions in prose. For UI actions, name the interface, navigation path, and control label, and state required permissions; do not assume readers already know where a card or dialog lives.
 
 Navigation and AI section order are shared in `apps/docs/lib/navigation.ts`. Every section has an index page. The content tests enforce the tree.
+
+## Implementation examples
+
+Developer tutorials should include the files and commands needed to build and test the example. Pin package and manifest contract versions separately, exercise failure cases, and inspect the packed artifact. When a compiled host loads external code, test that case without neighboring workspace dependencies. Clearly label fictional CLI fixtures and the vendor testing still needed before claiming real integration support.
+
+Keep Presets and Reusable Prompts distinct. Explain library references versus copied launch text, instance-wide sharing, and typing versus submitting a prompt. Use screenshots of meaningful agent tasks and settings rather than isolated generic fields.
 
 ## Verify the site
 

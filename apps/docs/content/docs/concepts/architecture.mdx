@@ -5,6 +5,21 @@ description: "Understand the control plane, execution nodes, clients, plugins, a
 
 Understand the components that launch and display a Subshell session.
 
+## How the components connect
+
+```mermaid
+%% Clients connect to the server. The server can run local sessions and communicates with outward-connecting node daemons, each of which runs agents beside project files.
+flowchart TD
+  C[Browser or Subshell Client] --> S[Server: API, database, web UI, plugins]
+  S --> L[Server-host session if enabled]
+  N1[Node A daemon] -->|Connects outward| S
+  N2[Node B daemon] -->|Connects outward| S
+  N1 --> A1[Agent and project files on node A]
+  N2 --> A2[Agent and project files on node B]
+```
+
+Each node initiates its connection to the server. The server sends launch commands over that connection and relays terminal input and output. Your browser only needs to reach the server.
+
 ## Server
 
 The control plane combines an API, SQLite database, and the web interface it serves. The standalone release embeds that web interface, so production needs one server process rather than a separate frontend deployment.

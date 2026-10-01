@@ -14,6 +14,11 @@ import { ROOT_PAGES } from "../../lib/navigation";
 
 const DOCS_DIR = path.join(import.meta.dir, "..", "..", "content", "docs");
 
+/** Code examples may contain imports; only document-level MDX is restricted. */
+function outsideCodeFences(source: string): string {
+  return source.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1[ \t]*$/gm, "");
+}
+
 interface MetaFile {
   title?: string;
   pages?: unknown;
@@ -139,7 +144,8 @@ describe("published documentation", () => {
     expect(fs.existsSync(DOCS_DIR), "content/docs is required").toBe(true);
     for (const section of ROOT_PAGES.filter((entry) => entry !== "index")) {
       expect(fs.existsSync(path.join(DOCS_DIR, section, "index.mdx"))).toBe(true);
-      expect(pagesOf(section).length).toBeGreaterThan(1);
+      expect(pagesOf(section)).toContain("index");
+      expect(pagesOf(section).length).toBeGreaterThanOrEqual(1);
     }
     for (const dir of ["", ...listDirs("")]) {
       expect(readMeta(dir), `${dir || "."} needs meta.json`).toBeDefined();
@@ -167,11 +173,40 @@ describe("published documentation", () => {
       expect(body, `native mobile content: ${rel}`).not.toMatch(
         /native mobile|react native|\bexpo\b|testflight|eas build|play store|app store/i,
       );
-      expect(body, `MDX component outside authoring contract: ${rel}`).not.toMatch(
+      expect(outsideCodeFences(body), `MDX component outside authoring contract: ${rel}`).not.toMatch(
         /^(import |export |<(Tabs|Cards|Steps)\b)/m,
       );
       expect(body, `the page renderer provides the H1: ${rel}`).not.toMatch(/^# /m);
     }
+  });
+
+  test("MDX restrictions distinguish executable examples from document imports", () => {
+    const example = '```ts title="src/index.ts"\nimport host from "plugin-api";\nexport default host;\n```';
+    expect(outsideCodeFences(example)).not.toMatch(/^(import |export )/m);
+    expect(outsideCodeFences(`${example}\nimport Component from "component";`)).toMatch(/^import /m);
+    expect(outsideCodeFences("````md\n```ts\nexport default example;\n```\n````")).toBe("");
+  });
+
+  test("screenshots have accessible descriptions and valid local PNG assets", () => {
+    const used = new Set<string>();
+    for (const rel of listMdx("")) {
+      const raw = fs.readFileSync(path.join(DOCS_DIR, rel), "utf8");
+      for (const match of raw.matchAll(
+        /<ImageZoom src="(\/screenshots\/[^" ]+)" alt="([^"]+)" width="(\d+)" height="(\d+)" loading="lazy" decoding="async"/g,
+      )) {
+        const [, src, alt, width, height] = match;
+        expect(alt.trim().length, `screenshot description: ${rel}`).toBeGreaterThan(10);
+        const asset = path.join(DOCS_DIR, "../../public", src);
+        expect(fs.existsSync(asset), `missing screenshot: ${rel} ${src}`).toBe(true);
+        const png = fs.readFileSync(asset);
+        expect(png.subarray(1, 4).toString()).toBe("PNG");
+        expect(Number(width)).toBe(png.readUInt32BE(16));
+        expect(Number(height)).toBe(png.readUInt32BE(20));
+        used.add(path.basename(src));
+      }
+    }
+    const assets = fs.readdirSync(path.join(DOCS_DIR, "../../public/screenshots"));
+    expect([...used].sort()).toEqual(assets.sort());
   });
 
   test("MCP reference covers every registered tool and no retired tools", () => {

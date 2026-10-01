@@ -24,6 +24,21 @@ security posture summary. Where a rule and an app's `AGENTS.md` disagree,
 the app's documentation is more specific and wins; the disagreement is a bug
 worth fixing rather than a choice to make silently.
 
+## Documentation ownership
+
+User procedures and developer tutorials live in `apps/docs/content/docs/`.
+Link to those pages from internal notes instead of maintaining another command
+catalogue or walkthrough. Package READMEs remain concise entry points for
+package consumers.
+
+Keep internal documentation when it adds implementation constraints, security
+rationale, test guidance, operational development commands, or regression
+history that helps an agent change the code safely. App `AGENTS.md` files route
+to those details. See [the engineering documentation index](docs/README.md).
+Historical specs and plans record decisions; they are not evidence that a
+behavior shipped. Verify current behavior against implementation before
+updating public documentation.
+
 ## Project Overview
 
 This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API server, the React SPA that server serves, a node daemon (`subshell`), two Tauri desktop apps, a React Native companion, and shared packages: a type-safe Eden Treaty client SDK, the subshell protocol, agent harness plugins, a shared `subshell mcp` server, and backend error handling.

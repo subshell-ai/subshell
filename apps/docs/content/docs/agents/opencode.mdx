@@ -7,16 +7,16 @@ Run OpenCode as a Subshell agent.
 
 ## Before you start
 
-Install `opencode` using the [vendor instructions](https://opencode.ai/docs/cli/) and authenticate it under the execution account. Enable its harness plugin on the instance and confirm detection on the target node.
+Install `opencode` using the [vendor instructions](https://opencode.ai/docs/cli/) and authenticate it under the execution account. Ask an administrator to enable the harness under **Server Settings** → **Plugins** in the server dashboard's sidebar. Follow [Install an agent CLI](/agents/install-cli) to confirm detection on the target node.
 
 ## Launch
 
-1. Open the launch dialog and select **OpenCode**.
+1. In the server dashboard's sidebar, choose **Subshells**, select **New subshell**, and choose **OpenCode**.
 2. Select a preset or configure the supported launch settings.
 3. Choose the target node and an existing project directory.
 4. Launch and confirm that the CLI opens normally.
 
-The plugin detects `opencode` through PATH and its known locations. `OPENCODE_PATH` can identify the binary explicitly in the execution environment.
+The plugin detects `opencode` through PATH and its known locations. `OPENCODE_PATH` can identify the binary explicitly in the execution environment. Before changing that override, see [Files and paths](/reference/paths) for configuration locations and service-environment guidance.
 
 ## MCP and session behavior
 
@@ -26,4 +26,4 @@ Subshell runs the real CLI rather than proxying its provider API. Provider confi
 
 ## Next steps
 
-Read [MCP configuration](/mcp/configure), [Presets](/guides/presets), and [Agent and launch errors](/troubleshooting/agents).
+Read [MCP configuration](/mcp/configure), [Presets](/presets), and [Agent and launch errors](/troubleshooting/agents).

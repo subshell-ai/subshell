@@ -18,7 +18,7 @@ The first command shows the configuration that a boot would resolve, including s
 
 ## Browser diagnostics
 
-Administrators can open **Server Settings** and choose **Status** or **Logs**. The logs page separates system output from the audit trail.
+Sign in as an administrator. In the server dashboard's sidebar, open **Server Settings** → **Status** for resolved locations or **Server Settings** → **Logs** for system output and the audit trail. The logs page separates system output from the audit trail.
 
 For service-manager output on Linux:
 
@@ -29,6 +29,8 @@ journalctl --user -u subshell-server.service
 The server's own log file is separate from service output. Its location is part of the installation's path information.
 
 ## Debugging
+
+Locate the active configuration with [Files and paths](/reference/paths) before changing logging or retention environment values.
 
 `--verbose` or `SUBSHELL_VERBOSE=1` increases console detail. `SUBSHELL_DEBUG_LOGGING` controls additional file logging and is a separate setting.
 

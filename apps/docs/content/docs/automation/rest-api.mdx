@@ -17,7 +17,7 @@ Resource families include subshells, workspaces, presets, prompts, nodes, channe
 
 ## Send a bearer request
 
-Set `SUBSHELL_URL` and `SUBSHELL_API_KEY` securely in the integration environment, then send a request without printing the credential:
+Set `SUBSHELL_URL` and `SUBSHELL_API_KEY` securely in the integration's runtime environment. These belong to your integration, rather than the server's `config.env`; [Files and paths](/reference/paths) explains the configuration locations. Then send a request without printing the credential:
 
 ```bash
 curl --fail-with-body \
@@ -39,4 +39,4 @@ Check both HTTP status and the structured response. After an ambiguous create ti
 
 ## Next steps
 
-Read [API conventions](/reference/api) and [Access model](/concepts/access).
+Read [Build an API integration](/automation/integrations) and [Access model](/concepts/access).

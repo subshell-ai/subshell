@@ -15,6 +15,20 @@ Use **Subshell Client** for most node installations. It bundles the node binary 
 - [Enroll a node with the CLI](/nodes/enroll) covers headless machines and terminal-based setup.
 - [Proxmox nodes](/nodes/proxmox) creates a dedicated execution container.
 
+### Enrollment and execution
+
+```mermaid
+%% A single-use setup key enrolls a machine. Its daemon then connects using node credentials, and authorized dashboard launches run agents under that machine's OS account.
+flowchart TD
+  S[Server creates setup key] --> E[Machine enrolls at trusted server address]
+  E --> N[Node stores credential and connects outward]
+  N --> D[User chooses node in dashboard]
+  D --> V[Server authorizes launch]
+  V --> A[Node runs agent as its OS user]
+```
+
+The setup key enrolls the machine; the node then uses its own credential for its connection. A browser-only device does not need enrollment.
+
 ## Control access
 
 [Directory restrictions](/nodes/directories) limit where new sessions can launch. [Share a node](/nodes/sharing) controls which users can run sessions there.

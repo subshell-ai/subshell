@@ -1,10 +1,10 @@
 # Preserve links from the previous documentation structure.
 # Cloudflare static assets applies these permanent redirects.
 /get-started/install-server /install 301
-/get-started/create-admin /get-started/admin-account 301
-/get-started/first-agent /get-started/first-subshell 301
-/get-started/add-a-machine /nodes/enroll 301
-/get-started/add-a-node /nodes/enroll 301
+/get-started/create-admin /get-started 301
+/get-started/first-agent /guides/launch 301
+/get-started/add-a-machine /get-started/another-machine 301
+/get-started/add-a-node /get-started/another-machine 301
 /get-started/desktop-node /nodes/desktop 301
 /nodes/add-node /nodes/enroll 301
 /nodes/client-as-node /nodes/desktop 301
@@ -12,7 +12,7 @@
 /use/subshells /guides/lifecycle 301
 /use/workspaces-panes /guides/workspaces 301
 /use/workspaces /guides/workspaces 301
-/use/presets /guides/presets 301
+/use/presets /presets 301
 /use/sharing /guides/sharing 301
 /use/notifications /guides/notifications 301
 /use/channels /mcp/channels 301
@@ -56,10 +56,9 @@
 /automation/mcp-tools /mcp/tools 301
 /concepts/how-it-works /concepts/architecture 301
 /concepts/security-model /concepts/security 301
-/about /concepts 301
 /about/how-it-works /concepts/architecture 301
 /about/security-model /concepts/security 301
-/about/supported-platforms /concepts/platforms 301
+/about/supported-platforms /install 301
 /reference/environment-variables /reference/environment 301
 /reference/files-and-paths /reference/paths 301
 /reference/ports-and-firewalls /reference/ports 301
@@ -72,3 +71,16 @@
 /develop/network-plugin /developers/network-plugin 301
 /develop/publish-plugin /developers/publish-plugin 301
 /develop/publish-a-plugin /developers/publish-plugin 301
+
+# Setup now covers account creation and the first session.
+/get-started/admin-account /get-started 301
+/get-started/first-subshell /guides/launch 301
+
+/guides/terminal /guides/launch 301
+
+/concepts/platforms /install 301
+
+/reference/api /automation/integrations 301
+
+/guides/presets /presets 301
+/guides/prompts /prompts 301

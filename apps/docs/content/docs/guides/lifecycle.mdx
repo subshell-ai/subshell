@@ -5,13 +5,28 @@ description: "Understand disconnecting, restarting, terminating, and permanently
 
 Manage a subshell's process and stored history without confusing them with browser tabs.
 
+## Process and record lifecycle
+
+```mermaid
+%% Closing a browser leaves the process running. Exit or termination retains the session record, which can restart. Dashboard Close deletes the record and captured log.
+flowchart TD
+  R[Running session] -->|Close browser tab| V[Process continues]
+  R -->|Process exits| E[Record stays]
+  R -->|MCP terminate| T[Process stops; record stays]
+  E -->|Restart| R
+  T -->|Start again| R
+  R -->|Dashboard Close| D[Process stops; record and log deleted]
+```
+
+Retained logs are subject to retention limits. Restarting a session does not guarantee that its agent can resume a conversation.
+
 ## Disconnect a viewer
 
 Closing a browser tab disconnects that viewer. It does not stop the agent or remove the subshell. The machine must remain running for its process to continue.
 
 ## Restart a session
 
-When a process exits, the subshell may remain listed with `status: "running"` and `alive: false`. Choose **Restart** to revive it in place. A terminated subshell offers **Start again**.
+When a process exits, the subshell may remain listed with `status: "running"` and `alive: false`. In the server dashboard's sidebar, choose **Subshells**, open the session's **⋯** menu, and choose **Restart** to revive it in place. A terminated subshell offers **Start again**.
 
 A restart keeps the subshell ID and launches from its stored harness, preset, and directory. Conversation resumption depends on harness support and the survival of the agent's transcript. Credentials rotate on restart.
 
@@ -20,7 +35,7 @@ A restart keeps the subshell ID and launches from its stored harness, preset, an
 > [!warning] Permanent removal
 > **Close** stops the process and removes the subshell's row and captured history. The confirmation states that it cannot be recovered.
 
-Only the owner can close a subshell. Removing a subshell also removes its workspace pane references. This does not delete the project's files or the agent CLI's separate conversation storage.
+To close a session you own, open its **⋯** menu on the **Subshells** page and choose **Close**. Only the owner can close a subshell. Removing a subshell also removes its workspace pane references. This does not delete the project's files or the agent CLI's separate conversation storage.
 
 ## Stop while retaining the row
 

@@ -28,6 +28,16 @@ These report the installation's resolved paths. Use them before backup, relocati
 
 Database path, data directory, and log directory can differ. The database's raw default is relative to the boot working directory; initialized production configuration uses its selected persistent location.
 
+## Where to change environment values
+
+For persistent server address settings, open **Server Settings** → **Networking** in the dashboard sidebar and use the **Addresses** card, or run `subshell-server configure` on the server host. When editing a file directly, use the configuration path reported by `subshell-server status --json`; the default is `~/.config/subshell-server/config.env`. `SUBSHELL_SERVER_CONFIG_DIR` can move that file.
+
+Process environment values override saved configuration. For a foreground process, set variables in the shell that starts the binary. For a background service, configure the environment supplied by its service manager and restart it. Changing an interactive shell does not change an already-running service's environment. See [Service and autostart](/administration/service) and [Node services](/nodes/service).
+
+Agent binary overrides belong to the machine and execution account running the agent. A node's enrollment configuration stores its server identity and credential; do not treat it as the server's `config.env`. Environment values saved in a preset are edited in the preset form.
+
+For Docker, edit the container command or Compose environment and recreate the container. Keep configuration files and instance data in the persistent volume.
+
 ## Node files
 
 The node reports its configuration file, daemon lock, data directory, binary, and agent log. Configuration contains the node credential and trusted control-plane key.

@@ -1,9 +1,12 @@
 {
   "pages": [
     "index",
+    "about",
     "get-started",
     "install",
     "guides",
+    "presets",
+    "prompts",
     "agents",
     "nodes",
     "administration",

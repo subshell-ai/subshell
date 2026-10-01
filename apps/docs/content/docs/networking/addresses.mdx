@@ -17,7 +17,14 @@ Configure the addresses on which the server listens and accepts browser requests
 
 ## Edit addresses
 
-Administrators can use the Addresses card under networking settings or `subshell-server configure`. Use a complete URL such as `https://server.example.com`, and restart when changing boot-time values.
+Sign in as an administrator and open **Server Settings** → **Networking** in the server dashboard's sidebar. The **Addresses** card contains **Port**, **Bind address**, **Public base URL**, and **Other addresses browsers will use**. To change these values from the server host's terminal, run `subshell-server configure`. Use a complete URL such as `https://server.example.com`, and restart when changing boot-time values.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/server-addresses.png" alt="Networking settings showing Public base URL and Other addresses browsers will use." width="1117" height="358" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Set the canonical URL separately from additional trusted browser origins. This example uses a temporary local server on port 3199. Select the image to enlarge it.</figcaption>
+</figure>
+
+For direct environment or configuration-file edits, locate the active file with [Files and paths](/reference/paths).
 
 The effective registry combines local origins, eligible IPv4 LAN interfaces on wildcard binds, operator extras, and enabled network plugin addresses. Network plugin records are read live.
 

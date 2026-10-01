@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "rest-api",
+    "integrations",
     "api-keys"
   ]
 }

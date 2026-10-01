@@ -7,13 +7,20 @@ Make your desktop machine a node through Subshell Client.
 
 ## Before you start
 
-Follow [Install Subshell Client](/install/desktop-client), then obtain a reachable server address and unused setup key from **Add node** on the server.
+Follow [Install Subshell Client](/install/desktop-client), then open **Nodes** in the server dashboard's sidebar and select **Add node**. Choose a reachable address, generate a setup key, and select **Desktop App** to find the enrollment values.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/node-enrollment.png" alt="Desktop App instructions in Add node, server address, and setup key fields." width="770" height="363" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Select Desktop App in Add node to find the values needed for enrollment. The server address is hidden in this example; no setup key has been generated. Select the image to enlarge it.</figcaption>
+</figure>
 
 The client has a dashboard window and a separate node-management window. Local node operations belong to the node window.
 
+If Subshell Client is already configured only to watch sessions, open its local window using **Window** → **Open Client App** or the tray's **Open Client App** item. Choose **Service** in that window's sidebar and select **Register this machine**, following any node-installation prompts first.
+
 ## Enroll
 
-1. Open the node-management window in Subshell Client.
+1. Open Subshell Client and choose **Run subshells on this machine**. If its dashboard is already open, choose **Window** → **Open Client App** in the app's menu bar, or **Open Client App** in its tray menu to open the local node window.
 2. Enter the server address and setup key.
 3. Choose a recognizable machine name.
 4. Follow the tmux and service instructions.
@@ -29,7 +36,7 @@ The node remains an execution machine, while the server still stores instance co
 
 ## Removal
 
-Use the node-management reset flow to remove enrollment. This is separate from resetting the remote server. Read [Unenroll a node](/nodes/unenroll) first.
+In Subshell Client's local node-management window, select **Reset** in its sidebar and review the deletion plan before confirming. This is separate from resetting the remote server. Read [Unenroll a node](/nodes/unenroll) first.
 
 ## Next steps
 

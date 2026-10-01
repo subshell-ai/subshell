@@ -13,7 +13,7 @@ Identify the network listeners and connection paths used by Subshell.
 | Node to control plane | Outbound connection to the server's reachable address. |
 | Browser terminal stream | WebSocket through the control plane. |
 | HTTPS proxy or network publication | Port selected by that frontend, forwarding to the server. |
-| Node management dashboard | Loopback-only local listener, with a tokenized URL. |
+| Node management dashboard | Loopback-only local listener; no login. Other local users can reach it. |
 
 The server serves its API and production web interface on one port. Browsers do not need a route to every execution node.
 

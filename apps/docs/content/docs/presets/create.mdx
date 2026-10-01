@@ -1,0 +1,58 @@
+---
+title: "Create a preset"
+description: "Configure a coding agent with reusable flags, environment values, and an optional restart policy."
+---
+
+Save a coding-agent configuration from the dashboard.
+
+## Before you start
+
+Sign in to the server dashboard. The agent's harness plugin must be installed and enabled; an administrator manages plugins. Install and authenticate the agent CLI on the execution machine before trying to launch it.
+
+This example creates a Codex preset named **Repository review**. Choose flags supported by the version of the agent CLI you installed.
+
+## Save the configuration
+
+1. In the dashboard sidebar, open **Presets** and select **New preset**.
+2. Choose **Codex** in **Agent**.
+3. Enter `Repository review` in **Name**.
+4. In **Paste command**, enter the following command:
+
+```bash
+codex --sandbox workspace-write --ask-for-approval on-request
+```
+
+5. Review the parsed flags. This example saves `--sandbox` with `workspace-write` and `--ask-for-approval` with `on-request`.
+6. Leave **Auto-restart on exit** off if you want to decide when an exited agent restarts.
+7. Select **Create preset**.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preset-codex-configuration.png" alt="Create preset form showing Codex, Repository review, and parsed sandbox and approval flags." width="672" height="622" loading="lazy" decoding="async" unoptimized />
+  <figcaption>This preset reuses two Codex flags. Subshell resolves the Codex executable on the selected execution machine. Select the image to enlarge it.</figcaption>
+</figure>
+
+The preset appears under **Codex** in the library. Its name identifies the saved configuration; it does not name the agent's conversation.
+
+## Paste or edit individual values
+
+**Paste command** parses environment assignments and flags; it does not execute the pasted command. The executable token is informational. The selected agent determines which program Subshell resolves and launches.
+
+Switch to **Custom command** to edit **Env vars** and **Flags** individually. Both views edit the same values. Keep arguments containing spaces as one value and review the parsed result before saving.
+
+Environment values here belong to the preset, not the server's service configuration. For host-level changes, see [Files and paths](/reference/paths). Preset credentials are stored with the preset; avoid putting secrets in screenshots, command examples, or shared instructions.
+
+The agent is fixed when the preset is created. To use another agent, create another preset.
+
+## Save a launch as a new preset
+
+You can also save a configuration while assembling a launch. In the dashboard sidebar, open **Subshells** → **New subshell**, fill in the agent, machine, directory, and prompts, then enable **Save as preset** at the bottom of the form. Enter a **Name** before launching.
+
+This creates a new preset from the filled form. It does not edit a preset you previously selected. The initial setup wizard does not show this option.
+
+## Restart policy
+
+**Auto-restart on exit** restarts an agent that exits on its own, with a growing delay when attempts keep failing. Resuming the same conversation depends on the harness's support; a restart does not guarantee conversation resumption. See [Agents](/agents) for the harness you use.
+
+## Next steps
+
+Follow [Set launch defaults](/presets/launch-defaults) to add a project and task, or [Use and manage presets](/presets/use) to launch with this configuration.

@@ -41,7 +41,9 @@ subshell enroll --server <url> --key <setup-key> --name <name>
 
 ## run and dashboard
 
-Both support `--dashboard-port <n>`; `SUBSHELL_DASHBOARD_PORT` is the environment equivalent. The management dashboard is loopback-only and uses a tokenized local URL, not a public node-control endpoint.
+Both support `--dashboard-port <n>`; `SUBSHELL_DASHBOARD_PORT` is the environment equivalent. The management dashboard listens on `127.0.0.1:3090` by default and has no login. Host, Origin, and JSON-content checks protect browser requests, but another local OS user can reach the port.
+
+On a machine with untrusted local users, set `SUBSHELL_DASHBOARD=0` in the node daemon's environment and restart it to disable the dashboard. See [Files and paths](/reference/paths) for the node configuration layers and [Security model](/concepts/security) for the trust boundary.
 
 ## status
 
@@ -88,6 +90,8 @@ The node's record remains on the server until its owner removes it. These comman
 ## Pane integration
 
 `mcp` requires injected pane identity. `report attention`, `report session`, and `report exit <status>` are hook operations. `pane-log --file <path>` captures pane output. There is no node-side `plugin` command; plugins live on the server.
+
+For environment overrides, see [Files and paths](/reference/paths) to identify where to apply the value on the execution machine.
 
 ## See also
 

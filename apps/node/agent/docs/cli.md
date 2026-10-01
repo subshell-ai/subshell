@@ -1,164 +1,100 @@
-# The CLI surface: the full account
+# Node CLI implementation contracts
 
-Moved verbatim from `apps/node/agent/AGENTS.md`, which keeps the operational
-summary and routes here. Only cross-references into sections that moved were
-repointed.
+Command syntax and user procedures are maintained in the
+[public node CLI reference](https://docs.subshell.sh/reference/node-cli).
+This note records implementation and integration constraints for `src/cli.ts`,
+which uses a hand-rolled parser rather than a flag library.
 
-## CLI (`src/cli.ts`, hand-rolled parser, no flag library)
+## Setup and identity
 
-```
-subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
-               [--no-service] [--yes] [--json]
-                                   # THE HEADLESS ENTRY POINT (spec 2026-09-15): tmux
-                                   # preflight, then the node's NAME, then `enroll`, then
-                                   # the service question — run in the background and start
-                                   # at login? — defaulting to yes, then the same
-                                   # installService the service verb calls, then a line
-                                   # naming the node's page. What the rendered install.sh
-                                   # invokes. `enroll` stays a primitive beneath it for
-                                   # anyone composing their own flow; this is the one a
-                                   # person runs.
-subshell enroll --server <url> --key <nsk_…> --name <n> [--data-dir <d>] [--json]
-                                   # --json prints {nodeId,serverUrl,name,dataDir,configPath}
-                                   # (never the nodeKey) so a GUI need not scrape the human line
-subshell configure [--server <url>] [--key <node key>] [--json]
-                                   # edit how an ALREADY-enrolled node reaches its
-                                   # control plane, keeping its identity (nodeId/
-                                   # controlPublicKey always survive). --server repoints;
-                                   # --key stores a ROTATED node key (the value the node's
-                                   # page shows once after Rotate key) IN PLACE of the
-                                   # bearer secret — no second node row, no setup key
-                                   # spent. The non-destructive answer to "the server
-                                   # moved" and "the key was rotated", which `enroll` is
-                                   # not. CLEARS nodeWsUrl when the address changes (see
-                                   # `apps/node/agent/docs/repointing.md`); a --key-only
-                                   # edit leaves it (the dial target
-                                   # is unchanged). Restart to apply. --key REFUSES an
-                                   # `nsk_` value by name — that is a SETUP key, whose verb
-                                   # is `setup`/`enroll` (see configure.ts). At least one
-                                   # of --server/--key is required. Takes NO --name: see
-                                   # `apps/node/agent/docs/node-name.md`. NO --registry-url
-                                   # either: it configured the npm
-                                   # mirror the old `subshell plugin install` verbs fetched
-                                   # from, and those verbs (and the whole node-side plugin
-                                   # concept) are GONE — see below.
-subshell unenroll [--yes] [--json] # stop being a node: deletes daemon.lock THEN
-                                     # config.json (the node key's only home — config
-                                     # LAST, the reset chain's resumability rule), and
-                                     # NOTHING else. A LIVE DAEMON IS ALWAYS REFUSED —
-                                     # `--yes` cannot buy it (the daemon holds the
-                                     # config in memory and rewrites the lock; deleting
-                                     # under it reports an online node as removed).
-                                     # Live SUBSHELLS (listed `name · id · cwd`; the
-                                     # `maintenance on` census protocol — fail-closed
-                                     # on an unanswerable tmux, text even under
-                                     # `--json`, exit 1 is the contract) are what
-                                     # --yes accepts ORPHANING for: nothing in this
-                                     # verb signals anything. A dead lock naming
-                                     # ANOTHER node is left standing (`status`'s rule),
-                                     # reported `kept` under `--json`. Data dir,
-                                     # binary and service definition stay, and the
-                                     # plane's node row stays until its owner deletes
-                                     # it there.
-subshell dashboard [--dashboard-port <n>] # tokenized loopback management without daemon
-subshell run [--dashboard-port <n>] # foreground daemon (what the service unit runs)
-                                     # NOTE: there is no `subshell plugin` command anymore
-                                     # (inversion spec 2026-09-10 §6, Task 7). The node
-                                     # holds no plugins: harnesses live on the control
-                                     # plane, launches carry the plane-built argv, and
-                                     # binary detection is the plane's `detect` command.
-                                     # A leftover <dataDir>/plugins/ directory is inert
-                                     # residue — NOT seeded, NOT refreshed, NOT deleted.
-subshell service install [--no-autostart]
-                                   # systemd user unit / launchd agent. The service
-                                     # is STARTED either way; --no-autostart decides
-                                     # only the next login
-                                     # (see `apps/node/agent/docs/service.md`)
-subshell service uninstall         # remove it, from either location
-subshell service status [--json]   # what the service MANAGER reports; always exits 0
-subshell service start|stop         # drive an installed service; never installs one
-subshell service restart [--force]  # --force overrides the refusal to restart a
-                                     # definition that would SIGKILL live panes
-subshell service autostart on|off [--json]
-                                     # arm or disarm login start for an INSTALLED
-                                     # service; refuses when there is no definition,
-                                     # and touches nothing that is running
-subshell maintenance on [--yes]    # take this node out of service (spec 2026-09-14):
-                                     # it keeps answering every other command and
-                                     # launches nothing. `on` STOPS every subshell
-                                     # running here — so without --yes it lists them
-                                     # (name · id · cwd), refuses with exit 1 and
-                                     # writes NOTHING. No prompt HERE — `maintenance`
-                                     # asks nothing, the same shape `service restart
-                                     # --force` has. (`run()` as a whole is no longer
-                                     # promptless: `setup` asks one question through
-                                     # RunDeps.prompt, injected by tests.)
-subshell maintenance off           # back in service
-subshell maintenance status [--json] # what THIS machine's mirror says; always exits 0
-subshell reset                    # stop daemon and local pane servers, remove the
-                                   # service and local node data, retaining the binary.
-                                   # Requires the machine name; --confirm <name> for
-                                   # headless consent. --yes is refused.
-subshell uninstall [--reset-data]  # stop and remove service + installed binary;
-                                   # data removal is a separate choice, default keep.
-                                   # Requires the same machine-name consent.
-subshell status [--json] [--probe] # lock-file truth; --probe DIALS the plane and
-                                     # newest-wins KICKS a running node — warned loudly
-subshell update [--check] [--to <v>] [--from <file>] [--force] [--yes] [--json]
-                [--no-restart]     # replace THIS binary with a newer one and restart
-                                     # into it. See apps/node/agent/docs/update.md. --rollback is a
-                                     # FLAG rather than a subcommand: it is the same
-                                     # verb pointed backwards, and a subcommand would
-                                     # invite `update rollback --to 0.8.0`
-subshell update --rollback [--yes] [--json]
-subshell mcp                       # stdio MCP server for a subshell pane (internal;
-                                     # configured purely by the SUBSHELL_* pane env)
-subshell report attention turn_complete|needs_attention|resumed
-subshell report session            # out-of-band reporting from a harness HOOK, which
-                                     # runs on THIS machine — where the only program
-                                     # guaranteed to exist is this binary. Same pane-env
-                                     # contract as `mcp`, but an incomplete env is a
-                                     # silent exit 0 rather than a usage error: nobody
-                                     # typed this, and a hook's stderr and exit code land
-                                     # in the user's own session. A `turn_complete`
-                                     # report reads the hook's stdin payload and stays
-                                     # silent when it names running background work or
-                                     # scheduled crons — a session parked on a subagent
-                                     # does not claim to be done (spec 2026-09-23).
-                                     # `resumed` is the waiting CLEAR and reads NO
-                                     # stdin — its payloads are the prompt text and
-                                     # the tool input (2026-09-24). The verb and kind
-                                     # slots are FREE BY DOCTRINE: an unknown word is
-                                     # answered with a silent 0, never exit 2 — a
-                                     # rejected hook blocks the pane, and a plane
-                                     # newer than this binary legitimately emits words
-                                     # compiled after it. Presence is still enforced.
-                                     # See mcp-core report.ts
-subshell version                   # also `--version` / `-v` — aliased in the
-                                     # COMMAND slot only, since argv[0] IS the
-                                     # command here (`status --version` stays an
-                                     # unknown flag, because it is a typo)
-```
+`setup` performs the tmux preflight, asks for the node name, calls the `enroll`
+primitive, and then offers service installation. This is the installer script's
+headless entry point. Prompts are injected through `RunDeps.prompt` for tests.
+`enroll --json` returns `nodeId`, `serverUrl`, `name`, `dataDir`, and
+`configPath`; never emit the node key.
 
-`status --json` also carries a `paths` block (`{ configFile, lockFile,
-dataDir, binary, agentLog }`, all absolute) beside the fields above, present
-whether the node is online or offline (it names the loaded config, not
-liveness). It exists so the client desktop app's reset deletes exactly what
-THIS CLI names, never a path the app derived itself, the same rule
-`subshell-server status --json`
-follows for its own reset (design: `docs/superpowers/specs/2026-09-11-native-reset-both-desktop-apps-design.md`
-§5.1). The block is absent when no config loaded (the not-enrolled branch):
-there is no `dataDir` to name, and a reset with nothing enrolled has nothing to
-delete. As with every other field here, the node key is never included,
-`--json` or not.
+`configure` edits an existing enrollment and preserves `nodeId` and
+`controlPublicKey`. A server-address change clears `nodeWsUrl`; a key-only edit
+keeps it. At least one edit is required, and a setup key beginning with `nsk_`
+is refused. It neither spends a setup key nor creates a second node row.
+Restart to apply changes. See [repointing](repointing.md) and
+[node naming](node-name.md). There is no `--name` or `--registry-url` option.
 
-**Two of those five are NOT deletion targets, and the block is read key by key
-so that can be true.** `binary` is the installed CLI (spec 2026-09-15 §5.2),
-and `agentLog` (2026-09-18) is the node's own capped log, reported so the
-desktop can REVEAL the same file the plane's log view serves, deliberately not
-deleted: it is the record of the reset itself, holds no credential, and is
-bounded at 200 KB whatever happens to it. `parse_delete_plan` in
-`apps/client/desktop/src-tauri/src/reset.rs` names `configFile`, `lockFile`
-and `dataDir` individually rather than sweeping the block, and a test on each
-side pins that, so a key added here later is inert on the reset by default,
-which is the only way this field could be added at all.
+The node owns no plugin installation commands or plugin store. Launches carry
+server-built argv and detection is requested by the server. An old
+`<dataDir>/plugins/` directory is inert residue: do not seed, refresh, or delete
+it as part of normal startup.
+
+## Destructive operations
+
+`unenroll` deletes `daemon.lock` before `config.json`, with configuration last
+so an interrupted operation remains resumable. It always refuses a live daemon,
+even with `--yes`, because that daemon retains credentials and rewrites its lock.
+
+Live panes require explicit consent to orphan them; the command signals none.
+Use the maintenance census (`name`, ID, working directory), fail closed when
+tmux cannot answer, and print the census to stderr even under `--json`, with
+exit 1 on refusal. A dead lock belonging to another node remains and is reported
+as `kept`. The binary, service definition, data directory, and server node row
+remain after unenrollment.
+
+`maintenance on` sets the maintenance flag before stopping panes. Without
+consent it lists live panes, exits 1, and writes nothing. It does not prompt.
+See [maintenance reconciliation](maintenance.md) for failure and recovery rules.
+
+`reset` and `uninstall` require machine-name consent; noninteractive callers use
+`--confirm`, not `--yes`. Reset retains the installed binary. Uninstall retains
+data unless removal is separately selected. Keep these distinctions visible to
+the desktop reset integration.
+
+## Services, status, and updates
+
+Service installation requires enrollment. It starts the service even with
+`--no-autostart`; that option controls the next login. Start and stop operate
+only on an installed definition. Changing autostart never changes the current
+process. Restart refuses a definition that could kill live panes unless the
+caller supplies `--force`. See [service-manager details](service.md).
+
+Service status and maintenance status always exit 0; their JSON describes the
+manager or local mirror respectively. Node `status` normally reads lock-file
+truth. `--probe` opens a server connection and can evict a running daemon through
+the newest-connection-wins rule; preserve its warning.
+
+Update rollback is the `--rollback` flag, not a positional subcommand. Reject
+incompatible target options rather than accepting an ambiguous rollback request.
+See [update transaction details](update.md).
+
+The dashboard is loopback-only and has no authentication token. It can run
+without the daemon. See [dashboard boundaries](dashboard.md).
+
+## Machine-readable paths
+
+When configuration loads, `status --json` includes absolute `paths` fields:
+`configFile`, `lockFile`, `dataDir`, `binary`, and `agentLog`, regardless of
+liveness. Omit the block when unenrolled; never disclose the node key.
+
+The desktop reset consumes these paths rather than deriving them.
+`parse_delete_plan` in `apps/client/desktop/src-tauri/src/reset.rs` explicitly
+selects `configFile`, `lockFile`, and `dataDir`. `binary` and `agentLog` are not
+deletion targets. The capped log is retained as the record of reset. New fields
+must remain inert for deletion by default; tests on both sides enforce this.
+
+## MCP and harness reporting
+
+`mcp` is a long-running stdio server configured through the pane's `SUBSHELL_*`
+environment. `report` runs on the pane machine through the host-resolved binary;
+never assume Bun or the server binary exists there.
+
+Incomplete reporting environment and unknown report verbs or attention kinds
+must silently exit 0. A hook's failure can block the user's session, and a newer
+server can emit words an older node does not recognize. Required argument slots
+are still checked. See `packages/mcp-core/src/report.ts`.
+
+`turn_complete` reads stdin and suppresses completion when the payload describes
+running background work or scheduled crons. `resumed` clears waiting state and
+reads no stdin: its payload may be prompt text or tool input. Session reporting
+reads the harness session ID from stdin.
+
+`--version` and `-v` alias `version` only in the command slot. A flag such as
+`status --version` remains an unknown flag rather than silently changing the
+requested operation.

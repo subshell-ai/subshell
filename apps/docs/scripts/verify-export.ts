@@ -99,6 +99,17 @@ for (const page of pages) {
   }
   const staticHtml = html.replace(/<script\b[\s\S]*?<\/script>/g, "");
   assert.equal([...staticHtml.matchAll(/<h1\b/g)].length, 1, `Expected one H1: ${page.url}`);
+  const charts = [...page.raw.matchAll(/```mermaid\n([\s\S]*?)\n```/g)];
+  const diagramMarkup = [...staticHtml.matchAll(/class="docs-diagram"[^>]*>[\s\S]*?<\/svg>/g)];
+  assert.equal(diagramMarkup.length, charts.length, `Static Mermaid diagram coverage: ${page.url}`);
+  for (const chart of charts) {
+    const description = /^%%\s+(.+)$/m.exec(chart[1])?.[1];
+    assert(description, `Diagram needs an accessible description: ${page.url}`);
+    assert(
+      diagramMarkup.some((diagram) => decode(diagram[0]).includes(`aria-label="${description}"`)),
+      `Diagram description must survive static export: ${page.url}`,
+    );
+  }
   const visible = decode(staticHtml.replace(/<[^>]+>/g, "")).replace(/\s+/g, " ");
   const opener = markdownBody(page.raw)
     .split("\n\n")[0]

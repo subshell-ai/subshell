@@ -7,7 +7,7 @@ Recover an administrator account when ordinary sign-in is unavailable.
 
 ## Before you start
 
-You need access to the server's process configuration and the email address of an existing administrator. Protect the machine and keep a backup before changing authentication.
+You need access to the server's process configuration and the email address of an existing administrator. Locate the active configuration with [Files and paths](/reference/paths) before enabling recovery. Protect the machine and keep a backup before changing authentication.
 
 ## Enable recovery
 
@@ -25,7 +25,7 @@ Every signed-in user sees a recovery warning while this setting is active, and t
 1. Remove `SUBSHELL_EMERGENCY_PASSWORD` from every configuration layer that supplies it.
 2. Restart the server.
 3. Verify the recovery warning has cleared.
-4. Set the account's intended password and test normal sign-in.
+4. Open the profile menu at the bottom of the dashboard sidebar, choose **Account settings**, and use **Change password** to set the intended password. The emergency password is now the current stored password. Test normal sign-in afterward.
 
 Anyone who can read the active emergency value can use it to become an administrator. Do not leave it set after recovery.
 

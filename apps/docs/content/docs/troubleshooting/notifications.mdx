@@ -7,10 +7,10 @@ Diagnose missing browser or PWA notifications.
 
 ## Check all gates
 
-1. Confirm notifications are enabled for your account.
-2. Confirm the specific subshell's bell is enabled.
+1. Open the profile menu at the bottom of the server dashboard's sidebar and choose **Preferences**. In the **Notifications** section, confirm **Subshell notifications** is on.
+2. Choose **Subshells** in the sidebar and open the session's **⋯** menu. **Mute notifications** means its bell is on; **Notify when done** turns it on.
 3. Check browser or OS notification permission for this device.
-4. Confirm the device registration is still valid.
+4. Return to **Preferences** → **Notifications** and check the device's notification state. Use **Enable notifications on this device** if it is not enabled.
 5. Verify that the harness produces the event you expect.
 
 Sharing a subshell does not subscribe you to its notifications. Alerts go to its owner. Agent-created helpers start muted.
@@ -29,7 +29,7 @@ Do not infer process death from the absence of a push. Inspect the subshell's ac
 
 ## Server delivery
 
-Administrators can inspect system logs for delivery failures. Preserve the instance's web-push state when backing up or moving it, and do not publish private delivery credentials in reports.
+Administrators can open **Server Settings** → **Logs** in the dashboard sidebar and inspect system output for delivery failures. Preserve the instance's web-push state when backing up or moving it, and do not publish private delivery credentials in reports.
 
 ## Next steps
 

@@ -1,30 +1,38 @@
 ---
 title: "Get started"
-description: "Install Subshell Server and launch your first terminal session with the desktop app."
+description: "Install Subshell Server, complete its setup experience, and connect machines that will run your agents."
 ---
 
-Set up Subshell Server and launch a terminal that remains available when you close the browser.
+Set up a Subshell server and choose where your agents will run.
+
+New to Subshell? Read [What is Subshell?](/about) to understand what it does and when it is useful.
 
 ## Before you start
 
-Use a supported Linux or macOS machine with permission to install applications. The machine must remain running while you use its server. You do not need a coding agent account for this first session.
+Use a supported Linux or macOS machine with permission to install applications. The machine must remain running while you use its server. You do not need a coding agent account to complete server setup.
 
 ## Set up the server
 
 1. Open [Subshell downloads](https://subshell.sh) and download **Subshell Server** for your operating system. See [Install Subshell Server](/install/desktop-server) for setup details.
 2. Open the app and follow its setup assistant. It prepares the bundled server and checks for tmux.
 3. Open the setup page when the server is ready.
-4. [Create the first admin account](/get-started/admin-account).
+4. Follow the setup experience to create your administrator account, configure the available options, and start a first session or continue to the dashboard.
 
-The app opens the dashboard when the server is running. The dashboard is the same web interface you can open in a browser.
+The dashboard is the same web interface you can open in a browser.
 
 > [!warning] Protect first setup
 > Anyone who can reach an unconfigured instance can create its first admin account. Keep the server on a trusted network until you finish setup.
 
-## Launch a terminal
+## Choose where agents run
 
-Follow [Your first subshell](/get-started/first-subshell), choosing **Terminal** as the agent. After confirming that the session works, [Install an agent CLI](/agents/install-cli) on the machine where your agent will run.
+The server's host can run agents too. To use it, [Install an agent CLI](/agents/install-cli) under the server's execution account, then [Launch a subshell](/guides/launch).
+
+To use another computer's project files and computing resources, follow [Run agents on another machine](/get-started/another-machine). Enroll that machine as a node, install its agent CLI, and choose it in the launch dialog.
+
+## Return from another device
+
+Follow [Connect from another device](/get-started/another-device) to open existing sessions from another browser. Viewing a session does not require making that device a node.
 
 ## Other installation methods
 
-[Installation](/install) covers CLI, Docker, and Proxmox deployment. To resume this session elsewhere, follow [Connect from another device](/get-started/another-device).
+[Installation](/install) covers CLI, Docker, and Proxmox deployment.

@@ -14,6 +14,8 @@ subshell-server configure
 subshell-server status
 ```
 
+Use [Files and paths](/reference/paths) to locate the active configuration file before editing values directly.
+
 Configuration precedence is process environment, then `config.env`, then a development `.env`, then built-in defaults. A service's environment can therefore override a value you edited in `config.env`.
 
 The default configuration file is `~/.config/subshell-server/config.env`. `SUBSHELL_SERVER_CONFIG_DIR` selects another configuration directory. Use absolute data paths for deployments that may start from different working directories.
@@ -22,16 +24,16 @@ Restart the process when changing boot-time settings. Network plugin addresses a
 
 ## Instance labels
 
-Use **Server Settings** to set the instance's display name. It appears in the sidebar and sign-in page. The default is the host's hostname.
+Sign in as an administrator. In the server dashboard's sidebar, open **Server Settings** → **General** and edit the **Instance name** card. It appears in the sidebar and sign-in page. The default is the host's hostname.
 
 The control-plane host's node has a separate name, defaulting to **Server**. Changing it updates launch pickers without changing its internal `local` ID.
 
 ## Launch controls
 
-Disabling server-host subshells prevents new launches and restarts on that host while existing panes finish.
+On **Server Settings** → **General**, find the **Nodes** card. Its server-execution switch reads **The server and nodes can run subshells** when enabled and **Only nodes can run subshells** when disabled. Disabling server-host subshells prevents new launches and restarts on that host while existing panes finish.
 
 > [!warning] Lockdown
-> Enabling lockdown stops running subshells across the instance and refuses new launches and restarts. Review its confirmation before applying it.
+> The **Lockdown mode** card is also on **Server Settings** → **General**. Enabling lockdown stops running subshells across the instance and refuses new launches and restarts. Review its confirmation before applying it.
 
 ## Next steps
 

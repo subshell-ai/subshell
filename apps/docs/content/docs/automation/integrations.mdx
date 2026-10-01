@@ -1,0 +1,101 @@
+---
+title: "Build an API integration"
+description: "Build Subshell integrations using generated schemas, the TypeScript client, credential boundaries, structured errors, and safe retry behavior."
+---
+
+Build an integration against the API exposed by your Subshell server.
+
+## Choose an interface
+
+| Interface | Use it for |
+| --- | --- |
+| REST API | External scripts, application integrations, resource queries, and supported session operations. |
+| Subshell MCP | Agent coordination, helper sessions, and encrypted channel communication with built-in identity and peer-key handling. |
+| Node protocol | Communication between Subshell's own server and node daemon, not a general integration API. |
+
+Start with [REST API](/automation/rest-api) for a bearer request or [MCP and agent communication](/mcp) for agent workflows. This page describes the conventions to account for when building a longer-lived integration.
+
+## Discover schemas on the target server
+
+Open `/docs` on the running server for its generated OpenAPI documentation. Use that server's schemas for endpoint paths, accepted credentials, request bodies, and response types. Resource families include sessions, nodes, workspaces, presets, prompts, channels, and devices; individual routes have different permission requirements.
+
+Send JSON request bodies with `Content-Type: application/json` where required. Response collections do not share one universal wrapper: an endpoint may return an array directly or an object containing an array. Inspect its schema instead of assuming a `data` field.
+
+Use opaque resource IDs returned by the API. Do not derive a session or node ID from its display name. The server-host node's internal ID is `local`, while its display name is administrator-editable.
+
+For TypeScript work inside this repository, `@internal/backend-client` exports `createBackendClient(baseUrl)` and API types inferred through Eden Treaty. It is a workspace package; do not assume it is a separately published npm SDK. Its types describe the checked-out server implementation, so they do not prove compatibility with a differently versioned deployed server.
+
+The server's API type declarations have an Apache-2.0 permission separate from the AGPL server implementation. See [Contribute to Subshell](/developers/contribute) for the license boundary.
+
+## Authenticate as the intended identity
+
+Browser integrations use the server origin and session cookies. Machine integrations send `Authorization: Bearer` with a supported key. Store integration credentials outside source control and avoid printing them in logs; [API keys](/automation/api-keys) explains creation and revocation.
+
+| Credential | Integration boundary |
+| --- | --- |
+| Browser session cookie | Acts as the signed-in user. Administrative routes additionally require the administrator role. |
+| System API key | Acts as the system service identity. It does not inherit the human administrator's sessions or resource ownership. |
+| Pane token | Acts within its permission map and its owner's permitted resource set. Session detail and write access do not inherit administrator privileges or sharing grants. |
+| Node credential or setup key | Not a REST integration credential. These belong to daemon authentication and enrollment. |
+
+Administrative routes and several human-management operations refuse bearer credentials entirely. A key with write permission does not bypass ownership checks. Pane-token lists can include a shared session that subsequent detail or mutation calls conceal with 404; list visibility is not proof of permission to operate it.
+
+Test your integration with the same credential kind and grants it will use in deployment. See [Access model](/concepts/access) for the distinction between authentication, scope, ownership, and sharing.
+
+## Parse errors without depending on message text
+
+Subshell application API failures use a structured response:
+
+```json
+{
+  "errId": "ERROR_OCCURRENCE_ID",
+  "code": "MACHINE_READABLE_CODE",
+  "message": "Description of the failure",
+  "statusCode": 400
+}
+```
+
+`reqId` and client-safe `metadata` can also be present. Branch on the HTTP status and `code`; use `message` for human-readable diagnostics. Preserve unknown fields and codes gracefully rather than assuming a closed list forever. Authentication-provider endpoints, proxy failures, and interrupted connections may require separate handling instead of assuming every response is this JSON object.
+
+| Status | How to handle it |
+| --- | --- |
+| `400` | Check the request shape and values. Application schema-validation failures use `INPUT_VALIDATION_ERROR`. |
+| `401` | Check credential validity, expiration, and revocation. |
+| `403` | Check actor type, required role, scope, and deployment origin or identity-gate policy. |
+| `404` | The resource may be absent or concealed because the caller lacks access. |
+| `409` | Inspect the specific conflict, such as a session that is not running or an operation that cannot proceed in its current state. |
+| `5xx` | Preserve diagnostic identifiers and investigate; do not assume replaying a mutation is harmless. |
+
+Include `errId`, `reqId` when available, the operation, and the server version in a bug report. Remove credentials and sensitive response data. Expected client errors are not necessarily logged, so an `errId` does not guarantee a matching operational-log entry.
+
+Production responses omit development stack and cause details. Clients should not depend on those fields. See [Status and logs](/administration/logs) and [Audit log](/administration/audit).
+
+## Handle retries and session state
+
+A network timeout can happen after the server accepted an operation. Do not blindly retry session creation, terminal input, or other mutations. After an ambiguous create response, inspect the visible session list before creating another helper. Input delivery can already have affected a process before the connection failed.
+
+A session's stored status and process liveness are separate facts. A row can remain `running` after its process has exited. Sending input to an unavailable process can return `409 SUBSHELL_NOT_RUNNING`; restart it before sending work again. See [Session lifecycle](/guides/lifecycle).
+
+Treat success according to the operation: an accepted input request means bytes reached the pane's machine, not that the agent completed the requested task. Use state and output inspection when completion matters.
+
+MCP `terminate_subshell` and REST termination keep the session record, while deletion removes it and its captured history. The dashboard's **Close** action deletes. An integration that creates helpers must also clean them up.
+
+## Attach a terminal or dashboard WebSocket
+
+`POST /api/auth/ws-token` mints a short-lived, single-use attachment token. Tokens expire after 30 seconds; request a fresh token for a new connection rather than caching one for reconnects.
+
+A cookie session can mint an unbound token. A bearer request must identify a session, and its token is bound to that session. A pane token can mint one only for its own session. A bound token cannot attach another terminal or open the whole-user dashboard feed. Even a wrong-session redemption consumes the token.
+
+Same-host WebSocket attachment can also authenticate using the browser session cookie. Consult the current route and connection implementation when building a custom terminal client; the short-lived token is not the only authentication path. Already-connected sockets are not continuously re-authenticated, so a password reset alone does not disconnect every viewer. Account disabling explicitly closes active access.
+
+Use HTTPS and secure WebSockets across networks. See [Security model](/concepts/security) for transport, token, and revocation boundaries.
+
+## Use MCP for encrypted channels
+
+Channel REST posts carry encrypted envelopes and recipient metadata, not a plaintext `text` field. MCP performs recipient-key lookup, message sealing, peer-key pinning, and decryption. Reimplementing those steps is a cryptographic integration, not a normal JSON-posting workflow.
+
+A newly joined recipient cannot decrypt older posts that were not encrypted to it. Channel names and membership remain visible to the server. Nudging a recipient does not prove that it read a post or completed a task. See [Channels](/mcp/channels), [Communication security](/mcp/security), and [MCP tool reference](/mcp/tools).
+
+## Next steps
+
+Use [REST API](/automation/rest-api) for the initial request, [API keys](/automation/api-keys) for credential management, and [Coordinate agents](/mcp/coordinate) for a helper workflow with explicit cleanup.

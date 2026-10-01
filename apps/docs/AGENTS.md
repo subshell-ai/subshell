@@ -7,7 +7,7 @@ It builds to a static export. Pages are MDX under `content/docs/`, with explicit
 
 ## Coverage and structure
 
-The root sidebar order is `index`, `get-started`, `install`, `guides`, `agents`,
+The root sidebar order is `index`, `about`, `get-started`, `install`, `guides`, `presets`, `prompts`, `agents`,
 `nodes`, `administration`, `networking`, `mcp`, `automation`, `concepts`,
 `reference`, `troubleshooting`, and `developers`. `lib/navigation.ts` defines
 this order and the AI index's section names. Every section has an index page.
@@ -16,6 +16,8 @@ Update that contract and the root metadata together when changing navigation.
 Document shipped behavior, including browser/PWA access from phones and
 tablets. Do not document the native mobile app, its setup, availability,
 development workflow, or roadmap. The product documentation excludes it.
+
+Presets and Reusable Prompts have their own sections. Keep prompt text, library-stack references, and copied launch defaults distinct. Dashboard injection types text without submitting it.
 
 MCP has its own section. Keep tool reference at `/mcp/tools`; link there from
 Reference instead of maintaining a second tool list. Cover identity, ownership,
@@ -31,6 +33,11 @@ and next steps. Reference pages use lookup tables and command sections.
   means a person's interface. Never give these words a second meaning.
 - Use device-neutral positioning. Browser guidance can name phones and tablets.
 - No em dashes in prose, headings, frontmatter, or callouts. Literal code is exempt.
+- Give UI actions a verified entry point: interface, sidebar or menu path,
+  control label, and required role. Never introduce a card or dialog by name
+  alone; link to its procedure when needed.
+- Link environment-variable editing instructions to `/reference/paths` near
+  the action, identifying the relevant machine and configuration layer.
 - Verify flags, defaults, versions, permissions, UI labels, and error strings
   against the owning app documentation and current implementation.
 - `docs/security.md` is the security authority. Resolve disagreement before
@@ -46,7 +53,8 @@ and next steps. Reference pages use lookup tables and command sections.
 Match the server web app's Dreamframe palette and system font stack. The
 Fumadocs color mapping is in `app/global.css`; update it when the product
 tokens change. Prose links use muted blue without underlines, with visible hover
-and keyboard focus states.
+and keyboard focus states. Bold article text uses the product's required-field
+gold in a subdued tone with a bold weight.
 
 ## MDX and links
 
@@ -59,7 +67,13 @@ MDX page must appear in its folder's `meta.json`. Prefer the destination's title
 as link text. Update repository-owned links when changing a route.
 
 Use default Fumadocs components only: code blocks, tables, and GitHub alert
-callouts. No screenshots, Tabs, Cards, Steps, or custom MDX components.
+callouts. Selective UI screenshots use Fumadocs `ImageZoom` inside native `figure`
+and `figcaption` elements with the `docs-screenshot` class. Set `unoptimized`
+for static-export image assets. No Tabs, Cards, Steps,
+or unrelated custom MDX components. Mermaid diagrams use fenced `mermaid` blocks,
+compiled with `remarkMdxMermaid` and rendered to static SVG by the provided
+`Mermaid` component. Include a `%%` description for accessibility and prose
+explaining the relationships. Follow the visual rules in `STYLE.md`.
 
 ## SEO and AI exports
 

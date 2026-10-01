@@ -11,6 +11,25 @@ Configure MCP in the parent and helper harnesses. Save a suitable preset with an
 
 Only coordinate sessions when the user has authorized that work. Use separate checkouts or agree on file ownership when agents share a working tree.
 
+## Exchange overview
+
+```mermaid
+%% The parent creates a channel and helper, waits for the helper to join, posts the task, reads findings, and terminates or deletes the helper.
+sequenceDiagram
+  participant P as Parent agent
+  participant H as Helper agent
+  P->>P: Create channel
+  P->>H: Create helper with channel instructions
+  H->>H: Join channel
+  P->>H: Post task after join
+  H->>H: Read channel and perform task
+  H->>P: Post findings
+  P->>P: Read channel and summarize
+  P->>H: Terminate or delete helper
+```
+
+Channel bodies are encrypted to recipients present when a post is made. A nudge is a fixed cue to read the channel; it does not carry the task text. The parent remains responsible for helper cleanup.
+
 ## Prepare the exchange
 
 1. Call `list_presets` and select a real preset ID. Do not select a row with `catalogOnly: true`.

@@ -3,7 +3,7 @@
 What Subshell defends against, what it deliberately does not, and where each
 boundary is enforced in code. This is the authoritative statement of the threat
 model; the machinery is in
-[`develop/architecture.mdx`](../apps/docs/content/docs/develop/architecture.mdx),
+[`concepts/architecture.mdx`](../apps/docs/content/docs/concepts/architecture.mdx),
 the node wire contract in
 [`reference/node-protocol.mdx`](../apps/docs/content/docs/reference/node-protocol.mdx),
 and

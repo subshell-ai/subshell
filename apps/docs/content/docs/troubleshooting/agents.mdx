@@ -9,7 +9,7 @@ Diagnose a subshell that cannot launch its selected agent.
 
 Install the agent CLI on the target node under its execution account. A plugin installed on the control plane does not install that CLI on every node.
 
-Use **Re-check** after installation. Check PATH and the harness-specific binary override when the service cannot find a program that works in an interactive shell.
+After installation, choose **Nodes** in the server dashboard's sidebar, select the execution machine, and open **Overview**. In the **Harnesses** card, select **Re-check**. Before changing an environment override, use [Files and paths](/reference/paths) to identify the configuration and runtime environment on the execution machine. Check PATH and the harness-specific binary override when the service cannot find a program that works in an interactive shell.
 
 ## Plugin or preset unavailable
 
@@ -31,4 +31,4 @@ Use an owned pane's captured log to inspect its exit output. Do not repeatedly r
 
 ## Next steps
 
-Read [Install an agent CLI](/agents/install-cli), [Presets](/guides/presets), and [MCP troubleshooting](/mcp/troubleshooting).
+Read [Install an agent CLI](/agents/install-cli), [Presets](/presets), and [MCP troubleshooting](/mcp/troubleshooting).

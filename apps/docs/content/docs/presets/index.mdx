@@ -1,0 +1,31 @@
+---
+title: "Presets"
+description: "Save coding-agent configuration and launch defaults, then reuse them from the dashboard or MCP."
+---
+
+Save an agent configuration so you can launch it consistently.
+
+## Why use a preset?
+
+A preset records the agent, command flags, environment values, and restart policy you want to reuse. It can also provide a machine, working directory, and initial prompts. For example, a repository-review preset can launch Codex in your project with review instructions and explicit approval settings.
+
+<figure className="docs-screenshot">
+  <ImageZoom src="/screenshots/preset-library.png" alt="Preset library showing Repository review under Codex and Project shell under Terminal." width="1756" height="612" loading="lazy" decoding="async" unoptimized />
+  <figcaption>Presets are grouped by agent. The Repository review preset is configured for agent-created launches. Select the image to enlarge it.</figcaption>
+</figure>
+
+Presets belong to your account. Saving one does not install or authenticate the agent CLI; those steps happen on the machine where the session runs.
+
+## Choose a guide
+
+- [Create a preset](/presets/create) saves a coding-agent configuration.
+- [Set launch defaults](/presets/launch-defaults) adds a machine, directory, and task text.
+- [Use and manage presets](/presets/use) covers launches, edits, cloning, and agent-created helpers.
+
+For the task text itself, use [Reusable Prompts](/prompts). A reusable prompt stores instructions; a preset stores how and where an agent starts.
+
+## What a preset changes
+
+Saving a preset changes future launches that use it. It does not reconfigure a running process. Human launch forms prefill the saved defaults and let you review or override them.
+
+For an existing subshell, follow [Clone and switch presets](/guides/clone) to start with different settings.

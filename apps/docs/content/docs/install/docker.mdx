@@ -31,7 +31,7 @@ docker run -d --name subshell --restart unless-stopped \
 2. Create the admin account.
 3. Confirm that the mounted project directory is available in the launch picker.
 
-For another device or proxy, set `APP_BASE_URL` to the actual browser URL and recreate the container.
+For another device or proxy, set `APP_BASE_URL` to the actual browser URL in your Docker command or Compose environment and recreate the container. [Files and paths](/reference/paths) explains the configuration files and persistent state; this example mounts the host directory at `/data`.
 
 ## Credentials and persistence
 
