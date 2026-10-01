@@ -87,7 +87,7 @@ export interface FlowInput {
  */
 export function configured(settings: NodeSettings | undefined, probe: Probe | undefined): boolean {
   if ((settings?.planes.length ?? 0) > 0) return true;
-  return probe?.status?.nodeId != null;
+  return probe?.hasNodeConfig === true || probe?.status?.nodeId != null;
 }
 
 /**
@@ -97,9 +97,8 @@ export function configured(settings: NodeSettings | undefined, probe: Probe | un
  *
  * 1. **Nothing read yet ⇒ `null`**, and nothing outranks it — the frame shows
  *    its checking state rather than a screen it may have to replace a moment
- *    later. (The probe may still be missing here; Welcome and Choice touch
- *    nothing and need no machine facts, so waiting for it would only be a
- *    slower first paint.)
+ *    later. An unconfigured-looking client also waits for its probe before
+ *    entering first run, so an existing registration cannot flash Welcome.
  * 2. **A screen the user asked for**, because it answers a press. It outranks
  *    the walk too: About from the tray is not a reason to lose the walk, and
  *    the page restores the step when the screen closes.
@@ -126,6 +125,7 @@ export function clientScreen(i: FlowInput): NodeScreenId | null {
   if (!i.settings) return null;
   if (i.override) return i.override;
   if (i.step) return walkScreen(i.step, i.probe);
+  if (!i.probe && i.settings.planes.length === 0) return null;
   if (configured(i.settings, i.probe)) return "plane";
   // Spec § 5.5's resume: a node CLI exists and has no config. Keyed on the step
   // rather than on `probe.nodeBinary`, because `no-node` also covers a binary that
@@ -282,6 +282,7 @@ export function registerSteps(
   phase: RegisterPhase,
   failed: RegisterRow["id"] | null = null,
   targetServer = "",
+  hasSetupKey = false,
 ): RegisterRow[] {
   // `?? -1` rather than an assertion: a phase this build predates should show
   // an untouched checklist, not throw inside a render.
@@ -290,7 +291,12 @@ export function registerSteps(
   return REGISTER_ACTS.map((act, index) => ({
     id: act.id,
     label: act.label,
-    state: actState({ index, running, failedAt, satisfied: alreadyTrue(probe, act.id, targetServer) }),
+    state: actState({
+      index,
+      running,
+      failedAt,
+      satisfied: !(act.id === "enroll" && hasSetupKey) && alreadyTrue(probe, act.id, targetServer),
+    }),
   }));
 }
 

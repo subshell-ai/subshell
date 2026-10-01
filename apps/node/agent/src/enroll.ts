@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_NAME_MAX, normalizeNodeName } from "@internal/subshell-protocol";
 import { generateLinkKeyPair } from "@internal/subshell-protocol/node-link-crypto";
-import { clientHome, saveConfig } from "./config.js";
+import { clientHome, loadConfig, saveConfig, updateConfig } from "./config.js";
 import { loadOrCreateIdentity } from "./identity.js";
 import { NODE_VERSION } from "./version.js";
 
@@ -92,7 +92,11 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   if (name === "") {
     throw new Error("a node name needs at least one printable character. Pass --name <name>");
   }
-  const dataDir = opts.dataDir ?? join(clientHome(), "data");
+  // Recovery may start with a valid config or with a lost/corrupt one. Keep
+  // a valid machine's state directory unless the operator explicitly chooses
+  // another; the enrollment request needs its delivery identity from there.
+  const previous = await loadConfig().catch(() => null);
+  const dataDir = opts.dataDir ?? previous?.dataDir ?? join(clientHome(), "data");
   const identity = await loadOrCreateIdentity(dataDir);
 
   // The link-encryption static (spec 2026-09-24 §3): generated per enroll, a
@@ -146,7 +150,8 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
   // dead dial target, while derivation from `serverUrl` at least dials home.
   const nodeWsUrl = typeof ok?.wsUrl === "string" && ok.wsUrl !== "" ? ok.wsUrl : undefined;
 
-  await saveConfig({
+  const storedName = typeof ok?.name === "string" && ok.name.trim() !== "" ? ok.name : name;
+  const next = {
     serverUrl,
     nodeId,
     nodeKey,
@@ -154,10 +159,17 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
     encryptKeyPair: link,
     controlEncryptPublicKey,
     dataDir,
-    name,
+    name: storedName,
     nodeWsUrl,
-  });
-  return { nodeId, serverUrl, name, dataDir };
+  };
+  // Matching both the row and the control identity prevents preferences from
+  // riding into an unrelated registration whose server happens to reuse an id.
+  if (previous?.nodeId === nodeId && previous.controlPublicKey === controlPublicKey) {
+    await updateConfig(next);
+  } else {
+    await saveConfig(next);
+  }
+  return { nodeId, serverUrl, name: storedName, dataDir };
 }
 
 /**

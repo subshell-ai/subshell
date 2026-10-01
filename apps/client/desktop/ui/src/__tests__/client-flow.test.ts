@@ -23,6 +23,15 @@ const probe = (over: Partial<Probe> = {}): Probe => ({ step: "no-node", tmux: "/
 const enrolled = (step: ProbeStep): Probe => probe({ step, status: { nodeId: "n1", serverUrl: "https://plane.test" } });
 
 describe("configured", () => {
+  it("keeps an existing registration out of first run when the CLI cannot answer", () => {
+    const machine = probe({ hasNodeConfig: true, status: null });
+    expect(configured(settings(null), machine)).toBe(true);
+    expect(clientScreen({ settings: settings(null), probe: machine, step: null, override: null })).toBe("plane");
+  });
+
+  it("waits for the registration probe before deciding this is a fresh install", () => {
+    expect(clientScreen({ settings: settings(null), step: null, override: null })).toBeNull();
+  });
   it("is a stored plane address, which Rust already folded an enrolled node's own server into", () => {
     expect(configured(settings("https://plane.test"), undefined)).toBe(true);
     expect(configured(settings(null), undefined)).toBe(false);
@@ -101,7 +110,7 @@ describe("clientScreen", () => {
 
   it("opens an untouched machine on Welcome", () => {
     expect(clientScreen({ probe: probe(), settings: settings(null), step: null, override: null })).toBe("welcome");
-    expect(clientScreen({ settings: settings(null), step: null, override: null })).toBe("welcome");
+    expect(clientScreen({ settings: settings(null), step: null, override: null })).toBeNull();
     expect(clientScreen({ probe: probe(), settings: settings(null), step: "intro", override: null })).toBe("welcome");
   });
 
@@ -213,6 +222,9 @@ describe("clientScreen", () => {
 });
 
 describe("registerSteps", () => {
+  it("shows enrollment pending for a supplied recovery key on an existing node", () => {
+    expect(registerSteps(enrolled("online"), "form", null, "https://plane.test", true)[1].state).toBe("pending");
+  });
   const states = (phase: RegisterPhase, p: Probe | undefined = probe(), failed?: "install" | "enroll" | "start") =>
     registerSteps(p, phase, failed ?? null).map((r) => r.state);
 

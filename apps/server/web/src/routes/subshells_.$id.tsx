@@ -61,7 +61,6 @@ function SubshellPage() {
   const openImagePickerRef = useRef<(() => void) | null>(null);
   const scrollToTopRef = useRef<(() => void) | null>(null);
   const scrollToBottomRef = useRef<(() => void) | null>(null);
-  const refreshScreenRef = useRef<(() => void) | null>(null);
   const [search, setSearch] = useState<SearchAddon | null>(null);
   const [connected, setConnected] = useState(false);
   const [injectTarget, setInjectTarget] = useState<string | null>(null);
@@ -188,7 +187,6 @@ function SubshellPage() {
     openImagePickerRef.current = handles.openImagePicker;
     scrollToTopRef.current = handles.scrollToTop;
     scrollToBottomRef.current = handles.scrollToBottom;
-    refreshScreenRef.current = handles.refreshScreen;
     setSizingRef.current = handles.setSizing;
     setSearch(handles.search);
   }
@@ -201,7 +199,6 @@ function SubshellPage() {
     openImagePickerRef.current = null;
     scrollToTopRef.current = null;
     scrollToBottomRef.current = null;
-    refreshScreenRef.current = null;
     setSizingRef.current = null;
     setSearch(null);
   }
@@ -435,7 +432,7 @@ function SubshellPage() {
           onScrollBottom={handleScrollBottom}
           onScrollPageUp={() => termRef.current?.scrollPages(-1)}
           onScrollPageDown={() => termRef.current?.scrollPages(1)}
-          onRefresh={() => refreshScreenRef.current?.()}
+          onRefresh={() => window.location.reload()}
         />
       )}
       {injectTarget === id && (

@@ -6,7 +6,13 @@ repointed.
 
 ## Repointing vs re-enrolling
 
-`enroll` is not the way to change a node's address. It overwrites
+An ordinary setup key creates a new node. A **Re-register** setup key from an
+existing node’s settings instead replaces that node’s credentials and retains
+its row, name, shares and settings. For the same node and control-plane signing
+identity, enrollment preserves local debug and retention preferences, and it
+uses the existing data directory unless explicitly overridden.
+
+`enroll` with an ordinary setup key is not the way to change a node's address. It overwrites
 `config.json`, mints a SECOND node row on the plane, spends a single-use
 24-hour setup key, and discards the node key whose only home was that 0600
 file, none of which is what "the control plane moved" wants, and that move is

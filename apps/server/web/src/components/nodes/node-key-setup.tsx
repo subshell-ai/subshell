@@ -186,12 +186,20 @@ export function useSetupKeyVerdict() {
  * dialog and no footer, so the Add-node dialog can wrap it in its enrollment watcher
  * and the Setup keys card can wrap it in a plain close button, around the same fields.
  */
-export function NodeKeySetup({ keyText, generate }: { keyText: string | null; generate?: ReactNode }) {
+export function NodeKeySetup({
+  keyText,
+  generate,
+  defaultMethod = "terminal",
+}: {
+  keyText: string | null;
+  generate?: ReactNode;
+  defaultMethod?: Method;
+}) {
   const addressId = useId();
   const [chosen, setChosen] = useState<string | null>(null);
   // Terminal first: it is the one that works on a headless box, which is most of what
   // gets added.
-  const [method, setMethod] = useState<Method>("terminal");
+  const [method, setMethod] = useState<Method>(defaultMethod);
   const { appBaseUrl, trustedOrigins, hasMissingTargets, missingNote, unknownNote } = useSetupKeyVerdict();
 
   // The address comes from the trusted-origin allowlist (spec 2026-08-31 §9.3 loopback

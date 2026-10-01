@@ -44,6 +44,7 @@ import * as promptStacksMigration from "@/db/migrations/0041-prompt-stacks.js";
 import * as presetLaunchFieldsMigration from "@/db/migrations/0042-preset-launch-fields.js";
 import * as presetCrossCommOptInMigration from "@/db/migrations/0043-preset-cross-comm-opt-in.js";
 import * as oauthCallbackBaseMigration from "@/db/migrations/0044-oauth-callback-base.js";
+import * as nodeReregistrationMigration from "@/db/migrations/0045-node-reregistration.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -128,6 +129,7 @@ export async function runMigrations(): Promise<void> {
           // the feature's test drive): a stored switch, default OFF.
           "0043-preset-cross-comm-opt-in": presetCrossCommOptInMigration,
           "0044-oauth-callback-base": oauthCallbackBaseMigration,
+          "0045-node-reregistration": nodeReregistrationMigration,
         };
       },
     },

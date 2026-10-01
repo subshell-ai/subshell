@@ -536,7 +536,11 @@ export function useNodeCommands(args: {
         // that is not going to run is how a Retry becomes a button that does
         // nothing at all, which is the dead end the checklist exists to avoid.
         // Nothing below this line is needed to start a service.
-        if (probe?.status?.nodeId && isSamePlaneRetry({ stored: probe.status.serverUrl, target: form.values.server })) {
+        if (
+          form.values.key.trim() === "" &&
+          probe?.status?.nodeId &&
+          isSamePlaneRetry({ stored: probe.status.serverUrl, target: form.values.server })
+        ) {
           return startService();
         }
 

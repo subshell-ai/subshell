@@ -73,8 +73,8 @@ Clipboard denial, missing browser support, and an empty clipboard show a toast,
 with no text-box fallback. Copy mode and a disconnected terminal disable Paste;
 view access hides it.
 
-Refresh redraws every visible row from xterm's current buffer without sending
-input or restarting the session. It remains available alongside the scroll
+Refresh reloads the entire page, reconnecting its terminal views without
+restarting the running sessions. It remains available alongside the scroll
 controls in copy mode, view access, and while disconnected. Buttons show a pressed
 highlight during a hold and briefly after a tap; cancellation clears the highlight
 without sending a key.

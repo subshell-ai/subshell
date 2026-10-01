@@ -59,9 +59,11 @@ RENAME is the plane's (`PATCH /api/nodes/:id`). **Working on naming: read
 
 ## Repointing vs re-enrolling
 
-`enroll` is not the way to change a node's address: it overwrites
+`enroll` with an ordinary setup key is not the way to change a node's address: it overwrites
 `config.json`, mints a SECOND node row on the plane, spends a single-use
 setup key, and discards the node key whose only home was that 0600 file.
+A node-bound **Re-register** key instead retains the existing node entry and
+local preferences while replacing credentials.
 `configure` (`src/configure.ts`) makes the two maintenance edits that keep
 the SAME node: `--server` repoints, `--key` stores a rotated bearer secret in
 place (and refuses an `nsk_` setup key by name). A repoint CLEARS `nodeWsUrl`

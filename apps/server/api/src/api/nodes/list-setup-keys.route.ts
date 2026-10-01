@@ -12,6 +12,7 @@ const SetupKeyRowSchema = t.Object({
   createdAt: t.String({ description: "ISO 8601 creation timestamp" }),
   expiresAt: t.String({ description: "ISO 8601 expiry timestamp" }),
   usedAt: t.Nullable(t.String({ description: "ISO 8601 redemption time, null while unused" })),
+  targetNodeId: t.Union([t.String(), t.Null()]),
   consumedNodeId: t.Nullable(t.String({ description: "Node created by redeeming this key, null while unused" })),
   ownerUserId: t.Optional(t.String({ description: "Creator's user id, present only on the admin `all=1` listing" })),
   ownerLabel: t.Optional(
@@ -59,6 +60,7 @@ function toKeyRow(
     expiresAt: string;
     usedAt: string | null;
     consumedNodeId: string | null;
+    targetNodeId: string | null;
   },
   owner?: { ownerUserId: string; ownerLabel: string },
 ) {
@@ -69,6 +71,7 @@ function toKeyRow(
     expiresAt: row.expiresAt,
     usedAt: row.usedAt,
     consumedNodeId: row.consumedNodeId,
+    targetNodeId: row.targetNodeId,
     ...(owner ? { ownerUserId: owner.ownerUserId, ownerLabel: owner.ownerLabel } : {}),
   };
 }

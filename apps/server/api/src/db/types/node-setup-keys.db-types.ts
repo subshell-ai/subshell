@@ -9,6 +9,10 @@
  * "Setup keys are stored in plaintext", carries the accounting.
  */
 export interface NodeSetupKeyTable {
+  /** Existing node this key re-registers; null for a new enrollment. */
+  targetNodeId: string | null;
+  /** Credential binding when recovery was authorized; changed bindings invalidate the key. */
+  targetApiKeyId: string | null;
   /** Unique id (uuid) */
   id: string;
   /** User who created the key (also the future node owner) */

@@ -11,7 +11,7 @@ import { Route } from "@/routes/nodes_.$id";
  * The node detail page's manager affordances (spec 2026-08-31 §9/§10, card
  * gating per spec 2026-09-10): the harness card's Re-check (inside the card,
  * gated like the server's route on owner|edit, never on `local`), the
- * owner-only inline rename, the manager-only rotate-key flow with its
+ * owner-only inline rename, the manager-only reregister flow with its
  * plaintext-once reveal, and the `node too old` chip. The page component is
  * rendered through the real route object (its `useParams` is strict), mounted
  * under a minimal memory router the way routeTree.gen wires it.
@@ -69,9 +69,9 @@ function mockFetch(node: NodeDetail) {
     if (url.pathname === `/api/nodes/${node.id}` && method === "GET") {
       return Promise.resolve(new Response(JSON.stringify(node)));
     }
-    if (url.pathname === `/api/nodes/${node.id}/rotate-key` && method === "POST") {
+    if (url.pathname === `/api/nodes/${node.id}/reregister` && method === "POST") {
       return Promise.resolve(
-        new Response(JSON.stringify({ nodeKey: "subshell_new_secret", message: "re-config by hand" })),
+        new Response(JSON.stringify({ id: "key1", key: "nsk_recovery_secret", expiresAt: "2030-01-01T00:00:00Z" })),
       );
     }
     if (url.pathname === `/api/nodes/${node.id}` && method === "PATCH") {
@@ -262,26 +262,26 @@ describe("NodeDetailPage rename (owner-only PATCH)", () => {
   });
 });
 
-describe("NodeDetailPage rotate-key", () => {
+describe("NodeDetailPage reregister", () => {
   afterEach(() => setConfirmHandler(null));
 
-  it("confirms, POSTs once, and reveals the plaintext key (shown-once card)", async () => {
+  it("confirms, POSTs once, and reveals a node-bound setup key", async () => {
     setConfirmHandler(() => Promise.resolve(true));
     const { calls, restore } = mockFetch(enrolledNode());
     try {
       renderDetail("node1");
-      fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /Re-register/ }));
       await waitFor(() => {
-        expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/node1/rotate-key")).toBe(true);
+        expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/node1/reregister")).toBe(true);
       });
-      // POST exactly once — the reveal must not re-fire the rotation.
-      expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/node1/rotate-key").length).toBe(1);
-      const revealed = await screen.findByText("subshell_new_secret");
-      expect(revealed.textContent).toBe("subshell_new_secret");
-      expect(screen.getByText(/shown once/i)).toBeDefined();
+      // POST exactly once — the reveal must not mint another recovery key.
+      expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/node1/reregister").length).toBe(1);
+      const revealed = await screen.findByText("nsk_recovery_secret");
+      expect(revealed.textContent).toBe("nsk_recovery_secret");
+      expect(screen.getByText(/tied to.*single-use/)).toBeDefined();
       // Done retires the plaintext from the DOM.
       fireEvent.click(screen.getByRole("button", { name: /Done, hide the key/ }));
-      await waitFor(() => expect(screen.queryByText("subshell_new_secret")).toBeNull());
+      await waitFor(() => expect(screen.queryByText("nsk_recovery_secret")).toBeNull());
     } finally {
       restore();
     }
@@ -298,23 +298,23 @@ describe("NodeDetailPage rotate-key", () => {
     const { calls, restore } = mockFetch(enrolledNode());
     try {
       renderDetail("node1");
-      fireEvent.click(await screen.findByRole("button", { name: /Rotate key/ }));
+      fireEvent.click(await screen.findByRole("button", { name: /Re-register/ }));
       // Gate on the decline having actually been processed instead of a fixed
       // sleep: `rotateKey` continues in the microtask right after this promise
       // settles, so if a rogue POST were fired it would be recorded before
       // waitFor's next poll (a macrotask) can observe `confirmAnswered`.
       await waitFor(() => expect(confirmAnswered).toBe(true));
-      expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/node1/rotate-key")).toBe(false);
+      expect(calls.some((c) => c.method === "POST" && c.url === "/api/nodes/node1/reregister")).toBe(false);
     } finally {
       restore();
     }
   });
 
-  it("disables Rotate key for a non-manager", async () => {
+  it("disables Re-register for a non-manager", async () => {
     const { restore } = mockFetch(enrolledNode({ access: "edit", canManage: false }));
     try {
       renderDetail("node1");
-      const btn = await screen.findByRole("button", { name: /Rotate key/ });
+      const btn = await screen.findByRole("button", { name: /Re-register/ });
       expect(btn.hasAttribute("disabled")).toBe(true);
     } finally {
       restore();

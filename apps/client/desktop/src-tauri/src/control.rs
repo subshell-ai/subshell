@@ -440,6 +440,8 @@ pub struct Probe {
     pub node_binary: Option<NodeBinary>,
     /// Whether that agent is the copy THIS APP installed and can replace.
     pub managed: bool,
+    /// A config file exists, even if the CLI cannot answer after an update.
+    pub has_node_config: bool,
     /// `status --json`, verbatim. `null` when it did not answer at all.
     pub status: Option<serde_json::Value>,
     /// `service status --json`, verbatim. `null` when it did not answer.
@@ -536,6 +538,7 @@ impl Default for Probe {
             bundled_version: None,
             node_binary: None,
             managed: false,
+            has_node_config: false,
             status: None,
             service: None,
             node_choice: NodeChoice::NoBundled,
@@ -754,6 +757,7 @@ pub(crate) fn probe_now(configured: Option<&str>) -> Probe {
         bundled_version: bundled_version(),
         node_binary,
         managed,
+        has_node_config: !matches!(existing_node(), ExistingNode::None),
         tmux: which("tmux"),
         has_brew: which("brew").is_some(),
         paths: node_paths(&read_node_config()),
@@ -1416,9 +1420,9 @@ pub enum ExistingNode {
 }
 
 /// The sentence every AlreadyEnrolled confirmation ends with.
-const REENROLL_COST: &str = "Enrolling again overwrites that configuration, registers a SECOND node on the control \
-                             plane, and discards the current node key, whose only copy is that file. The old node \
-                             row stays behind and has to be deleted by hand.";
+const REENROLL_COST: &str = "Enrolling again overwrites that configuration and discards the current node key. \
+                             A re-registration setup key keeps the node entry it is tied to. An ordinary setup \
+                             key registers a SECOND node; the old row stays behind and must be deleted by hand.";
 
 /// What the user must acknowledge before a setup key is spent.
 pub fn confirmations_for(server: &str, existing: &ExistingNode) -> Vec<Confirmation> {

@@ -240,7 +240,6 @@ export interface SubshellTerminalHandles {
   scrollPageUp: () => void;
   scrollPageDown: () => void;
   /** Redraw every visible row from xterm's current buffer. */
-  refreshScreen: () => void;
   /**
    * Chooses how the pane is sized while several devices watch it: `auto`
    * hands it to the smallest visible one, `pinned` to the named viewer.
@@ -871,7 +870,6 @@ export function SubshellTerminal({
       scrollToBottom: () => term.scrollToBottom(),
       scrollPageUp: () => term.scrollPages(-1),
       scrollPageDown: () => term.scrollPages(1),
-      refreshScreen: () => term.refresh(0, term.rows - 1),
       setSizing: (mode, viewerId) => setSizingRef.current(mode, viewerId),
     });
 

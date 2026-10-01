@@ -280,8 +280,8 @@ two-address state it existed to detect (the pinned row IS the notice), and
 the Status subtitle now states the MACHINE ("This machine is a node of
 <url>." / "This machine is not a node."), because a watcher has many planes
 and none of them is current. `settings.plane_url` became `planes:
-Vec<String>` in `crates/desktop-core` with NO migration (there are no users;
-an old `planeUrl` key reads as nothing), and `node_set_plane`,
+Vec<String>` in `crates/desktop-core` with a load-time migration of the old `planeUrl` into one list entry;
+an explicit list, including an empty list, takes precedence, and `node_set_plane`,
 `resolve_plane_url` and the boot-open ladder are deleted outright: spec
 2026-09-18 § 2 says a client never opens a plane by itself, and the ladder
 only ever fed a `debug_assert`. FTE Connect retargeted to `addPlane`.

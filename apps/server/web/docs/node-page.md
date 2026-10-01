@@ -58,3 +58,9 @@ Update card (`node-update-card.tsx`) behind the same `managesNodeSections` rule,
 driving the same `POST /api/nodes/:id/update` the Updates table rows use; that
 route also answers 409 when the node already runs the newest release this server
 can offer, rather than reinstalling the same binary.
+
+The agent node's Overview offers **Re-register**, replacing the Rotate key card.
+Only its owner can generate the single-use setup key. The shared setup instructions
+lead with Desktop App, and the key also remains in Setup keys until redeemed or
+expired. Minting leaves the node connected; redemption keeps its registry entry
+and replaces its machine credentials. See [the recovery procedure](../../../docs/content/docs/nodes/desktop.mdx).

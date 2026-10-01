@@ -120,6 +120,18 @@ export function useRotateNodeKey(id: string) {
   });
 }
 
+/** Recovery preserves the node row; minting does not disconnect the machine. */
+export function useReregisterNode(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (targetId: string = id) =>
+      apiFetch<CreatedSetupKey>(`/api/nodes/${targetId}/reregister`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: SETUP_KEYS_QUERY_KEY });
+    },
+  });
+}
+
 /** The caller's setup keys, newest first — each with its key text, which is what the card lists. */
 export function useSetupKeys(enabled = true) {
   return useQuery({
