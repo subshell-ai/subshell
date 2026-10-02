@@ -360,6 +360,12 @@ test("real entry: prepared staging enumerates public metadata and applies only p
     admins: extracted.admins,
   });
   expect(listed.stages[0].stage).toBeUndefined();
+  const beforePreflight = readFileSync(metadata, "utf8");
+  const preflight = ok(
+    await cli(["restore", "--staged", id, "--native-preflight", "--json", "--force"], source.configDir),
+  );
+  expect(preflight.compatible).toBe(true);
+  expect(readFileSync(metadata, "utf8")).toBe(beforePreflight);
   record.prepared = false;
   writeFileSync(metadata, JSON.stringify(record));
   expect((await cli(["restore", "--staged", id, "--yes", "--no-start", "--json"], source.configDir)).code).toBe(1);

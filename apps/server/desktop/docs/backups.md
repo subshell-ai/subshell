@@ -88,3 +88,9 @@ preparation request (including entered passwords) only in memory, allowing it
 to re-extract and validate the source before applying an expired stage. A
 changed manifest, destination, choices or recovery administrator requires review
 again. Closing the screen releases the request; success and Back clear it.
+
+Desktop backup and restore always execute the CLI bundled with the app, so
+the native interface matches the caller. Installed binaries remain service
+supervision targets. A newer installed server requires updating the desktop
+app before backup or restore. Dev launches also refresh the executable’s
+sibling bundled CLI by digest.

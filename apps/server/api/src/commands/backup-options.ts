@@ -86,10 +86,15 @@ export function parseRestoreFlags(args: string[], error: (line: string) => void)
       if (
         !values.staged ||
         positional.length ||
-        Object.keys(values).some((key) => !["staged", "native-preflight", "json"].includes(key))
+        Object.keys(values).some((key) => !["staged", "native-preflight", "json", "force"].includes(key))
       )
-        throw new Error("--native-preflight accepts only --staged and --json");
-      return { staged: values.staged as string, nativePreflight: true, json: values.json === true };
+        throw new Error("--native-preflight accepts only --staged, --json and --force");
+      return {
+        staged: values.staged as string,
+        nativePreflight: true,
+        json: values.json === true,
+        force: values.force === true,
+      };
     }
     if (values.native && (!values.staged || values.inspect || values.prepare))
       throw new Error("--native requires a prepared staged application");

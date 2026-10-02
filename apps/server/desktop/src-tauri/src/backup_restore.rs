@@ -69,21 +69,11 @@ impl Drop for SecretFile {
     }
 }
 
-/// Prefer the resolved installed server. A compatible owned sidecar may fill a
-/// missing/older CLI; it is never copied or installed by a backup/restore act.
+/// Backup and restore always use the CLI shipped with this app, whose native
+/// interface matches the caller. Installed binaries remain supervision targets.
 fn executable(app: &AppHandle) -> Result<Vec<String>, String> {
     let settings = app.state::<SettingsState>().get();
     let installed = server_bin::resolve(settings.binary_path.as_deref());
-    if let Some(server) = &installed {
-        // The global help enumerates flags even on binaries whose restore
-        // parser refuses --help. Check stdout/stderr rather than status here.
-        let mut global = server.argv.clone();
-        global.push("--help".into());
-        let out = run(&global, Duration::from_secs(10));
-        if out.stdout.contains("--list-staged") && out.stdout.contains("--prepare") {
-            return Ok(server.argv.clone());
-        }
-    }
     let bundled = sidecar::bundled_path(&server_bin::SERVER_SIDECAR)
         .ok_or("This app needs a bundled server with backup and restore support.")?;
     let version = server_bin::probe_version(&[bundled.to_string_lossy().into_owned()])
@@ -93,7 +83,7 @@ fn executable(app: &AppHandle) -> Result<Vec<String>, String> {
         .and_then(|s| s.version.as_deref())
         .is_some_and(|v| subshell_desktop_core::version::version_lt(&version, v))
     {
-        return Err("The installed server is newer and lacks the required restore interface. Update this app; an older bundled server cannot restore its database.".into());
+        return Err("The installed server is newer than this app’s bundled CLI. Update Subshell Server before using backup or restore.".into());
     }
     let argv = vec![bundled.to_string_lossy().into_owned()];
     let mut help = argv.clone();

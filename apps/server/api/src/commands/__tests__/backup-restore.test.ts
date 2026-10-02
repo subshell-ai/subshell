@@ -162,6 +162,12 @@ describe("backup and restore command policy", () => {
       staged: id,
       nativePreflight: true,
     });
+    expect(parseRestoreFlags(["--staged", id, "--native-preflight", "--json", "--force"], () => {})).toMatchObject({
+      staged: id,
+      nativePreflight: true,
+      json: true,
+      force: true,
+    });
     for (const flags of [
       ["archive", "--native"],
       ["--staged", id, "--native-preflight", "--yes"],

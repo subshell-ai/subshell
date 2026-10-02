@@ -371,6 +371,8 @@ working tree:
   script refreshes that managed copy itself, by DIGEST, when one is already
   installed. The app's own `already_installed` check compares size and version,
   which a same-version rebuild matches; only content can answer this.
+  Backup and restore use the desktop’s bundled CLI instead; the launcher also
+  refreshes an existing dev executable’s sibling sidecar by digest.
   It never CREATES one (that install is a first-run flow worth exercising), and
   it warns instead of acting when a service definition names a different binary,
   since that rung outranks the managed copy. `SUBSHELL_DEV_SKIP_INSTALL=1` opts
