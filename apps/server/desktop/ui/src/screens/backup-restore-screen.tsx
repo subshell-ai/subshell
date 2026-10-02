@@ -324,11 +324,6 @@ export function BackupRestoreScreen(props: {
         )}
         {props.kind === "backup" ? (
           <>
-            <p className="hint">
-              Full archives include supported configuration secrets, identity keys and plugin-owned secrets. They
-              exclude external agent credentials, projects, user uploads, remote-node state, running processes, tmux
-              sockets, executable cache files and OS state. A restored instance retires old pane records.
-            </p>
             {toggle("backup-encrypt", "Encrypt the archive with a password", encrypt, setEncrypt)}
             {encrypt && (
               <>
