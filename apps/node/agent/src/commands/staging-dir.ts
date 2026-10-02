@@ -21,10 +21,12 @@ export function transfersDir(dataDir: string): string {
  * Create `<dataDir>/transfers/` (idempotent) and return its path, chmod'd to
  * 0700 (mkdir's mode option is umask-masked, so it is re-tightened after a
  * fresh create - the `identity.ts` dataDir pattern). Called by the two
- * FIRST-WRITER commands (`archive_create`, `transfer_write`) at entry and by
- * the daemon at boot. A dataDir that cannot host the directory throws; the
- * caller turns it into a refusal rather than letting the gates silently widen
- * over a missing root.
+ * FIRST-WRITER commands (`archive_create`, `transfer_write`) at entry: a
+ * first transfer on a fresh node has no `transfers/` yet, and `pathAllowed`
+ * drops a root it cannot realpath. The boot sweep does NOT call this (a node
+ * that has never transferred has no dir and needs none). A dataDir that
+ * cannot host the directory throws; the caller turns it into a refusal rather
+ * than letting the gates silently widen over a missing root.
  */
 export function ensureTransfersDir(dataDir: string): string {
   const dir = transfersDir(dataDir);

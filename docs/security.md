@@ -1098,7 +1098,10 @@ subshell may only be launched in one of them or beneath it.
   between two machines the CALLER owns, gated on the `transfers` token scope
   with no legacy pass, and extraction is additive (nothing is ever deleted at
   a destination). `transfer_write` additionally always admits the node's own
-  dataDir, because that is where the relayed archive stages.
+  transfers staging subtree (`<dataDir>/transfers/`), because that is where
+  the relayed archive lands: the narrow root, not all of dataDir, so a
+  transfer frame cannot overwrite a node state file (the same subtree
+  `file_read`, `archive_create`, and `archive_extract` gate on).
 - Changes are audited (`node.allowed_dirs.update`).
 
 - **Setup keys** are single-use, expire in 24 h, are listed in full to the person

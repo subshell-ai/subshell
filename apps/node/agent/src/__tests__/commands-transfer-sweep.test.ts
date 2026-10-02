@@ -69,22 +69,30 @@ describe("sweepStaleTransfers", () => {
     const oldArchive = join(transfers, "11111111-1111-1111-1111-111111111111.tar.gz");
     const oldPart = join(transfers, ".22222222-2222-2222-2222-222222222222.tar.gz.part");
     const freshArchive = join(transfers, "33333333-3333-3333-3333-333333333333.tar.gz");
+    // The MINOR-1 case: a source archive from a relay that is 3 hours old but
+    // still legitimately moving (a slow high-RTT link, the spec's RTT sizing).
+    // The frozen-mtime source file is age-only signal, so the grace MUST
+    // outlast it; a 2-hour grace used to cut exactly this stream mid-relay.
+    const slowStream = join(transfers, "55555555-5555-5555-5555-555555555555.tar.gz");
     writeFileSync(oldArchive, "old");
     writeFileSync(oldPart, "old-part");
     writeFileSync(freshArchive, "live-stream");
+    writeFileSync(slowStream, "slow-but-live");
     const foreign = join(transfers, "not-ours.txt");
     writeFileSync(foreign, "leave me");
     const subDir = join(transfers, "subdir");
     mkdirSync(subDir);
-    age(oldArchive, 2 * HOUR, now);
-    age(oldPart, 2 * HOUR, now);
-    age(foreign, 2 * HOUR, now);
+    age(oldArchive, 5 * HOUR, now); // past the 4-hour grace: a stranded file
+    age(oldPart, 5 * HOUR, now);
+    age(slowStream, 3 * HOUR, now); // inside the grace: a slow live relay
+    age(foreign, 5 * HOUR, now);
 
     await sweepStaleTransfers(ctxFor(dataDir, now));
 
     expect(existsSync(oldArchive)).toBe(false); // aged staging reclaimed
     expect(existsSync(oldPart)).toBe(false); // aged temp reclaimed
-    expect(existsSync(freshArchive)).toBe(true); // under an hour: possibly live, stays
+    expect(existsSync(freshArchive)).toBe(true); // fresh: possibly live, stays
+    expect(existsSync(slowStream)).toBe(true); // under the grace: a slow relay is never cut
     expect(existsSync(foreign)).toBe(true); // not our naming, never touched
     expect(existsSync(subDir)).toBe(true); // a stray dir is not ours to recurse
   });
@@ -104,7 +112,7 @@ describe("sweepStaleTransfers", () => {
     writeFileSync(victim, "someone else's file");
     const link = join(transfers, "44444444-4444-4444-4444-444444444444.tar.gz");
     symlinkSync(victim, link);
-    age(link, 2 * HOUR, now); // lstat age is the link's own; the target must survive
+    age(link, 5 * HOUR, now); // past the grace: it must survive on being a SYMLINK, not on being young
 
     await sweepStaleTransfers(ctxFor(dataDir, now));
 

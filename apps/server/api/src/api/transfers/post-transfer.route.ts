@@ -98,7 +98,11 @@ async function gateEndpoint(which: "from" | "to", ep: TransferEndpoint, userId: 
     if (row.protocolVersion !== null && row.protocolVersion !== NODE_PROTOCOL_VERSION) {
       throwApiError({
         code: BackendErrorCodes.NODE_AGENT_TOO_OLD,
-        message: `the agent on ${row.name} speaks protocol v${row.protocolVersion}; update the node (the Nodes page asks a human)`,
+        // "as last reported": the row records the last `ready`'s protocol and
+        // cannot tell a held-now agent from a dead one that dialed back on the
+        // old version before it stopped dialing at all; either way updating is
+        // the action, so the remedy names itself without a false present tense.
+        message: `the agent on ${row.name} spoke protocol v${row.protocolVersion} as last reported; update the node (the Nodes page asks a human)`,
         doNotLog: true,
       });
     }

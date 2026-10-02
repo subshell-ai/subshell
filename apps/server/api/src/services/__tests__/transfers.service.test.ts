@@ -24,7 +24,7 @@ const sha256Hex = (bytes: Uint8Array): string => new Bun.CryptoHasher("sha256").
 /** A scripted source node: builds the fake archive, serves honest windows. */
 function scriptSource(
   archive: Uint8Array,
-  opts: { corruptWindows?: boolean; stallAt?: number } = {},
+  opts: { corruptWindows?: boolean; stallAt?: number; leapAt?: number } = {},
 ): {
   node: ScriptedNode;
   removed: string[][];
@@ -42,8 +42,14 @@ function scriptSource(
         const base = opts.corruptWindows ? new Uint8Array(archive.byteLength).fill(0xff) : archive;
         const slice = base.subarray(cmd.fromByte, Math.min(cmd.fromByte + cmd.maxBytes, archive.byteLength));
         // A source that answers without advancing the cursor would spin the
-        // relay forever; the service must refuse it, not loop.
-        const next = opts.stallAt === cmd.fromByte ? cmd.fromByte : cmd.fromByte + slice.byteLength;
+        // relay forever; one that leaps past its own bytes would hole the
+        // archive. Both are refusals, not a loop or a silent gap.
+        const next =
+          opts.stallAt === cmd.fromByte
+            ? cmd.fromByte
+            : opts.leapAt === cmd.fromByte
+              ? cmd.fromByte + slice.byteLength + 100
+              : cmd.fromByte + slice.byteLength;
         return {
           bytes_b64: Buffer.from(slice).toString("base64"),
           next,
@@ -226,6 +232,28 @@ describe("transfers relay", () => {
       expect((err as ApiError).message).toMatch(/without advancing the cursor/);
       // The window never reached the destination (only the abort cleanup did):
       expect(dst.node.cmdTypes()).toEqual(["remove_paths"]);
+    } finally {
+      src.node.detach();
+      dst.node.detach();
+    }
+  });
+
+  it("a source that leaps its cursor past its own bytes is refused, not trusted", async () => {
+    // The other side of the cursor contract: a `next` beyond `fromByte + bytes`
+    // would advance the plane's offset past what it actually relayed, HOLEING
+    // the archive while the digest still covered only the sent windows.
+    const archive = new Uint8Array(2048).fill(3);
+    const src = scriptSource(archive, { leapAt: 0 });
+    const dst = scriptDestination();
+    try {
+      const err = await runTransfer({
+        from: { nodeId: SRC, path: "/a" },
+        to: { nodeId: DST, path: "/b" },
+        sync: false,
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).message).toMatch(/cursor past its own bytes/);
+      expect(dst.node.cmdTypes()).toEqual(["remove_paths"]); // the window never wrote
     } finally {
       src.node.detach();
       dst.node.detach();

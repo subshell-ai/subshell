@@ -14,13 +14,34 @@ import type { CommandContext } from "./context.js";
  * the operator hand-deletes it.
  *
  * Posture copied from {@link cleanupStaleUploads}: boot + hourly, shallow
- * inside the ONE directory this verb owns, age-gated so a live stream is
- * never cut, `lstat` so a planted symlink is never chased, and NEVER throws
- * - a broken sweep must not cost the node its connection.
+ * inside the ONE directory this verb owns, age-gated, `lstat` so a planted
+ * symlink is never chased, and NEVER throws - a broken sweep must not cost
+ * the node its connection.
  */
 
-/** Same one-hour grace as the uploads sweep: an in-flight stream stays young. */
-const STALE_TRANSFER_MAX_AGE_MS = 60 * 60 * 1000;
+/**
+ * Age past which a stranded staging file is swept - and why it is NOT the
+ * uploads sweep's one hour. This is a real tradeoff, not a free win: the
+ * DESTINATION's `.part` refreshes its mtime on every append, so a short
+ * grace is safe there, but the SOURCE staging file's mtime FREEZES when
+ * `archive_create` closes it and the relay then reads it STATELESSLY
+ * (`file_read` touches nothing, on purpose: touching would corrupt the
+ * `mtime` hint `tree_manifest` diffs on). So mtime is the sweeper's only
+ * liveness signal for the source half, and it cannot see a read in
+ * progress.
+ *
+ * A 4 GiB archive is `MAX_ARCHIVE_BYTES / MAX_TRANSFER_WINDOW_BYTES` = 8192
+ * windows. At the design sizing's ~5 MiB/s that relays in ~13 min; the
+ * theoretical timeout-sum ceiling (8192 x (READ 10s + WRITE 30s) ~ 91 h)
+ * describes a WEDGED transfer, not a slow one, and no grace short of
+ * effectively leaking the disk should chase it. Four hours clears the design
+ * envelope with ~18x margin (covering a slow satellite/VPN link the spec's
+ * RTT sizing concedes) while capping a genuinely stranded archive's plaintext
+ * disk hold to a workday. v1 keeps no transfer row, so a relay slower than
+ * THIS bound is indistinguishable from a dead one and may be swept mid-flight
+ * - the honest limit of an age-only signal.
+ */
+const STALE_TRANSFER_MAX_AGE_MS = 4 * 60 * 60 * 1000;
 
 /** The plane-minted staging name shape (`transfers.service.ts`'s `stagingPathFor`). */
 function isStagingName(name: string): boolean {
