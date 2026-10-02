@@ -7,7 +7,6 @@ import { beginBackupCapture } from "@/services/backup-capture-lock.js";
 import { listLocalBackups } from "@/services/backup-catalog.js";
 import { createInstanceBackup } from "@/services/backups/index.js";
 import type { InstancePaths } from "@/services/backups/types.js";
-import { backupDatabase, listBackups } from "@/services/db-backup.js";
 import { instanceBackupConfig, instanceBackupPaths } from "@/services/instance-backup-source.js";
 import { SERVER_VERSION } from "@/version.js";
 
@@ -20,7 +19,7 @@ export interface BackupDeps extends PasswordDeps {
   capture?: () => () => void;
 }
 
-/** Online full-instance capture; update snapshots retain their independent legacy path. */
+/** Full-instance capture; legacy database snapshots are restore-only. */
 export async function runBackup(opts: BackupOpts, deps: BackupDeps): Promise<number> {
   let release: (() => void) | undefined;
   try {
@@ -37,27 +36,8 @@ export async function runBackup(opts: BackupOpts, deps: BackupDeps): Promise<num
           );
       return 0;
     }
-    if (opts.databaseOnly) {
-      if (opts.output || opts.passwordFile || opts.encrypt)
-        throw new Error("--database-only cannot be combined with --output or encryption.");
-      release = (deps.capture ?? beginBackupCapture)();
-      const written = await backupDatabase({
-        reason: "manual",
-        databasePath: source.databasePath,
-        dir: join(source.dataDir, "backups"),
-      });
-      if (!written) throw new Error("there is no database to back up yet");
-      if (opts.json)
-        deps.log(
-          JSON.stringify({
-            ...written,
-            kept: listBackups(join(source.dataDir, "backups")).length,
-            legacyDatabaseOnly: true,
-          }),
-        );
-      else deps.log(`Database-only snapshot: ${written.path} (${written.bytes} bytes)`);
-      return 0;
-    }
+    if (opts.databaseOnly)
+      throw new Error("--database-only is no longer supported; backups are full instance archives");
     let encrypt = opts.encrypt || !!opts.passwordFile;
     if (!encrypt && !opts.json && deps.isTTY && deps.confirm) {
       const answer = await deps.confirm("Encrypt this full backup with a password?", BACKUP_RESTORE_DEFAULTS.encrypt);

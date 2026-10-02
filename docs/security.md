@@ -2982,15 +2982,15 @@ The `update` command's wire shape is FROZEN across protocol bumps for this
 reason alone: it is the one command sent to an agent whose protocol the plane
 does not share.
 
-**The automatic update backup is the whole database**: credential hashes, API-key hashes, audit
-rows, channel ciphertext. It is the most sensitive single file this app writes
-and it is now written repeatedly: 0600 in a 0700 directory at
-`<SUBSHELL_SERVER_DATA_DIR>/backups/`, so it is inside the data dir the desktop
-reset deletes recursively and the disk posture is unchanged. SQLite creates the
-file with the umask (0644 measured), so the `chmod` after the `VACUUM INTO` is
-what makes 0600 true rather than a hope. Five are kept by default; an operator
-who wants fewer bytes on disk sets `SUBSHELL_DB_BACKUPS_KEEP`, and `0` keeps
-them forever. `subshell-server backup --database-only` takes one by hand; the default manual command creates a full instance archive (see below).
+**Automatic update backups are full instance archives**: the database,
+configuration, identities, plugins and their secret store. Archives are 0600 in
+`<SUBSHELL_SERVER_DATA_DIR>/backups/` (0700), inside the data directory the
+desktop reset deletes. Five are kept by default; `SUBSHELL_DB_BACKUPS_KEEP`
+controls retention and `0` keeps them forever. Manual backups use the same
+archive format, with optional password encryption. Unattended upgrade archives
+are unencrypted. A private 0600 SQLite checkpoint under `update/checkpoints/`
+comes from the archive's exact snapshot and supports crash rollback by older
+server binaries; it is not listed as a user backup.
 
 Note which paths now write one. The desktop app's "install the bundled server"
 offer used to copy a file into place; when the outcome is a REPLACE of a
@@ -2998,7 +2998,7 @@ managed install it now runs `<installed> update --from <sidecar> --yes
 --no-restart --json` instead, so it takes the backup and writes the marker like
 every other path. That is a safety gain and a disclosure change in the same
 motion: a machine whose owner only ever presses a button in a GUI now
-accumulates full copies of its database on disk, bounded by
+accumulates full instance archives on disk, bounded by
 `SUBSHELL_DB_BACKUPS_KEEP` and by nothing else. The FIRST install still copies
 the sidecar: there is no installed CLI to run yet, and nothing to back up.
 
@@ -3143,8 +3143,7 @@ this project did not write.
   log line or a hint that renders in a browser), the value is hydrated only
   into a process the HOST spawns (a 0600 file named by a flag, or an
   environment variable), and **full instance archives include it** ("Full instance archives and offline restoration" below).
-  Database-only snapshots (`backup --database-only` and automatic update backups,
-  §11.12) do not; those restores require a separately preserved secret store or
+  Legacy database-only snapshots do not; those restores require a separately preserved secret store or
   re-entering the token. The UI distinguishes full archives from database-only
   snapshots at the field.
 - **Mesh keys transit argv once.** A Tailscale auth key or a NetBird setup key

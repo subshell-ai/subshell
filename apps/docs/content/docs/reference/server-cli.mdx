@@ -17,7 +17,7 @@ Look up the commands supported by `subshell-server`.
 | `init` | Prepare first-run settings and offer a service. |
 | `configure` | Edit persistent configuration. |
 | `service` | Install and control a per-user service. |
-| `backup` | Create a full instance archive or a database-only snapshot. |
+| `backup` | Create a full instance archive. |
 | `restore` | Inspect or restore an archive while the server is stopped. |
 | `update` | Check, apply, or roll back an update. |
 | `reset` | Stop and clear instance data, retaining the binary. |
@@ -62,10 +62,9 @@ Installation starts the service. Enable and disable change login startup without
 ```text
 subshell-server backup [--output <archive>] [--encrypt]
                        [--password-file <file|->] [--json]
-subshell-server backup --database-only [--json]
 ```
 
-The default backs up the instance in one archive. `--database-only` keeps the older SQLite snapshot behavior. Password files must be private, owned regular files containing one line; `-` reads a line from stdin. Passwords are never command-line arguments.
+Every new backup is a full instance archive. Older database-only snapshots remain restorable. Password files must be private, owned regular files containing one line; `-` reads a line from stdin. Passwords are never command-line arguments.
 
 ## restore
 

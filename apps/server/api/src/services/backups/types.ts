@@ -96,6 +96,8 @@ export interface CreateInstanceBackupOptions {
   password?: string;
   /** Optional stricter resource ceilings. */
   limits?: Partial<BackupLimits>;
+  /** Internal update rollback checkpoint, copied from this archive's exact SQLite snapshot. */
+  onDatabaseSnapshot?: (path: string) => Promise<void>;
 }
 
 /** Restore-time address choices, validated by configure's shared predicates. */

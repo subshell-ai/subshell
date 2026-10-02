@@ -13,8 +13,9 @@ mutation stays true. A reused PID never decides exclusion; SQLite supplies the
 OS-backed mutex. Recovery corrects matching inherited systemd EnvironmentFile
 values after rollback while retaining differing explicit environment overrides.
 
-Full manual archives are distinct from the retained database snapshots used by
-updates. Only the allowlisted server-owned components enter an archive. The
+Manual and pre-upgrade backups use the same full instance archive format.
+Updates retain a private database checkpoint from the archive’s snapshot for
+synchronous crash rollback; it is not listed as a user backup. Only the allowlisted server-owned components enter an archive. The
 manifest describes SQLite snapshot/log interval consistency and exclusions.
 Destination paths always come from the caller. Optional manifest `sourcePaths`
 records original locations for restore form suggestions; it never selects an

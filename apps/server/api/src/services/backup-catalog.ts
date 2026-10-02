@@ -26,7 +26,9 @@ export async function listLocalBackups(dataDir: string): Promise<LocalBackupFile
   const files: LocalBackupFile[] = [];
   for (const name of names) {
     const database = /^subshell-v(.+)-(\d{8})-(\d{6})(?:-\d+)?\.db$/.exec(name);
-    if (database && (database[1]?.length ?? 0) > 256) continue;
+    const archive = /^subshell-update-v(.+)-\d{8}-\d{6}-[a-f0-9-]{36}\.tar\.gz$/.exec(name);
+    const version = database?.[1] ?? archive?.[1];
+    if (version && version.length > 256) continue;
     if (!database && !/\.(?:tar\.gz(?:\.enc)?|subshell)$/.test(name)) continue;
     const path = join(dir, name);
     if (path.length > 4096 || name.length > 512 || /[\r\n\0]/.test(name)) continue;
@@ -43,7 +45,7 @@ export async function listLocalBackups(dataDir: string): Promise<LocalBackupFile
         createdAt: Number.isNaN(Date.parse(date)) ? stat.mtime.toISOString() : new Date(date).toISOString(),
         legacyDatabaseOnly: !!database,
         encrypted: name.endsWith(".enc"),
-        ...(database && { serverVersion: database[1] }),
+        ...(version && { serverVersion: version }),
       });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

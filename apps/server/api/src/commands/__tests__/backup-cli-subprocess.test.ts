@@ -1,6 +1,15 @@
 import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -294,8 +303,13 @@ test("real entry: legacy snapshots are explicit; inspection does not recover a p
     source.configDir,
     Number(parseEnvFile(readFileSync(join(source.configDir, "config.env"), "utf8")).SERVER_PORT),
   );
-  const legacy = ok(await cli(["backup", "--database-only", "--json"], source.configDir));
-  expect(legacy.legacyDatabaseOnly).toBe(true);
+  const legacy = { path: join(source.configDir, "backups", "subshell-v1.7.0-20260101-000000.db") };
+  mkdirSync(dirname(legacy.path), { recursive: true, mode: 0o700 });
+  const snapshotDb = new Database(source.databasePath, { readonly: true });
+  snapshotDb.query("VACUUM INTO ?").run(legacy.path);
+  snapshotDb.close();
+  chmodSync(legacy.path, 0o600);
+  expect((await cli(["backup", "--database-only", "--json"], source.configDir)).code).toBe(1);
   const invalidJournal = join(source.configDir, "restore-journal.json");
   writeFileSync(invalidJournal, "invalid journal should never be read by inspect", { mode: 0o600 });
   const inspected = ok(await cli(["restore", legacy.path, "--inspect", "--json"], source.configDir));

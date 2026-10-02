@@ -44,7 +44,7 @@ The actual restore must run outside the server process. A server cannot replace 
 
 Open **Backup…** or **Restore…** from the native menu or tray. These screens are bundled with the app and work while the server is stopped. Restore is also available before first-run setup.
 
-For a backup, choose where to save the archive and optionally enable encryption. For restore, choose an archive and its password, or inspect a file under **Available backups**, which includes database snapshots made before upgrades. Inspect it, review the destination and account recovery choices, then prepare the restore. Confirm replacement and any pane interruption before applying.
+For a backup, choose where to save the archive and optionally enable encryption. For restore, choose an archive and its password, or inspect a file under **Available backups**, which includes archives made before upgrades and older database snapshots. Inspect it, review the destination and account recovery choices, then prepare the restore. Confirm replacement and any pane interruption before applying.
 
 The restore form fills optional locations and address settings from the backup. Review and edit them when moving to another machine. Older archives may omit a location; the form uses the current server's location for that missing value. Clearing an optional field keeps its suggested value.
 
@@ -72,7 +72,7 @@ Migration writes the selected destination paths into configuration. It retains n
 
 A `.db` snapshot is explicitly a database-only restore. It leaves configuration, identities, plugins, and files in place. It must be a standalone snapshot without adjacent SQLite journal sidecars. Restoring a database without its matching identity files may leave enrolled nodes or channels unable to reconnect.
 
-Automatic update backups remain database snapshots with their existing retention. They protect an update transition and do not replace full archives stored outside the machine.
+Automatic pre-upgrade backups are full instance archives, retained according to `SUBSHELL_DB_BACKUPS_KEEP`. Update rollback uses a private database checkpoint captured from the same archive; existing database-only backups remain restorable. Keep archive copies outside the machine for disaster recovery.
 
 ## Verify recovery
 

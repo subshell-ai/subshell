@@ -55,7 +55,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { audit } from "@/services/audit.js";
 import { restoreDatabase } from "@/services/db-backup.js";
@@ -77,6 +77,8 @@ export interface PendingUpdate {
   previousBinary: string;
   /** The snapshot taken before the swap, or `null` when there was no database yet. */
   backup: string | null;
+  /** User-facing full archive. backup remains the private SQLite checkpoint for older binaries. */
+  archiveBackup?: string;
   /** ISO 8601, when the swap began. */
   startedAt: string;
   /** Which surface drove it. */
@@ -285,11 +287,14 @@ export async function completeUpdate(
       to: pending.to,
       origin: pending.origin,
       forced: pending.forced ?? false,
-      backup: pending.backup,
+      backup: pending.archiveBackup ?? pending.backup,
     }),
   });
   rmSync(pending.previousBinary, { force: true });
   rmSync(pendingPath(dir), { force: true });
+  if (pending.archiveBackup && pending.backup && dirname(pending.backup) === join(dir, "checkpoints")) {
+    rmSync(pending.backup, { force: true });
+  }
   // The tracker's re-creation, beside the audit (design 2026-09-25): the
   // `beginSelfUpdate` entry lived in the process that exited for the manager
   // and is gone, so THIS boot rebuilds it as terminal from the marker. That
@@ -341,7 +346,7 @@ export function revertUpdate(
       // the marker's writer swapped. Injectable only so a test can revert over
       // a temp file instead of the suite's own shared database.
       restoreDatabase(pending.backup, deps.databasePath);
-      log.info(`update revert: restored the database from ${pending.backup}`);
+      log.info(`update revert: restored the database from ${pending.archiveBackup ?? pending.backup}`);
     } catch (restoreError) {
       // Say so loudly and keep going: the binary swap is still worth undoing,
       // and the marker below is what tells anyone what state this host is in.

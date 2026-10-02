@@ -141,6 +141,7 @@ export async function createInstanceBackup(options: CreateInstanceBackupOptions)
       await handle.close();
     }
     // Same-filesystem hard link is an atomic, no-clobber publication of the completed file.
+    await options.onDatabaseSnapshot?.(dbPath);
     await link(output, destination);
     syncRestoreDirectory(dirname(destination));
     return { path: destination, bytes, manifest };

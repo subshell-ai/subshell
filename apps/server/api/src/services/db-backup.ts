@@ -195,7 +195,11 @@ export function listBackups(dir: string = backupsDir()): BackupFile[] {
   }
   const files: BackupFile[] = [];
   for (const name of names) {
-    if (!name.startsWith(BACKUP_PREFIX) || !name.endsWith(BACKUP_SUFFIX)) continue;
+    if (
+      !(name.startsWith(BACKUP_PREFIX) && name.endsWith(BACKUP_SUFFIX)) &&
+      !(name.startsWith("subshell-update-v") && name.endsWith(".tar.gz"))
+    )
+      continue;
     const path = join(dir, name);
     try {
       const st = statSync(path);
@@ -214,7 +218,9 @@ export function listBackups(dir: string = backupsDir()): BackupFile[] {
   return files.sort((a, b) => {
     const left = ordinal(a.path);
     const right = ordinal(b.path);
-    return right.stamp === left.stamp ? right.seq - left.seq : right.stamp.localeCompare(left.stamp);
+    return right.stamp === left.stamp
+      ? right.seq - left.seq || b.at.localeCompare(a.at)
+      : right.stamp.localeCompare(left.stamp);
   });
 }
 
@@ -223,8 +229,8 @@ export function listBackups(dir: string = backupsDir()): BackupFile[] {
  * and the `-N` same-second sequence ({@link freeName}), which is 1 when absent.
  */
 function ordinal(path: string): { stamp: string; seq: number } {
-  const match = basename(path).match(/-(\d{8}-\d{6})(?:-(\d+))?\.db$/);
-  return { stamp: match?.[1] ?? "", seq: match?.[2] === undefined ? 1 : Number.parseInt(match[2], 10) };
+  const match = basename(path).match(/-(\d{8}-\d{6})(?:-(\d+|[a-f0-9-]{36}))?\.(?:db|tar\.gz)$/);
+  return { stamp: match?.[1] ?? "", seq: match?.[2] && /^\d+$/.test(match[2]) ? Number.parseInt(match[2], 10) : 1 };
 }
 
 /**

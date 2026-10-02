@@ -40,7 +40,7 @@ subshell-server update --check
 subshell-server update
 ```
 
-The updater verifies signed release information, stages a database snapshot, replaces the binary, and completes the update when the new server starts.
+The updater verifies signed release information, creates a full instance backup archive, replaces the binary, and completes the update when the new server starts.
 
 `--to <version>` requires that version to match the newest server release in the configured index. It does not fetch an arbitrary historical release.
 

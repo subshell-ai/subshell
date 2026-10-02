@@ -399,7 +399,7 @@ export function BackupRestoreScreen(props: {
                     <CardHeader>
                       <CardTitle id="available-backups-title">Available backups</CardTitle>
                       <CardDescription>
-                        Backups saved on this server, including database snapshots made before upgrades.
+                        Backups saved on this server, including archives made before upgrades.
                       </CardDescription>
                     </CardHeader>
                     <CardContent>

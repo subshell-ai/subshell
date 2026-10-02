@@ -46,8 +46,8 @@ export function parseBackupFlags(args: string[], error: (line: string) => void):
       output: values.output as string | undefined,
       passwordFile: values["password-file"] as string | undefined,
     };
-    if (opts.databaseOnly && (opts.encrypt || opts.passwordFile || opts.output))
-      throw new Error("--database-only cannot be combined with --output or encryption; use a full instance backup");
+    if (opts.databaseOnly)
+      throw new Error("--database-only is no longer supported; backups are full instance archives");
     return opts;
   } catch (failure) {
     error(`subshell-server: ${message(failure)}`);
