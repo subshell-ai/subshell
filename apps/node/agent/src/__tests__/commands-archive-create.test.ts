@@ -102,11 +102,11 @@ describe("archive_create", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const answer = parseNodeArchiveCreateResult(res.data);
-    expect(answer).not.toBeNull();
+    if (!answer) throw new Error("archive_create answered an unparseable result");
     const bytes = readFileSync(staging);
-    expect(answer!.size).toBe(bytes.length);
+    expect(answer.size).toBe(bytes.length);
     // Independent hash of the exact compressed span the destination will see.
-    expect(answer!.sha256).toBe(new Bun.CryptoHasher("sha256").update(bytes).digest("hex"));
+    expect(answer.sha256).toBe(new Bun.CryptoHasher("sha256").update(bytes).digest("hex"));
 
     // Extract with the guarded extractor: everything the transfer promises.
     const out = join(base, "happy-out");

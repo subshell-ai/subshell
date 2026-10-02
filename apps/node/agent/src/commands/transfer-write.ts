@@ -49,20 +49,12 @@ export async function execTransferWrite(ctx: CommandContext, cmd: Cmd<"transfer_
       error: `chunk of ${bytes.byteLength} bytes exceeds the ${MAX_TRANSFER_WINDOW_BYTES}-byte transfer window`,
     };
   }
-  return await receiveChunkedStream(
-    ctx,
-    cmd.path,
-    bytes,
-    cmd.chunk,
-    cmd.eof,
-    "transfer_write",
-    async (path) => {
-      const dirs = readAllowedDirs(ctx.config.dataDir);
-      if (dirs.length === 0) return true; // unrestricted, verbatim launch semantics
-      // The hardened pathAllowed (not the lexical one): `..`, symlinked
-      // ancestors and planted symlink leaves are exactly what the eof
-      // re-check exists to catch.
-      return await pathAllowed(path, [ctx.config.dataDir, ...dirs]);
-    },
-  );
+  return await receiveChunkedStream(ctx, cmd.path, bytes, cmd.chunk, cmd.eof, "transfer_write", async (path) => {
+    const dirs = readAllowedDirs(ctx.config.dataDir);
+    if (dirs.length === 0) return true; // unrestricted, verbatim launch semantics
+    // The hardened pathAllowed (not the lexical one): `..`, symlinked
+    // ancestors and planted symlink leaves are exactly what the eof
+    // re-check exists to catch.
+    return await pathAllowed(path, [ctx.config.dataDir, ...dirs]);
+  });
 }

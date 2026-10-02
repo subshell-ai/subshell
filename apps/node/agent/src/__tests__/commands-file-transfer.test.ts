@@ -83,15 +83,18 @@ describe("file_read", () => {
     expect(first.ok).toBe(true);
     if (!first.ok) return;
     const w = parseNodeFileReadResult(first.data);
-    expect(w).not.toBeNull();
-    expect(unb64(w!.bytes_b64)).toBe("0123");
-    expect(w!.next).toBe(4);
-    expect(w!.size).toBe(10);
+    if (!w) throw new Error("file_read answered an unparseable window");
+    expect(unb64(w.bytes_b64)).toBe("0123");
+    expect(w.next).toBe(4);
+    expect(w.size).toBe(10);
 
-    expect((await read(7)).ok).toBe(true);
-    const tail = parseNodeFileReadResult(((await read(7)) as { data: unknown }).data);
-    expect(unb64(tail!.bytes_b64)).toBe("789");
-    expect(tail!.next).toBe(10);
+    const at7 = await read(7);
+    expect(at7.ok).toBe(true);
+    if (!at7.ok) throw new Error("read at offset 7 accepted");
+    const tail = parseNodeFileReadResult(at7.data);
+    if (!tail) throw new Error("file_read answered an unparseable window");
+    expect(unb64(tail.bytes_b64)).toBe("789");
+    expect(tail.next).toBe(10);
 
     // At/past EOF: empty read, cursor parked at size (relay loop end).
     const atEof = parseNodeFileReadResult(((await read(10)) as { data: unknown }).data);
@@ -147,7 +150,9 @@ describe("transfer_write", () => {
 
     const c1 = await send(b64("BB"), 1);
     if (!c1.ok) throw new Error("chunk 1 accepted");
-    expect(parseNodeWriteFileResult(c1.data)!.received).toBe(5);
+    const ack1 = parseNodeWriteFileResult(c1.data);
+    if (!ack1) throw new Error("transfer_write answered an unparseable ack");
+    expect(ack1.received).toBe(5);
 
     const last = await send(b64("C"), 2, true);
     expect(last.ok).toBe(true);
@@ -240,7 +245,7 @@ describe("transfer_write", () => {
   });
 
   it("refuses a symlink leaf planted mid-stream (the rename never chases it)", async () => {
-    const { dataDir, work, outside, ctx } = setup("symlink");
+    const { dataDir, work, ctx } = setup("symlink");
     // A NON-empty allowlist engages the hardened pathAllowed (an empty list
     // is unrestricted by ruling, where the OS-user boundary already decides).
     writeAllowedDirs(dataDir, [work]);
