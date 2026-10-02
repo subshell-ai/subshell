@@ -44,7 +44,7 @@ The actual restore must run outside the server process. A server cannot replace 
 
 Open **Backup…** or **Restore…** from the native menu or tray. These screens are bundled with the app and work while the server is stopped. Restore is also available before first-run setup.
 
-For a backup, choose where to save the archive and optionally enable encryption. For restore, choose an archive and its password, or inspect a file under **Available backups**, which includes archives made before upgrades and older database snapshots. Inspect it, review the destination and account recovery choices, then prepare the restore. Confirm replacement before applying. A separate confirmation appears only if sessions cannot be preserved.
+For a backup, choose where to save the archive and optionally enable encryption. For restore, choose an archive and its password, or inspect a file under **Available backups**, which includes archives made before upgrades and older database snapshots. Review the backup details, destination, restore mode and account recovery choices together. Confirm replacement and choose **Restore**; preparation runs automatically before anything is stopped or replaced. A separate confirmation appears only if sessions cannot be preserved.
 
 The restore form fills optional locations and address settings from the backup. Review and edit them when moving to another machine. Older archives may omit a location; the form uses the current server's location for that missing value. Clearing an optional field keeps its suggested value.
 

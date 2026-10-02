@@ -77,11 +77,21 @@ export function BackupRestoreScreen(props: {
   const [progress, setProgress] = useState("");
   const [localBusy, setLocalBusy] = useState(false);
   const locked = props.busy || localBusy;
-  const prepared = inspection?.prepared === true;
-  const update = (name: keyof RestorePrepare, value: string) => setOptions((old) => ({ ...old, [name]: value }));
+  const update = (name: keyof RestorePrepare, value: string) => {
+    const cached = retryPreparation.current;
+    retryPreparation.current = null;
+    setInspection((old) => old && { ...old, prepared: false });
+    if (cached) setTemporaryConfirmation(cached.temporaryPassword);
+    setOptions((old) => ({
+      ...old,
+      password: old.password || cached?.password || "",
+      temporaryPassword: old.temporaryPassword || cached?.temporaryPassword || "",
+      [name]: value,
+    }));
+    setReplace(false);
+  };
   const clearPasswords = () => {
-    update("password", "");
-    update("temporaryPassword", "");
+    setOptions((old) => ({ ...old, password: "", temporaryPassword: "" }));
     setConfirmation("");
     setTemporaryConfirmation("");
   };
@@ -125,7 +135,7 @@ export function BackupRestoreScreen(props: {
         type={password ? "password" : "text"}
         autoComplete={password ? "new-password" : "off"}
         spellCheck={false}
-        disabled={locked || prepared}
+        disabled={locked}
         value={options[name]}
         onChange={(event) => update(name, event.currentTarget.value)}
       />
@@ -221,46 +231,50 @@ export function BackupRestoreScreen(props: {
   const prepare = async () => {
     const failure = passwordProblem(options.temporaryPassword, temporaryConfirmation, recover, true);
     if (failure) {
-      setProblem(failure);
-      return;
+      throw new Error(failure);
     }
     if (recover && !options.recoverAdmin) {
-      setProblem("Choose an existing administrator from the archive.");
-      return;
+      throw new Error("Choose an existing administrator from the archive.");
     }
-    await act("Validating destination and preparing recovery before stopping the server…", async () => {
-      try {
-        const request: RestorePrepare = {
-          ...options,
-          ...(!inspection?.legacyDatabaseOnly && {
-            databasePath: options.databasePath || inspection?.destination?.databasePath || "",
-            dataDir: options.dataDir || inspection?.destination?.dataDir || "",
-            configDir: options.configDir || inspection?.destination?.configPath.replace(/[/\\][^/\\]+$/, "") || "",
-            baseUrl: options.baseUrl || String(inspection?.choices?.configOverrides?.baseUrl ?? ""),
-            host: options.host || String(inspection?.choices?.configOverrides?.host ?? ""),
-            port: options.port || String(inspection?.choices?.configOverrides?.port ?? ""),
-            trustedOrigins:
-              options.trustedOrigins || String(inspection?.choices?.configOverrides?.trustedOrigins ?? ""),
-          }),
-          recoverAdmin: recover ? options.recoverAdmin : "",
-          temporaryPassword: recover ? options.temporaryPassword : "",
-        };
-        const result = await ipc.restorePrepare(request);
-        retryPreparation.current = request;
-        setInspection(result);
-        setStageId(result.id ?? "");
-        setReplace(false);
-        setSessionConfirmation("");
-      } finally {
-        clearPasswords();
-      }
-    });
+    try {
+      const request: RestorePrepare = {
+        ...options,
+        ...(!inspection?.legacyDatabaseOnly && {
+          databasePath: options.databasePath || inspection?.destination?.databasePath || "",
+          dataDir: options.dataDir || inspection?.destination?.dataDir || "",
+          configDir: options.configDir || inspection?.destination?.configPath.replace(/[/\\][^/\\]+$/, "") || "",
+          baseUrl: options.baseUrl || String(inspection?.choices?.configOverrides?.baseUrl ?? ""),
+          host: options.host || String(inspection?.choices?.configOverrides?.host ?? ""),
+          port: options.port || String(inspection?.choices?.configOverrides?.port ?? ""),
+          trustedOrigins: options.trustedOrigins || String(inspection?.choices?.configOverrides?.trustedOrigins ?? ""),
+        }),
+        recoverAdmin: recover ? options.recoverAdmin : "",
+        temporaryPassword: recover ? options.temporaryPassword : "",
+      };
+      const result = await ipc.restorePrepare(request);
+      retryPreparation.current = request;
+      setInspection(result);
+      setStageId(result.id ?? "");
+      return result;
+    } finally {
+      clearPasswords();
+    }
   };
   const apply = async (force = false) => {
     if (!replace) return;
     await act("Restoring the instance and waiting for its successful boot…", async () => {
       try {
+        let reviewed = inspection;
         let currentId = stageId;
+        if (!retryPreparation.current && !reviewed?.prepared) {
+          const result = await prepare();
+          if (JSON.stringify(result.manifest) !== JSON.stringify(inspection?.manifest)) {
+            setReplace(false);
+            throw new Error("The backup changed. Review it again before restoring.");
+          }
+          reviewed = result;
+          currentId = result.id ?? "";
+        }
         const refreshStage = async () => {
           if (!retryPreparation.current || !inspection) throw new Error("Choose the backup again to prepare it.");
           setProgress("Refreshing the backup extraction…");
@@ -268,10 +282,10 @@ export function BackupRestoreScreen(props: {
           setInspection(refreshed);
           setStageId(refreshed.id ?? "");
           if (
-            JSON.stringify(refreshed.manifest) !== JSON.stringify(inspection.manifest) ||
-            JSON.stringify(refreshed.destination) !== JSON.stringify(inspection.destination) ||
-            JSON.stringify(refreshed.choices) !== JSON.stringify(inspection.choices) ||
-            refreshed.recoveryUserId !== inspection.recoveryUserId
+            JSON.stringify(refreshed.manifest) !== JSON.stringify(reviewed?.manifest) ||
+            JSON.stringify(refreshed.destination) !== JSON.stringify(reviewed?.destination) ||
+            JSON.stringify(refreshed.choices) !== JSON.stringify(reviewed?.choices) ||
+            refreshed.recoveryUserId !== reviewed?.recoveryUserId
           ) {
             setReplace(false);
             setSessionConfirmation("");
@@ -279,7 +293,7 @@ export function BackupRestoreScreen(props: {
           }
           currentId = refreshed.id ?? "";
         };
-        if (inspection?.expiresAt && inspection.expiresAt <= Date.now()) await refreshStage();
+        if (reviewed?.expiresAt && reviewed.expiresAt <= Date.now()) await refreshStage();
         let result;
         try {
           result = await ipc.restoreApply(currentId, replace, force, start);
@@ -316,61 +330,50 @@ export function BackupRestoreScreen(props: {
     <Frame
       rail={props.rail}
       strings={{
-        title: props.kind === "backup" ? "Back Up Your Server" : prepared ? "Review Restore" : "Restore Your Server",
+        title: props.kind === "backup" ? "Back Up Your Server" : inspection ? "Review Restore" : "Restore Your Server",
         subtitle:
           props.kind === "backup"
             ? "Save the database, supported configuration, identity, plugins and captured logs."
-            : prepared
+            : inspection
               ? "Review the destination and restore options before replacing your server’s state."
               : "Restore an instance even when its server is stopped or has never been configured.",
         problem,
       }}
       barLeft={
-        prepared ? (
+        inspection ? (
           <Button
             variant="ghost"
             disabled={locked}
             onClick={() =>
-              void act("Returning to restore options…", async () => {
-                await ipc.restoreDiscard(stageId);
-                if (retryPreparation.current) {
-                  setOptions(retryPreparation.current);
-                  setTemporaryConfirmation(retryPreparation.current.temporaryPassword);
-                }
+              void act("Returning to backup selection…", async () => {
+                if (stageId) await ipc.restoreDiscard(stageId);
                 retryPreparation.current = null;
-                setInspection((old) => old && { ...old, prepared: false, id: undefined });
+                setInspection(null);
                 setStageId("");
                 setReplace(false);
                 setSessionConfirmation("");
+                clearPasswords();
               })
             }
           >
             Back
           </Button>
-        ) : (
-          props.rail === undefined && (
-            <Button variant="ghost" disabled={locked} onClick={props.onClose}>
-              Back
-            </Button>
-          )
-        )
+        ) : props.rail === undefined ? (
+          <Button variant="ghost" disabled={locked} onClick={props.onClose}>
+            Back
+          </Button>
+        ) : undefined
       }
       barRight={
         props.kind === "backup" ? (
           <Button disabled={locked} onClick={() => void backup()}>
             Save backup…
           </Button>
-        ) : prepared ? (
+        ) : inspection ? (
           <Button disabled={locked || !replace} onClick={() => void apply()}>
             Restore
           </Button>
-        ) : (
-          inspection && (
-            <Button disabled={locked} onClick={() => void prepare()}>
-              Review replacement
-            </Button>
-          )
-        )
+        ) : undefined
       }
     >
       {sessionConfirmation && (
@@ -425,7 +428,7 @@ export function BackupRestoreScreen(props: {
           </>
         ) : (
           <>
-            {!prepared && (
+            {!inspection && (
               <>
                 {backups.length > 0 && (
                   <FieldSet>
@@ -463,7 +466,7 @@ export function BackupRestoreScreen(props: {
                   field("password", "Archive password (only for encrypted archives)", true)}
                 {backupSource === "file" && (
                   <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
-                    Open and inspect archive…
+                    Open backup…
                   </Button>
                 )}
                 {backupsProblem && (
@@ -516,7 +519,7 @@ export function BackupRestoreScreen(props: {
                             if (selectedBackup) void inspect(selectedBackup.path);
                           }}
                         >
-                          Inspect selected backup
+                          Review selected backup
                         </Button>
                       </div>
                       {backups.some((file) => file.legacyDatabaseOnly) && (
@@ -532,7 +535,7 @@ export function BackupRestoreScreen(props: {
             )}
             {inspection && (
               <>
-                {!prepared && (
+                {inspection && (
                   <Card aria-labelledby="backup-details-title">
                     <CardHeader>
                       <CardTitle id="backup-details-title">Backup details</CardTitle>
@@ -565,106 +568,120 @@ export function BackupRestoreScreen(props: {
                     </CardContent>
                   </Card>
                 )}
-                {!prepared && (
-                  <>
-                    <FieldSet>
-                      <FieldLegend id="restore-mode-label">Restore mode</FieldLegend>
-                      <RadioGroup
-                        aria-labelledby="restore-mode-label"
-                        aria-describedby={inspection.legacyDatabaseOnly ? "restore-mode-description" : undefined}
-                        name="restore-mode"
-                        value={options.mode}
-                        disabled={locked || inspection.legacyDatabaseOnly}
-                        onValueChange={(value) => update("mode", value)}
-                      >
-                        {BACKUP_RESTORE_MODES.map((mode) => (
-                          <Field
-                            key={mode.value}
-                            orientation="horizontal"
-                            data-disabled={locked || inspection.legacyDatabaseOnly}
-                          >
-                            <RadioGroupItem id={`restore-mode-${mode.value}`} value={mode.value} />
-                            <FieldLabel htmlFor={`restore-mode-${mode.value}`}>{mode.label}</FieldLabel>
-                          </Field>
-                        ))}
-                      </RadioGroup>
-                      {inspection.legacyDatabaseOnly && (
-                        <p id="restore-mode-description" className="hint">
-                          This older backup contains only the database, so restore modes are unavailable. It restores
-                          into this server using its current configuration and identity. Moving to a new machine
-                          requires a full instance archive.
-                        </p>
-                      )}
-                    </FieldSet>
-                    {!inspection.legacyDatabaseOnly && (
-                      <>
-                        {options.mode === "migration" && (
-                          <p className="hint">
-                            Supported identity is preserved. Network publication is disabled until you review it on this
-                            machine.
+                {inspection && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Restore settings</CardTitle>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-4">
+                      <FieldSet>
+                        <FieldLegend id="restore-mode-label">Restore mode</FieldLegend>
+                        <RadioGroup
+                          aria-labelledby="restore-mode-label"
+                          aria-describedby={inspection.legacyDatabaseOnly ? "restore-mode-description" : undefined}
+                          name="restore-mode"
+                          value={options.mode}
+                          disabled={locked || inspection.legacyDatabaseOnly}
+                          onValueChange={(value) => update("mode", value)}
+                        >
+                          {BACKUP_RESTORE_MODES.map((mode) => (
+                            <Field
+                              key={mode.value}
+                              orientation="horizontal"
+                              data-disabled={locked || inspection.legacyDatabaseOnly}
+                            >
+                              <RadioGroupItem id={`restore-mode-${mode.value}`} value={mode.value} />
+                              <FieldLabel htmlFor={`restore-mode-${mode.value}`}>{mode.label}</FieldLabel>
+                            </Field>
+                          ))}
+                        </RadioGroup>
+                        {inspection.legacyDatabaseOnly && (
+                          <p id="restore-mode-description" className="hint">
+                            This older backup contains only the database, so restore modes are unavailable. It restores
+                            into this server using its current configuration and identity. Moving to a new machine
+                            requires a full instance archive.
                           </p>
                         )}
-                        <p className="hint">Values are filled from the backup. Change them to restore elsewhere.</p>
-                        {field("databasePath", "Destination database path (optional)")}
-                        {field("dataDir", "Destination data directory (optional)")}
-                        {field("configDir", "Destination configuration directory (optional)")}
-                        {field("baseUrl", "Public base URL (optional)")}
-                        {field("host", "Listen address (optional)")}
-                        {field("port", "Port (optional)")}
-                        {field("trustedOrigins", "Trusted origins (optional)")}
-                      </>
-                    )}
-                    {toggle("restore-recovery", "Recover an existing administrator", recover, setRecover)}
-                    {recover && (
-                      <>
-                        <p className="hint warn-text">
-                          Email/password authentication will be enabled. This administrator must change the temporary
-                          password after signing in.
-                        </p>
-                        <div>
-                          <Label htmlFor="restore-admin">Administrator</Label>
-                          <Select
-                            value={options.recoverAdmin || null}
-                            disabled={locked}
-                            items={inspection.admins.map((admin) => ({
-                              value: admin.id,
-                              label: `${admin.name} · ${admin.email}`,
-                            }))}
-                            onValueChange={(id) => update("recoverAdmin", id ?? "")}
-                          >
-                            <SelectTrigger id="restore-admin">
-                              <SelectValue placeholder="Select an administrator" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectGroup>
-                                {inspection.admins.map((admin) => (
-                                  <SelectItem key={admin.id} value={admin.id}>
-                                    {admin.name} · {admin.email}
-                                  </SelectItem>
-                                ))}
-                              </SelectGroup>
-                            </SelectContent>
-                          </Select>
+                      </FieldSet>
+                      {inspection.legacyDatabaseOnly && inspection.destination && (
+                        <div className="flex flex-col gap-2">
+                          <h3 className="m-0 text-label font-strong">Destination</h3>
+                          <RestoreFacts rows={[["Database", inspection.destination.databasePath]]} />
                         </div>
-                        {field("temporaryPassword", "Temporary password (at least eight characters)", true)}
-                        <div>
-                          <Label htmlFor="restore-temporary-confirmation">Confirm temporary password</Label>
-                          <Input
-                            id="restore-temporary-confirmation"
-                            type="password"
-                            autoComplete="new-password"
-                            disabled={locked}
-                            value={temporaryConfirmation}
-                            onChange={(e) => setTemporaryConfirmation(e.currentTarget.value)}
-                          />
-                        </div>
-                      </>
-                    )}
-                  </>
+                      )}
+                      {!inspection.legacyDatabaseOnly && (
+                        <>
+                          <h3 className="m-0 text-label font-strong">Destination</h3>
+                          {options.mode === "migration" && (
+                            <p className="hint">
+                              Supported identity is preserved. Network publication is disabled until you review it on
+                              this machine.
+                            </p>
+                          )}
+                          <p className="hint">Values are filled from the backup. Change them to restore elsewhere.</p>
+                          {field("databasePath", "Destination database path (optional)")}
+                          {field("dataDir", "Destination data directory (optional)")}
+                          {field("configDir", "Destination configuration directory (optional)")}
+                          {field("baseUrl", "Public base URL (optional)")}
+                          {field("host", "Listen address (optional)")}
+                          {field("port", "Port (optional)")}
+                          {field("trustedOrigins", "Trusted origins (optional)")}
+                        </>
+                      )}
+                      {toggle("restore-recovery", "Recover an existing administrator", recover, (checked) => {
+                        update("password", options.password || retryPreparation.current?.password || "");
+                        setRecover(checked);
+                      })}
+                      {recover && (
+                        <>
+                          <p className="hint warn-text">
+                            Email/password authentication will be enabled. This administrator must change the temporary
+                            password after signing in.
+                          </p>
+                          <div>
+                            <Label htmlFor="restore-admin">Administrator</Label>
+                            <Select
+                              value={options.recoverAdmin || null}
+                              disabled={locked}
+                              items={inspection.admins.map((admin) => ({
+                                value: admin.id,
+                                label: `${admin.name} · ${admin.email}`,
+                              }))}
+                              onValueChange={(id) => update("recoverAdmin", id ?? "")}
+                            >
+                              <SelectTrigger id="restore-admin">
+                                <SelectValue placeholder="Select an administrator" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectGroup>
+                                  {inspection.admins.map((admin) => (
+                                    <SelectItem key={admin.id} value={admin.id}>
+                                      {admin.name} · {admin.email}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          {field("temporaryPassword", "Temporary password (at least eight characters)", true)}
+                          <div>
+                            <Label htmlFor="restore-temporary-confirmation">Confirm temporary password</Label>
+                            <Input
+                              id="restore-temporary-confirmation"
+                              type="password"
+                              autoComplete="new-password"
+                              disabled={locked}
+                              value={temporaryConfirmation}
+                              onChange={(e) => setTemporaryConfirmation(e.currentTarget.value)}
+                            />
+                          </div>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
-                {prepared && (
+                {inspection && (
                   <RestoreConfirmation
-                    inspection={inspection}
                     locked={locked}
                     replace={replace}
                     start={start}

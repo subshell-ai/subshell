@@ -1,12 +1,9 @@
-import { BACKUP_RESTORE_MODES } from "@internal/subshell-protocol";
 import { TriangleAlert } from "lucide-react";
 import { Fragment } from "react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
-import type { RestoreInspection } from "../lib/ipc";
 
 export function RestoreFacts({ rows }: { rows: [string, string][] }) {
   return (
@@ -49,103 +46,20 @@ function RestoreChoice(props: {
 }
 
 export function RestoreConfirmation(props: {
-  inspection: RestoreInspection;
   locked: boolean;
   replace: boolean;
   start: boolean;
   setReplace: (checked: boolean) => void;
   setStart: (checked: boolean) => void;
 }) {
-  const { inspection } = props;
-  const recovery = inspection.admins.find((admin) => admin.id === inspection.recoveryUserId);
-  const addresses = inspection.choices?.configOverrides;
-  const addressLabels: Record<string, string> = {
-    baseUrl: "Public base URL",
-    host: "Listen address",
-    port: "Port",
-    trustedOrigins: "Trusted origins",
-  };
   return (
     <>
-      <Card aria-labelledby="restore-backup-title">
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <CardTitle id="restore-backup-title">Backup to restore</CardTitle>
-            <Badge variant="secondary">
-              {BACKUP_RESTORE_MODES.find((mode) => mode.value === inspection.choices?.mode)?.label ??
-                "Prepared restore"}
-            </Badge>
-          </div>
-          <CardDescription>
-            {inspection.legacyDatabaseOnly ? "Database-only snapshot" : "Full instance archive"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <RestoreFacts
-            rows={[
-              ["Captured", new Date(inspection.manifest.completedAt).toLocaleString()],
-              [
-                "Server version",
-                inspection.manifest.serverVersion === "legacy"
-                  ? "Unknown (not recorded in this snapshot)"
-                  : inspection.manifest.serverVersion,
-              ],
-              ["Admin recovery", inspection.recoveryUserId ? (recovery?.email ?? inspection.recoveryUserId) : "Off"],
-            ]}
-          />
-          {inspection.recoveryUserId && (
-            <p className="m-0 text-detail text-muted-foreground">
-              The temporary password is ready. This administrator must change it after signing in.
-            </p>
-          )}
-          {inspection.legacyDatabaseOnly && (
-            <p className="m-0 text-detail text-muted-foreground">
-              Configuration, identities, plugins and files stay in place.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-      <Card aria-labelledby="restore-destination-title">
-        <CardHeader>
-          <CardTitle id="restore-destination-title">Destination</CardTitle>
-          <CardDescription>
-            {inspection.legacyDatabaseOnly
-              ? "The database will be replaced by the snapshot."
-              : "These locations will be replaced by the backup."}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-4">
-          {inspection.destination && (
-            <RestoreFacts
-              rows={[
-                ["Database", inspection.destination.databasePath],
-                ...(!inspection.legacyDatabaseOnly
-                  ? ([
-                      ["Data directory", inspection.destination.dataDir],
-                      ["Configuration", inspection.destination.configPath],
-                    ] as [string, string][])
-                  : []),
-              ]}
-            />
-          )}
-          {addresses && Object.keys(addresses).length > 0 && (
-            <div className="flex flex-col gap-2">
-              <h3 className="m-0 text-label font-strong">Addresses</h3>
-              <RestoreFacts
-                rows={Object.entries(addresses)
-                  .filter(([key]) => key in addressLabels)
-                  .map(([key, value]) => [addressLabels[key] as string, String(value)])}
-              />
-            </div>
-          )}
-        </CardContent>
-      </Card>
       <Alert variant="warning">
         <TriangleAlert aria-hidden="true" />
         <AlertTitle>Existing state will be replaced</AlertTitle>
         <AlertDescription>
-          This signs everyone out and retires old pane records. Keep a backup of the destination if you need its current
-          state.
+          This signs everyone out. Compatible running sessions are preserved. Keep a backup of the destination if you
+          need its current state.
         </AlertDescription>
       </Alert>
       <Card aria-labelledby="restore-options-title">

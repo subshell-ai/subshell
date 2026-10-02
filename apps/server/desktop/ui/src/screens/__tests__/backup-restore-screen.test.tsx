@@ -39,7 +39,7 @@ describe("native backup and restore", () => {
     render(<BackupRestoreScreen {...props} kind="restore" />);
     await waitFor(() => expect(fake?.callsTo("desktop_backup_list")).toHaveLength(1));
     expect(screen.queryByRole("heading", { name: "Available backups" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Open and inspect archive…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open backup…" })).toBeTruthy();
   });
   it("prefills from the backup, preserves optional defaults when cleared, and submits edits", async () => {
     const configOverrides = {
@@ -61,7 +61,7 @@ describe("native backup and restore", () => {
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
-    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open backup…" }));
     await screen.findByLabelText("Destination database path (optional)");
     const expected = {
       "Destination database path (optional)": stage.destination.databasePath,
@@ -79,7 +79,8 @@ describe("native backup and restore", () => {
     fireEvent.change(screen.getByLabelText("Public base URL (optional)"), {
       target: { value: "https://edited.example" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Review replacement" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Replace the displayed destination" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
     await waitFor(() => expect(fake?.callsTo("desktop_restore_prepare")).toHaveLength(1));
     expect(fake.callsTo("desktop_restore_prepare")[0]?.options).toMatchObject({
       mode: "same-machine",
@@ -138,18 +139,18 @@ describe("native backup and restore", () => {
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
     expect(screen.queryByRole("heading", { name: "Available backups" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Open and inspect archive…" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open backup…" })).toBeTruthy();
     fireEvent.click(await screen.findByRole("radio", { name: "Use a saved backup" }));
-    expect(screen.queryByRole("button", { name: "Open and inspect archive…" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open backup…" })).toBeNull();
     await screen.findByRole("heading", { name: "Available backups" });
     expect(screen.queryByLabelText("Prepared restore UUID")).toBeNull();
     expect(screen.queryByText(stage.id)).toBeNull();
     fireEvent.click(screen.getByRole("combobox", { name: "Available backup" }));
     fireEvent.click(await screen.findByRole("option", { name: /Full instance archive/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Inspect selected backup" }));
-    await screen.findByText("admin@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Review selected backup" }));
+    await screen.findByText(/Administrator \(admin@example.com\)/);
     expect(screen.queryByText(/Exclusions:/)).toBeNull();
-    expect(screen.queryByLabelText("Recover an existing administrator")).toBeNull();
+    expect(screen.getByRole("switch", { name: "Recover an existing administrator" })).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Start the server after restoring" }).getAttribute("aria-checked")).toBe(
       "true",
     );
@@ -180,9 +181,7 @@ describe("native backup and restore", () => {
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
-    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
-    await screen.findByRole("button", { name: "Review replacement" });
-    fireEvent.click(screen.getByRole("button", { name: "Review replacement" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open backup…" }));
     await screen.findByRole("switch", { name: "Replace the displayed destination" });
     fireEvent.click(screen.getByRole("switch", { name: "Replace the displayed destination" }));
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
@@ -190,7 +189,7 @@ describe("native backup and restore", () => {
     expect(fake.callsTo("desktop_restore_prepare")).toHaveLength(2);
     expect(fake.callsTo("desktop_restore_apply")[0]?.staged).toBe("stage-2");
   });
-  it("returns to editable restore options using the footer Back button", async () => {
+  it("returns to backup selection using the footer Back button", async () => {
     fake = installFakeIpc({
       handlers: {
         desktop_backup_list: () => ({ backups: [] }),
@@ -201,13 +200,13 @@ describe("native backup and restore", () => {
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" rail={<nav>Navigation</nav>} />);
-    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Review replacement" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open backup…" }));
+    await screen.findByRole("switch", { name: "Replace the displayed destination" });
     const back = await screen.findByRole("button", { name: "Back" });
     expect(screen.queryByRole("button", { name: "Discard prepared restore" })).toBeNull();
     fireEvent.click(back);
-    await screen.findByLabelText("Destination database path (optional)");
-    expect(fake.callsTo("desktop_restore_discard")).toEqual([{ staged: stage.id }]);
+    await screen.findByRole("button", { name: "Open backup…" });
+    expect(screen.queryByRole("heading", { name: "Backup details" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
   });
   it("asks for interruption only when restore reports incompatible sessions, and cancellation leaves them untouched", async () => {
@@ -224,8 +223,8 @@ describe("native backup and restore", () => {
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
-    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Review replacement" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open backup…" }));
+    await screen.findByRole("switch", { name: "Replace the displayed destination" });
     fireEvent.click(await screen.findByRole("switch", { name: "Replace the displayed destination" }));
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
     await screen.findByRole("dialog", { name: "Some sessions cannot survive this restore" });
@@ -248,7 +247,7 @@ describe("native backup and restore", () => {
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
-    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open backup…" }));
     await screen.findByText("Checksum validation failed");
     expect(fake.callsTo("desktop_restore_prepare")).toHaveLength(0);
     expect(fake.callsTo("desktop_restore_apply")).toHaveLength(0);
@@ -277,7 +276,7 @@ describe("native backup and restore", () => {
     fireEvent.click(await screen.findByRole("radio", { name: "Use a saved backup" }));
     fireEvent.click(await screen.findByRole("combobox", { name: "Available backup" }));
     fireEvent.click(await screen.findByRole("option", { name: /Database-only snapshot/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Inspect selected backup" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review selected backup" }));
     expect(fake.callsTo("desktop_restore_inspect")[0]).toMatchObject({ archive: "/tmp/legacy.db", staged: "" });
     await screen.findByRole("heading", { name: "Backup details" });
     expect(screen.getByRole("radiogroup", { name: "Restore mode" })).toBeTruthy();
@@ -303,7 +302,7 @@ describe("native backup and restore", () => {
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
-    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open backup…" }));
     await screen.findByRole("radio", { name: "Move to a new machine" });
     expect(screen.getByRole("radio", { name: "Same-machine recovery" }).getAttribute("aria-checked")).toBe("true");
     fireEvent.click(screen.getByRole("radio", { name: "Move to a new machine" }));
@@ -311,9 +310,11 @@ describe("native backup and restore", () => {
     fireEvent.change(screen.getByLabelText("Public base URL (optional)"), {
       target: { value: "https://previous.example" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open backup…" }));
     await screen.findByRole("heading", { name: "Backup details" });
-    fireEvent.click(screen.getByRole("button", { name: "Review replacement" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Replace the displayed destination" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
     await waitFor(() => expect(fake?.callsTo("desktop_restore_prepare")).toHaveLength(1));
     expect(fake.callsTo("desktop_restore_prepare")[0]?.options).toMatchObject({
       mode: "same-machine",
