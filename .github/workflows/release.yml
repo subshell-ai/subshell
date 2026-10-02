@@ -232,7 +232,7 @@ jobs:
       # versions are all published already: minutes spent to publish
       # nothing, which is the exact cost the split exists to avoid. Read
       # here, it answers about the commit that actually landed on main.
-      - uses: changesets/action@fdf536a68c4154480c89b42547f8102cf0d8bc47 # v2.1.1
+      - uses: changesets/action@8488615a623b1b9c987934bb89eae8af6a946ac1 # v2.1.1
         with:
           # This job VERSIONS ONLY. Publishing to npm lives in `npm-publish`
           # below, because npm's OIDC trusted publishing supports hosted
