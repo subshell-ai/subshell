@@ -64,25 +64,27 @@ Each harness row has `harnessId`, `name`, `installed`, and an optional refusal `
 
 Arguments: `{}`. Returns rows with `id`, `name`, and `harnessId`.
 
-Real presets include `crossCommReady`, true when communication is enabled and the preset supplies a node and directory. Harness catalog rows have `catalogOnly: true`; they are informational and cannot be passed as launchable presets. A human must save a preset first.
+Real presets include `crossCommReady`, true when communication is enabled and the preset supplies a node and directory. Harness catalog rows have `catalogOnly: true`; an agent harness catalog row is informational and needs a human to save a preset before it can launch, but a plain terminal harness can launch presetless straight from `create_subshell`.
 
 ## create_subshell
 
+The tool has two shapes. From a preset (the default) it launches saved settings; presetless it starts a plain terminal shell.
+
 | Argument | Requirement | Meaning |
 | --- | --- | --- |
-| `preset` | Required string | Saved preset ID from `list_presets`. |
-| `harness` | Optional string | Assert the preset's harness; it must match. |
+| `preset` | Optional string | Saved preset ID from `list_presets`. Omit for a presetless terminal launch. |
+| `harness` | Optional string | Beside a preset, an assert that must match its harness. Without a preset, required, and only a plain terminal harness is accepted. |
 | `name` | Optional string | New subshell display name. |
 | `node` | Optional string | Node ID or unambiguous display name override. |
-| `working_dir` | Optional string | Absolute directory on that node. |
-| `prompt` | Optional string | Task text added to or replacing the preset prompt. |
-| `prompt_mode` | Optional enum | `append` by default, or `replace`. |
+| `working_dir` | Optional string | Absolute directory on that node. Omitted, a presetless terminal starts in the node's home. |
+| `prompt` | Optional string | Task text added to or replacing the preset prompt, or typed once a presetless shell settles. |
+| `prompt_mode` | Optional enum | `append` by default, or `replace`. Needs a preset. |
 
 Returns `{ id, promptDelivered }`. Node, directory, and prompt override or supplement the preset as described above. The final composed prompt is limited to 20,000 characters.
 
 A creation timeout can occur after the session was created. Inspect the session list before retrying.
 
-The helper is marked cross-agent and created with notifications off. Its creator is responsible for cleanup; see [Helper lifecycle](/mcp/lifecycle).
+The helper is marked cross-agent and created with notifications off. Its creator is responsible for cleanup; see [Helper lifecycle](/mcp/lifecycle). See [Terminal sessions](/mcp/terminals) for driving a shell pane with `send_to_subshell` and the `read_subshell_log` cursor.
 
 ## restart_subshell
 
@@ -100,7 +102,7 @@ Pass `{ "id": "SUBSHELL_ID" }`. Returns `{ ok }`. Stops a running process first,
 
 ## read_subshell_log
 
-Pass `{ "id": "SUBSHELL_ID" }`. Returns `{ lines, truncated }`, the captured tail with ANSI formatting removed. Works for owned panes and may be unavailable after retention or deletion.
+Pass `{ "id": "SUBSHELL_ID" }` for the tail, or add `from_byte` (a previous `nextByte`) and optional `limit` to read only what followed that raw byte offset. Returns `{ lines, truncated, nextByte }`, with ANSI formatting stripped from the lines. Tail reads end `nextByte` at the end of the log, so a tail seeds a cursor loop; cursor reads resume at line boundaries and never split a line across two calls (a single line longer than the window is the documented exception, and it still advances). Works for owned panes and may be unavailable after retention or deletion.
 
 ## send_to_subshell
 

@@ -26,7 +26,7 @@ To remove a library entry, choose **Delete preset** from its **⋯** menu and re
 
 ## Use from an agent
 
-MCP's `list_presets` returns your saved preset IDs and `crossCommReady`. A preset is ready for agent-created launches only when its MCP switch is enabled and a machine and directory are saved. Catalog entries are agent choices, not saved presets that `create_subshell` can launch.
+MCP's `list_presets` returns your saved preset IDs and `crossCommReady`. A preset is ready for agent-created launches only when its MCP switch is enabled and a machine and directory are saved. Catalog entries are not saved presets: an agent harness catalog entry needs a saved preset before `create_subshell` can launch it, while a plain terminal harness can launch presetless (see [Terminal sessions](/mcp/terminals)).
 
 ```mermaid
 %% An agent lists the owner's presets, chooses an eligible saved preset ID, requests a helper, and the server checks access and availability before launching on the preset's node.
