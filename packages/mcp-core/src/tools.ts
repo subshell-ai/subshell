@@ -25,8 +25,9 @@ export interface ToolDeps {
 
 /**
  * Maps an ApiError to the plain-English guidance agents act on. The `code`
- * branches map exactly the four values they name (NODE_REQUIRED,
- * NODE_OFFLINE, NODE_IN_MAINTENANCE, SUBSHELL_NOT_RUNNING), each of which
+ * branches map exactly the five values they name (NODE_REQUIRED,
+ * NODE_OFFLINE, NODE_IN_MAINTENANCE, SUBSHELL_NOT_RUNNING,
+ * NODE_AGENT_TOO_OLD), each of which
  * the server's `throwApiError` paths ride to the wire under that name;
  * RESTART_IN_FLIGHT rides by name too but gets no branch of its own here,
  * it answers through the 409 status branch like any other 409. The
@@ -55,9 +56,26 @@ export function describeToolError(err: unknown): Error {
     if (err.code === "SUBSHELL_NOT_RUNNING") {
       return new Error(`subshell: the subshell is not running (${err.message}); start it with restart_subshell`);
     }
-    if (err.status === 401) {
+    if (err.code === "NODE_AGENT_TOO_OLD") {
+      // The transfer verbs' `unsupported` answer lands under this code
+      // (spec 2026-10-01 §5): the machine itself is fine, its binary is a
+      // version behind, and only a human can close that (the Updates page).
       return new Error(
-        "subshell: subshell token rejected (revoked or expired); restart this subshell to mint a new one",
+        `subshell: the agent on the target node predates this command (${err.message}); update the node (Nodes page asks a human), or check list_nodes for a machine at the current version`,
+      );
+    }
+    if (err.status === 401) {
+      // The auth-guard answers revoked, expired, gone-row and disabled-owner
+      // ALL as a bare 401 on purpose (a distinct code would be an oracle into
+      // token state), so the client cannot name the cause and must not try to.
+      // What it CAN say truthfully, to the AGENT who reads this (not a human):
+      // every subshell tool rides this one bearer, so the whole surface is
+      // down, not just this call; and the token cannot be renewed from in here
+      // - a self-restart is the ONE move that terminates the caller (the
+      // restart_subshell contract), so the message must not point at it. The
+      // remedy belongs to a human, and saying so is the whole fix.
+      return new Error(
+        "subshell: this pane's MCP token is revoked or expired, so every subshell tool is unavailable until it is renewed. You cannot renew it from inside the pane, and calling restart_subshell on your own pane would terminate you: ask a human to restart this subshell.",
       );
     }
     if (err.status === 403) return new Error(`subshell: permission denied: ${err.message}`);

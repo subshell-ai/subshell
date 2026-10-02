@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
   HARNESS_BINARY_PLACEHOLDER,
+  MAX_MANIFEST_PAGE_BYTES,
+  MAX_TRANSFER_LIST_FILES,
+  MAX_TRANSFER_WINDOW_BYTES,
   NODE_CLOSE_HANDSHAKE_REQUIRED,
   NODE_CLOSE_REPAIR_REQUIRED,
   NODE_CLOSE_SUPERSEDED,
@@ -144,6 +147,120 @@ describe("parseNodeCommandBody", () => {
     ).toBeNull();
   });
 
+  it("validates archive_create roots and the files-list cap", () => {
+    expect(parseNodeCommandBody({ type: "archive_create", root: "/src", stagingPath: "/data/stage/a.tar.gz" })).toEqual(
+      {
+        type: "archive_create",
+        root: "/src",
+        stagingPath: "/data/stage/a.tar.gz",
+      },
+    );
+    expect(
+      parseNodeCommandBody({ type: "archive_create", root: "/src", files: ["a.txt", "b/c.txt"], stagingPath: "/s" }),
+    ).toEqual({ type: "archive_create", root: "/src", files: ["a.txt", "b/c.txt"], stagingPath: "/s" });
+    expect(parseNodeCommandBody({ type: "archive_create", root: "/src" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "archive_create", stagingPath: "/s" })).toBeNull();
+    // Shape only: `..`/absoluteness inside the list is the writer's path
+    // guard's verdict at emit time, not the grammar's.
+    expect(parseNodeCommandBody({ type: "archive_create", root: "/src", files: [], stagingPath: "/s" })).toEqual({
+      type: "archive_create",
+      root: "/src",
+      files: [],
+      stagingPath: "/s",
+    });
+    expect(
+      parseNodeCommandBody({
+        type: "archive_create",
+        root: "/src",
+        files: ["x", ...Array.from({ length: MAX_TRANSFER_LIST_FILES }, (_, i) => `f${i}`)],
+        stagingPath: "/s",
+      }),
+    ).toBeNull();
+  });
+
+  it("validates file_read windows against the shared window cap", () => {
+    expect(parseNodeCommandBody({ type: "file_read", path: "/d/x", fromByte: 0, maxBytes: 1024 })).toEqual({
+      type: "file_read",
+      path: "/d/x",
+      fromByte: 0,
+      maxBytes: 1024,
+    });
+    expect(parseNodeCommandBody({ type: "file_read", path: "/d/x", fromByte: -1, maxBytes: 1024 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "file_read", path: "/d/x", fromByte: 0, maxBytes: 0 })).toBeNull();
+    // The cap is the frame math (spec 2026-10-01 §2): a parser accepting more
+    // would advertise a window the link cannot carry.
+    expect(
+      parseNodeCommandBody({ type: "file_read", path: "/d/x", fromByte: 0, maxBytes: MAX_TRANSFER_WINDOW_BYTES }),
+    ).not.toBeNull();
+    expect(
+      parseNodeCommandBody({ type: "file_read", path: "/d/x", fromByte: 0, maxBytes: MAX_TRANSFER_WINDOW_BYTES + 1 }),
+    ).toBeNull();
+    expect(parseNodeCommandBody({ type: "file_read", fromByte: 0, maxBytes: 1024 })).toBeNull();
+  });
+
+  it("validates transfer_write like write_file, under its own name", () => {
+    expect(
+      parseNodeCommandBody({ type: "transfer_write", path: "/d/x", chunkB64: "aGk=", chunk: 0, eof: true }),
+    ).toEqual({ type: "transfer_write", path: "/d/x", chunkB64: "aGk=", chunk: 0, eof: true });
+    expect(
+      parseNodeCommandBody({ type: "transfer_write", path: "/d/x", chunkB64: "no!!", chunk: 0, eof: false }),
+    ).toBeNull();
+    expect(
+      parseNodeCommandBody({ type: "transfer_write", path: "/d/x", chunkB64: "aGk=", chunk: -1, eof: false }),
+    ).toBeNull();
+    expect(parseNodeCommandBody({ type: "transfer_write", path: "/d/x", chunkB64: "aGk=", chunk: 0 })).toBeNull();
+  });
+
+  it("validates archive_extract path pair with its digest", () => {
+    const sha = "a".repeat(64);
+    expect(
+      parseNodeCommandBody({
+        type: "archive_extract",
+        archivePath: "/d/a.tar.gz",
+        expectedSha256: sha,
+        destRoot: "/dst",
+      }),
+    ).toEqual({ type: "archive_extract", archivePath: "/d/a.tar.gz", expectedSha256: sha, destRoot: "/dst" });
+    expect(parseNodeCommandBody({ type: "archive_extract", archivePath: "/d/a.tar.gz" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "archive_extract", destRoot: "/dst" })).toBeNull();
+    // The digest is the destination's own re-check; no hash (or a malformed
+    // one) is a frame that never intended to verify, so the grammar refuses.
+    expect(parseNodeCommandBody({ type: "archive_extract", archivePath: "/d/a", destRoot: "/dst" })).toBeNull();
+    expect(
+      parseNodeCommandBody({ type: "archive_extract", archivePath: "/d/a", expectedSha256: "ABC", destRoot: "/dst" }),
+    ).toBeNull();
+    expect(
+      parseNodeCommandBody({
+        type: "archive_extract",
+        archivePath: "/d/a",
+        expectedSha256: "A".repeat(64), // uppercase is not lowercase-hex
+        destRoot: "/dst",
+      }),
+    ).toBeNull();
+  });
+
+  it("validates tree_manifest paging", () => {
+    expect(parseNodeCommandBody({ type: "tree_manifest", root: "/src", maxBytes: 65536 })).toEqual({
+      type: "tree_manifest",
+      root: "/src",
+      maxBytes: 65536,
+    });
+    expect(parseNodeCommandBody({ type: "tree_manifest", root: "/src", cursor: "a/b", maxBytes: 65536 })).toEqual({
+      type: "tree_manifest",
+      root: "/src",
+      cursor: "a/b",
+      maxBytes: 65536,
+    });
+    // maxBytes is REQUIRED: an unbudgeted page is a caller that forgot the
+    // frame cap exists.
+    expect(parseNodeCommandBody({ type: "tree_manifest", root: "/src" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "tree_manifest", root: "/src", maxBytes: 0 })).toBeNull();
+    expect(
+      parseNodeCommandBody({ type: "tree_manifest", root: "/src", maxBytes: MAX_MANIFEST_PAGE_BYTES + 1 }),
+    ).toBeNull();
+    expect(parseNodeCommandBody({ type: "tree_manifest", root: "/src", cursor: 7, maxBytes: 65536 })).toBeNull();
+  });
+
   it("pins the protocol version", () => {
     // Matched EXACTLY: there is no compat window and no per-feature gating,
     // because the server and the agent ship together. Bump this whenever a
@@ -189,7 +306,10 @@ describe("parseNodeCommandBody", () => {
     // 14 is the encrypted node link: the kx handshake, secretstream frames,
     // the register self-heal and close 4410 — a protocol-14 node never writes
     // a plaintext frame.
-    expect(NODE_PROTOCOL_VERSION).toBe(14);
+    // 15 is the archive-transfer surface (spec 2026-10-01 §2): five commands
+    // (archive_create, file_read, transfer_write, archive_extract,
+    // tree_manifest) plus the window/entry constants both ends must agree on.
+    expect(NODE_PROTOCOL_VERSION).toBe(15);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {

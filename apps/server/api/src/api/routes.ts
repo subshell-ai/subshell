@@ -23,6 +23,7 @@ import { setupAgentInstallRoute } from "@/api/setup-agent-install.route.js";
 import { setupTmuxInstallRoute } from "@/api/setup-tmux-install.route.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { systemKeysRoutes } from "@/api/system-keys.route.js";
+import { transferRoutes } from "@/api/transfers/index.js";
 import { uploadsRoutes } from "@/api/uploads.route.js";
 import { usersRoutes } from "@/api/users/index.js";
 import { workspaceRoutes } from "@/api/workspaces/index.js";
@@ -69,7 +70,8 @@ const computeRoutes = new Elysia()
   .use(promptsRoutes)
   .use(filesRoutes)
   .use(workspaceRoutes)
-  .use(nodesRoutes);
+  .use(nodesRoutes)
+  .use(transferRoutes);
 
 const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use(channelRoutes);
 

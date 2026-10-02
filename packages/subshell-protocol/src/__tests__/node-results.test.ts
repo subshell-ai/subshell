@@ -1,12 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import {
   FS_LS_MAX_ENTRIES,
+  MAX_MANIFEST_PAGE_ENTRIES,
   NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
+  parseNodeArchiveCreateResult,
+  parseNodeArchiveExtractResult,
   parseNodeCaptureResult,
   parseNodeCommandBody,
   parseNodeDetectResults,
   parseNodeEvent,
+  parseNodeFileReadResult,
   parseNodeFsLsResult,
   parseNodeLogReadResult,
   parseNodePaneCursorResult,
@@ -15,6 +19,7 @@ import {
   parseNodeProbeEntries,
   parseNodePromptDeliver,
   parseNodeStatDirResult,
+  parseNodeTreeManifestPage,
   parseNodeWriteFileResult,
 } from "../index.js";
 
@@ -254,5 +259,62 @@ describe("detect result contract (inversion spec §4)", () => {
     });
     expect(ev?.type).toBe("inventory");
     expect(JSON.stringify(ev)).not.toContain("rawVersion");
+  });
+
+  it("archive_create: non-negative size plus a 64-hex digest, nothing else passes", () => {
+    const sha = "a".repeat(64);
+    expect(parseNodeArchiveCreateResult({ size: 4096, sha256: sha })).toEqual({ size: 4096, sha256: sha });
+    expect(parseNodeArchiveCreateResult({ size: 0, sha256: sha })).not.toBeNull();
+    for (const bad of [
+      { size: -1, sha256: sha },
+      { size: 1.5, sha256: sha },
+      { size: 10, sha256: sha.toUpperCase() }, // uppercase hex is not the wire spelling
+      { size: 10, sha256: "a".repeat(63) },
+      { size: 10, sha256: "z".repeat(64) },
+      { size: 10 },
+      null,
+    ]) {
+      expect(parseNodeArchiveCreateResult(bad)).toBeNull();
+    }
+  });
+
+  it("file_read answers the log_read window shape, under its own validator", () => {
+    const ok = { bytes_b64: "aGk=", next: 2, size: 2 };
+    expect(parseNodeFileReadResult(ok)).toEqual(ok);
+    // The log_read invariant carries over: an empty read may not report a
+    // cursor past EOF.
+    expect(parseNodeFileReadResult({ bytes_b64: "", next: 3, size: 2 })).toBeNull();
+    expect(parseNodeFileReadResult({ bytes_b64: "no!!", next: 2, size: 2 })).toBeNull();
+    expect(parseNodeFileReadResult("aGk=")).toBeNull();
+  });
+
+  it("archive_extract counts files and bytes, non-negative integers only", () => {
+    expect(parseNodeArchiveExtractResult({ files: 3, bytes: 5000 })).toEqual({ files: 3, bytes: 5000 });
+    expect(parseNodeArchiveExtractResult({ files: 0, bytes: 0 })).not.toBeNull();
+    for (const bad of [{ files: -1, bytes: 0 }, { files: 0, bytes: -5 }, { files: 1 }, { bytes: 1 }, {}, null]) {
+      expect(parseNodeArchiveExtractResult(bad)).toBeNull();
+    }
+  });
+
+  it("tree_manifest pages: sorted rows with real digests, cursor-or-null", () => {
+    const sha = "b".repeat(64);
+    const page = { entries: [{ relPath: "a/b.txt", size: 4, mtime: 10, sha256: sha }], nextCursor: "a/b.txt" };
+    expect(parseNodeTreeManifestPage(page)).toEqual(page);
+    expect(parseNodeTreeManifestPage({ entries: [], nextCursor: null })).toEqual({ entries: [], nextCursor: null });
+    const emptyPage = { entries: Array.from({ length: MAX_MANIFEST_PAGE_ENTRIES }, () => page.entries[0]) };
+    expect(parseNodeTreeManifestPage({ ...emptyPage, nextCursor: "z" })).not.toBeNull();
+    for (const bad of [
+      { entries: Array.from({ length: MAX_MANIFEST_PAGE_ENTRIES + 1 }, () => page.entries[0]), nextCursor: "z" },
+      { entries: [{ relPath: "", size: 4, mtime: 10, sha256: sha }], nextCursor: null }, // empty relPath
+      { entries: [{ relPath: "a", size: 4, mtime: 10, sha256: "b".repeat(63) }], nextCursor: null },
+      { entries: [{ relPath: "a", size: -1, mtime: 10, sha256: sha }], nextCursor: null },
+      { entries: [{ relPath: "a", size: 4, mtime: 1.5, sha256: sha }], nextCursor: null },
+      { entries: [{ relPath: "a", size: 4, mtime: 10, sha256: sha }] }, // no cursor key at all
+      { entries: [{ relPath: "a", size: 4, mtime: 10, sha256: sha }], nextCursor: "" }, // empty cursor is not a resume point
+      { entries: "a/b.txt", nextCursor: null },
+      null,
+    ]) {
+      expect(parseNodeTreeManifestPage(bad)).toBeNull();
+    }
   });
 });

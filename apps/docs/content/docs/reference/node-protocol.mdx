@@ -112,7 +112,9 @@ sequenceDiagram
 
 A success event has `type: "result"`, `ref`, `ok: true`, and optional `data`. A refusal has `ok: false` and an `error` string. Node events inherit the authenticated encrypted connection's identity; they are not separately JWS-signed commands.
 
-The server normally waits up to 10 seconds for a command result. Updates use a five-minute deadline. The command's signature expiry governs acceptance, not the maximum duration of an already-accepted operation. A timeout does not prove that the node performed no work; inspect state before retrying an operation that could create or change something.
+The server normally waits up to 10 seconds for a command result. Updates, `archive_create`, and `archive_extract` use a five-minute deadline; `tree_manifest` gets a minute and each `transfer_write` chunk thirty seconds. The command's signature expiry governs acceptance, not the maximum duration of an already-accepted operation. A timeout does not prove that the node performed no work; inspect state before retrying an operation that could create or change something.
+
+A command that runs for minutes is queued behind every other command on that node's serialized connection: while a node builds or extracts an archive, its pane input waits its turn. Transfers are bounded so the wait stays finite: relay windows are capped at 512 KiB of raw bytes per frame, and one archive at 4 GiB uncompressed.
 
 ### Command families
 
@@ -122,6 +124,7 @@ The server normally waits up to 10 seconds for a command result. Updates use a f
 | Terminal interaction and snapshots | `input`, `resize`, `capture`, `pane_size`, `pane_cursor`. |
 | Transcript reads and live subscriptions | `log_read`, `tail_start`, `tail_stop`. |
 | Files and directories | `stat_dir`, `fs_ls`, `path_exists`, `write_file`, `remove_paths`, `set_allowed_dirs`. |
+| Archive transfer | `archive_create`, `file_read`, `transfer_write`, `archive_extract`, `tree_manifest`. |
 | Machine information | `inventory`, `detect`, `ping`. |
 | Node management | `service`, `agent_log_read`, `set_server_url`, `set_log_level`, `set_maintenance`, `update`. |
 
@@ -168,7 +171,7 @@ The server applies two distinct gates to readiness:
 1. The node release must meet the server's minimum supported release version.
 2. Its protocol version must match the server's protocol exactly.
 
-The implemented protocol is **14**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
+The implemented protocol is **15**. Its number is independent of the package release version. Additive wire changes also require a protocol bump and coordinated rollout; there is no per-feature compatibility window.
 
 A refused node can remain connected in a **held** state for updates while staying unavailable for launches and ordinary management commands. Only `update` can use that held connection. Older nodes on the legacy path receive that update command in its frozen plaintext recovery format; they are not admitted for normal plaintext operation. Invalid credentials and disabled owners are authentication failures, not update holds.
 

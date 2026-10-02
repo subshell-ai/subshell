@@ -18,6 +18,7 @@ import type { CommandContext, CommandResult, CommandWs } from "./commands/contex
 import { dispatchCommand } from "./commands/index.js";
 import { buildSubshellsReport, maybeReportMaintenance, seedMaintenanceMemo } from "./commands/report.js";
 import { stopAllTails } from "./commands/tail.js";
+import { sweepStaleTransfers } from "./commands/transfer-sweep.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
 import { loadConfig, type NodeConfig, updateConfig } from "./config.js";
 import { registerRestart, setDaemonState } from "./dashboard/state.js";
@@ -504,6 +505,15 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // Startup sweep for upload temps orphaned by a crash mid-stream (spec §3.4).
   // Never throws by contract — a broken sweep must not cost the node its connection.
   await cleanupStaleUploads(ctx);
+  // The transfer staging sweep (spec 2026-10-01 review): aborted transfers
+  // strand their archive under `<dataDir>/transfers/`, and the uploads sweep
+  // is shallow and `.part`-named, so it never sees them. Boot pass plus an
+  // hourly beat, unref'd like the retention timer — a stranded archive is
+  // plaintext of the user's tree, and "until the next restart" is too long
+  // for a daemon that keeps a healthy connection for weeks.
+  void sweepStaleTransfers(ctx);
+  const transferSweepTimer = setInterval(() => void sweepStaleTransfers(ctx), PANE_LOG_RETENTION_PASS_MS);
+  transferSweepTimer.unref?.();
 
   // Pane-log retention (2026-09-23): the node ages out its own transcripts.
   // The plane's hourly sweep never reaches this disk, and the only node-side

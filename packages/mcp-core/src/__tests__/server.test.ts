@@ -135,6 +135,9 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
         "create_prompt",
         "update_prompt",
         "delete_prompt",
+        // Node-to-node archive transfer (spec 2026-10-01 §6): one tool, copy
+        // and diff-sync, the mode a flag not a second verb.
+        "transfer_files",
       ]),
     );
   });
@@ -158,6 +161,10 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect(byName.get_subshell.description).toContain("name");
     expect(byName.restart_subshell.inputSchema.properties).toHaveProperty("prompt");
     expect(byName.restart_subshell.description).toContain("OWN subshell terminates you");
+    // The P3 doc fix: the self-restart's OBSERVED shape (no result; the
+    // transport closes because this process dies with the pane) is part of
+    // the contract agents get, so it is pinned, not just written.
+    expect(byName.restart_subshell.description).toContain("never returns a tool result");
     expect(byName.terminate_subshell.description).toContain("row and history stay");
     expect(byName.delete_subshell.description).toContain("owner-only");
     expect(byName.list_nodes.description).toContain("inventoryStale");

@@ -9,12 +9,17 @@
  * design): it stops the process AND removes the row and its log. It replaced
  * both the old Delete wording and the separate Terminate action, because
  * stop-without-delete had no human use-case (agents keep terminate via MCP).
- * Restart has no confirm (it revives the same subshell and resumes the
- * conversation — nothing is lost by clicking it).
+ * Restart is split by liveness (operator ruling 2026-10-02): reviving a DEAD
+ * row asks nothing, because it resumes the same subshell and nothing is
+ * lost, while restarting a LIVE one kills its running process, so it asks,
+ * through {@link confirmRestartSubshell}. The live item exists so a pane
+ * whose MCP token died can be renewed from the menu instead of being closed.
  *
- * Wording rule: the TITLE is the question with the subshell's name in it;
- * the DESCRIPTION is the one-sentence consequence. Never a whole sentence
- * as the heading — the dialog renders the title large.
+ * Wording rule: the DESCRIPTION is the consequence. Close names the subshell
+ * in its TITLE (the 2026-09-03 design predates the later ruling); prompts
+ * added since keep the title a static question and let the body carry the
+ * name (ruling 2026-09-30). Never a whole sentence as the heading, because
+ * the dialog renders the title large.
  *
  * They render through the app-wide styled dialog (`lib/confirm`), so they
  * are async: `if (await confirmCloseSubshell(name)) …`.
@@ -37,9 +42,48 @@ export function confirmCloseSubshell(name: string): Promise<boolean> {
   });
 }
 
+/**
+ * Confirmation prompt before restarting a LIVE subshell: the endpoint kills
+ * the running process and relaunches the same row (same id, the log
+ * continues, and a fresh MCP token is minted). Reviving a dead row asks
+ * nothing (see the module header), so this prompt guards only the case with
+ * something to lose.
+ * @param name - The subshell's display name (or id, if the name isn't loaded yet)
+ * @returns True if the user confirmed
+ */
+export function confirmRestartSubshell(name: string): Promise<boolean> {
+  return confirmAction({
+    title: "Restart this subshell?",
+    description: `This stops the running process in "${name}" and starts the same subshell again in a new pane. Whatever it was mid-way through is lost.`,
+    confirmLabel: "Restart",
+    danger: true,
+  });
+}
+
 /** `N subshells`, singular at one. */
 function count(n: number): string {
   return `${n} subshell${n === 1 ? "" : "s"}`;
+}
+
+/**
+ * Confirmation prompt before a bulk restart whose selection contains
+ * `live` running subshells out of `total` (the bulk bar's twin of the
+ * liveness split; a selection that is all-dead asks nothing). The count is a
+ * number, not user data, so the {@link confirmCloseSubshells} title pattern
+ * stands.
+ */
+export function confirmRestartSubshells(total: number, live: number): Promise<boolean> {
+  return confirmAction({
+    title: `Restart ${count(total)}?`,
+    // The "N of them" phrasing only reads for a plural selection; a
+    // single-row bulk selection is necessarily the one live row.
+    description:
+      total === 1
+        ? "This stops its running process and starts the subshell again in a new pane. Whatever it was mid-way through is lost."
+        : `${live} of them ${live === 1 ? "is" : "are"} running; this stops those processes and starts the subshells again in new panes. Whatever the running ones were mid-way through is lost.`,
+    confirmLabel: "Restart",
+    danger: true,
+  });
 }
 
 /** Confirmation prompt before closing `n` subshells (bulk {@link confirmCloseSubshell}). */

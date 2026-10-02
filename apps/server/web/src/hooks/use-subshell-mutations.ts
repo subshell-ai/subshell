@@ -1,12 +1,18 @@
 import { apiFetch } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
-import { confirmCloseSubshell } from "@/lib/subshell-confirmations";
+import { confirmCloseSubshell, confirmRestartSubshell } from "@/lib/subshell-confirmations";
 import type { SubshellView } from "@/types/subshell";
 
-/** Restart / close for one subshell; the destructive one asks. */
+/**
+ * Restart / close for one subshell: close always asks, a live restart asks,
+ * and a dead revive does not.
+ */
 export interface SubshellMutations {
-  /** Revives the subshell in place (same id): new process, conversation resumed where it can */
+  /**
+   * Restarts the subshell in place (same id). A dead row revives without
+   * asking; a live pane's process is killed first, so that path asks.
+   */
   restart: () => void;
   /** Asks, then closes the subshell (terminates it and deletes its row + log) */
   remove: () => Promise<void>;
@@ -23,8 +29,9 @@ export interface SubshellMutations {
 /**
  * The single implementation of the subshell lifecycle actions, shared by
  * `SubshellActionsMenu` (cards, rows, the detail header) and the terminal's
- * exited-state panel. It owns the endpoints, the close confirmation, and the
- * cache refresh; callers only decide what a close *means* where they are —
+ * exited-state panel. It owns the endpoints, the destructive confirmations
+ * (close always; restart only when the pane is live, ruling 2026-10-02), and
+ * the cache refresh; callers only decide what a close *means* where they are —
  * leave the page, or stay put — through the callbacks. A restart is
  * in-place (same id): every surface just sees the refreshed row.
  *
@@ -104,11 +111,14 @@ export function useSubshellMutations(
     action.mutate();
   }
 
-  // Closing is destructive and always asks. Restart does not: it revives the
-  // same subshell and resumes the conversation — nothing is lost by clicking
-  // it.
+  // Closing is destructive and always asks. Restarting a DEAD row asks
+  // nothing: it revives the same subshell and resumes the conversation, and
+  // nothing is lost by clicking it. Restarting a LIVE one kills the running
+  // process, so it asks first (ruling 2026-10-02: the menu offers restart on
+  // live panes too, so a pane whose MCP token died can be renewed without
+  // being closed; the in-flight work there is the thing to warn about).
   return {
-    restart: runNow(restart),
+    restart: subshell?.alive ? () => void askThen(confirmRestartSubshell, restart) : runNow(restart),
     remove: () => askThen(confirmCloseSubshell, remove),
     toggleNotify: () => toggleNotify.mutateAsync().then(() => undefined),
     busy: restart.isPending || remove.isPending,

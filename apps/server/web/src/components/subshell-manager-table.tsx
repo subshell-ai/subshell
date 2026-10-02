@@ -7,7 +7,7 @@ import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDot } from "@/components/subshell-dot";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
-import { confirmCloseSubshells } from "@/lib/subshell-confirmations";
+import { confirmCloseSubshells, confirmRestartSubshells } from "@/lib/subshell-confirmations";
 import type { SubshellSection } from "@/lib/subshell-sections";
 import type { SubshellView } from "@/types/subshell";
 
@@ -49,9 +49,16 @@ export function SubshellManagerTable({
 
   async function runBulk(action: "restart" | "close") {
     const n = selectedIds.length;
-    // Bulk close is destructive and asks; bulk restart does not (it spawns
-    // subshells and resumes conversations — nothing is lost).
-    const ok = action === "restart" ? true : await confirmCloseSubshells(n);
+    // Bulk close is destructive and always asks. Bulk restart asks when the
+    // selection contains LIVE panes (ruling 2026-10-02): restarting a live
+    // pane stops its running process, and the per-row menu asks for exactly
+    // that, so the bulk bar must not be looser than the row it mirrors. An
+    // all-dead selection revives in place and loses nothing, so it asks
+    // nothing, as restart always has on dead rows.
+    const live =
+      action === "restart" ? selectedIds.filter((id) => subshells.some((s) => s.id === id && s.alive)).length : 0;
+    const ok =
+      action === "restart" ? live === 0 || (await confirmRestartSubshells(n, live)) : await confirmCloseSubshells(n);
     if (!ok) return;
     setBulkBusy(true);
     setLastBulkError(null);

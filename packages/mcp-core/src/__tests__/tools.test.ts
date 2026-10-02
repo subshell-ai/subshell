@@ -18,6 +18,7 @@ import {
   sendToSubshell,
 } from "../subshell-tools.js";
 import { describeToolError, type ToolApi, type ToolDeps } from "../tools.js";
+import { transferFiles } from "../transfer-tools.js";
 
 /** In-memory fake: tools talk to this, never to a server. */
 interface Recorded {
@@ -388,8 +389,17 @@ describe("mcp tools (handler-level, real crypto)", () => {
     expect(rows[1]?.crossCommReady).toBe(false);
   });
 
-  it("describeToolError turns a 401 into restart guidance", () => {
-    expect(describeToolError(new ApiError(401, "no")).message).toContain("restart this subshell");
+  it("describeToolError turns a 401 into guidance an AGENT can safely act on", () => {
+    const msg = describeToolError(new ApiError(401, "no")).message;
+    // The whole surface is down (one shared bearer), not just the failing call:
+    expect(msg).toContain("every subshell tool is unavailable");
+    // The remedy is a human's, and the message says so rather than implying
+    // the agent can self-recover.
+    expect(msg).toContain("ask a human to restart");
+    // The footgun this replaces: the OLD copy told the reader to "restart this
+    // subshell", the one action that TERMINATES the caller. Pin that the new
+    // copy warns off it, so a future edit cannot reintroduce the trap.
+    expect(msg).toContain("would terminate you");
     expect(describeToolError(new ApiError(403, "Recipient")).message).toContain("permission denied");
   });
 });
@@ -741,6 +751,13 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     expect(describeToolError(new ApiError(404, "Node not found", "NOT_FOUND_ERROR")).message).toContain(
       "list_subshells",
     );
+    // The transfer verbs' `unsupported` class (spec 2026-10-01 §5 R12): the
+    // remedy is a human updating the node, and the sentence must say so.
+    expect(
+      describeToolError(
+        new ApiError(409, "the agent on node n predates archive transfer; update the node", "NODE_AGENT_TOO_OLD"),
+      ).message,
+    ).toContain("update the node");
   });
 
   it("describeToolError's 409 branch answers the genericized harness refusal (it never rides as harness_disabled)", () => {
@@ -800,5 +817,78 @@ describe("prompt tools (spec 2026-09-28)", () => {
     expect(
       describeToolError(await createPrompt(deps, { description: "d", body: "b" }).catch((e) => e)).message,
     ).toContain("permission denied");
+  });
+});
+
+describe("transfer tool (spec 2026-10-01 §6)", () => {
+  const nodes = [
+    { id: "n-alpha", name: "mac" },
+    { id: "n-beta", name: "linux" },
+    { id: "n-twin-a", name: "twin" },
+    { id: "n-twin-b", name: "TWIN" },
+  ];
+
+  it("addresses both endpoints (id or name) and posts the resolved wire body", async () => {
+    const own = await generateKeypair();
+    const result = { sync: false, archiveBytes: 64, files: 3, bytes: 128, changed: 0 };
+    const { api, calls } = fakeApi((req) => (req.path === "/api/nodes" ? { nodes } : result));
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    const res = await transferFiles(deps, {
+      from: { node: "mac", path: "/src" },
+      to: { node: "n-beta", path: "/dst" },
+    });
+    expect(res).toEqual(result);
+    expect(calls.map((c) => [c.method, c.path])).toEqual([
+      ["GET", "/api/nodes"],
+      ["POST", "/api/transfers"],
+    ]);
+    // sync absent stays absent on the wire (the route's default owns it).
+    expect(calls[1].body).toEqual({
+      from: { nodeId: "n-alpha", path: "/src" },
+      to: { nodeId: "n-beta", path: "/dst" },
+    });
+  });
+
+  it("sync:true rides the body verbatim", async () => {
+    const own = await generateKeypair();
+    const { api, calls } = fakeApi((req) =>
+      req.path === "/api/nodes" ? { nodes } : { sync: true, archiveBytes: 0, files: 0, bytes: 0, changed: 0 },
+    );
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    await transferFiles(deps, {
+      from: { node: "n-alpha", path: "/a" },
+      to: { node: "n-beta", path: "/b" },
+      sync: true,
+    });
+    expect(calls[1].body).toEqual({
+      from: { nodeId: "n-alpha", path: "/a" },
+      to: { nodeId: "n-beta", path: "/b" },
+      sync: true,
+    });
+  });
+
+  it("an unaddressable machine names the available ones; an ambiguous match refuses with the ids", async () => {
+    const own = await generateKeypair();
+    const { api } = fakeApi(() => ({ nodes }));
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    await expect(
+      transferFiles(deps, { from: { node: "zzz", path: "/a" }, to: { node: "n-beta", path: "/b" } }),
+    ).rejects.toThrow(/no node 'zzz'.*available: mac, linux/);
+    await expect(
+      transferFiles(deps, { from: { node: "twin", path: "/a" }, to: { node: "n-beta", path: "/b" } }),
+    ).rejects.toThrow(/more than one node matches 'twin' \(n-twin-a, n-twin-b\)/);
+  });
+
+  it("an exact id outranks a display name that reads like another node's id", async () => {
+    const own = await generateKeypair();
+    const rows = [...nodes, { id: "mac", name: "impostor" }]; // a node NAMED "mac" beside n-alpha's id-addressing
+    const { api, calls } = fakeApi((req) =>
+      req.path === "/api/nodes" ? { nodes: rows } : { sync: false, archiveBytes: 1, files: 0, bytes: 0, changed: 0 },
+    );
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...own } };
+    await transferFiles(deps, { from: { node: "n-alpha", path: "/a" }, to: { node: "mac", path: "/b" } });
+    const body = calls[1].body as { from: { nodeId: string }; to: { nodeId: string } };
+    expect(body.from.nodeId).toBe("n-alpha"); // id-exact match won for from
+    expect(body.to.nodeId).toBe("mac"); // "mac" is the impostor's ID, exact-first again
   });
 });

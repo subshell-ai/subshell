@@ -30,7 +30,17 @@ export async function issueSubshellToken(subshellId: string, userId: string): Pr
       // per call because the plugin treats it as mutable.
       // `prompts` joined the map with the saved-prompt library (spec
       // 2026-09-28); a pane may full-CRUD its OWNER's prompts over MCP.
-      permissions: { channels: ["read", "write"], subshells: ["read", "write"], prompts: ["read", "write"] },
+      // `transfers` joined with node-to-node archive transfer (spec
+      // 2026-10-01 §5) and, unlike prompts, gets NO legacy pass in
+      // `requirePerm`: pre-feature maps 403 on transfers until the pane
+      // restarts and re-mints. Grandfathering old tokens into a file-move
+      // grant is exactly the mistake the prompts concession would be to copy.
+      permissions: {
+        channels: ["read", "write"],
+        subshells: ["read", "write"],
+        prompts: ["read", "write"],
+        transfers: ["read", "write"],
+      },
     },
   })) as unknown as CreatedApiKey;
   await new SubshellsRepository(db).update(subshellId, { apiKeyId: created.id });

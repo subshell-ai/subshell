@@ -20,6 +20,7 @@
  */
 
 import { BASE64_RE, isBool, isInt, isRecord, isStr, isStringMap } from "./guards.js";
+import { MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;
@@ -163,6 +164,130 @@ export function parseNodeLogReadResult(data: unknown): NodeLogReadResult | null 
   if (!isInt(data.size) || (data.size as number) < 0) return null;
   if (data.bytes_b64 === "" && (data.next as number) > (data.size as number)) return null;
   return data as unknown as NodeLogReadResult;
+}
+
+/* ------------------------------------------------------------------ */
+/* archive transfer (spec 2026-10-01 §2)                               */
+/* ------------------------------------------------------------------ */
+
+/** Lowercase-hex sha256 as the wire carries it: 64 chars, nothing else. */
+function isSha256Hex(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+}
+
+/**
+ * `archive_create` answer: the transport facts of the finished STAGING file.
+ * The digest is over the compressed bytes because that is the exact span the
+ * destination reassembles from `file_read` windows and re-verifies before
+ * `archive_extract` touches anything.
+ */
+export interface NodeArchiveCreateResult {
+  /** Byte size of the compressed staging archive. */
+  size: number;
+  /** Lowercase-hex sha256 of those compressed bytes. */
+  sha256: string;
+}
+
+/**
+ * Validates and narrows an `archive_create` command's `result{data}`.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed result, or null when malformed
+ */
+export function parseNodeArchiveCreateResult(data: unknown): NodeArchiveCreateResult | null {
+  if (!isRecord(data) || !isInt(data.size) || (data.size as number) < 0 || !isSha256Hex(data.sha256)) return null;
+  return data as unknown as NodeArchiveCreateResult;
+}
+
+/**
+ * `file_read` answer: the same window shape as {@link NodeLogReadResult}
+ * (that reader's whole-file-size trick is what lets a relay plan its next
+ * window), under its own name because the two commands' POLICIES differ and
+ * a shared name would be the first step toward a shared code path.
+ */
+export type NodeFileReadResult = NodeLogReadResult;
+
+/**
+ * Validates and narrows a `file_read` command's `result{data}`. Same
+ * invariants as {@link parseNodeLogReadResult}, checked by it; kept as its
+ * own export so the relay code reads per-command.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed window, or null when malformed
+ */
+export function parseNodeFileReadResult(data: unknown): NodeFileReadResult | null {
+  return parseNodeLogReadResult(data);
+}
+
+/**
+ * `archive_extract` answer: what landed at the destination. Directories are
+ * created but not counted; `bytes` is body bytes written, uncompressed.
+ */
+export interface NodeArchiveExtractResult {
+  /** Regular files written. */
+  files: number;
+  /** Total body bytes written. */
+  bytes: number;
+}
+
+/**
+ * Validates and narrows an `archive_extract` command's `result{data}`.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed result, or null when malformed
+ */
+export function parseNodeArchiveExtractResult(data: unknown): NodeArchiveExtractResult | null {
+  if (!isRecord(data) || !isInt(data.files) || (data.files as number) < 0) return null;
+  if (!isInt(data.bytes) || (data.bytes as number) < 0) return null;
+  return data as unknown as NodeArchiveExtractResult;
+}
+
+/**
+ * One `tree_manifest` row: everything the plane needs to DIFF two trees.
+ * `sha256` is the diff key; `mtime` is only a hint, and cross-machine clock
+ * skew is why the key is not the timestamp.
+ *
+ * A `type` alias for the JsonValue reason as `SettingsFieldWire`.
+ */
+export type NodeManifestEntryWire = {
+  /** Transfer-relative path (clean: no `..`, no leading slash), sorted. */
+  relPath: string;
+  /** Byte size at walk time. */
+  size: number;
+  /** mtime in whole seconds at walk time; a hint, never the diff key. */
+  mtime: number;
+  /** Lowercase-hex sha256 of the file's contents. */
+  sha256: string;
+};
+
+/** One `tree_manifest` page. */
+export interface NodeTreeManifestPage {
+  /** Rows, relPath-sorted, at most {@link MAX_MANIFEST_PAGE_ENTRIES}. */
+  entries: NodeManifestEntryWire[];
+  /** Cursor for the next page, or null when the walk finished. */
+  nextCursor: string | null;
+}
+
+/**
+ * Validates and narrows a `tree_manifest` command's `result{data}`.
+ *
+ * `relPath` is checked for SHAPE here, not CLEANLINESS: the transfer path
+ * guard lives in `pane-runtime` (`tar-blocks.ts`), and a protocol module
+ * that imported it would weld the two together. The chain closes at use -
+ * a plane that feeds these rows back as an `archive_create files[]` list
+ * meets `safeTransferPath` inside `selectFiles`, so a hostile echoed
+ * `relPath` is refused there, the same guard the extract path applies.
+ *
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed page, or null when malformed
+ */
+export function parseNodeTreeManifestPage(data: unknown): NodeTreeManifestPage | null {
+  if (!isRecord(data) || !Array.isArray(data.entries)) return null;
+  if (data.entries.length > MAX_MANIFEST_PAGE_ENTRIES) return null;
+  if (!(data.nextCursor === null || isNonEmptyStr(data.nextCursor))) return null;
+  for (const e of data.entries) {
+    if (!isRecord(e) || !isNonEmptyStr(e.relPath) || !isSha256Hex(e.sha256)) return null;
+    if (!isInt(e.size) || (e.size as number) < 0) return null;
+    if (!isInt(e.mtime) || (e.mtime as number) < 0) return null;
+  }
+  return data as unknown as NodeTreeManifestPage;
 }
 
 /* ------------------------------------------------------------------ */

@@ -122,8 +122,19 @@ import type { JsonValue } from "./json.js";
  * closes 4410/4411. Hard cutover: protocol-14 nodes never write plaintext frames,
  * and legacy rows are held-updatable until they register. Not additive in
  * anything — this one changes the transport itself.
+ *
+ * **14 → 15 is the archive-transfer surface (spec 2026-10-01 §2).** Five
+ * commands let the plane relay a tree between two enrolled machines without a
+ * foreign binary on either: `archive_create`, `file_read`, `transfer_write`,
+ * `archive_extract` and `tree_manifest`, plus the window/entry constants that
+ * keep the two ends from drifting. Additive, and breaking anyway, because the
+ * gate is exact-match. Note what it does NOT do: nothing here changes the
+ * transport, the link policy, or any existing verb — `log_read` stays
+ * log-confined beside the generalized `file_read`, and `write_file`'s upload
+ * roots stay exactly as narrow as they are while `transfer_write` arrives as
+ * its own policy-gated sibling.
  */
-export const NODE_PROTOCOL_VERSION = 14;
+export const NODE_PROTOCOL_VERSION = 15;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -144,6 +155,50 @@ export const NODE_SIGNED_UPDATES_PROTOCOL_VERSION = 12;
  * inbound messages rather than relying on server config (spec §7).
  */
 export const NODE_MAX_FRAME_BYTES = 1_048_576;
+
+/* ------------------------------------------------------------------ */
+/* archive transfer (spec 2026-10-01 §2)                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Largest raw byte window one `file_read` may answer (and one `transfer_write`
+ * chunk may carry). The number is DERIVED, not chosen: 512 KiB raw becomes
+ * about 699 KB of base64 plus the envelope, which fits under
+ * {@link NODE_MAX_FRAME_BYTES} both directions enforce. The uploads path made
+ * this mistake once already with a 768 KiB chunk; do not enlarge windows.
+ */
+export const MAX_TRANSFER_WINDOW_BYTES = 512 * 1024;
+
+/**
+ * Largest UNCOMPRESSED tar an `archive_create` may emit (its entry bodies
+ * plus headers). The gzip stage can only shrink what this bounds, and the
+ * relay's time budget is what picks the number: at RTT-bound streaming
+ * throughput (~5 MiB/s at 80 ms round trip, the link being serialized per
+ * node) a transfer of this size finishes inside a sane synchronous
+ * tool-call window. Bigger trees are a future job-queue conversation, not a
+ * constant to raise.
+ */
+export const MAX_ARCHIVE_BYTES = 4 * 1024 * 1024 * 1024;
+
+/** Largest single file that may enter an archive; also the extractor's per-entry cap. */
+export const MAX_ARCHIVE_FILE_BYTES = 2 * 1024 * 1024 * 1024;
+
+/** Largest number of entries (files + directories) one archive may carry. */
+export const MAX_ARCHIVE_ENTRIES = 100_000;
+
+/**
+ * Longest `files` list an `archive_create` may name. The list rides ONE
+ * command frame, so the cap is a backstop beside the plane's own rule: when
+ * the serialized list would approach the frame cap, the plane drops the list
+ * and ships a whole-tree create instead (spec 2026-10-01 §2).
+ */
+export const MAX_TRANSFER_LIST_FILES = 5_000;
+
+/** Largest number of rows one `tree_manifest` page may answer. */
+export const MAX_MANIFEST_PAGE_ENTRIES = 500;
+
+/** Largest `maxBytes` budget a `tree_manifest` page may be asked for. */
+export const MAX_MANIFEST_PAGE_BYTES = 256 * 1024;
 
 /* ------------------------------------------------------------------ */
 /* shared close codes (phase-2 hoist)                                   */
@@ -883,6 +938,121 @@ export type NodeCommandBody =
       manifest?: string;
       /** The manifest's minisign armor (`release-manifest.json.sig` text). */
       manifestSig?: string;
+    }
+  | {
+      /**
+       * Build the transfer's source archive node-side (spec 2026-10-01 §2/§4):
+       * walk `root` (whole tree, or exactly the listed `files`), stream it as
+       * a gzip tar into `stagingPath`, answer `{ size, sha256 }` over the
+       * COMPRESSED staging file — the digest the destination re-verifies
+       * before extracting anything.
+       *
+       * `stagingPath` is plane-minted (a unique name under the node's data
+       * dir) precisely so a timed-out retry cannot double-write into the
+       * first attempt's file. The allowlist check against `root` is the
+       * agent's; the parser carries shape.
+       */
+      type: "archive_create";
+      /** Absolute directory on this node the archive is built from. */
+      root: string;
+      /**
+       * Transfer-relative paths (clean, no `..`, no leading slash) selecting
+       * the subset to archive; ABSENT means the whole tree under `root`.
+       */
+      files?: string[];
+      /** Absolute path under this node's data dir where the .tar.gz lands. */
+      stagingPath: string;
+    }
+  | {
+      /**
+       * Read a byte window of an arbitrary file (spec 2026-10-01 §2). This is
+       * the generalized `log_read` — same shape, its OWN policy: `log_read`
+       * stays confined to `<dataDir>/subshells/<id>.log` and the two
+       * never share a code path or a name (the pane logs hold what operators
+       * typed; this one answers transfer payloads). `maxBytes` is parser-capped
+       * at {@link MAX_TRANSFER_WINDOW_BYTES}: the window is what must fit the
+       * frame, and a parser that allowed more would advertise a lie.
+       */
+      type: "file_read";
+      /** Absolute path on this node to read. */
+      path: string;
+      /** Byte offset to read from; 0 is the start of the file. */
+      fromByte: number;
+      /** Cap on bytes returned; {@link MAX_TRANSFER_WINDOW_BYTES} at most. */
+      maxBytes: number;
+    }
+  | {
+      /**
+       * Chunked write of a transfer payload (spec 2026-10-01 §4). NOT
+       * `write_file`, and not its sibling by accident: `write_file` serves
+       * terminal uploads and is gated to the data dir plus tracked working
+       * dirs — twice, pinned by tests — and widening IT would weaken a
+       * load-bearing policy. This verb carries the operator-allowlist policy
+       * instead, and the word-order difference (`transfer_write` vs
+       * `write_file`) is what stops the next reviewer merging them.
+       *
+       * Discipline is `write_file`'s verbatim: `.part` beside the final path,
+       * mode 0600, strict chunk sequencing, the policy re-checked at `eof`,
+       * one rename to land. Answers the `NodeWriteFileResult` shape on every
+       * chunk.
+       */
+      type: "transfer_write";
+      /** Absolute destination path on this node (the final name, not the .part). */
+      path: string;
+      /** Base64 of this chunk's bytes; the decoded length is window-capped agent-side. */
+      chunkB64: string;
+      /** Zero-based chunk index; chunks must arrive in order. */
+      chunk: number;
+      /** Last chunk: re-check policy, fsync-equivalent, rename, answer. */
+      eof: boolean;
+    }
+  | {
+      /**
+       * Extract a transfer archive node-side (spec 2026-10-01 §3/§4) into
+       * `destRoot`, ADDITIVE: matching paths are overwritten, everything
+       * else at the destination is left alone, nothing is ever deleted.
+       * Guards run after pax substitution; links and devices are refused
+       * outright. The digest is named HERE and the agent re-hashes the
+       * landed file before its first entry lands (spec §3's promise kept
+       * on the disk that stores it, not only on the wire that carried it:
+       * rename-to-corruption between relay and extract is this check's
+       * case); the plane's own incremental verify is why extraction can
+       * EVER run, this is why it runs on intact bytes.
+       */
+      type: "archive_extract";
+      /** Absolute path of the archive on this node (lands via `transfer_write`). */
+      archivePath: string;
+      /** `archive_create`'s digest over the compressed file, re-checked before extraction. */
+      expectedSha256: string;
+      /** Absolute directory to extract into; allowlist-gated agent-side. */
+      destRoot: string;
+    }
+  | {
+      /**
+       * Walk a tree deterministically and answer per-file facts, paged
+       * (spec 2026-10-01 §2/§4): the plane diffs two manifests on SHA-256 to
+       * compute a sync's changed set. `relPath` is transfer-relative (no
+       * `..`), entries sorted, the cursor resumes strictly after the last
+       * returned `relPath`. Trees that mutate mid-walk can dup or skip
+       * across pages; sync is eventual-convergent and re-running is the
+       * remedy.
+       */
+      type: "tree_manifest";
+      /** Absolute directory to walk; allowlist-gated agent-side (its policy). */
+      root: string;
+      /**
+       * Opaque resume cursor: the previous page's `nextCursor`. Absent means
+       * from the beginning; the agent treats it as a `relPath` to resume
+       * after, never as a path to touch.
+       */
+      cursor?: string;
+      /**
+       * Byte budget for the answer's JSON, at most
+       * {@link MAX_MANIFEST_PAGE_BYTES}. Required, unlike `cursor`: a page
+       * with no budget is an agent paging by its own guess, and the caller
+       * sizing round trips is the caller that knows the frame cap.
+       */
+      maxBytes: number;
     };
 
 /**
@@ -1359,6 +1529,68 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       if (!("force" in value)) return withManifest;
       return isBool(value.force) ? { ...withManifest, force: value.force } : null;
     }
+    case "archive_create": {
+      // Shape and the list cap only: absoluteness of root/stagingPath and the
+      // operator-allowlist verdict are the agent's (same division as
+      // stat_dir/fs_ls), and the entries inside `files` are checked by the
+      // archive writer's own path guard when each one is emitted.
+      if (!isStr(value.root) || !isStr(value.stagingPath)) return null;
+      if ("files" in value) {
+        if (!isStrArray(value.files) || value.files.length > MAX_TRANSFER_LIST_FILES) return null;
+        return { type: "archive_create", root: value.root, files: value.files, stagingPath: value.stagingPath };
+      }
+      return { type: "archive_create", root: value.root, stagingPath: value.stagingPath };
+    }
+    case "file_read":
+      return isStr(value.path) &&
+        isInt(value.fromByte) &&
+        (value.fromByte as number) >= 0 &&
+        isInt(value.maxBytes) &&
+        (value.maxBytes as number) > 0 &&
+        (value.maxBytes as number) <= MAX_TRANSFER_WINDOW_BYTES
+        ? { type: "file_read", path: value.path, fromByte: value.fromByte, maxBytes: value.maxBytes }
+        : null;
+    case "transfer_write":
+      // Same grammar as write_file (a present-but-undecodable chunk is
+      // malformed, not "arrives later"); the executor adds sequencing.
+      return isStr(value.path) &&
+        isStr(value.chunkB64) &&
+        BASE64_RE.test(value.chunkB64) &&
+        isInt(value.chunk) &&
+        (value.chunk as number) >= 0 &&
+        isBool(value.eof)
+        ? { type: "transfer_write", path: value.path, chunkB64: value.chunkB64, chunk: value.chunk, eof: value.eof }
+        : null;
+    case "archive_extract":
+      // The digest is part of the contract, not a hint: a frame that names
+      // an archive without the hash the destination must re-check is a
+      // caller that never intended to verify, and the grammar refuses it.
+      return isStr(value.archivePath) &&
+        isStr(value.destRoot) &&
+        isStr(value.expectedSha256) &&
+        /^[0-9a-f]{64}$/.test(value.expectedSha256)
+        ? {
+            type: "archive_extract",
+            archivePath: value.archivePath,
+            expectedSha256: value.expectedSha256,
+            destRoot: value.destRoot,
+          }
+        : null;
+    case "tree_manifest":
+      // maxBytes REQUIRED and window-capped (see the arm's field note); the
+      // cursor is an opaque string when present — what it means belongs to
+      // the walker, not the grammar.
+      if (!isStr(value.root)) return null;
+      if ("cursor" in value && !isStr(value.cursor)) return null;
+      if (
+        !isInt(value.maxBytes) ||
+        (value.maxBytes as number) <= 0 ||
+        (value.maxBytes as number) > MAX_MANIFEST_PAGE_BYTES
+      )
+        return null;
+      return "cursor" in value
+        ? { type: "tree_manifest", root: value.root, cursor: value.cursor as string, maxBytes: value.maxBytes }
+        : { type: "tree_manifest", root: value.root, maxBytes: value.maxBytes as number };
     default:
       return null;
   }
