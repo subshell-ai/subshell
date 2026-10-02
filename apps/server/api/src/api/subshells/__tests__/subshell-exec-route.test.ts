@@ -314,6 +314,24 @@ describe("POST /api/subshells/:id/exec (spec 2026-10-02)", () => {
     }
   });
 
+  // The input route's offline idiom verbatim in shape: the scripted machine
+  // is detached AFTER the row lands, so the row still reads running while the
+  // registry holds no connection. The ROUTE is where the offline refusal is
+  // pinned (the service test could only re-pick the same machine): exec hits
+  // the mapper at the first quiet-probe read, before anything is typed.
+  it("an offline agent node maps to 409 NODE_OFFLINE (the create/restart mapper)", async () => {
+    const sim = attachScriptedNode(node, LIFECYCLE);
+    const id = await directRow({ name: "execr-offline" }); // terminal harness, running row
+    sim.detach(); // the machine drops; the row still reads running
+    const res = await exec(id, { cookie: ownerCookie, body: { command: "echo hi" } });
+    expect(res.status).toBe(409);
+    expect((await errorBody(res)).code).toBe("NODE_OFFLINE");
+    // Nothing reached the pane: the refusal is the missing wire itself, and
+    // it precedes the typing (the quiet probe is the first RPC the verb makes).
+    expect(sim.countOf("input")).toBe(0);
+    expect(sim.countOf("log_read")).toBe(0);
+  });
+
   it("a dead row 409s SUBSHELL_NOT_RUNNING before any frame", async () => {
     const sim = attachScriptedNode(node, LIFECYCLE);
     try {

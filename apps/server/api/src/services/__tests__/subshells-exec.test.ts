@@ -274,6 +274,42 @@ describe("SubshellsService.execInTerminal (spec 2026-10-02)", () => {
     }
   });
 
+  it("a pane that never answers the sentinel times out: the answer, and the ruling-2 receipt", async () => {
+    const typed: string[] = [];
+    // The scripted pane ECHOES the frames it is given but never runs the
+    // sentinel printf, so the wait can only end on the deadline. The echo
+    // stays honest: the anchored scanner regex cannot match an echoed
+    // command (it carries quotes and a literal `$?`), exactly the shape the
+    // pane-exec suite pins. Log text is drawn LAZILY from `typed` like the
+    // other cases, so the quiet probes still see size 0 before the typing.
+    const echoLog: ScriptedHandler = (cmd) => {
+      if (cmd.type !== "log_read") return new Error(`exec sim: wrong cmd ${cmd.type}`);
+      const text = typed
+        .filter((frame) => frame !== "\r")
+        .map((frame) => `${frame}\n`)
+        .join("");
+      return windowOver(text, cmd.fromByte, cmd.maxBytes);
+    };
+    const sim = attachScriptedNode(node, { ...LIFECYCLE, input: typingInto(typed), log_read: echoLog });
+    try {
+      const id = await directRow({ harnessId: "terminal", name: "exec-timeout" });
+      const answer = await exec(id, "echo hi", 1200);
+      expect(answer).toMatchObject({ status: "timed_out", exitCode: null, truncated: false });
+      // Ruling 2's receipt, at the SERVICE layer: the timeout types NOTHING
+      // further. The four command frames are the whole traffic; the command
+      // keeps running on the pane and this call only stopped watching.
+      expect(sim.countOf("input")).toBe(4);
+      const cursorReads = sim.cmdsOf("log_read").filter((c) => !(c.fromByte === 0 && c.maxBytes === 1));
+      const startByte = cursorReads[0]?.fromByte ?? 0;
+      // The returned cursor never rewinds past where the wait started: bytes
+      // the scan consumed are behind the next reader, bytes it did not are
+      // ahead of it, never both-or-neither confusion.
+      expect(answer.nextByte).toBeGreaterThanOrEqual(startByte);
+    } finally {
+      sim.detach();
+    }
+  });
+
   it("a PARKED row (status running, alive 0) 409s SUBSHELL_NOT_RUNNING before the terminal-type check", async () => {
     const sim = attachScriptedNode(node, LIFECYCLE);
     try {
