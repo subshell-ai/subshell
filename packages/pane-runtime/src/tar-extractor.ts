@@ -175,7 +175,21 @@ export async function extractTarGz(
         if (buf.length === 0 && !(await more())) throw new Error("tar: truncated archive (body)");
         const w = Math.min(size - written, buf.length);
         if (!dst.write(buf.subarray(0, w))) {
-          await Promise.race([once(dst, "drain"), once(dst, "error")]);
+          // Manual on/off, not events.once: a race between two once() calls
+          // leaves the loser's listener attached on every backpressure cycle,
+          // and a multi-MB file piles hundreds of dead "error" listeners on
+          // one stream (measured in the COMPILED binary: MaxListeners-
+          // ExceededWarning at the 11th, and the compiled runtime cannot be
+          // trusted to honor once()'s AbortSignal either).
+          await new Promise<void>((resolve) => {
+            const done = (): void => {
+              dst.off("drain", done);
+              dst.off("error", done);
+              resolve();
+            };
+            dst.on("drain", done);
+            dst.on("error", done);
+          });
           if (failure) throw failure;
         }
         buf = buf.subarray(w);

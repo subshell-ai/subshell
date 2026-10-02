@@ -195,6 +195,29 @@ describe("writer + extractor round-trip", () => {
     const smallEntry = entries.find((e) => e.path === "small.txt");
     expect(new TextDecoder().decode(smallEntry?.content ?? new Uint8Array())).toBe("tiny content\n");
   });
+
+  it("extracts a multi-MB file without stacking listeners on the destination", async () => {
+    // The backpressure wait once raced two events.once() calls; the loser's
+    // listener stayed attached, so one 4 MiB file piled dead "error" listeners
+    // on a single WriteStream and tripped MaxListenersExceededWarning at the
+    // 11th in the COMPILED binary. The wait now removes both listeners itself;
+    // this asserts the process never hears a listener warning during extract.
+    const warnings: string[] = [];
+    const spy = (w: Error): void => warnings.push(w.name);
+    process.on("warning", spy);
+    try {
+      const src = join(dir, "src_4mb.bin");
+      writeFileSync(src, Buffer.alloc(4 * 1024 * 1024, 0xcd));
+      const arc = await buildArchive("mb4", [], [{ path: "big.bin", sourcePath: src, size: 4 * 1024 * 1024 }]);
+      const out = join(dir, "out-4mb");
+      const r = await extractTarGz(arc.path, out, LIMITS);
+      expect(r.files).toBe(1);
+      expect(readFileSync(join(out, "big.bin")).every((b) => b === 0xcd)).toBe(true);
+    } finally {
+      process.off("warning", spy);
+    }
+    expect(warnings.filter((n) => n.includes("MaxListeners"))).toEqual([]);
+  });
 });
 
 describe("writer refusals", () => {
