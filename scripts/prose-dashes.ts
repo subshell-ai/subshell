@@ -4,7 +4,8 @@
  * 2026-09-25). The docs SITE carries the same rule as a content test; this is
  * its twin for everything else a human reads in this repository: the root and
  * per-app AGENTS.md files, docs/, .claude/rules/, READMEs, and the
- * pending .changeset notes that become tomorrow's CHANGELOG entries.
+ * pending .changeset notes that become tomorrow's CHANGELOG entries, and
+ * visitor-facing website copy in app/, components/, and lib/ source files.
  *
  * The rule, from apps/docs/AGENTS.md: no em dashes in prose, headings or
  * callouts. A comma, a colon, parentheses, or a full stop and a new sentence
@@ -28,7 +29,9 @@
  *   bun scripts/prose-dashes.ts --verbose  # also list each clean file's count
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { parse } from "@babel/parser";
 
 /** Directories whose .md files are exempt, with the reason in the comment. */
 const EXCLUDED = [
@@ -53,12 +56,63 @@ export function proseOf(source: string): string {
   return source.replace(/```[\s\S]*?(```|$)/g, "").replace(/`[^`\n]*`/g, "");
 }
 
+/** Website text and string values, excluding comments and explicit code examples. */
+export function websiteProseOf(source: string, file: string): string {
+  const ast = parse(source, { sourceType: "module", plugins: ["typescript", "jsx"], sourceFilename: file });
+  const text: string[] = [];
+  function visit(value: unknown): void {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    const node = value as Record<string, unknown>;
+    if (node.type === "JSXElement") {
+      const opening = node.openingElement as { name: { type: string; name?: string } };
+      if (opening.name.type === "JSXIdentifier" && ["pre", "code"].includes(opening.name.name ?? "")) return;
+    }
+    if (node.type === "JSXText" || node.type === "StringLiteral") text.push(String(node.value));
+    if (node.type === "TemplateElement") {
+      const template = node.value as { cooked: string | null; raw: string };
+      text.push(template.cooked ?? template.raw);
+    }
+    for (const child of Object.values(node)) visit(child);
+  }
+  visit(ast);
+  return text.join("\n");
+}
+
+/** Include new files before staging, so local checks catch new website sections. */
+export function proseFiles(cwd: string): string[] {
+  const listed = Bun.spawnSync(
+    [
+      "git",
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "--",
+      "*.md",
+      "apps/website/app",
+      "apps/website/components",
+      "apps/website/lib",
+    ],
+    { cwd },
+  );
+  if (listed.exitCode !== 0) throw new Error("prose-dashes: git ls-files failed");
+  return [...new Set(listed.stdout.toString().split("\n").filter(Boolean))].filter(
+    (file) =>
+      existsSync(join(cwd, file)) &&
+      (file.endsWith(".md") || (/\.[cm]?tsx?$/.test(file) && !file.includes("/__tests__/"))),
+  );
+}
+
 export interface Violation {
   file: string;
   count: number;
 }
 
-/** Every tracked .md with em dashes in its prose, file-sorted. Pure given the file list. */
+/** Authored Markdown and website copy with em dashes. Pure given the file list. */
 export function violations(
   files: string[],
   read: (path: string) => string = (p) => readFileSync(p, "utf8"),
@@ -66,19 +120,16 @@ export function violations(
   const out: Violation[] = [];
   for (const file of files) {
     if (isExcluded(file)) continue;
-    const hits = proseOf(read(file)).match(/—/g);
+    const source = read(file);
+    const prose = file.endsWith(".md") ? proseOf(source) : websiteProseOf(source, file);
+    const hits = prose.match(/—/g);
     if (hits !== null) out.push({ file, count: hits.length });
   }
   return out;
 }
 
 if (import.meta.main) {
-  const listed = Bun.spawnSync(["git", "ls-files", "--", "*.md"], { cwd: process.cwd() });
-  if (listed.exitCode !== 0) {
-    console.error("prose-dashes: git ls-files failed");
-    process.exit(1);
-  }
-  const files = listed.stdout.toString().split("\n").filter(Boolean);
+  const files = proseFiles(process.cwd());
   const found = violations(files);
   const verbose = process.argv.includes("--verbose");
   for (const v of found) console.error(`${v.file}: ${v.count} em dash(es) in prose`);
@@ -89,6 +140,6 @@ if (import.meta.main) {
     );
     process.exit(1);
   }
-  if (verbose) console.log(`prose-dashes: ${files.length} markdown files checked, 0 violations`);
+  if (verbose) console.log(`prose-dashes: ${files.length} prose files checked, 0 violations`);
   else console.log("prose-dashes: clean");
 }

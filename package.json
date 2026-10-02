@@ -66,6 +66,7 @@
     "serialize-error": "13.0.1"
   },
   "devDependencies": {
+    "@babel/parser": "7.29.8",
     "@biomejs/biome": "2.5.9",
     "@changesets/changelog-github": "1.0.0",
     "@changesets/cli": "3.0.1",

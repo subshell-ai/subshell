@@ -1,6 +1,6 @@
 import { Analytics } from "../components/analytics";
 import { DeskShot } from "../components/desk-shot";
-import { Features } from "../components/features";
+import { FeatureShowcase } from "../components/feature-showcase";
 import { HeroSpread } from "../components/hero-spread";
 import { SiteFooter } from "../components/site-footer";
 import { SiteHeader } from "../components/site-header";
@@ -13,7 +13,7 @@ export default function Home() {
       <SiteHeader />
       <HeroSpread manifest={releases as ReleasesManifest} />
       <DeskShot />
-      <Features />
+      <FeatureShowcase />
       <div className="mt-3">
         <SiteFooter />
       </div>

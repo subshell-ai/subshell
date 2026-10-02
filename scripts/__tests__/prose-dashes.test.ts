@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { proseOf, violations } from "../prose-dashes.ts";
+import { proseFiles, proseOf, violations, websiteProseOf } from "../prose-dashes.ts";
 
 /**
  * prose-dashes is the repository-prose twin of the docs site's em-dash ban
@@ -14,6 +14,22 @@ import { proseOf, violations } from "../prose-dashes.ts";
  */
 
 const D = "—";
+
+describe("website copy", () => {
+  test("checks JSX, attributes, saved copy strings, and template strings", () => {
+    const file = "apps/website/components/feature.tsx";
+    const source = `const copy = "Node${D}machine"; const hint = \`Run${D}anywhere\`; const view = <p aria-label="View${D}agent">Work${D}together</p>;`;
+    expect(violations([file], () => source)).toEqual([{ file, count: 4 }]);
+  });
+  test("checks encoded dashes and preserves backticks in JSX prose", () => {
+    const source = "<p>Text &mdash; next &#8212; next &#x2014; `still—prose`</p>";
+    expect(websiteProseOf(source, "copy.tsx").match(/—/g)?.length).toBe(4);
+  });
+  test("ignores comments and explicit code examples", () => {
+    const source = `// comment ${D}\nconst view = <div><pre>command ${D}</pre><code>flag ${D}</code><p>Clear copy</p></div>;`;
+    expect(websiteProseOf(source, "copy.tsx")).not.toContain(D);
+  });
+});
 
 describe("proseOf", () => {
   test("keeps prose and drops fenced blocks", () => {
@@ -58,9 +74,7 @@ describe("exclusions", () => {
 describe("the current tree", () => {
   test("no authored prose file carries an em dash", () => {
     const root = join(import.meta.dir, "..", "..");
-    const listed = Bun.spawnSync(["git", "ls-files", "--", "*.md"], { cwd: root });
-    expect(listed.exitCode).toBe(0);
-    const files = listed.stdout.toString().split("\n").filter(Boolean);
+    const files = proseFiles(root);
     expect(files.length).toBeGreaterThan(50); // ls-files actually found the corpus
     const found = violations(files, (p) => readFileSync(join(root, p), "utf8"));
     expect(found.map((v) => `${v.file}: ${v.count}`)).toEqual([]);
