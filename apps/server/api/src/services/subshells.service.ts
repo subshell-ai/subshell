@@ -350,6 +350,20 @@ export interface ExecAnswer {
 }
 
 /**
+ * exec's per-pane lease (spec 2026-10-02 §2), shared process-wide by SUBSHELL ID.
+ *
+ * `SubshellsService` is constructed FRESH per HTTP request (contextPlugin's
+ * resolve), so a per-instance map would be inert, exactly the failure
+ * `restartInFlight` in `subshell-manager.service.ts` exists to avoid: two
+ * concurrent execs (two tabs, list + detail, web + MCP) would each hold their
+ * own map, both proceed, and their interleaved sentinels would corrupt each
+ * other. Living at module scope, every instance shares the one lease and a
+ * second caller on a held id answers 409 EXEC_IN_FLIGHT. The entry is added
+ * synchronously before the first await and removed in `finally`.
+ */
+const execInFlight = new Map<string, Promise<ExecAnswer>>();
+
+/**
  * Business logic behind `/api/subshells`, one method per endpoint.
  *
  * A thin layer over {@link SubshellManagerService} (the subshell lifecycle truth,
@@ -360,10 +374,6 @@ export interface ExecAnswer {
 export class SubshellsService extends BaseService {
   /** Built once per request (not once per call) from the context's repositories. */
   readonly #manager: SubshellManagerService;
-
-  /** exec's per-pane lease (spec 2026-10-02 §2): the RESTART_IN_FLIGHT pattern,
-   * service-scoped because exec never leaves this service. */
-  #execInFlight = new Map<string, Promise<ExecAnswer>>();
 
   constructor(params: CommonServiceParams) {
     super(params);
@@ -959,7 +969,7 @@ export class SubshellsService extends BaseService {
         doNotLog: true,
       });
     }
-    const running = this.#execInFlight.get(id);
+    const running = execInFlight.get(id);
     if (running) {
       throwApiError({
         code: BackendErrorCodes.EXEC_IN_FLIGHT,
@@ -969,10 +979,8 @@ export class SubshellsService extends BaseService {
     }
     // The lease spans the whole call - gate already passed, nothing between
     // the get and the set awaits - so two racing calls never both proceed.
-    const call = this.#execInner(row, id, command, execTimeoutMs(timeoutMs)).finally(() =>
-      this.#execInFlight.delete(id),
-    );
-    this.#execInFlight.set(id, call);
+    const call = this.#execInner(row, id, command, execTimeoutMs(timeoutMs)).finally(() => execInFlight.delete(id));
+    execInFlight.set(id, call);
     return await call;
   }
 
