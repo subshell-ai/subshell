@@ -513,7 +513,10 @@ export function BackupRestoreScreen(props: {
                       {inspection.legacyDatabaseOnly
                         ? "Database-only snapshot: configuration, identity, plugins and logs are absent."
                         : "Full instance archive"}{" "}
-                      · Captured {inspection.manifest.completedAt} · Server {inspection.manifest.serverVersion}
+                      · Captured {inspection.manifest.completedAt} ·{" "}
+                      {inspection.manifest.serverVersion === "legacy"
+                        ? "Server version unknown (not recorded in this snapshot)"
+                        : `Server ${inspection.manifest.serverVersion}`}
                     </p>
                     <p className="hint">
                       Administrators:{" "}
