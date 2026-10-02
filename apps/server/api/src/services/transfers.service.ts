@@ -357,7 +357,7 @@ async function nodeCommand(nodeId: string, cmd: NodeCommandBody, timeoutMs: numb
 
 /**
  * Map a {@link NodeRpcError} onto the wire family (the files-remote-browse
- * vocabulary): `offline` → NODE_OFFLINE, `unsupported` → NODE_OUTDATED
+ * vocabulary): `offline` → NODE_OFFLINE, `unsupported` → NODE_AGENT_TOO_OLD
  * naming the update remedy (spec §5 R12 - the agent's own contract answer is
  * otherwise cryptic), timeout/failed → NODE_UNREACHABLE carrying the RPC's
  * message (an agent refusal sentence IS the operator-actionable fact here,

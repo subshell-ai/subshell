@@ -25,8 +25,9 @@ export interface ToolDeps {
 
 /**
  * Maps an ApiError to the plain-English guidance agents act on. The `code`
- * branches map exactly the four values they name (NODE_REQUIRED,
- * NODE_OFFLINE, NODE_IN_MAINTENANCE, SUBSHELL_NOT_RUNNING), each of which
+ * branches map exactly the five values they name (NODE_REQUIRED,
+ * NODE_OFFLINE, NODE_IN_MAINTENANCE, SUBSHELL_NOT_RUNNING,
+ * NODE_AGENT_TOO_OLD), each of which
  * the server's `throwApiError` paths ride to the wire under that name;
  * RESTART_IN_FLIGHT rides by name too but gets no branch of its own here,
  * it answers through the 409 status branch like any other 409. The
@@ -54,6 +55,14 @@ export function describeToolError(err: unknown): Error {
     }
     if (err.code === "SUBSHELL_NOT_RUNNING") {
       return new Error(`subshell: the subshell is not running (${err.message}); start it with restart_subshell`);
+    }
+    if (err.code === "NODE_AGENT_TOO_OLD") {
+      // The transfer verbs' `unsupported` answer lands under this code
+      // (spec 2026-10-01 §5): the machine itself is fine, its binary is a
+      // version behind, and only a human can close that (the Updates page).
+      return new Error(
+        `subshell: the agent on the target node predates this command (${err.message}); update the node (Nodes page asks a human), or check list_nodes for a machine at the current version`,
+      );
     }
     if (err.status === 401) {
       return new Error(

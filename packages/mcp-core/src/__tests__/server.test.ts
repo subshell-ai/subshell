@@ -135,6 +135,9 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
         "create_prompt",
         "update_prompt",
         "delete_prompt",
+        // Node-to-node archive transfer (spec 2026-10-01 §6): one tool, copy
+        // and diff-sync, the mode a flag not a second verb.
+        "transfer_files",
       ]),
     );
   });
