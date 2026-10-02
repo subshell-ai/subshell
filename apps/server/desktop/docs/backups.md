@@ -13,10 +13,9 @@ The exact capability, permission-manifest and caller-set tests pin this split.
 
 A restore inspection and protected prepared stage validate choices, destination,
 expiry and administrator recovery before native supervision stops. Prepared
-mode, address and recovery choices remain authoritative. Replacement and pane
-interruption are separate unticked consents. An app-owned supervisor requires
-pane consent before pausing its current desired-running child, including a
-respawn gap. Update, reset, service and restore share the exclusive action gate.
+mode, address and recovery choices remain authoritative. Replacement is confirmed in the review screen. Compatible sessions remain
+running; the assistant asks separately about incompatible sessions only when
+the read-only preflight reports them, before stopping its child. Update, reset, service and restore share the exclusive action gate.
 Native `--native-preflight` reuses the CLI's independent loaded service proof
 before the app child is stopped; staged `--native` repeats it at application.
 An installed service must use the exact prepared config, database and data

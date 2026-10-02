@@ -273,7 +273,7 @@ describe("backup and restore command policy", () => {
     expect((deps.manager as ReturnType<typeof manager>).calls).toEqual([]);
     deps.panes = async () => [{ id: "remote-pane", socket: null, nodeId: "node-one" }];
     expect(await runRestore({ archive: path, yes: true, start: false }, deps)).toBe(1);
-    expect(errors.join("\n")).toContain("--yes confirms replacement only");
+    expect(errors.join("\n")).toContain("RESTORE_SESSION_CONFIRMATION_REQUIRED");
     expect((deps.manager as ReturnType<typeof manager>).calls).toEqual([]);
   });
 
@@ -585,7 +585,41 @@ describe("backup and restore command policy", () => {
     await rollbackInstanceRestore(join(dirname(old.configPath as string), "restore-journal.json"));
   });
 
-  test("real local tmux pane survives --yes refusal and is terminated only with --force", async () => {
+  test("remote session survives heartbeat changes but rotated node credentials require consent", async () => {
+    const source = fixture("remote-preservation", "remote");
+    const db = new Database(source.databasePath);
+    db.exec(`CREATE TABLE subshells(id TEXT PRIMARY KEY, tmux_socket TEXT, node_id TEXT, status TEXT, alive INTEGER, restart_on_exit INTEGER, next_restart_at TEXT, user_id TEXT, working_dir TEXT, harness_id TEXT, api_key_id TEXT, started_at TEXT);
+      CREATE TABLE apikey(id TEXT PRIMARY KEY, key TEXT, enabled INTEGER, requestCount INTEGER);
+      CREATE TABLE nodes(id TEXT PRIMARY KEY, owner_user_id TEXT, api_key_id TEXT, public_key TEXT, last_seen_at TEXT, status TEXT, kind TEXT);
+      INSERT INTO apikey VALUES ('node-key', 'private-hash', 1, 0);
+      INSERT INTO nodes VALUES ('remote-node', 'admin-id', 'node-key', 'public-identity', 'old', 'offline', 'agent');
+      INSERT INTO subshells VALUES ('remote-session', NULL, 'remote-node', 'running', 1, 0, NULL, 'admin-id', '/project', 'terminal', NULL, 'same-launch');`);
+    db.close();
+    const archive = await backup(source);
+    const updated = new Database(source.databasePath);
+    updated.exec("UPDATE nodes SET last_seen_at='new', status='online'; UPDATE apikey SET requestCount=42");
+    updated.close();
+    const deps = dependencies(source);
+    deps.panes = async () => [{ id: "remote-session", socket: null, nodeId: "remote-node" }];
+    let terminated = 0;
+    deps.terminatePanes = (panes) => {
+      terminated += panes.length;
+    };
+    expect(await runRestore({ archive, yes: true, start: false }, deps)).toBe(0);
+    expect(terminated).toBe(0);
+    const restored = new Database(source.databasePath, { readonly: true });
+    expect(restored.query("SELECT status FROM subshells").get()).toEqual({ status: "running" });
+    restored.close();
+    await rollbackInstanceRestore(join(dirname(source.configPath as string), "restore-journal.json"));
+    const rotated = new Database(source.databasePath);
+    rotated.exec("UPDATE apikey SET key='rotated-private-hash'");
+    rotated.close();
+    expect(await runRestore({ archive, yes: true, start: false }, deps)).toBe(1);
+    expect(terminated).toBe(0);
+    expect(errors.join("\n")).toContain("RESTORE_SESSION_CONFIRMATION_REQUIRED");
+  });
+
+  test("real local tmux pane survives a compatible restore; incompatible sessions require consent", async () => {
     const source = fixture("source");
     const tmuxDir = join(root, "tmux");
     mkdirSync(tmuxDir, { mode: 0o700 });
@@ -603,9 +637,11 @@ describe("backup and restore command policy", () => {
       if (launched.exitCode) throw new Error(`Could not launch isolated pane: ${launched.stderr.toString()}`);
       const db = new Database(source.databasePath);
       db.exec(
-        "CREATE TABLE subshells(id TEXT PRIMARY KEY, tmux_socket TEXT, node_id TEXT, status TEXT, alive INTEGER, restart_on_exit INTEGER, next_restart_at TEXT);",
+        "CREATE TABLE subshells(id TEXT PRIMARY KEY, tmux_socket TEXT, node_id TEXT, status TEXT, alive INTEGER, restart_on_exit INTEGER, next_restart_at TEXT, user_id TEXT, working_dir TEXT, harness_id TEXT, api_key_id TEXT, started_at TEXT);",
       );
-      db.query("INSERT INTO subshells VALUES (?, ?, 'local', 'running', 1, 1, NULL)").run(id, socket);
+      db.query(
+        "INSERT INTO subshells VALUES (?, ?, 'local', 'running', 1, 1, NULL, 'admin-id', '/tmp/project', 'terminal', NULL, '2026-01-01')",
+      ).run(id, socket);
       db.close();
       const probe = Bun.spawnSync({
         cmd: ["tmux", "-L", socket, "display-message", "-t", id, "-p", "#{pane_dead}"],
@@ -619,6 +655,12 @@ describe("backup and restore command policy", () => {
       const archive = await backup(source);
       const deps = dependencies(source);
       deps.panes = liveRestorePanes;
+      expect(await runRestore({ archive, yes: true, start: false }, deps)).toBe(0);
+      expect(await liveRestorePanes(source.databasePath)).toHaveLength(1);
+      await rollbackInstanceRestore(join(dirname(source.configPath as string), "restore-journal.json"));
+      const changed = new Database(source.databasePath);
+      changed.exec("UPDATE subshells SET started_at='2026-02-01'");
+      changed.close();
       expect(await runRestore({ archive, yes: true, start: false }, deps)).toBe(1);
       expect(await liveRestorePanes(source.databasePath)).toHaveLength(1);
       expect(await runRestore({ archive, yes: true, force: true, start: false }, deps)).toBe(0);

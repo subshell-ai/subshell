@@ -153,7 +153,7 @@ describe("native backup and restore", () => {
     expect(screen.getByRole("switch", { name: "Start the server after restoring" }).getAttribute("aria-checked")).toBe(
       "true",
     );
-    expect(screen.getByRole("switch", { name: /Allow interruption/ }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.queryByRole("switch", { name: /Allow interruption/ })).toBeNull();
     expect((screen.getByRole("button", { name: "Restore" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("switch", { name: "Replace the displayed destination" }));
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
@@ -209,6 +209,33 @@ describe("native backup and restore", () => {
     await screen.findByLabelText("Destination database path (optional)");
     expect(fake.callsTo("desktop_restore_discard")).toEqual([{ staged: stage.id }]);
     expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
+  });
+  it("asks for interruption only when restore reports incompatible sessions, and cancellation leaves them untouched", async () => {
+    fake = installFakeIpc({
+      handlers: {
+        desktop_backup_list: () => ({ backups: [] }),
+        "plugin:dialog|open": () => "/tmp/backup.subshell",
+        desktop_restore_inspect: () => ({ ...stage, prepared: false }),
+        desktop_restore_prepare: () => stage,
+        desktop_restore_apply: ({ force }) => {
+          if (!force) throw new Error("RESTORE_SESSION_CONFIRMATION_REQUIRED: Work session cannot reconnect.");
+          return { status: "completed", started: true, destination: stage.destination };
+        },
+      },
+    });
+    render(<BackupRestoreScreen {...props} kind="restore" />);
+    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Review replacement" }));
+    fireEvent.click(await screen.findByRole("switch", { name: "Replace the displayed destination" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await screen.findByRole("dialog", { name: "Some sessions cannot survive this restore" });
+    expect(screen.getByText("Work session cannot reconnect.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(fake.callsTo("desktop_restore_apply")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue restore" }));
+    await screen.findByText(/confirmed a successful boot/);
+    expect(fake.callsTo("desktop_restore_apply").map((call) => call.force)).toEqual([false, false, true]);
   });
   it("reports inspection failure before any preparation or restore operation", async () => {
     fake = installFakeIpc({

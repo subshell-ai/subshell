@@ -44,7 +44,9 @@ import {
   assertNoUpdateTransaction,
   assertRunningRestoreServiceOwner,
   liveRestorePanes,
+  preservableRestorePanes,
   type RestorePane,
+  requireRestoreSessionConsent,
   restoredListenPort,
   retireRestorePanes,
   sharesRestoreState,
@@ -271,7 +273,16 @@ export async function runRestore(opts: RestoreOpts, deps: RestoreDeps): Promise<
       throw new Error(
         "The installed service cannot boot this native restore destination. Use its configured config, database and data paths; no server was stopped or replaced.",
       );
+    const panes = await (deps.panes ?? liveRestorePanes)(destination.databasePath);
+    const keepPane = (pane: RestorePane) =>
+      pane.nodeId !== "local" || !affectsService || service.paneSafety === "keeps";
+    const preserved = preservableRestorePanes(destination.databasePath, stage, destination, mode, panes).filter(
+      keepPane,
+    );
+    const preservedIds = new Set(preserved.map((pane) => pane.id));
+    const affected = panes.filter((pane) => !preservedIds.has(pane.id));
     if (opts.nativePreflight) {
+      requireRestoreSessionConsent(affected, opts.force === true);
       deps.log(
         opts.json
           ? JSON.stringify({
@@ -314,7 +325,6 @@ export async function runRestore(opts: RestoreOpts, deps: RestoreDeps): Promise<
     }
     if (affectsSource && !service.installed && probe("127.0.0.1", SERVER_PORT) === true)
       throw new Error("An unmanaged server is still listening. Stop it before restoring.");
-    const panes = await (deps.panes ?? liveRestorePanes)(destination.databasePath);
     describeArchive(stage, (line) => deps.error(line));
     deps.error(
       `Restore destination: database=${destination.databasePath}; data=${dataDir}; config=${destination.configPath}`,
@@ -323,17 +333,15 @@ export async function runRestore(opts: RestoreOpts, deps: RestoreDeps): Promise<
       `Mode: ${mode}; ${affectsService ? "stop installed service" : "requires offline destination"}; ${start ? "start after replacement" : "leave stopped, pending boot confirmation"}.`,
     );
     deps.error(
-      `Pane consequences: ${panes.filter((pane) => pane.nodeId === "local").length} local panes will be terminated; ${panes.filter((pane) => pane.nodeId !== "local").length} remote panes will disconnect and remain on their nodes; restored running records will be retired.`,
+      `Pane consequences: ${preserved.length} compatible sessions will be preserved; ${affected.filter((pane) => pane.nodeId === "local").length} local panes require termination; ${affected.filter((pane) => pane.nodeId !== "local").length} remote sessions cannot be preserved; stale running records from the backup will be retired.`,
     );
-    if (panes.length && !opts.force) {
+    if (affected.length && !opts.force) {
       if (
         !interactive ||
         !deps.confirm ||
         (await deps.confirm("Interrupt these panes and terminate the local panes?", false)) !== true
       )
-        throw new Error(
-          "Active panes require explicit --force or interactive interruption consent; --yes confirms replacement only.",
-        );
+        requireRestoreSessionConsent(affected, false);
     }
     if (
       !opts.yes &&
@@ -366,14 +374,35 @@ export async function runRestore(opts: RestoreOpts, deps: RestoreDeps): Promise<
     (deps.checkDatabaseUsers ?? assertNoDatabaseUsers)(destination.databasePath);
     // Recheck after stop/lock: a pane created during consent still requires explicit consent.
     const latestPanes = await (deps.panes ?? liveRestorePanes)(destination.databasePath);
-    if (latestPanes.some((pane) => !panes.some((old) => old.id === pane.id)) && !opts.force)
-      throw new Error("New panes appeared after confirmation; retry with their interruption explicitly confirmed.");
-    (deps.terminatePanes ?? terminateRestorePanes)(latestPanes);
+    const originalIds = new Set(panes.map((pane) => pane.id));
+    requireRestoreSessionConsent(
+      latestPanes.filter((pane) => !originalIds.has(pane.id)),
+      opts.force === true,
+    );
+    const latestPreserved = preservableRestorePanes(
+      destination.databasePath,
+      stage,
+      destination,
+      mode,
+      latestPanes,
+    ).filter(keepPane);
+    const latestPreservedIds = new Set(latestPreserved.map((pane) => pane.id));
+    const affectedIds = new Set(affected.map((pane) => pane.id));
+    const latestAffected = latestPanes.filter((pane) => !latestPreservedIds.has(pane.id));
+    requireRestoreSessionConsent(
+      latestAffected,
+      opts.force === true || latestAffected.every((pane) => affectedIds.has(pane.id)),
+    );
+    (deps.terminatePanes ?? terminateRestorePanes)(latestAffected);
     retireRestorePanes(
       destination.databasePath,
-      latestPanes.map((pane) => pane.id),
+      latestAffected.map((pane) => pane.id),
     );
-    retireRestorePanes(stage.databasePath);
+    retireRestorePanes(
+      stage.databasePath,
+      undefined,
+      latestPreserved.map((pane) => pane.id),
+    );
     const result = await restoreInstanceBackup(stage, {
       destination,
       mode,

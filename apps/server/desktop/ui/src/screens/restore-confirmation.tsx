@@ -52,10 +52,8 @@ export function RestoreConfirmation(props: {
   inspection: RestoreInspection;
   locked: boolean;
   replace: boolean;
-  force: boolean;
   start: boolean;
   setReplace: (checked: boolean) => void;
-  setForce: (checked: boolean) => void;
   setStart: (checked: boolean) => void;
 }) {
   const { inspection } = props;
@@ -163,14 +161,10 @@ export function RestoreConfirmation(props: {
             disabled={props.locked}
             onChange={props.setReplace}
           />
-          <RestoreChoice
-            id="restore-panes"
-            label="Allow interruption of active panes"
-            description="Local panes may be terminated. Remote panes disconnect and remain on their nodes."
-            checked={props.force}
-            disabled={props.locked}
-            onChange={props.setForce}
-          />
+          <p className="m-0 text-detail text-muted-foreground">
+            Compatible sessions are kept running. If any session cannot survive this restore, you will be asked before
+            continuing.
+          </p>
           <RestoreChoice
             id="restore-start"
             label="Start the server after restoring"

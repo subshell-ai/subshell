@@ -13,6 +13,7 @@ export interface RestorePane {
   id: string;
   socket: string | null;
   nodeId: string;
+  name?: string;
 }
 
 /** A live PID file alone can be stale after PID reuse; the mutex must also be held. */
@@ -52,7 +53,7 @@ export function readRestorePanes(databasePath: string): RestorePane[] {
     const columns = schema.get(table) as Set<string>;
     return db
       .query(
-        `SELECT id, tmux_socket AS socket, ${columns.has("node_id") ? "node_id" : "'local'"} AS nodeId FROM ${table} WHERE status='running' ${columns.has("alive") ? "AND alive=1" : ""} LIMIT 50001`,
+        `SELECT id, ${columns.has("name") ? "name" : "id"} AS name, tmux_socket AS socket, ${columns.has("node_id") ? "node_id" : "'local'"} AS nodeId FROM ${table} WHERE status='running' ${columns.has("alive") ? "AND alive=1" : ""} LIMIT 50001`,
       )
       .all() as RestorePane[];
   } finally {
@@ -94,6 +95,115 @@ export async function liveRestorePanes(databasePath: string): Promise<RestorePan
   return live;
 }
 
+/** Preserve only sessions whose ownership, launch identity and credentials still match the backup. */
+export function preservableRestorePanes(
+  databasePath: string,
+  stage: import("@/services/backups/types.js").StagedInstanceBackup,
+  destination: InstancePaths,
+  mode: string,
+  panes: RestorePane[],
+): RestorePane[] {
+  if (mode !== "same-machine" || !existsSync(databasePath) || !panes.length) return [];
+  if (!stage.legacyDatabaseOnly) {
+    if (!destination.configPath || !existsSync(destination.configPath)) return [];
+    const currentConfig = parseEnvFile(readFileSync(destination.configPath, "utf8"));
+    const archiveConfig = parseEnvFile(readFileSync(join(stage.dir, "config", "config.env"), "utf8"));
+    if (!currentConfig.BETTER_AUTH_SECRET || currentConfig.BETTER_AUTH_SECRET !== archiveConfig.BETTER_AUTH_SECRET)
+      return [];
+    for (const name of ["node-signing.json", "node-encryption.json"]) {
+      const current = join(destination.dataDir, name);
+      const restored = join(stage.dir, "data", name);
+      if (!existsSync(current) || !existsSync(restored) || !readFileSync(current).equals(readFileSync(restored)))
+        return [];
+    }
+  }
+  const current = new Database(databasePath, { readonly: true });
+  const restored = new Database(stage.databasePath, { readonly: true });
+  try {
+    const before = inspectSqliteSchema(current);
+    const after = inspectSqliteSchema(restored);
+    const table = before.has("subshells") && after.has("subshells") ? "subshells" : null;
+    if (!table) return [];
+    const identity = [
+      "id",
+      "user_id",
+      "node_id",
+      "tmux_socket",
+      "working_dir",
+      "harness_id",
+      "api_key_id",
+      "started_at",
+    ];
+    if (identity.some((column) => !before.get(table)?.has(column) || !after.get(table)?.has(column))) return [];
+    const matchingRow = (name: string, id: string, key = "id") => {
+      if (!before.has(name) || !after.has(name)) return false;
+      const first = current.query(`SELECT * FROM "${name}" WHERE "${key}"=?`).get(id);
+      const second = restored.query(`SELECT * FROM "${name}" WHERE "${key}"=?`).get(id);
+      if (!first || !second) return false;
+      // Activity counters and heartbeat timestamps do not change a session's identity.
+      const transient = new Set([
+        "updatedAt",
+        "updated_at",
+        "lastRequest",
+        "requestCount",
+        "remaining",
+        "last_seen_at",
+        "inventory_at",
+        "inventory_json",
+        "capabilities",
+        "agent_version",
+        "protocol_version",
+      ]);
+      if (name === "nodes") transient.add("status");
+      const stable = (row: unknown) =>
+        Object.entries(row as Record<string, unknown>)
+          .filter(([key]) => !transient.has(key))
+          .sort(([a], [b]) => a.localeCompare(b));
+      return JSON.stringify(stable(first)) === JSON.stringify(stable(second));
+    };
+    return panes.filter((pane) => {
+      const first = current.query(`SELECT * FROM ${table} WHERE id=?`).get(pane.id) as Record<string, unknown> | null;
+      const second = restored.query(`SELECT * FROM ${table} WHERE id=?`).get(pane.id) as Record<string, unknown> | null;
+      if (
+        !first ||
+        !second ||
+        second.status !== "running" ||
+        [...identity, "harness_session_id"].some((key) => first[key] !== second[key])
+      )
+        return false;
+      if (
+        typeof first.user_id !== "string" ||
+        !matchingRow("user", first.user_id) ||
+        !matchingRow("user_meta", first.user_id, "user_id")
+      )
+        return false;
+      if (first.api_key_id && (typeof first.api_key_id !== "string" || !matchingRow("apikey", first.api_key_id)))
+        return false;
+      if (pane.nodeId !== "local") {
+        if (!matchingRow("nodes", pane.nodeId)) return false;
+        const node = current.query("SELECT * FROM nodes WHERE id=?").get(pane.nodeId) as Record<string, unknown>;
+        if (typeof node.api_key_id !== "string" || !matchingRow("apikey", node.api_key_id)) return false;
+      }
+      return true;
+    });
+  } finally {
+    current.close();
+    restored.close();
+  }
+}
+
+export function requireRestoreSessionConsent(panes: RestorePane[], consent: boolean): void {
+  if (panes.length && !consent)
+    throw new Error(
+      `RESTORE_SESSION_CONFIRMATION_REQUIRED: These sessions cannot reconnect to this backup: ${
+        panes
+          .slice(0, 20)
+          .map((pane) => pane.name || pane.id)
+          .join(", ") + (panes.length > 20 ? ` (and ${panes.length - 20} more)` : "")
+      }. Continuing terminates affected local sessions. Remote sessions may lose their connection or be terminated when their node reconnects. Cancel to keep the current system and close these sessions yourself.`,
+    );
+}
+
 export function terminateRestorePanes(panes: RestorePane[]): void {
   for (const pane of panes) {
     if (pane.nodeId !== "local" || !pane.socket) continue;
@@ -111,7 +221,7 @@ export function terminateRestorePanes(panes: RestorePane[]): void {
 }
 
 /** Remote processes survive disconnect; old and restored rows must not claim they are attached. */
-export function retireRestorePanes(databasePath: string, ids?: string[]): void {
+export function retireRestorePanes(databasePath: string, ids?: string[], preserveIds: string[] = []): void {
   if (!existsSync(databasePath)) return;
   const db = new Database(databasePath);
   try {
@@ -129,7 +239,10 @@ export function retireRestorePanes(databasePath: string, ids?: string[]): void {
       .join(", ");
     db.transaction(() => {
       if (ids) for (const id of ids) db.query(`UPDATE ${table} SET ${assignments} WHERE id=?`).run(id);
-      else db.exec(`UPDATE ${table} SET ${assignments} WHERE status='running'`);
+      else
+        db.query(
+          `UPDATE ${table} SET ${assignments} WHERE status='running' AND id NOT IN (SELECT value FROM json_each(?))`,
+        ).run(JSON.stringify(preserveIds));
     })();
   } finally {
     db.close();

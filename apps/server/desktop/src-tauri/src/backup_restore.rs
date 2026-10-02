@@ -519,6 +519,9 @@ pub fn desktop_restore_apply(
     // applying command repeats it so a manager change cannot bypass the guard.
     let mut preflight = stage_args(&staged)?;
     preflight.extend(["--native-preflight".into(), "--json".into()]);
+    if force {
+        preflight.push("--force".into());
+    }
     json_command(&argv, preflight, &[])?;
     let previous_settings = settings.get();
     let probe = control::probe_now(previous_settings.binary_path.as_deref(), previous_settings.supervision);
@@ -591,11 +594,6 @@ pub fn desktop_restore_apply(
     let sup = app.state::<supervisor::Supervisor>();
     let previous = sup.spawner();
     let was_running = sup.snapshot().desired_running;
-    if was_running && !force {
-        return Err(
-            "Stopping the app server may interrupt active panes. Confirm pane interruption before restoring.".into(),
-        );
-    }
     // Publish both choices and the reserved engine identity BEFORE any stop or
     // application. A crash on either side of the CLI response is recoverable.
     write_selection(&selection_file()?, &transaction)?;

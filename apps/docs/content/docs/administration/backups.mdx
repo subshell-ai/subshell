@@ -38,13 +38,13 @@ Browser uploads support archives under 128 MB. Use the CLI or desktop assistant 
 The actual restore must run outside the server process. A server cannot replace its own database and configuration while serving this page. The offline tool confirms the destination and replacement, stops the server, and applies the validated archive. It asks whether to start afterward, with Yes as the default.
 
 > [!warning] Replacing state
-> Restoration replaces newer destination state and signs everyone out. Explicitly confirm interruption of running panes. Do not run two servers with the same restored identity at the same time: duplicate server and node identities can disrupt connections.
+> Restoration replaces newer destination state and signs everyone out. Compatible running sessions are preserved. If sessions cannot reconnect to the restored state, the desktop asks for confirmation before continuing. Do not run two servers with the same restored identity at the same time: duplicate server and node identities can disrupt connections.
 
 ## Use Subshell Server on desktop
 
 Open **Backup…** or **Restore…** from the native menu or tray. These screens are bundled with the app and work while the server is stopped. Restore is also available before first-run setup.
 
-For a backup, choose where to save the archive and optionally enable encryption. For restore, choose an archive and its password, or inspect a file under **Available backups**, which includes archives made before upgrades and older database snapshots. Inspect it, review the destination and account recovery choices, then prepare the restore. Confirm replacement and any pane interruption before applying.
+For a backup, choose where to save the archive and optionally enable encryption. For restore, choose an archive and its password, or inspect a file under **Available backups**, which includes archives made before upgrades and older database snapshots. Inspect it, review the destination and account recovery choices, then prepare the restore. Confirm replacement before applying. A separate confirmation appears only if sessions cannot be preserved.
 
 The restore form fills optional locations and address settings from the backup. Review and edit them when moving to another machine. Older archives may omit a location; the form uses the current server's location for that missing value. Clearing an optional field keeps its suggested value.
 

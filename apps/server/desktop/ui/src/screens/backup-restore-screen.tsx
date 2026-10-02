@@ -4,6 +4,7 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog } from "@/components/ui/dialog";
 import { Field, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,7 +71,7 @@ export function BackupRestoreScreen(props: {
   const [backupsProblem, setBackupsProblem] = useState("");
   const [stageId, setStageId] = useState("");
   const [replace, setReplace] = useState(false);
-  const [force, setForce] = useState(false);
+  const [sessionConfirmation, setSessionConfirmation] = useState("");
   const [problem, setProblem] = useState("");
   const [message, setMessage] = useState("");
   const [progress, setProgress] = useState("");
@@ -180,7 +181,7 @@ export function BackupRestoreScreen(props: {
       setStageId("");
       setInspection(null);
       setReplace(false);
-      setForce(false);
+      setSessionConfirmation("");
       update("archive", path);
       try {
         const value = await ipc.restoreInspect(path, "", options.password);
@@ -249,13 +250,13 @@ export function BackupRestoreScreen(props: {
         setInspection(result);
         setStageId(result.id ?? "");
         setReplace(false);
-        setForce(false);
+        setSessionConfirmation("");
       } finally {
         clearPasswords();
       }
     });
   };
-  const apply = async () => {
+  const apply = async (force = false) => {
     if (!replace) return;
     await act("Restoring the instance and waiting for its successful boot…", async () => {
       try {
@@ -273,7 +274,7 @@ export function BackupRestoreScreen(props: {
             refreshed.recoveryUserId !== inspection.recoveryUserId
           ) {
             setReplace(false);
-            setForce(false);
+            setSessionConfirmation("");
             throw new Error("The backup or restore settings changed. Review the refreshed restore before continuing.");
           }
           currentId = refreshed.id ?? "";
@@ -296,8 +297,13 @@ export function BackupRestoreScreen(props: {
         setInspection(null);
         setStageId("");
         setReplace(false);
-        setForce(false);
+        setSessionConfirmation("");
         await props.onRefresh();
+      } catch (error) {
+        const detail = String(error);
+        const marker = "RESTORE_SESSION_CONFIRMATION_REQUIRED:";
+        if (!detail.includes(marker)) throw error;
+        setSessionConfirmation(detail.slice(detail.indexOf(marker) + marker.length).trim());
       } finally {
         clearPasswords();
       }
@@ -335,7 +341,7 @@ export function BackupRestoreScreen(props: {
                 setInspection((old) => old && { ...old, prepared: false, id: undefined });
                 setStageId("");
                 setReplace(false);
-                setForce(false);
+                setSessionConfirmation("");
               })
             }
           >
@@ -367,6 +373,25 @@ export function BackupRestoreScreen(props: {
         )
       }
     >
+      {sessionConfirmation && (
+        <Dialog title="Some sessions cannot survive this restore" onClose={() => !locked && setSessionConfirmation("")}>
+          <p className="text-detail text-muted-foreground break-words">{sessionConfirmation}</p>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" disabled={locked} onClick={() => setSessionConfirmation("")}>
+              Cancel
+            </Button>
+            <Button
+              disabled={locked}
+              onClick={() => {
+                setSessionConfirmation("");
+                void apply(true);
+              }}
+            >
+              Continue restore
+            </Button>
+          </div>
+        </Dialog>
+      )}
       <div className="flex flex-col gap-4">
         {progress && (
           <p className="hint" role="status">
@@ -415,7 +440,7 @@ export function BackupRestoreScreen(props: {
                         setInspection(null);
                         setStageId("");
                         setReplace(false);
-                        setForce(false);
+                        setSessionConfirmation("");
                         setRecover(false);
                         setOptions({ ...EMPTY_RESTORE });
                         setConfirmation("");
@@ -627,10 +652,8 @@ export function BackupRestoreScreen(props: {
                     inspection={inspection}
                     locked={locked}
                     replace={replace}
-                    force={force}
                     start={start}
                     setReplace={setReplace}
-                    setForce={setForce}
                     setStart={setStart}
                   />
                 )}

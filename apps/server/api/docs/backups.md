@@ -120,3 +120,11 @@ the engine; direct archive application still generates an ID. A reserved ID
 matching an existing receipt is refused before replacement so a consumed stage
 cannot make a stale receipt confirm a new application. Native selection metadata
 can therefore be written durably before the applying CLI process starts.
+
+Same-machine restores preserve live sessions only when their owner, launch
+identity, API credentials and node identity match the staged database. Full
+archives also require matching authentication and node signing/encryption
+secrets. Changed launches or identities and pane-killing service supervision
+require explicit interruption consent. Preflight checks this before the native
+child stops, and application rechecks after acquiring locks. Restored stale
+running records are retired except for the verified surviving sessions.
