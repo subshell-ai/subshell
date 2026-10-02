@@ -3,8 +3,10 @@ import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES } from "@internal/subshel
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { type ReactElement, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Field, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import type { RestoreInspection, RestorePrepare } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
@@ -362,21 +364,27 @@ export function BackupRestoreScreen(props: {
                 </p>
                 {!prepared && (
                   <>
-                    <fieldset disabled={locked || inspection.legacyDatabaseOnly}>
-                      <legend>Restore mode</legend>
-                      {BACKUP_RESTORE_MODES.map((mode) => (
-                        <Label key={mode.value}>
-                          <input
-                            type="radio"
-                            name="restore-mode"
-                            value={mode.value}
-                            checked={options.mode === mode.value}
-                            onChange={() => update("mode", mode.value)}
-                          />
-                          {mode.label}
-                        </Label>
-                      ))}
-                    </fieldset>
+                    <FieldSet>
+                      <FieldLegend id="restore-mode-label">Restore mode</FieldLegend>
+                      <RadioGroup
+                        aria-labelledby="restore-mode-label"
+                        name="restore-mode"
+                        value={options.mode}
+                        disabled={locked || inspection.legacyDatabaseOnly}
+                        onValueChange={(value) => update("mode", value)}
+                      >
+                        {BACKUP_RESTORE_MODES.map((mode) => (
+                          <Field
+                            key={mode.value}
+                            orientation="horizontal"
+                            data-disabled={locked || inspection.legacyDatabaseOnly}
+                          >
+                            <RadioGroupItem id={`restore-mode-${mode.value}`} value={mode.value} />
+                            <FieldLabel htmlFor={`restore-mode-${mode.value}`}>{mode.label}</FieldLabel>
+                          </Field>
+                        ))}
+                      </RadioGroup>
+                    </FieldSet>
                     {options.mode === "migration" && !inspection.legacyDatabaseOnly && (
                       <>
                         <p className="hint">

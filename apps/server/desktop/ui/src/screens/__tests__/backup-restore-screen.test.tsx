@@ -126,6 +126,9 @@ describe("native backup and restore", () => {
     render(<BackupRestoreScreen {...props} kind="restore" />);
     fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
     await screen.findByText(/Database-only snapshot:/);
+    expect(screen.getByRole("radiogroup", { name: "Restore mode" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "Same-machine recovery" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "Move to a new machine" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByRole("switch", { name: "Recover an existing administrator" }).getAttribute("aria-checked")).toBe(
       "false",
     );
@@ -147,8 +150,10 @@ describe("native backup and restore", () => {
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
     fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
-    await screen.findByLabelText("Move to a new machine");
-    fireEvent.click(screen.getByLabelText("Move to a new machine"));
+    await screen.findByRole("radio", { name: "Move to a new machine" });
+    expect(screen.getByRole("radio", { name: "Same-machine recovery" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(screen.getByRole("radio", { name: "Move to a new machine" }));
+    expect(screen.getByRole("radio", { name: "Move to a new machine" }).getAttribute("aria-checked")).toBe("true");
     fireEvent.change(screen.getByLabelText("Public base URL (optional)"), {
       target: { value: "https://previous.example" },
     });
