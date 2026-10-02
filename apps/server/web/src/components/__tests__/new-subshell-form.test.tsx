@@ -8,7 +8,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import {
   canSubmit,
@@ -1258,7 +1258,7 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
   async function pressPreset(name: string): Promise<void> {
     openPresetSearch();
     await settle();
-    const option = await screen.findByText(name);
+    const option = await within(await screen.findByRole("listbox")).findByText(name);
     act(() => {
       fireEvent.click(option);
     });
@@ -1365,9 +1365,10 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
       expect(screen.getByText("Presets")).toBeDefined();
       // Each recent appears ONCE (the rest excludes them), and recents lead
       // the list in pick order, ahead of the never-picked "Three".
-      expect(screen.getAllByText("Two")).toHaveLength(1);
-      expect(screen.getAllByText("One")).toHaveLength(1);
-      const text = document.body.textContent ?? "";
+      const list = screen.getByRole("listbox");
+      expect(within(list).getAllByText("Two")).toHaveLength(1);
+      expect(within(list).getAllByText("One")).toHaveLength(1);
+      const text = list.textContent ?? "";
       expect(text.indexOf("Two")).toBeLessThan(text.indexOf("One"));
       expect(text.indexOf("One")).toBeLessThan(text.indexOf("Three"));
     } finally {
@@ -1471,12 +1472,18 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
       const { latest } = await renderForm({ ...emptyNewSubshellForm(), harnessId: "claude-code" });
       await pressPreset("Everywhere");
       expect(latest().workingDir).toBe("/srv/app");
+      expect(screen.getByText(/Settings copied from/)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Agent command and settings" }));
       const input = screen.getByPlaceholderText("Choose an agent") as HTMLInputElement;
       fireEvent.focus(input);
       fireEvent.keyDown(input, { key: "ArrowDown" });
       fireEvent.click(await screen.findByRole("option", { name: "Pi" }));
       await waitFor(() => expect(latest().harnessId).toBe("pi"));
       expect(latest().presetId).toBeNull();
+      expect(screen.queryByText(/Settings copied from/)).toBeNull();
+      expect(screen.getByRole("button", { name: "Agent command and settings" }).getAttribute("aria-expanded")).toBe(
+        "false",
+      );
       // The person still sees what they are about to launch with.
       expect(latest().workingDir).toBe("/srv/app");
     } finally {

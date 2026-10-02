@@ -68,3 +68,11 @@ Everyone signed-in learns the state from the shared public read:
 `components/lockdown-banner.tsx` is a non-dismissible amber alert mounted in
 `__root` (absent field = a server older than the feature = no banner, and the
 General page's `LockdownCard` does not render at all without its two fields).
+
+The shared New-subshell form keeps the selected preset’s provenance visible:
+“Settings copied from <name>.” Its collapsed Agent command and settings section
+uses the same command renderer as the preset list, and reveals environment,
+arguments, stored settings and restart policy only when expanded. Switching the
+agent or preset collapses it again and removes stale source/configuration. The
+preview describes the configured launch contribution; Subshell’s per-session
+integration arguments are added only when the session launches.

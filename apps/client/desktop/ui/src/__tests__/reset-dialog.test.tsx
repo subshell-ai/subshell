@@ -31,6 +31,8 @@ async function openReset(init: Parameters<typeof installFakeIpc>[0] = {}) {
   await waitFor(() => expect(ipc?.callsTo("node_probe").length).toBeGreaterThan(0));
   fireEvent.click(screen.getByRole("button", { name: "Reset" }));
   const dialog = await screen.findByRole("dialog", { name: "Reset everything?" });
+  // Finding the shell of the dialog does not mean its async deletion plan is ready.
+  await waitFor(() => expect(within(dialog).queryByText("Checking what this machine would delete…")).toBeNull());
   return { fake: ipc as FakeIpc, dialog };
 }
 

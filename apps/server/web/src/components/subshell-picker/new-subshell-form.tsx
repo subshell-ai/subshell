@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
 import { useState } from "react";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
+import { LaunchCommandPreview } from "@/components/subshell-picker/launch-command-preview";
 import {
   DIALOG_IDS,
   hideMachineField,
@@ -143,6 +144,7 @@ export function NewSubshellForm({
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === value.nodeId) ?? null;
   const selectedAgent: InstancePluginRow | undefined = (plugins ?? []).find((p) => p.id === value.harnessId);
   const agentName = selectedAgent?.name ?? value.harnessId;
+  const selectedPreset = presets.find((preset) => preset.id === value.presetId && preset.harnessId === value.harnessId);
   // The section order re-renders the moment a pick lands, so the pick rides
   // state as well as the store.
   const [recentPresetIds, setRecentPresetIds] = useState<string[]>(() => loadRecentPresetPicks());
@@ -306,6 +308,14 @@ export function NewSubshellForm({
           </p>
         ) : null}
       </div>
+
+      {value.harnessId && (
+        <LaunchCommandPreview
+          key={`${value.harnessId}:${value.presetId ?? "defaults"}`}
+          preset={selectedPreset}
+          binary={selectedAgent?.binary}
+        />
+      )}
 
       {/* Hidden when the host is the only place it could run: a picker with
           one option is a control that cannot be used, and on a fresh install
