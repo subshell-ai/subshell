@@ -63,6 +63,7 @@ export function BackupRestoreScreen(props: {
   const [start, setStart] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.start);
   const [inspection, setInspection] = useState<RestoreInspection | null>(null);
   const [backups, setBackups] = useState<LocalBackupFile[]>([]);
+  const [backupSource, setBackupSource] = useState("file");
   const [selectedBackupPath, setSelectedBackupPath] = useState("");
   const [backupsProblem, setBackupsProblem] = useState("");
   const [stageId, setStageId] = useState("");
@@ -350,16 +351,50 @@ export function BackupRestoreScreen(props: {
           <>
             {!prepared && (
               <>
-                {field("password", "Archive password (only for encrypted archives)", true)}
-                <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
-                  Open and inspect archive…
-                </Button>
+                {backups.length > 0 && (
+                  <FieldSet>
+                    <FieldLegend id="backup-source-label">Restore from</FieldLegend>
+                    <RadioGroup
+                      aria-labelledby="backup-source-label"
+                      value={backupSource}
+                      disabled={locked}
+                      onValueChange={(value) => {
+                        setBackupSource(value === "saved" ? "saved" : "file");
+                        setInspection(null);
+                        setStageId("");
+                        setReplace(false);
+                        setForce(false);
+                        setRecover(false);
+                        setOptions({ ...EMPTY_RESTORE });
+                        setConfirmation("");
+                        setTemporaryConfirmation("");
+                        setProblem("");
+                      }}
+                    >
+                      <Field orientation="horizontal" data-disabled={locked}>
+                        <RadioGroupItem id="backup-source-file" value="file" />
+                        <FieldLabel htmlFor="backup-source-file">Open a backup file</FieldLabel>
+                      </Field>
+                      <Field orientation="horizontal" data-disabled={locked}>
+                        <RadioGroupItem id="backup-source-saved" value="saved" />
+                        <FieldLabel htmlFor="backup-source-saved">Use a saved backup</FieldLabel>
+                      </Field>
+                    </RadioGroup>
+                  </FieldSet>
+                )}
+                {(backupSource === "file" || (selectedBackup && !selectedBackup.legacyDatabaseOnly)) &&
+                  field("password", "Archive password (only for encrypted archives)", true)}
+                {backupSource === "file" && (
+                  <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
+                    Open and inspect archive…
+                  </Button>
+                )}
                 {backupsProblem && (
                   <p className="m-0 text-detail text-destructive" role="alert">
                     Could not load saved backups. You can still open a backup file.
                   </p>
                 )}
-                {backups.length > 0 && (
+                {backupSource === "saved" && backups.length > 0 && (
                   <Card aria-labelledby="available-backups-title">
                     <CardHeader>
                       <CardTitle id="available-backups-title">Available backups</CardTitle>

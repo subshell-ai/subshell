@@ -139,6 +139,10 @@ describe("native backup and restore", () => {
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
+    expect(screen.queryByRole("heading", { name: "Available backups" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open and inspect archive…" })).toBeTruthy();
+    fireEvent.click(await screen.findByRole("radio", { name: "Use a saved backup" }));
+    expect(screen.queryByRole("button", { name: "Open and inspect archive…" })).toBeNull();
     await screen.findByRole("heading", { name: "Available backups" });
     expect(screen.queryByLabelText("Prepared restore UUID")).toBeNull();
     expect(screen.queryByText(stage.id)).toBeNull();
@@ -199,6 +203,7 @@ describe("native backup and restore", () => {
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
+    fireEvent.click(await screen.findByRole("radio", { name: "Use a saved backup" }));
     fireEvent.click(await screen.findByRole("combobox", { name: "Available backup" }));
     fireEvent.click(await screen.findByRole("option", { name: /Database-only snapshot/ }));
     fireEvent.click(screen.getByRole("button", { name: "Inspect selected backup" }));
