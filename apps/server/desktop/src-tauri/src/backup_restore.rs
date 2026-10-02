@@ -318,6 +318,65 @@ fn stage_args(staged: &str) -> Result<Vec<String>, String> {
     Ok(vec!["restore".into(), "--staged".into(), staged.into()])
 }
 
+/// Capture beside the destination, then publish only a completed archive.
+/// The native save dialog has already obtained replacement consent.
+struct BackupOutput {
+    directory: PathBuf,
+    archive: PathBuf,
+    destination: PathBuf,
+    replace: bool,
+}
+impl BackupOutput {
+    fn new(destination: &Path) -> Result<Self, String> {
+        let replace = match std::fs::symlink_metadata(destination) {
+            Ok(metadata) if metadata.is_file() => true,
+            Ok(_) => return Err("The backup destination must be a regular file.".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+            Err(error) => return Err(error.to_string()),
+        };
+        let parent = destination.parent().ok_or("Invalid backup destination.")?;
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| e.to_string())?
+            .as_nanos();
+        let directory = parent.join(format!(
+            ".desktop-backup-{}-{stamp}-{}",
+            std::process::id(),
+            SECRET_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            builder.mode(0o700);
+        }
+        builder.create(&directory).map_err(|e| e.to_string())?;
+        Ok(Self {
+            archive: directory.join("archive.subshell"),
+            directory,
+            destination: destination.to_path_buf(),
+            replace,
+        })
+    }
+    fn publish(&self) -> Result<(), String> {
+        std::fs::File::open(&self.archive)
+            .and_then(|file| file.sync_all())
+            .map_err(|e| e.to_string())?;
+        if self.replace {
+            std::fs::rename(&self.archive, &self.destination).map_err(|e| e.to_string())?;
+        } else {
+            // A file created after the save dialog must not be overwritten.
+            std::fs::hard_link(&self.archive, &self.destination).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+}
+impl Drop for BackupOutput {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.directory);
+    }
+}
+
 #[tauri::command(async)]
 pub fn desktop_backup(app: AppHandle, output: String, password: String) -> Result<Value, String> {
     let _guard = control::ActionGuard::try_new().ok_or("Another server action is running.")?;
@@ -325,7 +384,13 @@ pub fn desktop_backup(app: AppHandle, output: String, password: String) -> Resul
         return Err("Choose an absolute archive destination.".into());
     }
     let argv = executable(&app)?;
-    let mut args = vec!["backup".into(), "--output".into(), output, "--json".into()];
+    let capture = BackupOutput::new(Path::new(&output))?;
+    let mut args = vec![
+        "backup".into(),
+        "--output".into(),
+        capture.archive.to_string_lossy().into_owned(),
+        "--json".into(),
+    ];
     let secret = if password.is_empty() {
         None
     } else {
@@ -335,7 +400,10 @@ pub fn desktop_backup(app: AppHandle, output: String, password: String) -> Resul
         args.push("--encrypt".into());
         secret.flag(&mut args, "--password-file");
     }
-    json_command(&argv, args, &[&password])
+    let mut result = json_command(&argv, args, &[&password])?;
+    capture.publish()?;
+    result["path"] = Value::String(output);
+    Ok(result)
 }
 
 #[tauri::command(async)]
@@ -1296,6 +1364,40 @@ pub(crate) fn finish_selection_start(app: &AppHandle) -> Result<(), SelectionSta
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn backup_replacement_keeps_old_archive_until_capture_succeeds() {
+        let root = std::env::temp_dir().join(format!(
+            "backup-publish-{}-{}",
+            std::process::id(),
+            SECRET_ID.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let destination = root.join("backup.subshell");
+        std::fs::write(&destination, b"old backup").unwrap();
+        {
+            let capture = BackupOutput::new(&destination).unwrap();
+            assert!(capture.publish().is_err());
+            assert_eq!(std::fs::read(&destination).unwrap(), b"old backup");
+        }
+        {
+            let capture = BackupOutput::new(&destination).unwrap();
+            std::fs::write(&capture.archive, b"new backup").unwrap();
+            assert_eq!(std::fs::read(&destination).unwrap(), b"old backup");
+            capture.publish().unwrap();
+            assert_eq!(std::fs::read(&destination).unwrap(), b"new backup");
+        }
+        let fresh = root.join("fresh.subshell");
+        {
+            let capture = BackupOutput::new(&fresh).unwrap();
+            std::fs::write(&capture.archive, b"capture").unwrap();
+            std::fs::write(&fresh, b"racing writer").unwrap();
+            assert!(capture.publish().is_err());
+            assert_eq!(std::fs::read(&fresh).unwrap(), b"racing writer");
+        }
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 2);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn password_utf16_bounds_match_ui_and_cli_protected_transport() {
         let cases = [

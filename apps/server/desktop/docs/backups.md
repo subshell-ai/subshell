@@ -94,3 +94,9 @@ the native interface matches the caller. Installed binaries remain service
 supervision targets. A newer installed server requires updating the desktop
 app before backup or restore. Dev launches also refresh the executable’s
 sibling bundled CLI by digest.
+
+The desktop save dialog’s replacement consent is honored by capturing into a
+private sibling directory and publishing the completed archive atomically.
+A failed capture preserves the previous backup; CLI backups still refuse
+existing destinations. A newly created destination cannot overwrite a file
+that appeared after the save dialog.
