@@ -1,22 +1,24 @@
-import { appendFile, lstat, mkdir, readdir, rename, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
-import { enforceMode } from "@internal/pane-runtime";
+import { lstat, readdir, unlink } from "node:fs/promises";
+import { join } from "node:path";
 import type { NodeCommandBody } from "@internal/subshell-protocol";
 import { log } from "../log.js";
 import { pathAllowed } from "../path-policy.js";
-import type { CommandContext, CommandResult, UploadState } from "./context.js";
+import { receiveChunkedStream } from "./chunked-stream.js";
+import type { CommandContext, CommandResult } from "./context.js";
 
 /**
  * The `write_file` chunk receiver (spec 2026-08-31 §3.4): the terminal-upload
- * relay delivers a file as ordered base64 chunks + an `eof` flag; the agent
- * accumulates each stream in a `.<basename>.part` temp BESIDE the final path
- * (same filesystem — the eof rename can never hit EXDEV) and moves it into
- * place on eof.
+ * relay delivers a file as ordered base64 chunks + an `eof` flag. The stream
+ * discipline (temp-beside-final `.part`, in-order chunks, gate-twice,
+ * rename-last) lives in `chunked-stream.ts`, shared VERBATIM with
+ * `transfer_write`; this module owns only the uploads policy.
  *
- * The path policy gates TWICE per stream: on chunk 0 (before any parent
- * directory is created) and on eof (roots recomputed — a tracked cwd can
- * vanish, and the hardened policy catches ancestor symlinks planted after
- * the stream opened). Every accepted chunk answers the {@link NodeWriteFileResult}
+ * That policy is deliberately NOT the transfers one, and the two are not
+ * mergeable: `write_file`'s roots are dataDir + tracked working dirs, gated
+ * twice and pinned by tests as the narrow upload surface; widening them to
+ * reach a transfer destination would weaken a load-bearing policy (spec
+ * 2026-10-01 §4 says keep them apart, which is why the sibling verb carries a
+ * different name). Every accepted chunk answers the {@link NodeWriteFileResult}
  * shape `{ path, received }` with `received` the running total, so the control
  * plane can assert `received === file.size` on the eof answer (backend-side
  * verify, Task 12). Stream state lives on `ctx.uploads` — per-daemon, survives
@@ -39,89 +41,26 @@ async function policyRoots(ctx: CommandContext): Promise<string[]> {
   return [ctx.config.dataDir, ...(await ctx.meta.list()).map((m) => m.cwd)];
 }
 
-/** Best-effort: delete a stream's temp and drop its state (eof failure / sweep). */
-async function discard(ctx: CommandContext, key: string): Promise<void> {
-  const state = ctx.uploads.get(key);
-  if (!state) return;
-  ctx.uploads.delete(key);
-  try {
-    await unlink(state.tmpPath);
-  } catch {
-    // already gone (or the dir moved under us) — the startup sweep is the backstop
-  }
-}
-
 /**
- * `write_file` (spec §3.4): receive one chunk of a chunked upload.
- *
- * Semantics (all refusal paths answer `ok:false` and change no stream state
- * except where noted):
- * - `chunk 0` always (re)starts a stream: policy-gate the raw path against
- *   {@link policyRoots}, `mkdir -p` the parent, (re)create the temp beside the
- *   final path with mode 0600. A chunk 0 over an OPEN stream deletes the old
- *   temp first — this is the mid-stream-failure self-heal the relay relies on.
- *   A refusal on chunk 0 writes NOTHING anywhere.
- * - `chunk N>0` requires an open stream whose `expectedChunk === N`, else
- *   `write_file chunk <N> has no open stream` (the stream itself stays open,
- *   so the control plane can redeliver the right index).
- * - `eof` RE-CHECKS the policy on fresh roots, `mkdir -p`s the parent again,
- *   renames temp→final (overwriting — timestamp-unique naming is the control
- *   plane's job), re-tightens the final to 0600, and drops the stream. An eof
- *   refusal deletes the temp and drops the stream — nothing stranded.
+ * `write_file` (spec §3.4): receive one chunk of a chunked upload, gated
+ * against {@link policyRoots} on chunk 0 and again at eof (semantics:
+ * `chunked-stream.ts`).
  *
  * @param ctx - the per-daemon context (`uploads` is this executor's map)
  * @param cmd - the verified `write_file` command body
- * @returns `{ path, received }` on every accepted chunk; the refusal strings above otherwise
+ * @returns `{ path, received }` on every accepted chunk; `path refused: …` /
+ *   `write_file chunk <N> has no open stream` otherwise
  */
 export async function execWriteFile(ctx: CommandContext, cmd: Cmd): Promise<CommandResult> {
-  const key = resolve(cmd.path);
-  const existing = ctx.uploads.get(key);
-  const bytes = Buffer.from(cmd.chunk_b64, "base64");
-  let state: UploadState;
-
-  if (cmd.chunk === 0) {
-    // Gate BEFORE any side effect: a refused path must create no dir, no temp.
-    if (!(await pathAllowed(cmd.path, await policyRoots(ctx)))) {
-      return { ok: false, error: `path refused: ${cmd.path}` };
-    }
-    if (existing) {
-      ctx.uploads.delete(key); // restart: the old temp is replaced below (or by the sweep if we throw here)
-      try {
-        await unlink(existing.tmpPath);
-      } catch {
-        // vanished mid-restart — the fresh writeFile truncates anyway
-      }
-    }
-    await mkdir(dirname(key), { recursive: true });
-    const tmpPath = join(dirname(key), `.${basename(key)}.part`);
-    await writeFile(tmpPath, bytes, { mode: 0o600 });
-    await enforceMode(tmpPath, 0o600); // umask can't loosen 0600, but a pre-existing temp might have
-    state = { tmpPath, received: bytes.byteLength, expectedChunk: 1 };
-    ctx.uploads.set(key, state);
-  } else {
-    if (!existing || cmd.chunk !== existing.expectedChunk) {
-      return { ok: false, error: `write_file chunk ${cmd.chunk} has no open stream` };
-    }
-    await appendFile(existing.tmpPath, bytes);
-    existing.received += bytes.byteLength;
-    existing.expectedChunk += 1;
-    state = existing;
-  }
-
-  if (!cmd.eof) return { ok: true, data: { path: cmd.path, received: state.received } };
-
-  // eof: the world may have changed since chunk 0 — recompute roots and re-gate
-  // the final path (the hardened policy catches `..`, ancestor symlinks, and
-  // any symlink leaf planted mid-stream) before the rename can land bytes.
-  if (!(await pathAllowed(cmd.path, await policyRoots(ctx)))) {
-    await discard(ctx, key);
-    return { ok: false, error: `path refused: ${cmd.path}` };
-  }
-  await mkdir(dirname(key), { recursive: true }); // parent may have been deleted mid-stream
-  await rename(state.tmpPath, key); // POSIX rename: replaces an existing final, preserves the 0600 mode
-  await enforceMode(key, 0o600); // uploads are user files — same re-tighten discipline as fs-mode.ts
-  ctx.uploads.delete(key);
-  return { ok: true, data: { path: cmd.path, received: state.received } };
+  return await receiveChunkedStream(
+    ctx,
+    cmd.path,
+    Buffer.from(cmd.chunk_b64, "base64"),
+    cmd.chunk,
+    cmd.eof,
+    "write_file",
+    async (path) => await pathAllowed(path, await policyRoots(ctx)),
+  );
 }
 
 /**

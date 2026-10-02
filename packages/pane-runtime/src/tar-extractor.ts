@@ -16,8 +16,9 @@
  *     copy trees; a link into the destination could point outside it);
  *   - per-file, total and entry caps run DURING the pass, so an archive that
  *     lies about its size cannot exhaust the destination before the cap fires;
- *   - the destination root's parents are created mode 0700 and each file takes
- *     its recorded mode; the extractor never deletes anything (additive by
+ *   - the destination root's parents are created mode 0700, each file takes
+ *     its recorded mode and (unless it is the writer's 0 "unstated" default)
+ *     its recorded mtime; the extractor never deletes anything (additive by
  *     ruling - a transfer overwrites matching paths and leaves the rest).
  *
  * The transport sha256 is verified by the CALLER before this runs (against the
@@ -28,6 +29,7 @@
 
 import { once } from "node:events";
 import { createReadStream, createWriteStream, mkdirSync } from "node:fs";
+import { utimes } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createGunzip } from "node:zlib";
 import {
@@ -145,7 +147,7 @@ export async function extractTarGz(
       if (bytes + h.size > limits.maxTotalBytes)
         throw new Error(`tar: extracted total exceeds ${limits.maxTotalBytes} bytes`);
 
-      await writeBody(join(destRoot, rel), h.size, h.mode);
+      await writeBody(join(destRoot, rel), h.size, h.mode, h.mtime);
       files += 1;
       bytes += h.size;
       await skipBytes(blockPadding(h.size));
@@ -156,7 +158,7 @@ export async function extractTarGz(
     pump.destroy();
   }
 
-  async function writeBody(path: string, size: number, mode: number): Promise<void> {
+  async function writeBody(path: string, size: number, mode: number, mtime: number): Promise<void> {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const dst = createWriteStream(path, { mode: mode & 0o777 });
     // A listener is load-bearing: our own destroy() below races the pending
@@ -186,6 +188,11 @@ export async function extractTarGz(
       if (!dst.destroyed) dst.destroy();
       throw e;
     }
+    // Copy semantics: the source's time rides the header, so the landed file
+    // gets it (tar restores mtimes and a sync diff that re-timestamped every
+    // relayed file would churn). mtime 0 is the writer's "nobody said"
+    // default, not a 1970 claim - leave those at write time.
+    if (mtime > 0) await utimes(path, mtime, mtime);
   }
 
   return { files, bytes };

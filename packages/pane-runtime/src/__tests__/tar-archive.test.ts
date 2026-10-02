@@ -137,6 +137,9 @@ describe("writer + extractor round-trip", () => {
     expect(r.files).toBe(3);
     expect(readFileSync(join(out, "small.txt"), "utf8")).toBe("tiny content\n");
     expect(statSync(join(out, "small.txt")).mode & 0o777).toBe(0o600);
+    // No mtime was stated in this archive (the writer's 0 default) — the file
+    // keeps its write time; a stated one is restored (see the next test).
+    expect(statSync(join(out, "small.txt")).mtimeMs).toBeGreaterThan(1_700_000_000_000);
     const bigOut = readFileSync(join(out, "nested/big.bin"));
     expect(bigOut.length).toBe(5000);
     expect(bigOut[4999]).toBe(4999 & 0xff);
@@ -144,6 +147,22 @@ describe("writer + extractor round-trip", () => {
     expect(readFileSync(join(out, longName), "utf8")).toBe("long-name payload");
     expect(statSync(join(out, "emptydir")).isDirectory()).toBe(true);
     expect(statSync(join(out, "deep/nested/dir")).isDirectory()).toBe(true);
+  });
+
+  it("restores recorded mtimes and leaves unstated (0) ones at write time", async () => {
+    const small = join(dir, "src_small.txt");
+    const arc = await buildArchive(
+      "mtime",
+      [],
+      [
+        { path: "stated.txt", sourcePath: small, size: statSync(small).size, mtimeSeconds: 111 },
+        { path: "unstated.txt", sourcePath: small, size: statSync(small).size },
+      ],
+    );
+    const out = join(dir, "out-mtime");
+    await extractTarGz(arc.path, out, LIMITS);
+    expect(Math.floor(statSync(join(out, "stated.txt")).mtimeMs / 1000)).toBe(111);
+    expect(statSync(join(out, "unstated.txt")).mtimeMs).toBeGreaterThan(1_700_000_000_000);
   });
 
   it("is byte-identical to itself across a rebuild (deterministic layout)", async () => {

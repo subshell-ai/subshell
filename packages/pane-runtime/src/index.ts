@@ -139,6 +139,7 @@ export {
   runBounded,
 } from "./run-bounded.js";
 export { shellQuote } from "./shell.js";
+export { safeTransferPath } from "./tar-blocks.js";
 export { type ExtractResult, extractTarGz } from "./tar-extractor.js";
 export { extractTgz, type TarEntry, type TgzLimits } from "./tar-vendor.js";
 export {
