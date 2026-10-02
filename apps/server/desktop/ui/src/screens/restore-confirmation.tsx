@@ -87,7 +87,6 @@ export function RestoreConfirmation(props: {
             rows={[
               ["Captured", new Date(inspection.manifest.completedAt).toLocaleString()],
               ["Server version", inspection.manifest.serverVersion],
-              ["Expires", new Date(inspection.expiresAt ?? 0).toLocaleString()],
               ["Admin recovery", inspection.recoveryUserId ? (recovery?.email ?? inspection.recoveryUserId) : "Off"],
             ]}
           />
