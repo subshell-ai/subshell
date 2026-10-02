@@ -66,6 +66,24 @@ status. If a running program consumes stdin (an interactive `cat`, a REPL),
 it swallows both lines and no sentinel appears; the call times out honestly,
 which is the same failure a human's blind typing produces, now named.
 
+The sentinel speaks POSIX: `$?` is sh/bash/zsh/dash/ksh vocabulary, and the
+terminal harness runs the node's `$SHELL`, which may be fish. On fish `$?`
+expands to nothing, the answer line never matches, and every exec on that
+pane ends `timed_out` with its output reported and no rc, honestly, and
+without a named cause beyond the documented contract. v1 documents this
+boundary (here and in the tool description) rather than detecting shells.
+
+The lease (§2) fences exec-vs-exec only. Keystrokes that arrive between the
+two sends through the attach socket, `send_to_subshell`, or the Inject-prompt
+dialog are not fenced: they land in the shell like a human's typing between
+one's own two lines would, and `rc` then describes whatever command ran last
+before the printf. The quiet check narrows that window and cannot close it,
+and the spec names that rather than promising otherwise. Send 1 also inherits
+the input route's documented partial-pair: a node that drops between the text
+frame and the Enter frame leaves the command sitting unsubmitted, to which
+the printf line is then appended; exec reports the resulting nonsense as a
+timeout.
+
 **Recognition.** The answer line, after the existing ANSI strip, is matched
 with the anchored test `^__xcomm_<T>_DONE rc=([0-9]+)$`. The *echo* of the
 printf line (what the terminal shows as the command was typed) cannot
@@ -73,13 +91,26 @@ false-match: it carries quotes and a literal `$?`, and it sits behind prompt
 characters, while the match is anchored on a whole stripped line. Prompt
 themes are irrelevant because `cursorLinesFromWindow` strips before the split.
 
+Matching runs over text ACCUMULATED across cursor reads, not per window: S1's
+liveness rule (a window containing no newline returns the partial line and
+advances, so its remainder arrives as the next read's leading text) means one
+poll can catch the answer line mid-append and split it into two reads, say
+`__xcomm_<T>_DON` in one and `E rc=3` in the next, neither of which matches
+the anchor on its own. The exec loop therefore carries an unterminated tail
+fragment between reads and applies the anchored test to lines completed in
+the concatenation; the reader's no-dup/no-skip guarantee makes the
+concatenation exact. The output slice's cut point is decided in the same
+accumulated space. A recognition loop written per-read instead of per-stream
+would answer a finished command with a silent false timeout, which is the
+exact failure class this spec exists to eliminate.
+
 **Output.** The result's `output` is everything the pane wrote from
 `startByte` up to (not including) the sentinel line: it includes the shell's
 echo of the typed command, and that is deliberate, because the pane's truth
 is what the slice shows and trimming heuristics would be a second, guessing
 implementation. Paging uses the spec 2026-10-01 reader (`readLogWindow` local
-and remote, `LOG_MAX_WINDOW_BYTES` windows, line-aligned `nextByte`) in a
-loop until recognition or the deadline. `output` keeps the last
+and remote, `LOG_WINDOW_DEFAULT_BYTES` windows, line-aligned `nextByte`)
+until recognition or the deadline. `output` keeps the last
 `EXEC_MAX_OUTPUT_BYTES` (256 KiB, the log-tail precedent) of that slice; past
 the cap the head is dropped and `truncated: true`. The final `nextByte` is
 the offset after the sentinel line, so a follow-up `read_subshell_log`
@@ -88,7 +119,11 @@ resumes exactly where exec stopped.
 ## 2. The REST verb and its gates
 
 `POST /api/subshells/:id/exec` (route file beside the input route, same
-directory): body `{command, timeout_ms?}`.
+directory): body `{command, timeoutMs?}`. Field names follow the plane's wire
+convention (bodies and responses are camelCase; snake_case lives in query
+params and MCP tool schemas, which is where the tool's `timeout_ms` arg
+correctly stays). `command` is capped exactly like the input route's text
+(1..20 000 characters, the same `INPUT_VALIDATION_ERROR` shape).
 
 Gates, in the order the input route already applies them: `requirePerm
 ("subshells","write")`; the per-subshell `edit` grant (bearer follows the
@@ -110,16 +145,26 @@ Concurrency: an in-flight lease keyed by subshell id, the
 `EXEC_IN_FLIGHT`; interleaved sentinel typing on one shell would corrupt both
 calls, and the lease makes that impossible rather than unlucky.
 
-Timeout: `timeout_ms` defaults to 30 000 and is clamped to [1000, 300 000]
-(the update-command ceiling precedent; the channels long-poll proves
-minute-scale synchronous HTTP is an accepted regime in this codebase). On
+Timeout and cadence: `timeoutMs` defaults to `EXEC_TIMEOUT_MS` (30 000) and
+is clamped to [1000, 300 000] (the update-command ceiling precedent; the
+channels long-poll proves minute-scale synchronous HTTP is an accepted regime
+in this codebase). The wait loop polls every `EXEC_POLL_MS` (500), one
+`LOG_WINDOW_DEFAULT_BYTES` window per poll: `TAIL_POLL_MS` (50) is the
+ATTACHED-pump cadence and deliberately not the precedent here, because every
+remote poll is a signed `log_read` round trip and 500 ms bounds a
+max-timeout remote exec at 600 command frames instead of thousands. On
 timeout the call returns `status: "timed_out"` with the output slice so far
 and the current cursor; it types nothing further and sends no signal (ruling
-2 above). Timeout is a field of a successful answer, not an HTTP error, so a
-merely slow build never rides a client's error path.
+2 above). Each poll re-checks the row's two facts: a pane that dies mid-wait
+(restart, terminate, natural exit) ends the wait immediately with the same
+`timed_out` answer over the output accumulated so far, because polling a dead
+pane's log is reading noise and stopping the poll touches nothing (ruling 2 is
+about acting on the pane, and nothing here acts). Timeout is a field of a
+successful answer, not an HTTP error, so a merely slow build never rides a
+client's error path.
 
-Response: `{status: "completed" | "timed_out", exit_code, output, truncated,
-next_byte}`; `exit_code` is null when `status` is not `completed`. No audit
+Response: `{status: "completed" | "timed_out", exitCode, output, truncated,
+nextByte}`; `exitCode` is null when `status` is not `completed`. No audit
 row, following the input route's precedent: exec is typing, and the fact that
 typing happened is already recorded by the pane's own log.
 
@@ -127,19 +172,24 @@ typing happened is already recorded by the pane's own log.
 
 `exec_in_terminal` is registered in `packages/mcp-core` from a NEW
 `terminal-tools.ts` (the `transfer-tools.ts` reasoning: `subshell-tools.ts`
-is at 439 lines, and the terminal family deserves its own seam). The Zod
-schema is a named constant per the house rule: `{subshell_id, command,
-timeout_ms?}`. The handler is a thin POST; every protocol decision lives
-server-side so the CLI or desktop can ride the same verb later without a
-second implementation. The tool returns the server's JSON result as text.
+is 528 lines at this branch's base, and the terminal family deserves its own
+seam). The name deviates from the `{verb}_{resource}` sibling pattern
+(`send_to_subshell`, `read_subshell_log`) by decision, not accident: "exec" is
+the operator's word for the gesture and "in_terminal" names the only pane type
+it accepts. The Zod schema is a named constant per the house rule:
+`{subshell_id, command, timeout_ms?}` (MCP-side args stay snake_case, mapped
+to the REST verb's camelCase body). The handler is a thin POST; every protocol
+decision lives server-side so the CLI or desktop can ride the same verb later
+without a second implementation. The tool returns the server's JSON result as
+text.
 
-The tool description carries the boundary the machinery cannot enforce, in at
-most three sentences: it runs one shell command in a terminal pane and
+The tool description carries the boundaries the machinery cannot enforce, in
+at most three sentences: it runs one shell command in a terminal pane and
 returns its output and exit code once the sentinel confirms; it refuses
 without typing while the pane is producing output, and on timeout it touches
-nothing and reports what printed; interactive programs (password prompts,
-editors, TUIs) are out of scope and belong to `send_to_subshell` plus
-`read_subshell_log`.
+nothing and reports what printed so far; interactive programs belong to
+`send_to_subshell` plus `read_subshell_log`, and the exit-code sentinel speaks
+POSIX, so a fish pane answers `timed_out` once its command completes.
 
 `describeToolError` gains three named-code branches, each naming the remedy
 for an agent: `EXEC_PANE_BUSY` ("the pane is producing output; wait or read
@@ -155,7 +205,8 @@ assertion in `server.test.ts` (this branch's reality is S1's 20 tools plus
 this one; once S2 merges the set also contains `transfer_files`, and
 whichever of S2/S3 lands second carries the conflict, as already planned
 between them), and the `SUBSHELL_MCP_INSTRUCTIONS` pinned 1200-character
-budget, which any added guidance must fit inside or trim by name.
+budget, which currently sits at 1166 used: any exec guidance in the briefing
+means a trim by name, and the budget test is the guardrail that notices.
 
 ## 4. Docs, security note, changesets
 
@@ -173,16 +224,23 @@ budget, which any added guidance must fit inside or trim by name.
 
 - Pure helpers (`services/nodes/pane-exec.ts` owns sentinel compose/parse,
   the quiet-window decision, and the output slicing): the token cannot
-  false-match the typed echo; rc parses; multi-window paging assembles
-  long-output tail-first with `truncated`; a zero-output command still
-  answers with its rc; the slice excludes the sentinel line and stops at it.
+  false-match the typed echo; rc parses; an `rc=` with an empty value (the
+  fish shape) never matches and the accumulated text still slices cleanly;
+  multi-window paging assembles long-output tail-first with `truncated`; a
+  zero-output command still answers with its rc; the slice excludes the
+  sentinel line and stops at it.
 - Service tests both ways: against a real temp log file for the local path,
   and against a scripted node whose `log_read` answers carry the sentinel,
-  asserting the typed argv byte-for-byte (both sends), that the quiet check
-  refuses before any keystroke, that `EXEC_IN_FLIGHT` blocks a second exec,
-  and that a timeout types nothing further.
+  asserting the typed payload byte-for-byte on both seams (argv locally, the
+  remote `input` command frame), that the quiet check refuses before any
+  keystroke, that `EXEC_IN_FLIGHT` blocks a second exec, that a timeout types
+  nothing further, that a pane terminated mid-wait ends the wait early, and
+  that a sentinel SPLIT ACROSS TWO CURSOR READS is still recognized (the
+  liveness-rule scripting the S1 log-route tests already use: a zero-newline
+  window first, the remainder second).
 - Route tests for the gate matrix: view 403, foreign 404, dead row 409,
-  offline node 409, agent harness 400 `EXEC_TERMINAL_ONLY`, timeout clamp.
+  offline node 409, agent harness 400 `EXEC_TERMINAL_ONLY`, timeout clamp,
+  command length cap.
 - MCP tests: fakeApi pass-through, the three `describeToolError` branches,
   the tool-name-set pin, the instructions-budget pin.
 - No compiled-binary gate: nothing changes inside the shipped agent, so
