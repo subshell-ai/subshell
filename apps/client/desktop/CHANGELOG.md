@@ -1,5 +1,15 @@
 # @internal/desktop-client
 
+## 1.2.4
+
+### Patch Changes
+
+- [#313](https://github.com/subshell-ai/subshell/pull/313) [`647c52c`](https://github.com/subshell-ai/subshell/commit/647c52cd02e7c9fc819c126c4c66b633e12b2238) Thanks [@theogravity](https://github.com/theogravity)! - Preserve saved control plane addresses when upgrading from older clients. Keep existing node registrations out of first run when the node CLI cannot answer, and wait for the registration check before showing setup.
+
+- [#313](https://github.com/subshell-ai/subshell/pull/313) [`647c52c`](https://github.com/subshell-ai/subshell/commit/647c52cd02e7c9fc819c126c4c66b633e12b2238) Thanks [@theogravity](https://github.com/theogravity)! - Replace the node page's key rotation card with re-registration. Generate a single-use setup key tied to an existing node and redeem it in Subshell Client or the node CLI to replace credentials while preserving the node entry, name, shares, settings, and session relationships.
+- Updated dependencies [[`647c52c`](https://github.com/subshell-ai/subshell/commit/647c52cd02e7c9fc819c126c4c66b633e12b2238)]:
+  - @internal/node@1.4.3
+
 ## 1.2.3
 
 ### Patch Changes

@@ -1,5 +1,23 @@
 # @internal/server
 
+## 1.8.0
+
+### Minor Changes
+
+- [#313](https://github.com/subshell-ai/subshell/pull/313) [`647c52c`](https://github.com/subshell-ai/subshell/commit/647c52cd02e7c9fc819c126c4c66b633e12b2238) Thanks [@theogravity](https://github.com/theogravity)! - Replace the node page's key rotation card with re-registration. Generate a single-use setup key tied to an existing node and redeem it in Subshell Client or the node CLI to replace credentials while preserving the node entry, name, shares, settings, and session relationships.
+
+### Patch Changes
+
+- [#313](https://github.com/subshell-ai/subshell/pull/313) [`647c52c`](https://github.com/subshell-ai/subshell/commit/647c52cd02e7c9fc819c126c4c66b633e12b2238) Thanks [@theogravity](https://github.com/theogravity)! - Make the terminal button-bar refresh button reload the entire page in standalone sessions and workspaces.
+
+- [#313](https://github.com/subshell-ai/subshell/pull/313) [`647c52c`](https://github.com/subshell-ai/subshell/commit/647c52cd02e7c9fc819c126c4c66b633e12b2238) Thanks [@theogravity](https://github.com/theogravity)! - Show which preset supplied a new subshell’s settings, with a collapsed preview of the configured agent command, environment, settings, and restart policy.
+
+- [#315](https://github.com/subshell-ai/subshell/pull/315) [`baeee79`](https://github.com/subshell-ai/subshell/commit/baeee7941257852d637cc16b4eb3ce49d6bad2ed) Thanks [@theogravity](https://github.com/theogravity)! - Show the launch command preview only for selected presets, simplify its content, and use muted text. Offer inline preset editing from the preview and reapply the updated preset after saving.
+
+- [#313](https://github.com/subshell-ai/subshell/pull/313) [`647c52c`](https://github.com/subshell-ai/subshell/commit/647c52cd02e7c9fc819c126c4c66b633e12b2238) Thanks [@theogravity](https://github.com/theogravity)! - Support remote terminal OSC 52 copy requests with a browser-side Copy action that places text on the viewer’s device clipboard.
+
+- [#313](https://github.com/subshell-ai/subshell/pull/313) [`647c52c`](https://github.com/subshell-ai/subshell/commit/647c52cd02e7c9fc819c126c4c66b633e12b2238) Thanks [@theogravity](https://github.com/theogravity)! - Offer the active subshell’s actions in tiled and tabbed workspace headers, including Inject prompt and the touch copy-mode toggle. Keep dialogs tied to their pane when focus changes, and offer prompt injection only while the pane is running and its node is reachable.
+
 ## 1.7.4
 
 ### Patch Changes

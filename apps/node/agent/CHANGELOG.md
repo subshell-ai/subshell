@@ -1,5 +1,11 @@
 # @internal/node
 
+## 1.4.3
+
+### Patch Changes
+
+- [#313](https://github.com/subshell-ai/subshell/pull/313) [`647c52c`](https://github.com/subshell-ai/subshell/commit/647c52cd02e7c9fc819c126c4c66b633e12b2238) Thanks [@theogravity](https://github.com/theogravity)! - Replace the node page's key rotation card with re-registration. Generate a single-use setup key tied to an existing node and redeem it in Subshell Client or the node CLI to replace credentials while preserving the node entry, name, shares, settings, and session relationships.
+
 ## 1.4.2
 
 ### Patch Changes
