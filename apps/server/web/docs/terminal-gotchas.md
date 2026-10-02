@@ -169,3 +169,17 @@ real (2026-09-04):
   here?" she was). The strip still must never write `layout_json` and still
   has no drag: on a finger, dockview drags no better, so the phone keeps the
   presentation that matches its input.
+
+### Remote terminal copying
+
+`lib/terminal-clipboard.ts` handles OSC 52 writes in xterm’s streaming parser,
+including sequences split across output chunks. Remote text produces a
+30-second Copy action that writes to the browser device’s clipboard only on a
+click. Requests replace the prior prompt for that pane; disposing its terminal
+retires the prompt and action. Clipboard queries and clear requests are ignored.
+Payloads must be valid base64 UTF-8 and at most 1 MiB. Clipboard permission or
+HTTPS failures show guidance instead of claiming success.
+
+The live pipe-pane log carries these sequences for both server-hosted and
+remote-node panes. Copying solely through a remote OS clipboard tool does not
+emit terminal output; that program must use OSC 52 for this bridge to work.
