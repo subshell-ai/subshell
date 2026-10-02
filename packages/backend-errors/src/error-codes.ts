@@ -107,6 +107,12 @@ export enum BackendErrorCodes {
    * remedy is a restart, not a retry of the same POST.
    */
   SUBSHELL_NOT_RUNNING = "SUBSHELL_NOT_RUNNING",
+  /** exec (spec 2026-10-02): the harness in this pane is not a terminal; nothing was typed. */
+  EXEC_TERMINAL_ONLY = "EXEC_TERMINAL_ONLY",
+  /** exec: the pane's log grew inside the quiet window; nothing was typed. */
+  EXEC_PANE_BUSY = "EXEC_PANE_BUSY",
+  /** exec: another exec already holds this pane's lease. */
+  EXEC_IN_FLIGHT = "EXEC_IN_FLIGHT",
   /**
    * `POST /api/subshells`: the row was retired between its INSERT and its
    * spawn — a maintenance window opening on that node, or a plain terminate.
@@ -273,6 +279,18 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.SUBSHELL_NOT_RUNNING]: {
     message: "The subshell is not running",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.EXEC_TERMINAL_ONLY]: {
+    message: "exec types into terminal panes only",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.EXEC_PANE_BUSY]: {
+    message: "The pane is producing output; exec typed nothing",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.EXEC_IN_FLIGHT]: {
+    message: "Another exec is already waiting on this pane",
     statusCode: 409,
   },
   [BackendErrorCodes.SUBSHELL_STOPPED_WHILE_STARTING]: {
