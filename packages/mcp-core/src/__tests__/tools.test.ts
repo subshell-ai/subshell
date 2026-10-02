@@ -194,6 +194,73 @@ describe("mcp tools (handler-level, real crypto)", () => {
     expect(create?.body?.prompt).toBe("do it");
   });
 
+  // The presetless path (spec 2026-10-01 §1): terminal-type only, decided
+  // against the plugin catalog client-side; the preset list is never fetched.
+  it("create_subshell presetless launches a terminal plugin with no presetId on the wire", async () => {
+    const { api, calls } = fakeApi((req) => {
+      if (req.path === "/api/plugins")
+        return { plugins: [{ id: "terminal", name: "Terminal", type: "terminal", installed: true, enabled: true }] };
+      if (req.path === "/api/subshells") return { id: "t1", tmuxSocket: "sk", promptDelivered: true };
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...(await generateKeypair()) } };
+    const res = await createSubshell(deps, { harness: "terminal", prompt: "make world", name: "shell" });
+    expect(res).toEqual({ id: "t1", promptDelivered: true });
+    expect(calls.some((c) => c.path === "/api/presets")).toBe(false);
+    const create = calls.find((c) => c.path === "/api/subshells");
+    expect(create?.body).toEqual({ harnessId: "terminal", name: "shell", prompt: "make world" });
+    // No presetId key, no workingDir key: the server's home default is the point.
+  });
+
+  it("create_subshell presetless refuses everything that is not an installed, enabled terminal", async () => {
+    const plugins = {
+      plugins: [
+        { id: "claude-code", name: "Claude", type: "agent-harness", installed: true, enabled: true },
+        { id: "opencode", name: "OpenCode", type: "agent-harness", installed: false, enabled: true },
+        { id: "terminal", name: "Terminal", type: "terminal", installed: true, enabled: false },
+      ],
+    };
+    const { api } = fakeApi((req) => (req.path === "/api/plugins" ? plugins : { id: "x", promptDelivered: false }));
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...(await generateKeypair()) } };
+    await expect(createSubshell(deps, { harness: "claude-code" })).rejects.toThrow(
+      /not a plain-terminal harness; agent harnesses launch FROM a preset/,
+    );
+    await expect(createSubshell(deps, { harness: "terminal" })).rejects.toThrow(/it is disabled on the instance/);
+    await expect(createSubshell(deps, { harness: "nope" })).rejects.toThrow(/no plugin 'nope'/);
+    await expect(createSubshell(deps, {})).rejects.toThrow(/without a preset, create_subshell needs harness/);
+    await expect(createSubshell(deps, { harness: "terminal", promptMode: "replace" })).rejects.toThrow(
+      /prompt_mode needs a preset/,
+    );
+  });
+
+  it("create_subshell presetless resolves the node with the shared grammar", async () => {
+    const { api, calls } = fakeApi((req) => {
+      if (req.path === "/api/plugins")
+        return { plugins: [{ id: "terminal", name: "Terminal", type: "terminal", installed: true, enabled: true }] };
+      if (req.path === "/api/nodes")
+        return {
+          nodes: [
+            {
+              id: "n-1",
+              name: "Mac",
+              kind: "agent",
+              status: "online",
+              access: "owner",
+              canLaunch: true,
+              maintenance: false,
+              harnesses: [],
+            },
+          ],
+        };
+      if (req.path === "/api/subshells") return { id: "t2", promptDelivered: false };
+      throw new Error(`unexpected ${req.method} ${req.path}`);
+    });
+    const deps: ToolDeps = { api, own: { principalId: "sess:me", ...(await generateKeypair()) } };
+    await createSubshell(deps, { harness: "terminal", node: "mac", workingDir: "/srv/x" });
+    const create = calls.find((c) => c.path === "/api/subshells");
+    expect(create?.body).toEqual({ harnessId: "terminal", workingDir: "/srv/x", nodeId: "n-1" });
+  });
+
   it("create_subshell with no harness derives it from the preset row; an omitted working_dir rides the preset", async () => {
     // Spec 2026-09-29: the preset is the launch. The harness arrives from the
     // row (unscoped search), and NO workingDir on the wire means the server
@@ -660,9 +727,24 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
   });
 
   it("read_subshell_log passes the tail through untouched", async () => {
-    const { deps, calls } = await depsFor(() => ({ lines: ["a", "b"], truncated: true }));
-    expect(await readSubshellLog(deps, "s 1")).toEqual({ lines: ["a", "b"], truncated: true });
+    const { deps, calls } = await depsFor(() => ({ lines: ["a", "b"], truncated: true, nextByte: 9 }));
+    expect(await readSubshellLog(deps, "s 1")).toEqual({ lines: ["a", "b"], truncated: true, nextByte: 9 });
     expect(calls[0]?.path).toBe("/api/subshells/s%201/log");
+    expect(calls[0]?.query).toBeUndefined(); // no window named: bare GET, byte-identical to the old tail call
+  });
+
+  it("read_subshell_log passes a cursor window as from_byte/max_bytes (spec 2026-10-01 §3)", async () => {
+    const { deps, calls } = await depsFor(() => ({ lines: ["new"], truncated: false, nextByte: 140 }));
+    expect(await readSubshellLog(deps, "s1", { fromByte: 33, maxBytes: 100 })).toEqual({
+      lines: ["new"],
+      truncated: false,
+      nextByte: 140,
+    });
+    expect(calls[0]?.query).toEqual({ from_byte: 33, max_bytes: 100 });
+    // A one-sided window names only its own key: an absent bound is absent on
+    // the wire, not zeroed.
+    await readSubshellLog(deps, "s1", { fromByte: 140 });
+    expect(calls[1]?.query).toEqual({ from_byte: 140 });
   });
 
   it("send_to_subshell posts text with submit defaulting to true", async () => {

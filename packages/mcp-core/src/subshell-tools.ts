@@ -184,6 +184,39 @@ function nameMatches<T>(rows: T[], want: string, nameOf: (row: T) => string): T[
 }
 
 /**
+ * The tools' shared node addressing: EXACT id first (ids survive renames),
+ * then the human-name grammar; `undefined` in, `undefined` out, so callers
+ * that name no node never pay for the list. One function keeps
+ * create_subshell's preset and presetless branches (and every future node
+ * argument) answering a name, an id, and a tie identically.
+ */
+async function resolveNodeId(deps: ToolDeps, want: string | undefined): Promise<string | undefined> {
+  if (want === undefined) return undefined;
+  // Same `{ nodes: [...] }` wrapper as listNodes (see the note there).
+  const nodes = (await deps.api.req<{ nodes: NodeWireRow[] }>("/api/nodes")).nodes;
+  // Exact id wins FIRST: ids survive renames, and a node whose name happens
+  // to read like another node's id must never hijack the id-addressed one.
+  const byId = nodes.filter((n) => n.id === want);
+  const matches = byId.length > 0 ? byId : nameMatches(nodes, want, (n) => n.name);
+  if (matches.length === 0) {
+    const available = nodes.map((n) => n.name).join(", ");
+    throw new Error(
+      `subshell: no node '${want}'${available ? `; available: ${available}` : "; no machines are enrolled"}; call list_nodes`,
+    );
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `subshell: more than one node matches '${want}' (${spellingsOrIds(
+        matches,
+        (n) => n.name,
+        (n) => n.id,
+      )}); pass the node id`,
+    );
+  }
+  return matches[0].id;
+}
+
+/**
  * The parenthetical of a tie refusal: the competing SPELLINGS when they
  * differ (with a case-only collision they are the whole actionable content of
  * "ask for an exact spelling"), else the ids: identical spellings rendered
@@ -287,26 +320,37 @@ export async function listNodes(deps: ToolDeps): Promise<NodeView[]> {
 const MAX_CREATE_PROMPT_CHARS = 20_000;
 
 /**
- * `create_subshell`: an agent launches FROM a preset (required since spec
- * 2026-09-29 preset-launch-fields), ADDRESSED BY ID (operator re-ruling
- * 2026-09-30, replacing name addressing): `preset` is the id `list_presets`
- * returned, unique per instance, so the lookup is exact and a miss is a
- * refusal naming the remedy rather than a near-match. The harness is derived
- * unless the call asserts one, and everything else the call says OVERRIDES
- * what the preset carries - node, directory, and the prompt. A call that
- * names no dir when the preset names none gets the server's 400 naming both
- * spellings. The prompt relationship is the agent's choice (ruling
- * 2026-09-29): no `prompt` uses the preset's, `"append"` (the default) puts
- * the agent's text AFTER it, `"replace"` sends only the agent's. The node,
- * when given, resolves client-side as an id OR display name so the server
- * only ever sees an id.
+ * `create_subshell`, two shapes (see the branches):
+ *
+ * FROM A PRESET (the default since spec 2026-09-29 preset-launch-fields),
+ * ADDRESSED BY ID (operator re-ruling 2026-09-30, replacing name addressing):
+ * `preset` is the id `list_presets` returned, unique per instance, so the
+ * lookup is exact and a miss is a refusal naming the remedy rather than a
+ * near-match. The harness is derived unless the call asserts one, and
+ * everything else the call says OVERRIDES what the preset carries - node,
+ * directory, and the prompt. A call that names no dir when the preset names
+ * none gets the server's 400 naming both spellings. The prompt relationship is
+ * the agent's choice (ruling 2026-09-29): no `prompt` uses the preset's,
+ * `"append"` (the default) puts the agent's text AFTER it, `"replace"` sends
+ * only the agent's.
+ *
+ * PRESETLESS (spec 2026-10-01 §1, operator ruling: "Open presetless for
+ * terminal"): `harness` selects the launch and must be a plugin of type
+ * `terminal` that the instance has installed and enabled - agent harnesses
+ * stay preset-gated. The prompt is the caller's text alone, `prompt_mode` is
+ * refused for want of a preset to apply against, and an omitted directory
+ * lands in the node's home (the server's §2 default).
+ *
+ * In both shapes the node, when given, resolves client-side as an id OR
+ * display name (shared `resolveNodeId`) so the server only ever sees an id.
  */
 export async function createSubshell(
   deps: ToolDeps,
   args: {
     name?: string;
     harness?: string;
-    preset: string;
+    /** Absent = a presetless launch, allowed only for a `terminal`-type harness. */
+    preset?: string;
     workingDir?: string;
     prompt?: string;
     /** "append" (default) or "replace"; only read when `prompt` is given. */
@@ -314,6 +358,50 @@ export async function createSubshell(
     node?: string;
   },
 ): Promise<{ id: string; promptDelivered: boolean }> {
+  // The presetless path (spec 2026-10-01 §1): the operator ruling kept the
+  // 2026-09-29 preset requirement for AGENT harnesses and relaxed it only for
+  // plugin type "terminal" - a shell needs no saved settings. The type gate
+  // lives HERE, in the MCP layer where the preset ruling also lives; the
+  // server has always accepted a presetless body. `harness` flips from an
+  // assert to the selection, and the catalog (the same GET /api/plugins rows
+  // list_presets folds in) is the authority on type/installed/enabled.
+  if (args.preset === undefined) {
+    if (args.harness === undefined) {
+      throw new Error(
+        "subshell: without a preset, create_subshell needs harness (a presetless launch names the harness it launches)",
+      );
+    }
+    if (args.promptMode !== undefined) {
+      throw new Error("subshell: prompt_mode needs a preset to apply against; drop it or pass preset");
+    }
+    const plugins = (await deps.api.req<{ plugins: PluginWireRow[] }>("/api/plugins")).plugins;
+    const plugin = plugins.find((p) => p.id === args.harness);
+    if (plugin === undefined) {
+      throw new Error(
+        `subshell: no plugin '${args.harness}'; call list_presets (its catalog rows list the harnesses the instance offers) or omit harness and pass a preset`,
+      );
+    }
+    if (plugin.type !== "terminal" || !plugin.installed || !plugin.enabled) {
+      throw new Error(
+        `subshell: harness '${args.harness}' cannot be launched presetless (${plugin.type !== "terminal" ? "it is not a plain-terminal harness; agent harnesses launch FROM a preset" : plugin.installed ? "it is disabled on the instance" : "its binary is not installed on the instance"}); call list_presets and launch from a preset the operator saved`,
+      );
+    }
+    // No preset lookup, no prompt composition: the caller's prompt (if any) is
+    // the one final string, typed into the settled shell as-is. An omitted dir
+    // rides the server's home default (spec 2026-10-01 §2).
+    const presetlessNodeId = await resolveNodeId(deps, args.node);
+    const res = await deps.api.req<LaunchWireResponse>("/api/subshells", {
+      method: "POST",
+      body: {
+        harnessId: plugin.id,
+        ...(args.workingDir !== undefined ? { workingDir: args.workingDir } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
+        ...(args.prompt !== undefined ? { prompt: args.prompt } : {}),
+        ...(presetlessNodeId !== undefined ? { nodeId: presetlessNodeId } : {}),
+      },
+    });
+    return { id: res.id, promptDelivered: res.promptDelivered };
+  }
   // Ids are unique across the instance, so the lookup is over the whole list
   // and EXACT: the `harness` param is only an assert afterwards, never a
   // lookup scope (with name addressing it had been both).
@@ -359,31 +447,7 @@ export async function createSubshell(
       );
     }
   }
-  let nodeId: string | undefined;
-  if (args.node !== undefined) {
-    // Same `{ nodes: [...] }` wrapper as listNodes (see the note there).
-    const nodes = (await deps.api.req<{ nodes: NodeWireRow[] }>("/api/nodes")).nodes;
-    // Exact id wins FIRST: ids survive renames, and a node whose name happens
-    // to read like another node's id must never hijack the id-addressed one.
-    const byId = nodes.filter((n) => n.id === args.node);
-    const matches = byId.length > 0 ? byId : nameMatches(nodes, args.node, (n) => n.name);
-    if (matches.length === 0) {
-      const available = nodes.map((n) => n.name).join(", ");
-      throw new Error(
-        `subshell: no node '${args.node}'${available ? `; available: ${available}` : "; no machines are enrolled"}; call list_nodes`,
-      );
-    }
-    if (matches.length > 1) {
-      throw new Error(
-        `subshell: more than one node matches '${args.node}' (${spellingsOrIds(
-          matches,
-          (n) => n.name,
-          (n) => n.id,
-        )}); pass the node id`,
-      );
-    }
-    nodeId = matches[0].id;
-  }
+  const nodeId = await resolveNodeId(deps, args.node);
   const res = await deps.api.req<LaunchWireResponse>("/api/subshells", {
     method: "POST",
     body: {
@@ -422,9 +486,25 @@ export const terminateSubshell = (deps: ToolDeps, id: string) =>
 /** `delete_subshell` */
 export const deleteSubshell = (deps: ToolDeps, id: string) =>
   deps.api.req(`/api/subshells/${encodeURIComponent(id)}`, { method: "DELETE" });
-/** `read_subshell_log`: the tail of the pane's captured output, passed through. */
-export const readSubshellLog = (deps: ToolDeps, id: string) =>
-  deps.api.req<{ lines: string[]; truncated: boolean }>(`/api/subshells/${encodeURIComponent(id)}/log`);
+/**
+ * `read_subshell_log`: the pane's captured output, passed through. Tail mode
+ * (no `fromByte`) answers the last lines plus `nextByte` at EOF; cursor mode
+ * resumes at a raw byte offset, so a send/read loop sees each byte once.
+ * The window rules (line-aligned resume, the one long-line exception, the
+ * clamps) are the server's: spec 2026-10-01 §3.
+ */
+export const readSubshellLog = (deps: ToolDeps, id: string, window?: { fromByte?: number; maxBytes?: number }) =>
+  deps.api.req<{ lines: string[]; truncated: boolean; nextByte: number }>(
+    `/api/subshells/${encodeURIComponent(id)}/log`,
+    window?.fromByte === undefined && window?.maxBytes === undefined
+      ? undefined
+      : {
+          query: {
+            ...(window?.fromByte !== undefined ? { from_byte: window.fromByte } : {}),
+            ...(window?.maxBytes !== undefined ? { max_bytes: window.maxBytes } : {}),
+          },
+        },
+  );
 /**
  * `send_to_subshell`: types `text` into a running pane over REST; `submit`
  * (default true) presses Enter after it. The server's gate decides whose
