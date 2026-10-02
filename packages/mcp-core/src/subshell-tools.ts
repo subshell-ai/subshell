@@ -374,6 +374,14 @@ export async function createSubshell(
     if (args.promptMode !== undefined) {
       throw new Error("subshell: prompt_mode needs a preset to apply against; drop it or pass preset");
     }
+    // The route's cap, refused HERE with the remedy (like the preset branch)
+    // and BEFORE the catalog fetch: the prompt is already the one final string,
+    // so an oversized one is the caller's mistake, not a node's answer.
+    if (args.prompt !== undefined && args.prompt.length > MAX_CREATE_PROMPT_CHARS) {
+      throw new Error(
+        `subshell: the prompt is ${args.prompt.length} chars; the launch accepts at most ${MAX_CREATE_PROMPT_CHARS}. Shorten it.`,
+      );
+    }
     const plugins = (await deps.api.req<{ plugins: PluginWireRow[] }>("/api/plugins")).plugins;
     const plugin = plugins.find((p) => p.id === args.harness);
     if (plugin === undefined) {
@@ -387,17 +395,18 @@ export async function createSubshell(
       );
     }
     // No preset lookup, no prompt composition: the caller's prompt (if any) is
-    // the one final string, typed into the settled shell as-is. An omitted dir
-    // rides the server's home default (spec 2026-10-01 §2).
+    // the one final string, typed into the settled shell as-is (the cap was
+    // checked above). An omitted dir rides the server's home default (spec
+    // 2026-10-01 §2).
     const presetlessNodeId = await resolveNodeId(deps, args.node);
     const res = await deps.api.req<LaunchWireResponse>("/api/subshells", {
       method: "POST",
       body: {
         harnessId: plugin.id,
         ...(args.workingDir !== undefined ? { workingDir: args.workingDir } : {}),
-        ...(args.name !== undefined ? { name: args.name } : {}),
-        ...(args.prompt !== undefined ? { prompt: args.prompt } : {}),
-        ...(presetlessNodeId !== undefined ? { nodeId: presetlessNodeId } : {}),
+        name: args.name,
+        prompt: args.prompt,
+        nodeId: presetlessNodeId,
       },
     });
     return { id: res.id, promptDelivered: res.promptDelivered };

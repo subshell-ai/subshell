@@ -868,6 +868,18 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       }
     });
 
+    it("the node gate outranks the deferred home default: presetless terminal onto an offline node → NODE_OFFLINE, not the 400", async () => {
+      // The home default is computed AFTER resolveLaunchNode precisely so a
+      // machine that cannot take the launch answers its own structured 409.
+      // This is the spec §6 precedence case: the deferral must never mask a
+      // node refusal. The node has no live connection and no inventory, so
+      // both the online gate and (had it passed) the harness gate stop first.
+      const node = await mkNode(userId);
+      const res = await post({ harnessId: "terminal", nodeId: node, name: "cnode-offline" });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { code: string }).code).toBe("NODE_OFFLINE");
+    });
+
     it("presetless terminal on a node that reported NO home: honest 400, no launch", async () => {
       const { nodeId, ws, cmds } = await attachTerminalNode(undefined);
       try {

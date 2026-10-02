@@ -231,6 +231,11 @@ describe("mcp tools (handler-level, real crypto)", () => {
     await expect(createSubshell(deps, { harness: "terminal", promptMode: "replace" })).rejects.toThrow(
       /prompt_mode needs a preset/,
     );
+    // The route's 20k cap is refused HERE with the remedy, both shapes (the
+    // preset branch has always done this; presetless must not relay a schema 400).
+    await expect(createSubshell(deps, { harness: "terminal", prompt: "y".repeat(20_001) })).rejects.toThrow(
+      /accepts at most 20000/,
+    );
   });
 
   it("create_subshell presetless resolves the node with the shared grammar", async () => {

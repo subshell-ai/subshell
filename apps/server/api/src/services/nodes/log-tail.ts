@@ -111,10 +111,15 @@ export const LOG_WINDOW_DEFAULT_BYTES = 64 * 1024;
  *
  * Line-aligned resume: only newline-terminated lines are consumed, so the
  * cursor always sits at a line boundary and a line cut by the window edge
- * arrives whole on the next read. The one exception is the liveness rule: a
- * window with NO newline at all is one line longer than any window can be, so
- * its partial text is returned and the cursor advances past the window. A
- * loop that never advanced would spin forever (pinned by test).
+ * arrives whole on the next read. The exception is the liveness rule: a
+ * window containing NO newline returns its partial text and the cursor
+ * advances past the window. That branch fires not only for a line longer
+ * than any window but also for a line merely unterminated at read time (an
+ * active prompt, a mid-write append) - and it must fire in both cases, or a
+ * quiet pane would pin the cursor and a spinning loop would never see what
+ * follows. The visible cost: such a line's remainder arrives as the NEXT
+ * read's leading line. Output is never duplicated, skipped, or stuck; a
+ * logical line can be split across reads (pinned by test).
  *
  * Unlike the tail there is no line cap in cursor mode: the byte budget IS the
  * cap, and silently dropping lines from a caller paging through output is the
@@ -152,7 +157,7 @@ export type LogWindowReader = (
 export interface LogCursorRequest {
   /** Inclusive raw file offset to resume from; absent keeps the EOF-anchored tail. */
   fromByte?: number;
-  /** Window budget, clamped to [{@link LOG_WINDOW_DEFAULT_BYTES} default, {@link LOG_MAX_WINDOW_BYTES}]. */
+  /** Window budget, clamped to [1, {@link LOG_MAX_WINDOW_BYTES}]; {@link LOG_WINDOW_DEFAULT_BYTES} when absent. */
   maxBytes?: number;
 }
 
@@ -166,7 +171,10 @@ export interface LogCursorRequest {
  * {@link tailLinesFromWindowText} with its partial-leading-line drop and
  * {@link LOG_TAIL_LINES} cap), plus `nextByte` = file size: the tail seeds a
  * cursor at EOF. Lines beyond the 200 cap were not shown and are not replayed
- * - the honesty is in the description, not the offset.
+ * - the honesty is in the description, not the offset. (The two hops read
+ * append-only content at slightly different instants; output that landed
+ * between them shows in the tail AND re-arrives on the first cursor read:
+ * bounded duplication, never a skip.)
  *
  * CURSOR mode (`fromByte`): ONE window read through {@link cursorLinesFromWindow}.
  * At or past EOF the answer is empty with the cursor parked at the offset (a

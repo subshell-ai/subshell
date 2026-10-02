@@ -570,10 +570,11 @@ export class RemoteLauncher implements NodeLauncher {
 
   /**
    * Byte-range read of the node's pane log; `next` is where a sequential
-   * reader resumes. Reads AT EOF match {@link LocalLauncher.readLog} exactly
-   * (empty, `next == fromByte`); BEYOND EOF the answer differs by agent
-   * design — the agent clamps `next` to `size`, so a relay cursor parked
-   * past the end can step back once on its first read.
+   * reader resumes. At AND beyond EOF this matches
+   * {@link LocalLauncher.readLog} exactly since spec 2026-10-01 §3 rebuilt
+   * the local read over the same window triple: empty bytes, `next` clamped
+   * to `size`, so a relay cursor parked past the end steps back once on its
+   * first read on either launcher.
    */
   async readLog(id: string, fromByte: number, maxBytes: number): Promise<{ bytes: Uint8Array; next: number }> {
     const { bytes, next } = await this.readLogSized(id, fromByte, maxBytes);

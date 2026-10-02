@@ -102,7 +102,7 @@ Pass `{ "id": "SUBSHELL_ID" }`. Returns `{ ok }`. Stops a running process first,
 
 ## read_subshell_log
 
-Pass `{ "id": "SUBSHELL_ID" }` for the tail, or add `from_byte` (a previous `nextByte`) and optional `limit` to read only what followed that raw byte offset. Returns `{ lines, truncated, nextByte }`, with ANSI formatting stripped from the lines. Tail reads end `nextByte` at the end of the log, so a tail seeds a cursor loop; cursor reads resume at line boundaries and never split a line across two calls (a single line longer than the window is the documented exception, and it still advances). Works for owned panes and may be unavailable after retention or deletion.
+Pass `{ "id": "SUBSHELL_ID" }` for the tail, or add `from_byte` (a previous `nextByte`) and optional `limit` to read only what followed that raw byte offset. Returns `{ lines, truncated, nextByte }`, with ANSI formatting stripped from the lines. Tail reads end `nextByte` at the end of the log, so a tail seeds a cursor loop. Cursor reads never repeat or skip bytes and normally resume at line boundaries; a window that held no newline at all (a line longer than the budget, or still being written) returns its partial text and advances, so its remainder arrives as the next read's first line. Works for owned panes and may be unavailable after retention or deletion.
 
 ## send_to_subshell
 

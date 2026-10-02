@@ -13,14 +13,14 @@ import { LOG_MAX_WINDOW_BYTES, LOG_WINDOW_DEFAULT_BYTES } from "@/services/nodes
  */
 const LogTailQuerySchema = t.Object({
   from_byte: t.Optional(
-    t.Integer({
+    t.Numeric({
       description:
-        "Raw log-file offset to resume from (pass the previous response's nextByte); negative reads as 0. Omitted = tail the last lines as before",
+        "Raw log-file offset to resume from (pass the previous response's nextByte); out-of-range values clamp (negative reads as 0, fractions truncate). Omitted = tail the last lines as before",
     }),
   ),
   max_bytes: t.Optional(
-    t.Integer({
-      description: `Window budget for a cursor read, clamped into [1, ${LOG_MAX_WINDOW_BYTES}] (default ${LOG_WINDOW_DEFAULT_BYTES}); the response never splits a line across reads except a single line longer than the window`,
+    t.Numeric({
+      description: `Window budget for a cursor read, clamped into [1, ${LOG_MAX_WINDOW_BYTES}] (default ${LOG_WINDOW_DEFAULT_BYTES}); a line the window ended mid-way arrives whole on the next read unless it held no newline at all (longer than the budget, or still being written), which is returned partial so the cursor always advances`,
     }),
   ),
 });

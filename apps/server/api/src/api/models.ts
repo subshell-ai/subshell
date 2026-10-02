@@ -89,7 +89,7 @@ export const SubshellLogTailSchema = t.Object({
   }),
   nextByte: t.Number({
     description:
-      "Raw log-file offset to pass as from_byte to read only what follows (spec 2026-10-01 §3). A tail read answers EOF, so the cursor seeds where the pane is now; a cursor read answers the end of the last complete line it returned",
+      "Raw log-file offset to pass as from_byte to read only what follows (spec 2026-10-01 §3). A tail read answers EOF, so the cursor seeds where the pane is now; a cursor read answers the end of the last complete line it returned, or the end of the window when it held no newline at all (so the cursor never sticks on a long or still-unfinished line)",
   }),
 });
 

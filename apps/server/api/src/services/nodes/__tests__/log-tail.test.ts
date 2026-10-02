@@ -41,6 +41,16 @@ describe("cursorLinesFromWindow", () => {
     expect(r).toEqual({ lines: ["A".repeat(10)], truncated: true, nextByte: 50 });
   });
 
+  it("an UNTERMINATED line at EOF liveness-advances; its remainder arrives as the next read's leading line (the documented split, spec 2026-10-01 §3)", () => {
+    // The pane printed "building" with no newline yet (still writing, or the
+    // prompt itself). Read 1 must not stick; read 2 completes the line. No
+    // dup, no skip, one visible split.
+    const first = cursorLinesFromWindow(enc("building"), 0, 8); // file was 8 bytes at read time
+    expect(first).toEqual({ lines: ["building"], truncated: true, nextByte: 8 });
+    const second = cursorLinesFromWindow(enc(" done\n"), 8, 14); // file is 14 now
+    expect(second).toEqual({ lines: [" done"], truncated: false, nextByte: 14 });
+  });
+
   it("empty bytes answer empty without moving the cursor past EOF", () => {
     expect(cursorLinesFromWindow(new Uint8Array(0), 50, 10)).toEqual({ lines: [], truncated: false, nextByte: 10 });
     expect(cursorLinesFromWindow(new Uint8Array(0), 3, 10)).toEqual({ lines: [], truncated: false, nextByte: 3 });

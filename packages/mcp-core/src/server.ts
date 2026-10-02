@@ -287,7 +287,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "Read subshell log",
       description:
-        "A sibling pane's captured output (ANSI-stripped): why it exited, what it printed. Works for the owner's panes. Without from_byte: the last lines, plus nextByte at EOF. With from_byte (pass the previous nextByte): only what followed that raw byte offset, each line once - the loop for driving a pane with send_to_subshell and watching what it prints. A line cut by the window edge is never split across reads.",
+        "A sibling pane's captured output (ANSI-stripped): why it exited, what it printed. Works for the owner's panes. Without from_byte: the last lines, plus nextByte at EOF. With from_byte (pass the previous nextByte): only what followed that raw byte offset - nothing repeats, nothing skips; the loop for driving a pane with send_to_subshell and watching what it prints. A line the window ended mid-way is normally held whole for the next read; the exception is a window with no newline at all (a line longer than the budget, or still being written), which is returned partial and advances so the cursor never sticks - its remainder then arrives as the next read's first line.",
       inputSchema: z.object({
         id: z.string(),
         from_byte: z

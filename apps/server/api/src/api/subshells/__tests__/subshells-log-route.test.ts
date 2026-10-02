@@ -251,10 +251,16 @@ describe("GET /api/subshells/:id/log", () => {
       // Negative offset reads as 0.
       const neg = await getCursor(id, { from_byte: -1 });
       expect(neg.body.lines).toEqual(["data"]);
-      // A zero budget clamps to 1 byte: it cannot finish the line, so nothing
-      // is consumed and the cursor holds (no data shown, no data skipped).
+      // A zero budget clamps to 1 byte: the window holds no newline, so the
+      // liveness rule fires - the partial line IS shown and the cursor DOES
+      // advance (a held cursor here would spin the loop forever).
       const tiny = await getCursor(id, { max_bytes: 0, from_byte: 0 });
       expect(tiny.body).toEqual({ lines: ["d"], truncated: true, nextByte: 1 });
+      // A fractional offset truncates rather than 400s (the clamp doctrine;
+      // t.Numeric coercion, Math.trunc in readLogCursor).
+      const frac = await getCursor(id, { from_byte: 3.9 });
+      expect(frac.body.lines).toEqual(["a"]);
+      expect(frac.body.nextByte).toBe(5);
       // An oversized budget clamps to the window ceiling and still reads fine.
       const big = await getCursor(id, { max_bytes: 10_000_000, from_byte: 0 });
       expect(big.body.nextByte).toBe(5);
