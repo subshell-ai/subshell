@@ -2,6 +2,8 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
   chmodSync,
   createWriteStream,
+  existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -393,6 +395,62 @@ describe("extractor destination-containment refusals (PR review)", () => {
     await extractTarGz(arc.path, destRoot, LIMITS);
     expect(readFileSync(victim, "utf8")).toBe("NEW"); // contents replaced
     expect(statSync(victim).mode & 0o777).toBe(0o600); // and the recorded mode applied on overwrite
+  });
+
+  it("refuses a destination file that is a HARD LINK to an outside file", async () => {
+    // The round-two P1: O_NOFOLLOW refuses a symlinked leaf, but a second
+    // hard link is a plain regular file to open() - and open(O_TRUNC) has
+    // ALREADY punched through the shared inode before any check can see the
+    // link count. The guard must therefore live after a NON-truncating open:
+    // fstat, refuse nlink > 1, then ftruncate ourselves.
+    const outside = join(dir, "hard-outside");
+    writeFileSync(outside, "original");
+    const destRoot = join(dir, "hard-dest");
+    mkdirSync(destRoot, { recursive: true });
+    linkSync(outside, join(destRoot, "victim")); // destRoot/victim == outside (one inode, two names)
+    const arc = writeArchive("hard", makeTgz([{ path: "victim", content: "BAD" }]));
+    await expect(extractTarGz(arc, destRoot, LIMITS)).rejects.toThrow(/refusing hard-linked destination/);
+    expect(readFileSync(outside, "utf8")).toBe("original"); // the shared inode was never touched
+  });
+
+  it("still enforces the per-file cap on an entry whose NAME came from a pax override", async () => {
+    // The round-two P2 (maxFileBytes bypass): a long-name entry is exactly as
+    // big as its header says; the caps must gate it the same as a short-named
+    // one. A 4 MiB body of zeros compresses to almost nothing, so this also
+    // proves the cap rejects on the DECLARED size before any of it lands.
+    const long = "d".repeat(120); // >100 bytes: the pax override is load-bearing
+    const pax = new TextEncoder().encode(`0 path=${long}/big.txt\n`);
+    const arc = writeArchive(
+      "pax-cap",
+      handBuiltTgz([
+        { name: "./PaxHeaders.0/big.txt", typeflag: "x", body: pax },
+        { name: "short-name.txt", typeflag: "0", body: new Uint8Array(4 * 1024 * 1024) },
+      ]),
+    );
+    const out = join(dir, "pax-cap-out");
+    await expect(
+      extractTarGz(arc, out, { maxFileBytes: 1024, maxTotalBytes: 64 * 1024 * 1024, maxEntries: 10 }),
+    ).rejects.toThrow(/exceeds the per-file cap/);
+  });
+
+  it("a PAX GLOBAL record's path= must not rename the next entry (global records carry no path)", async () => {
+    // The round-two P2 (stale global leak): POSIX keeps `path` in the
+    // per-entry (x) records only; a global ('g') record naming a path is
+    // hostile or broken, and honoring it lets an archive rename whichever
+    // entry follows. The g body is still skipped and accounted; its path is
+    // ignored, so the file lands under its OWN header name.
+    const g = new TextEncoder().encode("0 path=stolen.txt\n");
+    const arc = writeArchive(
+      "g-path",
+      handBuiltTgz([
+        { name: "./GlobalHead.0.0", typeflag: "g", body: g },
+        { name: "real.txt", typeflag: "0", body: new TextEncoder().encode("ok") },
+      ]),
+    );
+    const out = join(dir, "g-path-out");
+    await expect(extractTarGz(arc, out, LIMITS)).resolves.toEqual({ files: 1, bytes: 2 });
+    expect(readFileSync(join(out, "real.txt"), "utf8")).toBe("ok");
+    expect(existsSync(join(out, "stolen.txt"))).toBe(false);
   });
 });
 

@@ -14,10 +14,14 @@
  *   - the destination is the filesystem surface, so it is enforced on the
  *     filesystem too: everything lands under the realpath'd `destRoot`, every
  *     created path component is checked to be a real DIRECTORY (a symlinked
- *     ancestor is refused), and a file leaf is opened with O_NOFOLLOW. A valid
- *     archive naming `sub/victim` must not write through a `destRoot/sub ->
- *     /outside` symlink that pre-dated the transfer - the lexical guard sees a
- *     clean relative name and cannot; only the lstat/O_NOFOLLOW discipline does;
+ *     ancestor is refused), a file leaf is opened with O_NOFOLLOW, and a leaf
+ *     with more than one name (a HARD link out) is refused before its own
+ *     ftruncate runs - a hard link is a plain regular file to open(), invisible
+ *     to O_NOFOLLOW, and O_TRUNC-at-open would have punched through the shared
+ *     inode before any check could see it. A valid archive naming `sub/victim`
+ *     must not write through a `destRoot/sub -> /outside` symlink that pre-dated
+ *     the transfer - the lexical guard sees a clean relative name and cannot;
+ *     only the lstat/O_NOFOLLOW/nlink discipline does;
  *   - only regular files and directories are accepted; symlinks, hardlinks,
  *     devices, FIFOs and any other typeflag are refused outright;
  *   - per-file, total and entry caps run DURING the pass, and a pax header's
@@ -40,6 +44,8 @@ import {
   constants,
   createReadStream,
   fchmodSync,
+  fstatSync,
+  ftruncateSync,
   futimesSync,
   lstatSync,
   mkdirSync,
@@ -202,8 +208,14 @@ export async function extractTarGz(
           throw new Error(`tar: archive metadata exceeds the ${limits.maxTotalBytes}-byte total`);
         metaTotal += h.size;
         const body = await takeBytes(h.size);
-        const override = paxOverridePath(body);
-        if (override !== undefined) pendingPath = override;
+        // Only a per-entry ("x") record may carry the path override. POSIX
+        // keeps `path` out of global records, so a "g" naming one is hostile
+        // or broken: honoring it would let the record rename whichever entry
+        // follows it. Its body is still read, accounted, and skipped.
+        if (h.typeflag === TYPE_PAX) {
+          const override = paxOverridePath(body);
+          if (override !== undefined) pendingPath = override;
+        }
         await skipBytes(blockPadding(h.size));
         continue;
       }
@@ -244,20 +256,32 @@ export async function extractTarGz(
   // ancestor was already refused by ensureDirChain, and O_NOFOLLOW refuses an
   // existing OR mid-race-substituted symlink LEAF (a verified-but-hostile
   // archive could otherwise redirect a write outside the tree by naming a path
-  // whose leaf is a symlink). The fd is then chmod'd to the recorded mode, so a
-  // replacement adopts the source's permissions whether it CREATES or OVERWRITES
-  // (the write-stream `mode` option only bites at creation, which silently left
-  // an overwriting 0600 file at a pre-existing 0644).
+  // whose leaf is a symlink). Symlinks are not the only second name a leaf can
+  // have, though: a HARD link to an outside file is a plain regular file to
+  // open(), so O_NOFOLLOW cannot see it, and an open with O_TRUNC would punch
+  // through the shared inode before any check could run. The open is therefore
+  // NON-truncating, and the fstat that follows refuses a leaf with more than
+  // one name before our own ftruncate runs. The fd is then chmod'd to the
+  // recorded mode, so a replacement adopts the source's permissions whether it
+  // CREATES or OVERWRITES (the write-stream `mode` option only bites at
+  // creation, which silently left an overwriting 0600 file at a pre-existing
+  // 0644).
   async function writeBody(leaf: string, size: number, mode: number, mtime: number): Promise<void> {
     let fd: number;
     try {
-      fd = openSync(leaf, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600);
+      fd = openSync(leaf, constants.O_WRONLY | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ELOOP")
         throw new Error(`tar: refusing symlinked destination '${leaf}'`);
       throw err;
     }
     try {
+      // After the non-truncating open and BEFORE any write: a destination with
+      // two names shares its inode with the other one, and everything written
+      // here would land there too. Freshly created files are nlink 1; only a
+      // pre-existing hard link trips this.
+      if (fstatSync(fd).nlink > 1) throw new Error(`tar: refusing hard-linked destination '${leaf}'`);
+      ftruncateSync(fd, 0); // the truncation O_TRUNC used to do blindly, now after the guard
       // Both create and overwrite adopt the recorded mode: the write-stream
       // `mode` option only bites at CREATION, which silently left an
       // overwriting 0600 replacement at a pre-existing world-readable 0644.
