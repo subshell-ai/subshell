@@ -134,6 +134,13 @@
     line-height: var(--text-body--line-height);
     -webkit-font-smoothing: antialiased;
   }
+  html:has(body.assistant) {
+    overflow: hidden;
+  }
+  body.assistant {
+    height: 100vh;
+    overflow: hidden;
+  }
   input {
     width: 100%;
     padding: 8px 9px;

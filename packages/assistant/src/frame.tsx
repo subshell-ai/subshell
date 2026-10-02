@@ -70,9 +70,9 @@ export function Frame(props: {
 }): ReactElement {
   const { strings, art, children, barLeft, barRight, entranceKey, rail } = props;
   return (
-    <div className="flex h-screen">
+    <div className="flex h-screen overflow-hidden">
       {rail}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* The class rides the key: both arrive together on the first replay,
           so the animation plays on insertion exactly as the old forced-reflow
           restart made it, and never on the boot frame's first paint. */}
@@ -80,8 +80,8 @@ export function Frame(props: {
           key={entranceKey}
           className={
             entranceKey !== undefined
-              ? "screen-enter flex-1 overflow-y-auto px-8 py-8"
-              : "flex-1 overflow-y-auto px-8 py-8"
+              ? "screen-enter min-h-0 flex-1 overflow-y-auto px-8 py-8"
+              : "min-h-0 flex-1 overflow-y-auto px-8 py-8"
           }
         >
           <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center">
