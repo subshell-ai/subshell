@@ -313,6 +313,7 @@ export function NewSubshellForm({
         <LaunchCommandPreview
           key={`${value.harnessId}:${value.presetId ?? "defaults"}`}
           preset={selectedPreset}
+          onApplyPreset={applyPreset}
           binary={selectedAgent?.binary}
         />
       )}

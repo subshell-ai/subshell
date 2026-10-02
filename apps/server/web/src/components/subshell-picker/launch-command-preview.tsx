@@ -1,13 +1,24 @@
 import { Button } from "@internal/node-admin";
 import { ChevronDown } from "lucide-react";
 import { useId, useState } from "react";
+import { EditPresetDialog } from "@/components/presets/edit-preset-dialog";
 import { presetLaunchCommand } from "@/lib/launch-command";
 import type { PresetRow } from "@/types/preset";
 
 /** The preset's launch contribution, revealed only when the person asks. */
-export function LaunchCommandPreview({ preset, binary }: { preset?: PresetRow; binary?: string }) {
+export function LaunchCommandPreview({
+  preset,
+  binary,
+  onApplyPreset,
+}: {
+  preset?: PresetRow;
+  binary?: string;
+  onApplyPreset?: (preset: PresetRow) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const id = useId();
+  const [editing, setEditing] = useState(false);
+  if (!preset) return null;
   return (
     <div className="flex flex-col gap-2">
       {preset && (
@@ -19,7 +30,7 @@ export function LaunchCommandPreview({ preset, binary }: { preset?: PresetRow; b
         type="button"
         variant="outline"
         size="sm"
-        className="justify-start"
+        className="justify-start text-muted-foreground"
         aria-expanded={expanded}
         aria-controls={id}
         onClick={() => setExpanded((value) => !value)}
@@ -31,7 +42,7 @@ export function LaunchCommandPreview({ preset, binary }: { preset?: PresetRow; b
         {expanded && (
           <div className="flex flex-col gap-2">
             {binary ? (
-              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono text-detail">
+              <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono text-detail text-muted-foreground">
                 {presetLaunchCommand(preset?.envJson ?? null, preset?.flagsJson ?? null, binary)}
               </pre>
             ) : (
@@ -41,22 +52,31 @@ export function LaunchCommandPreview({ preset, binary }: { preset?: PresetRow; b
             )}
             {preset?.settingsJson && (
               <>
-                <p className="font-strong text-detail">Agent settings</p>
-                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono text-detail">
+                <p className="font-strong text-detail text-muted-foreground">Agent settings</p>
+                <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono text-detail text-muted-foreground">
                   {preset.settingsJson}
                 </pre>
               </>
             )}
-            <p className="text-detail text-muted-foreground">
-              {preset?.restartOnExit ? "Restart on exit is enabled." : "Restart on exit is disabled."}
-            </p>
-            <p className="text-detail text-muted-foreground">
-              This preview shows your configured environment and arguments. Subshell adds its session integrations at
-              launch.
-            </p>
+            {onApplyPreset && (
+              <p className="text-detail text-muted-foreground">
+                To change this command,{" "}
+                <button
+                  type="button"
+                  className="underline underline-offset-4 hover:text-foreground"
+                  onClick={() => setEditing(true)}
+                >
+                  edit the preset
+                </button>
+                .
+              </p>
+            )}
           </div>
         )}
       </div>
+      {editing && onApplyPreset && (
+        <EditPresetDialog preset={preset} onClose={() => setEditing(false)} onSaved={onApplyPreset} />
+      )}
     </div>
   );
 }

@@ -32,13 +32,14 @@ it("identifies the source while keeping command and secrets collapsed", () => {
   expect(screen.queryByText(/permissionMode/)).toBeNull();
 });
 
-it("reveals the model, arguments, agent settings and restart policy on request", () => {
+it("reveals the model, arguments, agent settings on request", () => {
   render(<LaunchCommandPreview preset={preset} binary="claude" />);
   const toggle = screen.getByRole("button", { name: "Agent command and settings" });
   fireEvent.click(toggle);
   expect(screen.getByText("ANTHROPIC_MODEL=sonnet ANTHROPIC_API_KEY=secret claude --model sonnet")).toBeTruthy();
   expect(screen.getByText('{"permissionMode":"plan"}')).toBeTruthy();
-  expect(screen.getByText("Restart on exit is enabled.")).toBeTruthy();
+  expect(screen.queryByText(/Restart on exit/)).toBeNull();
+  expect(screen.queryByText(/Subshell adds its session integrations/)).toBeNull();
   fireEvent.click(toggle);
   expect(screen.queryByText(/ANTHROPIC_API_KEY=/)).toBeNull();
 });
@@ -47,13 +48,13 @@ it("updates the shown command when configuration changes", () => {
   const view = render(<LaunchCommandPreview preset={preset} binary="claude" />);
   fireEvent.click(screen.getByRole("button", { name: "Agent command and settings" }));
   view.rerender(<LaunchCommandPreview binary="pi" />);
-  expect(screen.getByText("pi")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Agent command and settings" })).toBeNull();
   expect(screen.queryByText("Claude Sonnet")).toBeNull();
   expect(screen.queryByText(/ANTHROPIC_MODEL/)).toBeNull();
 });
 
 it("does not invent an executable when it is not known", () => {
-  render(<LaunchCommandPreview />);
+  render(<LaunchCommandPreview preset={preset} />);
   fireEvent.click(screen.getByRole("button", { name: "Agent command and settings" }));
   expect(screen.getByText("The command name will be resolved on the selected node.")).toBeTruthy();
 });

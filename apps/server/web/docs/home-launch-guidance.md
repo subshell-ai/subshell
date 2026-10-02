@@ -72,7 +72,11 @@ General page's `LockdownCard` does not render at all without its two fields).
 The shared New-subshell form keeps the selected preset’s provenance visible:
 “Settings copied from <name>.” Its collapsed Agent command and settings section
 uses the same command renderer as the preset list, and reveals environment,
-arguments, stored settings and restart policy only when expanded. Switching the
+arguments and stored settings only when expanded. The section is hidden without
+a selected preset and uses muted text. Switching the
 agent or preset collapses it again and removes stale source/configuration. The
 preview describes the configured launch contribution; Subshell’s per-session
-integration arguments are added only when the session launches.
+integration arguments are added only when the session launches. The expanded
+preview’s inline “edit the preset” action opens the shared preset fields in a
+dialog. Save and apply updates the stored preset and reapplies the returned
+launch fields; cancelling or a failed save leaves the launch untouched.
