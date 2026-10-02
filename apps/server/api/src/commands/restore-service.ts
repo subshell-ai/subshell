@@ -108,7 +108,23 @@ function systemdIdentity(deps: ServiceDeps): ServiceIdentity {
   if (inherited.code !== 0)
     throw new Error("Cannot inspect systemd's inherited environment to prove restore ownership.");
   const environment: Record<string, string> = {};
+  const relevant = new Set([...BACKUP_CONFIG_KEYS, "SUBSHELL_SERVER_CONFIG_DIR", "HOME"]);
   for (const entry of inherited.out.split("\n").filter(Boolean)) {
+    const equals = entry.indexOf("=");
+    if (equals < 1) throw new Error("The installed service manager reported an unreadable environment.");
+    const key = entry.slice(0, equals);
+    // show-environment uses shell quoting, unlike systemd's ExecStart syntax.
+    // Unrelated desktop/tool variables cannot affect restore ownership.
+    if (!relevant.has(key)) continue;
+    if (BACKUP_CONFIG_KEYS.some((setting) => setting === key)) {
+      environment[key] = entry.slice(equals + 1);
+      continue;
+    }
+    const raw = entry.slice(equals + 1);
+    if (raw.startsWith("'") && raw.endsWith("'") && !raw.slice(1, -1).includes("'")) {
+      environment[key] = raw.slice(1, -1);
+      continue;
+    }
     const parts = parseSystemdExec(entry);
     if (parts.length !== 1) throw new Error("The installed service manager reported an unreadable environment.");
     const value = parts[0] as string;

@@ -52,6 +52,28 @@ describe("restore installed service ownership proof", () => {
       dataDir: join(configured, "state"),
     });
   });
+  test("unrelated shell-quoted manager values do not block restore ownership checks", () => {
+    const deps = systemd();
+    const run = deps.runCmd;
+    deps.runCmd = (argv) =>
+      argv.includes("show-environment")
+        ? {
+            code: 0,
+            out: `HOME='${home}'\nDEBUGINFOD_URLS='https://debug.example.test/ https://symbols.example.test/'\nDESKTOP_LABEL=$'multi\\nline'\n`,
+            err: "",
+          }
+        : run(argv);
+    expect(installedRestoreServicePaths(state, deps).databasePath).toBe(join(configured, "plane.db"));
+    deps.runCmd = (argv) =>
+      argv.includes("show-environment")
+        ? {
+            code: 0,
+            out: `HOME='${home}'\nDATABASE_PATH='/tmp/another database.db'\n`,
+            err: "",
+          }
+        : run(argv);
+    expect(() => installedRestoreServicePaths(state, deps)).toThrow("outside config.env");
+  });
   test("custom working directory without a matching loader override is refused", () => {
     expect(() => installedRestoreServicePaths(state, systemd("/tmp/custom-plane"))).toThrow("do not name one instance");
     expect(
