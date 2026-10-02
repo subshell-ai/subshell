@@ -148,6 +148,25 @@ describe("waitSentinel", () => {
     expect(r.outputLines.join("")).toContain("still going");
   });
 
+  it("a timed-out wait reports the carried partial line (the bytes the cursor already advanced past)", async () => {
+    // Data honesty (Task 1 review): the liveness branch moves `nextByte` PAST
+    // an unterminated tail, so a follow-up cursor read never returns those
+    // bytes — if the timed-out answer dropped the scanner's carry, that text
+    // would reach no one. The completed path is untouched: a hit proves the
+    // sentinel line was newline-terminated in-window, so nothing is carried.
+    const log = enc.encode("done line\npartial");
+    let now = 0;
+    const r = await waitSentinel(readerOver(log, 12), "w5", 0, {
+      timeoutMs: 10,
+      sleep: async (ms) => {
+        now += ms;
+      },
+      now: () => now,
+    });
+    expect(r.status).toBe("timed_out");
+    expect(r.outputLines).toEqual(["done line", "partial"]);
+  });
+
   it("a pane that died mid-wait ends the wait immediately", async () => {
     let now = 0;
     const read = readerOver(enc.encode("x\n".repeat(500)), 8);

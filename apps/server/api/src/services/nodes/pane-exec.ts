@@ -52,6 +52,8 @@ export interface SentinelScanner {
   push(lines: string[], partialLast: boolean): { rc: number; hitInWindow: number } | null;
   /** Every completed non-sentinel line consumed so far. */
   output(): string[];
+  /** The unterminated tail held so far ("" when none). The caller's liveness cursor already sits past it. */
+  pending(): string;
 }
 
 /**
@@ -79,6 +81,7 @@ export function createSentinelScanner(token: string): SentinelScanner {
       return null;
     },
     output: () => out,
+    pending: () => carry,
   };
 }
 
@@ -119,6 +122,12 @@ export interface ExecWaitAnswer {
  * and the answer line itself is plain bytes printf wrote). On a miss it is
  * where the scan stopped. `alive` false ends the wait early: polling a dead
  * pane's log is reading noise, and stopping touches nothing (ruling 2).
+ * A timed-out answer also reports the scanner's carried partial line as its
+ * final output line: the liveness branch already advanced `nextByte` past
+ * those bytes, so no follow-up read would ever return them and the caller
+ * would silently lose the pane's newest text. Never on the completed path —
+ * a hit proves the sentinel line was newline-terminated in-window, so the
+ * carry is empty there by construction.
  */
 export async function waitSentinel(
   read: LogWindowReader,
@@ -134,9 +143,20 @@ export async function waitSentinel(
   const scanner = createSentinelScanner(token);
   const deadline = opts.now() + opts.timeoutMs;
   let cursor = startByte;
+  // One shape for both miss exits. `cursor` is read at call time, so each
+  // return reports exactly where that branch's scan stopped.
+  const timedOut = (): ExecWaitAnswer => {
+    const carried = scanner.pending();
+    return {
+      status: "timed_out",
+      rc: null,
+      outputLines: carried === "" ? scanner.output() : [...scanner.output(), carried],
+      nextByte: cursor,
+    };
+  };
   for (;;) {
     if (opts.alive && !(await opts.alive())) {
-      return { status: "timed_out", rc: null, outputLines: scanner.output(), nextByte: cursor };
+      return timedOut();
     }
     const { bytes, size } = await read(cursor, LOG_WINDOW_DEFAULT_BYTES);
     const { lines, nextByte } = cursorLinesFromWindow(bytes, cursor, size);
@@ -164,7 +184,7 @@ export async function waitSentinel(
       cursor = nextByte;
     }
     if (opts.now() >= deadline) {
-      return { status: "timed_out", rc: null, outputLines: scanner.output(), nextByte: cursor };
+      return timedOut();
     }
     await opts.sleep(EXEC_POLL_MS);
   }
