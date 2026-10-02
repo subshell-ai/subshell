@@ -323,6 +323,8 @@ export function BackupRestoreScreen(props: {
       }
     });
   };
+  const [sessionSummary, ...sessionConsequences] = sessionConfirmation.split(/(?<=\.)\s+/);
+  const sessionCount = sessionSummary?.match(/^(\d+ active sessions?)(.*)$/);
   const selectedBackup = backups.find((file) => file.path === selectedBackupPath);
   const backupLabel = (file: LocalBackupFile) =>
     `${new Date(file.createdAt).toLocaleString()} · ${file.legacyDatabaseOnly ? "Database-only snapshot" : "Full instance archive"}${file.serverVersion ? ` · Server ${file.serverVersion}` : ""}`;
@@ -385,7 +387,21 @@ export function BackupRestoreScreen(props: {
     >
       {sessionConfirmation && (
         <Dialog title="Some sessions cannot survive this restore" onClose={() => !locked && setSessionConfirmation("")}>
-          <p className="text-muted-foreground break-words">{sessionConfirmation}</p>
+          <p className="text-muted-foreground break-words">
+            {sessionCount ? (
+              <>
+                <span className="text-warning font-strong">{sessionCount[1]}</span>
+                {sessionCount[2]}
+              </>
+            ) : (
+              sessionSummary
+            )}
+          </p>
+          <ul className="mt-3 flex flex-col gap-2 list-disc pl-5 text-muted-foreground">
+            {sessionConsequences.map((consequence) => (
+              <li key={consequence}>{consequence}</li>
+            ))}
+          </ul>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="ghost" disabled={locked} onClick={() => setSessionConfirmation("")}>
               Cancel

@@ -217,7 +217,10 @@ describe("native backup and restore", () => {
         desktop_restore_inspect: () => ({ ...stage, prepared: false }),
         desktop_restore_prepare: () => stage,
         desktop_restore_apply: ({ force }) => {
-          if (!force) throw new Error("RESTORE_SESSION_CONFIRMATION_REQUIRED: Work session cannot reconnect.");
+          if (!force)
+            throw new Error(
+              "RESTORE_SESSION_CONFIRMATION_REQUIRED: 2 active sessions cannot be preserved with this backup. Continuing closes affected local sessions. Affected remote sessions may disconnect or end when their node reconnects. Other compatible sessions will be preserved. Cancel leaves your server unchanged.",
+            );
           return { status: "completed", started: true, destination: stage.destination };
         },
       },
@@ -228,7 +231,8 @@ describe("native backup and restore", () => {
     fireEvent.click(await screen.findByRole("switch", { name: "Replace the displayed destination" }));
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
     await screen.findByRole("dialog", { name: "Some sessions cannot survive this restore" });
-    expect(screen.getByText("Work session cannot reconnect.")).toBeTruthy();
+    expect(screen.getByText("2 active sessions").className).toContain("text-warning");
+    expect(screen.getByRole("dialog").querySelectorAll("li")).toHaveLength(4);
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(fake.callsTo("desktop_restore_apply")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
