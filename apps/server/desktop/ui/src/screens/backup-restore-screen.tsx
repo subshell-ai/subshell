@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Switch } from "@/components/ui/switch";
 import type { LocalBackupFile, RestoreInspection, RestorePrepare } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
-import { RestoreConfirmation } from "./restore-confirmation";
+import { RestoreConfirmation, RestoreFacts } from "./restore-confirmation";
 
 export const EMPTY_RESTORE: RestorePrepare = {
   archive: "",
@@ -533,22 +533,37 @@ export function BackupRestoreScreen(props: {
             {inspection && (
               <>
                 {!prepared && (
-                  <>
-                    <p className="hint">
-                      {inspection.legacyDatabaseOnly
-                        ? "Database-only snapshot: configuration, identity, plugins and logs are absent."
-                        : "Full instance archive"}{" "}
-                      · Captured {inspection.manifest.completedAt} ·{" "}
-                      {inspection.manifest.serverVersion === "legacy"
-                        ? "Server version unknown (not recorded in this snapshot)"
-                        : `Server ${inspection.manifest.serverVersion}`}
-                    </p>
-                    <p className="hint">
-                      Administrators:{" "}
-                      {inspection.admins.map((admin) => `${admin.name} (${admin.email})`).join(", ") || "None recorded"}
-                      .
-                    </p>
-                  </>
+                  <Card aria-labelledby="backup-details-title">
+                    <CardHeader>
+                      <CardTitle id="backup-details-title">Backup details</CardTitle>
+                      <CardDescription>
+                        {inspection.legacyDatabaseOnly ? "Database-only snapshot" : "Full instance archive"}
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex flex-col gap-3">
+                      <RestoreFacts
+                        rows={[
+                          ["Captured", new Date(inspection.manifest.completedAt).toLocaleString()],
+                          [
+                            "Server version",
+                            inspection.manifest.serverVersion === "legacy"
+                              ? "Unknown (not recorded in this snapshot)"
+                              : inspection.manifest.serverVersion,
+                          ],
+                          [
+                            "Administrators",
+                            inspection.admins.map((admin) => `${admin.name} (${admin.email})`).join(", ") ||
+                              "None recorded",
+                          ],
+                        ]}
+                      />
+                      {inspection.legacyDatabaseOnly && (
+                        <p className="m-0 text-detail text-muted-foreground">
+                          Restores the database using this server’s current configuration and identity.
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
                 {!prepared && (
                   <>

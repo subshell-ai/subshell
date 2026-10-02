@@ -279,7 +279,7 @@ describe("native backup and restore", () => {
     fireEvent.click(await screen.findByRole("option", { name: /Database-only snapshot/ }));
     fireEvent.click(screen.getByRole("button", { name: "Inspect selected backup" }));
     expect(fake.callsTo("desktop_restore_inspect")[0]).toMatchObject({ archive: "/tmp/legacy.db", staged: "" });
-    await screen.findByText(/Database-only snapshot:/);
+    await screen.findByRole("heading", { name: "Backup details" });
     expect(screen.getByRole("radiogroup", { name: "Restore mode" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Same-machine recovery" }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByRole("radio", { name: "Move to a new machine" }).getAttribute("aria-disabled")).toBe("true");
@@ -312,7 +312,7 @@ describe("native backup and restore", () => {
       target: { value: "https://previous.example" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
-    await screen.findByText(/Database-only snapshot:/);
+    await screen.findByRole("heading", { name: "Backup details" });
     fireEvent.click(screen.getByRole("button", { name: "Review replacement" }));
     await waitFor(() => expect(fake?.callsTo("desktop_restore_prepare")).toHaveLength(1));
     expect(fake.callsTo("desktop_restore_prepare")[0]?.options).toMatchObject({

@@ -8,7 +8,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import type { RestoreInspection } from "../lib/ipc";
 
-function Facts({ rows }: { rows: [string, string][] }) {
+export function RestoreFacts({ rows }: { rows: [string, string][] }) {
   return (
     <dl className="m-0 grid grid-cols-1 gap-x-4 gap-y-1 text-body sm:grid-cols-[132px_minmax(0,1fr)]">
       {rows.map(([label, value]) => (
@@ -81,7 +81,7 @@ export function RestoreConfirmation(props: {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <Facts
+          <RestoreFacts
             rows={[
               ["Captured", new Date(inspection.manifest.completedAt).toLocaleString()],
               [
@@ -116,7 +116,7 @@ export function RestoreConfirmation(props: {
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           {inspection.destination && (
-            <Facts
+            <RestoreFacts
               rows={[
                 ["Database", inspection.destination.databasePath],
                 ...(!inspection.legacyDatabaseOnly
@@ -131,7 +131,7 @@ export function RestoreConfirmation(props: {
           {addresses && Object.keys(addresses).length > 0 && (
             <div className="flex flex-col gap-2">
               <h3 className="m-0 text-label font-strong">Addresses</h3>
-              <Facts
+              <RestoreFacts
                 rows={Object.entries(addresses)
                   .filter(([key]) => key in addressLabels)
                   .map(([key, value]) => [addressLabels[key] as string, String(value)])}
