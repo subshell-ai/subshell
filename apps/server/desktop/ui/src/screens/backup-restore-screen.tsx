@@ -97,7 +97,7 @@ export function BackupRestoreScreen(props: {
     void ipc
       .restoreStages()
       .then((result) => {
-        if (live) setStages(result.stages);
+        if (live) setStages(result.stages.filter((stage) => stage.prepared));
       })
       .catch((error: unknown) => {
         if (live) setProblem(String(error));
@@ -338,28 +338,14 @@ export function BackupRestoreScreen(props: {
                       <option value="">Choose a prepared restore</option>
                       {stages.map((stage) => (
                         <option key={stage.id} value={stage.id}>
-                          {stage.manifest.completedAt} · {stage.choices?.mode} · {stage.id}
+                          {new Date(stage.manifest.completedAt).toLocaleString()} ·{" "}
+                          {BACKUP_RESTORE_MODES.find((mode) => mode.value === stage.choices?.mode)?.label ??
+                            "Prepared restore"}
                         </option>
                       ))}
                     </select>
                   </div>
                 )}
-                <div>
-                  <Label htmlFor="restore-stage-id">Prepared restore UUID</Label>
-                  <Input
-                    id="restore-stage-id"
-                    value={stageId}
-                    disabled={locked}
-                    onChange={(e) => setStageId(e.currentTarget.value)}
-                  />
-                  <Button
-                    variant="ghost"
-                    disabled={locked || !stageId}
-                    onClick={() => void act("Reading prepared restore…", () => selectStage(stageId))}
-                  >
-                    Inspect prepared restore
-                  </Button>
-                </div>
               </>
             )}
             {inspection && (
@@ -374,7 +360,6 @@ export function BackupRestoreScreen(props: {
                   Administrators:{" "}
                   {inspection.admins.map((admin) => `${admin.name} (${admin.email})`).join(", ") || "None recorded"}.
                 </p>
-                <p className="hint">Exclusions: {inspection.manifest.exclusions.join(", ") || "None recorded"}.</p>
                 {!prepared && (
                   <>
                     <fieldset disabled={locked || inspection.legacyDatabaseOnly}>

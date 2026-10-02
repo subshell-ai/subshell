@@ -66,15 +66,24 @@ describe("native backup and restore", () => {
   it("preserves prepared choices and separates replacement from pane consent, start defaults on", async () => {
     fake = installFakeIpc({
       handlers: {
-        desktop_restore_stages: () => ({ stages: [stage] }),
+        desktop_restore_stages: () => ({
+          stages: [stage, { ...stage, id: "unprepared-stage", prepared: false }],
+        }),
         desktop_restore_inspect: () => stage,
         desktop_restore_apply: () => ({ status: "completed", started: true, destination: stage.destination }),
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
     await screen.findByLabelText("Prepared local restores");
+    expect(screen.queryByLabelText("Prepared restore UUID")).toBeNull();
+    expect(screen.queryByText(stage.id)).toBeNull();
+    expect(screen.getByRole("option", { name: /Move to a new machine/ }).getAttribute("value")).toBe(stage.id);
+    expect(
+      screen.getByLabelText("Prepared local restores").querySelector('option[value="unprepared-stage"]'),
+    ).toBeNull();
     fireEvent.change(screen.getByLabelText("Prepared local restores"), { target: { value: stage.id } });
     await screen.findByText(/Administrator recovery: admin@example.com/);
+    expect(screen.queryByText(/Exclusions:/)).toBeNull();
     expect(screen.queryByLabelText("Recover an existing administrator")).toBeNull();
     expect(screen.getByRole("switch", { name: "Start the server after restoring" }).getAttribute("aria-checked")).toBe(
       "true",

@@ -101,7 +101,12 @@ describe("Settings backups", () => {
               expiresAt: Date.now() + 3600000,
               legacyDatabaseOnly: false,
               admins: [{ id: "admin", email: "admin@example.test", name: "Admin" }],
-              manifest: { serverVersion: "1.0", completedAt: new Date().toISOString(), entries: [], exclusions: [] },
+              manifest: {
+                serverVersion: "1.0",
+                completedAt: new Date().toISOString(),
+                entries: [],
+                exclusions: ["binary caches"],
+              },
             }
           : {
               id: "restore-stage",
@@ -127,6 +132,8 @@ describe("Settings backups", () => {
       fireEvent.submit(inspectForm);
     });
     await waitFor(() => expect(screen.getByRole("button", { name: "Prepare restore" })).toBeTruthy());
+    expect(screen.queryByText("What this backup excludes")).toBeNull();
+    expect(screen.queryByText("binary caches")).toBeNull();
     expect((requests[0]?.body as FormData | undefined)?.get("password")).toBeNull();
     const prepare = screen.getByRole("button", { name: "Prepare restore" }) as HTMLButtonElement;
     const prepareForm = prepare.closest("form");

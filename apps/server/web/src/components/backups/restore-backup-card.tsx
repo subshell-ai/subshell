@@ -224,16 +224,6 @@ export function RestoreBackupCard() {
                 Server version {inspected.manifest.serverVersion} · {inspected.manifest.entries.length} files. Staging
                 expires at {new Date(inspected.expiresAt).toLocaleTimeString()}.
               </p>
-              {!inspected.legacyDatabaseOnly && (
-                <details>
-                  <summary className="cursor-pointer text-detail">What this backup excludes</summary>
-                  <ul className="list-disc space-y-1 pl-5 text-detail text-muted-foreground">
-                    {inspected.manifest.exclusions.map((item) => (
-                      <li key={item}>{item}</li>
-                    ))}
-                  </ul>
-                </details>
-              )}
             </div>
             {!prepared && (
               <form
