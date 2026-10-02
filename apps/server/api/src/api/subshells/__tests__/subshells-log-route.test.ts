@@ -89,9 +89,12 @@ describe("GET /api/subshells/:id/log", () => {
     const id = await newSubshell();
     const res = await subshellRoutes.fetch(authedRequest(`/api/subshells/${id}/log`, token));
     expect(res.status).toBe(200);
-    expect((await res.json()) as { lines: string[]; truncated: boolean }).toEqual({
+    // Deliberate shape change (spec 2026-10-01 §3): every response now carries
+    // nextByte, so an empty log seeds a cursor at 0.
+    expect((await res.json()) as { lines: string[]; truncated: boolean; nextByte: number }).toEqual({
       lines: [],
       truncated: false,
+      nextByte: 0,
     });
   });
 
@@ -152,9 +155,12 @@ describe("GET /api/subshells/:id/log", () => {
       writeLog(sibling, "sibling says hello\nsecond line\n");
       const res = await bearerGet(sibling);
       expect(res.status).toBe(200);
-      expect((await res.json()) as { lines: string[]; truncated: boolean }).toEqual({
+      // nextByte = 31 is the raw byte length of the written log: the tail's
+      // cursor seeds at EOF (spec 2026-10-01 §3, deliberate shape change).
+      expect((await res.json()) as { lines: string[]; truncated: boolean; nextByte: number }).toEqual({
         lines: ["sibling says hello", "second line"],
         truncated: false,
+        nextByte: 31,
       });
     });
 
@@ -162,6 +168,96 @@ describe("GET /api/subshells/:id/log", () => {
       const foreign = await newSubshell(otherUserId);
       writeLog(foreign, "not yours\n");
       expect((await bearerGet(foreign)).status).toBe(404);
+    });
+  });
+
+  /**
+   * The byte cursor (spec 2026-10-01 §3): the MCP read loop is
+   * tail-seeds-nextByte, then read(from_byte = nextByte) forever. Each rule
+   * here is the failure mode that loop would have: dup, skip, split lines, or
+   * a stuck cursor.
+   */
+  describe("cursor reads (from_byte / max_bytes)", () => {
+    async function getCursor(
+      id: string,
+      qs: Record<string, string | number>,
+    ): Promise<{ status: number; body: { lines: string[]; truncated: boolean; nextByte: number } }> {
+      const url = `/api/subshells/${id}/log?${new URLSearchParams(
+        Object.entries(qs).map(([k, v]) => [k, String(v)] as [string, string]),
+      )}`;
+      const res = await subshellRoutes.fetch(authedRequest(url, token));
+      return { status: res.status, body: (await res.json()) as never };
+    }
+
+    it("resumes at a line boundary: no dup, no skip across a split", async () => {
+      const id = await newSubshell();
+      writeLog(id, "alpha\nbravo\ncharlie\n");
+      // max_bytes=8 cuts through "bravo": only the newline-terminated line is consumed.
+      const first = await getCursor(id, { from_byte: 0, max_bytes: 8 });
+      expect(first.body.lines).toEqual(["alpha"]);
+      expect(first.body.nextByte).toBe(6);
+      expect(first.body.truncated).toBe(true);
+      const second = await getCursor(id, { from_byte: first.body.nextByte });
+      expect(second.body.lines).toEqual(["bravo", "charlie"]);
+      expect(second.body.nextByte).toBe(20);
+      expect(second.body.truncated).toBe(false);
+    });
+
+    it("a tail read seeds the cursor at EOF and appends then come through", async () => {
+      const id = await newSubshell();
+      writeLog(id, "one\n");
+      const tail = await getCursor(id, {});
+      expect(tail.body.nextByte).toBe(4);
+      writeLog(id, "one\ntwo\n");
+      const next = await getCursor(id, { from_byte: tail.body.nextByte });
+      expect(next.body.lines).toEqual(["two"]);
+      expect(next.body.nextByte).toBe(8);
+      expect(next.body.truncated).toBe(false);
+    });
+
+    it("from_byte past EOF answers empty and parks the cursor at size", async () => {
+      const id = await newSubshell();
+      writeLog(id, "x\n");
+      const res = await getCursor(id, { from_byte: 50 });
+      expect(res.body).toEqual({ lines: [], truncated: false, nextByte: 2 });
+    });
+
+    it("a single line longer than the window is returned partial and the cursor advances (liveness)", async () => {
+      const id = await newSubshell();
+      writeLog(id, "A".repeat(25));
+      const first = await getCursor(id, { from_byte: 0, max_bytes: 10 });
+      expect(first.body.lines).toEqual(["AAAAAAAAAA"]);
+      expect(first.body.truncated).toBe(true);
+      expect(first.body.nextByte).toBe(10); // the loop MOVES: a stuck cursor here would spin forever
+      const second = await getCursor(id, { from_byte: 10, max_bytes: 10 });
+      expect(second.body.nextByte).toBe(20);
+      const third = await getCursor(id, { from_byte: 20, max_bytes: 10 });
+      expect(third.body.lines).toEqual(["AAAAA"]);
+      expect(third.body.nextByte).toBe(25);
+    });
+
+    it("ANSI is stripped from lines while nextByte stays the RAW offset", async () => {
+      const id = await newSubshell();
+      const content = "[31mred[39m\nplain\n";
+      writeLog(id, content);
+      const res = await getCursor(id, { from_byte: 0 });
+      expect(res.body.lines).toEqual(["red", "plain"]);
+      expect(res.body.nextByte).toBe(Buffer.byteLength(content)); // raw bytes, not stripped-text length
+    });
+
+    it("out-of-range windows CLAMP like every numeric surface here, never refuse", async () => {
+      const id = await newSubshell();
+      writeLog(id, "data\n");
+      // Negative offset reads as 0.
+      const neg = await getCursor(id, { from_byte: -1 });
+      expect(neg.body.lines).toEqual(["data"]);
+      // A zero budget clamps to 1 byte: it cannot finish the line, so nothing
+      // is consumed and the cursor holds (no data shown, no data skipped).
+      const tiny = await getCursor(id, { max_bytes: 0, from_byte: 0 });
+      expect(tiny.body).toEqual({ lines: ["d"], truncated: true, nextByte: 1 });
+      // An oversized budget clamps to the window ceiling and still reads fine.
+      const big = await getCursor(id, { max_bytes: 10_000_000, from_byte: 0 });
+      expect(big.body.nextByte).toBe(5);
     });
   });
 });

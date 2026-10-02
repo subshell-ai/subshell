@@ -83,7 +83,14 @@ export const SubshellLogTailSchema = t.Object({
   lines: t.Array(t.String({ description: "One captured output line (ANSI stripped)" }), {
     description: "Last lines of the pane log, oldest first; empty when no log exists",
   }),
-  truncated: t.Boolean({ description: "True when older output existed but was cut from the response" }),
+  truncated: t.Boolean({
+    description:
+      "True when output existed but did not fit this response: a tail cut older lines, a cursor read left output following (or a single line longer than any window was cut mid-way)",
+  }),
+  nextByte: t.Number({
+    description:
+      "Raw log-file offset to pass as from_byte to read only what follows (spec 2026-10-01 §3). A tail read answers EOF, so the cursor seeds where the pane is now; a cursor read answers the end of the last complete line it returned",
+  }),
 });
 
 // Shared TypeBox refs for the sharing schemas: reusing one object across the

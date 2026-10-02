@@ -552,10 +552,10 @@ export class RemoteLauncher implements NodeLauncher {
 
   /**
    * `log_read` (10 s) as the raw triple: the window, the resume offset, and
-   * the whole-file size. Not on the frozen interface — the sanctioned
-   * class-local shape for the tail-window math (Task 11's remote replay reads
-   * `size` in one round-trip). {@link RemoteLauncher.readLog} stays the
-   * interface's narrowed wrapper.
+   * the whole-file size, all in one round-trip. This is the concrete shape the
+   * interface's {@link RemoteLauncher.readLogWindow} names (spec 2026-10-01
+   * §3); the tail and the narrowed {@link RemoteLauncher.readLog} wrapper both
+   * read through it so the size probe never costs a second hop.
    */
   async readLogSized(
     id: string,
@@ -578,6 +578,20 @@ export class RemoteLauncher implements NodeLauncher {
   async readLog(id: string, fromByte: number, maxBytes: number): Promise<{ bytes: Uint8Array; next: number }> {
     const { bytes, next } = await this.readLogSized(id, fromByte, maxBytes);
     return { bytes, next };
+  }
+
+  /**
+   * The interface's window triple (spec 2026-10-01 §3): the one `log_read`
+   * round-trip already answers bytes, resume offset, AND size; this is
+   * {@link readLogSized} with the interface name and contract. Beyond-EOF
+   * clamping matches {@link LocalLauncher.readLogWindow}.
+   */
+  async readLogWindow(
+    id: string,
+    fromByte: number,
+    maxBytes: number,
+  ): Promise<{ bytes: Uint8Array; next: number; size: number }> {
+    return await this.readLogSized(id, fromByte, maxBytes);
   }
 
   /**

@@ -118,6 +118,9 @@ export class FakeNodeLauncher implements NodeLauncher {
   async readLog(): Promise<{ bytes: Uint8Array; next: number }> {
     return { bytes: new Uint8Array(0), next: 0 };
   }
+  async readLogWindow(): Promise<{ bytes: Uint8Array; next: number; size: number }> {
+    return { bytes: new Uint8Array(0), next: 0, size: 0 };
+  }
   async tailStart(): Promise<() => void> {
     return () => {};
   }

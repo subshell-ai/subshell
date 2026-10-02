@@ -158,6 +158,18 @@ export interface NodeLauncher {
   readLogTail(id: string): Promise<{ lines: string[]; truncated: boolean }>;
   /** Byte-range read of the replay log; `next` is the offset to resume from. */
   readLog(id: string, fromByte: number, maxBytes: number): Promise<{ bytes: Uint8Array; next: number }>;
+  /**
+   * The same window plus the whole-file size (spec 2026-10-01 §3, the cursor
+   * read). At or past EOF every implementation answers empty bytes with
+   * `next` clamped no further than `size` and the true `size` beside it — a
+   * caller composing display lines from the window needs the size to know
+   * whether anything still follows.
+   */
+  readLogWindow(
+    id: string,
+    fromByte: number,
+    maxBytes: number,
+  ): Promise<{ bytes: Uint8Array; next: number; size: number }>;
   /** Starts a log-tail subscription; resolves to its cancel function. */
   tailStart(
     id: string,

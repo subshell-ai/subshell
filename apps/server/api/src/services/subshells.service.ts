@@ -1,3 +1,4 @@
+import { homedir as osHomedir } from "node:os";
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 // The attention kinds are imported from the reporter that SPEAKS them rather
 // than restated here: the old local `Extract<NotifyKind, …>`, widened once to
@@ -22,6 +23,7 @@ import { BaseService, type CommonServiceParams } from "@/services/base.service.j
 import { publishLive } from "@/services/live-bus.js";
 import { lockdownEnabled } from "@/services/lockdown.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
+import type { LogCursorRequest } from "@/services/nodes/log-tail.js";
 import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
@@ -31,7 +33,7 @@ import {
   PROMPT_POLL_MS,
   PROMPT_SETTLE_TIMEOUT_MS,
   RestartInFlightSwapError,
-  readSubshellLogTail,
+  readSubshellLogWindow,
   SubshellManagerService,
 } from "@/services/subshell-manager.service.js";
 import { extendSubshellToken, subshellTokenTtlSeconds } from "@/services/subshell-tokens.js";
@@ -444,14 +446,22 @@ export class SubshellsService extends BaseService {
     // THE launch resolution (spec 2026-09-29 preset-launch-fields), pure form
     // in {@link resolvePresetLaunch}; the throws and gates below stay here.
     const resolved = resolvePresetLaunch({ workingDir, prompt, nodeId }, presetRow);
-    if (resolved.workingDir === undefined) {
+    const harnessPlugin = getHarness(harnessId);
+    // Spec 2026-10-01 §2: a PRESETLESS launch of a terminal-type harness with
+    // no named directory gets the launch node's home. The answer depends on
+    // which machine wins, so the default is computed after node resolution and
+    // the missing-dir 400 is deferred for exactly this shape — presetless,
+    // terminal type, no dir. Every other no-dir launch keeps answering the
+    // 400 HERE, before anything node-shaped can reply (the ordering the
+    // harness-existence check below cites for its own reason).
+    const presetlessTerminal = presetRow === undefined && harnessPlugin?.type === "terminal";
+    if (resolved.workingDir === undefined && !presetlessTerminal) {
       throw new SubshellCreateError(
         "bad_request",
         "A working directory is required: pass one, or launch from a preset that carries one",
         400,
       );
     }
-    const resolvedWorkingDir = resolved.workingDir;
     const resolvedPrompt = resolved.prompt;
     // An id that resolves to NO plugin names nothing — a typo, or a plugin
     // that failed to load (broken plugins enter neither the registry nor the
@@ -467,7 +477,7 @@ export class SubshellsService extends BaseService {
     // hand, and a bare "unknown" forces a guess-retry loop. The list is what
     // `getHarness` actually resolves against (built-ins plus the installed
     // overlay), sorted, so two identical mistakes answer identically.
-    if (!getHarness(harnessId)) {
+    if (!harnessPlugin) {
       const available = allHarnesses()
         .map((h) => h.id)
         .sort()
@@ -524,6 +534,24 @@ export class SubshellsService extends BaseService {
         409,
       );
     }
+    // The deferred default (spec 2026-10-01 §2): the launch node's home, read
+    // only from sources this request already has — the local host's homedir,
+    // or the agent's reported `ready` facts. A node that has never reported a
+    // home gets the honest 400 naming what is missing; a default is never
+    // fabricated, and an allowlist that excludes the home refuses the launch
+    // exactly as it would any hand-typed directory (gated downstream, twice).
+    let launchWorkingDir = resolved.workingDir;
+    if (launchWorkingDir === undefined) {
+      const home = resolvedNodeId === LOCAL_NODE_ID ? osHomedir() : getLive(resolvedNodeId)?.agent?.homeDir;
+      if (home === undefined || home === "") {
+        throw new SubshellCreateError(
+          "bad_request",
+          "A working directory is required: pass one (that node has not reported a home directory)",
+          400,
+        );
+      }
+      launchWorkingDir = home;
+    }
     // The manager already rolled the row + token back; a node that dropped
     // offline between resolution and launch answers with the same structured
     // 409 the restart boundary gives (§5.6) — everything else rethrows.
@@ -532,7 +560,7 @@ export class SubshellsService extends BaseService {
         userId,
         harnessId,
         presetId: presetId ?? null,
-        workingDir: resolvedWorkingDir,
+        workingDir: launchWorkingDir,
         name,
         prompt: resolvedPrompt,
         nodeId: resolvedNodeId,
@@ -551,7 +579,7 @@ export class SubshellsService extends BaseService {
     // remote machine's paths never surface in the local picker (and vice
     // versa). Best-effort: the subshell EXISTS at this point, and a book-
     // keeping insert failing must not turn a successful launch into an error.
-    await this.repos.recentPaths.touch(userId, resolvedWorkingDir, name ?? null, resolvedNodeId).catch(() => {});
+    await this.repos.recentPaths.touch(userId, launchWorkingDir, name ?? null, resolvedNodeId).catch(() => {});
     // The MCP apiKey is returned by the manager for env injection only; it is
     // a secret issued once and NEVER echoed to the HTTP client.
     return { id: created.id, tmuxSocket: created.tmuxSocket, promptDelivered: created.promptDelivered };
@@ -748,6 +776,9 @@ export class SubshellsService extends BaseService {
    *
    * Gated at `view`, the same level as GET /:id, so a stranger gets a 404 and
    * the log's contents never leak through timing or body differences.
+   * @param window - optional cursor (spec 2026-10-01 §3): `fromByte` resumes
+   *         raw bytes from that offset instead of tailing; absent keeps the
+   *         EOF-anchored tail and `nextByte` seeds the next read at EOF.
    * @throws SubshellError 404 when absent or invisible to the caller.
    * @throws ApiError 409 NODE_OFFLINE when the row's agent node has no live
    *         connection (spec §5.6, the create/restart mapping again — the UI
@@ -758,13 +789,15 @@ export class SubshellsService extends BaseService {
     viewerId: string,
     id: string,
     actor: GuardActor,
-  ): Promise<{ lines: string[]; truncated: boolean }> {
+    window?: LogCursorRequest,
+  ): Promise<{ lines: string[]; truncated: boolean; nextByte: number }> {
     const { row } = await this.#gate(viewerId, id, "view", actor);
     await this.#rememberSeen(actor, viewerId, row);
-    // Spec §6.5: the tail reads from the node that owns the pane — an
-    // agent-node row goes through its RemoteLauncher (`log_read` window),
-    // whose offline throw maps onto §5.6 exactly like create/restart.
-    return await readSubshellLogTail(id, row.nodeId).catch(rethrowLaunchRefusal);
+    // Spec §6.5: the read goes to the node that owns the pane — an agent-node
+    // row answers through its RemoteLauncher (`log_read` window), whose offline
+    // throw maps onto §5.6 exactly like create/restart. One composition
+    // (readSubshellLogWindow) now serves tail and cursor for every launcher.
+    return await readSubshellLogWindow(id, row.nodeId, window ?? {}).catch(rethrowLaunchRefusal);
   }
 
   /**

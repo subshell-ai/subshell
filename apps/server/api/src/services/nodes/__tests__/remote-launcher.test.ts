@@ -653,6 +653,23 @@ describe("log paths and reads", () => {
     });
   });
 
+  // The interface's cursor window (spec 2026-10-01 §3) is readLogSized under
+  // its contract name: same single log_read round trip, size kept.
+  it("readLogWindow is the triple under the interface name", async () => {
+    const h = makeHarness();
+    h.answer("log_read", { bytes_b64: b64("hello"), next: 5, size: 40 });
+    const w = await h.launcher.readLogWindow("s1", 3, 5);
+    expect({ bytes: Buffer.from(w.bytes).toString("utf8"), next: w.next, size: w.size }).toEqual({
+      bytes: "hello",
+      next: 5,
+      size: 40,
+    });
+    expect(h.calls[0]).toEqual({
+      cmd: { type: "log_read", subshellId: "s1", fromByte: 3, maxBytes: 5 },
+      timeoutMs: 10_000,
+    });
+  });
+
   it("readLogTail reads size via log_read(0,1), then the window, with local-identical math", async () => {
     const h = makeHarness();
     h.answer("log_read", { bytes_b64: b64("a"), next: 1, size: 9 });

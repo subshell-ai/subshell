@@ -43,6 +43,7 @@ import {
 import { probeReporterLaunch } from "@/services/mcp-resolve.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { LocalLauncher } from "@/services/nodes/local-launcher.js";
+import { type LogCursorRequest, readLogCursor } from "@/services/nodes/log-tail.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { getLive, isNodeOffline, type NodeFacts } from "@/services/nodes/node-registry.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
@@ -1797,6 +1798,24 @@ export async function readSubshellLogTail(
   nodeId: string = LOCAL_NODE_ID,
 ): Promise<{ lines: string[]; truncated: boolean }> {
   return launcherFor(nodeId).readLogTail(subshellId);
+}
+
+/**
+ * One log read behind the cursor API (spec 2026-10-01 §3): tail mode answers
+ * exactly what {@link readSubshellLogTail} answers, plus `nextByte` at EOF;
+ * cursor mode (`req.fromByte` given) resumes a byte window at a line boundary.
+ * The composition is ONE shared function over the launcher's window triple, so
+ * local files and remote `log_read` windows produce byte-identical answers -
+ * the parity rule {@link readSubshellLogTail} already lives by, extended to
+ * the resume path.
+ */
+export async function readSubshellLogWindow(
+  subshellId: string,
+  nodeId: string,
+  req: LogCursorRequest,
+): Promise<{ lines: string[]; truncated: boolean; nextByte: number }> {
+  const launcher = launcherFor(nodeId);
+  return await readLogCursor((fromByte, maxBytes) => launcher.readLogWindow(subshellId, fromByte, maxBytes), req);
 }
 
 /** Rough liveness state of a subshell, derived from output recency. */
