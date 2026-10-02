@@ -405,6 +405,14 @@ export function BackupRestoreScreen(props: {
             {completion ? (
               <div className="flex flex-col gap-4">
                 <RestoreFacts
+                  copy
+                  onOpen={
+                    completion.started
+                      ? () => {
+                          void ipc.openMain().catch((error) => setProblem(String(error)));
+                        }
+                      : undefined
+                  }
                   rows={[
                     [
                       "Control plane URL",

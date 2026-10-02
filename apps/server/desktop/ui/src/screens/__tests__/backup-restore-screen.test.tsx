@@ -272,6 +272,10 @@ describe("native backup and restore", () => {
     expect(screen.queryByRole("button", { name: "Review backup" })).toBeNull();
     expect(screen.getByText("Control plane URL")).toBeTruthy();
     expect(screen.getByText("https://restored.example")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy Control plane URL" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy Database" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open control plane" }));
+    await waitFor(() => expect(fake?.callsTo("desktop_open_main")).toHaveLength(1));
     expect(screen.getByText("4567")).toBeTruthy();
     expect(screen.getByText(stage.destination.databasePath)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
