@@ -76,6 +76,7 @@ export function BackupRestoreScreen(props: {
   const [problem, setProblem] = useState("");
   const [message, setMessage] = useState("");
   const [restoring, setRestoring] = useState(false);
+  const [showCompletion, setShowCompletion] = useState(false);
   const [restoreResult, setRestoreResult] = useState<{ started: boolean; recoveredAdmin: boolean } | null>(null);
   const [progress, setProgress] = useState("");
   const [localBusy, setLocalBusy] = useState(false);
@@ -331,20 +332,27 @@ export function BackupRestoreScreen(props: {
     });
   };
   if (props.kind === "restore" && (restoring || restoreResult)) {
+    const completion = showCompletion ? restoreResult : null;
     return (
       <Frame
         rail={props.rail}
         strings={{
-          title: restoreResult ? "Restore Complete" : "Restoring Your Server",
-          subtitle: restoreResult
+          title: completion ? "Restore Complete" : "Restoring Your Server",
+          subtitle: completion
             ? "Your backup has been restored."
-            : "Please keep this app open until the restore finishes.",
+            : restoreResult
+              ? "The restore has finished. Select Next when you’re ready."
+              : "Please keep this app open until the restore finishes.",
           problem,
         }}
         barRight={
-          restoreResult ? (
+          completion ? (
             <Button disabled={locked} onClick={props.onClose}>
               Done
+            </Button>
+          ) : restoreResult ? (
+            <Button disabled={locked} onClick={() => setShowCompletion(true)}>
+              Next
             </Button>
           ) : (
             <Button disabled>Restoring…</Button>
@@ -353,23 +361,35 @@ export function BackupRestoreScreen(props: {
       >
         <Card role="status" aria-live="polite">
           <CardHeader>
-            {restoreResult ? (
-              <CheckCircle2 className="size-6 text-primary" aria-hidden="true" />
-            ) : (
-              <LoaderCircle className="size-6 animate-spin text-primary" aria-hidden="true" />
-            )}
-            <CardTitle>
-              {restoreResult ? (restoreResult.started ? "Your server is ready" : "Your server is stopped") : progress}
-            </CardTitle>
+            <div className="flex items-center gap-3">
+              {restoreResult ? (
+                <CheckCircle2 className="size-6 shrink-0 text-primary" aria-hidden="true" />
+              ) : (
+                <LoaderCircle className="size-6 shrink-0 animate-spin text-primary" aria-hidden="true" />
+              )}
+              <CardTitle>
+                {completion
+                  ? completion.started
+                    ? "Your server is ready"
+                    : "Your server is stopped"
+                  : restoreResult
+                    ? "Restore finished"
+                    : progress}
+              </CardTitle>
+            </div>
             <CardDescription>
-              {restoreResult ? message : "The server may be temporarily unavailable while its saved state is replaced."}
+              {completion
+                ? message
+                : restoreResult
+                  ? "Select Next to review the restore result."
+                  : "The server may be temporarily unavailable while its saved state is replaced."}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {restoreResult ? (
+            {completion ? (
               <p className="text-body text-muted-foreground">
-                {restoreResult.started
-                  ? restoreResult.recoveredAdmin
+                {completion.started
+                  ? completion.recoveredAdmin
                     ? "Open the dashboard and sign in with the recovered administrator’s temporary password."
                     : "Open the dashboard and sign in with an account from the backup."
                   : "Start the server from the Service page when you’re ready. The restore will be verified on its next successful start."}
@@ -379,7 +399,7 @@ export function BackupRestoreScreen(props: {
                 <li>The backup is prepared and checked before replacement.</li>
                 <li>The server is stopped, its saved state is restored, and compatible sessions are preserved.</li>
                 {start && <li>The server is restarted and checked before success is confirmed.</li>}
-                <li>You’ll see a confirmation here when the restore finishes.</li>
+                <li>When the restore finishes, select Next to review the result.</li>
               </ul>
             )}
           </CardContent>

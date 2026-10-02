@@ -163,6 +163,9 @@ describe("native backup and restore", () => {
         { staged: stage.id, confirmed: true, force: false, start: true },
       ]),
     );
+    const nextButton = await screen.findByRole("button", { name: "Next" });
+    await waitFor(() => expect(nextButton.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(nextButton);
     await screen.findByText(/confirmed a successful boot/);
   });
   it("re-extracts an expired preparation and applies only the matching refreshed stage", async () => {
@@ -185,6 +188,9 @@ describe("native backup and restore", () => {
     await screen.findByRole("switch", { name: "Replace the displayed destination" });
     fireEvent.click(screen.getByRole("switch", { name: "Replace the displayed destination" }));
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    const nextButton = await screen.findByRole("button", { name: "Next" });
+    await waitFor(() => expect(nextButton.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(nextButton);
     await screen.findByText(/confirmed a successful boot/);
     expect(fake.callsTo("desktop_restore_prepare")).toHaveLength(2);
     expect(fake.callsTo("desktop_restore_apply")[0]?.staged).toBe("stage-2");
@@ -246,6 +252,11 @@ describe("native backup and restore", () => {
     expect(screen.queryByRole("button", { name: "Review backup" })).toBeNull();
     expect(screen.getByText("Restoring…").hasAttribute("disabled")).toBe(true);
     finishRestore();
+    const next = await screen.findByRole("button", { name: "Next" });
+    await waitFor(() => expect(next.hasAttribute("disabled")).toBe(false));
+    expect(screen.queryByText("Restore Complete")).toBeNull();
+    expect(screen.getByText("Restoring Your Server")).toBeTruthy();
+    fireEvent.click(next);
     await screen.findByText("Restore Complete");
     await screen.findByText(/confirmed a successful boot/);
     expect(screen.queryByRole("button", { name: "Review backup" })).toBeNull();
