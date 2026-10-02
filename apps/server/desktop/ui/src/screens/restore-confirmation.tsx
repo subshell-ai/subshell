@@ -32,9 +32,11 @@ export function RestoreFacts({
               >
                 {value}
               </span>
-              {copy && value !== "Unavailable" && (
-                <CopyButton getText={() => value} copyKey={`restore-${label}`} label={label} />
-              )}
+              {copy &&
+                ["Archive", "Control plane URL", "Database", "Data directory", "Configuration"].includes(label) &&
+                value !== "Unavailable" && (
+                  <CopyButton getText={() => value} copyKey={`restore-${label}`} label={label} />
+                )}
               {label === "Control plane URL" && onOpen && value !== "Unavailable" && (
                 <Button variant="ghost" size="icon-sm" aria-label="Open control plane" onClick={onOpen}>
                   <ExternalLink />

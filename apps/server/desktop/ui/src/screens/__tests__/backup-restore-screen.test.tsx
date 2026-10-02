@@ -62,6 +62,8 @@ describe("native backup and restore", () => {
     expect(screen.getByText("/tmp/instance.subshell")).toBeTruthy();
     expect(screen.getByText("4,096 bytes")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Copy Archive" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Copy Size" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy Encryption" })).toBeNull();
     expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
   });
   it("returns to the backup form on failure without showing success", async () => {
