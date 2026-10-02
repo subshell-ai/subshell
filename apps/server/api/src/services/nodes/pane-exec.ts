@@ -63,6 +63,7 @@ export interface SentinelScanner {
  * it carries quotes and a literal `$?` and sits behind prompt bytes.
  */
 export function createSentinelScanner(token: string): SentinelScanner {
+  if (!TOKEN_RE.test(token)) throw new Error("exec: sentinel token must be 16 lowercase hex chars");
   const re = new RegExp(`^__xcomm_${token}_DONE rc=([0-9]+)$`);
   const out: string[] = [];
   let carry = "";
