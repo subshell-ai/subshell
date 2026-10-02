@@ -471,6 +471,7 @@ export function BackupRestoreScreen(props: {
                       <FieldLegend id="restore-mode-label">Restore mode</FieldLegend>
                       <RadioGroup
                         aria-labelledby="restore-mode-label"
+                        aria-describedby={inspection.legacyDatabaseOnly ? "restore-mode-description" : undefined}
                         name="restore-mode"
                         value={options.mode}
                         disabled={locked || inspection.legacyDatabaseOnly}
@@ -487,6 +488,13 @@ export function BackupRestoreScreen(props: {
                           </Field>
                         ))}
                       </RadioGroup>
+                      {inspection.legacyDatabaseOnly && (
+                        <p id="restore-mode-description" className="hint">
+                          This older backup contains only the database, so restore modes are unavailable. It restores
+                          into this server using its current configuration and identity. Moving to a new machine
+                          requires a full instance archive.
+                        </p>
+                      )}
                     </FieldSet>
                     {!inspection.legacyDatabaseOnly && (
                       <>
