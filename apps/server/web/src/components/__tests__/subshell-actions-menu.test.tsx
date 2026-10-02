@@ -524,3 +524,36 @@ describe("SubshellActionsMenu — children mode, sidebar right-click (spec 2026-
     }
   });
 });
+
+describe("SubshellActionsMenu — prompt input availability", () => {
+  afterEach(cleanup);
+
+  for (const unavailable of [
+    { nodeOffline: true },
+    { alive: false },
+    { status: "terminated" as const },
+    { access: "view" as const },
+  ]) {
+    it(`does not offer Inject prompt for ${JSON.stringify(unavailable)}`, async () => {
+      const { restore } = mockFetch();
+      try {
+        await renderMenu(makeSubshell(unavailable));
+        await openMenu("subshell");
+        expect(screen.queryByRole("menuitem", { name: "Inject prompt..." })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+  }
+
+  it("offers Inject prompt for a live editable pane", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell({ access: "edit" }));
+      await openMenu("subshell");
+      expect(screen.getByRole("menuitem", { name: "Inject prompt..." })).toBeTruthy();
+    } finally {
+      restore();
+    }
+  });
+});
