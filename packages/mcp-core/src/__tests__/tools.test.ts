@@ -830,6 +830,21 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     );
   });
 
+  it("describeToolError maps the exec refusals by name, beating their status twins (spec 2026-10-02)", () => {
+    // The three EXEC codes are name-carriers (throwApiError), like the NODE_*
+    // set; their prose is chosen so a generic 400/409 fallback CANNOT supply
+    // the asserted phrases, red-before-green by construction.
+    const busy = describeToolError(new ApiError(409, "The pane is not idle yet", "EXEC_PANE_BUSY")).message;
+    expect(busy).toContain("producing output");
+    expect(busy).toContain("nothing was typed");
+    const terminalOnly = describeToolError(
+      new ApiError(400, "The pane runs an agent harness", "EXEC_TERMINAL_ONLY"),
+    ).message;
+    expect(terminalOnly).toContain("send_to_subshell");
+    const inFlight = describeToolError(new ApiError(409, "Another exec holds this pane", "EXEC_IN_FLIGHT")).message;
+    expect(inFlight).toContain("retry");
+  });
+
   it("describeToolError's 409 branch answers the genericized harness refusal (it never rides as harness_disabled)", () => {
     // The server's SubshellCreateError carries only .status, so the error
     // handler genericizes its code: the create-path refusal for a disabled

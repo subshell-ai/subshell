@@ -128,6 +128,9 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
         "list_nodes",
         "read_subshell_log",
         "send_to_subshell",
+        // The terminal family (spec 2026-10-02): one command in a shell pane,
+        // sentinel-answered.
+        "exec_in_terminal",
         // The saved-prompt library, five tools (spec 2026-09-28): a pane may
         // full-CRUD its owner's prompts, the share flip included.
         "list_prompts",
@@ -159,6 +162,15 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect(byName.create_subshell.description).toContain("list_subshells before retrying");
     expect(byName.create_subshell.description).toContain("You own their cleanup");
     expect(byName.send_to_subshell.description).toContain("SUBSHELL_NOT_RUNNING");
+    // The exec tool's shell-contract honesty rides its OWN description, not
+    // the briefing (spec 2026-10-02: SUBSHELL_MCP_INSTRUCTIONS stays untouched).
+    expect(byName.exec_in_terminal.description).toContain("POSIX");
+    expect(byName.exec_in_terminal.description).toContain("timed_out");
+    expect(Object.keys(byName.exec_in_terminal.inputSchema.properties).sort()).toEqual([
+      "command",
+      "subshell_id",
+      "timeout_ms",
+    ]);
     expect(Object.keys(byName.get_subshell.inputSchema.properties).sort()).toEqual(["id", "name"]);
     expect(byName.get_subshell.description).toContain("name");
     expect(byName.restart_subshell.inputSchema.properties).toHaveProperty("prompt");

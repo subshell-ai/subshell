@@ -25,8 +25,9 @@ export interface ToolDeps {
 
 /**
  * Maps an ApiError to the plain-English guidance agents act on. The `code`
- * branches map exactly the four values they name (NODE_REQUIRED,
- * NODE_OFFLINE, NODE_IN_MAINTENANCE, SUBSHELL_NOT_RUNNING), each of which
+ * branches map exactly the seven values they name (NODE_REQUIRED,
+ * NODE_OFFLINE, NODE_IN_MAINTENANCE, SUBSHELL_NOT_RUNNING, EXEC_PANE_BUSY,
+ * EXEC_TERMINAL_ONLY, EXEC_IN_FLIGHT), each of which
  * the server's `throwApiError` paths ride to the wire under that name;
  * RESTART_IN_FLIGHT rides by name too but gets no branch of its own here,
  * it answers through the 409 status branch like any other 409. The
@@ -54,6 +55,21 @@ export function describeToolError(err: unknown): Error {
     }
     if (err.code === "SUBSHELL_NOT_RUNNING") {
       return new Error(`subshell: the subshell is not running (${err.message}); start it with restart_subshell`);
+    }
+    if (err.code === "EXEC_PANE_BUSY") {
+      return new Error(
+        `subshell: the pane is producing output, nothing was typed (${err.message}); read it first or wait, then retry`,
+      );
+    }
+    if (err.code === "EXEC_TERMINAL_ONLY") {
+      return new Error(
+        `subshell: exec runs shell commands in terminal panes only (${err.message}); to type into this pane, use send_to_subshell`,
+      );
+    }
+    if (err.code === "EXEC_IN_FLIGHT") {
+      return new Error(
+        `subshell: another exec is already waiting on this pane (${err.message}); retry once it finishes`,
+      );
     }
     if (err.status === 401) {
       return new Error(
