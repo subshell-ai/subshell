@@ -63,6 +63,7 @@ export function BackupRestoreScreen(props: {
   const [start, setStart] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.start);
   const [inspection, setInspection] = useState<RestoreInspection | null>(null);
   const [backups, setBackups] = useState<LocalBackupFile[]>([]);
+  const [selectedBackupPath, setSelectedBackupPath] = useState("");
   const [backupsProblem, setBackupsProblem] = useState("");
   const [stageId, setStageId] = useState("");
   const [replace, setReplace] = useState(false);
@@ -268,6 +269,9 @@ export function BackupRestoreScreen(props: {
       }
     });
   };
+  const selectedBackup = backups.find((file) => file.path === selectedBackupPath);
+  const backupLabel = (file: LocalBackupFile) =>
+    `${new Date(file.createdAt).toLocaleString()} · ${file.legacyDatabaseOnly ? "Database-only snapshot" : "Full instance archive"}${file.serverVersion ? ` · Server ${file.serverVersion}` : ""}`;
   return (
     <Frame
       rail={props.rail}
@@ -364,32 +368,45 @@ export function BackupRestoreScreen(props: {
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
-                      <ul className="m-0 flex list-none flex-col gap-3 p-0">
-                        {backups.map((file) => (
-                          <li key={file.path} className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex min-w-0 flex-1 flex-col gap-1">
-                              <p className="m-0 text-label font-strong">{new Date(file.createdAt).toLocaleString()}</p>
-                              <p className="m-0 text-detail text-muted-foreground">
-                                {file.legacyDatabaseOnly ? "Database-only snapshot" : "Full instance archive"}
-                                {file.serverVersion ? ` · Server ${file.serverVersion}` : ""}
-                                {file.encrypted ? " · Encrypted" : ""} ·{" "}
-                                {(file.bytes / 1024 / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 })} MB
-                              </p>
-                              <p className="m-0 break-words text-detail text-muted-foreground [overflow-wrap:anywhere]">
-                                {file.name}
-                              </p>
-                            </div>
-                            <Button
-                              variant="outline"
-                              disabled={locked}
-                              aria-label={`Inspect backup ${file.name}`}
-                              onClick={() => void inspect(file.path)}
-                            >
-                              Inspect
-                            </Button>
-                          </li>
-                        ))}
-                      </ul>
+                      <div className="flex flex-col gap-3">
+                        <Select
+                          value={selectedBackupPath || null}
+                          disabled={locked}
+                          items={backups.map((file) => ({ value: file.path, label: backupLabel(file) }))}
+                          onValueChange={(path) => setSelectedBackupPath(path ?? "")}
+                        >
+                          <SelectTrigger aria-label="Available backup">
+                            <SelectValue placeholder="Choose a backup" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {backups.map((file) => (
+                                <SelectItem key={file.path} value={file.path}>
+                                  {backupLabel(file)}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        {selectedBackup && (
+                          <p className="m-0 break-words text-detail text-muted-foreground [overflow-wrap:anywhere]">
+                            {selectedBackup.name} ·{" "}
+                            {(selectedBackup.bytes / 1024 / 1024).toLocaleString(undefined, {
+                              maximumFractionDigits: 1,
+                            })}{" "}
+                            MB{selectedBackup.encrypted ? " · Encrypted" : ""}
+                          </p>
+                        )}
+                        <Button
+                          variant="outline"
+                          disabled={locked || !selectedBackup}
+                          onClick={() => {
+                            if (selectedBackup) void inspect(selectedBackup.path);
+                          }}
+                        >
+                          Inspect selected backup
+                        </Button>
+                      </div>
                       {backups.some((file) => file.legacyDatabaseOnly) && (
                         <p className="m-0 mt-3 text-detail text-muted-foreground">
                           Database-only snapshots restore the database and keep current configuration and identity

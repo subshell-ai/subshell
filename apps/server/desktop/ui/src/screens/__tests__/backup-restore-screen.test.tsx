@@ -142,7 +142,9 @@ describe("native backup and restore", () => {
     await screen.findByRole("heading", { name: "Available backups" });
     expect(screen.queryByLabelText("Prepared restore UUID")).toBeNull();
     expect(screen.queryByText(stage.id)).toBeNull();
-    fireEvent.click(await screen.findByRole("button", { name: "Inspect backup saved.tar.gz" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Available backup" }));
+    fireEvent.click(await screen.findByRole("option", { name: /Full instance archive/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Inspect selected backup" }));
     await screen.findByText("admin@example.com");
     expect(screen.queryByText(/Exclusions:/)).toBeNull();
     expect(screen.queryByLabelText("Recover an existing administrator")).toBeNull();
@@ -197,7 +199,9 @@ describe("native backup and restore", () => {
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
-    fireEvent.click(await screen.findByRole("button", { name: "Inspect backup subshell-v1.7.0-20260101-000000.db" }));
+    fireEvent.click(await screen.findByRole("combobox", { name: "Available backup" }));
+    fireEvent.click(await screen.findByRole("option", { name: /Database-only snapshot/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Inspect selected backup" }));
     expect(fake.callsTo("desktop_restore_inspect")[0]).toMatchObject({ archive: "/tmp/legacy.db", staged: "" });
     await screen.findByText(/Database-only snapshot:/);
     expect(screen.getByRole("radiogroup", { name: "Restore mode" })).toBeTruthy();
