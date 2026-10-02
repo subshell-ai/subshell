@@ -723,6 +723,12 @@ here because the HTTP door makes the pair observable). The route writes no
 row, so it announces nothing and audits nothing; `{ ok: true }` means the
 bytes reached the pane's machine, not that the pane acted on them.
 
+**Exec rides the same pipe (2026-10-02).** `POST /api/subshells/:id/exec`
+types a command and its sentinel `printf` line over the same `sendInput` seam,
+so the argv posture above is its posture too (accepted, §11), and the sentinel
+lands in the pane's own log as random noise, not data; every refusal precedes
+the typing, and a `timed_out` answer signals nothing and types nothing further.
+
 ## 5. Sharing
 
 A subshell is private by default. The owner may grant, via
