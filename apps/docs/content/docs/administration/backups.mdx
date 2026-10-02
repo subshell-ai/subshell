@@ -33,7 +33,7 @@ The server keeps only a temporary download copy. The link is available once, for
 4. Optionally select **Set a temporary password for an existing admin**, choose an administrator from the backup, and enter a temporary password. This enables password sign-in and requires that administrator to change the temporary password before ordinary access.
 5. Select **Prepare restore** and run the displayed command on the server host, or open the Subshell Server restore assistant.
 
-Browser uploads support archives under 128 MB. Use the CLI or desktop assistant for larger files. Prepared uploads expire after one hour; **Discard staged restore** deletes one early. Preparation does not replace the running server's state.
+Browser uploads support archives under 128 MB. Use the CLI or desktop assistant for larger files. Prepared uploads expire after ten minutes; **Discard staged restore** deletes one early. Preparation does not replace the running server's state.
 
 The actual restore must run outside the server process. A server cannot replace its own database and configuration while serving this page. The offline tool confirms the destination and replacement, stops the server, and applies the validated archive. It asks whether to start afterward, with Yes as the default.
 

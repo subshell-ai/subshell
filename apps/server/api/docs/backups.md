@@ -56,7 +56,7 @@ replacement and pane-interruption consent. No API route applies a restore.
 
 Native app-child restoration first uses `restore --prepare --json --no-start`:
 archive, paths, addresses and optional admin credential are validated and kept
-in a protected one-hour stage before the app stops its child. Prepared CLI
+in a protected ten-minute stage before the app stops its child. Prepared CLI
 stages persist destination paths; apply refuses conflicting overrides.
 `--discard-staged` removes only an OS-user-owned protected stage. Installed
 service control remains in the CLI, whose manager identity proof precedes stop.
@@ -83,7 +83,7 @@ directories0700. Encryption passwords are not persisted in metadata. Settings
 uses cookie-admin create jobs with single-use expiring downloads, not a backup
 library; boot sweeps interrupted output. Multipart upload stays within the
 existing128MiB request envelope; larger files use offline tools. Restore stages
-expire after1hour and crash-incomplete stages age out. Temp login passwords are
+expire after10minutes and crash-incomplete stages age out. Temp login passwords are
 hashed into staged SQLite only. Human sessions are revoked in prepared target
 SQLite; pane bearer keys remain part of the restored identity.
 

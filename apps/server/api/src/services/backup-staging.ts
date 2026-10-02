@@ -4,7 +4,7 @@ import type { BackupRestoreChoices } from "@internal/subshell-protocol";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { type InstancePaths, stageInstanceBackup } from "@/services/backups/index.js";
 
-export const RESTORE_STAGE_TTL_MS = 60 * 60 * 1000;
+export const RESTORE_STAGE_TTL_MS = 10 * 60 * 1000;
 export const restoreStagingRoot = () => join(SUBSHELL_SERVER_DATA_DIR, "backup-staging");
 export type StagedBackup = Awaited<ReturnType<typeof stageInstanceBackup>>;
 export type RestoreChoices = BackupRestoreChoices;

@@ -1,7 +1,7 @@
 import { Frame } from "@internal/assistant";
 import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES } from "@internal/subshell-protocol";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { type ReactElement, useEffect, useState } from "react";
+import { type ReactElement, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
@@ -55,6 +55,8 @@ export function BackupRestoreScreen(props: {
   onRefresh: () => Promise<unknown>;
   onClose: () => void;
 }): ReactElement {
+  // Retained only in this mounted window so expired extraction can be repeated.
+  const retryPreparation = useRef<RestorePrepare | null>(null);
   const [options, setOptions] = useState<RestorePrepare>({ ...EMPTY_RESTORE });
   const [encrypt, setEncrypt] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.encrypt);
   const [confirmation, setConfirmation] = useState("");
@@ -174,6 +176,7 @@ export function BackupRestoreScreen(props: {
           directory: false,
         }));
       if (typeof path !== "string") return;
+      retryPreparation.current = null;
       setStageId("");
       setInspection(null);
       setReplace(false);
@@ -226,7 +229,7 @@ export function BackupRestoreScreen(props: {
     }
     await act("Validating destination and preparing recovery before stopping the server…", async () => {
       try {
-        const result = await ipc.restorePrepare({
+        const request: RestorePrepare = {
           ...options,
           ...(!inspection?.legacyDatabaseOnly && {
             databasePath: options.databasePath || inspection?.destination?.databasePath || "",
@@ -240,7 +243,9 @@ export function BackupRestoreScreen(props: {
           }),
           recoverAdmin: recover ? options.recoverAdmin : "",
           temporaryPassword: recover ? options.temporaryPassword : "",
-        });
+        };
+        const result = await ipc.restorePrepare(request);
+        retryPreparation.current = request;
         setInspection(result);
         setStageId(result.id ?? "");
         setReplace(false);
@@ -254,7 +259,35 @@ export function BackupRestoreScreen(props: {
     if (!replace) return;
     await act("Restoring the instance and waiting for its successful boot…", async () => {
       try {
-        const result = await ipc.restoreApply(stageId, replace, force, start);
+        let currentId = stageId;
+        const refreshStage = async () => {
+          if (!retryPreparation.current || !inspection) throw new Error("Choose the backup again to prepare it.");
+          setProgress("Refreshing the backup extraction…");
+          const refreshed = await ipc.restorePrepare(retryPreparation.current);
+          setInspection(refreshed);
+          setStageId(refreshed.id ?? "");
+          if (
+            JSON.stringify(refreshed.manifest) !== JSON.stringify(inspection.manifest) ||
+            JSON.stringify(refreshed.destination) !== JSON.stringify(inspection.destination) ||
+            JSON.stringify(refreshed.choices) !== JSON.stringify(inspection.choices) ||
+            refreshed.recoveryUserId !== inspection.recoveryUserId
+          ) {
+            setReplace(false);
+            setForce(false);
+            throw new Error("The backup or restore settings changed. Review the refreshed restore before continuing.");
+          }
+          currentId = refreshed.id ?? "";
+        };
+        if (inspection?.expiresAt && inspection.expiresAt <= Date.now()) await refreshStage();
+        let result;
+        try {
+          result = await ipc.restoreApply(currentId, replace, force, start);
+        } catch (error) {
+          if (!String(error).includes("Restore upload expired.")) throw error;
+          await refreshStage();
+          result = await ipc.restoreApply(currentId, replace, force, start);
+        }
+        retryPreparation.current = null;
         setMessage(
           result.started
             ? "Restore completed. The restored server confirmed a successful boot."
@@ -287,10 +320,33 @@ export function BackupRestoreScreen(props: {
         problem,
       }}
       barLeft={
-        props.rail === undefined && (
-          <Button variant="ghost" disabled={locked} onClick={props.onClose}>
+        prepared ? (
+          <Button
+            variant="ghost"
+            disabled={locked}
+            onClick={() =>
+              void act("Returning to restore options…", async () => {
+                await ipc.restoreDiscard(stageId);
+                if (retryPreparation.current) {
+                  setOptions(retryPreparation.current);
+                  setTemporaryConfirmation(retryPreparation.current.temporaryPassword);
+                }
+                retryPreparation.current = null;
+                setInspection((old) => old && { ...old, prepared: false, id: undefined });
+                setStageId("");
+                setReplace(false);
+                setForce(false);
+              })
+            }
+          >
             Back
           </Button>
+        ) : (
+          props.rail === undefined && (
+            <Button variant="ghost" disabled={locked} onClick={props.onClose}>
+              Back
+            </Button>
+          )
         )
       }
       barRight={
@@ -354,6 +410,7 @@ export function BackupRestoreScreen(props: {
                       value={backupSource}
                       disabled={locked}
                       onValueChange={(value) => {
+                        retryPreparation.current = null;
                         setBackupSource(value === "saved" ? "saved" : "file");
                         setInspection(null);
                         setStageId("");
@@ -563,31 +620,16 @@ export function BackupRestoreScreen(props: {
                   </>
                 )}
                 {prepared && (
-                  <>
-                    <RestoreConfirmation
-                      inspection={inspection}
-                      locked={locked}
-                      replace={replace}
-                      force={force}
-                      start={start}
-                      setReplace={setReplace}
-                      setForce={setForce}
-                      setStart={setStart}
-                    />
-                    <Button
-                      variant="ghost"
-                      disabled={locked}
-                      onClick={() =>
-                        void act("Discarding prepared restore…", async () => {
-                          await ipc.restoreDiscard(stageId);
-                          setInspection(null);
-                          setStageId("");
-                        })
-                      }
-                    >
-                      Discard prepared restore
-                    </Button>
-                  </>
+                  <RestoreConfirmation
+                    inspection={inspection}
+                    locked={locked}
+                    replace={replace}
+                    force={force}
+                    start={start}
+                    setReplace={setReplace}
+                    setForce={setForce}
+                    setStart={setStart}
+                  />
                 )}
               </>
             )}

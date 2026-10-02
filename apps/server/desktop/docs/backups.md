@@ -68,9 +68,7 @@ backup/inspection/stage/apply schemas; no unknown fields cross IPC. An unknown
 field echoing an entered secret withholds the whole result. Public metadata
 such as `database/instance.db` or an administrator name remains valid even when
 it matches a password; guessing secret leakage from public substrings is not
-a privacy boundary. Full backup hints explicitly include supported config and
-plugin-owned secrets, with external agent credentials/project/upload/remote/OS
-state exclusions.
+a privacy boundary. Archive scope is documented in the backup guide.
 
 The UI regression suite exercises requested doors, defaults, stage retention,
 legacy transitions, inspect-before-apply and independent consents. Rust tests
@@ -82,6 +80,12 @@ against the live server or installed service as a scripted smoke test.
 
 The restore screen lists local backup files through `desktop_backup_list` and
 read-only `backup --list --json`, rather than exposing prepared transaction IDs.
-Upgrade snapshots are labelled database-only. The administrator picker uses the
+New upgrade backups are full archives; legacy snapshots are labelled database-only. The administrator picker uses the
 SPA's Base UI Select with CSPProvider disabling injected style elements; its
 scrollbar rule is in the static assistant stylesheet.
+
+Restore preparation expires after ten minutes. The mounted assistant keeps the
+preparation request (including entered passwords) only in memory, allowing it
+to re-extract and validate the source before applying an expired stage. A
+changed manifest, destination, choices or recovery administrator requires review
+again. Closing the screen releases the request; success and Back clear it.

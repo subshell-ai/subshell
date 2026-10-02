@@ -116,8 +116,6 @@ describe("native backup and restore", () => {
       screen.getByRole("switch", { name: "Encrypt the archive with a password" }).getAttribute("aria-checked"),
     ).toBe("false");
     expect(screen.queryByLabelText("Archive password")).toBeNull();
-    expect(screen.getByText(/plugin-owned secrets/).textContent).toContain("external agent credentials");
-    expect(screen.getByText(/plugin-owned secrets/).textContent).toContain("user uploads");
   });
   it("preserves prepared choices and separates replacement from pane consent, start defaults on", async () => {
     fake = installFakeIpc({
@@ -165,6 +163,52 @@ describe("native backup and restore", () => {
       ]),
     );
     await screen.findByText(/confirmed a successful boot/);
+  });
+  it("re-extracts an expired preparation and applies only the matching refreshed stage", async () => {
+    let preparations = 0;
+    fake = installFakeIpc({
+      handlers: {
+        desktop_backup_list: () => ({ backups: [] }),
+        "plugin:dialog|open": () => "/tmp/backup.subshell",
+        desktop_restore_inspect: () => ({ ...stage, prepared: false }),
+        desktop_restore_prepare: () => ({
+          ...stage,
+          id: `stage-${++preparations}`,
+          expiresAt: Date.now() + (preparations === 1 ? -1 : 600000),
+        }),
+        desktop_restore_apply: () => ({ status: "completed", started: true, destination: stage.destination }),
+      },
+    });
+    render(<BackupRestoreScreen {...props} kind="restore" />);
+    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
+    await screen.findByRole("button", { name: "Review replacement" });
+    fireEvent.click(screen.getByRole("button", { name: "Review replacement" }));
+    await screen.findByRole("switch", { name: "Replace the displayed destination" });
+    fireEvent.click(screen.getByRole("switch", { name: "Replace the displayed destination" }));
+    fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+    await screen.findByText(/confirmed a successful boot/);
+    expect(fake.callsTo("desktop_restore_prepare")).toHaveLength(2);
+    expect(fake.callsTo("desktop_restore_apply")[0]?.staged).toBe("stage-2");
+  });
+  it("returns to editable restore options using the footer Back button", async () => {
+    fake = installFakeIpc({
+      handlers: {
+        desktop_backup_list: () => ({ backups: [] }),
+        "plugin:dialog|open": () => "/tmp/backup.subshell",
+        desktop_restore_inspect: () => ({ ...stage, prepared: false }),
+        desktop_restore_prepare: () => stage,
+        desktop_restore_discard: () => null,
+      },
+    });
+    render(<BackupRestoreScreen {...props} kind="restore" rail={<nav>Navigation</nav>} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Review replacement" }));
+    const back = await screen.findByRole("button", { name: "Back" });
+    expect(screen.queryByRole("button", { name: "Discard prepared restore" })).toBeNull();
+    fireEvent.click(back);
+    await screen.findByLabelText("Destination database path (optional)");
+    expect(fake.callsTo("desktop_restore_discard")).toEqual([{ staged: stage.id }]);
+    expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
   });
   it("reports inspection failure before any preparation or restore operation", async () => {
     fake = installFakeIpc({
