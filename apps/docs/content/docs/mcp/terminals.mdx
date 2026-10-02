@@ -49,11 +49,18 @@ partial and advances so a loop cannot stall.
 log is retained, but a long-running command can produce more than one window's
 worth between reads, and each read only goes as far as its budget.
 
+For a single command, `exec_in_terminal` runs this whole loop in one call: it
+types the command and a sentinel line, waits, and answers with the output plus
+the exit code once the command completes, refusing with nothing typed while the
+pane is busy. Keep the manual loop for multi-command sessions and for programs
+that wait for input. See the [MCP tool reference](/mcp/tools).
+
 ## What it is not
 
-- Not a one-shot `exec`: there is no exit code and no stdout/stderr split. The
-  shell's own output is the contract; append something like `echo "exit: $?"`
-  if the status matters.
+- Not a one-shot `exec` by itself: this loop has no exit code and no
+  stdout/stderr split, though `exec_in_terminal` (above) supplies the exit code
+  in one call. In the manual loop the shell's own output is the contract;
+  append something like `echo "exit: $?"` if the status matters.
 - Not private: the session is a normal pane of the owner's account, visible in
   the panes list and to anyone the owner shares panes with. It files under
   "Cross-agent comms" and its notification bell starts off.
