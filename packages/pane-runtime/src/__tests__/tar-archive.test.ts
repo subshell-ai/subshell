@@ -1,5 +1,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { createWriteStream, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  createWriteStream,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -328,6 +338,61 @@ describe("extractor refusals (hostile archives)", () => {
     hdr.set(e.encode(`${sum.toString(8).padStart(6, "0")}\0 `), 148);
     const tgz = Bun.gzipSync(new Uint8Array([...hdr, ...new Uint8Array(50)])); // missing 50 bytes + terminator
     await expect(hostile("h-trunc", tgz)).rejects.toThrow(/truncated/);
+  });
+});
+
+describe("extractor destination-containment refusals (PR review)", () => {
+  const writeArchive = (name: string, tgz: Uint8Array<ArrayBuffer>): string => {
+    const p = join(dir, `${name}.tar.gz`);
+    writeFileSync(p, Buffer.from(tgz));
+    return p;
+  };
+
+  it("refuses to write a file entry THROUGH a pre-existing destination symlink", async () => {
+    // The P1: `safeTransferPath` sees a clean relative `sub/victim`; only the
+    // filesystem check sees that `destRoot/sub` was symlinked OUT before the
+    // transfer. Without containment this overwrites the outside file.
+    const outside = join(dir, "contain-outside");
+    mkdirSync(outside, { recursive: true });
+    writeFileSync(join(outside, "victim"), "original");
+    const destRoot = join(dir, "contain-dest");
+    mkdirSync(destRoot, { recursive: true });
+    symlinkSync(outside, join(destRoot, "sub")); // destRoot/sub -> outside
+    const arc = writeArchive("contain", makeTgz([{ path: "sub/victim", content: "BAD" }]));
+    await expect(extractTarGz(arc, destRoot, LIMITS)).rejects.toThrow(/refusing symlinked destination/);
+    expect(readFileSync(join(outside, "victim"), "utf8")).toBe("original"); // never followed, never written
+  });
+
+  it("refuses a pax body whose declared size would over-allocate before any cap", async () => {
+    // The P1: a 2 MiB pax record under caps that never mention it (the file
+    // caps are 32 bytes). takeBytes would have allocated the full 2 MiB first;
+    // the bound rejects on the header alone.
+    const arc = writeArchive(
+      "pax-alloc",
+      handBuiltTgz([{ name: "./PaxHeaders/.x", typeflag: "x", body: new Uint8Array(2 * 1024 * 1024) }]),
+    );
+    const out = join(dir, "pax-alloc-out");
+    await expect(extractTarGz(arc, out, { maxFileBytes: 32, maxTotalBytes: 1000, maxEntries: 1 })).rejects.toThrow(
+      /metadata|exceed/,
+    );
+  });
+
+  it("applies the recorded mode when OVERWRITING an existing file, not only on create", async () => {
+    // The P2: the old code used createWriteStream({mode}), which only sets
+    // permissions at CREATION. Overwriting a world-readable 0644 file with a
+    // private 0600 replacement truncated the bytes but left it 0644 - private
+    // contents readable by other users. The fd is now fchmod'd on both paths.
+    const src = join(dir, "mode-src.txt");
+    fileTo(src, "NEW");
+    const arc = await buildArchive("mode-ow", [], [{ path: "f.txt", sourcePath: src, size: 3, mode: 0o600 }]);
+    const destRoot = join(dir, "mode-ow-dest");
+    mkdirSync(destRoot, { recursive: true });
+    const victim = join(destRoot, "f.txt");
+    writeFileSync(victim, "OLD");
+    chmodSync(victim, 0o644); // a pre-existing world-readable file
+    await extractTarGz(arc.path, destRoot, LIMITS);
+    expect(readFileSync(victim, "utf8")).toBe("NEW"); // contents replaced
+    expect(statSync(victim).mode & 0o777).toBe(0o600); // and the recorded mode applied on overwrite
   });
 });
 

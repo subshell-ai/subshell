@@ -11,26 +11,43 @@
  *   - every entry path is policed by safeTransferPath AFTER any pax override,
  *     so a long-name archive cannot smuggle `..` or an absolute path past the
  *     fixed-field value the writer put there;
+ *   - the destination is the filesystem surface, so it is enforced on the
+ *     filesystem too: everything lands under the realpath'd `destRoot`, every
+ *     created path component is checked to be a real DIRECTORY (a symlinked
+ *     ancestor is refused), and a file leaf is opened with O_NOFOLLOW. A valid
+ *     archive naming `sub/victim` must not write through a `destRoot/sub ->
+ *     /outside` symlink that pre-dated the transfer - the lexical guard sees a
+ *     clean relative name and cannot; only the lstat/O_NOFOLLOW discipline does;
  *   - only regular files and directories are accepted; symlinks, hardlinks,
- *     devices, FIFOs and any other typeflag are refused outright (transfers
- *     copy trees; a link into the destination could point outside it);
- *   - per-file, total and entry caps run DURING the pass, so an archive that
- *     lies about its size cannot exhaust the destination before the cap fires;
- *   - the destination root's parents are created mode 0700, each file takes
- *     its recorded mode and (unless it is the writer's 0 "unstated" default)
- *     its recorded mtime; the extractor never deletes anything (additive by
- *     ruling - a transfer overwrites matching paths and leaves the rest).
+ *     devices, FIFOs and any other typeflag are refused outright;
+ *   - per-file, total and entry caps run DURING the pass, and a pax header's
+ *     declared body size is bounded BEFORE it is allocated, so neither a lying
+ *     file size nor a lying metadata size can exhaust the destination;
+ *   - each file takes its recorded mode (via fchmod, so an OVERWRITTEN file
+ *     re-adopts the source's permissions too, not only a freshly-created one)
+ *     and, unless it is the writer's 0 "unstated" default, its recorded mtime;
+ *     the extractor never deletes anything (additive by ruling).
  *
  * The transport sha256 is verified by the CALLER before this runs (against the
  * digest archive_create reported), so extract trusts only that the bytes are
  * what the source wrote, not that they are benign - benign-ness is these
- * guards' job.
+ * guards' job, and a verified digest proves identity, not safety.
  */
 
-import { once } from "node:events";
-import { createReadStream, createWriteStream, mkdirSync } from "node:fs";
-import { utimes } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import {
+  chmodSync,
+  closeSync,
+  constants,
+  createReadStream,
+  fchmodSync,
+  futimesSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  realpathSync,
+  writeSync,
+} from "node:fs";
+import { join } from "node:path";
 import { createGunzip } from "node:zlib";
 import {
   BLOCK,
@@ -44,6 +61,17 @@ import {
   TYPE_PAX,
 } from "./tar-blocks.js";
 import type { ArchiveLimits } from "./tar-writer.js";
+
+/**
+ * Ceiling on a single pax extended/global header BODY, enforced before the
+ * declared size is allocated. The writer emits a pax record only to carry a
+ * `path=` override (a long name plus a handful of fixed fields), so a legal
+ * record is a few hundred bytes; this bound exists purely to stop a hostile
+ * archive naming a multi-gigabyte metadata body that `takeBytes` would
+ * allocate in full before any cap could see it. Well above any real record,
+ * far below an allocation that could exhaust the destination.
+ */
+const MAX_PAX_METADATA_BYTES = 64 * 1024;
 
 /** What one extract wrote, for the `archive_extract` command answer. */
 export interface ExtractResult {
@@ -78,7 +106,16 @@ export async function extractTarGz(
   let files = 0;
   let bytes = 0;
   let entries = 0;
+  let metaTotal = 0; // pax/global bodies, accounted separately from file bodies
   let pendingPath: string | undefined;
+
+  // The destination's REAL location, resolved once. It may not exist yet (the
+  // first copy onto a fresh dir), so create it first; a symlinked root the
+  // operator allowlisted resolves to where it actually writes. Every component
+  // created below this is checked to be a real directory, so nothing a transfer
+  // lands can traverse OUT of it through a symlink that was already there.
+  mkdirSync(destRoot, { recursive: true, mode: 0o700 });
+  const realDest = realpathSync(destRoot);
 
   const more = async (): Promise<boolean> => {
     const { value, done } = await it.next();
@@ -112,6 +149,40 @@ export async function extractTarGz(
     }
   };
 
+  // Refuse a symlinked destination component, and require a directory where one
+  // is needed. `lstat` (not `stat`) so a symlink is seen as itself and rejected,
+  // never followed; a missing component is created as a 0700 real directory.
+  const ensureRealDir = (p: string): void => {
+    let st;
+    try {
+      st = lstatSync(p);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      mkdirSync(p, { mode: 0o700 });
+      try {
+        chmodSync(p, 0o700); // mkdir's mode is umask-masked; a fresh dir we own is 0700
+      } catch {
+        // a filesystem without chmod support still has the umask-shaped dir
+      }
+      st = lstatSync(p);
+    }
+    if (st.isSymbolicLink()) throw new Error(`tar: refusing symlinked destination '${p}'`);
+    if (!st.isDirectory()) throw new Error(`tar: destination component is not a directory '${p}'`);
+  };
+
+  // Create/verify the first `upto` path segments (of a safeTransferPath-clean
+  // rel) as contained real directories, and return the directory that holds the
+  // leaf (or the leaf itself when `upto` covers every segment, the dir-entry
+  // case). `segs` has no `.`/`..`/empty by construction (safeTransferPath).
+  const ensureDirChain = (segs: string[], upto: number): string => {
+    let cur = realDest;
+    for (let i = 0; i < upto; i++) {
+      cur = join(cur, segs[i]!);
+      ensureRealDir(cur);
+    }
+    return cur;
+  };
+
   try {
     for (;;) {
       if (!(await need(BLOCK))) break; // clean EOF without an explicit terminator
@@ -121,6 +192,15 @@ export async function extractTarGz(
       const h = parseHeader(headerBlock);
 
       if (h.typeflag === TYPE_PAX || h.typeflag === "g") {
+        // Bound the DECLARED metadata size before allocating a buffer for it,
+        // and account it against the total cap: a verified digest makes the
+        // source genuine, not safe, so a hostile archive naming a gigabyte
+        // pax body must be refused here, not allocated first.
+        if (h.size > MAX_PAX_METADATA_BYTES)
+          throw new Error(`tar: pax metadata body of ${h.size} exceeds the ${MAX_PAX_METADATA_BYTES}-byte cap`);
+        if (metaTotal + h.size > limits.maxTotalBytes)
+          throw new Error(`tar: archive metadata exceeds the ${limits.maxTotalBytes}-byte total`);
+        metaTotal += h.size;
         const body = await takeBytes(h.size);
         const override = paxOverridePath(body);
         if (override !== undefined) pendingPath = override;
@@ -130,10 +210,12 @@ export async function extractTarGz(
 
       const declared = pendingPath ?? (h.prefix ? `${h.prefix}/${h.name}` : h.name);
       pendingPath = undefined;
+      const rel = safeTransferPath(declared); // guards the pax-or-header name; throws on escape
+      const segs = rel.split("/");
 
       if (h.typeflag === TYPE_DIR) {
         if (++entries > limits.maxEntries) throw new Error(`tar: more than ${limits.maxEntries} entries`);
-        mkdirSync(join(destRoot, safeTransferPath(declared)), { recursive: true, mode: 0o700 });
+        ensureDirChain(segs, segs.length); // every component, leaf included, as a real dir
         await skipBytes(blockPadding(h.size));
         continue;
       }
@@ -141,13 +223,13 @@ export async function extractTarGz(
         throw new Error(`tar: refusing entry type '${h.typeflag}' (only files and directories transfer)`);
       }
 
-      const rel = safeTransferPath(declared); // guards the pax-or-header name; throws on escape
       if (++entries > limits.maxEntries) throw new Error(`tar: more than ${limits.maxEntries} entries`);
       if (h.size > limits.maxFileBytes) throw new Error(`tar: entry '${rel}' exceeds the per-file cap`);
       if (bytes + h.size > limits.maxTotalBytes)
         throw new Error(`tar: extracted total exceeds ${limits.maxTotalBytes} bytes`);
 
-      await writeBody(join(destRoot, rel), h.size, h.mode, h.mtime);
+      const parent = ensureDirChain(segs, segs.length - 1); // contain the ancestor dirs
+      await writeBody(join(parent, segs[segs.length - 1]!), h.size, h.mode, h.mtime);
       files += 1;
       bytes += h.size;
       await skipBytes(blockPadding(h.size));
@@ -158,58 +240,63 @@ export async function extractTarGz(
     pump.destroy();
   }
 
-  async function writeBody(path: string, size: number, mode: number, mtime: number): Promise<void> {
-    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-    const dst = createWriteStream(path, { mode: mode & 0o777 });
-    // A listener is load-bearing: our own destroy() below races the pending
-    // fd write, and Bun reports the resulting ERR_STREAM_DESTROYED as an
-    // unhandled process error if 'error' has no handler. Real write failures
-    // are captured here and re-thrown (the drain wait would hang otherwise).
-    let failure: unknown;
-    dst.on("error", (e) => {
-      failure ??= e;
-    });
-    let written = 0;
+  // Open and stream one file body. The leaf is opened O_NOFOLLOW: a symlinked
+  // ancestor was already refused by ensureDirChain, and O_NOFOLLOW refuses an
+  // existing OR mid-race-substituted symlink LEAF (a verified-but-hostile
+  // archive could otherwise redirect a write outside the tree by naming a path
+  // whose leaf is a symlink). The fd is then chmod'd to the recorded mode, so a
+  // replacement adopts the source's permissions whether it CREATES or OVERWRITES
+  // (the write-stream `mode` option only bites at creation, which silently left
+  // an overwriting 0600 file at a pre-existing 0644).
+  async function writeBody(leaf: string, size: number, mode: number, mtime: number): Promise<void> {
+    let fd: number;
     try {
+      fd = openSync(leaf, constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ELOOP")
+        throw new Error(`tar: refusing symlinked destination '${leaf}'`);
+      throw err;
+    }
+    try {
+      // Both create and overwrite adopt the recorded mode: the write-stream
+      // `mode` option only bites at CREATION, which silently left an
+      // overwriting 0600 replacement at a pre-existing world-readable 0644.
+      fchmodSync(fd, mode & 0o777);
+      let written = 0;
+      // We are the pump (nothing outruns us), so the body goes straight to the
+      // fd with writeSync - no Writable stream, and so none of the
+      // backpressure-listener or ERR_STREAM_DESTROYED handling a stream forced
+      // the first version to carry (and which the compiled runtime handled
+      // differently again). Still one chunk in memory at a time.
       while (written < size) {
         if (buf.length === 0 && !(await more())) throw new Error("tar: truncated archive (body)");
         const w = Math.min(size - written, buf.length);
-        if (!dst.write(buf.subarray(0, w))) {
-          // Manual on/off, not events.once: a race between two once() calls
-          // leaves the loser's listener attached on every backpressure cycle,
-          // and a multi-MB file piles hundreds of dead "error" listeners on
-          // one stream (measured in the COMPILED binary: MaxListeners-
-          // ExceededWarning at the 11th, and the compiled runtime cannot be
-          // trusted to honor once()'s AbortSignal either).
-          await new Promise<void>((resolve) => {
-            const done = (): void => {
-              dst.off("drain", done);
-              dst.off("error", done);
-              resolve();
-            };
-            dst.on("drain", done);
-            dst.on("error", done);
-          });
-          if (failure) throw failure;
-        }
+        writeAll(fd, buf.subarray(0, w));
         buf = buf.subarray(w);
         written += w;
       }
-      dst.end();
-      await once(dst, "close");
-      if (failure) throw failure;
-    } catch (e) {
-      if (!dst.destroyed) dst.destroy();
-      throw e;
+      // Copy semantics: the source's time rides the header, so the landed file
+      // gets it via the still-open fd (futimes, not a path-based utimes that a
+      // swapped leaf could redirect). mtime 0 is the writer's "nobody said"
+      // default, not a 1970 claim - leave those at write time.
+      if (mtime > 0) futimesSync(fd, mtime, mtime);
+    } finally {
+      closeSync(fd);
     }
-    // Copy semantics: the source's time rides the header, so the landed file
-    // gets it (tar restores mtimes and a sync diff that re-timestamped every
-    // relayed file would churn). mtime 0 is the writer's "nobody said"
-    // default, not a 1970 claim - leave those at write time.
-    if (mtime > 0) await utimes(path, mtime, mtime);
   }
 
   return { files, bytes };
+}
+
+// Write a whole buffer to an open fd, looping over any short write (regular
+// files rarely split one, but a signal or ENOSPC retry can).
+function writeAll(fd: number, data: Uint8Array): void {
+  let off = 0;
+  while (off < data.length) {
+    const n = writeSync(fd, data, off, data.length - off);
+    if (n <= 0) throw new Error("tar: short write to destination");
+    off += n;
+  }
 }
 
 function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
