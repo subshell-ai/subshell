@@ -1,3 +1,4 @@
+import { BackupRestoreScreen } from "./screens/backup-restore-screen";
 /**
  * The assistant's HOST — the React replacement for `wizard.ts`'s page-level
  * machinery (spec 2026-09-21; plan Task 2, screens from Tasks 3–4).
@@ -1270,6 +1271,20 @@ export function Host(): React.JSX.Element {
   } else {
     const p = probe;
     switch (r.kind) {
+      case "backup":
+      case "restore":
+        content = (
+          <BackupRestoreScreen
+            key={r.kind}
+            kind={r.kind}
+            rail={rail}
+            busy={busy || running}
+            onBusy={setBusy}
+            onRefresh={refresh}
+            onClose={close}
+          />
+        );
+        break;
       case "welcome":
         content = (
           <WelcomeScreen

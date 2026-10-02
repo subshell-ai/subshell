@@ -1,5 +1,5 @@
 import { afterAll } from "bun:test";
-import { readdirSync, unlinkSync } from "node:fs";
+import { readdirSync, realpathSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,8 +14,8 @@ import { join } from "node:path";
  * the developer's real database. Putting the override in the `test` script alone
  * would have left the bare invocation pointed at live data.
  *
- * Setting the flag is this file's first act; its second is registering the
- * temp-database cleanup below. `constants.ts` reads the flag and forces both
+ * Setting the flag is this file's first act; it then canonicalizes the test
+ * temp root and registers the database cleanup below. `constants.ts` reads the flag and forces both
  * the database path and the subshell-log directory to disposable locations,
  * ignoring whatever the environment says. That split matters: this file
  * cannot decide the question by filling in variables that are unset, because
@@ -32,6 +32,10 @@ import { join } from "node:path";
  * namespace safely.
  */
 process.env.SUBSHELL_TEST_MODE = "1";
+
+// Constants and subprocess fixtures generate explicit DB/data/config paths beneath os.tmpdir().
+// Keep those test-owned roots canonical on macOS, where the standard /var ancestor is an alias.
+process.env[process.platform === "win32" ? "TEMP" : "TMPDIR"] = realpathSync(tmpdir());
 
 /**
  * Best-effort removal of this process's temp test databases once the run is

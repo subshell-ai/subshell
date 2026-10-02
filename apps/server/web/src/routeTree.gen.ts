@@ -25,6 +25,7 @@ import { Route as NodesIdRouteImport } from './routes/nodes_.$id'
 import { Route as PresetsIdRouteImport } from './routes/presets_.$id'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings_.api-keys'
 import { Route as SettingsAuthRouteImport } from './routes/settings_.auth'
+import { Route as SettingsBackupsRouteImport } from './routes/settings_.backups'
 import { Route as SettingsLogsRouteImport } from './routes/settings_.logs'
 import { Route as SettingsNetworkingRouteImport } from './routes/settings_.networking'
 import { Route as SettingsPluginsRouteImport } from './routes/settings_.plugins'
@@ -117,6 +118,11 @@ const SettingsAuthRoute = SettingsAuthRouteImport.update({
   path: '/settings/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsBackupsRoute = SettingsBackupsRouteImport.update({
+  id: '/settings_/backups',
+  path: '/settings/backups',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsLogsRoute = SettingsLogsRouteImport.update({
   id: '/settings_/logs',
   path: '/settings/logs',
@@ -190,6 +196,7 @@ export interface FileRoutesByFullPath {
   '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/auth': typeof SettingsAuthRoute
+  '/settings/backups': typeof SettingsBackupsRoute
   '/settings/logs': typeof SettingsLogsRoute
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
@@ -219,6 +226,7 @@ export interface FileRoutesByTo {
   '/presets/$id': typeof PresetsIdRoute
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/auth': typeof SettingsAuthRoute
+  '/settings/backups': typeof SettingsBackupsRoute
   '/settings/logs': typeof SettingsLogsRoute
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
@@ -249,6 +257,7 @@ export interface FileRoutesById {
   '/presets_/$id': typeof PresetsIdRoute
   '/settings_/api-keys': typeof SettingsApiKeysRoute
   '/settings_/auth': typeof SettingsAuthRoute
+  '/settings_/backups': typeof SettingsBackupsRoute
   '/settings_/logs': typeof SettingsLogsRoute
   '/settings_/networking': typeof SettingsNetworkingRoute
   '/settings_/plugins': typeof SettingsPluginsRoute
@@ -280,6 +289,7 @@ export interface FileRouteTypes {
     | '/presets/$id'
     | '/settings/api-keys'
     | '/settings/auth'
+    | '/settings/backups'
     | '/settings/logs'
     | '/settings/networking'
     | '/settings/plugins'
@@ -309,6 +319,7 @@ export interface FileRouteTypes {
     | '/presets/$id'
     | '/settings/api-keys'
     | '/settings/auth'
+    | '/settings/backups'
     | '/settings/logs'
     | '/settings/networking'
     | '/settings/plugins'
@@ -338,6 +349,7 @@ export interface FileRouteTypes {
     | '/presets_/$id'
     | '/settings_/api-keys'
     | '/settings_/auth'
+    | '/settings_/backups'
     | '/settings_/logs'
     | '/settings_/networking'
     | '/settings_/plugins'
@@ -368,6 +380,7 @@ export interface RootRouteChildren {
   PresetsIdRoute: typeof PresetsIdRoute
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
   SettingsAuthRoute: typeof SettingsAuthRoute
+  SettingsBackupsRoute: typeof SettingsBackupsRoute
   SettingsLogsRoute: typeof SettingsLogsRoute
   SettingsNetworkingRoute: typeof SettingsNetworkingRoute
   SettingsPluginsRoute: typeof SettingsPluginsRoute
@@ -495,6 +508,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsAuthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings_/backups': {
+      id: '/settings_/backups'
+      path: '/settings/backups'
+      fullPath: '/settings/backups'
+      preLoaderRoute: typeof SettingsBackupsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings_/logs': {
       id: '/settings_/logs'
       path: '/settings/logs'
@@ -592,6 +612,7 @@ const rootRouteChildren: RootRouteChildren = {
   PresetsIdRoute: PresetsIdRoute,
   SettingsApiKeysRoute: SettingsApiKeysRoute,
   SettingsAuthRoute: SettingsAuthRoute,
+  SettingsBackupsRoute: SettingsBackupsRoute,
   SettingsLogsRoute: SettingsLogsRoute,
   SettingsNetworkingRoute: SettingsNetworkingRoute,
   SettingsPluginsRoute: SettingsPluginsRoute,

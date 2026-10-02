@@ -1,40 +1,77 @@
 ---
 title: "Backups and restoration"
-description: "Create consistent database snapshots and preserve the complete state needed to restore an instance."
+description: "Save a complete server archive, optionally encrypt it, and restore it safely."
 ---
 
-Back up the database and accompanying instance files before recovery or migration.
+A full instance backup saves the server-owned state in one archive that you can restore on the same machine or migrate to another.
 
-## Create a database snapshot
+## What a full backup contains
 
-```bash
-subshell-server backup
-subshell-server backup --json
-```
+The archive contains a consistent SQLite snapshot, supported server configuration and authentication secret, node and channel identity keys, installed plugins and their settings and secrets, and server and pane logs. Logs are captured over the backup interval rather than at the database snapshot's exact instant.
 
-The command creates a consistent SQLite snapshot under the server data directory's `backups` folder. It can run while the database is in use. The default retention keeps five snapshots; `SUBSHELL_DB_BACKUPS_KEEP` controls that count.
-
-Automatic update backups protect the update transition. They do not replace backups stored outside the machine.
-
-## Preserve the rest of the instance
-
-A database snapshot does not include every file. Preserve `config.env`, signing and channel identity keys, plugin storage and secrets, and any captured logs you need. Preserve project files and agent credentials separately.
-
-Use `subshell-server status --json` to locate this installation's actual paths rather than assuming defaults.
+It excludes previous backups, temporary restore and update files, binaries and caches, operating system service definitions, projects and project-local uploads, external agent credentials, remote node files, and external network daemon state. Preserve those separately when you need them. A restore cannot recreate a running process or an agent's in-memory state.
 
 > [!warning] Backup credentials
-> Instance backups can contain keys and credentials. Protect them at least as carefully as the live data directory.
+> A full archive contains keys and credentials, including when it is unencrypted. Keep it at least as private as the live server data directory. Store an encryption password separately; a forgotten password cannot be recovered.
 
-## Restore
+## Download from Server Settings
 
-1. Stop the server and confirm no process is writing its database.
-2. Preserve the current database and its `-wal` and `-shm` sidecars as a recovery copy.
-3. Restore the snapshot at the configured database path without retaining stale sidecars from the replaced database.
-4. Restore the matching configuration and identity files with restrictive permissions.
-5. Start a compatible server and check sign-in, node connectivity, and sessions.
+You must be an instance administrator.
 
-Test restoration on an isolated instance before relying on a backup. Restoring an old database can discard newer state. Running duplicate node or server identities concurrently can disrupt connections.
+1. Open **Server Settings → Backups** in the server dashboard.
+2. In **Create backup**, optionally enable **Encrypt with a password** and enter and confirm your password.
+3. Select **Create backup**, then the download link when it is ready.
+4. Keep a copy outside the server machine.
 
-## Next steps
+The server keeps only a temporary download copy. The link is available once, for one hour, and the temporary copy is deleted after downloading or discarding it. There is no automatic backup schedule.
 
-Read [Files and paths](/reference/paths) and [Update the server](/administration/updates).
+## Prepare a restore in the dashboard
+
+1. Open **Server Settings → Backups** as an instance administrator.
+2. Under **Restore backup**, choose an archive and supply its password if encrypted, then select **Inspect backup**.
+3. Review the archive details. Choose the same machine or migration. For migration, review addresses and extra trusted origins; network publication stays disabled until reviewed after restore.
+4. Optionally select **Set a temporary password for an existing admin**, choose an administrator from the backup, and enter a temporary password. This enables password sign-in and requires that administrator to change the temporary password before ordinary access.
+5. Select **Prepare restore** and run the displayed command on the server host, or open the Subshell Server restore assistant.
+
+Browser uploads support archives under 128 MB. Use the CLI or desktop assistant for larger files. Prepared uploads expire after one hour; **Discard staged restore** deletes one early. Preparation does not replace the running server's state.
+
+The actual restore must run outside the server process. A server cannot replace its own database and configuration while serving this page. The offline tool confirms the destination and replacement, stops the server, and applies the validated archive. It asks whether to start afterward, with Yes as the default.
+
+> [!warning] Replacing state
+> Restoration replaces newer destination state and signs everyone out. Explicitly confirm interruption of running panes. Do not run two servers with the same restored identity at the same time: duplicate server and node identities can disrupt connections.
+
+## Use Subshell Server on desktop
+
+Open **Backup…** or **Restore…** from the native menu or tray. These screens are bundled with the app and work while the server is stopped. Restore is also available before first-run setup.
+
+For a backup, choose where to save the archive and optionally enable encryption. For restore, choose an archive and its password, or select a prepared local upload from Settings. Inspect it, review the destination and account recovery choices, then prepare the restore. Confirm replacement and any pane interruption before applying.
+
+**Start the server after restoring** defaults on. An installed service remains under its existing supervision; an app-managed server resumes with the restored configuration. Choosing not to start retains the previous state until a later successful boot. Prepared uploads retain their saved choices and expire after one hour.
+
+## Use the CLI
+
+```bash
+subshell-server backup --output /private/backups/server.tar.gz
+subshell-server restore /private/backups/server.tar.gz --inspect --json
+subshell-server restore /private/backups/server.tar.gz
+```
+
+Interactive encryption asks for a hidden password and confirmation. For automation, use `--encrypt --password-file <private-file>` when creating the archive and `--password-file <private-file>` when inspecting or restoring it. A password file must be owned by your OS user, have no group or other permissions, and contain one line. `-` reads the password from stdin. Never put the password in a command argument.
+
+A terminal restore walks through the choices before replacing state. Automation uses `--yes` for replacement and, when panes are active, separate `--force` consent. Use `--no-start` to leave the instance stopped. See the [Server CLI reference](/reference/server-cli) for migration and account recovery flags.
+
+## Restore guarantees
+
+Invalid archives, unsupported newer migrations, and wrong encryption passwords are rejected before replacement. The restore preserves the previous destination state until the restored server completes a successful boot. An interrupted replacement is recovered before configuration is loaded; a failed boot rolls back to the previous state. If you choose not to start, the previous state remains until the next successful boot.
+
+Migration writes the selected destination paths into configuration. It retains network settings and secrets but disables network plugins and clears publication addresses until you review **Server Settings → Networking**. Operating system services and external network daemons still belong to the destination machine.
+
+## Legacy database snapshots
+
+A `.db` snapshot is explicitly a database-only restore. It leaves configuration, identities, plugins, and files in place. It must be a standalone snapshot without adjacent SQLite journal sidecars. Restoring a database without its matching identity files may leave enrolled nodes or channels unable to reconnect.
+
+Automatic update backups remain database snapshots with their existing retention. They protect an update transition and do not replace full archives stored outside the machine.
+
+## Verify recovery
+
+Test a restore on an isolated instance before relying on a backup. After restoring, sign in, change a temporary recovery password if selected, review networking and addresses, check node connectivity, and inspect your saved sessions and logs. Read [Files and paths](/reference/paths), [Account recovery](/administration/recovery), and [Update the server](/administration/updates).

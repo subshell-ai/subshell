@@ -1,6 +1,7 @@
 import {
   Activity,
   ArrowUpCircle,
+  DatabaseBackup,
   KeyRound,
   LayoutDashboard,
   type LucideIcon,
@@ -96,6 +97,7 @@ const NAV_ENTRIES: NavEntry[] = [
       // Beside Service, because the two are about the same machine: Service is
       // the process as it runs now, Updates is what it could be running next.
       { to: "/settings/updates", label: "Updates", icon: ArrowUpCircle, short: "Upd" },
+      { to: "/settings/backups", label: "Backups", icon: DatabaseBackup, short: "Bkup" },
       { to: "/settings/status", label: "Status", icon: Activity, short: "Stat" },
       { to: "/settings/logs", label: "Logs", icon: ScrollText, short: "Logs" },
     ],

@@ -1,42 +1,91 @@
-/**
- * `subshell-server backup [--json]` — take a database snapshot now.
- *
- * Its own verb rather than a flag of `update` (spec 2026-09-15 §4.1), because
- * the reason to take one by hand is precisely that you are NOT updating:
- * before a hand-edit of the database, before a migration you are testing,
- * before deleting an account. `update` takes its own, and the two land in the
- * same directory under the same retention, so there is one place to look.
- *
- * ASYNC like `update`, and for the same reason: {@link backupDatabase} is.
- */
+import { chmodSync, existsSync, mkdirSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { BACKUP_RESTORE_DEFAULTS } from "@internal/subshell-protocol";
+import type { BackupOpts } from "@/commands/backup-options.js";
+import { askPassword, type PasswordDeps, readPasswordFile } from "@/commands/backup-password.js";
+import { beginBackupCapture } from "@/services/backup-capture-lock.js";
+import { createInstanceBackup } from "@/services/backups/index.js";
+import type { InstancePaths } from "@/services/backups/types.js";
 import { backupDatabase, listBackups } from "@/services/db-backup.js";
+import { instanceBackupConfig, instanceBackupPaths } from "@/services/instance-backup-source.js";
+import { SERVER_VERSION } from "@/version.js";
 
-/** stdio seams, so a test observes the lines without a subprocess. */
-export interface BackupDeps {
+export interface BackupDeps extends PasswordDeps {
   log: (line: string) => void;
   error: (line: string) => void;
+  confirm?: (question: string, def: boolean) => boolean | null | Promise<boolean | null>;
+  source?: () => InstancePaths;
+  effectiveConfig?: () => Record<string, string>;
+  capture?: () => () => void;
 }
 
-/**
- * Run the verb.
- *
- * @returns 0 with the path and size printed, or 1 with the reason — the one
- *   refusal being a host with no database yet, which is a real state on a
- *   configured server that has never booted.
- */
-export async function runBackup(opts: { json?: boolean }, deps: BackupDeps): Promise<number> {
-  let written: Awaited<ReturnType<typeof backupDatabase>>;
+/** Online full-instance capture; update snapshots retain their independent legacy path. */
+export async function runBackup(opts: BackupOpts, deps: BackupDeps): Promise<number> {
+  let release: (() => void) | undefined;
   try {
-    written = await backupDatabase({ reason: "manual" });
-  } catch (err) {
-    deps.error(`subshell-server: could not back up the database: ${err instanceof Error ? err.message : String(err)}`);
+    const source = (deps.source ?? instanceBackupPaths)();
+    if (opts.databaseOnly) {
+      if (opts.output || opts.passwordFile || opts.encrypt)
+        throw new Error("--database-only cannot be combined with --output or encryption.");
+      release = (deps.capture ?? beginBackupCapture)();
+      const written = await backupDatabase({
+        reason: "manual",
+        databasePath: source.databasePath,
+        dir: join(source.dataDir, "backups"),
+      });
+      if (!written) throw new Error("there is no database to back up yet");
+      if (opts.json)
+        deps.log(
+          JSON.stringify({
+            ...written,
+            kept: listBackups(join(source.dataDir, "backups")).length,
+            legacyDatabaseOnly: true,
+          }),
+        );
+      else deps.log(`Database-only snapshot: ${written.path} (${written.bytes} bytes)`);
+      return 0;
+    }
+    let encrypt = opts.encrypt || !!opts.passwordFile;
+    if (!encrypt && !opts.json && deps.isTTY && deps.confirm) {
+      const answer = await deps.confirm("Encrypt this full backup with a password?", BACKUP_RESTORE_DEFAULTS.encrypt);
+      if (answer === null) throw new Error("Cancelled; nothing was changed.");
+      encrypt = answer;
+    }
+    const password = opts.passwordFile
+      ? readPasswordFile(opts.passwordFile)
+      : encrypt
+        ? await askPassword("Backup encryption password", true, { ...deps, isTTY: !opts.json && deps.isTTY })
+        : undefined;
+    const destinationPath = resolve(opts.output ?? freeArchiveName(join(source.dataDir, "backups"), encrypt));
+    release = (deps.capture ?? beginBackupCapture)();
+    const result = await createInstanceBackup({
+      source,
+      destinationPath,
+      effectiveConfig: (deps.effectiveConfig ?? instanceBackupConfig)(),
+      password,
+    });
+    if (opts.json) deps.log(JSON.stringify(result));
+    else
+      deps.log(
+        `Full instance backup: ${destinationPath} (${statSync(destinationPath).size} bytes)${encrypt ? " — encrypted" : ""}`,
+      );
+    return 0;
+  } catch (failure) {
+    deps.error(`subshell-server: could not back up: ${failure instanceof Error ? failure.message : String(failure)}`);
     return 1;
+  } finally {
+    release?.();
   }
-  if (written === null) {
-    deps.error("subshell-server: there is no database to back up yet");
-    return 1;
+}
+
+function freeArchiveName(dir: string, encrypted: boolean): string {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  chmodSync(dir, 0o700);
+  const base = join(dir, `subshell-instance-v${SERVER_VERSION}-${new Date().toISOString().replaceAll(/[:.]/g, "-")}`);
+  const suffix = encrypted ? ".tar.gz.enc" : ".tar.gz";
+  for (let n = 0; n < 1000; n++) {
+    const path = `${base}${n ? `-${n + 1}` : ""}${suffix}`;
+    if (!existsSync(path)) return path;
   }
-  if (opts.json) deps.log(JSON.stringify({ ...written, kept: listBackups().length }));
-  else deps.log(`${written.path} (${written.bytes} bytes)`);
-  return 0;
+  throw new Error(`could not find a free archive name in ${dirname(base)}`);
 }

@@ -1,0 +1,33 @@
+import { expect, test } from "@playwright/test";
+import { ADMIN_STATE } from "./helpers";
+
+test.use({ storageState: ADMIN_STATE });
+test("an administrator downloads an encrypted instance archive and stages it without applying", async ({ page }) => {
+  await page.goto("/settings/backups");
+  await expect(page.getByRole("heading", { name: "Backups", exact: true })).toBeVisible();
+  await page.screenshot({ path: "/tmp/subshell-backups-settings.png", fullPage: true });
+  await page.getByRole("switch", { name: "Encrypt with a password" }).check();
+  await page.getByLabel("Encryption password", { exact: true }).fill("e2e-archive-password");
+  await page.getByLabel("Confirm password", { exact: true }).fill("e2e-archive-password");
+  await page.getByRole("button", { name: "Create backup", exact: true }).click();
+  const link = page.getByRole("link", { name: /^Download subshell-/ });
+  await expect(link).toBeVisible();
+  await expect(page.getByLabel("Encryption password", { exact: true })).toHaveValue("");
+  const pendingDownload = page.waitForEvent("download");
+  await link.click();
+  const download = await pendingDownload;
+  const archive = await download.path();
+  expect(archive).not.toBeNull();
+  if (!archive) throw new Error("Backup download has no local file");
+  await page.getByLabel("Backup archive or legacy .db snapshot").setInputFiles(archive);
+  await page.getByLabel("Archive password, if encrypted").fill("e2e-archive-password");
+  await page.getByRole("button", { name: "Inspect backup", exact: true }).click();
+  await expect(page.getByText(/^Full instance backup from/)).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Set a temporary password for an existing admin" })).not.toBeChecked();
+  await expect(page.getByLabel("Restore destination")).toContainText("Same-machine recovery");
+  await page.getByRole("button", { name: "Prepare restore", exact: true }).click();
+  await expect(page.getByText(/^subshell-server restore --staged/)).toBeVisible();
+  await expect(page.getByText(/The tool confirms the replacement/)).toBeVisible();
+  await page.getByRole("button", { name: "Discard staged restore", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Inspect backup", exact: true })).toBeVisible();
+});

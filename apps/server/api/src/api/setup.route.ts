@@ -1,7 +1,7 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { builtInHarnesses, builtInIds } from "@internal/pane-runtime";
 import { Elysia, t } from "elysia";
-import { ForbiddenError, isIssuedCredential, UnauthorizedError } from "@/api/auth-guard.js";
+import { ForbiddenError, HttpError, isIssuedCredential, UnauthorizedError } from "@/api/auth-guard.js";
 import { harnessInfo } from "@/api/harness-utils.js";
 import { HarnessInfoSchema } from "@/api/models.js";
 import { IS_TEST } from "@/constants.js";
@@ -11,6 +11,7 @@ import { asSetupStep, SETUP_STEPS } from "@/db/types/setup-step.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
+import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.js";
 import { installLocalPlugin, localPluginReports, uninstallLocalPlugin } from "@/services/nodes/local-plugins.js";
 import { hasAnyUser } from "@/services/registration-gate.js";
 
@@ -114,6 +115,9 @@ async function classifySetupCredential(
   if (extractSessionToken(cookieHeader)) {
     const session = await resolveCookieSession(cookieHeader);
     if (!session) throw new UnauthorizedError();
+    if (await backupPasswordChangeRequired(db, session.user.id)) {
+      throw new HttpError(403, "PASSWORD_CHANGE_REQUIRED: Change your temporary restore password before continuing.");
+    }
     // The role lives in the app's `user_meta`, NOT on better-auth's session
     // user — the same source `requireAdmin` reads, so the two gates cannot
     // disagree about who is an admin.

@@ -4,6 +4,8 @@ import { adminStatusRoutes } from "@/api/admin-status.route.js";
 import { adminUpdatesRoutes } from "@/api/admin-updates.route.js";
 import { auditRoutes } from "@/api/audit.route.js";
 import { authProvidersRoutes } from "@/api/auth-providers/index.js";
+import { backupRecoveryRoutes } from "@/api/backup-recovery.route.js";
+import { backupsRoutes } from "@/api/backups.route.js";
 import { channelRoutes } from "@/api/channels/index.js";
 import { devicesRoutes } from "@/api/devices.route.js";
 import { downloadsRoutes } from "@/api/downloads.route.js";
@@ -80,6 +82,8 @@ const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use
  * how the next feature route ends up paying for a regrouping.
  */
 const adminRoutes = new Elysia()
+  .use(backupsRoutes)
+  .use(backupRecoveryRoutes)
   .use(adminStatusRoutes)
   .use(adminServerRoutes)
   .use(adminUpdatesRoutes)

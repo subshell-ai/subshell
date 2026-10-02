@@ -82,6 +82,8 @@ pub struct LastExit {
 /// the first from the port, which is the fact that matters.
 #[derive(Debug, Clone)]
 pub struct Snapshot {
+    /// Whether this app intends to keep the server running, including a respawn gap.
+    pub desired_running: bool,
     /// The live child's pid, `None` when nothing is running.
     pub pid: Option<u32>,
     /// How the last child ended, `None` when none has.
@@ -121,9 +123,27 @@ pub struct ServerSpawner {
     pub console_log: PathBuf,
     /// This process's pid, which the server checks the supervisor claim against.
     pub own_pid: u32,
+    /// Restore policy retained for every ordinary start/respawn and app reopen.
+    pub restore_location: Option<crate::backup_restore::RestoreLocation>,
 }
 
 impl ServerSpawner {
+    pub(crate) fn command(&self) -> io::Result<Command> {
+        let Some((program, args)) = self.argv.split_first() else {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty server argv"));
+        };
+        let mut command = Command::new(program);
+        command.args(args).current_dir(&self.cwd);
+        if let Some(location) = &self.restore_location {
+            crate::backup_restore::configure_restored_child(&mut command, location);
+        }
+        command
+            .env("PATH", subshell_desktop_core::shell_env::login_path())
+            .env("SUBSHELL_SUPERVISOR", "subshell-desktop-server")
+            .env("SUBSHELL_SUPERVISOR_PID", self.own_pid.to_string())
+            .env("SUBSHELL_SUPERVISOR_LOG", &self.console_log);
+        Ok(command)
+    }
     /// Create (or truncate) the console log at 0600 inside a 0700 directory.
     ///
     /// The modes are the point rather than a detail: this file holds the
@@ -171,9 +191,6 @@ impl ServerSpawner {
 
 impl Spawner for ServerSpawner {
     fn spawn(&self) -> io::Result<Box<dyn ChildHandle>> {
-        let Some((program, args)) = self.argv.split_first() else {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty server argv"));
-        };
         // TRUNCATED per spawn, not appended: this is the last run's console
         // output, which is the thing worth reading after a crash, and it is
         // bounded by construction. The server's own structured log is the
@@ -183,13 +200,8 @@ impl Spawner for ServerSpawner {
         // on a crash loop is the only record of why the last one died.
         let out = self.open_console_log()?;
         let err = out.try_clone()?;
-        let child = Command::new(program)
-            .args(args)
-            .current_dir(&self.cwd)
-            .env("PATH", subshell_desktop_core::shell_env::login_path())
-            .env("SUBSHELL_SUPERVISOR", "subshell-desktop-server")
-            .env("SUBSHELL_SUPERVISOR_PID", self.own_pid.to_string())
-            .env("SUBSHELL_SUPERVISOR_LOG", &self.console_log)
+        let child = self
+            .command()?
             .stdin(Stdio::null())
             .stdout(Stdio::from(out))
             .stderr(Stdio::from(err))
@@ -228,6 +240,7 @@ impl ChildHandle for RealChild {
 #[derive(Default)]
 struct State {
     desired_running: bool,
+    single_attempt: bool,
     /// True while a spawn loop exists. Decided in the same critical section
     /// that sets `desired_running`, so the two cannot disagree.
     loop_running: bool,
@@ -318,10 +331,19 @@ impl Supervisor {
     /// chosen or installed since the loop began is what the next respawn
     /// runs.
     pub fn start(&self, spawner: Arc<dyn Spawner>) {
+        self.start_with_policy(spawner, false);
+    }
+    /// An unconfirmed restore gets one boot attempt. A failed selection must
+    /// not be respawned while its rollback receipt is waiting to reconcile.
+    pub(crate) fn start_once(&self, spawner: Arc<dyn Spawner>) {
+        self.start_with_policy(spawner, true);
+    }
+    fn start_with_policy(&self, spawner: Arc<dyn Spawner>, single_attempt: bool) {
         *self.inner.spawner.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::clone(&spawner));
         let needs_loop = {
             let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
             st.desired_running = true;
+            st.single_attempt = single_attempt;
             st.stopping = false;
             // ONE critical section decides both, so a loop on its way out
             // cannot swallow a start and leave nothing running.
@@ -404,6 +426,7 @@ impl Supervisor {
     pub fn snapshot(&self) -> Snapshot {
         let st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         Snapshot {
+            desired_running: st.desired_running,
             pid: st.pid,
             last_exit: st.last_exit.clone(),
         }
@@ -599,6 +622,9 @@ fn record_exit(shared: &Arc<Shared>, code: Option<i32>, spawn_error: Option<Stri
     {
         let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
         st.pid = None;
+        if st.single_attempt {
+            st.desired_running = false;
+        }
         st.last_exit = Some(LastExit {
             code,
             spawn_error,
@@ -876,6 +902,45 @@ mod tests {
     }
 
     /// The unit's `Restart=always`, as behaviour.
+    #[test]
+    fn failed_restored_child_is_not_respawned_until_selection_reconciles() {
+        let (spawner, rx) = harness();
+        let sup = quick();
+        sup.start_once(spawner.clone());
+        let first = next_spawn(&rx);
+        assert_eq!(settled_pid(&sup), first);
+        spawner.crash(first);
+        assert!(rx.recv_timeout(Duration::from_millis(120)).is_err());
+        assert_eq!(spawner.spawn_count(), 1);
+        assert!(!sup.snapshot().desired_running);
+        // A deliberate start of a reconciled choice still works.
+        sup.start(spawner.clone());
+        let second = next_spawn(&rx);
+        assert_ne!(first, second);
+        assert!(sup.stop(spawner.as_ref()));
+    }
+    #[test]
+    fn unconfirmed_restore_spawn_failure_gets_only_one_attempt() {
+        struct Failing(std::sync::atomic::AtomicUsize);
+        impl Spawner for Failing {
+            fn spawn(&self) -> io::Result<Box<dyn ChildHandle>> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Err(io::Error::other("restored boot refused"))
+            }
+            fn terminate(&self, _: u32) {}
+            fn kill(&self, _: u32) {}
+        }
+        let spawner = Arc::new(Failing(std::sync::atomic::AtomicUsize::new(0)));
+        let sup = Supervisor::with_timings(Duration::from_millis(5), Duration::from_millis(50));
+        sup.start_once(spawner.clone());
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while sup.snapshot().desired_running && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(!sup.snapshot().desired_running);
+        assert_eq!(spawner.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
     #[test]
     fn a_crash_respawns() {
         let (spawner, rx) = harness();

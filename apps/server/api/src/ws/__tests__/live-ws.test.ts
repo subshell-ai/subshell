@@ -68,6 +68,7 @@ function deps(over: Partial<LiveWsDeps> = {}): LiveWsDeps {
     // The re-ask (disable race): healthy by default, like the token the
     // factory hands out. Individual cases flip it.
     accountDisabled: async () => false,
+    passwordChangeRequired: async () => false,
     ...over,
   };
 }
@@ -111,6 +112,28 @@ describe("/ws/live", () => {
     expect(sent).toEqual([]);
     expect(subscribed).toEqual([]);
     expect(closed).toEqual([{ code: 4001, reason: "unauthorized" }]);
+  });
+
+  it("refuses human feed access while a restored password change is required", async () => {
+    const { ws, sent, closed, subscribed } = fakeSocket({ token: "good" });
+    await handleLiveOpen(ws, deps({ passwordChangeRequired: async () => true }));
+    expect(sent).toEqual([]);
+    expect(subscribed).toEqual([]);
+    expect(closed).toEqual([{ code: 4001, reason: "unauthorized" }]);
+  });
+
+  it("fails closed when restored-password state cannot be checked", async () => {
+    const { ws, sent, closed } = fakeSocket({ token: "good" });
+    await handleLiveOpen(
+      ws,
+      deps({
+        passwordChangeRequired: async () => {
+          throw new Error("unavailable");
+        },
+      }),
+    );
+    expect(sent).toEqual([]);
+    expect(closed).toEqual([{ code: 1011, reason: "open failed" }]);
   });
 
   it("fails the re-ask CLOSED — an unreadable account state closes, and the reconnect re-mints through the guard", async () => {

@@ -4,9 +4,11 @@ import { runReport, runSubshellMcp } from "@internal/mcp-core";
 import { appendStdinToLogFile } from "@internal/pane-runtime";
 import { licenseNotice } from "@internal/subshell-protocol";
 import { runBackup } from "@/commands/backup.js";
+import { parseBackupFlags, parseRestoreFlags } from "@/commands/backup-options.js";
 import { type ConfigureOpts, runConfigure } from "@/commands/configure.js";
 import { type InitDeps, runInit, setupHandoffLines } from "@/commands/init.js";
 import { runReset } from "@/commands/reset.js";
+import { runRestore } from "@/commands/restore.js";
 import { collectStatus, runStatus, serviceStateLines, syncPortListening } from "@/commands/status.js";
 import { acquirePromptInput, confirmLineOn, readLineSync } from "@/commands/tty-input.js";
 import { runUpdate, type UpdateOpts } from "@/commands/update.js";
@@ -171,7 +173,8 @@ usage:
   subshell-server init           first run: config home + auth secret + config.env + the service
   subshell-server configure      (re)write config.env; interactive unless --yes
   subshell-server update         install a newer server over this one (--check to look only)
-  subshell-server backup         snapshot the database now (--json for machine output)
+  subshell-server backup         capture a full instance archive (optional password encryption)
+  subshell-server restore        inspect or restore a full archive or database-only snapshot
   subshell-server reset          stop the server and delete its data and settings, keeping the binary;
                                  the machine's NAME must be typed (--confirm <name> when headless)
   subshell-server uninstall      stop the server, remove the service and the installed binary, and ASK
@@ -211,6 +214,31 @@ update flags:         --check                  report what is available and stop
                       --json                   machine-readable output
                       --no-restart             swap the binary; the caller restarts
                       --rollback               undo the last update (binary + database)
+
+backup flags:        --output <path>          new archive destination (existing files refused)
+                      --encrypt                encrypt; hidden password prompt on a terminal
+                      --password-file <path|-> protected 0600 file or one stdin line; implies encryption
+                      --database-only          legacy database snapshot, with existing retention
+                      --json                   machine output, never interactive
+
+restore forms:       restore <archive> | restore --staged <UUID>
+                      restore --list-staged [--json]  list prepared, unexpired local uploads
+                      restore --discard-staged <UUID> [--json]  delete a local stage
+                      restore <archive> --prepare [choices] [--json]  validate and stage without replacement
+restore flags:       --inspect [--json]       validate and show public metadata; changes nothing
+                      --mode same-machine|migration  default: same-machine; migration disables networks
+                      --data-dir <path> --database-path <path> --config-dir <path>
+                      --base-url <url> --host <host> --port <n> --trusted-origins <list>
+                      --password-file <path|-> archive decryption password
+                      --recover-admin <id> --temporary-password-file <path|->
+                                               existing administrator only; recovery defaults off
+                      --start / --no-start     default: start and verify the serving boot
+                      --yes                    consent to replacement of the displayed paths
+                      --force                  separate consent to interrupt active panes
+                      --json                   machine output, never interactive
+                      Password values never belong on argv. Files must be owned by this OS
+                      user with no group/other access. Only one password may use stdin.
+                      Staged restores use the choices already prepared in Server Settings.
 
 reset/uninstall flags: --confirm <machine-name>  the machine's name, for a run with no TTY to
                       type it into; without it (and without a terminal) both verbs refuse and
@@ -553,14 +581,42 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         exit(1);
         return true;
       }
-      const bad = argv.slice(1).find((f) => f !== "--json");
-      if (bad !== undefined) {
-        error(`subshell-server: unexpected argument '${bad}'`);
+      const opts = parseBackupFlags(argv.slice(1), error);
+      if (!opts) {
         error(USAGE);
         exit(1);
         return true;
       }
-      const code = await runBackup({ json: argv.includes("--json") }, { log, error });
+      const code = await runBackup(opts, {
+        log,
+        error,
+        isTTY: deps.isTTY ?? process.stdin.isTTY === true,
+        confirm: deps.confirm ?? promptConfirm,
+      });
+      exit(code);
+      return true;
+    }
+    case "restore": {
+      if (envVerbose && argv.includes("--json")) {
+        error(verboseJsonConflict(false, true));
+        exit(1);
+        return true;
+      }
+      const opts = parseRestoreFlags(argv.slice(1), error);
+      if (!opts) {
+        error(USAGE);
+        exit(1);
+        return true;
+      }
+      const code = await runRestore(opts, {
+        log,
+        error,
+        isTTY: deps.isTTY ?? process.stdin.isTTY === true,
+        confirm: deps.confirm ?? promptConfirm,
+        prompt: deps.prompt ?? promptText,
+        service: serviceDeps(deps, log),
+        probePort: deps.probePort,
+      });
       exit(code);
       return true;
     }

@@ -11,6 +11,7 @@
 // `DesktopAction` dispatch is what Linux has no use for.
 mod about;
 mod app_update;
+mod backup_restore;
 #[cfg(target_os = "macos")]
 mod bridge;
 mod control;
@@ -86,6 +87,7 @@ fn dispatch_menu_bar(_app: &tauri::AppHandle, _id: &str) {}
 /// instead. A machine that is not ready has no dashboard to open, so it lands
 /// on the assistant whichever way the preference is set.
 pub fn run() {
+    backup_restore::load_location();
     let mut builder = tauri::Builder::default();
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -173,6 +175,12 @@ pub fn run() {
         // address is refused before the handler sees it. The assistant is not
         // subject to it, and plugin commands (window dragging) never reach here.
         .invoke_handler(trust::guarding(tauri::generate_handler![
+            backup_restore::desktop_backup,
+            backup_restore::desktop_restore_inspect,
+            backup_restore::desktop_restore_stages,
+            backup_restore::desktop_restore_prepare,
+            backup_restore::desktop_restore_apply,
+            backup_restore::desktop_restore_discard,
             control::desktop_probe,
             control::desktop_port_in_use,
             control::desktop_logs,
@@ -279,13 +287,20 @@ pub fn run() {
             // first probe answers ready (spec 2026-09-12 § 5.2).
             let choice = {
                 let settings = handle.state::<subshell_desktop_core::settings::SettingsState>();
+                let reconciliation = backup_restore::reconcile_selection(&handle);
                 let mut probe = control::boot_probe(&settings);
+                if let Err(error) = &reconciliation {
+                    probe.error = Some(error.clone());
+                    probe.next = control::ProbeStep::Unreachable;
+                }
                 // App mode: nothing else will start this server, so boot does
                 // — and then waits briefly for the port, because `spawn`
                 // returns when the process exists and the window choice needs
                 // it LISTENING. A server that takes longer lands on recovery,
                 // whose Start is idempotent.
-                if probe.supervision == subshell_desktop_core::settings::Supervision::App
+                if reconciliation.is_ok()
+                    && !backup_restore::selection_blocks_boot()
+                    && probe.supervision == subshell_desktop_core::settings::Supervision::App
                     && probe.next != control::ProbeStep::Ready
                 {
                     match control::server_spawner(&handle) {

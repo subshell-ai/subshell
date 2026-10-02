@@ -1,14 +1,16 @@
-import { apiFetch, cn } from "@internal/node-admin";
+import { ApiError, apiFetch, Button, cn } from "@internal/node-admin";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppToaster } from "@/components/app-toaster";
+import { BackupPasswordRecovery } from "@/components/backup-password-recovery";
 import { DesktopBridge } from "@/components/desktop/desktop-bridge";
 import { DesktopNotifications } from "@/components/desktop/desktop-notifications";
 import { DesktopSidebar } from "@/components/desktop/desktop-sidebar";
 import { DragStrip, needsStandaloneDragStrip } from "@/components/desktop/drag-strip";
 import { EmergencyLoginBanner } from "@/components/emergency-login-banner";
+import { ErrorBanner } from "@/components/error-banner";
 import { LockdownBanner } from "@/components/lockdown-banner";
 import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
@@ -121,6 +123,24 @@ function Shell() {
   );
   const insets = useVisualViewportInsets();
   const { data: user, isLoading } = useCurrentUser();
+  const {
+    data: recovery,
+    isLoading: recoveryLoading,
+    error: recoveryError,
+    refetch: retryRecovery,
+  } = useQuery({
+    queryKey: ["backup-password-recovery", user?.id],
+    queryFn: async () => {
+      try {
+        return await apiFetch<{ passwordChangeRequired: boolean }>("/api/account/recovery/");
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return { passwordChangeRequired: false };
+        throw error;
+      }
+    },
+    enabled: !!user,
+    staleTime: Infinity,
+  });
   const offline = useServerOffline();
   const location = useLocation();
   // Pre-auth pages own the whole frame: no sidebar, no drawer bar.
@@ -149,7 +169,9 @@ function Shell() {
   // cached hard, because the wizard's writes go through the same key. The gate
   // holds first paint until it answers so a resume never flashes the dashboard
   // first, and the wizard reads this cached result as its initial step.
-  const { data: setupProgress, isLoading: progressLoading } = useSetupProgress(!!user);
+  const { data: setupProgress, isLoading: progressLoading } = useSetupProgress(
+    !!user && recovery?.passwordChangeRequired === false,
+  );
   // See the gate below: the redirect elements need identities stable across
   // renders, so the one that carries per-location state is memoized on the
   // only input it reads.
@@ -172,6 +194,21 @@ function Shell() {
     progressLoading,
     resumeSetup: setupProgress?.step != null,
   });
+  if (user && recoveryLoading && !offline) return null;
+  if (user && recoveryError && !offline)
+    return (
+      <main className="mx-auto max-w-xl p-6">
+        <ErrorBanner
+          message="Could not check whether a password change is required."
+          action={
+            <Button variant="link" onClick={() => void retryRecovery()}>
+              Retry
+            </Button>
+          }
+        />
+      </main>
+    );
+  if (user && recovery?.passwordChangeRequired && !offline) return <BackupPasswordRecovery />;
   if (gate === "blank" || gate === "holdSetup") return null;
   if (gate === "offlineHold") return <OfflineBanner />;
   // The redirect elements MUST keep a stable identity across renders:

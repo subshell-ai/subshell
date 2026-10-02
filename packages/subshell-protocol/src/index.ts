@@ -1,3 +1,5 @@
+export type { BackupRestoreChoices, RestoreAddressOverrides, RestoreMode } from "./backup.js";
+export { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES } from "./backup.js";
 export {
   type DeviceReport,
   type DeviceRole,

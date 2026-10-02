@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseEnvFile } from "@/config-env.js";
+import { beginBackupStateWrite } from "@/services/backup-capture-lock.js";
 import {
   baseUrlPort,
   type ConfigKey,
@@ -415,20 +416,25 @@ export function readExistingConfig(dir: string): Record<string, string> {
  * @returns the absolute path written
  */
 export function writeConfigEnv(dir: string, values: Record<string, string>): string {
-  ensureConfigDir(dir);
-  const target = join(dir, "config.env");
-  const tmp = join(dir, `.config.env.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
-  const body = [
-    "# subshell-server configuration, systemd EnvironmentFile syntax (bare KEY=value lines, no quotes).",
-    "# Written by `subshell-server init`/`configure`: comments here do NOT survive a rewrite, but keys",
-    "# this tool does not own (e.g. BETTER_AUTH_SECRET) are carried forward verbatim.",
-    ...Object.entries(values).map(([key, value]) => `${key}=${value}`),
-    "",
-  ].join("\n");
-  writeFileSync(tmp, body, { mode: 0o600 });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, target);
-  return target;
+  const release = beginBackupStateWrite();
+  try {
+    ensureConfigDir(dir);
+    const target = join(dir, "config.env");
+    const tmp = join(dir, `.config.env.${process.pid}.${randomBytes(4).toString("hex")}.tmp`);
+    const body = [
+      "# subshell-server configuration, systemd EnvironmentFile syntax (bare KEY=value lines, no quotes).",
+      "# Written by `subshell-server init`/`configure`: comments here do NOT survive a rewrite, but keys",
+      "# this tool does not own (e.g. BETTER_AUTH_SECRET) are carried forward verbatim.",
+      ...Object.entries(values).map(([key, value]) => `${key}=${value}`),
+      "",
+    ].join("\n");
+    writeFileSync(tmp, body, { mode: 0o600 });
+    chmodSync(tmp, 0o600);
+    renameSync(tmp, target);
+    return target;
+  } finally {
+    release();
+  }
 }
 
 /** What a caller wants changed; an absent field means "keep the stored value, or the built-in default". */

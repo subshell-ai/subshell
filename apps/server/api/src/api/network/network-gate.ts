@@ -19,6 +19,7 @@ import { PluginStateRepository } from "@/db/repositories/plugin-state.repository
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { type AgentInstallResult, runInstaller } from "@/services/agent-install.service.js";
 import { audit } from "@/services/audit.js";
+import { beginBackupStateWrite } from "@/services/backup-capture-lock.js";
 import { observeNetworkStatus } from "@/services/network/origins.js";
 import { networkContext } from "@/services/network/state.js";
 import { localPluginReports } from "@/services/nodes/local-plugins.js";
@@ -131,6 +132,8 @@ export function setNetworkDepsForTests(deps: NetworkDeps | null): void {
   if (!IS_TEST) throw new Error("setNetworkDepsForTests is a test-only seam");
   depsOverride = deps ?? undefined;
   statusMemo.clear();
+  for (const release of writeReleases.values()) release();
+  writeReleases.clear();
   inFlight.clear();
 }
 
@@ -197,10 +200,16 @@ export function isSupportedHere(manifest: NetworkManifest, platform: PluginPlatf
  * and the insert, so two concurrent requests cannot both see it free.
  */
 const inFlight = new Set<string>();
+const writeReleases = new Map<string, () => void>();
 
 /** Takes the per-plugin lock, or answers false when another act holds it. */
 export function beginNetworkOp(id: string): boolean {
   if (inFlight.has(id)) return false;
+  try {
+    writeReleases.set(id, beginBackupStateWrite());
+  } catch {
+    return false;
+  }
   inFlight.add(id);
   return true;
 }
@@ -208,6 +217,8 @@ export function beginNetworkOp(id: string): boolean {
 /** Releases it. Safe to call for a lock this caller never took. */
 export function endNetworkOp(id: string): void {
   inFlight.delete(id);
+  writeReleases.get(id)?.();
+  writeReleases.delete(id);
 }
 
 /** A plugin resolved, locked and contextualized, ready for an act to run. */

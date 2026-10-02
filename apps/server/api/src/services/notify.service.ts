@@ -10,6 +10,7 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { Database } from "@/db/types/index.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
+import { beginBackupStateWrite } from "@/services/backup-capture-lock.js";
 import {
   badgeCount,
   buildExpoMessages,
@@ -333,6 +334,15 @@ const vapidSubjectOrDefault = (stored: unknown): string =>
  * localhost subject is normalized to {@link vapidSubjectOrDefault} in place —
  * the pair every live subscription is bound to stays untouched.
  */
+function writeVapidFile(path: string, pair: VapidPair): void {
+  const release = beginBackupStateWrite();
+  try {
+    writeFileSync(path, JSON.stringify(pair), { mode: 0o600 });
+  } finally {
+    release();
+  }
+}
+
 function loadOrGenerateVapid(): VapidPair {
   if (cachedVapid) return cachedVapid;
   const dir = vapidDirOverride ?? SUBSHELL_SERVER_DATA_DIR;
@@ -353,7 +363,7 @@ function loadOrGenerateVapid(): VapidPair {
         subject: vapidSubjectOrDefault(parsed.subject),
       };
       if (pair.subject !== parsed.subject) {
-        writeFileSync(file, JSON.stringify(pair), { mode: 0o600 });
+        writeVapidFile(file, pair);
         logger.info(`normalized VAPID subject → ${pair.subject} (Apple refuses a localhost contact)`);
       }
     }
@@ -363,7 +373,7 @@ function loadOrGenerateVapid(): VapidPair {
   if (!pair) {
     const g = webpush.generateVAPIDKeys();
     pair = { publicKey: g.publicKey, privateKey: g.privateKey, subject: APP_BASE_URL };
-    writeFileSync(file, JSON.stringify(pair), { mode: 0o600 });
+    writeVapidFile(file, pair);
     logger.info(`generated VAPID keys → ${file}`);
   }
   cachedVapid = pair;

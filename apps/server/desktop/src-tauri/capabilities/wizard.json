@@ -33,6 +33,13 @@
     "allow-desktop-request-photos",
     "allow-desktop-open-system-settings",
     "allow-desktop-check-app-update",
-    "allow-desktop-install-app-update"
+    "allow-desktop-install-app-update",
+    "dialog:allow-save",
+    "allow-desktop-backup",
+    "allow-desktop-restore-inspect",
+    "allow-desktop-restore-stages",
+    "allow-desktop-restore-prepare",
+    "allow-desktop-restore-apply",
+    "allow-desktop-restore-discard"
   ]
 }
