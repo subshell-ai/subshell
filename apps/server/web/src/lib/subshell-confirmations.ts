@@ -75,7 +75,12 @@ function count(n: number): string {
 export function confirmRestartSubshells(total: number, live: number): Promise<boolean> {
   return confirmAction({
     title: `Restart ${count(total)}?`,
-    description: `${live} of them ${live === 1 ? "is" : "are"} running; this stops those processes and starts the subshells again in new panes. Whatever the running ones were mid-way through is lost.`,
+    // The "N of them" phrasing only reads for a plural selection; a
+    // single-row bulk selection is necessarily the one live row.
+    description:
+      total === 1
+        ? "This stops its running process and starts the subshell again in a new pane. Whatever it was mid-way through is lost."
+        : `${live} of them ${live === 1 ? "is" : "are"} running; this stops those processes and starts the subshells again in new panes. Whatever the running ones were mid-way through is lost.`,
     confirmLabel: "Restart",
     danger: true,
   });

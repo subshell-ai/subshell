@@ -4,7 +4,10 @@ import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/
 import { confirmCloseSubshell, confirmRestartSubshell } from "@/lib/subshell-confirmations";
 import type { SubshellView } from "@/types/subshell";
 
-/** Restart / close for one subshell; the destructive one asks. */
+/**
+ * Restart / close for one subshell: close always asks, a live restart asks,
+ * and a dead revive does not.
+ */
 export interface SubshellMutations {
   /**
    * Restarts the subshell in place (same id). A dead row revives without
