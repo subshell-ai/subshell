@@ -190,8 +190,14 @@ export function SubshellActionsMenu({
     // closed). Close still removes outright, and there is still no
     // stop-without-close. The hook asks before a live restart (it kills the
     // running process) and asks nothing for a dead revive, so the red item
-    // styling rides the same liveness split as the consequence does.
-    ...(canEdit
+    // styling rides the same liveness split as the consequence does. The
+    // LIVE half is withheld on an offline node, the way Inject prompt is:
+    // the restart pre-gates offline nodes 409, and the menu shows mutation
+    // errors nowhere, so promising "stops the running process" here would
+    // end in a silent nothing. The dead half stays offered offline exactly
+    // as it has been since 2026-09-03; changing that posture is a separate
+    // question from adding the live one.
+    ...(canEdit && (!subshell.alive || !subshell.nodeOffline)
       ? [
           {
             icon: RotateCcw,

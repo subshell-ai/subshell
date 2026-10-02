@@ -65,6 +65,22 @@ function count(n: number): string {
   return `${n} subshell${n === 1 ? "" : "s"}`;
 }
 
+/**
+ * Confirmation prompt before a bulk restart whose selection contains
+ * `live` running subshells out of `total` (the bulk bar's twin of the
+ * liveness split; a selection that is all-dead asks nothing). The count is a
+ * number, not user data, so the {@link confirmCloseSubshells} title pattern
+ * stands.
+ */
+export function confirmRestartSubshells(total: number, live: number): Promise<boolean> {
+  return confirmAction({
+    title: `Restart ${count(total)}?`,
+    description: `${live} of them ${live === 1 ? "is" : "are"} running; this stops those processes and starts the subshells again in new panes. Whatever the running ones were mid-way through is lost.`,
+    confirmLabel: "Restart",
+    danger: true,
+  });
+}
+
 /** Confirmation prompt before closing `n` subshells (bulk {@link confirmCloseSubshell}). */
 export function confirmCloseSubshells(n: number): Promise<boolean> {
   return confirmAction({

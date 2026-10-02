@@ -201,6 +201,10 @@ describe("SubshellActionsMenu — access gating (spec §4.1)", () => {
       await renderMenu(makeSubshell({ access: "edit", alive: true }));
       await openMenu("subshell");
       expect(screen.getByRole("menuitem", { name: "Edit title" })).toBeDefined();
+      // Restart is an edit-level act (share axes), on a LIVE row the exact
+      // gate fact of the 2026-10-02 ruling; the view side's exclusion is the
+      // other half, pinned above.
+      expect(screen.getByRole("menuitem", { name: "Restart" })).toBeDefined();
       expect(screen.queryByRole("menuitem", { name: "Add note" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Notify when done" })).toBeNull();
       expect(screen.queryByRole("menuitem", { name: "Share…" })).toBeNull();
@@ -577,16 +581,43 @@ describe("SubshellActionsMenu — Restart (liveness split, ruling 2026-10-02)", 
     }
   });
 
-  it("a dead row's Restart revives WITHOUT asking: no handler is mounted (which answers false), and it still POSTs", async () => {
+  it("a dead row's Restart revives WITHOUT asking: the prompt is never raised, and the POST lands", async () => {
     const { calls, restore } = mockFetch();
+    let asks = 0;
     try {
-      // The module default with no ConfirmProvider resolves `false`, so a
-      // prompt that WAS raised here would swallow the POST. It lands: the
-      // revive path never asks.
+      // A counting handler that answers false: were the prompt raised, the
+      // POST would die in it, so a landing POST alongside asks === 0 proves
+      // the revive path never asks (direct, not order-fragile).
+      setConfirmHandler(() => {
+        asks++;
+        return Promise.resolve(false);
+      });
       await renderMenu(makeSubshell({ id: "abc", alive: false, status: "running" }));
       await openMenu("subshell");
       fireEvent.click(screen.getByRole("menuitem", { name: "Restart" }));
       await waitFor(() => expect(calls.some((c) => c.url === "/api/subshells/abc/restart")).toBe(true));
+      expect(asks).toBe(0);
+    } finally {
+      setConfirmHandler(null);
+      restore();
+    }
+  });
+
+  it("a live pane on an unreachable node is offered no Restart (it would 409 in silence); a dead offline row keeps its revive", async () => {
+    const { restore } = mockFetch();
+    try {
+      // The restart route pre-gates offline nodes, and no surface here
+      // renders the mutation error, so the live item's promise would end in
+      // a confirmed nothing. The dead side's offline posture predates this
+      // feature and is deliberately untouched.
+      await renderMenu(makeSubshell({ alive: true, nodeOffline: true }));
+      await openMenu("subshell");
+      expect(screen.queryByRole("menuitem", { name: "Restart" })).toBeNull();
+      cleanup();
+
+      await renderMenu(makeSubshell({ alive: false, status: "running", nodeOffline: true }));
+      await openMenu("subshell");
+      expect(screen.getByRole("menuitem", { name: "Restart" })).toBeDefined();
     } finally {
       restore();
     }
