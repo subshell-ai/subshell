@@ -301,6 +301,8 @@ test("real entry: legacy snapshots are explicit; inspection does not recover a p
   const inspected = ok(await cli(["restore", legacy.path, "--inspect", "--json"], source.configDir));
   expect(inspected).toMatchObject({ legacyDatabaseOnly: true, manifest: { consistency: "legacy-database-only" } });
   expect(readFileSync(invalidJournal, "utf8")).toBe("invalid journal should never be read by inspect");
+  expect(ok(await cli(["backup", "--list", "--json"], source.configDir)).backups).toHaveLength(1);
+  expect(readFileSync(invalidJournal, "utf8")).toBe("invalid journal should never be read by inspect");
   rmSync(invalidJournal);
   live.kill();
   await live.exited;
@@ -352,4 +354,55 @@ test("real entry: prepared staging enumerates public metadata and applies only p
   const restored = ok(await cli(["restore", "--staged", id, "--yes", "--no-start", "--json"], source.configDir));
   expect(restored).toMatchObject({ status: "pending-boot", mode: "migration" });
   expect(existsSync(dirname(metadata))).toBe(false);
+}, 30_000);
+
+test("real entry: available older upgrade snapshot restores and migrates before serving", async () => {
+  const port = await freePort();
+  const instance = configured("upgrade-snapshot", port);
+  const initial = await boot(instance.configDir, port);
+  initial.kill();
+  await initial.exited;
+  const originalConfig = readFileSync(join(instance.configDir, "config.env"), "utf8");
+  const backupDir = join(instance.configDir, "backups");
+  mkdirSync(backupDir, { mode: 0o700 });
+  const snapshot = join(backupDir, "subshell-v1.7.0-20260101-000000.db");
+  const db = new Database(instance.databasePath);
+  const migration = db.query("SELECT * FROM kysely_migration WHERE name='0046-backup-recovery'").get() as {
+    name: string;
+    timestamp: string;
+  };
+  db.exec(
+    "DROP TABLE backup_recovery; DELETE FROM kysely_migration WHERE name='0046-backup-recovery'; CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');",
+  );
+  db.query("VACUUM INTO ?").run(snapshot);
+  db.exec(
+    "CREATE TABLE backup_recovery(user_id TEXT PRIMARY KEY REFERENCES user(id)); UPDATE migration_restore_probe SET value='newer destination';",
+  );
+  db.query("INSERT INTO kysely_migration(name,timestamp) VALUES (?,?)").run(migration.name, migration.timestamp);
+  db.close();
+  const catalog = ok(await cli(["backup", "--list", "--json"], instance.configDir));
+  expect(catalog.backups).toHaveLength(1);
+  expect(catalog.backups[0]).toMatchObject({ path: snapshot, legacyDatabaseOnly: true, serverVersion: "1.7.0" });
+  const restored = ok(await cli(["restore", snapshot, "--yes", "--no-start", "--json"], instance.configDir));
+  expect(restored).toMatchObject({ status: "pending-boot", legacyDatabaseOnly: true });
+  const offline = new Database(instance.databasePath, { readonly: true });
+  expect(offline.query("SELECT name FROM kysely_migration WHERE name='0046-backup-recovery'").get()).toBeNull();
+  offline.close();
+  const running = await boot(instance.configDir, port);
+  const migrated = new Database(instance.databasePath, { readonly: true });
+  expect(migrated.query("SELECT name FROM kysely_migration WHERE name='0046-backup-recovery'").get()).toMatchObject({
+    name: "0046-backup-recovery",
+  });
+  expect(migrated.query("SELECT value FROM migration_restore_probe").get()).toEqual({ value: "older snapshot" });
+  expect(migrated.query("SELECT name FROM sqlite_schema WHERE name='backup_recovery'").get()).toEqual({
+    name: "backup_recovery",
+  });
+  migrated.close();
+  expect(readFileSync(join(instance.configDir, "config.env"), "utf8")).toBe(originalConfig);
+  const deadline = Date.now() + 15_000;
+  while (readInstanceRestoreResult(restored.journalPath)?.outcome !== "completed") {
+    if (running.exitCode !== null || Date.now() >= deadline)
+      throw Error("Migrated restored server did not commit its boot receipt");
+    await Bun.sleep(25);
+  }
 }, 30_000);

@@ -3,12 +3,14 @@ import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES } from "@internal/subshel
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { type ReactElement, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import type { RestoreInspection, RestorePrepare } from "../lib/ipc";
+import type { LocalBackupFile, RestoreInspection, RestorePrepare } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
 import { RestoreConfirmation } from "./restore-confirmation";
 
@@ -60,7 +62,8 @@ export function BackupRestoreScreen(props: {
   const [recover, setRecover] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.recoverAdmin);
   const [start, setStart] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.start);
   const [inspection, setInspection] = useState<RestoreInspection | null>(null);
-  const [stages, setStages] = useState<RestoreInspection[]>([]);
+  const [backups, setBackups] = useState<LocalBackupFile[]>([]);
+  const [backupsProblem, setBackupsProblem] = useState("");
   const [stageId, setStageId] = useState("");
   const [replace, setReplace] = useState(false);
   const [force, setForce] = useState(false);
@@ -98,12 +101,12 @@ export function BackupRestoreScreen(props: {
     if (props.kind !== "restore") return;
     let live = true;
     void ipc
-      .restoreStages()
+      .backupList()
       .then((result) => {
-        if (live) setStages(result.stages.filter((stage) => stage.prepared));
+        if (live) setBackups(result.backups);
       })
       .catch((error: unknown) => {
-        if (live) setProblem(String(error));
+        if (live) setBackupsProblem(String(error));
       });
     return () => {
       live = false;
@@ -135,14 +138,6 @@ export function BackupRestoreScreen(props: {
       <Label htmlFor={id}>{label}</Label>
     </div>
   );
-  const selectStage = async (id: string) => {
-    const value = await ipc.restoreInspect("", id, "");
-    setStageId(id);
-    setInspection(value);
-    setReplace(false);
-    setForce(false);
-    clearPasswords();
-  };
   const backup = async () => {
     const failure = passwordProblem(options.password, confirmation, encrypt);
     if (failure) {
@@ -167,13 +162,15 @@ export function BackupRestoreScreen(props: {
       }
     });
   };
-  const inspect = async () => {
+  const inspect = async (selectedPath?: string) => {
     await act("Inspecting archive checksums and administrators…", async () => {
-      const path = await open({
-        title: "Open instance backup or database-only snapshot",
-        multiple: false,
-        directory: false,
-      });
+      const path =
+        selectedPath ??
+        (await open({
+          title: "Open instance backup or database-only snapshot",
+          multiple: false,
+          directory: false,
+        }));
       if (typeof path !== "string") return;
       setStageId("");
       setInspection(null);
@@ -207,6 +204,7 @@ export function BackupRestoreScreen(props: {
             trustedOrigins: String(defaults?.trustedOrigins ?? ""),
           }));
         }
+        setStageId(value.id ?? "");
         setInspection(value);
       } catch (error) {
         clearPasswords();
@@ -352,25 +350,54 @@ export function BackupRestoreScreen(props: {
                 <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
                   Open and inspect archive…
                 </Button>
-                {stages.length > 0 && (
-                  <div>
-                    <Label htmlFor="restore-prepared">Prepared local restores</Label>
-                    <select
-                      id="restore-prepared"
-                      disabled={locked}
-                      value={stageId}
-                      onChange={(e) => void act("Reading prepared restore…", () => selectStage(e.currentTarget.value))}
-                    >
-                      <option value="">Choose a prepared restore</option>
-                      {stages.map((stage) => (
-                        <option key={stage.id} value={stage.id}>
-                          {new Date(stage.manifest.completedAt).toLocaleString()} ·{" "}
-                          {BACKUP_RESTORE_MODES.find((mode) => mode.value === stage.choices?.mode)?.label ??
-                            "Prepared restore"}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                {backupsProblem && (
+                  <p className="m-0 text-detail text-destructive" role="alert">
+                    Could not load saved backups. You can still open a backup file.
+                  </p>
+                )}
+                {backups.length > 0 && (
+                  <Card aria-labelledby="available-backups-title">
+                    <CardHeader>
+                      <CardTitle id="available-backups-title">Available backups</CardTitle>
+                      <CardDescription>
+                        Backups saved on this server, including database snapshots made before upgrades.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ul className="m-0 flex list-none flex-col gap-3 p-0">
+                        {backups.map((file) => (
+                          <li key={file.path} className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex min-w-0 flex-1 flex-col gap-1">
+                              <p className="m-0 text-label font-strong">{new Date(file.createdAt).toLocaleString()}</p>
+                              <p className="m-0 text-detail text-muted-foreground">
+                                {file.legacyDatabaseOnly ? "Database-only snapshot" : "Full instance archive"}
+                                {file.serverVersion ? ` · Server ${file.serverVersion}` : ""}
+                                {file.encrypted ? " · Encrypted" : ""} ·{" "}
+                                {(file.bytes / 1024 / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 })} MB
+                              </p>
+                              <p className="m-0 break-words text-detail text-muted-foreground [overflow-wrap:anywhere]">
+                                {file.name}
+                              </p>
+                            </div>
+                            <Button
+                              variant="outline"
+                              disabled={locked}
+                              aria-label={`Inspect backup ${file.name}`}
+                              onClick={() => void inspect(file.path)}
+                            >
+                              Inspect
+                            </Button>
+                          </li>
+                        ))}
+                      </ul>
+                      {backups.some((file) => file.legacyDatabaseOnly) && (
+                        <p className="m-0 mt-3 text-detail text-muted-foreground">
+                          Database-only snapshots restore the database and keep current configuration and identity
+                          files. Older databases are migrated when the server starts.
+                        </p>
+                      )}
+                    </CardContent>
+                  </Card>
                 )}
               </>
             )}
@@ -441,19 +468,28 @@ export function BackupRestoreScreen(props: {
                         </p>
                         <div>
                           <Label htmlFor="restore-admin">Administrator</Label>
-                          <select
-                            id="restore-admin"
-                            value={options.recoverAdmin}
+                          <Select
+                            value={options.recoverAdmin || null}
                             disabled={locked}
-                            onChange={(e) => update("recoverAdmin", e.currentTarget.value)}
+                            items={inspection.admins.map((admin) => ({
+                              value: admin.id,
+                              label: `${admin.name} · ${admin.email}`,
+                            }))}
+                            onValueChange={(id) => update("recoverAdmin", id ?? "")}
                           >
-                            <option value="">Select an administrator</option>
-                            {inspection.admins.map((admin) => (
-                              <option key={admin.id} value={admin.id}>
-                                {admin.name} · {admin.email}
-                              </option>
-                            ))}
-                          </select>
+                            <SelectTrigger id="restore-admin">
+                              <SelectValue placeholder="Select an administrator" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectGroup>
+                                {inspection.admins.map((admin) => (
+                                  <SelectItem key={admin.id} value={admin.id}>
+                                    {admin.name} · {admin.email}
+                                  </SelectItem>
+                                ))}
+                              </SelectGroup>
+                            </SelectContent>
+                          </Select>
                         </div>
                         {field("temporaryPassword", "Temporary password (at least eight characters)", true)}
                         <div>
@@ -491,7 +527,6 @@ export function BackupRestoreScreen(props: {
                           await ipc.restoreDiscard(stageId);
                           setInspection(null);
                           setStageId("");
-                          setStages((old) => old.filter((s) => s.id !== stageId));
                         })
                       }
                     >

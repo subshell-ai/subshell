@@ -1,6 +1,7 @@
 import type { RestoreConfigOverrides } from "@/services/backups/types.js";
 
 export interface BackupOpts {
+  list?: boolean;
   json?: boolean;
   output?: string;
   encrypt?: boolean;
@@ -34,8 +35,11 @@ export interface RestoreOpts {
 /** Strict allowlists: repeated flags and conflicting choices never silently win. */
 export function parseBackupFlags(args: string[], error: (line: string) => void): BackupOpts | null {
   try {
-    const { values } = parse(args, ["json", "encrypt", "database-only"], ["output", "password-file"]);
+    const { values } = parse(args, ["json", "list", "encrypt", "database-only"], ["output", "password-file"]);
+    if (values.list && Object.keys(values).some((key) => !["list", "json"].includes(key)))
+      throw new Error("--list accepts only --json");
     const opts: BackupOpts = {
+      list: values.list === true,
       json: values.json === true,
       encrypt: values.encrypt === true,
       databaseOnly: values["database-only"] === true,

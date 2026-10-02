@@ -177,7 +177,7 @@ pub fn run() {
         .invoke_handler(trust::guarding(tauri::generate_handler![
             backup_restore::desktop_backup,
             backup_restore::desktop_restore_inspect,
-            backup_restore::desktop_restore_stages,
+            backup_restore::desktop_backup_list,
             backup_restore::desktop_restore_prepare,
             backup_restore::desktop_restore_apply,
             backup_restore::desktop_restore_discard,

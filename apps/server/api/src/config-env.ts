@@ -171,6 +171,7 @@ export function loadConfigEnv(): boolean {
   const readOnlyCommand =
     ["help", "version", "license", "status", "--help", "-h", "--version", "-v"].includes(verb) ||
     (verb === "service" && cliArgs[1] === "status") ||
+    (verb === "backup" && cliArgs.includes("--list")) ||
     (verb === "restore" &&
       (cliArgs.includes("--inspect") ||
         cliArgs.includes("--list-staged") ||

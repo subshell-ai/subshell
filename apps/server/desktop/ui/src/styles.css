@@ -162,6 +162,13 @@
 }
 
 @layer components {
+  /* Base UI Select's scrollbar rule lives here because production forbids injected style elements. */
+  .base-ui-disable-scrollbar {
+    scrollbar-width: none;
+  }
+  .base-ui-disable-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
   /* Buttons, by what they DO. */
   /* A facts list reads as a table, not a stack. The label column is a FIXED
      132px rather than `max-content`: the widest label used to set the column

@@ -34,6 +34,13 @@ const stage = {
 const props = { busy: false, onBusy: () => {}, onRefresh: async () => {}, onClose: () => {} };
 
 describe("native backup and restore", () => {
+  it("hides the available backups card when none exist", async () => {
+    fake = installFakeIpc({ handlers: { desktop_backup_list: () => ({ backups: [] }) } });
+    render(<BackupRestoreScreen {...props} kind="restore" />);
+    await waitFor(() => expect(fake?.callsTo("desktop_backup_list")).toHaveLength(1));
+    expect(screen.queryByRole("heading", { name: "Available backups" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open and inspect archive…" })).toBeTruthy();
+  });
   it("prefills from the backup, preserves optional defaults when cleared, and submits edits", async () => {
     const configOverrides = {
       baseUrl: "https://backup.example",
@@ -43,7 +50,7 @@ describe("native backup and restore", () => {
     };
     fake = installFakeIpc({
       handlers: {
-        desktop_restore_stages: () => ({ stages: [] }),
+        desktop_backup_list: () => ({ backups: [] }),
         "plugin:dialog|open": () => "/tmp/backup.subshell",
         desktop_restore_inspect: () => ({
           ...stage,
@@ -115,22 +122,27 @@ describe("native backup and restore", () => {
   it("preserves prepared choices and separates replacement from pane consent, start defaults on", async () => {
     fake = installFakeIpc({
       handlers: {
-        desktop_restore_stages: () => ({
-          stages: [stage, { ...stage, id: "unprepared-stage", prepared: false }],
+        desktop_backup_list: () => ({
+          backups: [
+            {
+              path: "/tmp/saved.tar.gz",
+              name: "saved.tar.gz",
+              bytes: 1024,
+              createdAt: stage.manifest.completedAt,
+              legacyDatabaseOnly: false,
+              encrypted: false,
+            },
+          ],
         }),
         desktop_restore_inspect: () => stage,
         desktop_restore_apply: () => ({ status: "completed", started: true, destination: stage.destination }),
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
-    await screen.findByLabelText("Prepared local restores");
+    await screen.findByRole("heading", { name: "Available backups" });
     expect(screen.queryByLabelText("Prepared restore UUID")).toBeNull();
     expect(screen.queryByText(stage.id)).toBeNull();
-    expect(screen.getByRole("option", { name: /Move to a new machine/ }).getAttribute("value")).toBe(stage.id);
-    expect(
-      screen.getByLabelText("Prepared local restores").querySelector('option[value="unprepared-stage"]'),
-    ).toBeNull();
-    fireEvent.change(screen.getByLabelText("Prepared local restores"), { target: { value: stage.id } });
+    fireEvent.click(await screen.findByRole("button", { name: "Inspect backup saved.tar.gz" }));
     await screen.findByText("admin@example.com");
     expect(screen.queryByText(/Exclusions:/)).toBeNull();
     expect(screen.queryByLabelText("Recover an existing administrator")).toBeNull();
@@ -151,7 +163,7 @@ describe("native backup and restore", () => {
   it("reports inspection failure before any preparation or restore operation", async () => {
     fake = installFakeIpc({
       handlers: {
-        desktop_restore_stages: () => ({ stages: [] }),
+        desktop_backup_list: () => ({ backups: [] }),
         "plugin:dialog|open": () => "/tmp/bad-archive.subshell",
         desktop_restore_inspect: () => {
           throw new Error("Checksum validation failed");
@@ -167,13 +179,26 @@ describe("native backup and restore", () => {
   it("labels legacy snapshots and keeps administrator recovery off", async () => {
     fake = installFakeIpc({
       handlers: {
-        desktop_restore_stages: () => ({ stages: [] }),
+        desktop_backup_list: () => ({
+          backups: [
+            {
+              path: "/tmp/legacy.db",
+              name: "subshell-v1.7.0-20260101-000000.db",
+              bytes: 1024,
+              createdAt: "2026-01-01T00:00:00Z",
+              serverVersion: "1.7.0",
+              legacyDatabaseOnly: true,
+              encrypted: false,
+            },
+          ],
+        }),
         "plugin:dialog|open": () => "/tmp/legacy.db",
         desktop_restore_inspect: () => ({ ...stage, id: undefined, prepared: false, legacyDatabaseOnly: true }),
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
-    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Inspect backup subshell-v1.7.0-20260101-000000.db" }));
+    expect(fake.callsTo("desktop_restore_inspect")[0]).toMatchObject({ archive: "/tmp/legacy.db", staged: "" });
     await screen.findByText(/Database-only snapshot:/);
     expect(screen.getByRole("radiogroup", { name: "Restore mode" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Same-machine recovery" }).getAttribute("aria-checked")).toBe("true");
@@ -186,7 +211,7 @@ describe("native backup and restore", () => {
     let inspection = 0;
     fake = installFakeIpc({
       handlers: {
-        desktop_restore_stages: () => ({ stages: [] }),
+        desktop_backup_list: () => ({ backups: [] }),
         "plugin:dialog|open": () => "/tmp/backup.db",
         desktop_restore_inspect: () => ({
           ...stage,

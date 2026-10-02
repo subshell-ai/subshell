@@ -79,3 +79,9 @@ rollback environment in an isolated process, receipt matching and password
 transport cleanup. Use the root `rust:check` script for native verification;
 it stages only the necessary missing sidecar stubs. Never exercise these actions
 against the live server or installed service as a scripted smoke test.
+
+The restore screen lists local backup files through `desktop_backup_list` and
+read-only `backup --list --json`, rather than exposing prepared transaction IDs.
+Upgrade snapshots are labelled database-only. The administrator picker uses the
+SPA's Base UI Select with CSPProvider disabling injected style elements; its
+scrollbar rule is in the static assistant stylesheet.

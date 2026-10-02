@@ -216,6 +216,7 @@ update flags:         --check                  report what is available and stop
                       --rollback               undo the last update (binary + database)
 
 backup flags:        --output <path>          new archive destination (existing files refused)
+                     --list [--json]         list available local backup files
                       --encrypt                encrypt; hidden password prompt on a terminal
                       --password-file <path|-> protected 0600 file or one stdin line; implies encryption
                       --database-only          legacy database snapshot, with existing retention

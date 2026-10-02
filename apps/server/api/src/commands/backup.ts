@@ -4,6 +4,7 @@ import { BACKUP_RESTORE_DEFAULTS } from "@internal/subshell-protocol";
 import type { BackupOpts } from "@/commands/backup-options.js";
 import { askPassword, type PasswordDeps, readPasswordFile } from "@/commands/backup-password.js";
 import { beginBackupCapture } from "@/services/backup-capture-lock.js";
+import { listLocalBackups } from "@/services/backup-catalog.js";
 import { createInstanceBackup } from "@/services/backups/index.js";
 import type { InstancePaths } from "@/services/backups/types.js";
 import { backupDatabase, listBackups } from "@/services/db-backup.js";
@@ -24,6 +25,18 @@ export async function runBackup(opts: BackupOpts, deps: BackupDeps): Promise<num
   let release: (() => void) | undefined;
   try {
     const source = (deps.source ?? instanceBackupPaths)();
+    if (opts.list) {
+      if (opts.output || opts.passwordFile || opts.encrypt || opts.databaseOnly)
+        throw new Error("--list accepts only --json");
+      const backups = await listLocalBackups(source.dataDir);
+      if (opts.json) deps.log(JSON.stringify({ backups }));
+      else
+        for (const file of backups)
+          deps.log(
+            `${file.createdAt} · ${file.legacyDatabaseOnly ? "Database-only snapshot" : "Full instance archive"} · ${file.path}`,
+          );
+      return 0;
+    }
     if (opts.databaseOnly) {
       if (opts.output || opts.passwordFile || opts.encrypt)
         throw new Error("--database-only cannot be combined with --output or encryption.");

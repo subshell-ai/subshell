@@ -44,11 +44,11 @@ The actual restore must run outside the server process. A server cannot replace 
 
 Open **Backup…** or **Restore…** from the native menu or tray. These screens are bundled with the app and work while the server is stopped. Restore is also available before first-run setup.
 
-For a backup, choose where to save the archive and optionally enable encryption. For restore, choose an archive and its password, or select a prepared local upload from Settings. Inspect it, review the destination and account recovery choices, then prepare the restore. Confirm replacement and any pane interruption before applying.
+For a backup, choose where to save the archive and optionally enable encryption. For restore, choose an archive and its password, or inspect a file under **Available backups**, which includes database snapshots made before upgrades. Inspect it, review the destination and account recovery choices, then prepare the restore. Confirm replacement and any pane interruption before applying.
 
 The restore form fills optional locations and address settings from the backup. Review and edit them when moving to another machine. Older archives may omit a location; the form uses the current server's location for that missing value. Clearing an optional field keeps its suggested value.
 
-**Start the server after restoring** defaults on. An installed service remains under its existing supervision; an app-managed server resumes with the restored configuration. Choosing not to start retains the previous state until a later successful boot. Prepared uploads retain their saved choices and expire after one hour.
+**Start the server after restoring** defaults on. An installed service remains under its existing supervision; an app-managed server resumes with the restored configuration. Choosing not to start retains the previous state until a later successful boot. Backups in the server’s backup directory are listed newest first. Database-only snapshots keep the current configuration and identity files.
 
 ## Use the CLI
 
@@ -60,11 +60,11 @@ subshell-server restore /private/backups/server.tar.gz
 
 Interactive encryption asks for a hidden password and confirmation. For automation, use `--encrypt --password-file <private-file>` when creating the archive and `--password-file <private-file>` when inspecting or restoring it. A password file must be owned by your OS user, have no group or other permissions, and contain one line. `-` reads the password from stdin. Never put the password in a command argument.
 
-A terminal restore walks through the choices before replacing state. Automation uses `--yes` for replacement and, when panes are active, separate `--force` consent. Use `--no-start` to leave the instance stopped. See the [Server CLI reference](/reference/server-cli) for migration and account recovery flags.
+Use `subshell-server backup --list --json` to list files in the server’s backup directory. A terminal restore walks through the choices before replacing state. Automation uses `--yes` for replacement and, when panes are active, separate `--force` consent. Use `--no-start` to leave the instance stopped. See the [Server CLI reference](/reference/server-cli) for migration and account recovery flags.
 
 ## Restore guarantees
 
-Invalid archives, unsupported newer migrations, and wrong encryption passwords are rejected before replacement. The restore preserves the previous destination state until the restored server completes a successful boot. An interrupted replacement is recovered before configuration is loaded; a failed boot rolls back to the previous state. If you choose not to start, the previous state remains until the next successful boot.
+An older restored database receives pending application and authentication migrations when the server starts, before it serves requests. Invalid archives, unsupported newer migrations, and wrong encryption passwords are rejected before replacement. The restore preserves the previous destination state until the restored server completes a successful boot. An interrupted replacement is recovered before configuration is loaded; a failed boot rolls back to the previous state. If you choose not to start, the previous state remains until the next successful boot.
 
 Migration writes the selected destination paths into configuration. It retains network settings and secrets but disables network plugins and clears publication addresses until you review **Server Settings → Networking**. Operating system services and external network daemons still belong to the destination machine.
 

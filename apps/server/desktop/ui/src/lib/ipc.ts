@@ -588,7 +588,16 @@ export const backup = (output: string, password: string): Promise<BackupResult> 
   invoke("desktop_backup", { output, password });
 export const restoreInspect = (archive: string, staged: string, password: string): Promise<RestoreInspection> =>
   invoke("desktop_restore_inspect", { archive, staged, password });
-export const restoreStages = (): Promise<{ stages: RestoreInspection[] }> => invoke("desktop_restore_stages");
+export interface LocalBackupFile {
+  path: string;
+  name: string;
+  bytes: number;
+  createdAt: string;
+  legacyDatabaseOnly: boolean;
+  encrypted: boolean;
+  serverVersion?: string;
+}
+export const backupList = (): Promise<{ backups: LocalBackupFile[] }> => invoke("desktop_backup_list");
 export const restorePrepare = (options: RestorePrepare): Promise<RestoreInspection> =>
   invoke("desktop_restore_prepare", { options });
 export const restoreApply = (

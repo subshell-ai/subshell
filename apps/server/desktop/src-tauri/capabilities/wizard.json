@@ -36,8 +36,8 @@
     "allow-desktop-install-app-update",
     "dialog:allow-save",
     "allow-desktop-backup",
+    "allow-desktop-backup-list",
     "allow-desktop-restore-inspect",
-    "allow-desktop-restore-stages",
     "allow-desktop-restore-prepare",
     "allow-desktop-restore-apply",
     "allow-desktop-restore-discard"

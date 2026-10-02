@@ -190,6 +190,15 @@ const PUBLIC_BACKUP: PublicSchema = PublicSchema::Object(&[
     ("bytes", PublicSchema::Number),
     ("manifest", PUBLIC_MANIFEST),
 ]);
+const PUBLIC_BACKUP_FILE: PublicSchema = PublicSchema::Object(&[
+    ("path", PublicSchema::Text(4096)),
+    ("name", PublicSchema::Text(512)),
+    ("bytes", PublicSchema::Number),
+    ("createdAt", PublicSchema::Text(64)),
+    ("legacyDatabaseOnly", PublicSchema::Boolean),
+    ("encrypted", PublicSchema::Boolean),
+    ("serverVersion", PublicSchema::Text(256)),
+]);
 const PUBLIC_APPLY: PublicSchema = PublicSchema::Object(&[
     ("transactionId", PublicSchema::Text(36)),
     ("journalPath", PublicSchema::Text(4096)),
@@ -258,6 +267,10 @@ fn project_public(schema: PublicSchema, value: &Value, secrets: &[&str]) -> Resu
 fn public_response(args: &[String], parsed: &Value, secrets: &[&str]) -> Result<Value, String> {
     let has = |flag: &str| args.iter().any(|arg| arg == flag);
     let (schema, required): (PublicSchema, &[&str]) = match args.first().map(String::as_str) {
+        Some("backup") if has("--list") => (
+            PublicSchema::Object(&[("backups", PublicSchema::Array(&PUBLIC_BACKUP_FILE, 1000))]),
+            &["backups"],
+        ),
         Some("backup") => (PUBLIC_BACKUP, &["path", "bytes", "manifest"]),
         Some("restore") if has("--list-staged") => (
             PublicSchema::Object(&[("stages", PublicSchema::Array(&PUBLIC_STAGE, 50_000))]),
@@ -361,10 +374,10 @@ pub fn desktop_restore_inspect(
 }
 
 #[tauri::command(async)]
-pub fn desktop_restore_stages(app: AppHandle) -> Result<Value, String> {
+pub fn desktop_backup_list(app: AppHandle) -> Result<Value, String> {
     json_command(
         &executable(&app)?,
-        vec!["restore".into(), "--list-staged".into(), "--json".into()],
+        vec!["backup".into(), "--list".into(), "--json".into()],
         &[],
     )
 }

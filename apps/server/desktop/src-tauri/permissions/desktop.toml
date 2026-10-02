@@ -226,9 +226,9 @@ description = "Bundled assistant backup and restore operation."
 commands.allow = ["desktop_restore_inspect"]
 
 [[permission]]
-identifier = "allow-desktop-restore-stages"
-description = "Bundled assistant backup and restore operation."
-commands.allow = ["desktop_restore_stages"]
+identifier = "allow-desktop-backup-list"
+description = "List backup files in this instance's backup directory without modifying state. Assistant only."
+commands.allow = ["desktop_backup_list"]
 
 [[permission]]
 identifier = "allow-desktop-restore-prepare"
