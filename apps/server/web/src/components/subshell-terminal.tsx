@@ -19,6 +19,7 @@ import { shouldResetForeignScroll } from "@/lib/app-scroll-pin";
 import { deadPanelActions } from "@/lib/dead-panel-actions";
 import { type InputQueue, queueBadgeView } from "@/lib/input-queue";
 import { sendInput, sendResize, sendSizing } from "@/lib/subshell-frames.js";
+import { attachTerminalClipboard } from "@/lib/terminal-clipboard";
 import { TERM_FONT_EVENT, terminalFontSize } from "@/lib/terminal-font-size";
 import {
   type Box,
@@ -240,7 +241,6 @@ export interface SubshellTerminalHandles {
   scrollPageUp: () => void;
   scrollPageDown: () => void;
   /** Redraw every visible row from xterm's current buffer. */
-  refreshScreen: () => void;
   /**
    * Chooses how the pane is sized while several devices watch it: `auto`
    * hands it to the smallest visible one, `pinned` to the named viewer.
@@ -678,6 +678,7 @@ export function SubshellTerminal({
     term.open(containerRef.current);
     fit.fit();
     termRef.current = term;
+    const detachClipboard = attachTerminalClipboard(term);
     // A freshly-built terminal starts at the current posture; the effect
     // beside the WS hook owns every later change, and both write the same
     // OR so the two never disagree (issue #242).
@@ -871,11 +872,11 @@ export function SubshellTerminal({
       scrollToBottom: () => term.scrollToBottom(),
       scrollPageUp: () => term.scrollPages(-1),
       scrollPageDown: () => term.scrollPages(1),
-      refreshScreen: () => term.refresh(0, term.rows - 1),
       setSizing: (mode, viewerId) => setSizingRef.current(mode, viewerId),
     });
 
     return () => {
+      detachClipboard();
       detachTouchScroll();
       detachWheelScroll();
       detachTouchKeyboard();

@@ -252,6 +252,7 @@ export function WorkspaceTabs({ detail, intent, claimIntent, onRefetch }: Worksp
     <>
       <WorkspaceHeader
         workspace={detail.workspace}
+        panes={detail.panes}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
         // A discarded draft lands on the subshell the person was looking at
         // — the selected tab's — which only this presentation can name.

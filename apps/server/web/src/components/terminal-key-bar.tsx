@@ -81,7 +81,7 @@ export interface TerminalKeyBarProps {
   /** Scroll the local history by one screen at a time. */
   onScrollPageUp?: () => void;
   onScrollPageDown?: () => void;
-  /** Redraw the local terminal screen without sending input or restarting it. */
+  /** Reload the entire page. */
   onRefresh?: () => void;
   /**
    * A `view` grantee (spec 2026-08-31 §4.1): keystrokes would be dropped
@@ -256,7 +256,7 @@ export function TerminalKeyBar({
       )}
       {scrollButtons}
       {onRefresh && (
-        <KeyBarControl type="button" aria-label="Refresh terminal screen" onClick={onRefresh} className={BUTTON_CLASS}>
+        <KeyBarControl type="button" aria-label="Refresh page" onClick={onRefresh} className={BUTTON_CLASS}>
           <RefreshCw className="mx-auto size-4" aria-hidden="true" />
         </KeyBarControl>
       )}

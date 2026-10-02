@@ -335,6 +335,8 @@ export interface NodeDetail extends Node {
  * `docs/security.md` accounts for the disclosure.
  */
 export interface SetupKeyRow {
+  /** Existing node recovered by this key, null for a new enrollment. */
+  targetNodeId?: string | null;
   /** Setup key id (used for revocation) */
   id: string;
   /** The `nsk_…` key itself — inert once used or expired */

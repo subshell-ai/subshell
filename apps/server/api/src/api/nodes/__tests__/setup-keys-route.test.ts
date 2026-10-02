@@ -22,6 +22,7 @@ type KeyRow = {
   expiresAt: string;
   usedAt: string | null;
   consumedNodeId: string | null;
+  targetNodeId: string | null;
 };
 
 /** One key row as the admin `?all=1` read renders it. */
@@ -291,12 +292,13 @@ describe("/api/nodes/setup-keys", () => {
         expect(Object.keys(plainBody)).toEqual(["keys"]);
         expect(plainBody.keys.some((k) => k.id === foreignRow.id)).toBe(false);
         if (plainBody.keys.length > 0) {
-          expect(Object.keys(plainBody.keys[0]!).sort()).toEqual([
+          expect(Object.keys(plainBody.keys[0] as AdminKeyRow).sort()).toEqual([
             "consumedNodeId",
             "createdAt",
             "expiresAt",
             "id",
             "key",
+            "targetNodeId",
             "usedAt",
           ]);
         }

@@ -178,6 +178,8 @@ export interface PendingInstall {
 
 /** Everything the window needs to decide what to offer, in one round trip. `Probe`. */
 export interface Probe {
+  /** Existing registration on disk, independent of CLI availability. */
+  hasNodeConfig?: boolean;
   bundledVersion: string | null;
   nodeBinary: NodeBinary | null;
   /** Whether the resolved node binary is the copy THIS APP installed and can replace. */

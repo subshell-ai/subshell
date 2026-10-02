@@ -27,5 +27,12 @@
       "GHSA-w5hq-g745-h8pq"
     ],
     "reason": "dev-only tooling: xcode 3.0.1 (Expo's RN project generator) pins ^7.0.3; the vulnerable path is v3/v5/v6 with an explicit buf argument"
+  },
+  {
+    "package": "node-forge",
+    "advisories": [
+      "GHSA-86w9-cpqp-85rv"
+    ],
+    "reason": "Expo mobile build/dev tooling only (@expo/cli and @expo/code-signing-certificates); not part of the server/node/desktop runtime. Advisory covers RSA signature verification with low-exponent keys. Latest npm version 1.4.0 remains affected and no patched version is published; track upstream and remove this exception when a fix is available (2026-10-02)."
   }
 ]

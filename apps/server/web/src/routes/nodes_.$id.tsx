@@ -23,8 +23,8 @@ import { useState } from "react";
 import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { EditableText } from "@/components/editable-text";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
-import { NodeKeyRotate } from "@/components/nodes/node-key-rotate";
 import { NodePageShell } from "@/components/nodes/node-page-shell";
+import { NodeReregister } from "@/components/nodes/node-reregister";
 import { osLabel } from "@/components/nodes/node-row";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
@@ -238,12 +238,9 @@ function NodeDetailPage() {
               `local` updates with the server, which the page already cannot ask here. */}
           {managesNodeSections(n) && <NodeUpdateCard node={n} />}
 
-          {/* Key rotation lives with the enrolled nodes: `local`'s key is the
-              control plane's own credential — mint/rotate it server-side
-              deliberately, not from a button on its own status page. */}
-          {n.kind === "agent" && (
-            <NodeKeyRotate nodeId={n.id} nodeName={n.name} agentVersion={n.agentVersion} canManage={n.canManage} />
-          )}
+          {/* Re-registration replaces an agent's credentials while retaining its
+              registry entry. The control-plane host is not an agent. */}
+          {n.kind === "agent" && <NodeReregister nodeId={n.id} nodeName={n.name} canManage={n.canManage} />}
 
           <NodeHarnessCard nodeId={n.id} />
 

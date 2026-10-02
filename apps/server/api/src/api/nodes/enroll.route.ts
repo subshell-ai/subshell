@@ -17,6 +17,7 @@ import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 import { controlPublicJwkJson } from "@/services/nodes/control-keys.js";
 import { nodeEncryptionPublicKey } from "@/services/nodes/node-encryption-keys.js";
+import { reregisterNode } from "@/services/nodes/reregister-node.js";
 
 /** Enrollment body (spec 2026-08-31 §5.2) — machine identity facts + the setup key. */
 const EnrollBodySchema = t.Object({
@@ -65,6 +66,7 @@ const EnrollBodySchema = t.Object({
 
 /** What the agent needs to connect: its id, its one-time bearer key, the key to pin, the endpoint. */
 const EnrollResponseSchema = t.Object({
+  name: t.Optional(t.String({ description: "Existing display name retained during re-registration" })),
   nodeId: t.String({ description: "Server-assigned node id (uuid)" }),
   nodeKey: t.String({ description: "Plaintext node bearer key; shown exactly once here; only its hash is stored" }),
   controlPublicKey: t.String({
@@ -249,6 +251,37 @@ export const enrollRoute = new Elysia().use(apiModels).post(
           doNotLog: true,
         }),
       );
+    }
+
+    if (keyRow.targetNodeId) {
+      try {
+        // Resolve the response pins before replacing any existing credentials.
+        const controlPublicKey = await controlPublicJwkJson();
+        const controlEncryptPublicKey = await nodeEncryptionPublicKey();
+        const wsUrl = nodeWsUrl();
+        const result = await reregisterNode(
+          keyRow,
+          {
+            publicKey: body.publicKey,
+            os: body.os,
+            arch: body.arch,
+            hostname: body.hostname,
+            agentVersion: body.agentVersion,
+          },
+          encryptPublicKey,
+        );
+        return status(201, { ...result, controlPublicKey, controlEncryptPublicKey, wsUrl });
+      } catch (err) {
+        return status(
+          500,
+          apiErrorBody({
+            code: BackendErrorCodes.INTERNAL_SERVER_ERROR,
+            message: "Node re-registration failed; issue a new setup key and retry. The existing node entry was kept.",
+            causedBy: err,
+            logLevel: "error",
+          }),
+        );
+      }
     }
 
     // ── Provision. From here on the key is SPENT regardless of outcome.

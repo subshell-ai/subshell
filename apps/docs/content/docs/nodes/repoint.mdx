@@ -20,9 +20,13 @@ Use the actual new address. A foreground daemon needs to be restarted through it
 
 The stored WebSocket address is cleared when the server URL changes so the node can discover the new connection target.
 
-## Store a rotated key
+## Recover node credentials
 
-After rotating the key on the node's page, store the new node credential on that machine:
+The node page offers **Re-register** to generate a setup key tied to the existing node. Follow [Re-register an existing node](/nodes/desktop#re-register-an-existing-node) to apply it with Subshell Client while preserving the node entry.
+
+### Store a rotated key
+
+If you obtained a rotated node credential through the API, store it on that machine:
 
 ```bash
 subshell configure --key REPLACE_WITH_ROTATED_NODE_KEY

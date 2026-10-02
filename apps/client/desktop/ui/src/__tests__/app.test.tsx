@@ -1515,6 +1515,27 @@ describe("the first run", () => {
     expect(screen.getByText("brew refused to run")).toBeTruthy();
   });
 
+  it("redeems a supplied recovery key even when the node already belongs to the same plane", async () => {
+    const fake = await boot({
+      probe: makeProbe(),
+      handlers: {
+        node_enroll: () => enrolledOk,
+        node_service: () => ({ ok: true, stdout: "installed", stderr: "" }),
+      },
+    });
+    await openSection("Service");
+    fireEvent.click(button("Re-enroll…"));
+    await screen.findByRole("heading", { name: "Register This Machine" });
+    typeInto("Setup key", GOOD_KEY);
+    typeInto("Node name", "workstation");
+    fireEvent.click(button("Continue"));
+    await screen.findByRole("heading", { name: "How This Node Runs" });
+    fireEvent.click(button("Register"));
+    await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
+    expect(fake.callsTo("node_enroll")[0]).toMatchObject({ key: GOOD_KEY, confirm: false });
+    await waitFor(() => expect(fake.callsTo("node_service").length).toBe(1));
+  });
+
   // 4. The Retry that must not re-enrol.
   //
   // A Retry after the SERVICE act failed arrives with the machine ALREADY

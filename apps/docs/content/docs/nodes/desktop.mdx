@@ -34,6 +34,18 @@ Install coding agent CLIs under the node's OS account. Set [Directory restrictio
 
 The node remains an execution machine, while the server still stores instance configuration and serves the dashboard.
 
+## Re-register an existing node
+
+Use re-registration to recover a machine's connection while keeping its existing node entry, name, shares, settings, and session records. You must own the node.
+
+1. In the server dashboard, open **Nodes**, select the existing node, and press **Re-register** on its Overview page.
+2. Confirm **Generate setup key**. Copy the server address and setup key from the Desktop App instructions.
+3. On the machine, open Subshell Client's local window, choose **Service**, and select **Re-enroll…**. If the machine has lost its configuration, use the registration flow instead.
+4. Enter that server address and setup key, supply the requested machine name, and finish registration. The server keeps the existing node name.
+5. Verify that the same node entry returns online.
+
+Generating the key leaves the current connection working. Using it replaces the credentials and disconnects the previous connection. The key is single-use and expires after 24 hours. An ordinary **Add node** setup key creates a new node entry; use the key generated from the existing node's **Re-register** control for recovery.
+
 ## Removal
 
 In Subshell Client's local node-management window, select **Reset** in its sidebar and review the deletion plan before confirming. This is separate from resetting the remote server. Read [Unenroll a node](/nodes/unenroll) first.

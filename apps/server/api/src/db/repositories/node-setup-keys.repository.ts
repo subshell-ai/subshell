@@ -1,5 +1,8 @@
 import { randomBytes } from "node:crypto";
+import type { Kysely } from "kysely";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import type { Database } from "@/db/types/index.js";
 import type { NodeSetupKeyTable } from "@/db/types/node-setup-keys.db-types.js";
 
 /** 24 h default lifetime for a fresh setup key (spec §5.1). */
@@ -37,8 +40,17 @@ export class NodeSetupKeysRepository extends BaseRepository {
    *
    * @param ownerUserId - Creator (also the future node owner)
    * @param ttlMs - Lifetime from now (default {@link SETUP_KEY_TTL_MS})
+   * @param targetNodeId - Existing node to recover; null creates a new node
    */
-  async create(ownerUserId: string, ttlMs: number = SETUP_KEY_TTL_MS): Promise<NodeSetupKeyTable> {
+  async create(
+    ownerUserId: string,
+    ttlMs: number = SETUP_KEY_TTL_MS,
+    targetNodeId: string | null = null,
+  ): Promise<NodeSetupKeyTable> {
+    const target = targetNodeId ? await new NodesRepository(this.db).findById(targetNodeId) : null;
+    if (targetNodeId && (target?.kind !== "agent" || target.ownerUserId !== ownerUserId)) {
+      throw new Error("Only the owner can issue a recovery key for an existing agent node");
+    }
     const now = new Date();
     return await this.db
       .insertInto("nodeSetupKeys")
@@ -50,6 +62,8 @@ export class NodeSetupKeysRepository extends BaseRepository {
         expiresAt: new Date(now.getTime() + ttlMs).toISOString(),
         usedAt: null,
         consumedNodeId: null,
+        targetNodeId,
+        targetApiKeyId: target?.apiKeyId ?? null,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -115,12 +129,12 @@ export class NodeSetupKeysRepository extends BaseRepository {
   async peekValid(key: string): Promise<boolean> {
     const row = await this.db
       .selectFrom("nodeSetupKeys")
-      .select("id")
+      .selectAll()
       .where("key", "=", key)
       .where("usedAt", "is", null)
       .where("expiresAt", ">", new Date().toISOString())
       .executeTakeFirst();
-    return row !== undefined;
+    return row !== undefined && (await targetMatches(this.db, row));
   }
 
   /**
@@ -140,7 +154,7 @@ export class NodeSetupKeysRepository extends BaseRepository {
   }
 
   /**
-   * Transactionally redeems a presented key for a new node (spec §5.2).
+   * Transactionally redeems a presented key for a new or existing node (spec §5.2).
    * Returns the key row on success (unused and unexpired), null otherwise —
    * no such key, already used, or expired all read as null. The flip
    * (`usedAt`) re-checks `usedAt is null` inside the same transaction and the
@@ -159,10 +173,10 @@ export class NodeSetupKeysRepository extends BaseRepository {
         .where("usedAt", "is", null)
         .where("expiresAt", ">", nowIso)
         .executeTakeFirst();
-      if (!row) return null;
+      if (!row || !(await targetMatches(tx, row))) return null;
       const res = await tx
         .updateTable("nodeSetupKeys")
-        .set({ usedAt: nowIso, consumedNodeId: nodeId })
+        .set({ usedAt: nowIso, consumedNodeId: row.targetNodeId ?? nodeId })
         .where("id", "=", row.id)
         .where("usedAt", "is", null)
         .executeTakeFirst();
@@ -172,6 +186,15 @@ export class NodeSetupKeysRepository extends BaseRepository {
       // race; this one gets nothing.
       const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
       if (Number(counts?.numUpdatedRows ?? counts?.numUpdated ?? 0) === 0) return null;
+      if (row.targetNodeId) {
+        // Claim one recovery act before yielding to provisioning. Competing
+        // keys must not both be spent and then replace one another's result.
+        await tx
+          .deleteFrom("nodeSetupKeys")
+          .where("targetNodeId", "=", row.targetNodeId)
+          .where("usedAt", "is", null)
+          .execute();
+      }
       // Return the POST-flip state (usedAt + consumedNodeId set), re-read in
       // the same transaction — callers redeem a key and then look at what
       // they just spent; handing back the pre-UPDATE row made the winner's
@@ -179,4 +202,11 @@ export class NodeSetupKeysRepository extends BaseRepository {
       return await tx.selectFrom("nodeSetupKeys").selectAll().where("id", "=", row.id).executeTakeFirstOrThrow();
     });
   }
+}
+
+/** Also used by the download gate: stale recovery keys must not remain valid. */
+async function targetMatches(db: Kysely<Database>, key: NodeSetupKeyTable): Promise<boolean> {
+  if (!key.targetNodeId) return true;
+  const node = await new NodesRepository(db).findById(key.targetNodeId);
+  return node?.kind === "agent" && node.ownerUserId === key.ownerUserId && node.apiKeyId === key.targetApiKeyId;
 }

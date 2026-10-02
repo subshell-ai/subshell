@@ -208,7 +208,7 @@ export function SubshellActionsMenu({
     // Inject prompt (spec 2026-09-28): the terminal-input gate (an `edit`
     // act, foreign rows never reach the menu), and only a live pane takes
     // typed text, so a dead row does not offer it.
-    ...(canEdit && subshell.alive
+    ...(canEdit && subshell.status === "running" && subshell.alive && !subshell.nodeOffline
       ? [
           {
             icon: ArrowDownToLine,

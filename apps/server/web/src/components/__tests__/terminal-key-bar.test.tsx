@@ -54,11 +54,11 @@ describe("TerminalKeyBar", () => {
     const sent: string[] = [];
     const props = { disabled: true, onBytes: (text: string) => sent.push(text), onRefresh: () => refreshes++ };
     const { rerender } = render(<TerminalKeyBar {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh terminal screen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh page" }));
     rerender(<TerminalKeyBar {...props} suppressInput />);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh terminal screen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh page" }));
     rerender(<TerminalKeyBar {...props} readOnly />);
-    fireEvent.click(screen.getByRole("button", { name: "Refresh terminal screen" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh page" }));
     expect(refreshes).toBe(3);
     expect(sent).toEqual([]);
   });

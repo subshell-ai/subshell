@@ -6,10 +6,23 @@ import { type JSX, type ReactNode, useState } from "react";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { SaveWorkspaceDialog } from "@/components/save-workspace-dialog";
+import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { TippedIconButton } from "@/components/tipped-icon-button";
+import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
+import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
+import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useInvalidateWorkspaces } from "@/hooks/use-workspaces";
 import { WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
-import type { WorkspaceRow } from "@/types/workspace";
+import { useWorkspaceFocusedId } from "@/lib/workspace-focus";
+import type { WorkspacePaneRow, WorkspaceRow } from "@/types/workspace";
+
+/** Reuse the ordinary subshell actions and keep dialogs bound to this pane. */
+function FocusedPaneActions({ id }: { id: string }) {
+  const subshell = useSubshellRow(id);
+  const copyMode = usePaneCopyMode(id);
+  const coarse = useIsCoarsePointer();
+  return subshell ? <SubshellActionsMenu subshell={subshell} copyMode={coarse ? copyMode : undefined} /> : null;
+}
 
 /**
  * The bar above a workspace: back link, name, and the workspace-level
@@ -34,9 +47,12 @@ import type { WorkspaceRow } from "@/types/workspace";
 export function WorkspaceHeader({
   workspace,
   actions,
+  panes = [],
   onDiscarded,
 }: {
   workspace: WorkspaceRow;
+  /** Current panes constrain the global focus to this workspace. */
+  panes?: WorkspacePaneRow[];
   /** Workspace-level controls, right-aligned. */
   actions?: ReactNode;
   /**
@@ -50,6 +66,11 @@ export function WorkspaceHeader({
    */
   onDiscarded?: () => void;
 }): JSX.Element {
+  const focusedId = useWorkspaceFocusedId();
+  const focusedPane = panes.find((pane) => pane.subshellId === focusedId);
+  const paneActions = focusedPane ? (
+    <FocusedPaneActions key={focusedPane.subshellId} id={focusedPane.subshellId} />
+  ) : null;
   const queryClient = useQueryClient();
   const invalidateWorkspaces = useInvalidateWorkspaces();
   const navigate = useNavigate();
@@ -149,10 +170,14 @@ export function WorkspaceHeader({
                 <Trash2 className="h-4 w-4" />
               </TippedIconButton>
               {discardError && <span className="text-destructive text-detail">{discardError}</span>}
+              {paneActions}
               {actions}
             </>
           ) : (
-            actions
+            <>
+              {paneActions}
+              {actions}
+            </>
           )
         }
       />

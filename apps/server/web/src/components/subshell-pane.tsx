@@ -256,7 +256,7 @@ export function SubshellPane({
         onScrollBottom={() => handlesRef.current?.scrollToBottom()}
         onScrollPageUp={() => handlesRef.current?.scrollPageUp()}
         onScrollPageDown={() => handlesRef.current?.scrollPageDown()}
-        onRefresh={() => handlesRef.current?.refreshScreen()}
+        onRefresh={() => window.location.reload()}
       />
       {injectTarget === pane.subshellId && (
         <InjectPromptDialog

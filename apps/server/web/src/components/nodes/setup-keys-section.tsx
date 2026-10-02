@@ -35,7 +35,15 @@ type CardKeyRow = SetupKeyRow & Partial<SetupKeyOwnerFields>;
  * Mounted only while open, so the address pick and the path switch start fresh each
  * time rather than remembering the last machine's choices.
  */
-function KeySetupDialog({ keyText, onClose }: { keyText: string; onClose: () => void }) {
+function KeySetupDialog({
+  keyText,
+  targetNodeId,
+  onClose,
+}: {
+  keyText: string;
+  targetNodeId?: string | null;
+  onClose: () => void;
+}) {
   return (
     <Dialog
       open
@@ -47,11 +55,12 @@ function KeySetupDialog({ keyText, onClose }: { keyText: string; onClose: () => 
         <DialogHeader>
           <DialogTitle>Set up a machine with this key</DialogTitle>
           <DialogDescription>
-            The key is listed here until it is used, so these steps can be rebuilt at any time before then. The machine
-            names itself when it enrolls.
+            {targetNodeId
+              ? "This key re-registers an existing node and keeps its name and settings. In Subshell Client, open Service → Re-enroll and use this key."
+              : "The key is listed here until it is used, so these steps can be rebuilt at any time before then. The machine names itself when it enrolls."}
           </DialogDescription>
         </DialogHeader>
-        <NodeKeySetup keyText={keyText} />
+        <NodeKeySetup keyText={keyText} defaultMethod={targetNodeId ? "desktop" : "terminal"} />
         <DialogFooter>
           <Button onClick={onClose}>Done</Button>
         </DialogFooter>
@@ -100,7 +109,7 @@ export function SetupKeysSection() {
   const [rowError, setRowError] = useState<Record<string, string>>({});
   // The key whose setup steps are open, or null. Held as the KEY TEXT rather than the
   // row id because that is exactly what the dialog needs and nothing else does.
-  const [setupFor, setSetupFor] = useState<string | null>(null);
+  const [setupFor, setSetupFor] = useState<{ key: string; targetNodeId?: string | null } | null>(null);
 
   // The verb follows the row's state (operator, 2026-09-22, on the live
   // window: "If the key is consumed, does the revoke label make sense here?"
@@ -176,6 +185,7 @@ export function SetupKeysSection() {
                     <CopyableValue value={k.key} label="Setup key" />
                   </p>
                   <p className="text-detail text-muted-foreground">
+                    {k.targetNodeId ? "Re-registration key · " : ""}
                     created {new Date(k.createdAt).toLocaleString()}
                     {k.consumedNodeId
                       ? ` · enrolled ${k.consumedNodeId}`
@@ -193,7 +203,11 @@ export function SetupKeysSection() {
                     key. A used or expired row gets no such button: its key is inert, and
                     walking someone to a 401 they cannot act on is not an instruction. */}
                 {state === "unused" && (
-                  <Button variant="outline" size="sm" onClick={() => setSetupFor(k.key)}>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSetupFor({ key: k.key, targetNodeId: k.targetNodeId })}
+                  >
                     Setup
                   </Button>
                 )}
@@ -216,7 +230,13 @@ export function SetupKeysSection() {
           );
         })}
         {/* Portalled, so its place in this tree is only about which card it belongs to. */}
-        {setupFor && <KeySetupDialog keyText={setupFor} onClose={() => setSetupFor(null)} />}
+        {setupFor && (
+          <KeySetupDialog
+            keyText={setupFor.key}
+            targetNodeId={setupFor.targetNodeId}
+            onClose={() => setSetupFor(null)}
+          />
+        )}
       </CardContent>
     </Card>
   );

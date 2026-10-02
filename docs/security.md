@@ -1097,6 +1097,24 @@ subshell may only be launched in one of them or beneath it.
   leaves behind is the record of what was minted: the mint's audit event carries NO
   metadata, so the key text never enters the audit trail (`create-setup-key.route.ts`).
   Storage and disclosure: the next subsection.
+- **Re-registration keys** (`POST /api/nodes/:id/reregister`) are cookie-owner-only
+  and agent-only. They carry a foreign-key-bound `target_node_id`; deleting the
+  node cascades its recovery keys. Minting leaves the current credentials and
+  connection active. Redemption validates the machine's public keys first, then
+  spends the key and replaces bearer, encryption pin, and delivery identity on
+  the same node. Its owner, name, shares, maintenance, creation time, and subshell
+  relationships remain. A transaction compares the prior credential binding
+  before swapping it; a conflict leaves the existing node intact. Successful
+  replacement disables the old bearer, evicts live and held sockets, drains
+  pending commands, and revokes other unused recovery keys for that node.
+  Recovery is allowed while adding new nodes is disabled: it adds no machine
+  entry. `node.reregister_key` and `node.reregister` audit ids only, never key text.
+  Recovery setup keys bind to the target node’s credential generation. Rotation
+  or successful recovery invalidates outstanding keys for that node; consuming
+  one recovery key also retires unused sibling keys before provisioning. The
+  node credential binding, identity replacement and previous bearer revocation
+  commit in one SQLite transaction. A failed replacement disables the newly
+  minted bearer and leaves the previous binding and identity intact.
 - **Who may MINT one is an instance setting** (`allow_node_enrollment`; admin
   toggle under Settings → General, audited `settings.update`). An absent row
   means TRUE, so an instance that never touched it keeps the behaviour it had:
@@ -1106,7 +1124,8 @@ subshell may only be launched in one of them or beneath it.
   `POST /api/users` while sign-up is closed.
 
   Enforced at the mint and nowhere else, because that is the only chokepoint:
-  `NodeSetupKeysRepository.create` has one call site, and `NodesRepository.create`
+  New-node setup keys are minted only through that gated route; recovery keys
+  below cannot create a node. `NodesRepository.create`
   has two: the enroll route, which requires a consumed key, and boot seeding of
   the `local` row. Enrolling is unauthenticated by design (the key IS the
   credential), so there is nothing to gate at `POST /api/nodes/enroll`, and
@@ -2135,7 +2154,7 @@ Audit events are written, grouped by family:
   swap row stands alone only when the revive throws mid-flight (the row
   keeps the new preset) or the row is deleted between park and re-read),
   `subshell.delete`.
-- **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`,
+- **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`, `node.reregister_key`, `node.reregister`,
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.logging.update`, `node.update`,
   `node.update.unknown`, `node.shares_set`, `node.local_share_changed`, and

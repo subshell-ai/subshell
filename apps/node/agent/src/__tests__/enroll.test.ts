@@ -6,7 +6,7 @@ import { isAbsolute, join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { type CliResult, run } from "../cli.js";
-import { configPath, loadConfig } from "../config.js";
+import { configPath, loadConfig, saveConfig } from "../config.js";
 import { mapOs } from "../enroll.js";
 import { lockPath } from "../lock.js";
 import { agentLogPath } from "../log-file.js";
@@ -75,6 +75,33 @@ function enrollArgv(serverUrl: string): string[] {
     dataDir,
   ];
 }
+
+test("re-registering the same node preserves its data directory and local preferences", async () => {
+  const customDataDir = join(home, "custom-state");
+  const url = fakeControlPlane(() => Response.json({ ...CANNED, name: "original server name" }, { status: 201 }));
+  await saveConfig({
+    serverUrl: url,
+    nodeId: CANNED.nodeId,
+    nodeKey: "old-key",
+    controlPublicKey: CANNED.controlPublicKey,
+    dataDir: customDataDir,
+    name: "old-name",
+    debugLogging: true,
+    logRetentionDays: 7,
+    logRetentionHours: 3,
+  });
+  const argv = enrollArgv(url);
+  argv.splice(argv.indexOf("--data-dir"), 2);
+  expect((await run(argv)).code).toBe(0);
+  const cfg = await loadConfig();
+  expect(cfg.dataDir).toBe(customDataDir);
+  expect(cfg.debugLogging).toBe(true);
+  expect(cfg.logRetentionDays).toBe(7);
+  expect(cfg.logRetentionHours).toBe(3);
+  expect(cfg.name).toBe("original server name");
+  expect(cfg.nodeKey).toBe(CANNED.nodeKey);
+  expect(existsSync(join(customDataDir, "identity.json"))).toBe(true);
+});
 
 test("enroll posts the route-shaped body, persists config at 0600, exits 0", async () => {
   let seen: Record<string, unknown> | undefined;

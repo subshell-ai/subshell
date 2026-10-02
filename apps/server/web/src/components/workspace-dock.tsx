@@ -496,6 +496,7 @@ export function WorkspaceDock({ detail, intent, claimIntent, onRefetch }: Worksp
           that subshell's output. */}
       <WorkspaceHeader
         workspace={detail.workspace}
+        panes={detail.panes}
         actions={<SubshellPicker workspaceId={detail.workspace.id} existing={detail.panes} onAdd={handleAdd} />}
         // A discarded draft lands on the subshell the person was looking at
         // — the active panel's — which only this presentation can name.

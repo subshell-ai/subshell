@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, mock, spyOn } from "bun:test";
 import { NODE_NAME_MAX } from "@internal/subshell-protocol";
 import { ensureSodium, generateLinkKeyPair } from "@internal/subshell-protocol/node-link-crypto";
 import { hashPassword } from "better-auth/crypto";
@@ -14,6 +14,12 @@ import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repos
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import {
+  attachConnection,
+  getLive,
+  REVOKED_CLOSE_CODE,
+  resetNodeRegistryForTests,
+} from "@/services/nodes/node-registry.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /** Fresh extractable P-256 keypair exported as a JWK string; `withD` exports the PRIVATE half. */
@@ -143,6 +149,155 @@ describe("/api/nodes/enroll", () => {
     const raw = JSON.stringify(body);
     expect(raw).not.toContain("expiresAt");
     expect(raw).not.toContain("keyHash");
+  });
+
+  it("a node-bound key replaces credentials on the same row and preserves its settings", async () => {
+    const first = await enroll(bodyFor(await makeKey(), { name: `recovery-${crypto.randomUUID()}` }));
+    const original = (await first.json()) as { nodeId: string; nodeKey: string };
+    createdNodeIds.push(original.nodeId);
+    const old = await nodes.findById(original.nodeId);
+    if (!old?.apiKeyId) throw new Error("Initial node was not provisioned");
+    await db
+      .updateTable("nodes")
+      .set({ maintenance: 1, maintenanceAt: "2026-01-01T00:00:00Z", maintenanceSource: "plane" })
+      .where("id", "=", original.nodeId)
+      .execute();
+    await db
+      .insertInto("nodeShares")
+      .values({
+        nodeId: original.nodeId,
+        id: crypto.randomUUID(),
+        granteeUserId: null,
+        createdBy: aliceId,
+        createdAt: new Date().toISOString(),
+        permission: "view",
+      })
+      .execute();
+    const key = await repo.create(aliceId, 60_000, original.nodeId);
+    const sibling = await repo.create(aliceId, 60_000, original.nodeId);
+    createdSetupKeyIds.push(key.id, sibling.id);
+    const closed: { code?: number; reason?: string }[] = [];
+    const conn = attachConnection(original.nodeId, {
+      send() {
+        return 0;
+      },
+      close(code?: number, reason?: string) {
+        closed.push({ code, reason });
+      },
+    });
+    let pendingFailure: unknown;
+    conn.pending.set("recovery-test", {
+      resolve() {},
+      reject(error) {
+        pendingFailure = error;
+      },
+      timer: setTimeout(() => {}, 30000),
+    });
+    const freshJwk = await jwkString();
+    const link = await generateLinkKeyPair();
+    const freshEncryptPublicKey = link.publicKey;
+    const res = await enroll(
+      bodyFor(key.key, {
+        name: "ignored replacement name",
+        hostname: "replacement-host",
+        publicKey: freshJwk,
+        encryptPublicKey: freshEncryptPublicKey,
+      }),
+    );
+    expect(res.status).toBe(201);
+    const recovered = (await res.json()) as { nodeId: string; nodeKey: string };
+    expect(recovered.nodeId).toBe(original.nodeId);
+    expect(closed[0]?.code).toBe(REVOKED_CLOSE_CODE);
+    expect(getLive(original.nodeId)).toBeUndefined();
+    expect(pendingFailure).toBeDefined();
+    expect(conn.pending.size).toBe(0);
+    resetNodeRegistryForTests();
+    expect(recovered.nodeKey).not.toBe(original.nodeKey);
+    const current = await nodes.findById(original.nodeId);
+    if (!current) throw new Error("Recovery deleted the node");
+    expect(current.name).toBe(old.name);
+    expect(current.createdAt).toBe(old.createdAt);
+    expect(current.ownerUserId).toBe(aliceId);
+    expect(current.maintenance).toBe(1);
+    expect(current.hostname).toBe("replacement-host");
+    expect(current.publicKey).toBe(freshJwk);
+    expect(current.encryptPublicKey).toBe(freshEncryptPublicKey);
+    expect((await identities.findByPrincipal(`node:${original.nodeId}`))?.publicKey).toBe(freshJwk);
+    expect(await db.selectFrom("nodeShares").selectAll().where("nodeId", "=", original.nodeId).execute()).toHaveLength(
+      1,
+    );
+    expect(authDatabase().query("SELECT enabled FROM apikey WHERE id = ?").get(old.apiKeyId)).toEqual({ enabled: 0 });
+    expect((await repo.findById(key.id))?.consumedNodeId).toBe(original.nodeId);
+    expect(await repo.peekValid(sibling.key)).toBe(false);
+    expect((await enroll(bodyFor(key.key))).status).toBe(401);
+  });
+
+  it("competing recovery keys have one winner and stale keys cannot supersede a rotation", async () => {
+    const first = await enroll(bodyFor(await makeKey()));
+    const original = (await first.json()) as { nodeId: string };
+    createdNodeIds.push(original.nodeId);
+    const a = await repo.create(aliceId, 60_000, original.nodeId);
+    const b = await repo.create(aliceId, 60_000, original.nodeId);
+    const replies = await Promise.all([enroll(bodyFor(a.key)), enroll(bodyFor(b.key))]);
+    expect(replies.map((r) => r.status).sort()).toEqual([201, 401]);
+    const recovery = await repo.create(aliceId, 60_000, original.nodeId);
+    createdSetupKeyIds.push(a.id, b.id, recovery.id);
+    const currentApiKeyId = (await nodes.findById(original.nodeId))?.apiKeyId ?? null;
+    await nodes.setApiKeyId(original.nodeId, "a-new-credential-binding");
+    expect(await repo.peekValid(recovery.key)).toBe(false);
+    expect((await enroll(bodyFor(recovery.key))).status).toBe(401);
+    expect((await nodes.findById(original.nodeId))?.apiKeyId).toBe("a-new-credential-binding");
+    await nodes.setApiKeyId(original.nodeId, currentApiKeyId);
+  });
+
+  it("a failed recovery transaction keeps the old credentials and identity usable", async () => {
+    const first = await enroll(bodyFor(await makeKey()));
+    const original = (await first.json()) as { nodeId: string };
+    createdNodeIds.push(original.nodeId);
+    const old = await nodes.findById(original.nodeId);
+    const identity = await identities.findByPrincipal(`node:${original.nodeId}`);
+    const recovery = await repo.create(aliceId, 60_000, original.nodeId);
+    createdSetupKeyIds.push(recovery.id);
+    const failed = spyOn(IdentitiesRepository.prototype, "register").mockRejectedValue(
+      new Error("identity write failed"),
+    );
+    try {
+      expect((await enroll(bodyFor(recovery.key))).status).toBe(500);
+    } finally {
+      failed.mockRestore();
+    }
+    expect((await nodes.findById(original.nodeId))?.apiKeyId).toBe(old?.apiKeyId);
+    expect((await identities.findByPrincipal(`node:${original.nodeId}`))?.publicKey).toBe(identity?.publicKey);
+    if (!old?.apiKeyId) throw new Error("Missing original credentials");
+    expect(authDatabase().query("SELECT enabled FROM apikey WHERE id = ?").get(old.apiKeyId)).toEqual({ enabled: 1 });
+    const rows = authDatabase()
+      .query("SELECT enabled FROM apikey WHERE name = ? AND id != ?")
+      .all(`node:${original.nodeId}`, old.apiKeyId);
+    expect(rows.length).toBe(1);
+    expect(rows[0]).toEqual({ enabled: 0 });
+  });
+
+  it("invalid recovery input and expired recovery keys leave the existing credentials intact", async () => {
+    const res = await enroll(bodyFor(await makeKey()));
+    const original = (await res.json()) as { nodeId: string };
+    createdNodeIds.push(original.nodeId);
+    const old = await nodes.findById(original.nodeId);
+    const key = await repo.create(aliceId, 60_000, original.nodeId);
+    const expired = await repo.create(aliceId, -1, original.nodeId);
+    createdSetupKeyIds.push(key.id, expired.id);
+    expect((await enroll(bodyFor(key.key, { publicKey: "malformed public JWK" }))).status).toBe(400);
+    expect(await repo.peekValid(key.key)).toBe(true);
+    expect((await enroll(bodyFor(expired.key))).status).toBe(401);
+    expect((await nodes.findById(original.nodeId))?.apiKeyId).toBe(old?.apiKeyId);
+  });
+
+  it("deleting the target invalidates its recovery key instead of creating another node", async () => {
+    const id = crypto.randomUUID();
+    await nodes.create({ id, ownerUserId: aliceId, name: `deleted-${id}`, kind: "agent" });
+    const key = await repo.create(aliceId, 60_000, id);
+    await nodes.deleteById(id);
+    expect(await repo.peekValid(key.key)).toBe(false);
+    expect((await enroll(bodyFor(key.key))).status).toBe(401);
   });
 
   it("the issued node key carries NO permissions map (security-actionable item 10)", async () => {

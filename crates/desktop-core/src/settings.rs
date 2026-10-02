@@ -305,8 +305,27 @@ impl Settings {
         paths
             .file()
             .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|t| serde_json::from_str(&t).ok())
+            .and_then(|t| Self::from_saved_json(&t).ok())
             .unwrap_or_default()
+    }
+
+    /// Preserve the pre-list client's address on upgrade. An explicit list,
+    /// including an empty one, wins so removed bookmarks never return.
+    fn from_saved_json(text: &str) -> Result<Self, serde_json::Error> {
+        let mut value: serde_json::Value = serde_json::from_str(text)?;
+        if let Some(map) = value.as_object_mut() {
+            if !map.contains_key("planes") {
+                if let Some(url) = map
+                    .get("planeUrl")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.trim().is_empty())
+                {
+                    map.insert("planes".into(), serde_json::json!([url]));
+                }
+            }
+            map.remove("planeUrl");
+        }
+        serde_json::from_value(value)
     }
 
     pub fn save(&self, paths: &SettingsPaths) -> Result<(), String> {
@@ -396,16 +415,33 @@ mod tests {
         assert!(Settings::default().close_to_tray);
     }
 
-    /// The plane list (operator ruling 2026-09-22) shipped with NO migration:
-    /// a pre-list file carries a `planeUrl` key, the container's unknown-key
-    /// tolerance drops it, and an absent list reads as empty. Nothing is
-    /// stranded by that — the app never opens a plane window by itself, so the
-    /// whole cost is one row to add again (and pre-release software).
     #[test]
-    fn an_absent_planes_list_reads_as_empty_and_the_old_plane_url_key_is_ignored() {
-        let s: Settings = serde_json::from_str(r#"{"planeUrl":"https://old.example","closeToTray":true}"#).unwrap();
-        assert!(s.planes.is_empty());
-        assert!(s.close_to_tray);
+    fn upgrades_preserve_the_legacy_plane_and_other_settings() {
+        let s = Settings::from_saved_json(
+            r#"{"planeUrl":"https://old.example","binaryPath":"/custom/subshell","zoom":1.2}"#,
+        )
+        .unwrap();
+        assert_eq!(s.planes, vec!["https://old.example"]);
+        assert_eq!(s.binary_path.as_deref(), Some("/custom/subshell"));
+        assert_eq!(s.zoom, 1.2);
+        let written = serde_json::to_string(&s).unwrap();
+        assert!(!written.contains("planeUrl"));
+        assert_eq!(Settings::from_saved_json(&written).unwrap().planes, s.planes);
+    }
+
+    #[test]
+    fn explicit_lists_win_over_the_legacy_address() {
+        for list in ["[]", r#"["https://new.example"]"#] {
+            let text = format!(r#"{{"planeUrl":"https://old.example","planes":{list}}}"#);
+            let s = Settings::from_saved_json(&text).unwrap();
+            assert_eq!(
+                serde_json::to_value(s.planes).unwrap(),
+                serde_json::from_str::<serde_json::Value>(list).unwrap()
+            );
+        }
+        for text in ["{}", r#"{"planeUrl":null}"#, r#"{"planeUrl":" "}"#] {
+            assert!(Settings::from_saved_json(text).unwrap().planes.is_empty());
+        }
     }
 
     #[test]

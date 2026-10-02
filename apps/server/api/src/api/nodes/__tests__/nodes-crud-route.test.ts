@@ -5,6 +5,7 @@ import { nodesRoutes } from "@/api/nodes/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
+import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -209,6 +210,24 @@ describe("/api/nodes registry CRUD", () => {
     expect(res.status).toBe(200);
     return ((await res.json()) as { nodes: View[] }).nodes;
   }
+
+  it("re-registration mint is owner-only, cookie-only, agent-only and leaves current credentials active", async () => {
+    const n = await mkNode(aliceId, `reregister-${crypto.randomUUID()}`);
+    const minted = await req("POST", `/${n.id}/reregister`, { cookie: aliceCookie });
+    expect(minted.status).toBe(201);
+    const key = (await minted.json()) as { id: string; key: string; expiresAt: string };
+    const row = await new NodeSetupKeysRepository(db).findById(key.id);
+    expect(row?.targetNodeId).toBe(n.id);
+    expect(row?.ownerUserId).toBe(aliceId);
+    expect(row?.usedAt).toBeNull();
+    expect(await keyIsValid(n.key)).toBe(true);
+    expect((await nodes.findById(n.id))?.apiKeyId).toBe(n.keyRowId);
+    expect((await req("POST", `/${n.id}/reregister`, { bearer: subshellKey })).status).toBe(403);
+    expect((await req("POST", `/${n.id}/reregister`, { cookie: bobCookie })).status).toBe(404);
+    expect((await req("POST", `/${n.id}/reregister`, { cookie: adminCookie })).status).toBe(403);
+    expect((await req("POST", "/local/reregister", { cookie: adminCookie })).status).toBe(400);
+    await new NodeSetupKeysRepository(db).deleteById(key.id, aliceId);
+  });
 
   // ── list + detail visibility ──────────────────────────────────────────────
 

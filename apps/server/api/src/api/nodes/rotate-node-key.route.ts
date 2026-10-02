@@ -1,12 +1,12 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { authGuard, ForbiddenError, requireCookieActor } from "@/api/auth-guard.js";
+import { sql } from "kysely";
+import { authGuard, ForbiddenError, HttpError, requireCookieActor } from "@/api/auth-guard.js";
 import { loadNodeGate } from "@/api/nodes/node-gate.js";
 import type { CreatedApiKey, NodeKeyMetadata } from "@/auth/apikey-store.js";
 import { setApiKeyEnabled } from "@/auth/apikey-store.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
-import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
@@ -64,10 +64,31 @@ export const rotateNodeKeyRoute = new Elysia()
       //    the agent's redial re-provisions a fresh encryption identity
       //    through the same §5 register self-heal that armed a
       //    never-registered node. Never copy the old pin across a rotation.
-      const nodes = new NodesRepository(db);
-      await nodes.setApiKeyId(gate.row.id, created.id);
-      await nodes.setEncryptPublicKey(gate.row.id, null);
-      if (gate.row.apiKeyId) setApiKeyEnabled(gate.row.apiKeyId, false);
+      try {
+        await db.transaction().execute(async (tx) => {
+          const updated = await tx
+            .updateTable("nodes")
+            .set({ apiKeyId: created.id, encryptPublicKey: null, updatedAt: new Date().toISOString() })
+            .where("id", "=", gate.row.id)
+            .where("apiKeyId", gate.row.apiKeyId === null ? "is" : "=", gate.row.apiKeyId)
+            .returning("id")
+            .executeTakeFirst();
+          if (!updated) throw new HttpError(409, "Node credentials changed; refresh and retry");
+          await tx
+            .deleteFrom("nodeSetupKeys")
+            .where("targetNodeId", "=", gate.row.id)
+            .where("usedAt", "is", null)
+            .execute();
+          if (gate.row.apiKeyId) {
+            await sql`UPDATE apikey SET enabled = 0, "updatedAt" = ${new Date().toISOString()} WHERE id = ${gate.row.apiKeyId}`.execute(
+              tx,
+            );
+          }
+        });
+      } catch (err) {
+        setApiKeyEnabled(created.id, false);
+        throw err;
+      }
 
       // 4. The live socket authenticated with the OLD key — evict it after
       //    the DB truth changed (no post-revoke frames get even one beat).
@@ -101,6 +122,7 @@ export const rotateNodeKeyRoute = new Elysia()
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
         500: "ApiErrorResponse",
       },
       detail: {
