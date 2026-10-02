@@ -131,7 +131,7 @@ describe("native backup and restore", () => {
       screen.getByLabelText("Prepared local restores").querySelector('option[value="unprepared-stage"]'),
     ).toBeNull();
     fireEvent.change(screen.getByLabelText("Prepared local restores"), { target: { value: stage.id } });
-    await screen.findByText(/Administrator recovery: admin@example.com/);
+    await screen.findByText("admin@example.com");
     expect(screen.queryByText(/Exclusions:/)).toBeNull();
     expect(screen.queryByLabelText("Recover an existing administrator")).toBeNull();
     expect(screen.getByRole("switch", { name: "Start the server after restoring" }).getAttribute("aria-checked")).toBe(

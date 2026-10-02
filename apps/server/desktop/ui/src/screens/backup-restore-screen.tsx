@@ -10,6 +10,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import type { RestoreInspection, RestorePrepare } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
+import { RestoreConfirmation } from "./restore-confirmation";
 
 export const EMPTY_RESTORE: RestorePrepare = {
   archive: "",
@@ -269,16 +270,17 @@ export function BackupRestoreScreen(props: {
       }
     });
   };
-  const destination = inspection?.destination;
   return (
     <Frame
       rail={props.rail}
       strings={{
-        title: props.kind === "backup" ? "Back Up Your Server" : "Restore Your Server",
+        title: props.kind === "backup" ? "Back Up Your Server" : prepared ? "Review Restore" : "Restore Your Server",
         subtitle:
           props.kind === "backup"
             ? "Save the database, supported configuration, identity, plugins and captured logs."
-            : "Restore an instance even when its server is stopped or has never been configured.",
+            : prepared
+              ? "Review the destination and restore options before replacing your server’s state."
+              : "Restore an instance even when its server is stopped or has never been configured.",
         problem,
       }}
       barLeft={
@@ -374,16 +376,21 @@ export function BackupRestoreScreen(props: {
             )}
             {inspection && (
               <>
-                <p className="hint">
-                  {inspection.legacyDatabaseOnly
-                    ? "Database-only snapshot: configuration, identity, plugins and logs are absent."
-                    : "Full instance archive"}{" "}
-                  · Captured {inspection.manifest.completedAt} · Server {inspection.manifest.serverVersion}
-                </p>
-                <p className="hint">
-                  Administrators:{" "}
-                  {inspection.admins.map((admin) => `${admin.name} (${admin.email})`).join(", ") || "None recorded"}.
-                </p>
+                {!prepared && (
+                  <>
+                    <p className="hint">
+                      {inspection.legacyDatabaseOnly
+                        ? "Database-only snapshot: configuration, identity, plugins and logs are absent."
+                        : "Full instance archive"}{" "}
+                      · Captured {inspection.manifest.completedAt} · Server {inspection.manifest.serverVersion}
+                    </p>
+                    <p className="hint">
+                      Administrators:{" "}
+                      {inspection.admins.map((admin) => `${admin.name} (${admin.email})`).join(", ") || "None recorded"}
+                      .
+                    </p>
+                  </>
+                )}
                 {!prepared && (
                   <>
                     <FieldSet>
@@ -466,54 +473,16 @@ export function BackupRestoreScreen(props: {
                 )}
                 {prepared && (
                   <>
-                    <p className="hint">
-                      Prepared {inspection.choices?.mode} restore. Expires{" "}
-                      {new Date(inspection.expiresAt ?? 0).toLocaleString()}.
-                    </p>
-                    <p className="hint">
-                      Prepared address choices are retained.{" "}
-                      {inspection.recoveryUserId
-                        ? `Administrator recovery: ${inspection.admins.find((admin) => admin.id === inspection.recoveryUserId)?.email ?? inspection.recoveryUserId}. Temporary password and forced change are already prepared.`
-                        : "Administrator recovery is off."}
-                    </p>
-                    {inspection.choices?.configOverrides && (
-                      <dl>
-                        {Object.entries(inspection.choices.configOverrides).map(([key, value]) => (
-                          <div key={key}>
-                            <dt>{key}</dt>
-                            <dd>{String(value)}</dd>
-                          </div>
-                        ))}
-                      </dl>
-                    )}
-                    {destination && (
-                      <dl>
-                        <dt>Database</dt>
-                        <dd>{destination.databasePath}</dd>
-                        <dt>Data directory</dt>
-                        <dd>{destination.dataDir}</dd>
-                        <dt>Configuration</dt>
-                        <dd>{destination.configPath}</dd>
-                      </dl>
-                    )}
-                    <p className="hint warn-text">
-                      The displayed destination will be replaced. The app will pause its current server if it owns one.
-                      Local panes may be terminated; remote panes disconnect and remain on their nodes. Old pane records
-                      are retired. Keep a backup of the destination if you may need its current state.
-                    </p>
-                    {toggle("restore-replace", "Replace the displayed destination", replace, setReplace)}
-                    {toggle(
-                      "restore-panes",
-                      "Allow interruption of this instance's active local and remote panes",
-                      force,
-                      setForce,
-                    )}
-                    {toggle("restore-start", "Start the server after restoring", start, setStart)}
-                    <p className="hint">
-                      An installed service keeps its definition and login setting. Without an installed service, the
-                      restored server runs with this app using a compatible server binary; no binary is installed by
-                      this action.
-                    </p>
+                    <RestoreConfirmation
+                      inspection={inspection}
+                      locked={locked}
+                      replace={replace}
+                      force={force}
+                      start={start}
+                      setReplace={setReplace}
+                      setForce={setForce}
+                      setStart={setStart}
+                    />
                     <Button
                       variant="ghost"
                       disabled={locked}
