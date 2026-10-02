@@ -1481,9 +1481,7 @@ describe("preset prefill of the launch fields (spec 2026-09-29)", () => {
       await waitFor(() => expect(latest().harnessId).toBe("pi"));
       expect(latest().presetId).toBeNull();
       expect(screen.queryByText(/Settings copied from/)).toBeNull();
-      expect(screen.getByRole("button", { name: "Agent command and settings" }).getAttribute("aria-expanded")).toBe(
-        "false",
-      );
+      expect(screen.queryByRole("button", { name: "Agent command and settings" })).toBeNull();
       // The person still sees what they are about to launch with.
       expect(latest().workingDir).toBe("/srv/app");
     } finally {

@@ -1,13 +1,23 @@
 import { Button } from "@internal/node-admin";
 import { ChevronDown } from "lucide-react";
 import { useId, useState } from "react";
+import { EditPresetDialog } from "@/components/presets/edit-preset-dialog";
 import { presetLaunchCommand } from "@/lib/launch-command";
 import type { PresetRow } from "@/types/preset";
 
 /** The preset's launch contribution, revealed only when the person asks. */
-export function LaunchCommandPreview({ preset, binary }: { preset?: PresetRow; binary?: string }) {
+export function LaunchCommandPreview({
+  preset,
+  binary,
+  onApplyPreset,
+}: {
+  preset?: PresetRow;
+  binary?: string;
+  onApplyPreset?: (preset: PresetRow) => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const id = useId();
+  const [editing, setEditing] = useState(false);
   if (!preset) return null;
   return (
     <div className="flex flex-col gap-2">
@@ -48,9 +58,25 @@ export function LaunchCommandPreview({ preset, binary }: { preset?: PresetRow; b
                 </pre>
               </>
             )}
+            {onApplyPreset && (
+              <p className="text-detail text-muted-foreground">
+                To change this command,{" "}
+                <button
+                  type="button"
+                  className="underline underline-offset-4 hover:text-foreground"
+                  onClick={() => setEditing(true)}
+                >
+                  edit the preset
+                </button>
+                .
+              </p>
+            )}
           </div>
         )}
       </div>
+      {editing && onApplyPreset && (
+        <EditPresetDialog preset={preset} onClose={() => setEditing(false)} onSaved={onApplyPreset} />
+      )}
     </div>
   );
 }
