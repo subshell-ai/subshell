@@ -193,6 +193,18 @@ export function BackupRestoreScreen(props: {
             port: "",
             trustedOrigins: "",
           }));
+        } else {
+          const defaults = value.choices?.configOverrides;
+          setOptions((old) => ({
+            ...old,
+            databasePath: value.destination?.databasePath ?? "",
+            dataDir: value.destination?.dataDir ?? "",
+            configDir: value.destination?.configPath.replace(/[/\\][^/\\]+$/, "") ?? "",
+            baseUrl: String(defaults?.baseUrl ?? ""),
+            host: String(defaults?.host ?? ""),
+            port: String(defaults?.port ?? ""),
+            trustedOrigins: String(defaults?.trustedOrigins ?? ""),
+          }));
         }
         setInspection(value);
       } catch (error) {
@@ -215,6 +227,16 @@ export function BackupRestoreScreen(props: {
       try {
         const result = await ipc.restorePrepare({
           ...options,
+          ...(!inspection?.legacyDatabaseOnly && {
+            databasePath: options.databasePath || inspection?.destination?.databasePath || "",
+            dataDir: options.dataDir || inspection?.destination?.dataDir || "",
+            configDir: options.configDir || inspection?.destination?.configPath.replace(/[/\\][^/\\]+$/, "") || "",
+            baseUrl: options.baseUrl || String(inspection?.choices?.configOverrides?.baseUrl ?? ""),
+            host: options.host || String(inspection?.choices?.configOverrides?.host ?? ""),
+            port: options.port || String(inspection?.choices?.configOverrides?.port ?? ""),
+            trustedOrigins:
+              options.trustedOrigins || String(inspection?.choices?.configOverrides?.trustedOrigins ?? ""),
+          }),
           recoverAdmin: recover ? options.recoverAdmin : "",
           temporaryPassword: recover ? options.temporaryPassword : "",
         });
@@ -385,15 +407,18 @@ export function BackupRestoreScreen(props: {
                         ))}
                       </RadioGroup>
                     </FieldSet>
-                    {options.mode === "migration" && !inspection.legacyDatabaseOnly && (
+                    {!inspection.legacyDatabaseOnly && (
                       <>
-                        <p className="hint">
-                          Supported identity is preserved. Network publication is disabled until you review it on this
-                          machine.
-                        </p>
-                        {field("databasePath", "Destination database path")}
-                        {field("dataDir", "Destination data directory")}
-                        {field("configDir", "Destination configuration directory")}
+                        {options.mode === "migration" && (
+                          <p className="hint">
+                            Supported identity is preserved. Network publication is disabled until you review it on this
+                            machine.
+                          </p>
+                        )}
+                        <p className="hint">Values are filled from the backup. Change them to restore elsewhere.</p>
+                        {field("databasePath", "Destination database path (optional)")}
+                        {field("dataDir", "Destination data directory (optional)")}
+                        {field("configDir", "Destination configuration directory (optional)")}
                         {field("baseUrl", "Public base URL (optional)")}
                         {field("host", "Listen address (optional)")}
                         {field("port", "Port (optional)")}

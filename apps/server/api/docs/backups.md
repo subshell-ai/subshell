@@ -16,7 +16,11 @@ values after rollback while retaining differing explicit environment overrides.
 Full manual archives are distinct from the retained database snapshots used by
 updates. Only the allowlisted server-owned components enter an archive. The
 manifest describes SQLite snapshot/log interval consistency and exclusions.
-Destination paths always come from the caller, never archive absolute paths.
+Destination paths always come from the caller. Optional manifest `sourcePaths`
+records original locations for restore form suggestions; it never selects an
+engine destination automatically. Inspection reads address defaults from the
+validated configuration payload and exposes only public form fields. Older
+archives may omit source locations, with local fallback only for missing values.
 Legacy `.db` is explicitly database-only and refuses all journal sidecars.
 
 Config application preserves a hard link to the original, flushes it, and

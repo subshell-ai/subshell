@@ -159,6 +159,7 @@ const PUBLIC_ADMIN: PublicSchema = PublicSchema::Object(&[
     ("email", PublicSchema::Text(4096)),
 ]);
 const PUBLIC_MANIFEST: PublicSchema = PublicSchema::Object(&[
+    ("sourcePaths", PUBLIC_DESTINATION),
     ("format", PublicSchema::Text(32)),
     ("version", PublicSchema::Number),
     ("serverVersion", PublicSchema::Text(256)),
@@ -1375,7 +1376,7 @@ console.log("native password interoperable");
             "fixture".into(),
             output_file.to_string_lossy().into_owned(),
         ];
-        let manifest = serde_json::json!({"format":"subshell-instance","version":1,"serverVersion":"1.3.4","startedAt":"2026-10-02T00:00:00Z","completedAt":"2026-10-02T00:00:01Z","consistency":"sqlite-snapshot-logs-over-interval","migrations":["0001-init"],"entries":[{"path":"database/instance.db","bytes":8192,"sha256":"a".repeat(64)}],"exclusions":["external agent credentials"]});
+        let manifest = serde_json::json!({"sourcePaths":{"databasePath":"/backup/instance.db","dataDir":"/backup/data","configPath":"/backup/config/config.env"},"format":"subshell-instance","version":1,"serverVersion":"1.3.4","startedAt":"2026-10-02T00:00:00Z","completedAt":"2026-10-02T00:00:01Z","consistency":"sqlite-snapshot-logs-over-interval","migrations":["0001-init"],"entries":[{"path":"database/instance.db","bytes":8192,"sha256":"a".repeat(64)}],"exclusions":["external agent credentials"]});
         let backup = serde_json::json!({"path":"/tmp/database.subshell","bytes":1024,"manifest":manifest,"credentials":{"auth":"different-secret-never-forwarded"}});
         std::fs::write(&output_file, serde_json::to_vec(&backup).unwrap()).unwrap();
         for password in ["database", "subshell-instance", "external agent credentials"] {

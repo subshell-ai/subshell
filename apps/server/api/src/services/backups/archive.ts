@@ -74,7 +74,11 @@ export async function createInstanceBackup(options: CreateInstanceBackupOptions)
       options.source.configPath && (await exists(options.source.configPath))
         ? await readFile(options.source.configPath, "utf8")
         : "";
-    const config = captureConfig(stored, options.effectiveConfig);
+    const config = captureConfig(stored, {
+      ...options.effectiveConfig,
+      DATABASE_PATH: resolve(options.source.databasePath),
+      SUBSHELL_SERVER_DATA_DIR: resolve(options.source.dataDir),
+    });
     const configPath = join(staging, "config", "config.env");
     await privateDirectory(dirname(configPath));
     await writeFile(configPath, serializeConfig(config), { mode: 0o600, flag: "wx" });
@@ -106,6 +110,11 @@ export async function createInstanceBackup(options: CreateInstanceBackupOptions)
     const manifest: InstanceBackupManifest = {
       format: "subshell-instance",
       version: 1,
+      sourcePaths: {
+        databasePath: resolve(options.source.databasePath),
+        dataDir: resolve(options.source.dataDir),
+        ...(options.source.configPath ? { configPath: resolve(options.source.configPath) } : {}),
+      },
       serverVersion: SERVER_VERSION,
       startedAt,
       completedAt: new Date().toISOString(),
@@ -156,6 +165,23 @@ function validateManifest(value: unknown, limits: BackupLimits): InstanceBackupM
     manifest.exclusions.some((item) => typeof item !== "string")
   )
     throw new Error("invalid backup manifest");
+  if (manifest.sourcePaths !== undefined) {
+    const source = manifest.sourcePaths;
+    if (
+      !source ||
+      typeof source !== "object" ||
+      Array.isArray(source) ||
+      ![source.databasePath, source.dataDir].every(
+        (path) => typeof path === "string" && path.length > 0 && path.length <= 4096 && !/[\r\n\0]/.test(path),
+      ) ||
+      (source.configPath !== undefined &&
+        (typeof source.configPath !== "string" ||
+          !source.configPath ||
+          source.configPath.length > 4096 ||
+          /[\r\n\0]/.test(source.configPath)))
+    )
+      throw new Error("invalid backup source locations");
+  }
   if (manifest.entries.length > limits.files) throw new Error("backup file count exceeds limit");
   validateMigrations(manifest.migrations);
   let total = 0;

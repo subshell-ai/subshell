@@ -36,6 +36,7 @@ import {
   listPreparedRestoreStages,
   publicStage,
   readLocalRestoreStage,
+  restoreInspectionDefaults,
   startDetachedServer,
 } from "./restore-support.js";
 import {
@@ -127,7 +128,12 @@ export async function runRestore(opts: RestoreOpts, deps: RestoreDeps): Promise<
     if (opts.inspect) {
       const inspection = record
         ? publicStage(record)
-        : { manifest: stage.manifest, admins: stage.admins, legacyDatabaseOnly: stage.legacyDatabaseOnly };
+        : {
+            manifest: stage.manifest,
+            admins: stage.admins,
+            legacyDatabaseOnly: stage.legacyDatabaseOnly,
+            ...restoreInspectionDefaults(stage, (deps.source ?? instanceBackupPaths)()),
+          };
       if (opts.json) deps.log(JSON.stringify(inspection));
       else {
         describeArchive(stage, deps.log);

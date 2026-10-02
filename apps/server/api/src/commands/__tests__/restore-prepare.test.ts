@@ -12,6 +12,7 @@ import {
   databaseValue,
   fixture,
   put,
+  rewriteArchive,
   root,
   setupBackupFixtures,
 } from "@/services/backups/__tests__/fixtures.js";
@@ -58,6 +59,32 @@ function dependencies(source: InstancePaths, logs: string[], errors: string[]): 
   };
 }
 describe("native offline restore preparation", () => {
+  it("prefills inspection from archived locations and configuration, with compatibility for older archives", async () => {
+    const source = fixture("archive-source");
+    const current = fixture("current-machine");
+    const archive = await backup(source);
+    const older = await rewriteArchive(archive, async (payload) => {
+      const entry = payload["manifest.json"];
+      const manifest = JSON.parse(typeof entry === "string" ? entry : await (entry as Blob).text());
+      delete manifest.sourcePaths;
+      payload["manifest.json"] = JSON.stringify(manifest);
+    });
+    for (const [path, configPath] of [
+      [archive, source.configPath],
+      [older, current.configPath],
+    ]) {
+      const logs: string[] = [];
+      const errors: string[] = [];
+      const opts = parseRestoreFlags([path as string, "--inspect", "--json"], (line) => errors.push(line));
+      expect(await runRestore(opts ?? {}, dependencies(current, logs, errors)), errors.join("\n")).toBe(0);
+      expect(JSON.parse(logs[0] ?? "{}")).toMatchObject({
+        destination: { databasePath: source.databasePath, dataDir: source.dataDir, configPath },
+        choices: { configOverrides: { host: "0.0.0.0", port: "3080", baseUrl: "http://source:3080" } },
+      });
+      expect(logs.join("\n")).not.toContain("BETTER_AUTH_SECRET");
+      expect(logs.join("\n")).not.toContain("UNSUPPORTED_SECRET");
+    }
+  });
   it("validates and stores fixed destination choices without touching a running target", async () => {
     const source = fixture("source");
     const destination = fixture("destination", "original");

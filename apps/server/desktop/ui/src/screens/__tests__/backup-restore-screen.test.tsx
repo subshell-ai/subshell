@@ -34,6 +34,55 @@ const stage = {
 const props = { busy: false, onBusy: () => {}, onRefresh: async () => {}, onClose: () => {} };
 
 describe("native backup and restore", () => {
+  it("prefills from the backup, preserves optional defaults when cleared, and submits edits", async () => {
+    const configOverrides = {
+      baseUrl: "https://backup.example",
+      host: "127.0.0.1",
+      port: "4567",
+      trustedOrigins: "https://backup.example",
+    };
+    fake = installFakeIpc({
+      handlers: {
+        desktop_restore_stages: () => ({ stages: [] }),
+        "plugin:dialog|open": () => "/tmp/backup.subshell",
+        desktop_restore_inspect: () => ({
+          ...stage,
+          prepared: false,
+          choices: { mode: "same-machine", configOverrides },
+        }),
+        desktop_restore_prepare: () => stage,
+      },
+    });
+    render(<BackupRestoreScreen {...props} kind="restore" />);
+    fireEvent.click(screen.getByRole("button", { name: "Open and inspect archive…" }));
+    await screen.findByLabelText("Destination database path (optional)");
+    const expected = {
+      "Destination database path (optional)": stage.destination.databasePath,
+      "Destination data directory (optional)": stage.destination.dataDir,
+      "Destination configuration directory (optional)": "/tmp/restore/config",
+      "Public base URL (optional)": configOverrides.baseUrl,
+      "Listen address (optional)": configOverrides.host,
+      "Port (optional)": configOverrides.port,
+      "Trusted origins (optional)": configOverrides.trustedOrigins,
+    };
+    for (const [label, value] of Object.entries(expected)) {
+      expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe(value);
+      fireEvent.change(screen.getByLabelText(label), { target: { value: "" } });
+    }
+    fireEvent.change(screen.getByLabelText("Public base URL (optional)"), {
+      target: { value: "https://edited.example" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review replacement" }));
+    await waitFor(() => expect(fake?.callsTo("desktop_restore_prepare")).toHaveLength(1));
+    expect(fake.callsTo("desktop_restore_prepare")[0]?.options).toMatchObject({
+      mode: "same-machine",
+      databasePath: stage.destination.databasePath,
+      dataDir: stage.destination.dataDir,
+      configDir: "/tmp/restore/config",
+      ...configOverrides,
+      baseUrl: "https://edited.example",
+    });
+  });
   it("matches server UTF-16 password limits for multibyte text and supplementary-plane characters", () => {
     for (const password of ["é".repeat(3000), "😀".repeat(2048), "😀".repeat(4)])
       expect(passwordProblem(password, password, true, true)).toBeNull();

@@ -1,4 +1,4 @@
-/** Explicit host paths; archives never supply destination paths. */
+/** Explicit host paths; restore destinations are independently validated operator choices. */
 export interface InstancePaths {
   /** SQLite database file, possibly outside dataDir. */
   databasePath: string;
@@ -32,6 +32,8 @@ export interface BackupEntry {
 
 /** Public archive metadata; credentials live only in payload files. */
 export interface InstanceBackupManifest {
+  /** Original locations for form prefilling only, never an automatic restore destination. Older archives omit these. */
+  sourcePaths?: InstancePaths;
   /** Archive contract identifier. */
   format: "subshell-instance";
   /** Format version, independent of server version. */
