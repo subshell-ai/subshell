@@ -210,17 +210,22 @@ describe("native backup and restore", () => {
     expect(screen.queryByRole("button", { name: "Restore" })).toBeNull();
   });
   it("asks for interruption only when restore reports incompatible sessions, and cancellation leaves them untouched", async () => {
+    let finishRestore!: () => void;
+    const restoring = new Promise<void>((resolve) => {
+      finishRestore = resolve;
+    });
     fake = installFakeIpc({
       handlers: {
         desktop_backup_list: () => ({ backups: [] }),
         "plugin:dialog|open": () => "/tmp/backup.subshell",
         desktop_restore_inspect: () => ({ ...stage, prepared: false }),
         desktop_restore_prepare: () => stage,
-        desktop_restore_apply: ({ force }) => {
+        desktop_restore_apply: async ({ force }) => {
           if (!force)
             throw new Error(
               "RESTORE_SESSION_CONFIRMATION_REQUIRED: 2 active sessions cannot be preserved with this backup. Continuing closes affected local sessions. Affected remote sessions may disconnect or end when their node reconnects. Other compatible sessions will be preserved. Cancel leaves your server unchanged.",
             );
+          await restoring;
           return { status: "completed", started: true, destination: stage.destination };
         },
       },
@@ -237,7 +242,14 @@ describe("native backup and restore", () => {
     expect(fake.callsTo("desktop_restore_apply")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Restore" }));
     fireEvent.click(await screen.findByRole("button", { name: "Continue restore" }));
+    await screen.findByText("Restoring Your Server");
+    expect(screen.queryByRole("button", { name: "Review backup" })).toBeNull();
+    expect(screen.getByText("Restoring…").hasAttribute("disabled")).toBe(true);
+    finishRestore();
+    await screen.findByText("Restore Complete");
     await screen.findByText(/confirmed a successful boot/);
+    expect(screen.queryByRole("button", { name: "Review backup" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
     expect(fake.callsTo("desktop_restore_apply").map((call) => call.force)).toEqual([false, false, true]);
   });
   it("reports inspection failure before any preparation or restore operation", async () => {

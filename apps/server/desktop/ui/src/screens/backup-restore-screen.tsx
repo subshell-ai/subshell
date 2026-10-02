@@ -1,6 +1,7 @@
 import { Frame } from "@internal/assistant";
 import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES } from "@internal/subshell-protocol";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { CheckCircle2, LoaderCircle } from "lucide-react";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -74,6 +75,8 @@ export function BackupRestoreScreen(props: {
   const [sessionConfirmation, setSessionConfirmation] = useState("");
   const [problem, setProblem] = useState("");
   const [message, setMessage] = useState("");
+  const [restoring, setRestoring] = useState(false);
+  const [restoreResult, setRestoreResult] = useState<{ started: boolean; recoveredAdmin: boolean } | null>(null);
   const [progress, setProgress] = useState("");
   const [localBusy, setLocalBusy] = useState(false);
   const locked = props.busy || localBusy;
@@ -262,7 +265,8 @@ export function BackupRestoreScreen(props: {
   };
   const apply = async (force = false) => {
     if (!replace) return;
-    await act("Restoring the instance and waiting for its successful boot…", async () => {
+    await act("Preparing the backup for restore…", async () => {
+      setRestoring(true);
       try {
         let reviewed = inspection;
         let currentId = stageId;
@@ -294,6 +298,7 @@ export function BackupRestoreScreen(props: {
           currentId = refreshed.id ?? "";
         };
         if (reviewed?.expiresAt && reviewed.expiresAt <= Date.now()) await refreshStage();
+        setProgress(start ? "Restoring your server and verifying it starts…" : "Restoring your server…");
         let result;
         try {
           result = await ipc.restoreApply(currentId, replace, force, start);
@@ -303,6 +308,7 @@ export function BackupRestoreScreen(props: {
           result = await ipc.restoreApply(currentId, replace, force, start);
         }
         retryPreparation.current = null;
+        setRestoreResult({ started: result.started, recoveredAdmin: recover });
         setMessage(
           result.started
             ? "Restore completed. The restored server confirmed a successful boot."
@@ -319,10 +325,68 @@ export function BackupRestoreScreen(props: {
         if (!detail.includes(marker)) throw error;
         setSessionConfirmation(detail.slice(detail.indexOf(marker) + marker.length).trim());
       } finally {
+        setRestoring(false);
         clearPasswords();
       }
     });
   };
+  if (props.kind === "restore" && (restoring || restoreResult)) {
+    return (
+      <Frame
+        rail={props.rail}
+        strings={{
+          title: restoreResult ? "Restore Complete" : "Restoring Your Server",
+          subtitle: restoreResult
+            ? "Your backup has been restored."
+            : "Please keep this app open until the restore finishes.",
+          problem,
+        }}
+        barRight={
+          restoreResult ? (
+            <Button disabled={locked} onClick={props.onClose}>
+              Done
+            </Button>
+          ) : (
+            <Button disabled>Restoring…</Button>
+          )
+        }
+      >
+        <Card role="status" aria-live="polite">
+          <CardHeader>
+            {restoreResult ? (
+              <CheckCircle2 className="size-6 text-primary" aria-hidden="true" />
+            ) : (
+              <LoaderCircle className="size-6 animate-spin text-primary" aria-hidden="true" />
+            )}
+            <CardTitle>
+              {restoreResult ? (restoreResult.started ? "Your server is ready" : "Your server is stopped") : progress}
+            </CardTitle>
+            <CardDescription>
+              {restoreResult ? message : "The server may be temporarily unavailable while its saved state is replaced."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {restoreResult ? (
+              <p className="text-body text-muted-foreground">
+                {restoreResult.started
+                  ? restoreResult.recoveredAdmin
+                    ? "Open the dashboard and sign in with the recovered administrator’s temporary password."
+                    : "Open the dashboard and sign in with an account from the backup."
+                  : "Start the server from the Service page when you’re ready. The restore will be verified on its next successful start."}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2 list-disc pl-5 text-body text-muted-foreground">
+                <li>The backup is prepared and checked before replacement.</li>
+                <li>The server is stopped, its saved state is restored, and compatible sessions are preserved.</li>
+                {start && <li>The server is restarted and checked before success is confirmed.</li>}
+                <li>You’ll see a confirmation here when the restore finishes.</li>
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </Frame>
+    );
+  }
   const [sessionSummary, ...sessionConsequences] = sessionConfirmation.split(/(?<=\.)\s+/);
   const sessionCount = sessionSummary?.match(/^(\d+ active sessions?)(.*)$/);
   const selectedBackup = backups.find((file) => file.path === selectedBackupPath);
