@@ -93,7 +93,7 @@ describe("tree_manifest", () => {
     const first = await manifest(ctx, work, undefined, 640);
     expect(first.entries.length).toBeGreaterThanOrEqual(1);
     expect(first.entries.length).toBeLessThan(6);
-    expect(first.nextCursor).toBe(first.entries.at(-1)?.relPath);
+    expect(first.nextCursor).toBe(first.entries.at(-1)?.relPath ?? null);
     const second = await manifest(ctx, work, first.nextCursor, 640);
     expect(second.entries.length).toBeGreaterThan(0);
     const seen = [...first.entries, ...second.entries].map((e) => e.relPath);

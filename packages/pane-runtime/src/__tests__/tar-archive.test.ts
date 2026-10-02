@@ -203,7 +203,9 @@ describe("writer + extractor round-trip", () => {
     // 11th in the COMPILED binary. The wait now removes both listeners itself;
     // this asserts the process never hears a listener warning during extract.
     const warnings: string[] = [];
-    const spy = (w: Error): void => warnings.push(w.name);
+    const spy = (w: Error): void => {
+      warnings.push(w.name);
+    };
     process.on("warning", spy);
     try {
       const src = join(dir, "src_4mb.bin");
