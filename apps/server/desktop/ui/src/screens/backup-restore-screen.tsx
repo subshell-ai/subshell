@@ -360,7 +360,7 @@ export function BackupRestoreScreen(props: {
         }
       >
         <Card role="status" aria-live="polite">
-          <CardHeader>
+          <CardHeader className="gap-3">
             <div className="flex items-center gap-3">
               {restoreResult ? (
                 <CheckCircle2 className="size-6 shrink-0 text-primary" aria-hidden="true" />
