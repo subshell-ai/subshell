@@ -13,7 +13,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { dashboardUrl, effectiveForm } from "../lib/config-form";
-import type { LocalBackupFile, RestoreApplyResult, RestoreInspection, RestorePrepare } from "../lib/ipc";
+import type { BackupResult, LocalBackupFile, RestoreApplyResult, RestoreInspection, RestorePrepare } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
 import { RestoreConfirmation, RestoreFacts } from "./restore-confirmation";
 
@@ -76,6 +76,9 @@ export function BackupRestoreScreen(props: {
   const [sessionConfirmation, setSessionConfirmation] = useState("");
   const [problem, setProblem] = useState("");
   const [message, setMessage] = useState("");
+  const [backingUp, setBackingUp] = useState(false);
+  const [backupResult, setBackupResult] = useState<(BackupResult & { encrypted: boolean }) | null>(null);
+  const [showBackupCompletion, setShowBackupCompletion] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [restoreResult, setRestoreResult] = useState<{
@@ -179,10 +182,13 @@ export function BackupRestoreScreen(props: {
         clearPasswords();
         return;
       }
+      setBackingUp(true);
       try {
         const result = await ipc.backup(path, encrypt ? options.password : "");
+        setBackupResult({ ...result, encrypted: encrypt });
         setMessage(`Backup saved to ${result.path} (${result.bytes.toLocaleString()} bytes).`);
       } finally {
+        setBackingUp(false);
         clearPasswords();
       }
     });
@@ -347,6 +353,81 @@ export function BackupRestoreScreen(props: {
       }
     });
   };
+  if (props.kind === "backup" && (backingUp || backupResult)) {
+    const completion = showBackupCompletion ? backupResult : null;
+    return (
+      <Frame
+        rail={props.rail}
+        strings={{
+          title: completion ? "Backup Complete" : "Backing Up Your Server",
+          subtitle: completion
+            ? "Your instance archive has been saved."
+            : backupResult
+              ? "The backup has finished. Select Next when you’re ready."
+              : "Please keep this app open until the backup finishes.",
+          problem,
+        }}
+        barRight={
+          completion ? (
+            <Button disabled={locked} onClick={props.onClose}>
+              Done
+            </Button>
+          ) : backupResult ? (
+            <Button disabled={locked} onClick={() => setShowBackupCompletion(true)}>
+              Next
+            </Button>
+          ) : (
+            <Button disabled>Backing up…</Button>
+          )
+        }
+      >
+        <Card role="status" aria-live="polite">
+          <CardHeader className="gap-3">
+            <div className="flex items-center gap-3">
+              {backupResult ? (
+                <CheckCircle2 className="size-6 shrink-0 text-primary" aria-hidden="true" />
+              ) : (
+                <LoaderCircle className="size-6 shrink-0 animate-spin text-primary" aria-hidden="true" />
+              )}
+              <CardTitle>
+                {completion
+                  ? "Your backup is ready"
+                  : backupResult
+                    ? "Backup finished"
+                    : "Creating your instance archive"}
+              </CardTitle>
+            </div>
+            <CardDescription>
+              {completion
+                ? "Keep this archive somewhere safe so you can restore your server later."
+                : backupResult
+                  ? "Select Next to review the saved archive."
+                  : "Capturing the database, configuration, identity, plugins and logs into a single archive."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {completion ? (
+              <RestoreFacts
+                copy
+                rows={[
+                  ["Archive", completion.path],
+                  ["Size", `${completion.bytes.toLocaleString()} bytes`],
+                  ["Encryption", completion.encrypted ? "Password protected" : "Off"],
+                ]}
+              />
+            ) : (
+              <ul className="flex flex-col gap-2 list-disc pl-5 text-body text-muted-foreground">
+                <li>Your server remains available while the backup is captured.</li>
+                {encrypt && <li>The archive is encrypted with your password.</li>}
+                <li>The saved archive is confirmed before success is reported.</li>
+                <li>When the backup finishes, select Next to review the result.</li>
+              </ul>
+            )}
+          </CardContent>
+        </Card>
+      </Frame>
+    );
+  }
   if (props.kind === "restore" && (restoring || restoreResult)) {
     const completion = showCompletion ? restoreResult : null;
     return (

@@ -25,7 +25,7 @@ export function RestoreFacts({
             <div className="flex items-start gap-2">
               <span
                 className={
-                  copy && ["Database", "Data directory", "Configuration"].includes(label)
+                  copy && ["Archive", "Database", "Data directory", "Configuration"].includes(label)
                     ? "min-w-0 flex-1 break-words [overflow-wrap:anywhere] font-mono text-detail"
                     : "min-w-0 flex-1 break-words [overflow-wrap:anywhere]"
                 }

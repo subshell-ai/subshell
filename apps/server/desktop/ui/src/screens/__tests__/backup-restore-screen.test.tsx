@@ -34,6 +34,52 @@ const stage = {
 const props = { busy: false, onBusy: () => {}, onRefresh: async () => {}, onClose: () => {} };
 
 describe("native backup and restore", () => {
+  it("shows backup progress, waits for Next, and confirms the saved archive", async () => {
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    fake = installFakeIpc({
+      handlers: {
+        "plugin:dialog|save": () => "/tmp/instance.subshell",
+        desktop_backup: async () => {
+          await pending;
+          return { path: "/tmp/instance.subshell", bytes: 4096 };
+        },
+      },
+    });
+    render(<BackupRestoreScreen {...props} kind="backup" />);
+    fireEvent.click(screen.getByRole("button", { name: "Save backup…" }));
+    await screen.findByText("Backing Up Your Server");
+    expect(screen.getByRole("button", { name: "Backing up…" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByRole("button", { name: "Save backup…" })).toBeNull();
+    finish();
+    const next = await screen.findByRole("button", { name: "Next" });
+    await waitFor(() => expect(next.hasAttribute("disabled")).toBe(false));
+    expect(screen.queryByText("Backup Complete")).toBeNull();
+    fireEvent.click(next);
+    await screen.findByText("Backup Complete");
+    expect(screen.getByText("/tmp/instance.subshell")).toBeTruthy();
+    expect(screen.getByText("4,096 bytes")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Copy Archive" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+  });
+  it("returns to the backup form on failure without showing success", async () => {
+    fake = installFakeIpc({
+      handlers: {
+        "plugin:dialog|save": () => "/tmp/instance.subshell",
+        desktop_backup: () => {
+          throw new Error("Not enough disk space");
+        },
+      },
+    });
+    render(<BackupRestoreScreen {...props} kind="backup" />);
+    fireEvent.click(screen.getByRole("button", { name: "Save backup…" }));
+    await screen.findByText("Not enough disk space");
+    expect(screen.queryByText("Backup Complete")).toBeNull();
+    expect(screen.getByRole("button", { name: "Save backup…" })).toBeTruthy();
+  });
+
   it("hides the available backups card when none exist", async () => {
     fake = installFakeIpc({ handlers: { desktop_backup_list: () => ({ backups: [] }) } });
     render(<BackupRestoreScreen {...props} kind="restore" />);
