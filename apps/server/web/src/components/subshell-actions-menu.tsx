@@ -184,17 +184,23 @@ export function SubshellActionsMenu({
             : { icon: Bell, label: "Notify when done", sidebar: true, onSelect: () => void toggleNotify() },
         ]
       : []),
-    // Revive is the sidebar's remaining lifecycle gesture (spec 2026-09-03
-    // amendment, shrunk by the close-vocabulary design): a live subshell has
-    // no stop action — Close removes it outright, which terminates first.
-    ...(canEdit && !subshell.alive
+    // Restart is now the lifecycle gesture on BOTH sides of liveness (spec
+    // 2026-09-03 amendment; widened by the operator ruling 2026-10-02, so a
+    // pane whose MCP token died can be renewed from the menu instead of being
+    // closed). Close still removes outright, and there is still no
+    // stop-without-close. The hook asks before a live restart (it kills the
+    // running process) and asks nothing for a dead revive, so the red item
+    // styling rides the same liveness split as the consequence does.
+    ...(canEdit
       ? [
           {
             icon: RotateCcw,
             // A tracked-but-dead subshell resumes in place; a terminated one
             // can only be started afresh from the same harness and directory,
-            // which is a different enough thing to say so.
+            // which is a different enough thing to say so. A live pane
+            // restarts its running process under the same "Restart" word.
             label: subshell.status === "running" ? "Restart" : "Start again",
+            destructive: subshell.alive,
             sidebar: true,
             onSelect: () => void restart(),
           },

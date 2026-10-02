@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { setConfirmHandler } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -395,7 +396,7 @@ describe("SubshellActionsMenu — diagnostics toggle (spec 2026-09-21 Wave C)", 
     try {
       await renderMenu(makeSubshell(), row, { on: true, onToggle: () => {} });
       fireEvent.contextMenu(screen.getByText("the row"));
-      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(7));
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(8));
       expect(screen.queryByRole("menuitem", { name: "Diagnostics" })).toBeNull();
     } finally {
       restore();
@@ -467,7 +468,7 @@ describe("SubshellActionsMenu — copy mode (issue #242)", () => {
     try {
       await renderMenu(makeSubshell(), row, undefined, { on: false, onToggle: () => {} });
       fireEvent.contextMenu(screen.getByText("the row"));
-      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(7));
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(8));
       expect(screen.queryByRole("menuitem", { name: "Enable text copying" })).toBeNull();
     } finally {
       restore();
@@ -487,16 +488,18 @@ describe("SubshellActionsMenu — children mode, sidebar right-click (spec 2026-
       expect(screen.getByText("the row")).toBeDefined();
       expect(screen.queryByRole("button", { name: "Actions for subshell" })).toBeNull();
       fireEvent.contextMenu(screen.getByText("the row"));
-      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(7));
+      await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(8));
       // The curated sidebar set after spec 2026-09-03: close, bell, clone,
       // share, edit-title — plus the QR (2026-09-19), which is sidebar-flagged
       // because "open this one elsewhere" is most often wanted from the rail,
-      // and Switch preset (2026-09-23). Terminate is gone (Close subsumes it;
-      // the alive row has no lifecycle item at all) — still NOT the
-      // dialog-less extras.
+      // Switch preset (2026-09-23), and Restart on both sides of liveness
+      // (ruling 2026-10-02; it asks on a live row, the way Close always does,
+      // so a prompt behind an item is no reason to curate it out). Terminate
+      // is gone (Close subsumes it); still NOT the dialog-less extras.
       expect(screen.getByRole("menuitem", { name: "Edit title" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "QR code…" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Notify when done" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "Restart" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Clone…" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Share…" })).toBeDefined();
       expect(screen.getByRole("menuitem", { name: "Close" })).toBeDefined();
@@ -519,6 +522,71 @@ describe("SubshellActionsMenu — children mode, sidebar right-click (spec 2026-
       // Of the curated seven, a viewer keeps exactly the one reading act.
       const names = screen.getAllByRole("menuitem").map((m) => m.textContent);
       expect(names).toEqual(["QR code…"]);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("SubshellActionsMenu — Restart (liveness split, ruling 2026-10-02)", () => {
+  afterEach(() => {
+    cleanup();
+    setConfirmHandler(null);
+  });
+
+  it("offers Restart on a live pane; a dead running row still says Restart, a terminated one Start again", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell({ alive: true, status: "running" }));
+      await openMenu("subshell");
+      expect(screen.getByRole("menuitem", { name: "Restart" })).toBeDefined();
+      cleanup();
+
+      await renderMenu(makeSubshell({ alive: false, status: "running" }));
+      await openMenu("subshell");
+      expect(screen.getByRole("menuitem", { name: "Restart" })).toBeDefined();
+      cleanup();
+
+      await renderMenu(makeSubshell({ alive: false, status: "terminated" }));
+      await openMenu("subshell");
+      expect(screen.getByRole("menuitem", { name: "Start again" })).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a live restart asks first: a declined prompt posts nothing, a confirmed one posts the restart", async () => {
+    const { calls, restore } = mockFetch();
+    try {
+      setConfirmHandler(() => Promise.resolve(false));
+      await renderMenu(makeSubshell({ id: "abc", alive: true }));
+      await openMenu("subshell");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Restart" }));
+      // The prompt resolves in microtasks; a macrotask tick settles it.
+      await new Promise((r) => setTimeout(r, 10));
+      expect(calls.some((c) => c.url === "/api/subshells/abc/restart")).toBe(false);
+      cleanup();
+
+      setConfirmHandler(() => Promise.resolve(true));
+      await renderMenu(makeSubshell({ id: "abc", alive: true }));
+      await openMenu("subshell");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Restart" }));
+      await waitFor(() => expect(calls.some((c) => c.url === "/api/subshells/abc/restart")).toBe(true));
+    } finally {
+      restore();
+    }
+  });
+
+  it("a dead row's Restart revives WITHOUT asking: no handler is mounted (which answers false), and it still POSTs", async () => {
+    const { calls, restore } = mockFetch();
+    try {
+      // The module default with no ConfirmProvider resolves `false`, so a
+      // prompt that WAS raised here would swallow the POST. It lands: the
+      // revive path never asks.
+      await renderMenu(makeSubshell({ id: "abc", alive: false, status: "running" }));
+      await openMenu("subshell");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Restart" }));
+      await waitFor(() => expect(calls.some((c) => c.url === "/api/subshells/abc/restart")).toBe(true));
     } finally {
       restore();
     }

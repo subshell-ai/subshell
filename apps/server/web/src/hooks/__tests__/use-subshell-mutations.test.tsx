@@ -99,8 +99,43 @@ describe("useSubshellMutations invalidation sets (bug audit 2026-09-27)", () => 
 
   it("Restart re-reads the workspace detail too — pane rows copy the status/alive the revival flips", async () => {
     stubFetch();
+    // A DEAD row: the revive asks nothing (ruling 2026-10-02 splits restart
+    // by liveness), so this exercises the mutation without a confirm stub.
     const { invalidated, wrapper } = mount();
-    const { result } = renderHook(() => useSubshellMutations("s1", row()), { wrapper });
+    const { result } = renderHook(() => useSubshellMutations("s1", row({ alive: false }), {}), { wrapper });
+
+    act(() => result.current.restart());
+    await waitFor(() => expect(invalidated.length).toBe(3));
+
+    expect(invalidated).toEqual(expect.arrayContaining(["subshells", "subshell", "workspace"]));
+  });
+
+  it("a restart of a LIVE row asks, and a declined prompt fires nothing", async () => {
+    const requests: string[] = [];
+    globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
+      requests.push(`${String(init?.method ?? "GET")} ${String(input)}`);
+      return new Response(JSON.stringify({ ok: true, id: "s1" }), { status: 200 });
+    }) as unknown as typeof fetch;
+    restoreConfirm = () => void setConfirmHandler(null);
+    setConfirmHandler(() => Promise.resolve(false));
+    const { invalidated, wrapper } = mount();
+    const { result } = renderHook(() => useSubshellMutations("s1", row({ alive: true }), {}), { wrapper });
+
+    await act(async () => {
+      result.current.restart();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    expect(requests).toHaveLength(0);
+    expect(invalidated).toHaveLength(0);
+  });
+
+  it("a restart of a LIVE row goes through once the prompt is confirmed", async () => {
+    stubFetch();
+    restoreConfirm = () => void setConfirmHandler(null);
+    setConfirmHandler(() => Promise.resolve(true));
+    const { invalidated, wrapper } = mount();
+    const { result } = renderHook(() => useSubshellMutations("s1", row({ alive: true }), {}), { wrapper });
 
     act(() => result.current.restart());
     await waitFor(() => expect(invalidated.length).toBe(3));
