@@ -131,6 +131,46 @@ describe("file_read", () => {
       (await dispatchCommand(ctx, { type: "file_read", path: join(work, "f.bin"), fromByte: 0, maxBytes: 8 })).ok,
     ).toBe(true);
   });
+
+  it("admits the staging subtree under a restrictive list, and nothing else inside dataDir", async () => {
+    // The M1 pin: the plane reads ONLY its own staging file, minted under
+    // `<dataDir>/transfers/`; an operator list naming WORKING directories
+    // must not strand the read (it used to: no configured node could ever
+    // be a source). The subtree is the ONE state-dir concession - the node
+    // signing key and the pane logs next door stay outside this verb, and
+    // `log_read` stays the pane logs' only reader.
+    const { dataDir, ctx } = setup("gate-staging");
+    const transfers = join(dataDir, "transfers");
+    mkdirSync(transfers, { recursive: true });
+    writeFileSync(join(transfers, "relay.tar.gz"), "STAGED");
+    writeFileSync(join(dataDir, "node-signing.json"), "secret");
+    mkdirSync(join(dataDir, "subshells"), { recursive: true });
+    writeFileSync(join(dataDir, "subshells", "s-1.log"), "typed secrets");
+    writeAllowedDirs(dataDir, [join(base, "somewhere-else")]); // excludes dataDir entirely
+    const staged = await dispatchCommand(ctx, {
+      type: "file_read",
+      path: join(transfers, "relay.tar.gz"),
+      fromByte: 0,
+      maxBytes: 64,
+    });
+    expect(staged.ok).toBe(true);
+    if (!staged.ok) throw new Error("staging read refused");
+    expect(unb64(parseNodeFileReadResult(staged.data)?.bytes_b64 ?? "")).toBe("STAGED");
+    for (const p of [join(dataDir, "node-signing.json"), join(dataDir, "subshells", "s-1.log")]) {
+      const res = await dispatchCommand(ctx, { type: "file_read", path: p, fromByte: 0, maxBytes: 8 });
+      expect(res.ok).toBe(false);
+    }
+    // And the admission is pathAllowed-hardened, not lexical: a symlink
+    // planted INSIDE the staging dir does not smuggle a read from outside it.
+    symlinkSync(join(dataDir, "node-signing.json"), join(transfers, "sneaky.tar.gz"));
+    const chase = await dispatchCommand(ctx, {
+      type: "file_read",
+      path: join(transfers, "sneaky.tar.gz"),
+      fromByte: 0,
+      maxBytes: 64,
+    });
+    expect(chase.ok).toBe(false);
+  });
 });
 
 describe("transfer_write", () => {

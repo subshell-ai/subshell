@@ -28,6 +28,14 @@ import { walkTree } from "./tree-walk.js";
  * eventual-convergent and re-running is the remedy (spec §4). A tree larger
  * than {@link MAX_ARCHIVE_ENTRIES} refuses outright rather than paging a
  * manifest of a tree no transfer could carry anyway.
+ *
+ * The cost, named honestly: the executor is STATELESS, so every page
+ * re-walks the whole tree and string-compares its way past the cursor.
+ * Paging an N-row tree is therefore N/pageRows walks - O(N²) lstats across a
+ * full sync (a 100k-file tree pays ~200 walks per endpoint). v1 accepts
+ * that: the per-root walk memo it would replace is a cache-invalidation
+ * surface over a mutating tree, syncs are operator-rare where keystrokes
+ * are agent-constant, and the caps keep every page inside its deadline.
  */
 
 type Cmd = Extract<NodeCommandBody, { type: "tree_manifest" }>;
@@ -62,7 +70,10 @@ export async function execTreeManifest(ctx: CommandContext, cmd: Cmd): Promise<C
     // Estimate before hashing: an escaped relPath plus the fixed row
     // furniture (keys, digits, the 64-char digest). Slight over-count is
     // correct here - a page that reads a touch SMALLER than its budget is
-    // still a valid page; one that overshot the frame is not.
+    // still a valid page; one that overshot the frame is not. The FIRST row
+    // always enters, budget or not: a caller asking for less than one row
+    // gets a page that overshoots its number rather than a cursor that
+    // cannot advance (the protocol's relPath cap bounds the overshoot).
     const estimate = JSON.stringify(f.relPath).length + 110;
     if (entries.length >= MAX_MANIFEST_PAGE_ENTRIES || (entries.length > 0 && spent + estimate > cmd.maxBytes)) {
       done = false;

@@ -267,6 +267,14 @@ export interface NodeTreeManifestPage {
 
 /**
  * Validates and narrows a `tree_manifest` command's `result{data}`.
+ *
+ * `relPath` is checked for SHAPE here, not CLEANLINESS: the transfer path
+ * guard lives in `pane-runtime` (`tar-blocks.ts`), and a protocol module
+ * that imported it would weld the two together. The chain closes at use -
+ * a plane that feeds these rows back as an `archive_create files[]` list
+ * meets `safeTransferPath` inside `selectFiles`, so a hostile echoed
+ * `relPath` is refused there, the same guard the extract path applies.
+ *
  * @param data - the `data` member of a successful result frame
  * @returns the narrowed page, or null when malformed
  */

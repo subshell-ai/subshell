@@ -89,7 +89,7 @@ exports stay node-import-free, per the Metro barrel trap):
 | `archive_create` | `{ root, files?, stagingPath }` | `{ size, sha256 }` | 300 s |
 | `file_read` | `{ path, fromByte, maxBytes }` | `{ bytes_b64, next, size }` | 10 s |
 | `transfer_write` | `{ path, chunkB64, chunk, eof }` | the `write_file` result shape | 30 s per chunk |
-| `archive_extract` | `{ archivePath, destRoot }` | `{ files, bytes }` | 300 s |
+| `archive_extract` | `{ archivePath, expectedSha256, destRoot }` | `{ files, bytes }` | 300 s |
 | `tree_manifest` | `{ root, cursor?, maxBytes }` | `{ entries, nextCursor }`, entries `{ relPath, size, mtime, sha256 }` | 60 s |
 
 Named constants live in the protocol package so agent and plane cannot drift

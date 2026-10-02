@@ -51,12 +51,18 @@ describe("tar-blocks: path guard", () => {
     expect(safeTransferPath("./a//b/./c")).toBe("a/b/c");
     expect(safeTransferPath("package/index.js")).toBe("package/index.js"); // NO npm strip here
   });
-  it("refuses absolute, traversal, empty, and NUL-bearing paths", () => {
+  it("refuses absolute, traversal, empty, and NUL/newline-bearing paths", () => {
     expect(() => safeTransferPath("/etc/passwd")).toThrow(/absolute/);
     expect(() => safeTransferPath("../escape")).toThrow(/traversal/);
     expect(() => safeTransferPath("a/../../escape")).toThrow(/traversal/);
     expect(() => safeTransferPath("")).toThrow(/empty/);
     expect(() => safeTransferPath("a\0b")).toThrow(/absolute|empty/);
+    // A newline is refused because a pax `path=` override is one
+    // newline-delimited line: a long name carrying one would be TRUNCATED at
+    // the newline on read (silent wrong-name landing). Both writer and
+    // extractor share this guard, so neither side mangles the other's bytes.
+    expect(() => safeTransferPath("a\nb")).toThrow(/absolute|empty/);
+    expect(() => safeTransferPath(`${"x".repeat(120)}\nname`)).toThrow(/absolute|empty/);
   });
 });
 

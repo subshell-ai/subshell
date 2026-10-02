@@ -5,6 +5,7 @@ import {
   type ArchiveDir,
   type ArchiveFile,
   type ArchiveLimits,
+  enforceMode,
   safeTransferPath,
   writeTarGz,
 } from "@internal/pane-runtime";
@@ -17,6 +18,7 @@ import {
 import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
 import { pathAllowed } from "../path-policy.js";
 import type { CommandContext, CommandResult } from "./context.js";
+import { ensureTransfersDir } from "./staging-dir.js";
 import { type WalkedDir, type WalkedFile, walkTree } from "./tree-walk.js";
 
 /**
@@ -27,12 +29,16 @@ import { type WalkedDir, type WalkedFile, walkTree } from "./tree-walk.js";
  *
  * The two gates are two different policies, and the split is the whole point:
  * `root` faces the OPERATOR allowlist (empty = unrestricted, launch semantics
- * verbatim), while `stagingPath` must live inside this node's own dataDir —
+ * verbatim), while `stagingPath` must live under `<dataDir>/transfers/` —
  * that is what makes the existing `remove_paths` root set the cleanup path
- * for staging, and a plane-minted name outside our state dir is refused
- * regardless of how generous the allowlist is. The name's UNIQUENESS is the
- * plane's job (spec §4: a timed-out retry must not double-write the first
- * attempt's file); its sanity is ours.
+ * for staging, what the hourly sweep of `transfer-sweep.ts` ages out, and
+ * the twin of `file_read`'s admitted subtree: a staging name the WRITE side
+ * accepts is always one the relay's READ half can read back on a node with
+ * a configured allowlist (the M1 lesson, held symmetric across the three
+ * staging-touching gates). A plane-minted name outside that subtree is
+ * refused regardless of how generous the allowlist is. The name's UNIQUENESS
+ * is the plane's job (spec §4: a timed-out retry must not double-write the
+ * first attempt's file); its sanity is ours.
  *
  * The walk, the writer and the digest are each streaming or capped: the walk
  * refuses a tree past `MAX_ARCHIVE_ENTRIES` before it can exhaust memory,
@@ -66,10 +72,28 @@ export async function execArchiveCreate(ctx: CommandContext, cmd: CmdBody): Prom
   if (!(await launchDirAllowed(cmd.root, dirs))) {
     return { ok: false, error: `${DIR_REFUSED_MESSAGE}: ${cmd.root}` };
   }
-  if (
-    !(await pathAllowed(cmd.stagingPath, [ctx.config.dataDir])) // also refuses `..` and symlink leaves
-  ) {
-    return { ok: false, error: `staging path must be inside this node's data directory: ${cmd.stagingPath}` };
+  // Staging must live in the transfers subtree, not merely anywhere in
+  // dataDir: this gate and `file_read`'s admitted-subtree are TWINS, so a
+  // name this command accepts is a name the relay's read half can actually
+  // read back on a node with a configured allowlist. The plane mints into
+  // exactly this directory (`stagingPathFor`); anything else was never a
+  // relay file. `pathAllowed` also refuses `..` and symlink leaves. The root
+  // is ensured FIRST: a first transfer on a fresh node has no transfers/
+  // yet, and `pathAllowed` drops a root it cannot realpath.
+  let stagingRoot: string;
+  try {
+    stagingRoot = ensureTransfersDir(ctx.config.dataDir);
+  } catch (err) {
+    return {
+      ok: false,
+      error: `cannot prepare the transfers staging directory: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (!(await pathAllowed(cmd.stagingPath, [stagingRoot]))) {
+    return {
+      ok: false,
+      error: `staging path must be inside the transfers staging directory under this node's data directory: ${cmd.stagingPath}`,
+    };
   }
 
   let files: WalkedFile[];
@@ -92,9 +116,12 @@ export async function execArchiveCreate(ctx: CommandContext, cmd: CmdBody): Prom
     };
   }
 
-  await mkdir(dirname(cmd.stagingPath), { recursive: true });
+  await mkdir(dirname(cmd.stagingPath), { recursive: true, mode: 0o700 });
   try {
-    const sink = createWriteStream(cmd.stagingPath);
+    // 0600 from the first byte (the destination's .part discipline, mirrored
+    // on the source): the staging archive is a PLAINTEXT copy of the user's
+    // tree, and dataDir's 0700 is the belt, never the reason to slack.
+    const sink = createWriteStream(cmd.stagingPath, { mode: 0o600 });
     await writeTarGz(
       dirsOut.map((d): ArchiveDir => ({ path: d.relPath, mode: d.mode, mtimeSeconds: d.mtimeSeconds })),
       files.map(
@@ -109,6 +136,7 @@ export async function execArchiveCreate(ctx: CommandContext, cmd: CmdBody): Prom
       sink,
       TRANSFER_ARCHIVE_LIMITS,
     );
+    await enforceMode(cmd.stagingPath, 0o600); // the open-time mode only holds for NEW files; a stale same-name file keeps its own
   } catch (err) {
     await unlink(cmd.stagingPath).catch(() => {}); // partial file must not outlive the refusal
     return { ok: false, error: `archive_create failed: ${err instanceof Error ? err.message : String(err)}` };

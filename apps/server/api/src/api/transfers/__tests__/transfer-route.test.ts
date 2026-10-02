@@ -41,10 +41,16 @@ const nodeIds: string[] = [];
 const scripted: ScriptedNode[] = [];
 const subshellIds: string[] = [];
 
-async function makeNode(ownerId: string, kind: "agent" | "local" = "agent"): Promise<string> {
+async function makeNode(ownerId: string, kind: "agent" | "local" = "agent", protocolVersion?: number): Promise<string> {
   const id = `n-${crypto.randomUUID().slice(0, 8)}`;
   nodeIds.push(id);
-  await new NodesRepository(db).create({ id, ownerUserId: ownerId, name: id, kind });
+  await new NodesRepository(db).create({
+    id,
+    ownerUserId: ownerId,
+    name: id,
+    kind,
+    ...(protocolVersion !== undefined ? { protocolVersion } : {}),
+  });
   return id;
 }
 
@@ -179,6 +185,26 @@ describe("POST /api/transfers gates", () => {
     );
     expect(offline.status).toBe(409);
     expect(((await offline.json()) as { code: string }).code).toBe("NODE_OFFLINE");
+  });
+
+  it("names the UPDATE remedy for a held (lagging-protocol) node, not just 'offline'", async () => {
+    // A refused agent is HELD, not live (protocol §11.12), but its last
+    // `ready` recorded the protocol it speaks. A row that shows a mismatch is
+    // not "bring it online" - it is "update it" (spec R12); a null protocol
+    // (never reported) stays the plain offline answer tested above.
+    const lagging = await makeNode(userId, "agent", 14);
+    const ok = await makeNode(userId);
+    scripted.push(attachScriptedNode(ok, {}, { dataDir: "/sd-ok" }));
+    const res = await app.fetch(
+      authedRequest("/api/transfers", session, {
+        method: "POST",
+        body: body({ nodeId: lagging, path: "/a" }, { nodeId: ok, path: "/b" }),
+      }),
+    );
+    expect(res.status).toBe(409);
+    const payload = (await res.json()) as { code: string; message: string };
+    expect(payload.code).toBe("NODE_AGENT_TOO_OLD");
+    expect(payload.message).toContain("update the node");
   });
 
   it("400s relative paths and same-directory endpoints", async () => {

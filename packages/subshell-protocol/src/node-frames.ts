@@ -967,7 +967,7 @@ export type NodeCommandBody =
       /**
        * Read a byte window of an arbitrary file (spec 2026-10-01 §2). This is
        * the generalized `log_read` — same shape, its OWN policy: `log_read`
-       * stays confined to `<dataDir>/subshelllogs/<id>.log` and the two
+       * stays confined to `<dataDir>/subshells/<id>.log` and the two
        * never share a code path or a name (the pane logs hold what operators
        * typed; this one answers transfer payloads). `maxBytes` is parser-capped
        * at {@link MAX_TRANSFER_WINDOW_BYTES}: the window is what must fit the
@@ -1012,14 +1012,18 @@ export type NodeCommandBody =
        * `destRoot`, ADDITIVE: matching paths are overwritten, everything
        * else at the destination is left alone, nothing is ever deleted.
        * Guards run after pax substitution; links and devices are refused
-       * outright. The CALLER verified the transport digest
-       * (`archive_create`'s answer) against the bytes before this ran —
-       * extraction trusts the bytes are what the source wrote, and its own
-       * guards decide whether they are benign.
+       * outright. The digest is named HERE and the agent re-hashes the
+       * landed file before its first entry lands (spec §3's promise kept
+       * on the disk that stores it, not only on the wire that carried it:
+       * rename-to-corruption between relay and extract is this check's
+       * case); the plane's own incremental verify is why extraction can
+       * EVER run, this is why it runs on intact bytes.
        */
       type: "archive_extract";
       /** Absolute path of the archive on this node (lands via `transfer_write`). */
       archivePath: string;
+      /** `archive_create`'s digest over the compressed file, re-checked before extraction. */
+      expectedSha256: string;
       /** Absolute directory to extract into; allowlist-gated agent-side. */
       destRoot: string;
     }
@@ -1558,8 +1562,19 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         ? { type: "transfer_write", path: value.path, chunkB64: value.chunkB64, chunk: value.chunk, eof: value.eof }
         : null;
     case "archive_extract":
-      return isStr(value.archivePath) && isStr(value.destRoot)
-        ? { type: "archive_extract", archivePath: value.archivePath, destRoot: value.destRoot }
+      // The digest is part of the contract, not a hint: a frame that names
+      // an archive without the hash the destination must re-check is a
+      // caller that never intended to verify, and the grammar refuses it.
+      return isStr(value.archivePath) &&
+        isStr(value.destRoot) &&
+        isStr(value.expectedSha256) &&
+        /^[0-9a-f]{64}$/.test(value.expectedSha256)
+        ? {
+            type: "archive_extract",
+            archivePath: value.archivePath,
+            expectedSha256: value.expectedSha256,
+            destRoot: value.destRoot,
+          }
         : null;
     case "tree_manifest":
       // maxBytes REQUIRED and window-capped (see the arm's field note); the

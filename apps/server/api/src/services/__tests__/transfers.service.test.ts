@@ -24,7 +24,7 @@ const sha256Hex = (bytes: Uint8Array): string => new Bun.CryptoHasher("sha256").
 /** A scripted source node: builds the fake archive, serves honest windows. */
 function scriptSource(
   archive: Uint8Array,
-  opts: { corruptWindows?: boolean } = {},
+  opts: { corruptWindows?: boolean; stallAt?: number } = {},
 ): {
   node: ScriptedNode;
   removed: string[][];
@@ -41,9 +41,12 @@ function scriptSource(
         if (cmd.type !== "file_read") throw new Error("wrong cmd");
         const base = opts.corruptWindows ? new Uint8Array(archive.byteLength).fill(0xff) : archive;
         const slice = base.subarray(cmd.fromByte, Math.min(cmd.fromByte + cmd.maxBytes, archive.byteLength));
+        // A source that answers without advancing the cursor would spin the
+        // relay forever; the service must refuse it, not loop.
+        const next = opts.stallAt === cmd.fromByte ? cmd.fromByte : cmd.fromByte + slice.byteLength;
         return {
           bytes_b64: Buffer.from(slice).toString("base64"),
-          next: cmd.fromByte + slice.byteLength,
+          next,
           size: archive.byteLength,
         };
       },
@@ -70,13 +73,13 @@ function scriptDestination(opts: { failAtChunk?: number; manifest?: "present" | 
   node: ScriptedNode;
   removed: string[][];
   writes: { path: string; chunk: number; eof: boolean; bytes: number }[];
-  extracted: () => { archivePath: string; destRoot: string } | undefined;
+  extracted: () => { archivePath: string; expectedSha256: string; destRoot: string } | undefined;
   landed: () => Uint8Array;
 } {
   const removed: string[][] = [];
   const writes: { path: string; chunk: number; eof: boolean; bytes: number }[] = [];
   const chunks: Uint8Array[] = [];
-  let extractCmd: { archivePath: string; destRoot: string } | undefined;
+  let extractCmd: { archivePath: string; expectedSha256: string; destRoot: string } | undefined;
   const node = attachScriptedNode(
     DST,
     {
@@ -91,7 +94,7 @@ function scriptDestination(opts: { failAtChunk?: number; manifest?: "present" | 
       },
       archive_extract: (cmd) => {
         if (cmd.type !== "archive_extract") throw new Error("wrong cmd");
-        extractCmd = { archivePath: cmd.archivePath, destRoot: cmd.destRoot };
+        extractCmd = { archivePath: cmd.archivePath, expectedSha256: cmd.expectedSha256, destRoot: cmd.destRoot };
         return { files: 7, bytes: 12345 };
       },
       tree_manifest: (cmd) => {
@@ -173,6 +176,7 @@ describe("transfers relay", () => {
 
       const extract = dst.extracted();
       expect(extract?.archivePath).toBe(dst.writes[0]!.path); // extract reads what wrote landed
+      expect(extract?.expectedSha256).toBe(sha256Hex(archive)); // the source's digest rides to the destination's re-check
       expect(extract?.destRoot).toBe("/data/dst");
 
       // Both stagings cleaned, source first (its create is the bigger file).
@@ -202,6 +206,58 @@ describe("transfers relay", () => {
     } finally {
       src.node.detach();
       dst.node.detach();
+    }
+  });
+
+  it("a source that answers without advancing the cursor aborts instead of spinning", async () => {
+    // The relay's termination reads `next`; a source that keeps answering the
+    // SAME cursor would re-relay a window forever, so the service refuses it
+    // (a misbehaving node is an error, not an infinite loop).
+    const archive = new Uint8Array(2048).fill(3);
+    const src = scriptSource(archive, { stallAt: 0 });
+    const dst = scriptDestination();
+    try {
+      const err = await runTransfer({
+        from: { nodeId: SRC, path: "/a" },
+        to: { nodeId: DST, path: "/b" },
+        sync: false,
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).message).toMatch(/without advancing the cursor/);
+      // The window never reached the destination (only the abort cleanup did):
+      expect(dst.node.cmdTypes()).toEqual(["remove_paths"]);
+    } finally {
+      src.node.detach();
+      dst.node.detach();
+    }
+  });
+
+  it("a manifest whose cursor never advances is refused, not paged forever", async () => {
+    // collectManifest's termination reads `nextCursor`; one that repeats the
+    // cursor would grow plane memory unbounded. The cursor guard is the only
+    // thing between a broken node and an infinite sync.
+    const src = attachScriptedNode(
+      SRC,
+      {
+        tree_manifest: () => ({
+          entries: [{ relPath: "z", size: 1, mtime: 0, sha256: "a".repeat(64) }],
+          nextCursor: "z", // never moves past itself
+        }),
+      },
+      { dataDir: SRC_DATA },
+    );
+    try {
+      const err = await runTransfer({
+        from: { nodeId: SRC, path: "/a" },
+        to: { nodeId: DST, path: "/b" },
+        sync: true,
+      }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ApiError);
+      expect((err as ApiError).message).toMatch(/malformed payload/);
+      // The destination was never asked (the source manifest failed first):
+      expect(src.cmdTypes()).toEqual(["tree_manifest", "tree_manifest"]);
+    } finally {
+      src.detach();
     }
   });
 

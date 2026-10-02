@@ -1,4 +1,5 @@
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
+import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
@@ -88,6 +89,19 @@ async function gateEndpoint(which: "from" | "to", ep: TransferEndpoint, userId: 
     });
   }
   if (!getLive(row.id)) {
+    // A refused agent is HELD, not live (protocol §11.12), so the plain
+    // offline sentence would send the caller to "bring it online" when the
+    // truth is the row already knows: the version its last `ready` recorded
+    // (node-ws-handler writes it BEFORE the compatibility gate, so a held
+    // node has it). Name the update remedy for that case (spec R12's whole
+    // point); everything else is genuinely just offline.
+    if (row.protocolVersion !== null && row.protocolVersion !== NODE_PROTOCOL_VERSION) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_AGENT_TOO_OLD,
+        message: `the agent on ${row.name} speaks protocol v${row.protocolVersion}; update the node (the Nodes page asks a human)`,
+        doNotLog: true,
+      });
+    }
     throwApiError({
       code: BackendErrorCodes.NODE_OFFLINE,
       message: `node ${row.name} has no live connection`,

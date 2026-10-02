@@ -22,10 +22,12 @@ import { SubshellMetaStore } from "../subshell-meta.js";
 /**
  * Spec 2026-10-01 §4: `archive_extract` lands a relayed archive ADDITIVELY,
  * and this executor adds the policy layer over the format guards: the archive
- * must be inside dataDir (only bytes the relay itself landed), the
- * destination faces the operator allowlist. The hostile-archive refusals are
- * the extractor's tested surface (pane-runtime's tar-archive suite); what is
- * pinned HERE is the executor's grammar and posture.
+ * must be inside the transfers staging subtree (only bytes the relay itself
+ * landed), the destination faces the operator allowlist, and the landed file
+ * is re-hashed against the named digest before a single entry is written.
+ * The hostile-archive refusals are the extractor's tested surface
+ * (pane-runtime's tar-archive suite); what is pinned HERE is the executor's
+ * grammar and posture.
  */
 
 let base: string;
@@ -72,7 +74,7 @@ async function buildArchive(src: { ctx: CommandContext; dataDir: string; work: s
   mkdirSync(join(src.work, "sub"), { recursive: true });
   writeFileSync(join(src.work, "one.txt"), "one\n");
   writeFileSync(join(src.work, "sub", "two.txt"), "two\n");
-  const staging = join(src.dataDir, "relay", "a.tar.gz");
+  const staging = join(src.dataDir, "transfers", "a.tar.gz");
   const res = await dispatchCommand(src.ctx, { type: "archive_create", root: src.work, stagingPath: staging });
   expect(res.ok).toBe(true);
   return staging;
@@ -80,11 +82,16 @@ async function buildArchive(src: { ctx: CommandContext; dataDir: string; work: s
 
 /** Stand in for the plane's relay: land the source's bytes in dst's dataDir. */
 function relayTo(dst: { dataDir: string }, sourceStaging: string): string {
-  const landed = join(dst.dataDir, "relay", "a.tar.gz");
-  mkdirSync(join(dst.dataDir, "relay"), { recursive: true });
+  // The plane mints staging under `transfers/`; the write and extract gates
+  // both require that subtree, so the test lands it there too.
+  const landed = join(dst.dataDir, "transfers", "a.tar.gz");
+  mkdirSync(join(dst.dataDir, "transfers"), { recursive: true });
   writeFileSync(landed, readFileSync(sourceStaging));
   return landed;
 }
+
+/** The digest the (honest) plane names on the extract command. */
+const shaOf = (path: string): string => new Bun.CryptoHasher("sha256").update(readFileSync(path)).digest("hex");
 
 describe("archive_extract", () => {
   it("lands the tree additively and answers validator-shaped counts", async () => {
@@ -95,7 +102,12 @@ describe("archive_extract", () => {
     mkdirSync(join(dst.work, "sub"), { recursive: true });
     writeFileSync(join(dst.work, "one.txt"), "OLD CONTENT");
     writeFileSync(join(dst.work, "keep.txt"), "untouched");
-    const res = await dispatchCommand(dst.ctx, { type: "archive_extract", archivePath: staging, destRoot: dst.work });
+    const res = await dispatchCommand(dst.ctx, {
+      type: "archive_extract",
+      archivePath: staging,
+      expectedSha256: shaOf(staging),
+      destRoot: dst.work,
+    });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(parseNodeArchiveExtractResult(res.data)).toEqual({ files: 2, bytes: 8 });
@@ -108,10 +120,12 @@ describe("archive_extract", () => {
     const src = setup("gate-src");
     const dst = setup("gate-dst");
     const staging = await buildArchive(src);
+    const relayed = relayTo(dst, staging);
 
     const outsideArchive = await dispatchCommand(dst.ctx, {
       type: "archive_extract",
       archivePath: join(src.work, "one.txt"), // not even an archive, and outside dataDir anyway
+      expectedSha256: shaOf(join(src.work, "one.txt")),
       destRoot: dst.work,
     });
     expect(outsideArchive.ok).toBe(false);
@@ -121,7 +135,8 @@ describe("archive_extract", () => {
     writeAllowedDirs(dst.dataDir, [join(base, "nowhere")]);
     const refused = await dispatchCommand(dst.ctx, {
       type: "archive_extract",
-      archivePath: relayTo(dst, staging),
+      archivePath: relayed,
+      expectedSha256: shaOf(relayed),
       destRoot: dst.work,
     });
     expect(refused.ok).toBe(false);
@@ -130,11 +145,38 @@ describe("archive_extract", () => {
     expect(existsSync(join(dst.work, "one.txt"))).toBe(false); // refusal wrote nothing
   });
 
+  it("a landed file that does not match the named digest refuses BEFORE extraction", async () => {
+    const src = setup("digest-src");
+    const dst = setup("digest-dst");
+    const staging = relayTo(dst, await buildArchive(src));
+    const honest = shaOf(staging);
+    // The disk lies between relay and extract (corruption, a swap): the
+    // plane's window-verify passed over the wire it saw; this is the check
+    // on the bytes THIS disk now holds.
+    writeFileSync(staging, "flipped after the relay");
+    const res = await dispatchCommand(dst.ctx, {
+      type: "archive_extract",
+      archivePath: staging,
+      expectedSha256: honest,
+      destRoot: dst.work,
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error).toContain("digest mismatch");
+    expect(existsSync(join(dst.work, "one.txt"))).toBe(false); // nothing extracted
+  });
+
   it("a corrupt archive refuses with the format error and lands nothing through it", async () => {
     const { dataDir, work, ctx } = setup("corrupt");
-    const fake = join(dataDir, "fake.tar.gz");
+    mkdirSync(join(dataDir, "transfers"), { recursive: true });
+    const fake = join(dataDir, "transfers", "fake.tar.gz");
     writeFileSync(fake, "this is not gzip");
-    const res = await dispatchCommand(ctx, { type: "archive_extract", archivePath: fake, destRoot: work });
+    const res = await dispatchCommand(ctx, {
+      type: "archive_extract",
+      archivePath: fake,
+      expectedSha256: shaOf(fake),
+      destRoot: work,
+    });
     expect(res.ok).toBe(false);
     // Nothing landed at the destination from garbage:
     expect(lstatSync(work).isDirectory()).toBe(true);
@@ -152,9 +194,11 @@ describe("archive_extract", () => {
     const linkRoot = join(dst.work, "linked");
     symlinkSync(elsewhere, linkRoot);
     writeAllowedDirs(dst.dataDir, [dst.work]);
+    const landed = relayTo(dst, staging);
     const res = await dispatchCommand(dst.ctx, {
       type: "archive_extract",
-      archivePath: relayTo(dst, staging),
+      archivePath: landed,
+      expectedSha256: shaOf(landed),
       destRoot: linkRoot,
     });
     // destRoot resolves through the symlink OUTSIDE the allowlist -> refusal.

@@ -35,7 +35,14 @@ const dec = new TextDecoder();
  * root. NO `package/` strip (that rule belongs to npm's tarballs only).
  */
 export function safeTransferPath(p: string): string {
-  if (p === "" || p.startsWith("/") || p.includes("\0")) throw new Error(`tar: refusing absolute/empty path '${p}'`);
+  // Newline is refused beside the NUL: a pax `path=` record is one
+  // newline-delimited line, and a >100-byte name containing one would be
+  // TRUNCATED at the newline by the override reader - the file would land
+  // under a wrong name in silence. Linux allows `\n` in file names, so both
+  // sides of the wire need the same rule: refuse, don't mangle.
+  if (p === "" || p.startsWith("/") || p.includes("\0") || p.includes("\n")) {
+    throw new Error(`tar: refusing absolute/empty path '${p}'`);
+  }
   const parts: string[] = [];
   for (const seg of p.split("/")) {
     if (seg === "" || seg === ".") continue;

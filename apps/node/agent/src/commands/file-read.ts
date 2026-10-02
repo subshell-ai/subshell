@@ -1,6 +1,8 @@
 import type { JsonValue, NodeCommandBody, NodeFileReadResult } from "@internal/subshell-protocol";
-import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
+import { DIR_REFUSED_MESSAGE, readAllowedDirs } from "../allowed-dirs.js";
+import { pathAllowed } from "../path-policy.js";
 import type { CommandContext, CommandResult } from "./context.js";
+import { transfersDir } from "./staging-dir.js";
 
 /**
  * `file_read` (spec 2026-10-01 §2): answer one byte window of an arbitrary
@@ -30,7 +32,20 @@ type Cmd = Extract<NodeCommandBody, { type: "file_read" }>;
  *   refusal
  */
 export async function execFileRead(ctx: CommandContext, cmd: Cmd): Promise<CommandResult> {
-  if (!(await launchDirAllowed(cmd.path, readAllowedDirs(ctx.config.dataDir)))) {
+  const dirs = readAllowedDirs(ctx.config.dataDir);
+  // The staging subtree joins the permitted roots, or the relay strands
+  // itself on every node with a configured list: the plane reads ONLY the
+  // `archive_create` staging file it minted under `<dataDir>/transfers/`,
+  // and WORKING directories are what the allowlist names. The union is
+  // narrow on purpose (mirror of `transfer_write`'s, which admits dataDir
+  // wholesale): UNIONING ALL OF dataDir HERE would let one plane-issued
+  // read pull `node-signing.json` or `<dataDir>/subshells/*.log` - pane
+  // logs hold what operators typed, and `log_read` stays their only
+  // reader. With an empty list the whole disk is readable by ruling, so
+  // the subtree adds nothing and the check is skipped; with a list, the
+  // hardened `pathAllowed` (not the lexical check) also denies planted
+  // symlinks inside the staging dir, as everywhere else on this seam.
+  if (dirs.length > 0 && !(await pathAllowed(cmd.path, [transfersDir(ctx.config.dataDir), ...dirs]))) {
     return { ok: false, error: `${DIR_REFUSED_MESSAGE}: ${cmd.path}` };
   }
   const file = Bun.file(cmd.path);

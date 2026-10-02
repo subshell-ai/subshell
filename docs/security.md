@@ -2169,9 +2169,11 @@ Audit events are written, grouped by family:
   and `transfer.complete` (the same plus `{ outcome: "ok" | "failed" }` and, on
   success, the byte and entry counts). Facts, never contents: a row says which
   two machines moved which named trees with how many bytes; the file bytes
-  themselves ride the relay and are stored nowhere near the trail. A failed
-  transfer still writes both rows: a refused file move is exactly the event an
-  operator reads the trail for.
+  themselves ride the relay and are stored nowhere near the trail. A transfer
+  that BEGAN writes both rows, ok or failed: a file move that started and blew
+  up is exactly the event an operator reads the trail for. A gate refusal
+  (foreign node, `local`, maintenance, offline) writes neither - the trail
+  records acts, and a pre-gate 403 is not one.
 - **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`, `node.reregister_key`, `node.reregister`,
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.logging.update`, `node.update`,

@@ -211,14 +211,32 @@ describe("parseNodeCommandBody", () => {
     expect(parseNodeCommandBody({ type: "transfer_write", path: "/d/x", chunkB64: "aGk=", chunk: 0 })).toBeNull();
   });
 
-  it("validates archive_extract path pair", () => {
-    expect(parseNodeCommandBody({ type: "archive_extract", archivePath: "/d/a.tar.gz", destRoot: "/dst" })).toEqual({
-      type: "archive_extract",
-      archivePath: "/d/a.tar.gz",
-      destRoot: "/dst",
-    });
+  it("validates archive_extract path pair with its digest", () => {
+    const sha = "a".repeat(64);
+    expect(
+      parseNodeCommandBody({
+        type: "archive_extract",
+        archivePath: "/d/a.tar.gz",
+        expectedSha256: sha,
+        destRoot: "/dst",
+      }),
+    ).toEqual({ type: "archive_extract", archivePath: "/d/a.tar.gz", expectedSha256: sha, destRoot: "/dst" });
     expect(parseNodeCommandBody({ type: "archive_extract", archivePath: "/d/a.tar.gz" })).toBeNull();
     expect(parseNodeCommandBody({ type: "archive_extract", destRoot: "/dst" })).toBeNull();
+    // The digest is the destination's own re-check; no hash (or a malformed
+    // one) is a frame that never intended to verify, so the grammar refuses.
+    expect(parseNodeCommandBody({ type: "archive_extract", archivePath: "/d/a", destRoot: "/dst" })).toBeNull();
+    expect(
+      parseNodeCommandBody({ type: "archive_extract", archivePath: "/d/a", expectedSha256: "ABC", destRoot: "/dst" }),
+    ).toBeNull();
+    expect(
+      parseNodeCommandBody({
+        type: "archive_extract",
+        archivePath: "/d/a",
+        expectedSha256: "A".repeat(64), // uppercase is not lowercase-hex
+        destRoot: "/dst",
+      }),
+    ).toBeNull();
   });
 
   it("validates tree_manifest paging", () => {

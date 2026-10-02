@@ -180,7 +180,7 @@ async function relayArchive(
   try {
     const data = await nodeCommand(
       to.nodeId,
-      { type: "archive_extract", archivePath: toStaging, destRoot: to.path },
+      { type: "archive_extract", archivePath: toStaging, expectedSha256: create.sha256, destRoot: to.path },
       EXTRACT_TIMEOUT_MS,
     );
     extract = parseNodeArchiveExtractResult(data);
@@ -236,6 +236,25 @@ async function relayWindows(
       });
     }
     const bytes = Buffer.from(read.bytes_b64, "base64");
+    // The cursor is an agent-sent number, and this loop's TERMINATION reads
+    // it: an answer that does not advance would spin (re-relaying the same
+    // window forever), and one that leaps past its own bytes would hole the
+    // archive. The final digest check would catch both late - these catch
+    // them cheap, and a misbehaving source is a refusal, not a puzzle.
+    if (read.next <= offset) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_UNREACHABLE,
+        message: `the source answered file_read without advancing the cursor (${offset} -> ${read.next})`,
+        doNotLog: true,
+      });
+    }
+    if (read.next > offset + bytes.byteLength) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_UNREACHABLE,
+        message: `the source answered file_read with a cursor past its own bytes (${read.next} > ${offset + bytes.byteLength})`,
+        doNotLog: true,
+      });
+    }
     hasher.update(bytes);
     const eof = read.next >= create.size;
     try {
@@ -316,6 +335,13 @@ async function collectManifest(
     if (page === null) return malformed(endpoint.nodeId, "tree_manifest");
     all.push(...page.entries);
     if (page.nextCursor === null) return all;
+    // The agent's contract is STRICTLY-after the last returned relPath, and
+    // this loop's termination reads the cursor: one that repeats or walks
+    // backwards would page forever, growing plane memory, on a tree that is
+    // not actually moving forward. Guard the contract, do not trust it.
+    if (cursor !== undefined && !(page.nextCursor > cursor)) {
+      return malformed(endpoint.nodeId, "tree_manifest");
+    }
     cursor = page.nextCursor;
   }
 }

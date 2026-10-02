@@ -97,13 +97,16 @@ describe("archive_create", () => {
   it("builds the whole tree, streaming, and answers validator-shaped transport facts", async () => {
     const { dataDir, work, outside, ctx } = setup("happy");
     buildTree(work, outside);
-    const staging = join(dataDir, "transfer", "uniq-1.tar.gz");
+    const staging = join(dataDir, "transfers", "uniq-1.tar.gz");
     const res = await create(ctx, { root: work, stagingPath: staging });
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const answer = parseNodeArchiveCreateResult(res.data);
     if (!answer) throw new Error("archive_create answered an unparseable result");
     const bytes = readFileSync(staging);
+    // The staging file is a PLAINTEXT copy of the tree; it is born 0600 like
+    // the destination's temp, not at the umask default.
+    expect(statSync(staging).mode & 0o777).toBe(0o600);
     expect(answer.size).toBe(bytes.length);
     // Independent hash of the exact compressed span the destination will see.
     expect(answer.sha256).toBe(new Bun.CryptoHasher("sha256").update(bytes).digest("hex"));
@@ -127,7 +130,7 @@ describe("archive_create", () => {
     const { dataDir, work, outside, ctx } = setup("allowlist");
     writeFileSync(join(work, "f.txt"), "x");
     writeAllowedDirs(dataDir, [outside]); // only `outside` may be an endpoint
-    const staging = join(dataDir, "s.tar.gz");
+    const staging = join(dataDir, "transfers", "s.tar.gz");
     const refused = await create(ctx, { root: work, stagingPath: staging });
     expect(refused.ok).toBe(false);
     if (refused.ok) return;
@@ -138,7 +141,7 @@ describe("archive_create", () => {
     expect((await create(ctx, { root: work, stagingPath: staging })).ok).toBe(true);
   });
 
-  it("refuses a staging path outside dataDir even with a generous allowlist", async () => {
+  it("refuses staging outside the transfers subtree (twin of file_read's read gate)", async () => {
     const { dataDir, work, ctx } = setup("staging-out");
     writeFileSync(join(work, "f.txt"), "x");
     const sneaky = join(work, "sneaky.tar.gz");
@@ -147,6 +150,12 @@ describe("archive_create", () => {
     if (res.ok) return;
     expect(res.error).toContain("data directory");
     expect(existsSync(sneaky)).toBe(false);
+    // Even directly INSIDE dataDir is not enough: file_read's admitted
+    // subtree is `<dataDir>/transfers/`, and the write gate mirrors it, so a
+    // staging file the relay could never read back is refused up front.
+    const loose = await create(ctx, { root: work, stagingPath: join(dataDir, "loose.tar.gz") });
+    expect(loose.ok).toBe(false);
+    expect(existsSync(join(dataDir, "loose.tar.gz"))).toBe(false);
     // Traversal spellings are refused too, and create nothing on the way.
     const traversal = await create(ctx, { root: work, stagingPath: join(dataDir, "..", "evil.tar.gz") });
     expect(traversal.ok).toBe(false);
@@ -156,7 +165,7 @@ describe("archive_create", () => {
   it("selects a files[] subset with ancestors, and refuses bad entries", async () => {
     const { dataDir, work, outside, ctx } = setup("files-list");
     buildTree(work, outside);
-    const staging = join(dataDir, "subset.tar.gz");
+    const staging = join(dataDir, "transfers", "subset.tar.gz");
     const res = await create(ctx, { root: work, files: ["src/a.txt", ".hidden"], stagingPath: staging });
     expect(res.ok).toBe(true);
     const out = join(base, "files-list-out");
@@ -169,15 +178,22 @@ describe("archive_create", () => {
     // A symlink in the list is refused (it is not a regular file here), a
     // traversal entry never reaches the filesystem, and a listless `files: []`
     // is a legal empty archive rather than a whole-tree create.
-    expect((await create(ctx, { root: work, files: ["src/escape"], stagingPath: join(dataDir, "l1.tar.gz") })).ok).toBe(
-      false,
-    );
     expect(
-      (await create(ctx, { root: work, files: ["../outside/secret.txt"], stagingPath: join(dataDir, "l2.tar.gz") })).ok,
+      (await create(ctx, { root: work, files: ["src/escape"], stagingPath: join(dataDir, "transfers", "l1.tar.gz") }))
+        .ok,
     ).toBe(false);
-    const empty = await create(ctx, { root: work, files: [], stagingPath: join(dataDir, "l3.tar.gz") });
+    expect(
+      (
+        await create(ctx, {
+          root: work,
+          files: ["../outside/secret.txt"],
+          stagingPath: join(dataDir, "transfers", "l2.tar.gz"),
+        })
+      ).ok,
+    ).toBe(false);
+    const empty = await create(ctx, { root: work, files: [], stagingPath: join(dataDir, "transfers", "l3.tar.gz") });
     expect(empty.ok).toBe(true);
-    const r = await extractTarGz(join(dataDir, "l3.tar.gz"), join(base, "files-list-empty"), {
+    const r = await extractTarGz(join(dataDir, "transfers", "l3.tar.gz"), join(base, "files-list-empty"), {
       maxFileBytes: 1 << 20,
       maxTotalBytes: 8 << 20,
       maxEntries: 100,
@@ -190,8 +206,8 @@ describe("archive_create", () => {
     mkdirSync(join(work, "unreadable"), { recursive: true });
     writeFileSync(join(work, "ok.txt"), "x");
     // root missing entirely: refused before anything is written.
-    const gone = await create(ctx, { root: join(work, "nope"), stagingPath: join(dataDir, "g.tar.gz") });
+    const gone = await create(ctx, { root: join(work, "nope"), stagingPath: join(dataDir, "transfers", "g.tar.gz") });
     expect(gone.ok).toBe(false);
-    expect(existsSync(join(dataDir, "g.tar.gz"))).toBe(false);
+    expect(existsSync(join(dataDir, "transfers", "g.tar.gz"))).toBe(false);
   });
 });
