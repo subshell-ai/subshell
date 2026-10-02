@@ -66,6 +66,7 @@ export function BackupRestoreScreen(props: {
   const [temporaryConfirmation, setTemporaryConfirmation] = useState("");
   const [recover, setRecover] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.recoverAdmin);
   const [start, setStart] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.start);
+  const [validatedBackup, setValidatedBackup] = useState<RestoreInspection | null>(null);
   const [inspection, setInspection] = useState<RestoreInspection | null>(null);
   const [backups, setBackups] = useState<LocalBackupFile[]>([]);
   const [backupSource, setBackupSource] = useState("file");
@@ -91,6 +92,7 @@ export function BackupRestoreScreen(props: {
   const [localBusy, setLocalBusy] = useState(false);
   const locked = props.busy || localBusy;
   const update = (name: keyof RestorePrepare, value: string) => {
+    if (name === "password" || name === "archive") setValidatedBackup(null);
     const cached = retryPreparation.current;
     retryPreparation.current = null;
     setInspection((old) => old && { ...old, prepared: false });
@@ -237,7 +239,7 @@ export function BackupRestoreScreen(props: {
           }));
         }
         setStageId(value.id ?? "");
-        setInspection(value);
+        setValidatedBackup(value);
       } catch (error) {
         clearPasswords();
         throw error;
@@ -557,6 +559,7 @@ export function BackupRestoreScreen(props: {
                 if (stageId) await ipc.restoreDiscard(stageId);
                 retryPreparation.current = null;
                 setInspection(null);
+                setValidatedBackup(null);
                 setStageId("");
                 setReplace(false);
                 setSessionConfirmation("");
@@ -583,8 +586,10 @@ export function BackupRestoreScreen(props: {
           </Button>
         ) : (
           <Button
-            disabled={locked || (backupSource === "saved" && !selectedBackup)}
-            onClick={() => void inspect(backupSource === "saved" ? selectedBackup?.path : undefined)}
+            disabled={locked || !validatedBackup}
+            onClick={() => {
+              if (validatedBackup) setInspection(validatedBackup);
+            }}
           >
             Review backup
           </Button>
@@ -669,6 +674,7 @@ export function BackupRestoreScreen(props: {
                       onValueChange={(value) => {
                         retryPreparation.current = null;
                         setBackupSource(value === "saved" ? "saved" : "file");
+                        setValidatedBackup(null);
                         setInspection(null);
                         setStageId("");
                         setReplace(false);
@@ -693,6 +699,30 @@ export function BackupRestoreScreen(props: {
                 )}
                 {(backupSource === "file" || (selectedBackup && !selectedBackup.legacyDatabaseOnly)) &&
                   field("password", "Archive password (only for encrypted archives)", true)}
+                {backupSource === "file" && (
+                  <div className="flex flex-col gap-3">
+                    <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
+                      Choose backup file…
+                    </Button>
+                    {options.archive && (
+                      <p className="m-0 break-words text-body text-muted-foreground">{options.archive}</p>
+                    )}
+                  </div>
+                )}
+                {(backupSource === "saved" ? selectedBackup : options.archive) && !validatedBackup && (
+                  <Button
+                    variant="outline"
+                    disabled={locked}
+                    onClick={() => void inspect(backupSource === "saved" ? selectedBackup?.path : options.archive)}
+                  >
+                    Validate backup
+                  </Button>
+                )}
+                {validatedBackup && (
+                  <p role="status" className="m-0 text-body text-success">
+                    Backup validated. Select Review backup to continue.
+                  </p>
+                )}
                 {backupsProblem && (
                   <p className="m-0 text-detail text-destructive" role="alert">
                     Could not load saved backups. You can still open a backup file.
@@ -712,7 +742,10 @@ export function BackupRestoreScreen(props: {
                           value={selectedBackupPath || null}
                           disabled={locked}
                           items={backups.map((file) => ({ value: file.path, label: backupLabel(file) }))}
-                          onValueChange={(path) => setSelectedBackupPath(path ?? "")}
+                          onValueChange={(path) => {
+                            setSelectedBackupPath(path ?? "");
+                            setValidatedBackup(null);
+                          }}
                         >
                           <SelectTrigger aria-label="Available backup">
                             <SelectValue placeholder="Choose a backup" />
