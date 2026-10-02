@@ -389,8 +389,17 @@ describe("mcp tools (handler-level, real crypto)", () => {
     expect(rows[1]?.crossCommReady).toBe(false);
   });
 
-  it("describeToolError turns a 401 into restart guidance", () => {
-    expect(describeToolError(new ApiError(401, "no")).message).toContain("restart this subshell");
+  it("describeToolError turns a 401 into guidance an AGENT can safely act on", () => {
+    const msg = describeToolError(new ApiError(401, "no")).message;
+    // The whole surface is down (one shared bearer), not just the failing call:
+    expect(msg).toContain("every subshell tool is unavailable");
+    // The remedy is a human's, and the message says so rather than implying
+    // the agent can self-recover.
+    expect(msg).toContain("ask a human to restart");
+    // The footgun this replaces: the OLD copy told the reader to "restart this
+    // subshell", the one action that TERMINATES the caller. Pin that the new
+    // copy warns off it, so a future edit cannot reintroduce the trap.
+    expect(msg).toContain("would terminate you");
     expect(describeToolError(new ApiError(403, "Recipient")).message).toContain("permission denied");
   });
 });

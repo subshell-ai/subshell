@@ -65,8 +65,17 @@ export function describeToolError(err: unknown): Error {
       );
     }
     if (err.status === 401) {
+      // The auth-guard answers revoked, expired, gone-row and disabled-owner
+      // ALL as a bare 401 on purpose (a distinct code would be an oracle into
+      // token state), so the client cannot name the cause and must not try to.
+      // What it CAN say truthfully, to the AGENT who reads this (not a human):
+      // every subshell tool rides this one bearer, so the whole surface is
+      // down, not just this call; and the token cannot be renewed from in here
+      // - a self-restart is the ONE move that terminates the caller (the
+      // restart_subshell contract), so the message must not point at it. The
+      // remedy belongs to a human, and saying so is the whole fix.
       return new Error(
-        "subshell: subshell token rejected (revoked or expired); restart this subshell to mint a new one",
+        "subshell: this pane's MCP token is revoked or expired, so every subshell tool is unavailable until it is renewed. You cannot renew it from inside the pane, and calling restart_subshell on your own pane would terminate you: ask a human to restart this subshell.",
       );
     }
     if (err.status === 403) return new Error(`subshell: permission denied: ${err.message}`);
