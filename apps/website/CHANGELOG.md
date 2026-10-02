@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.8
+
+### Patch Changes
+
+- Display marketing screenshots without links or hover effects.
+
 ## 0.2.7
 
 ### Patch Changes
