@@ -125,7 +125,7 @@ export interface ExecWaitAnswer {
  * A timed-out answer also reports the scanner's carried partial line as its
  * final output line: the liveness branch already advanced `nextByte` past
  * those bytes, so no follow-up read would ever return them and the caller
- * would silently lose the pane's newest text. Never on the completed path —
+ * would silently lose the pane's newest text. Never on the completed path:
  * a hit proves the sentinel line was newline-terminated in-window, so the
  * carry is empty there by construction.
  */

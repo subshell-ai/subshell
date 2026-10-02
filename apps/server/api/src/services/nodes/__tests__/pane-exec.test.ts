@@ -151,7 +151,7 @@ describe("waitSentinel", () => {
   it("a timed-out wait reports the carried partial line (the bytes the cursor already advanced past)", async () => {
     // Data honesty (Task 1 review): the liveness branch moves `nextByte` PAST
     // an unterminated tail, so a follow-up cursor read never returns those
-    // bytes — if the timed-out answer dropped the scanner's carry, that text
+    // bytes: if the timed-out answer dropped the scanner's carry, that text
     // would reach no one. The completed path is untouched: a hit proves the
     // sentinel line was newline-terminated in-window, so nothing is carried.
     const log = enc.encode("done line\npartial");

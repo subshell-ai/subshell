@@ -5,7 +5,7 @@ import { hashPassword } from "better-auth/crypto";
 /**
  * `SubshellsService.execInTerminal` (spec 2026-10-02): run ONE shell command in
  * a TERMINAL pane and answer with its output and exit code, over the sentinel
- * protocol. The service is exercised directly — the gates themselves are the
+ * protocol. The service is exercised directly: the gates themselves are the
  * input route's pinned rules (this verb mirrors them verbatim), so this suite
  * pins the two NEW refusals (terminal-type, in-flight lease), the ordering
  * that keeps them behind the two facts, and the byte contract on the happy
@@ -29,6 +29,7 @@ import { ApiContext } from "@/lib/context.js";
 import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
+import { SubshellsService } from "@/services/subshells.service.js";
 import { attachScriptedNode, ok, type ScriptedHandler, statDirEcho } from "@/test-helpers/scripted-node.js";
 import { getLogger } from "@/utils/logger.js";
 import { deleteUserByEmailOrId, setupAuthTables } from "../../api/__tests__/helpers/auth-tables.js";
@@ -216,7 +217,7 @@ describe("SubshellsService.execInTerminal (spec 2026-10-02)", () => {
       expect(frames[2]).toMatch(/^printf '__xcomm_[0-9a-f]{16}_DONE rc=%s\\n' "\$\?"$/);
       expect(frames[3]).toBe("\r");
       // The wait started where the quiet probes stopped (size 0), and the
-      // answer's cursor sits right after the sentinel line — the unterminated
+      // answer's cursor sits right after the sentinel line, the unterminated
       // prompt after it belongs to the next reader.
       const cursorReads = sim.cmdsOf("log_read").filter((c) => !(c.fromByte === 0 && c.maxBytes === 1));
       expect(cursorReads[0]?.fromByte).toBe(0);
@@ -253,7 +254,13 @@ describe("SubshellsService.execInTerminal (spec 2026-10-02)", () => {
       for (let i = 0; sim.countOf("log_read") === 0 && i < 200; i++) await new Promise((r) => setTimeout(r, 5));
       expect(sim.countOf("log_read")).toBe(1);
 
-      const err = await expectRefusal(exec(id));
+      // The refused call goes through a SECOND service instance over the same
+      // repos, which is what two racing requests actually are (contextPlugin
+      // builds `SubshellsService` fresh per request): the refusal must come
+      // from the process-wide lease, not one instance's map. Were the map
+      // per-instance, this second service would see nothing in flight.
+      const twin = new SubshellsService({ log: ctx.log, db: ctx.db, repos: ctx.repos });
+      const err = await expectRefusal(twin.execInTerminal(ownerId, id, "echo hi", undefined, "cookie"));
       expect(err.statusCode).toBe(409);
       expect(err.code).toBe(BackendErrorCodes.EXEC_IN_FLIGHT);
       expect(sim.countOf("input")).toBe(0); // the refused call typed nothing at all
@@ -272,7 +279,7 @@ describe("SubshellsService.execInTerminal (spec 2026-10-02)", () => {
     try {
       // An AGENT-harness parked row: if the two facts were checked after the
       // terminal-type gate, this row would answer 400 EXEC_TERMINAL_ONLY. The
-      // input suite's ordering rule mirrors here — running first, always.
+      // input suite's ordering rule mirrors here: running first, always.
       const id = await directRow({ harnessId: "claude-code", name: "exec-parked", status: "running", alive: 0 });
       const err = await expectRefusal(exec(id));
       expect(err.statusCode).toBe(409);
