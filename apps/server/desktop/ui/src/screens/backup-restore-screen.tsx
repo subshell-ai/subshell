@@ -385,7 +385,7 @@ export function BackupRestoreScreen(props: {
     >
       {sessionConfirmation && (
         <Dialog title="Some sessions cannot survive this restore" onClose={() => !locked && setSessionConfirmation("")}>
-          <p className="text-detail text-muted-foreground break-words">{sessionConfirmation}</p>
+          <p className="text-muted-foreground break-words">{sessionConfirmation}</p>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="ghost" disabled={locked} onClick={() => setSessionConfirmation("")}>
               Cancel

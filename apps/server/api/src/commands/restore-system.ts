@@ -195,12 +195,7 @@ export function preservableRestorePanes(
 export function requireRestoreSessionConsent(panes: RestorePane[], consent: boolean): void {
   if (panes.length && !consent)
     throw new Error(
-      `RESTORE_SESSION_CONFIRMATION_REQUIRED: These sessions cannot reconnect to this backup: ${
-        panes
-          .slice(0, 20)
-          .map((pane) => pane.name || pane.id)
-          .join(", ") + (panes.length > 20 ? ` (and ${panes.length - 20} more)` : "")
-      }. Continuing terminates affected local sessions. Remote sessions may lose their connection or be terminated when their node reconnects. Cancel to keep the current system and close these sessions yourself.`,
+      `RESTORE_SESSION_CONFIRMATION_REQUIRED: ${panes.length} active ${panes.length === 1 ? "session cannot" : "sessions cannot"} be preserved with this backup. Continuing closes affected local sessions. Affected remote sessions may disconnect or end when their node reconnects. Other compatible sessions will be preserved. Cancel leaves your server unchanged.`,
     );
 }
 

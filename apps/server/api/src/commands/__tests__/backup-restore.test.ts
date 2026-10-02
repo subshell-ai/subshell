@@ -7,7 +7,12 @@ import { parseBackupFlags, parseRestoreFlags } from "@/commands/backup-options.j
 import { readPasswordFile } from "@/commands/backup-password.js";
 import { type RestoreDeps, runRestore } from "@/commands/restore.js";
 import { publicStage, readLocalRestoreStage } from "@/commands/restore-support.js";
-import { assertNoDatabaseUsers, liveRestorePanes, restoreChildEnv } from "@/commands/restore-system.js";
+import {
+  assertNoDatabaseUsers,
+  liveRestorePanes,
+  requireRestoreSessionConsent,
+  restoreChildEnv,
+} from "@/commands/restore-system.js";
 import { DEFAULT_DEPS, type ServiceState } from "@/service.js";
 import { stagedBackupFromRecord } from "@/services/backup-staging.js";
 import { backup, databaseValue, fixture, root, setupBackupFixtures } from "@/services/backups/__tests__/fixtures.js";
@@ -693,4 +698,23 @@ describe("backup and restore command policy", () => {
       else process.env.TMUX_TMPDIR = oldTmp;
     }
   });
+});
+
+test("session consent summarizes large restores without session names", () => {
+  const panes = Array.from({ length: 1000 }, (_, i) => ({
+    id: `session-${i}`,
+    name: `Private session ${i}`,
+    nodeId: "local",
+    socket: null,
+  }));
+  expect(() => requireRestoreSessionConsent(panes, false)).toThrow("1000 active sessions cannot be preserved");
+  try {
+    requireRestoreSessionConsent(panes, false);
+  } catch (error) {
+    expect(String(error)).not.toContain("Private session");
+    expect(String(error).length).toBeLessThan(450);
+  }
+  expect(() => requireRestoreSessionConsent(panes.slice(0, 1), false)).toThrow("1 active session cannot be preserved");
+  expect(() => requireRestoreSessionConsent(panes, true)).not.toThrow();
+  expect(() => requireRestoreSessionConsent([], false)).not.toThrow();
 });
