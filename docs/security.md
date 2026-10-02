@@ -1088,6 +1088,17 @@ subshell may only be launched in one of them or beneath it.
   the list is a restriction an owner opts into, not an authentication decision,
   and a disk hiccup must not take a node offline for every launch. The control
   plane still enforces its own copy.
+- **Transfers honor the same list, and that is a wider write surface than a
+  launch** (spec 2026-10-01 §4): `archive_create` reads under the source's
+  allowed root and `archive_extract` writes under the destination's, so on a
+  node with rules an operator's allowlist now bounds readable *and* writable
+  trees, and on a node with NO rules (the default posture, launch semantics
+  verbatim) a transfer can copy any tree the agent's OS user can reach. That
+  blast radius is the accepted shape of the feature: transfers run only
+  between two machines the CALLER owns, gated on the `transfers` token scope
+  with no legacy pass, and extraction is additive (nothing is ever deleted at
+  a destination). `transfer_write` additionally always admits the node's own
+  dataDir, because that is where the relayed archive stages.
 - Changes are audited (`node.allowed_dirs.update`).
 
 - **Setup keys** are single-use, expire in 24 h, are listed in full to the person
@@ -2154,6 +2165,13 @@ Audit events are written, grouped by family:
   swap row stands alone only when the revive throws mid-flight (the row
   keeps the new preset) or the row is deleted between park and re-read),
   `subshell.delete`.
+- **Transfers** (spec 2026-10-01 §5): `transfer.create` (attempt: `{ fromNodeId, toNodeId, fromPath, toPath, sync }`)
+  and `transfer.complete` (the same plus `{ outcome: "ok" | "failed" }` and, on
+  success, the byte and entry counts). Facts, never contents: a row says which
+  two machines moved which named trees with how many bytes; the file bytes
+  themselves ride the relay and are stored nowhere near the trail. A failed
+  transfer still writes both rows: a refused file move is exactly the event an
+  operator reads the trail for.
 - **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`, `node.reregister_key`, `node.reregister`,
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.logging.update`, `node.update`,

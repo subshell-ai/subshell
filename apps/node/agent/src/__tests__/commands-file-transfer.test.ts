@@ -222,6 +222,23 @@ describe("transfer_write", () => {
     expect(existsSync(join(work, ".mid.bin.part"))).toBe(false); // nothing stranded
   });
 
+  it("admits its staging root: a dataDir target writes even when the list excludes it", async () => {
+    const { dataDir, ctx } = setup("staging-in");
+    // An operator list naming only some working dirs still lets the relay
+    // land the archive under the node's own state root (spec 2026-10-01 §4).
+    writeAllowedDirs(dataDir, [join(base, "some-work")]);
+    const landed = join(dataDir, "transfers", "relay.tar.gz");
+    const r = await dispatchCommand(ctx, {
+      type: "transfer_write",
+      path: landed,
+      chunkB64: b64("ARCHIVE"),
+      chunk: 0,
+      eof: true,
+    });
+    expect(r.ok).toBe(true);
+    expect(readFileSync(landed, "utf8")).toBe("ARCHIVE");
+  });
+
   it("refuses a symlink leaf planted mid-stream (the rename never chases it)", async () => {
     const { dataDir, work, outside, ctx } = setup("symlink");
     // A NON-empty allowlist engages the hardened pathAllowed (an empty list

@@ -65,11 +65,13 @@ describe("subshell tokens", () => {
     expect(res.valid).toBe(true);
     expect(res.key.metadata).toEqual({ kind: "subshell", subshellId: sid });
     // EXACT map, not a subset: `prompts` arrived with the saved-prompt
-    // library (spec 2026-09-28), and this line is what notices a mint drift.
+    // library (spec 2026-09-28), `transfers` with node-to-node archive
+    // transfer (spec 2026-10-01), and this line is what notices a mint drift.
     expect(res.key.permissions).toEqual({
       channels: ["read", "write"],
       subshells: ["read", "write"],
       prompts: ["read", "write"],
+      transfers: ["read", "write"],
     });
   });
 

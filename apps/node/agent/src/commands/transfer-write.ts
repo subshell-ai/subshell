@@ -1,5 +1,6 @@
 import { MAX_TRANSFER_WINDOW_BYTES } from "@internal/subshell-protocol";
-import { launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
+import { readAllowedDirs } from "../allowed-dirs.js";
+import { pathAllowed } from "../path-policy.js";
 import { receiveChunkedStream } from "./chunked-stream.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 
@@ -7,12 +8,18 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  * `transfer_write` (spec 2026-10-01 §4): the relay's write half. The stream
  * discipline is `write_file`'s VERBATIM (temp-beside-final `.part`, in-order
  * chunks, gate-twice, rename-last — all of `chunked-stream.ts`); what makes
- * this its own command is the POLICY: the operator directory allowlist
- * (empty = unrestricted), not `write_file`'s dataDir-plus-tracked-cwds roots.
- * The two are pinned apart on purpose — merging them would either narrow
- * transfers to the upload roots or widen uploads past theirs, and the second
- * is weakening a load-bearing policy. The word-order difference in the names
- * is the tripwire; this header is the reason.
+ * this its own command is the POLICY: the OPERATOR directory allowlist
+ * unioned with the node's own dataDir (empty list = unrestricted, launch
+ * semantics). dataDir is in the permitted set because the relayed archive
+ * lands there — staging under the node's own state root is the posture
+ * `archive_create` has on the source side, and an operator allowlist names
+ * WORKING directories, so a rule-set that never mentioned dataDir must not
+ * strand the relay that carries the operator's own files. NOT
+ * `write_file`'s roots: transfers do not ride tracked subshell cwds, and
+ * uploads do not reach the allowlist — the two policies are pinned apart on
+ * purpose, merging either direction would widen a load-bearing surface. The
+ * word-order difference in the names is the tripwire; this header is the
+ * reason.
  *
  * A half transfer is one `.part` file, never half a tree: extraction only
  * ever runs against the renamed whole, and the plane's abort path names the
@@ -49,6 +56,13 @@ export async function execTransferWrite(ctx: CommandContext, cmd: Cmd<"transfer_
     cmd.chunk,
     cmd.eof,
     "transfer_write",
-    async (path) => await launchDirAllowed(path, readAllowedDirs(ctx.config.dataDir)),
+    async (path) => {
+      const dirs = readAllowedDirs(ctx.config.dataDir);
+      if (dirs.length === 0) return true; // unrestricted, verbatim launch semantics
+      // The hardened pathAllowed (not the lexical one): `..`, symlinked
+      // ancestors and planted symlink leaves are exactly what the eof
+      // re-check exists to catch.
+      return await pathAllowed(path, [ctx.config.dataDir, ...dirs]);
+    },
   );
 }
