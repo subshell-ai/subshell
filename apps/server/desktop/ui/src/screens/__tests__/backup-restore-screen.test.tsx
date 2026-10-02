@@ -222,6 +222,16 @@ describe("native backup and restore", () => {
     });
     fake = installFakeIpc({
       handlers: {
+        desktop_probe: () =>
+          makeProbe({
+            status: {
+              settings: {
+                APP_BASE_URL: { value: "https://restored.example" },
+                HOST: { value: "127.0.0.1" },
+                SERVER_PORT: { value: "4567" },
+              },
+            },
+          }),
         desktop_backup_list: () => ({ backups: [] }),
         "plugin:dialog|open": () => "/tmp/backup.subshell",
         desktop_restore_inspect: () => ({ ...stage, prepared: false }),
@@ -260,6 +270,10 @@ describe("native backup and restore", () => {
     await screen.findByText("Restore Complete");
     await screen.findByText(/confirmed a successful boot/);
     expect(screen.queryByRole("button", { name: "Review backup" })).toBeNull();
+    expect(screen.getByText("Control plane URL")).toBeTruthy();
+    expect(screen.getByText("https://restored.example")).toBeTruthy();
+    expect(screen.getByText("4567")).toBeTruthy();
+    expect(screen.getByText(stage.destination.databasePath)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
     expect(fake.callsTo("desktop_restore_apply").map((call) => call.force)).toEqual([false, false, true]);
   });

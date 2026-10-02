@@ -12,7 +12,8 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import type { LocalBackupFile, RestoreInspection, RestorePrepare } from "../lib/ipc";
+import { dashboardUrl, effectiveForm } from "../lib/config-form";
+import type { LocalBackupFile, RestoreApplyResult, RestoreInspection, RestorePrepare } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
 import { RestoreConfirmation, RestoreFacts } from "./restore-confirmation";
 
@@ -77,7 +78,12 @@ export function BackupRestoreScreen(props: {
   const [message, setMessage] = useState("");
   const [restoring, setRestoring] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
-  const [restoreResult, setRestoreResult] = useState<{ started: boolean; recoveredAdmin: boolean } | null>(null);
+  const [restoreResult, setRestoreResult] = useState<{
+    started: boolean;
+    recoveredAdmin: boolean;
+    destination: RestoreApplyResult["destination"];
+    addresses: ReturnType<typeof effectiveForm> | null;
+  } | null>(null);
   const [progress, setProgress] = useState("");
   const [localBusy, setLocalBusy] = useState(false);
   const locked = props.busy || localBusy;
@@ -309,7 +315,12 @@ export function BackupRestoreScreen(props: {
           result = await ipc.restoreApply(currentId, replace, force, start);
         }
         retryPreparation.current = null;
-        setRestoreResult({ started: result.started, recoveredAdmin: recover });
+        setRestoreResult({
+          started: result.started,
+          recoveredAdmin: recover,
+          destination: result.destination,
+          addresses: null,
+        });
         setMessage(
           result.started
             ? "Restore completed. The restored server confirmed a successful boot."
@@ -320,6 +331,11 @@ export function BackupRestoreScreen(props: {
         setReplace(false);
         setSessionConfirmation("");
         await props.onRefresh();
+        const restoredProbe = await ipc.probe().catch(() => null);
+        if (restoredProbe?.status?.settings) {
+          const addresses = effectiveForm(restoredProbe.status.settings);
+          setRestoreResult((old) => old && { ...old, addresses });
+        }
       } catch (error) {
         const detail = String(error);
         const marker = "RESTORE_SESSION_CONFIRMATION_REQUIRED:";
@@ -387,13 +403,30 @@ export function BackupRestoreScreen(props: {
           </CardHeader>
           <CardContent>
             {completion ? (
-              <p className="text-body text-muted-foreground">
-                {completion.started
-                  ? completion.recoveredAdmin
-                    ? "Open the dashboard and sign in with the recovered administrator’s temporary password."
-                    : "Open the dashboard and sign in with an account from the backup."
-                  : "Start the server from the Service page when you’re ready. The restore will be verified on its next successful start."}
-              </p>
+              <div className="flex flex-col gap-4">
+                <RestoreFacts
+                  rows={[
+                    [
+                      "Control plane URL",
+                      completion.addresses
+                        ? dashboardUrl(completion.addresses.baseUrl, completion.addresses.port)
+                        : "Unavailable",
+                    ],
+                    ["Bind address", completion.addresses?.host || "Unavailable"],
+                    ["Port", completion.addresses?.port || "Unavailable"],
+                    ["Database", completion.destination.databasePath],
+                    ["Data directory", completion.destination.dataDir],
+                    ["Configuration", completion.destination.configPath],
+                  ]}
+                />
+                <p className="m-0 text-body text-muted-foreground">
+                  {completion.started
+                    ? completion.recoveredAdmin
+                      ? "Open the control plane and sign in with the recovered administrator’s temporary password."
+                      : "Open the control plane and sign in with an account from the backup."
+                    : "Start the server from the Service page when you’re ready. The restore will be verified on its next successful start."}
+                </p>
+              </div>
             ) : (
               <ul className="flex flex-col gap-2 list-disc pl-5 text-body text-muted-foreground">
                 <li>The backup is prepared and checked before replacement.</li>
