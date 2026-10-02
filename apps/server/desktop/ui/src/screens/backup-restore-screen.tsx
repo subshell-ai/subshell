@@ -373,7 +373,14 @@ export function BackupRestoreScreen(props: {
           <Button disabled={locked || !replace} onClick={() => void apply()}>
             Restore
           </Button>
-        ) : undefined
+        ) : (
+          <Button
+            disabled={locked || (backupSource === "saved" && !selectedBackup)}
+            onClick={() => void inspect(backupSource === "saved" ? selectedBackup?.path : undefined)}
+          >
+            Review backup
+          </Button>
+        )
       }
     >
       {sessionConfirmation && (
@@ -464,11 +471,6 @@ export function BackupRestoreScreen(props: {
                 )}
                 {(backupSource === "file" || (selectedBackup && !selectedBackup.legacyDatabaseOnly)) &&
                   field("password", "Archive password (only for encrypted archives)", true)}
-                {backupSource === "file" && (
-                  <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
-                    Open backup…
-                  </Button>
-                )}
                 {backupsProblem && (
                   <p className="m-0 text-detail text-destructive" role="alert">
                     Could not load saved backups. You can still open a backup file.
@@ -512,15 +514,6 @@ export function BackupRestoreScreen(props: {
                             MB{selectedBackup.encrypted ? " · Encrypted" : ""}
                           </p>
                         )}
-                        <Button
-                          variant="outline"
-                          disabled={locked || !selectedBackup}
-                          onClick={() => {
-                            if (selectedBackup) void inspect(selectedBackup.path);
-                          }}
-                        >
-                          Review selected backup
-                        </Button>
                       </div>
                       {backups.some((file) => file.legacyDatabaseOnly) && (
                         <p className="m-0 mt-3 text-detail text-muted-foreground">
