@@ -139,7 +139,15 @@ export {
   runBounded,
 } from "./run-bounded.js";
 export { shellQuote } from "./shell.js";
+export { type ExtractResult, extractTarGz } from "./tar-extractor.js";
 export { extractTgz, type TarEntry, type TgzLimits } from "./tar-vendor.js";
+export {
+  type ArchiveDir,
+  type ArchiveFile,
+  type ArchiveLimits,
+  type WriteResult,
+  writeTarGz,
+} from "./tar-writer.js";
 export {
   parseSessionLiveness,
   SESSION_LIVENESS_FORMAT,
