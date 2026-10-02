@@ -44,13 +44,7 @@ function Screenshot({ shot }: { shot: (typeof SHOTS)[keyof typeof SHOTS] }) {
   const src = `/shots/${shot.name}.webp`;
   return (
     <figure className="m-0 min-w-0">
-      <a
-        href={src}
-        target="_blank"
-        rel="noopener noreferrer"
-        aria-label={`Enlarge screenshot: ${shot.alt}`}
-        className="block overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--term)] shadow-[0_18px_60px_-24px_rgba(0,0,0,.55)] transition-colors hover:border-[var(--orchid)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--orchid)]"
-      >
+      <div className="overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--term)] shadow-[0_18px_60px_-24px_rgba(0,0,0,.55)]">
         <Image
           src={src}
           alt={shot.alt}
@@ -60,7 +54,7 @@ function Screenshot({ shot }: { shot: (typeof SHOTS)[keyof typeof SHOTS] }) {
           loading="lazy"
           className="block h-auto w-full"
         />
-      </a>
+      </div>
       <figcaption className="mt-3 text-[12px] leading-relaxed text-[var(--dim)]">{shot.caption}</figcaption>
     </figure>
   );
