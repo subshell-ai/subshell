@@ -1,5 +1,13 @@
 # @internal/desktop-server
 
+## 1.4.1
+
+### Patch Changes
+
+- [#324](https://github.com/subshell-ai/subshell/pull/324) [`b7b1a74`](https://github.com/subshell-ai/subshell/commit/b7b1a74ef61fd6292a4335d59032dfe6786cb17f) Thanks [@theogravity](https://github.com/theogravity)! - Show the setup assistant instead of a raw "Could not connect" webview page when the server stops underneath an open dashboard.
+
+- [#322](https://github.com/subshell-ai/subshell/pull/322) [`6c585e5`](https://github.com/subshell-ai/subshell/commit/6c585e5adb9341b9a6a4386c266206ad3802269f) Thanks [@theogravity](https://github.com/theogravity)! - Make the tray Quit work on Linux, confirm before stopping a running server, and never be held by "Keep Running in Tray".
+
 ## 1.4.0
 
 ### Minor Changes
