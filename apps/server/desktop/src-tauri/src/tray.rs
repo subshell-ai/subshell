@@ -239,6 +239,11 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     let backup = MenuItem::with_id(app, "tray:backup", "Backup…", true, None::<&str>)?;
     let restore = MenuItem::with_id(app, "tray:restore", "Restore…", true, None::<&str>)?;
     let reset = MenuItem::with_id(app, RESET_ID, RESET_LABEL, true, None::<&str>)?;
+    // A REAL item, not the predefined quit role: muda draws unsupported
+    // predefined roles (Quit among them) as DISABLED on Linux, so the item was
+    // greyed and inert, and with no id it could not be intercepted to confirm.
+    // An ordinary item is enabled everywhere and routes to [`crate::quit`].
+    let quit = MenuItem::with_id(app, crate::quit::QUIT_ID, "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
@@ -266,7 +271,7 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &restore,
             &reset,
             &PredefinedMenuItem::separator(app)?,
-            &PredefinedMenuItem::quit(app, None)?,
+            &quit,
         ],
     )?;
 
@@ -392,6 +397,10 @@ fn on_menu(app: &AppHandle, id: &str) {
         RESET_ID => {
             let _ = crate::reset::arm_and_raise(app, Some(RESET_SCREEN.into()));
         }
+        // Quit answers HERE and nowhere else. The id is not a DesktopAction and
+        // `lib.rs` does not claim it, so the global menu event fires this arm
+        // once (the same single-handler rule that keeps the TEXT SIZE ids out).
+        crate::quit::QUIT_ID => crate::quit::handle(app),
         // The TEXT SIZE items are deliberately absent. A menu event in Tauri
         // is global — the app-level handler in `lib.rs` sees this menu's items
         // too — so an id handled in both places steps the ladder TWICE per
@@ -549,6 +558,42 @@ mod tests {
             crate::reset::parse_screen(Some(RESET_SCREEN.to_string())),
             crate::reset::Screen::Reset,
             "the tray's word must survive `parse_screen`, not fall back to Home"
+        );
+    }
+
+    /// The Quit item is an ORDINARY enabled menu item, not the predefined role.
+    ///
+    /// This is the whole defect, pinned: on GTK muda renders an unsupported
+    /// predefined role (Quit) as a DISABLED item, so the tray's Quit was greyed
+    /// and never dispatched, and having no id nothing could intercept it to
+    /// confirm. Reverting to the predefined item reintroduces exactly that, and
+    /// no other test here would see it (the menu is not built in tests), so this
+    /// scans the source the way `desktop-core`'s "nothing memoizes" guard does.
+    /// The needles are `concat!`-built so this test's own text cannot satisfy
+    /// them.
+    #[test]
+    fn quit_is_a_real_enabled_item_not_the_disabled_predefined_role() {
+        let source = include_str!("tray.rs");
+        // All needles are `concat!`-split so the test's own text does not contain
+        // them contiguously; only the real builder / dispatch sites do.
+        let predefined_quit = concat!("Predefined", "MenuItem::quit");
+        assert!(
+            !source.contains(predefined_quit),
+            "tray Quit must not use the disabled predefined role"
+        );
+        // The item the tray DOES build: ordinary, enabled (`true`), under the
+        // quit module's own id — and dispatched once by that same constant, so
+        // the builder's word and the handler's word cannot drift apart.
+        assert!(
+            source.contains(concat!(
+                "MenuItem::with_id(app, crate::quit::QUIT_ID, \"Quit\", ",
+                "true"
+            )),
+            "the tray must build Quit as an ordinary enabled MenuItem under QUIT_ID"
+        );
+        assert!(
+            source.contains(concat!("crate::quit::QUIT_ID => crate::quit::", "handle(app)")),
+            "the tray must dispatch QUIT_ID to quit::handle exactly once"
         );
     }
 }
