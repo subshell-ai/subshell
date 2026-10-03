@@ -175,10 +175,6 @@ Every machine uses the same work factor. A fast backup host does not increase th
 
 Archive passwords require at least eight Unicode characters and permit long passphrases. Eight characters is a usability minimum, not a guarantee of strength. An attacker with an archive can make unlimited offline guesses using their own hardware. Increasing derivation work slows guesses, but does not provide rate limiting or make a short password equivalent to a strong longer one. Prefer a unique randomly generated password or passphrase, and store it separately. Forgotten passwords cannot be recovered.
 
-Browser creation, inspection, and preparation require an administrator session. Download copies expire after one hour and are single-use. Private extracted restore stages expire after ten minutes; saved archives do not expire. The desktop can extract an expired stage again while its source remains available. Passwords are excluded from archive manifests, audit metadata, and CLI arguments; native password transport uses private temporary files. Decrypted staging still contains sensitive data and remains accessible to the owning OS account.
-
-Applying a restore runs outside the serving server process and requires replacement consent. Compatible sessions are preserved; incompatible sessions require interruption consent. Human login sessions are revoked. Optional recovery updates an existing administrator and requires a password change before ordinary access. Migration disables network publication until reviewed, but retains the archived identity keys and secrets. Do not run the original and restored identity concurrently.
-
 See [Backups and restoration](/administration/backups) for procedures, archive scope, and recovery verification.
 
 ## Plugins, installers, and updates
