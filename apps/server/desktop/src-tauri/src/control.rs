@@ -2525,6 +2525,19 @@ pub fn close_to_tray_now(settings: &SettingsState) -> bool {
     effective_close_to_tray(settings.get().close_to_tray, tray_support())
 }
 
+/// Whether `RunEvent::ExitRequested` must call `prevent_exit()`.
+///
+/// Keep-running-in-tray governs the ACCIDENTAL exit — the last window closing
+/// or hiding to the tray — and nothing else. A deliberate Quit arrives from
+/// `app.exit(0)` as `code: Some(…)`, while an accidental one carries `None`
+/// (`tauri-runtime-wry`). Holding on `code.is_none()` means an explicit Quit is
+/// always honored, even with keep-running ON (choosing to quit means they no
+/// longer want it in the tray). The rule is this pure predicate so it is testable
+/// without a running app; the call site in `lib.rs` only wraps it in the match.
+pub fn should_prevent_exit(keep_running: bool, main_window_exists: bool, is_programmatic: bool) -> bool {
+    keep_running && main_window_exists && !is_programmatic
+}
+
 /// Longest log tail the console renders. Enough to cover a boot and a restart,
 /// small enough that the pane stays a pane rather than a transcript.
 const LOG_TAIL_LINES: usize = 200;
@@ -3302,6 +3315,21 @@ pub fn desktop_shell_ready(app: AppHandle, overlay: bool) -> Result<(), String> 
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The exit-guard rule, on its own: keep-running holds ONLY the accidental
+    /// exit. A deliberate quit (`is_programmatic`, i.e. `code: Some`) is always
+    /// honored even with keep-running ON and a window present — the whole point
+    /// of the tray Quit fix. Without keep-running, nothing is held regardless.
+    #[test]
+    fn keep_running_holds_only_the_accidental_exit() {
+        // Accidental exit (hidden/closed last window) with a tray + keep-running: held.
+        assert!(should_prevent_exit(true, true, false));
+        // Deliberate Quit (app.exit(0) → Some(code)): never held.
+        assert!(!should_prevent_exit(true, true, true));
+        // No keep-running, or no window to keep: never held.
+        assert!(!should_prevent_exit(false, true, false));
+        assert!(!should_prevent_exit(true, false, false));
+    }
 
     /// **Where the dashboard window opens**, which is not always where the
     /// server listens (operator's report, 2026-09-19).

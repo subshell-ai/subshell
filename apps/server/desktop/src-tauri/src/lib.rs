@@ -21,6 +21,7 @@ mod control;
 // dead code.
 #[cfg(target_os = "macos")]
 mod menu;
+mod quit;
 mod reset;
 mod server_bin;
 mod supervisor;
@@ -363,9 +364,21 @@ pub fn run() {
             // The same fresh probe as the hide itself, so the two can never
             // disagree: a window that was NOT hidden because no tray answered
             // must be allowed to take the app down with it.
-            tauri::RunEvent::ExitRequested { api, .. }
-                if control::close_to_tray_now(&app.state::<SettingsState>())
-                    && app.get_webview_window("main").is_some() =>
+            //
+            // The `code` split is what keeps an EXPLICIT Quit from being
+            // swallowed by "Keep Running in Tray". The accidental exit (last
+            // window closed / hidden) arrives with `code: None`; a deliberate
+            // `app.exit(0)` from the tray arrives with `code: Some(0)`. Holding
+            // only the None case means close-to-tray still governs window-close
+            // while a real Quit is always honored (ruling: quitting means they
+            // no longer want it in the tray). The decision lives in
+            // `should_prevent_exit`, which is testable; see `quit.rs`.
+            tauri::RunEvent::ExitRequested { api, code, .. }
+                if control::should_prevent_exit(
+                    control::close_to_tray_now(&app.state::<SettingsState>()),
+                    app.get_webview_window("main").is_some(),
+                    code.is_some(),
+                ) =>
             {
                 api.prevent_exit();
             }
