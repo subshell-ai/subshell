@@ -3468,7 +3468,7 @@ OS-backed instance mutex held. Network/config/plugin/key writers cooperate with
 the separate capture mutex while online backups are collected.
 
 Unencrypted archives contain live credentials. Optional password encryption uses
-scrypt (N=65536, r=8, p=2–48; 64 MiB working memory, 128 MiB allowance), a fresh 16-byte salt and 12-byte nonce, and
+scrypt (N=65536, r=8, p=2; 64 MiB working memory, 128 MiB allowance), a fresh 16-byte salt and 12-byte nonce, and
 AES-256-GCM. The fixed format header is authenticated. Decryption authenticates
 the whole ciphertext in private staging before parsing tar entries. Passwords
 are never written into manifests or audit metadata. The archive and staged
@@ -3476,10 +3476,11 @@ files are 0600; owned staging directories are 0700. Forgotten passwords cannot
 be recovered. New encrypted archives require at least 8 Unicode characters;
 passwords are not trimmed or normalized. Offline password guessing remains
 possible: use a unique random password or random passphrase. Algorithm id 3
-stores the bounded CPU work factor in the authenticated header. Creation benchmarks
-two work units and targets 2.5 seconds of derivation work, with p clamped to
-2–48. Restore uses the recorded cost, never recalibrates it. Hardware and load
-affect elapsed time; slower restore hosts may take longer. The unreleased
+stores the fixed CPU work factor in the authenticated header. Every host uses
+p=2, independent of the creating machine's speed. This is an OWASP-listed
+scrypt configuration, with a 128 MiB derivation memory allowance. There is no
+runtime calibration or artificial delay. Elapsed time depends on hardware and
+load; no universal three-second bound is promised. The unreleased
 algorithm ids 1 and 2 are rejected.
 
 Archive inspection refuses unsupported formats/newer migrations, invalid hashes,

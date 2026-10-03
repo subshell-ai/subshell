@@ -9,26 +9,13 @@ const MAGIC = Buffer.from("SUBSHBAK");
 const HEADER_BYTES = 40;
 const TAG_BYTES = 16;
 const ALGORITHM = 3;
-const MIN_WORK = 2;
-const MAX_WORK = 48;
-const TARGET_MS = 2500;
+// Fixed across machines: creating on a fast CPU never raises the cost for a slower restore host.
+const WORK = 2;
 
-/** Integer work is stored in the authenticated header; hostile files cannot choose unbounded costs. */
-export function backupWorkFactor(sampleMs: number): number {
-  return Math.max(MIN_WORK, Math.min(MAX_WORK, Math.round(TARGET_MS / Math.max(1, sampleMs))));
-}
-
-async function calibrateWork(): Promise<number> {
-  const started = performance.now();
-  const sample = await deriveKey("backup-calibration", randomBytes(16), MIN_WORK);
-  sample.fill(0);
-  return backupWorkFactor((performance.now() - started) / MIN_WORK);
-}
-
-async function deriveKey(password: string, salt: Buffer, work: number): Promise<Buffer> {
+async function deriveKey(password: string, salt: Buffer): Promise<Buffer> {
   if (!password || password.length > 4096) throw new Error("backup password must contain 1-4096 characters");
   return new Promise((resolve, reject) => {
-    scrypt(password, salt, 32, { N: 65536, r: 8, p: work, maxmem: 128 * 1024 * 1024 }, (error, key) => {
+    scrypt(password, salt, 32, { N: 65536, r: 8, p: WORK, maxmem: 128 * 1024 * 1024 }, (error, key) => {
       if (error) reject(error);
       else resolve(key);
     });
@@ -47,12 +34,11 @@ export async function encryptArchive(source: string, target: string, password: s
   const header = Buffer.alloc(HEADER_BYTES);
   MAGIC.copy(header);
   header[8] = 1; // format
-  header[9] = ALGORITHM; // AES-256-GCM+scrypt, fixed N/r, calibrated p
-  const work = await calibrateWork();
-  header.writeUInt16BE(work, 10);
+  header[9] = ALGORITHM; // AES-256-GCM+scrypt, fixed N/r/p
+  header.writeUInt16BE(WORK, 10);
   randomBytes(16).copy(header, 12);
   randomBytes(12).copy(header, 28);
-  const key = await deriveKey(password, header.subarray(12, 28), work);
+  const key = await deriveKey(password, header.subarray(12, 28));
   try {
     const cipher = createCipheriv("aes-256-gcm", key, header.subarray(28));
     cipher.setAAD(header);
@@ -90,10 +76,10 @@ export async function decryptArchive(source: string, target: string, password?: 
     await handle.close();
   }
   const work = header.readUInt16BE(10);
-  if (!isEncryptedBackup(header) || header[8] !== 1 || header[9] !== ALGORITHM || work < MIN_WORK || work > MAX_WORK) {
+  if (!isEncryptedBackup(header) || header[8] !== 1 || header[9] !== ALGORITHM || work !== WORK) {
     throw new Error("unsupported encrypted backup header");
   }
-  const key = await deriveKey(password, header.subarray(12, 28), work);
+  const key = await deriveKey(password, header.subarray(12, 28));
   try {
     const decipher = createDecipheriv("aes-256-gcm", key, header.subarray(28));
     decipher.setAAD(header);

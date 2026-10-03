@@ -3,7 +3,7 @@ import { createCipheriv, scryptSync } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { backupWorkFactor, decryptArchive, encryptArchive } from "../encryption.js";
+import { decryptArchive, encryptArchive } from "../encryption.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -47,6 +47,8 @@ it("uses fresh salt and nonce and rejects the unreleased weak algorithm", async 
   const first = readFileSync(encrypted);
   const second = readFileSync(output);
   expect(first[9]).toBe(3);
+  expect(first.readUInt16BE(10)).toBe(2);
+  expect(second.readUInt16BE(10)).toBe(2);
   expect(first.subarray(12, 28).equals(second.subarray(12, 28))).toBe(false);
   expect(first.subarray(28, 40).equals(second.subarray(28, 40))).toBe(false);
   first[9] = 1;
@@ -66,20 +68,13 @@ it("rejects short passwords before creating output, counting Unicode characters"
   }
 });
 
-it("bounds calibration for slow and fast hosts", () => {
-  expect(backupWorkFactor(500)).toBe(5);
-  expect(backupWorkFactor(1500)).toBe(2);
-  expect(backupWorkFactor(10)).toBe(48);
-  expect(backupWorkFactor(0)).toBe(48);
-});
-
 it("refuses hostile work factors before deriving a key or writing plaintext", async () => {
   const { encrypted, output } = paths();
   const envelope = Buffer.alloc(56);
   envelope.write("SUBSHBAK");
   envelope[8] = 1;
   envelope[9] = 3;
-  for (const work of [0, 1, 49, 65535]) {
+  for (const work of [0, 1, 3, 48, 65535]) {
     envelope.writeUInt16BE(work, 10);
     writeFileSync(encrypted, envelope);
     await expect(decryptArchive(encrypted, output, "eightchr")).rejects.toThrow("unsupported");
