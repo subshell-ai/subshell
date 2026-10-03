@@ -897,7 +897,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
           </p>
         )}
         {inspection ? (
-          <p role="status" className="text-muted-foreground">
+          <p role="status" className="m-0 text-body text-success">
             Backup validated. Select Configure backup to continue.
           </p>
         ) : (
