@@ -47,11 +47,6 @@ The server keeps only a temporary download copy. The link is available once, for
 
 Browser uploads support archives under 128 MB. Use the CLI or desktop assistant for larger files. Prepared uploads expire after ten minutes; **Discard staged restore** deletes one early. Preparation does not replace the running server's state.
 
-The actual restore must run outside the server process. A server cannot replace its own database and configuration while serving this page. The offline tool confirms the destination and replacement, stops the server, and applies the validated archive. It asks whether to start afterward, with Yes as the default.
-
-> [!warning] Replacing state
-> Restoration replaces newer destination state and signs everyone out. Compatible running sessions are preserved. If sessions cannot reconnect to the restored state, the desktop asks for confirmation before continuing. Do not run two servers with the same restored identity at the same time: duplicate server and node identities can disrupt connections.
-
 ## Use Subshell Server on desktop
 
 Open **Backup…** or **Restore…** from Subshell Server's native menu or tray. The bundled assistant works while the server is stopped. Restore is also available before first-run setup.
