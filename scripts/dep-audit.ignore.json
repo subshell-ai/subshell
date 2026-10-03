@@ -34,5 +34,12 @@
       "GHSA-86w9-cpqp-85rv"
     ],
     "reason": "Expo mobile build/dev tooling only (@expo/cli and @expo/code-signing-certificates); not part of the server/node/desktop runtime. Advisory covers RSA signature verification with low-exponent keys. Latest npm version 1.4.0 remains affected and no patched version is published; track upstream and remove this exception when a fix is available (2026-10-02)."
+  },
+  {
+    "package": "braces",
+    "advisories": [
+      "GHSA-vfj7-8cjw-p6xm"
+    ],
+    "reason": "Build-time transitive only: micromatch pulls braces 3.0.3 under fast-glob/jiti/vite (the bundler) and under metro/@expo/cli (mobile build tooling); nothing in the server, node, or desktop runtime depends on it. The advisory is a stack-exhaustion DoS from compiling attacker-supplied, deeply-nested glob patterns, which no build script here feeds it. 3.0.3 is the latest npm version and the only version in the advisory's affected range (<= 3.0.3), and GHSA reports no patched version, so there is no in-range fix to take; track upstream and remove this exception when a fix is published (2026-10-03)."
   }
 ]
