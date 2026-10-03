@@ -7,9 +7,23 @@ A full instance backup saves the server-owned state in one archive that you can 
 
 ## What a full backup contains
 
-The archive contains a consistent SQLite snapshot, supported server configuration and authentication secret, node and channel identity keys, installed plugins and their settings and secrets, and server and pane logs. Logs are captured over the backup interval rather than at the database snapshot's exact instant.
+| Data | Archived | Details |
+| --- | --- | --- |
+| Server database | Yes | A consistent SQLite snapshot containing accounts, settings, and session records. |
+| Server configuration | Yes | Supported settings and the authentication secret. |
+| Identity and connection keys | Yes | Server-owned node signing and encryption keys, channel identities, peer records, and push notification keys. |
+| Installed plugins | Yes | Plugin code, settings, state, and plugin-owned secrets. |
+| Server and pane logs | Yes | Captured over the backup interval rather than at the database snapshot's exact instant. |
+| Projects and project uploads | No | Remain on the machines where they are stored. |
+| External agent credentials | No | Credentials managed by agent tools outside Subshell. |
+| Remote node files | No | Files and logs stored on enrolled remote nodes. |
+| External network daemon state | No | State managed by services outside Subshell. |
+| Operating system services | No | Service definitions and login startup settings. |
+| Binaries and caches | No | Server executables and cached binaries. |
+| Previous backups and temporary files | No | Existing backups, staging files, and restore or update transactions. |
+| Running processes | No | Live sessions, tmux sockets, and agent in-memory state. |
 
-It excludes previous backups, temporary restore and update files, binaries and caches, operating system service definitions, projects and project-local uploads, external agent credentials, remote node files, and external network daemon state. Preserve those separately when you need them. A restore cannot recreate a running process or an agent's in-memory state.
+This table describes full instance archives. [Legacy database snapshots](#legacy-database-snapshots) contain only the database.
 
 > [!warning] Backup credentials
 > A full archive contains keys and credentials. Enable encryption to protect them with a password, and keep the archive in a secure location. Store the password separately; a forgotten password cannot be recovered.
