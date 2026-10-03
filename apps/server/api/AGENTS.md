@@ -379,6 +379,14 @@ so a field added later is a decision rather than an accumulation.
 inventory refresh: read `apps/server/api/docs/self-management.md`
 first.**
 
+## Instance backup and restore
+
+Full manual archives and offline transactional restoration live in
+`services/backups/`; Settings only downloads, inspects, and stages. Read
+`apps/server/api/docs/backups.md` before changing capture locks, pre-config
+recovery, restore receipts, encryption, or temporary admin recovery. User
+procedures live in `apps/docs/content/docs/administration/backups.mdx`.
+
 ## Standalone binary & CLI
 
 `src/index.ts` is BOTH the boot entry and the `subshell-server` CLI entry:
@@ -398,7 +406,7 @@ view, never boots); `init` (first run, THE headless entry point; the
 desktop app passes `--no-service`); `configure`; `service install |
 uninstall | enable | disable | status | start | stop | restart`;
 `update` (the reversible transaction, see "Updating the server" below);
-`backup`; `mcp` (the one long-running verb, spawned by harnesses);
+`backup`; `restore` (offline instance replacement); `mcp` (the one long-running verb, spawned by harnesses);
 `report attention …` / `report session` (generated harness-hook lines,
 never typed; ALWAYS exits 0).
 
@@ -406,14 +414,15 @@ An unknown word exits 1 with usage. **Sync-exit design** (house style for
 the quick commands, no longer the safety mechanism): a handled command
 should run to completion and `process.exit` SYNCHRONOUSLY inside
 `dispatchCli` (sync fs, `Bun.spawnSync` for the service manager). There are
-now FIVE exceptions rather than one: `mcp`, long-running by design and
+now SIX exceptions rather than one: `mcp`, long-running by design and
 suspended in its stdio loop; `init` and `configure`, which became async
 when their prompts moved to `@clack/prompts` (spec 2026-09-15), since a promise-based
-library cannot be driven by `readSync(0, …)`; and `update` and `backup` (spec
-2026-09-15 §4.1/§4.4), which download, prompt and `VACUUM INTO` a database.
-`update` is the third named exception in the sense that matters; it is the one
-that both prompts AND does network I/O, and it can sit for up to 60 seconds
-waiting for the restarted binary to finish or revert the transaction.
+library cannot be driven by `readSync(0, …)`; `update` and `backup` (spec
+2026-09-15 §4.1/§4.4), which download, prompt and `VACUUM INTO` a database;
+and `restore`, which stages and validates an archive, performs offline
+replacement, and awaits boot confirmation. `update` and `restore` can wait
+for the restarted server to finish or revert their transaction; restore's
+readiness probes also perform network I/O.
 
 That is allowed precisely BECAUSE sync-exit is not the safety mechanism, and
 the two things that are stay intact and tested: the entry graph is IO-free at

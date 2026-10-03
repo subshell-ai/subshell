@@ -24,3 +24,9 @@ export function authDatabase(): Database {
   }
   return handle;
 }
+
+/** Used only when failed restore boot is rolling back with the listener down. */
+export function closeAuthDatabase(): void {
+  handle?.close();
+  handle = null;
+}

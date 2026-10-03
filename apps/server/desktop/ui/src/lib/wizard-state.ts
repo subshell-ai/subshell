@@ -67,7 +67,9 @@ export type ScreenId =
   | "update"
   | "reset"
   | "supervision"
-  | "settings";
+  | "settings"
+  | "backup"
+  | "restore";
 
 /**
  * The label on the way into the Reset screen, and the Reset screen's own
@@ -157,7 +159,15 @@ export function prereqState(probe: Probe): PrereqState {
  * take on its merits rather than a hole; the screen changes nothing a signed-in
  * admin cannot change on the Networking page.
  */
-export const REQUESTED_SCREENS: readonly ScreenId[] = ["update", "reset", "supervision", "permissions", "settings"];
+export const REQUESTED_SCREENS: readonly ScreenId[] = [
+  "update",
+  "reset",
+  "supervision",
+  "permissions",
+  "settings",
+  "backup",
+  "restore",
+];
 
 /**
  * Whether this screen was asked for rather than implied by the probe.

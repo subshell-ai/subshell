@@ -4,6 +4,8 @@ import { adminStatusRoutes } from "@/api/admin-status.route.js";
 import { adminUpdatesRoutes } from "@/api/admin-updates.route.js";
 import { auditRoutes } from "@/api/audit.route.js";
 import { authProvidersRoutes } from "@/api/auth-providers/index.js";
+import { backupRecoveryRoutes } from "@/api/backup-recovery.route.js";
+import { backupsRoutes } from "@/api/backups.route.js";
 import { channelRoutes } from "@/api/channels/index.js";
 import { devicesRoutes } from "@/api/devices.route.js";
 import { downloadsRoutes } from "@/api/downloads.route.js";
@@ -16,6 +18,7 @@ import { notificationsRoutes } from "@/api/notifications.route.js";
 import { pluginsRoutes } from "@/api/plugins.route.js";
 import { presetRoutes } from "@/api/presets.route.js";
 import { promptsRoutes } from "@/api/prompts.route.js";
+import { restoreStatusRoutes } from "@/api/restore-status.route.js";
 import { settingsRoutes } from "@/api/settings.route.js";
 import { instancePublicRoutes } from "@/api/settings-public.route.js";
 import { setupRoutes } from "@/api/setup.route.js";
@@ -80,6 +83,8 @@ const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use
  * how the next feature route ends up paying for a regrouping.
  */
 const adminRoutes = new Elysia()
+  .use(backupsRoutes)
+  .use(backupRecoveryRoutes)
   .use(adminStatusRoutes)
   .use(adminServerRoutes)
   .use(adminUpdatesRoutes)
@@ -95,7 +100,7 @@ const adminRoutes = new Elysia()
  * Keeping it separate also means "what can be read without a credential?" is a
  * question this file answers by itself.
  */
-const publicRoutes = new Elysia().use(instancePublicRoutes);
+const publicRoutes = new Elysia().use(instancePublicRoutes).use(restoreStatusRoutes);
 
 export const routes = new Elysia()
   .use(coreRoutes)

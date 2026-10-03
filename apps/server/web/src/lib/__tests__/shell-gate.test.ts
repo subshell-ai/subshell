@@ -17,6 +17,14 @@ const base = {
 };
 
 describe("shellGate", () => {
+  it("keeps a mounted restore visible after cookie revocation, without bypassing other pages", () => {
+    expect(shellGate({ ...base, pathname: "/settings/backups", restoring: true })).toBe("render");
+    expect(shellGate({ ...base, pathname: "/settings/backups", restoring: true, isLoading: true, offline: true })).toBe(
+      "render",
+    );
+    expect(shellGate({ ...base, pathname: "/settings/backups", restoring: false })).toBe("toLogin");
+    expect(shellGate({ ...base, pathname: "/settings/status", restoring: true })).toBe("toLogin");
+  });
   it("holds a blank first paint while the subshell is still loading (server up)", () => {
     expect(shellGate({ ...base, isLoading: true })).toBe("blank");
   });

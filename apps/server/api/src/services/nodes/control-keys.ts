@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { type ControlKeyPair, generateControlKeys } from "@internal/subshell-protocol";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
+import { beginBackupStateWrite } from "@/services/backup-capture-lock.js";
 
 /**
  * Control-plane command-signing keypair store (spec 2026-08-31 §4). One ES256
@@ -52,13 +53,18 @@ async function loadOrGenerate(): Promise<ControlKeyPair> {
     return parsed;
   }
 
-  const fresh = await generateControlKeys();
-  mkdirSync(dirname(KEY_PATH), { recursive: true });
-  writeFileSync(KEY_PATH, JSON.stringify(fresh, null, 2), { mode: 0o600 });
-  // writeFileSync only applies the mode when CREATING; chmod pins it exactly
-  // even if a leftover file was already sitting at the path.
-  chmodSync(KEY_PATH, 0o600);
-  return fresh;
+  const release = beginBackupStateWrite();
+  try {
+    const fresh = await generateControlKeys();
+    mkdirSync(dirname(KEY_PATH), { recursive: true });
+    writeFileSync(KEY_PATH, JSON.stringify(fresh, null, 2), { mode: 0o600 });
+    // writeFileSync only applies the mode when CREATING; chmod pins it exactly
+    // even if a leftover file was already sitting at the path.
+    chmodSync(KEY_PATH, 0o600);
+    return fresh;
+  } finally {
+    release();
+  }
 }
 
 /** Shape gate for a persisted pair: two JWK objects whose private half carries `d`. */

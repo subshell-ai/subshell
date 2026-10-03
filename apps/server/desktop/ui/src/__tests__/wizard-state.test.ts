@@ -546,7 +546,15 @@ describe("screens entered by request", () => {
     // out (spec 2026-09-18 § 14), and it is the only one of the five no
     // dashboard names. The sorted comparison is what makes the retired id
     // returning — or any of these five being dropped — loud.
-    expect([...REQUESTED_SCREENS].sort()).toEqual(["permissions", "reset", "settings", "supervision", "update"]);
+    expect([...REQUESTED_SCREENS].sort()).toEqual([
+      "backup",
+      "permissions",
+      "reset",
+      "restore",
+      "settings",
+      "supervision",
+      "update",
+    ]);
     const ready = virgin({ next: "ready", onboarded: true });
     for (const requested of REQUESTED_SCREENS) {
       // The property that matters is about the machine that can ASK: a

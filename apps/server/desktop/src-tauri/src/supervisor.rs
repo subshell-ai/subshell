@@ -48,6 +48,14 @@ use std::time::{Duration, Instant, SystemTime};
 /// The gap before a respawn — `RestartSec=5`, deliberately the same number.
 pub const RESPAWN_DELAY: Duration = Duration::from_secs(5);
 
+/// How old a restore worker's hold marker may be before it is no longer waited
+/// for. MUST match `RESTORE_HOLD_MAX_MS` in the server's `restore-hold.ts`: the
+/// two languages read the same `at` field and must agree on when it expires. It
+/// exceeds any real apply (stop + swap + a 5-minute boot confirm) so a live swap
+/// is always honoured, yet stays short so an abandoned marker — a zombie that
+/// still answers `kill -0` — self-heals inside one outage rather than forever.
+pub const RESTORE_HOLD_MAX_MS: u64 = 15 * 60_000;
+
 /// How long a `stop` waits for SIGTERM to be honoured before SIGKILL.
 ///
 /// The server closes sockets and exits promptly; this is the budget for one
@@ -82,6 +90,8 @@ pub struct LastExit {
 /// the first from the port, which is the fact that matters.
 #[derive(Debug, Clone)]
 pub struct Snapshot {
+    /// Whether this app intends to keep the server running, including a respawn gap.
+    pub desired_running: bool,
     /// The live child's pid, `None` when nothing is running.
     pub pid: Option<u32>,
     /// How the last child ended, `None` when none has.
@@ -105,6 +115,24 @@ pub trait Spawner: Send + Sync {
     fn terminate(&self, pid: u32);
     /// Make it exit — SIGKILL, and again the process alone.
     fn kill(&self, pid: u32);
+    /// Whether a control-plane restore worker currently owns the instance swap.
+    ///
+    /// The default is "nothing holds" — the test doubles carry no filesystem.
+    /// The real spawner overrides it with the marker its child's own code
+    /// writes (`services/restore-hold.ts`, whose file name is the contract
+    /// between the two languages); respawning over a live worker's hold is
+    /// the lock race the restore refuses on, so the loop defers instead.
+    fn restore_hold(&self) -> bool {
+        false
+    }
+    /// Sweep a stale hold left by a worker from a PREVIOUS supervising session.
+    ///
+    /// Called once when a fresh spawn loop begins. The marker never legitimately
+    /// spans a supervisor's start: whatever swap it named died with the previous
+    /// session (app relaunch, host reboot), and leaving it for a later pid reuse
+    /// would defer the next respawn forever. A default no-op — only the real
+    /// spawner has a filesystem to sweep.
+    fn clear_restore_hold(&self) {}
 }
 
 /// The real thing: `subshell-server` with a login PATH, the config dir as cwd,
@@ -121,9 +149,27 @@ pub struct ServerSpawner {
     pub console_log: PathBuf,
     /// This process's pid, which the server checks the supervisor claim against.
     pub own_pid: u32,
+    /// Restore policy retained for every ordinary start/respawn and app reopen.
+    pub restore_location: Option<crate::backup_restore::RestoreLocation>,
 }
 
 impl ServerSpawner {
+    pub(crate) fn command(&self) -> io::Result<Command> {
+        let Some((program, args)) = self.argv.split_first() else {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty server argv"));
+        };
+        let mut command = Command::new(program);
+        command.args(args).current_dir(&self.cwd);
+        if let Some(location) = &self.restore_location {
+            crate::backup_restore::configure_restored_child(&mut command, location);
+        }
+        command
+            .env("PATH", subshell_desktop_core::shell_env::login_path())
+            .env("SUBSHELL_SUPERVISOR", "subshell-desktop-server")
+            .env("SUBSHELL_SUPERVISOR_PID", self.own_pid.to_string())
+            .env("SUBSHELL_SUPERVISOR_LOG", &self.console_log);
+        Ok(command)
+    }
     /// Create (or truncate) the console log at 0600 inside a 0700 directory.
     ///
     /// The modes are the point rather than a detail: this file holds the
@@ -171,9 +217,6 @@ impl ServerSpawner {
 
 impl Spawner for ServerSpawner {
     fn spawn(&self) -> io::Result<Box<dyn ChildHandle>> {
-        let Some((program, args)) = self.argv.split_first() else {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "empty server argv"));
-        };
         // TRUNCATED per spawn, not appended: this is the last run's console
         // output, which is the thing worth reading after a crash, and it is
         // bounded by construction. The server's own structured log is the
@@ -183,13 +226,8 @@ impl Spawner for ServerSpawner {
         // on a crash loop is the only record of why the last one died.
         let out = self.open_console_log()?;
         let err = out.try_clone()?;
-        let child = Command::new(program)
-            .args(args)
-            .current_dir(&self.cwd)
-            .env("PATH", subshell_desktop_core::shell_env::login_path())
-            .env("SUBSHELL_SUPERVISOR", "subshell-desktop-server")
-            .env("SUBSHELL_SUPERVISOR_PID", self.own_pid.to_string())
-            .env("SUBSHELL_SUPERVISOR_LOG", &self.console_log)
+        let child = self
+            .command()?
             .stdin(Stdio::null())
             .stdout(Stdio::from(out))
             .stderr(Stdio::from(err))
@@ -203,6 +241,61 @@ impl Spawner for ServerSpawner {
 
     fn kill(&self, pid: u32) {
         self.signal("-KILL", pid);
+    }
+
+    /// Read the worker marker in the config dir this spawner launches INTO.
+    ///
+    /// A file that cannot be read, cannot be parsed, or names a dead pid
+    /// never holds: the hold exists to defer a respawn by SECONDS, and a
+    /// stale or foreign artifact must not strand the machine indefinitely.
+    fn restore_hold(&self) -> bool {
+        let Ok(text) = std::fs::read_to_string(self.cwd.join("restore-in-progress.json")) else {
+            return false;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+            return false;
+        };
+        // pid 0 would signal the process GROUP (and is never a real holder);
+        // only a positive pid can be the worker we are waiting for.
+        let Some(pid) = value.get("pid").and_then(|p| p.as_u64()).filter(|p| *p > 0) else {
+            return false;
+        };
+        // The age bound is the second half of "never strand the machine": a
+        // worker SIGKILLed mid-swap can leave its marker behind as an UNREAPED
+        // zombie that still answers `kill -0`. `at` (ms epoch, written by
+        // `restore-hold.ts`) caps the deferral so the parents respawn once a
+        // hold is older than any real apply. An unusable `at` fails OPEN to a
+        // respawn: the swap's real exclusion is the sqlite instance lock, so an
+        // early respawn only crash-loops briefly, while a never-expiring hold
+        // is a server that never comes back.
+        let Some(at) = value.get("at").and_then(|a| a.as_u64()) else {
+            return false;
+        };
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(u64::MAX);
+        // Saturating so a clock skew into the future (`at` > now) never panics
+        // and never holds: a not-yet-"elapsed" marker is treated as fresh only
+        // within the bound, and one far in the future reads as within it, which
+        // is safe — the swap lock still gates the actual boot.
+        if now.saturating_sub(at) > RESTORE_HOLD_MAX_MS {
+            return false;
+        }
+        // The same bounded `kill(1)` the signals use; "-0" only probes.
+        // The pid came from a 0600 file this app's own child wrote.
+        subshell_desktop_core::proc::run(
+            &["kill".to_string(), "-0".to_string(), pid.to_string()],
+            Duration::from_secs(2),
+        )
+        .ok()
+    }
+
+    fn clear_restore_hold(&self) {
+        // Sweep a marker left by a worker that died before its cleanup ran
+        // (OOM, or the final SIGKILL of a stop). Called only on a fresh
+        // supervising session, where no swap is legitimately in flight.
+        let _ = std::fs::remove_file(self.cwd.join("restore-in-progress.json"));
     }
 }
 
@@ -228,6 +321,7 @@ impl ChildHandle for RealChild {
 #[derive(Default)]
 struct State {
     desired_running: bool,
+    single_attempt: bool,
     /// True while a spawn loop exists. Decided in the same critical section
     /// that sets `desired_running`, so the two cannot disagree.
     loop_running: bool,
@@ -318,10 +412,19 @@ impl Supervisor {
     /// chosen or installed since the loop began is what the next respawn
     /// runs.
     pub fn start(&self, spawner: Arc<dyn Spawner>) {
+        self.start_with_policy(spawner, false);
+    }
+    /// An unconfirmed restore gets one boot attempt. A failed selection must
+    /// not be respawned while its rollback receipt is waiting to reconcile.
+    pub(crate) fn start_once(&self, spawner: Arc<dyn Spawner>) {
+        self.start_with_policy(spawner, true);
+    }
+    fn start_with_policy(&self, spawner: Arc<dyn Spawner>, single_attempt: bool) {
         *self.inner.spawner.lock().unwrap_or_else(|e| e.into_inner()) = Some(Arc::clone(&spawner));
         let needs_loop = {
             let mut st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
             st.desired_running = true;
+            st.single_attempt = single_attempt;
             st.stopping = false;
             // ONE critical section decides both, so a loop on its way out
             // cannot swallow a start and leave nothing running.
@@ -404,6 +507,7 @@ impl Supervisor {
     pub fn snapshot(&self) -> Snapshot {
         let st = self.inner.state.lock().unwrap_or_else(|e| e.into_inner());
         Snapshot {
+            desired_running: st.desired_running,
             pid: st.pid,
             last_exit: st.last_exit.clone(),
         }
@@ -502,6 +606,16 @@ impl Supervisor {
         if std::thread::Builder::new()
             .name("subshell-supervisor".into())
             .spawn(move || {
+                // A fresh supervising session sweeps a STALE hold a previous one
+                // left behind (a worker killed before its cleanup), so the loop
+                // does not wait out the age bound for a swap that is already
+                // dead. Conditional on purpose: `restore_hold` is false only for
+                // a dead/aged marker, so an operator Stop→Start that races a
+                // STILL-LIVE worker's hold will not delete that live marker —
+                // the new loop just defers, as the swap intends.
+                if !spawner.restore_hold() {
+                    spawner.clear_restore_hold();
+                }
                 loop {
                     // Deciding to leave and RECORDING that we left happen together
                     // — see `leave_if_done`. Split across two critical sections
@@ -521,6 +635,13 @@ impl Supervisor {
                         .unwrap_or_else(|e| e.into_inner())
                         .clone()
                         .unwrap_or_else(|| Arc::clone(&spawner));
+                    // A control-plane restore worker holding the instance swap
+                    // (`restore_hold`) stops the child the worker itself
+                    // stopped; respawning into its lock race is the failure
+                    // the restore would refuse on, so this waits instead.
+                    if wait_while_restoring(&shared, spawner.as_ref()) {
+                        return;
+                    }
                     // Raised BEFORE the spawn and lowered only with the pid, so
                     // `wait_until_gone` can tell "nothing is running" from
                     // "something is starting and cannot be named yet".
@@ -599,6 +720,9 @@ fn record_exit(shared: &Arc<Shared>, code: Option<i32>, spawn_error: Option<Stri
     {
         let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
         st.pid = None;
+        if st.single_attempt {
+            st.desired_running = false;
+        }
         st.last_exit = Some(LastExit {
             code,
             spawn_error,
@@ -609,6 +733,29 @@ fn record_exit(shared: &Arc<Shared>, code: Option<i32>, spawn_error: Option<Stri
         });
     }
     shared.changed.notify_all();
+}
+
+/// Sit out a control-plane restore worker's hold on the instance swap.
+///
+/// Returns whether the loop should END (a stop arrived during the hold). The
+/// probe repeats on the same condvar cadence the respawn delay uses, so the
+/// hold can neither swallow a `stop` nor outlive a crashed worker: the marker
+/// names a pid, and a dead pid never holds (`restore_hold` is the whole
+/// self-clearing story).
+fn wait_while_restoring(shared: &Arc<Shared>, spawner: &dyn Spawner) -> bool {
+    while spawner.restore_hold() {
+        let mut st = shared.state.lock().unwrap_or_else(|e| e.into_inner());
+        if !st.desired_running {
+            st.loop_running = false;
+            drop(st);
+            shared.changed.notify_all();
+            return true;
+        }
+        // `let _ =` releases the guard with the statement, so the next probe
+        // can take the lock; a spurious wake is just one more probe.
+        let _ = shared.changed.wait_timeout(st, Duration::from_millis(500));
+    }
+    false
 }
 
 /// Wait out the respawn delay unless the caller asked for an immediate one, or
@@ -746,6 +893,9 @@ mod tests {
         honours_term: AtomicBool,
         /// While true, `spawn` blocks before publishing its child.
         hold_spawn: AtomicBool,
+        /// While true, a control-plane restore worker owns the swap and the
+        /// loop must NOT spawn — the respawn-race the hold exists to prevent.
+        restore_hold: AtomicBool,
         next: AtomicU32,
         tx: mpsc::Sender<u32>,
     }
@@ -776,6 +926,9 @@ mod tests {
             // SIGKILL is not refusable, and the fake must not pretend it is.
             self.end(pid);
         }
+        fn restore_hold(&self) -> bool {
+            self.restore_hold.load(Ordering::SeqCst)
+        }
     }
 
     impl FakeSpawner {
@@ -805,6 +958,7 @@ mod tests {
                 signals: Mutex::new(Vec::new()),
                 honours_term: AtomicBool::new(true),
                 hold_spawn: AtomicBool::new(false),
+                restore_hold: AtomicBool::new(false),
                 next: AtomicU32::new(100),
                 tx,
             }),
@@ -876,6 +1030,45 @@ mod tests {
     }
 
     /// The unit's `Restart=always`, as behaviour.
+    #[test]
+    fn failed_restored_child_is_not_respawned_until_selection_reconciles() {
+        let (spawner, rx) = harness();
+        let sup = quick();
+        sup.start_once(spawner.clone());
+        let first = next_spawn(&rx);
+        assert_eq!(settled_pid(&sup), first);
+        spawner.crash(first);
+        assert!(rx.recv_timeout(Duration::from_millis(120)).is_err());
+        assert_eq!(spawner.spawn_count(), 1);
+        assert!(!sup.snapshot().desired_running);
+        // A deliberate start of a reconciled choice still works.
+        sup.start(spawner.clone());
+        let second = next_spawn(&rx);
+        assert_ne!(first, second);
+        assert!(sup.stop(spawner.as_ref()));
+    }
+    #[test]
+    fn unconfirmed_restore_spawn_failure_gets_only_one_attempt() {
+        struct Failing(std::sync::atomic::AtomicUsize);
+        impl Spawner for Failing {
+            fn spawn(&self) -> io::Result<Box<dyn ChildHandle>> {
+                self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Err(io::Error::other("restored boot refused"))
+            }
+            fn terminate(&self, _: u32) {}
+            fn kill(&self, _: u32) {}
+        }
+        let spawner = Arc::new(Failing(std::sync::atomic::AtomicUsize::new(0)));
+        let sup = Supervisor::with_timings(Duration::from_millis(5), Duration::from_millis(50));
+        sup.start_once(spawner.clone());
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while sup.snapshot().desired_running && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(!sup.snapshot().desired_running);
+        assert_eq!(spawner.0.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
     #[test]
     fn a_crash_respawns() {
         let (spawner, rx) = harness();
@@ -1203,5 +1396,120 @@ mod tests {
 
         // Nothing has exited: say nothing.
         assert_eq!(last_exit_sentence(None, now, RESPAWN_DELAY), None);
+    }
+
+    fn temp_config_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "subshell-sup-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn spawner_in(cwd: &std::path::Path) -> ServerSpawner {
+        ServerSpawner {
+            argv: vec!["/bin/true".to_string()],
+            cwd: cwd.to_path_buf(),
+            console_log: cwd.join("console.log"),
+            own_pid: std::process::id(),
+            restore_location: None,
+        }
+    }
+
+    fn now_ms() -> u64 {
+        SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    }
+
+    #[test]
+    fn the_real_restore_hold_reads_the_worker_marker_and_its_liveness() {
+        let dir = temp_config_dir("hold");
+        let spawner = spawner_in(&dir);
+        let marker = |pid: u64, at: u64| format!(r#"{{"pid":{pid},"kind":"restore","at":{at}}}"#);
+        // No marker: never holds.
+        assert!(!spawner.restore_hold());
+        // A live-pid, fresh marker holds — the worker is mid-swap.
+        std::fs::write(
+            dir.join("restore-in-progress.json"),
+            marker(std::process::id() as u64, now_ms()),
+        )
+        .unwrap();
+        assert!(spawner.restore_hold());
+        // A dead pid never holds, even with a fresh stamp.
+        std::fs::write(dir.join("restore-in-progress.json"), marker(2147483647, now_ms())).unwrap();
+        assert!(!spawner.restore_hold());
+        // AN OLD MARKER NEVER HOLDS EVEN ON A LIVE PID — the zombie case: a
+        // SIGKILLed worker stays in the pid table answering `kill -0`, so the
+        // age bound is what stops that pid alone deferring the respawn forever.
+        std::fs::write(
+            dir.join("restore-in-progress.json"),
+            marker(std::process::id() as u64, now_ms() - RESTORE_HOLD_MAX_MS - 1),
+        )
+        .unwrap();
+        assert!(!spawner.restore_hold());
+        // Malformed, pid-0, and a missing/unusable `at` all fail OPEN to a respawn.
+        std::fs::write(dir.join("restore-in-progress.json"), "not json").unwrap();
+        assert!(!spawner.restore_hold());
+        std::fs::write(dir.join("restore-in-progress.json"), r#"{"pid":0}"#).unwrap();
+        assert!(!spawner.restore_hold());
+        std::fs::write(
+            dir.join("restore-in-progress.json"),
+            format!(r#"{{"pid":{},"kind":"restore"}}"#, std::process::id()), // no `at`
+        )
+        .unwrap();
+        assert!(!spawner.restore_hold());
+        // A fresh supervising session sweeps a stale marker; the sweep is
+        // gated on `!restore_hold`, so a live FRESH hold is never deleted.
+        let stale = dir.join("restore-in-progress.json");
+        std::fs::write(&stale, marker(2147483647, now_ms())).unwrap(); // dead pid → not held
+        assert!(!spawner.restore_hold());
+        spawner.clear_restore_hold();
+        assert!(!stale.exists());
+        // The loop's session-start guard only clears when nothing is holding:
+        // re-arm a live fresh hold and prove `clear` would be skipped by it.
+        std::fs::write(&stale, marker(std::process::id() as u64, now_ms())).unwrap();
+        assert!(spawner.restore_hold()); // live+fresh → hold true → clear guarded off
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_restore_hold_defers_the_respawn_until_it_clears() {
+        let (spawner, rx) = harness();
+        // The worker is holding the swap from the very start of the loop.
+        spawner.restore_hold.store(true, Ordering::SeqCst);
+        let sup = quick();
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        // The loop must NOT spawn while the hold is live — that is the race.
+        assert!(
+            rx.recv_timeout(Duration::from_millis(400)).is_err(),
+            "the loop respawned over a live restore hold"
+        );
+        assert_eq!(spawner.spawn_count(), 0);
+        // When the worker releases, the loop takes the next turn.
+        spawner.restore_hold.store(false, Ordering::SeqCst);
+        next_spawn(&rx);
+        assert_eq!(spawner.spawn_count(), 1);
+        assert!(sup.stop(spawner.as_ref()));
+    }
+
+    #[test]
+    fn a_stop_during_a_restore_hold_ends_the_loop_without_spawning() {
+        let (spawner, _rx) = harness();
+        spawner.restore_hold.store(true, Ordering::SeqCst);
+        let sup = quick();
+        sup.start(Arc::clone(&spawner) as Arc<dyn Spawner>);
+        // Nothing is running yet; a stop must be honoured even while the hold
+        // sits, not wait for a respawn that never comes.
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(sup.stop(spawner.as_ref()));
+        assert_eq!(spawner.spawn_count(), 0);
+        assert!(!sup.snapshot().desired_running);
     }
 }

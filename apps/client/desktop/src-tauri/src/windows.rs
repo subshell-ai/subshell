@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 use subshell_desktop_core::tray::tray_support;
 use subshell_desktop_core::zoom::assistant_frame;
 use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 /// The label of the window showing a control plane's own page.
@@ -347,6 +348,31 @@ fn open_plane_window(app: &AppHandle, origin: &str) -> Result<WebviewWindow, Str
         // was what held the pin alive. It is not: the pin is app-managed state
         // that `control.rs` reads through `app.state::<PlanePin>()`.
         .on_navigation(|u| subshell_desktop_core::browser::browsable_scheme(u.scheme()))
+        // WebKitGTK needs a registered handler to save authenticated attachments.
+        // Let the webview choose a unique filename in Downloads; no new IPC grant.
+        .on_download(|webview, event| {
+            if let tauri::webview::DownloadEvent::Finished { path, success, .. } = event {
+                let message = if success {
+                    path.map_or_else(
+                        || "Your download is complete. Check Downloads.".to_owned(),
+                        |path| format!("Saved to {}", path.display()),
+                    )
+                } else {
+                    "The download could not be saved. Create the backup again and retry the download.".to_owned()
+                };
+                webview
+                    .app_handle()
+                    .dialog()
+                    .message(message)
+                    .title(if success {
+                        "Download complete"
+                    } else {
+                        "Download failed"
+                    })
+                    .show(|_| {});
+            }
+            true
+        })
         .on_new_window({
             // Tauri DENIES a page's request for a new window (`target="_blank"`,
             // `window.open`) unless a handler answers it, and it denies SILENTLY —

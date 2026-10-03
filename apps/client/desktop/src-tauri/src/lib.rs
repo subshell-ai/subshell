@@ -144,6 +144,13 @@ pub fn run() {
     }
 
     builder
+        // The plane window's `on_download` handler (windows.rs) calls
+        // `app_handle().dialog()` on every finished download, and `DialogExt`
+        // panics on UNMANAGED state: without this registration the app
+        // crashes the moment a backup download completes. The Cargo.toml
+        // dependency and the server app's identical call are why the copy
+        // compiled; the crash is runtime-only.
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         // Updating THIS APP (spec 2026-09-15 § 7.2). The plugin's own
         // `endpoints` config is deliberately empty: this repository publishes

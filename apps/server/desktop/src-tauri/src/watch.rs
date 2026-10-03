@@ -87,6 +87,10 @@ pub fn spawn(app: AppHandle) {
         if ACTION_IN_FLIGHT.load(Ordering::SeqCst) {
             continue;
         }
+        // Receipts still need reconciliation with every window closed.
+        if crate::backup_restore::poll_selection(&app).is_err() {
+            continue;
+        }
         // Nothing to re-point: skip the spawns entirely rather than probing
         // for an answer no one is waiting on. This is what keeps a machine
         // sitting on the assistant from paying for a poll it does not use —

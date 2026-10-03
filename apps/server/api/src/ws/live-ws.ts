@@ -1,6 +1,7 @@
 import { type LiveServerFrame, parseLiveClientFrame } from "@internal/subshell-protocol";
 import { getRequestlessContext } from "@/lib/context.js";
 import { accountDisabled } from "@/services/account-status.js";
+import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
 import { registerLiveSocket, unregisterLiveSocket } from "@/ws/live-registry.js";
@@ -88,6 +89,8 @@ export interface LiveWsDeps {
    * FLAG cannot be beaten, so redemption re-asks it.
    */
   accountDisabled(userId: string): Promise<boolean>;
+  /** Human viewers must finish temporary-password recovery before receiving the feed. */
+  passwordChangeRequired(userId: string): Promise<boolean>;
 }
 
 /**
@@ -168,7 +171,7 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
   // missed socket for the tab's whole life; closing costs a reconnect, and
   // the reconnect's fresh mint answers the same question through `authGuard`.
   try {
-    if (await deps.accountDisabled(userId)) {
+    if ((await deps.accountDisabled(userId)) || (await deps.passwordChangeRequired(userId))) {
       ws.close(4001, "unauthorized");
       return;
     }
@@ -258,6 +261,7 @@ export function liveWsDeps(): LiveWsDeps {
     previewsFor: (userId, ids) => getRequestlessContext().services.subshells.previewsFor(userId, ids),
     isAdmin: async (userId) => (await getRequestlessContext().repos.userMeta.getRole(userId)) === "admin",
     accountDisabled: (userId) => accountDisabled(getRequestlessContext().db, userId),
+    passwordChangeRequired: (userId) => backupPasswordChangeRequired(getRequestlessContext().db, userId),
   };
 }
 

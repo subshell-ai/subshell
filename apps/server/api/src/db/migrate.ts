@@ -45,6 +45,7 @@ import * as presetLaunchFieldsMigration from "@/db/migrations/0042-preset-launch
 import * as presetCrossCommOptInMigration from "@/db/migrations/0043-preset-cross-comm-opt-in.js";
 import * as oauthCallbackBaseMigration from "@/db/migrations/0044-oauth-callback-base.js";
 import * as nodeReregistrationMigration from "@/db/migrations/0045-node-reregistration.js";
+import * as backupRecoveryMigration from "@/db/migrations/0046-backup-recovery.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -130,6 +131,7 @@ export async function runMigrations(): Promise<void> {
           "0043-preset-cross-comm-opt-in": presetCrossCommOptInMigration,
           "0044-oauth-callback-base": oauthCallbackBaseMigration,
           "0045-node-reregistration": nodeReregistrationMigration,
+          "0046-backup-recovery": backupRecoveryMigration,
         };
       },
     },

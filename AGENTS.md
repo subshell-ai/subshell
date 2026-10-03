@@ -114,8 +114,7 @@ headless install reach it too. What stayed native is
 only what a page the server serves cannot do
 (first run, a server that is not
 running, updating the bundled server, and reset), and that is one assistant
-window. The rule it follows: if the act leaves the server unreachable, it
-cannot be driven from a page the server serves.
+window. Replacement cannot run inside the serving process. Control-plane restores launch an independent host worker that stops, restores, and verifies the server, with durable progress across login revocation; the native assistant remains available while the server is stopped or unconfigured.
 
 **There is no `apps/node/desktop`.** Node management lives inside Subshell
 Client, as a second window: whoever makes their laptop a node is usually also
@@ -371,6 +370,8 @@ working tree:
   script refreshes that managed copy itself, by DIGEST, when one is already
   installed. The app's own `already_installed` check compares size and version,
   which a same-version rebuild matches; only content can answer this.
+  Backup and restore use the desktop’s bundled CLI instead; the launcher also
+  refreshes an existing dev executable’s sibling sidecar by digest.
   It never CREATES one (that install is a first-run flow worth exercising), and
   it warns instead of acting when a service definition names a different binary,
   since that rung outranks the managed copy. `SUBSHELL_DEV_SKIP_INSTALL=1` opts

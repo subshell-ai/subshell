@@ -7,6 +7,7 @@ import {
   type Sodium,
 } from "@internal/subshell-protocol/node-link-crypto";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
+import { beginBackupStateWrite } from "@/services/backup-capture-lock.js";
 
 /**
  * The server's static key for /ws/node link encryption — spec 2026-09-24 §3.
@@ -69,13 +70,18 @@ async function loadOrGenerate(): Promise<LinkKeyPair> {
     return pair;
   }
 
-  const fresh = await generateLinkKeyPair();
-  mkdirSync(dirname(KEY_PATH), { recursive: true });
-  writeFileSync(KEY_PATH, JSON.stringify(fresh, null, 2), { mode: 0o600 });
-  // writeFileSync only applies the mode when CREATING; chmod pins it exactly
-  // even if a leftover file was already sitting at the path.
-  chmodSync(KEY_PATH, 0o600);
-  return fresh;
+  const release = beginBackupStateWrite();
+  try {
+    const fresh = await generateLinkKeyPair();
+    mkdirSync(dirname(KEY_PATH), { recursive: true });
+    writeFileSync(KEY_PATH, JSON.stringify(fresh, null, 2), { mode: 0o600 });
+    // writeFileSync only applies the mode when CREATING; chmod pins it exactly
+    // even if a leftover file was already sitting at the path.
+    chmodSync(KEY_PATH, 0o600);
+    return fresh;
+  } finally {
+    release();
+  }
 }
 
 /**

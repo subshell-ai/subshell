@@ -236,6 +236,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // always, like every other item here: the delete it stages is all-or-nothing
     // and refuses on an unreadable machine, so there is no state where pressing
     // it could do harm the person did not type a hostname to agree to.
+    let backup = MenuItem::with_id(app, "tray:backup", "Backup…", true, None::<&str>)?;
+    let restore = MenuItem::with_id(app, "tray:restore", "Restore…", true, None::<&str>)?;
     let reset = MenuItem::with_id(app, RESET_ID, RESET_LABEL, true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
@@ -260,6 +262,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
             &keep,
             &PredefinedMenuItem::separator(app)?,
             // The assistant's danger act, directly above Quit.
+            &backup,
+            &restore,
             &reset,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::quit(app, None)?,
@@ -328,6 +332,16 @@ fn text_size_submenu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
 }
 
 fn on_menu(app: &AppHandle, id: &str) {
+    if id == "tray:backup" || id == "tray:restore" {
+        let screen = if id == "tray:backup" {
+            crate::reset::Screen::Backup
+        } else {
+            crate::reset::Screen::Restore
+        };
+        let _ = crate::reset::arm_and_raise(app, Some(screen.as_str().into()));
+        return;
+    }
+
     match id {
         // One opener for every route home (spec 2026-09-12 § 5.5): a fresh
         // probe decides between the dashboard and the assistant, so the tray

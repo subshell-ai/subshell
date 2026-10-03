@@ -12,6 +12,7 @@ import type { PluginReportWire } from "@internal/subshell-protocol";
 import { SUBSHELL_PLUGIN_REGISTRY_URL, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { PluginStateRepository } from "@/db/repositories/plugin-state.repository.js";
+import { beginBackupStateWrite } from "@/services/backup-capture-lock.js";
 import { liftNetworkPluginTombstone } from "@/services/network/origins.js";
 import { getLogger } from "@/utils/logger.js";
 
@@ -139,16 +140,21 @@ export async function installLocalPlugin(
   spec?: string,
   registryUrl: string = SUBSHELL_PLUGIN_REGISTRY_URL,
 ): Promise<void> {
-  await installPlugin(SUBSHELL_SERVER_DATA_DIR, { id: pluginId, spec, registryUrl });
-  // A successful install lifts any uninstall tombstone (`origins.ts`): a
-  // reinstalled network plugin re-earns trust through a fresh observation,
-  // which is the tombstone's whole contract. Harmless for harness ids — they
-  // are never tombstoned. Lift BEFORE the overlay refresh so an observation
-  // that resolves the just-installed plugin is already unblocked.
-  liftNetworkPluginTombstone(pluginId);
-  // A caller that gets a 200 back must be able to launch immediately, and
-  // that is the dialog's whole promise — the overlay is what makes it true.
-  await syncPluginRegistry();
+  const release = beginBackupStateWrite();
+  try {
+    await installPlugin(SUBSHELL_SERVER_DATA_DIR, { id: pluginId, spec, registryUrl });
+    // A successful install lifts any uninstall tombstone (`origins.ts`): a
+    // reinstalled network plugin re-earns trust through a fresh observation,
+    // which is the tombstone's whole contract. Harmless for harness ids — they
+    // are never tombstoned. Lift BEFORE the overlay refresh so an observation
+    // that resolves the just-installed plugin is already unblocked.
+    liftNetworkPluginTombstone(pluginId);
+    // A caller that gets a 200 back must be able to launch immediately, and
+    // that is the dialog's whole promise — the overlay is what makes it true.
+    await syncPluginRegistry();
+  } finally {
+    release();
+  }
 }
 
 /**
@@ -157,12 +163,17 @@ export async function installLocalPlugin(
  * @returns true when something was removed, false when it was already absent
  */
 export async function uninstallLocalPlugin(pluginId: string): Promise<boolean> {
-  const removed = await uninstallPlugin(SUBSHELL_SERVER_DATA_DIR, pluginId);
-  if (removed) await new PluginStateRepository(db).clear(pluginId);
-  // Refresh even on "already absent": the overlay tracks the DIRECTORY, and
-  // a hand-removal since the last refresh is exactly what this clears.
-  await syncPluginRegistry();
-  return removed;
+  const release = beginBackupStateWrite();
+  try {
+    const removed = await uninstallPlugin(SUBSHELL_SERVER_DATA_DIR, pluginId);
+    if (removed) await new PluginStateRepository(db).clear(pluginId);
+    // Refresh even on "already absent": the overlay tracks the DIRECTORY, and
+    // a hand-removal since the last refresh is exactly what this clears.
+    await syncPluginRegistry();
+    return removed;
+  } finally {
+    release();
+  }
 }
 
 /**
@@ -174,17 +185,22 @@ export async function uninstallLocalPlugin(pluginId: string): Promise<boolean> {
  * guarded there.
  */
 export async function prepareLocalPlugins(): Promise<void> {
-  // Route the package's output through this app's logger before it says
-  // anything: `apps/server/api/AGENTS.md` is explicit that everything here
-  // goes through LogLayer, and these functions run inside this process.
-  setPluginLog({
-    info: (m) => getLogger().info(m),
-    warn: (m, err) => (err === undefined ? getLogger().warn(m) : getLogger().withError(err).warn(m)),
-  });
-  await prepareInstalledPlugins(SUBSHELL_SERVER_DATA_DIR);
-  // AFTER the prepare pass: what it recovered, seeded or refreshed is what
-  // the registry must resolve, and seeding built-ins is precisely the case
-  // the shadow rule keeps silent about (the compiled copies answer).
-  await syncPluginRegistry();
-  getLogger().info(`plugins: ${localPluginsDir()}`);
+  const release = beginBackupStateWrite();
+  try {
+    // Route the package's output through this app's logger before it says
+    // anything: `apps/server/api/AGENTS.md` is explicit that everything here
+    // goes through LogLayer, and these functions run inside this process.
+    setPluginLog({
+      info: (m) => getLogger().info(m),
+      warn: (m, err) => (err === undefined ? getLogger().warn(m) : getLogger().withError(err).warn(m)),
+    });
+    await prepareInstalledPlugins(SUBSHELL_SERVER_DATA_DIR);
+    // AFTER the prepare pass: what it recovered, seeded or refreshed is what
+    // the registry must resolve, and seeding built-ins is precisely the case
+    // the shadow rule keeps silent about (the compiled copies answer).
+    await syncPluginRegistry();
+    getLogger().info(`plugins: ${localPluginsDir()}`);
+  } finally {
+    release();
+  }
 }

@@ -95,6 +95,8 @@ pub enum Screen {
     /// 2026-09-19 by `Probe::window_origin`; what remains is a configured
     /// address this machine cannot actually reach.)
     Settings,
+    Backup,
+    Restore,
 }
 
 impl Screen {
@@ -107,6 +109,8 @@ impl Screen {
             Screen::Supervision => "supervision",
             Screen::Permissions => "permissions",
             Screen::Settings => "settings",
+            Screen::Backup => "backup",
+            Screen::Restore => "restore",
         }
     }
 }
@@ -121,6 +125,8 @@ pub fn parse_screen(raw: Option<String>) -> Screen {
         Some("supervision") => Screen::Supervision,
         Some("permissions") => Screen::Permissions,
         Some("settings") => Screen::Settings,
+        Some("backup") => Screen::Backup,
+        Some("restore") => Screen::Restore,
         _ => Screen::Home,
     }
 }
@@ -414,7 +420,7 @@ fn schedule_restart(app: &AppHandle) {
 pub fn desktop_reset(app: AppHandle, typed: String) -> Result<ActionResult, String> {
     // Held for the whole chain: the watch thread must not probe between the
     // uninstall and the deletes and act on what it finds there.
-    let _guard = crate::control::ActionGuard::new();
+    let _guard = crate::control::ActionGuard::try_new().ok_or("Another server action is running.")?;
     // The typed string must equal the memo the screen was built from (R15):
     // the probe carries the same memoized `machine_hostname` the page
     // rendered, so comparison is two reads of one OnceLock, never a re-spawn
@@ -1030,6 +1036,8 @@ mod tests {
             Screen::Supervision,
             Screen::Permissions,
             Screen::Settings,
+            Screen::Backup,
+            Screen::Restore,
         ] {
             assert_eq!(parse_screen(Some(screen.as_str().to_string())), screen);
         }
@@ -1038,6 +1046,8 @@ mod tests {
         assert_eq!(Screen::Supervision.as_str(), "supervision");
         assert_eq!(Screen::Permissions.as_str(), "permissions");
         assert_eq!(Screen::Settings.as_str(), "settings");
+        assert_eq!(Screen::Backup.as_str(), "backup");
+        assert_eq!(Screen::Restore.as_str(), "restore");
         assert_eq!(Screen::Status.as_str(), "status");
         assert_eq!(Screen::Home.as_str(), "home");
     }

@@ -27,7 +27,7 @@ import { chmodSync, existsSync, renameSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { hostReleaseTarget, releaseAssetNames, semverLt } from "@internal/subshell-protocol";
 import { type CliResult, controlService, queryService, type ServiceDeps } from "@/service.js";
-import { backupDatabase, restoreDatabase } from "@/services/db-backup.js";
+import { restoreDatabase } from "@/services/db-backup.js";
 import { binaryIsReplaceable, type InstalledBinary, resolveInstalledBinary } from "@/services/installed-binary.js";
 import {
   downloadVerified,
@@ -38,6 +38,7 @@ import {
   signedAssetDigest,
 } from "@/services/releases.js";
 import { isContainerized } from "@/services/server-deployment.js";
+import { createUpdateBackup } from "@/services/update-backup.js";
 import {
   beginUpdate,
   clearPending,
@@ -90,12 +91,11 @@ export interface UpdateDeps {
   /** Run `<file> version` and return its stdout (default: a bounded spawn). */
   probeVersion?: (file: string) => string | null;
   /**
-   * Snapshot the database (default: {@link backupDatabase} over the configured
-   * one). Injected only by tests: this suite runs in ONE process against ONE
+   * Capture a full pre-upgrade archive with a private crash-rollback checkpoint. Injected only by tests: this suite runs in ONE process against ONE
    * database, and a test that really snapshotted and restored it would take
    * every other test file with it.
    */
-  backup?: () => Promise<{ path: string } | null>;
+  backup?: () => Promise<{ path: string; rollbackDatabase?: string } | null>;
   /** Put a snapshot back (default: {@link restoreDatabase}). Injected for the same reason. */
   restore?: (backupPath: string) => void;
   /** Sleep, for the marker wait (default: `Bun.sleep`). */
@@ -373,13 +373,19 @@ async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
 
   // 6. Back up.
   let backup: string | null = null;
+  let rollbackDatabase: string | undefined;
   try {
-    const written = await (deps.backup ?? (() => backupDatabase({ reason: "update", version: SERVER_VERSION })))();
+    const written = await (deps.backup ?? (() => createUpdateBackup()))();
     backup = written?.path ?? null;
-    log(written === null ? "No database yet; nothing to back up." : `Backed up the database to ${written.path}.`);
+    rollbackDatabase = written?.rollbackDatabase;
+    log(
+      written === null ? "No database yet; nothing to back up." : `Created the pre-upgrade backup at ${written.path}.`,
+    );
   } catch (err) {
     rmSync(tmp, { force: true });
-    error(`subshell-server: could not back up the database: ${err instanceof Error ? err.message : String(err)}`);
+    error(
+      `subshell-server: could not create the pre-upgrade archive: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return 1;
   }
 
@@ -390,7 +396,8 @@ async function runInstall(opts: UpdateOpts, deps: UpdateDeps): Promise<number> {
     to: target.version,
     binary,
     previousBinary,
-    backup,
+    backup: rollbackDatabase ?? backup,
+    ...(rollbackDatabase && { archiveBackup: backup ?? undefined }),
     startedAt: new Date().toISOString(),
     origin: "cli",
     forced: opts.force === true,
@@ -538,7 +545,7 @@ async function runRollback(opts: UpdateOpts, deps: UpdateDeps): Promise<number> 
     return 1;
   }
   const marker = readPending() ?? readFailed();
-  const backup = marker?.backup ?? null;
+  const backup = marker?.archiveBackup ?? marker?.backup ?? null;
 
   if (opts.yes !== true) {
     log(`Roll back to ${marker?.from ?? "the previous binary"}?`);
@@ -565,7 +572,7 @@ async function runRollback(opts: UpdateOpts, deps: UpdateDeps): Promise<number> 
 
   if (backup !== null) {
     try {
-      (deps.restore ?? restoreDatabase)(backup);
+      (deps.restore ?? restoreDatabase)(marker?.backup ?? backup);
       log(`Restored the database from ${backup}.`);
     } catch (err) {
       error(`subshell-server: could not restore ${backup}: ${err instanceof Error ? err.message : String(err)}`);

@@ -94,7 +94,7 @@ export type {
 } from "./types/node";
 export { Badge, badgeVariants } from "./ui/badge";
 export { Button } from "./ui/button";
-export { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+export { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "./ui/card";
 export { CopyableValue } from "./ui/copyable-value";
 export { Input } from "./ui/input";
 export { Label } from "./ui/label";

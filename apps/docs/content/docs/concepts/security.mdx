@@ -165,6 +165,18 @@ Pane bearer tokens and typed input can also appear in process arguments or tmux 
 
 Browser push notifications pass through the browser's push service and can display a session name on a lock screen. Notifications are owner-targeted; sharing a session does not notify every grantee. Agent-provider traffic is separate from Subshell: an agent may send project content to its configured provider. Self-hosting Subshell does not make that provider interaction local.
 
+## Backup and restore protection
+
+Full archives contain live credentials, including the authentication secret, identity keys, and plugin secrets. Encryption defaults off. Treat an unencrypted archive as sensitive server data and keep backup copies outside the server machine in protected storage.
+
+Optional encryption uses AES-256-GCM with a fresh random salt and nonce for each archive. The header and ciphertext are authenticated before decrypted archive contents are parsed. Password derivation uses scrypt with fixed settings: `N=65536`, `r=8`, and `p=2`. Working memory is about 64 MiB, with a 128 MiB scrypt allowance. This is a derivation allowance, not a cap on the server or desktop app's total memory.
+
+Every machine uses the same work factor. A fast backup host does not increase the cost for a slower restore host. There is no hardware calibration or artificial waiting period. Actual processing time depends on hardware and load; there is no guaranteed three-second maximum.
+
+Archive passwords require at least eight Unicode characters and permit long passphrases. Eight characters is a usability minimum, not a guarantee of strength. An attacker with an archive can make unlimited offline guesses using their own hardware. Increasing derivation work slows guesses, but does not provide rate limiting or make a short password equivalent to a strong longer one. Prefer a unique randomly generated password or passphrase, and store it separately. Forgotten passwords cannot be recovered.
+
+See [Backups and restoration](/administration/backups) for procedures, archive scope, and recovery verification.
+
 ## Plugins, installers, and updates
 
 Plugins run in the server process with its privileges and are not sandboxed. Installing a third-party plugin is an administrator trust decision affecting the instance and its enrolled nodes. A plugin manifest or capability check does not establish that its implementation is safe. See [Plugins](/administration/plugins).

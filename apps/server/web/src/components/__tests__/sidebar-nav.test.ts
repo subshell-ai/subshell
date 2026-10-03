@@ -20,6 +20,7 @@ const GROUP_PAGES = [
   "/settings/service",
   "/settings/networking",
   "/settings/updates",
+  "/settings/backups",
   "/settings/status",
   "/settings/logs",
 ];

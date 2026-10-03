@@ -86,4 +86,5 @@ export async function startServer({ port, host }: { port: number; host: string }
     const server = app.server;
     if (server) startLivePublisher({ target: server });
   });
+  return app;
 }
