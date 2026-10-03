@@ -198,9 +198,12 @@ pub fn spawn(app: AppHandle) {
                 // person has hidden it behind, and must not be destroyed either: the
                 // `ExitRequested` guard in `lib.rs` keeps the app up only while
                 // close-to-tray is on AND a `main` window still exists, so removing
-                // the last `main` here would let the app quit. The hidden dead page
-                // is inert until a reopen, which `open_home` re-gates on a fresh
-                // probe anyway.
+                // the last `main` here would let the app quit. A hidden dead page
+                // is therefore left as it is; if the person re-raises it the stale
+                // document can come back (the macOS Dock `Reopen` raises an existing
+                // `main` with no probe, and a same-origin `open_main` re-raises
+                // rather than reloads). That narrow residual is the safer half of the
+                // trade — versus forcing a window over hidden work, or quitting.
                 if window.is_visible().unwrap_or(true) {
                     // Raise the offline surface FIRST, then remove the dead
                     // dashboard: destroying `main` before a window exists to take

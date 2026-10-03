@@ -551,9 +551,12 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
 
 /// Whether the page has completed the title-bar handshake.
 ///
-/// Managed state rather than a local flag because two things read it: the
+/// Managed state rather than a local flag because three things touch it: the
 /// fallback thread (which must not re-show a tray-hidden window) and
-/// {@link shell_ready} itself (which must be idempotent — the SPA can remount).
+/// {@link shell_ready} itself (which must be idempotent — the SPA can remount),
+/// both readers, plus a writer — the `lib.rs` `main`+`Destroyed` handler clears
+/// it, so a window destroyed and rebuilt in-process (the offline route, a dev
+/// reset) re-earns the flag rather than coming up invisible behind a stale `true`.
 pub struct ShellReady(pub std::sync::Arc<AtomicBool>);
 
 impl ShellReady {
