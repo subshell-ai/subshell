@@ -23,8 +23,6 @@ A full instance backup saves the server-owned state in one archive that you can 
 | Previous backups and temporary files | No | Existing backups, staging files, and restore or update transactions. |
 | Running processes | No | Live sessions, tmux sockets, and agent in-memory state. |
 
-This table describes full instance archives. [Legacy database snapshots](#legacy-database-snapshots) contain only the database.
-
 > [!warning] Backup credentials
 > A full archive contains keys and credentials. Enable encryption to protect them with a password, and keep the archive in a secure location. Store the password separately; a forgotten password cannot be recovered.
 
@@ -118,12 +116,6 @@ Use `subshell-server backup --list --json` to list files in the server’s backu
 An older restored database receives pending application and authentication migrations when the server starts, before it serves requests. Invalid archives, unsupported newer migrations, and wrong encryption passwords are rejected before replacement. The restore preserves the previous destination state until the restored server completes a successful boot. An interrupted replacement is recovered before configuration is loaded; a failed boot rolls back to the previous state. If you choose not to start, the previous state remains until the next successful boot.
 
 Migration writes the selected destination paths into configuration. It retains network settings and secrets but disables network plugins and clears publication addresses until you review **Server Settings → Networking**. Operating system services and external network daemons still belong to the destination machine.
-
-## Legacy database snapshots
-
-A `.db` snapshot is explicitly a database-only restore. It leaves configuration, identities, plugins, and files in place. It must be a standalone snapshot without adjacent SQLite journal sidecars. Restoring a database without its matching identity files may leave enrolled nodes or channels unable to reconnect.
-
-Automatic pre-upgrade backups are full instance archives, retained according to `SUBSHELL_DB_BACKUPS_KEEP`. Update rollback uses a private database checkpoint captured from the same archive; existing database-only backups remain restorable. Keep archive copies outside the machine for disaster recovery.
 
 ## Verify recovery
 

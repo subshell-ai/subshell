@@ -64,7 +64,7 @@ subshell-server backup [--output <archive>] [--encrypt]
                        [--password-file <file|->] [--json]
 ```
 
-Every new backup is a full instance archive. Encryption defaults off; new encrypted archives require at least eight Unicode characters. See [Backups and restoration](/administration/backups#encrypted-backups) for password guidance and offline guessing limits. Older database-only snapshots remain restorable. Password files must be private, owned regular files containing one line; `-` reads a line from stdin. Passwords are never command-line arguments.
+Every new backup is a full instance archive. Encryption defaults off; new encrypted archives require at least eight Unicode characters. See [Backups and restoration](/administration/backups#encrypted-backups) for password guidance and offline guessing limits. Password files must be private, owned regular files containing one line; `-` reads a line from stdin. Passwords are never command-line arguments.
 
 ## restore
 
@@ -84,7 +84,7 @@ For migration, use `--mode migration` with `--data-dir`, `--database-path`, `--c
 
 Optional account recovery uses `--recover-admin <id>` and `--temporary-password-file <file|->`. The selected existing administrator must change the temporary password before ordinary access. Recovery defaults off. Both password options cannot read stdin together.
 
-A legacy `.db` file restores only the database. See [Backups and restoration](/administration/backups) for archive scope, Settings staging, and recovery behavior.
+See [Backups and restoration](/administration/backups) for archive scope, Settings staging, and recovery behavior.
 
 ## update
 
