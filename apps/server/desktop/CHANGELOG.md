@@ -1,5 +1,39 @@
 # @internal/desktop-server
 
+## 1.4.0
+
+### Minor Changes
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Add full instance backup and restore as a single archive with optional password encryption. Server Settings creates downloads and prepares restores; the CLI and desktop assistant apply them offline with recovery after interruption, failed-boot rollback, migration choices, and optional administrator password recovery. Create full archives before upgrades and preserve support for legacy database-only restores.
+
+### Patch Changes
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Use .tar.gz for plain backup archives and .tar.gz.enc for encrypted archives consistently in desktop save dialogs, control plane downloads, and documentation.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Apply confirmed control-plane restores through an independent host worker, including on headless installations. Review affected sessions once, show restore and verified startup progress, and keep the result visible after login revocation without a CLI or desktop handoff.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Use the desktop assistant frame and radio choices for dashboard backup and restore, with centered headings and separate footer navigation. Enable authenticated attachment downloads in both desktop control plane windows and show native completion or failure feedback.
+
+- [#310](https://github.com/subshell-ai/subshell/pull/310) [`7734283`](https://github.com/subshell-ai/subshell/commit/77342833d395c2c1fafc5f94ddf723761b07b51a) Thanks [@dependabot](https://github.com/apps/dependabot)! - Update native desktop dependencies, including the updater’s Linux certificate handling.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Summarize restore session interruptions by count and match desktop dialog prose to pane body text.
+  
+  Honor confirmed backup replacement in the desktop save dialog without losing the previous archive on capture failure.
+  
+  Separate backup selection, restore configuration, and final confirmation into three panes. Validate configuration on blur and show session effects inline before consent.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Always start and verify the server after restores performed through the desktop assistant or control plane; remove the startup toggle.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Harden instance backup and restore after review. A native parent now defers respawning while a control-plane restore holds the instance swap, so the swap no longer races a respawn for the lock. Boot confirmation gets a budget separate from the stop wait, so a slow healthy boot is not rolled back; a stored start choice survives to apply time; a re-applied completed restore is refused honestly instead of echoing a stale success; a failed or expired worker always reports and clears its secret file; abandoned download slots expire; a rolled-back prepared database removes its WAL sidecars; the state-write lock closes its handle when a release refuses; the client desktop registers the dialog plugin its download notice needs; and container one-shot invocations run once instead of respawning.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Clarify that the different-machine restore mode applies a backup on the current host rather than transferring it to another machine.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Explain the selected restore mode consistently in the desktop assistant and control plane, and separate restore configuration cards with consistent spacing.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Strengthen encrypted backup password derivation to scrypt with 64 MiB of working memory with a 128 MiB scrypt memory allowance and a fixed CPU work factor independent of the backup host’s speed. Require at least 8 characters consistently in the CLI, browser, and desktop, and explain offline guessing and safe password selection. Reject the unreleased weaker encryption format.
+- Updated dependencies [[`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981), [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981)]:
+  - @internal/server@1.9.0
+
 ## 1.3.5
 
 ### Patch Changes
