@@ -58,7 +58,7 @@ The server keeps only a temporary download copy. The link is available once, for
 1. Open **Server Settings → Backups** as an instance administrator.
 2. Select **Restore**, then choose **Open a backup file** or **Use a saved backup**. Select **Choose backup file…** or choose a saved archive under **Available backups**. The selection is validated automatically.
 3. If the archive is encrypted, enter its password and select **Validate backup**. The password field appears only when needed. **Configure backup** stays disabled until validation succeeds.
-4. Select **Configure backup**. Choose the restore mode and review destination paths and addresses. Optionally enable **Recover an existing administrator**, choose the account, and enter and confirm a temporary password. Choose whether to start the server afterward.
+4. Select **Configure backup**. Choose the restore mode and review destination paths and addresses. Optionally enable **Recover an existing administrator**, choose the account, and enter and confirm a temporary password. The prepared restore starts and verifies the server after replacement.
 5. Select **Review backup**. Invalid configuration or recovery fields prevent advancing; errors appear after blur. Review the archive, destination, and options, then select the confirmation checkbox and **Prepare restore**. **Back** returns to configuration.
 6. Wait for preparation to finish. The prepared result and host command appear on the same pane. Copy and run the displayed command on the server host, or open the Subshell Server restore assistant.
 
@@ -82,12 +82,12 @@ Open **Backup…** or **Restore…** from Subshell Server's native menu or tray.
 2. For a file, select **Choose backup file…** to open the native file picker. For a saved backup, select a file under **Available backups**. The assistant validates the selection automatically.
 3. If the archive is encrypted, enter its password and select **Validate backup**. The password field appears only when needed. **Configure backup** stays disabled until validation succeeds.
 4. Select **Configure backup**. Review the restore mode, destination paths, and address settings. Optionally enable **Recover an existing administrator**, choose the account, and enter and confirm a temporary password.
-5. Choose whether to **Start the server after restoring**, then select **Review backup**. Invalid configuration or recovery fields prevent advancing; errors appear after blur.
+5. Select **Review backup**. Invalid configuration or recovery fields prevent advancing; errors appear after blur.
 6. Review the prepared destination, backup details, and session consequences. The assistant reports the count of incompatible sessions rather than listing every name. **Back** returns to configuration without applying the restore.
 7. Select the confirmation checkbox acknowledging replacement and the session effects. Select **Start backup** to apply the restore; this is the current button label on the restore review pane.
-8. Wait for the restore progress pane to finish, then select **Next**. Review the result, destination paths, and, when started, the configured control plane URL. Use its open or copy controls, then select **Done**.
+8. Wait for the restore progress pane to finish, then select **Next**. Review the result, destination paths, and the configured control plane URL. Use its open or copy controls, then select **Done**.
 
-The form fills optional locations and addresses from the backup, using the current server's values when an older archive omits them. Clearing an optional field keeps its suggested value. **Start the server after restoring** defaults on. An installed service keeps its existing supervision; an app-managed server uses the restored configuration.
+The form fills optional locations and addresses from the backup, using the current server's values when an older archive omits them. Clearing an optional field keeps its suggested value. The server is always started and checked after restoring through the desktop assistant. An installed service keeps its existing supervision; an app-managed server uses the restored configuration.
 
 Preparation keeps a private extracted copy for ten minutes. The saved backup itself does not expire. If the extraction expires while the assistant is open, it extracts and validates the source again before applying. Changed backup details or destination choices require another review. Keep the source file available throughout the flow.
 
