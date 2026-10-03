@@ -169,12 +169,13 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
       await prepareRestore();
     },
   });
+  const confirmed = useStore(review.store, (state) => state.values.confirmed);
   const inspectDisabled = useSubmitDisabled(inspectForm, busy);
   const configureDisabled = useSubmitDisabled(inspectForm, busy || !inspection);
   const reviewDisabled = useSubmitDisabled(configuration, busy);
   const prepareDisabled = useSubmitDisabled(
     review,
-    busy || Object.keys(configurationProblems(draft, inspection)).length > 0,
+    busy || !confirmed || !inspection || Object.keys(configurationProblems(draft, inspection)).length > 0,
   );
   const admins =
     inspection?.admins.map((admin) => ({ value: admin.id, label: `${admin.name} · ${admin.email}` })) ?? [];

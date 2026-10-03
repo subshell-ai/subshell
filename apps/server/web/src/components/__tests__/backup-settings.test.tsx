@@ -83,6 +83,14 @@ async function confirmReview() {
   await waitFor(() =>
     expect((screen.getByRole("button", { name: "Prepare restore" }) as HTMLButtonElement).disabled).toBe(false),
   );
+  fireEvent.click(confirm);
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Prepare restore" }) as HTMLButtonElement).disabled).toBe(true),
+  );
+  fireEvent.click(confirm);
+  await waitFor(() =>
+    expect((screen.getByRole("button", { name: "Prepare restore" }) as HTMLButtonElement).disabled).toBe(false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Prepare restore" }));
 }
 
