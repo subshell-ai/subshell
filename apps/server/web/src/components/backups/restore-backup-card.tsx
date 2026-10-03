@@ -716,8 +716,8 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                     Start the server after restoring
                   </FieldLabel>{" "}
                   <p id="restore-start-description" className="m-0 text-detail text-muted-foreground">
-                    An installed service keeps its supervision and login setting. Otherwise, the host tool runs the
-                    restored server with a compatible binary.
+                    Turn on to start the server and check that it’s ready after restoring. Turn off to leave it stopped
+                    and start it later.
                   </p>
                 </div>
                 <Switch

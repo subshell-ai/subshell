@@ -86,7 +86,7 @@ export function RestoreConfirmation(props: { locked: boolean; start: boolean; se
         <RestoreChoice
           id="restore-start"
           label="Start the server after restoring"
-          description="An installed service keeps its supervision and login setting. Otherwise, this app runs the restored server with a compatible binary."
+          description="Turn on to start the server and check that it’s ready after restoring. Turn off to leave it stopped and start it later."
           checked={props.start}
           disabled={props.locked}
           onChange={props.setStart}
