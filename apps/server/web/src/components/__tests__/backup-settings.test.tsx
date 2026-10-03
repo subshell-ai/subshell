@@ -43,6 +43,9 @@ function mockApi(handler?: (request: Request) => Response | Promise<Response> | 
     requests.push(request);
     const handled = handler?.(request);
     if (handled) return handled;
+    if (request.path.endsWith("/preflight")) return Response.json({ affectedSessions: 0 });
+    if (request.path.endsWith("/apply")) return Response.json({ id: "restore-job", expiresAt: Date.now() + 60000 });
+    if (request.path.includes("/api/restore-status/")) return Response.json({ phase: "completed" });
     if (request.path.endsWith("/saved")) return Response.json({ backups: [] });
     if (request.method === "DELETE") return Response.json({ deleted: true });
     if (/\/inspect(?:-saved)?$/.test(request.path)) return Response.json(inspection);
@@ -76,22 +79,22 @@ function reviewConfiguration() {
 }
 async function confirmReview() {
   const confirm = await screen.findByRole("checkbox", {
-    name: "I confirm the destination and restore options shown above",
+    name: "I confirm replacement and the session effects shown above",
   });
-  expect((screen.getByRole("button", { name: "Prepare restore" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(confirm);
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Prepare restore" }) as HTMLButtonElement).disabled).toBe(false),
+    expect((screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).disabled).toBe(false),
   );
   fireEvent.click(confirm);
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Prepare restore" }) as HTMLButtonElement).disabled).toBe(true),
+    expect((screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).disabled).toBe(true),
   );
   fireEvent.click(confirm);
   await waitFor(() =>
-    expect((screen.getByRole("button", { name: "Prepare restore" }) as HTMLButtonElement).disabled).toBe(false),
+    expect((screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).disabled).toBe(false),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Prepare restore" }));
+  fireEvent.click(screen.getByRole("button", { name: "Start restore" }));
 }
 
 describe("Settings backup workflows", () => {
@@ -263,13 +266,13 @@ describe("Settings backup workflows", () => {
     expect((screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("validates configuration on blur, retains recovery fields through review, and prepares only after confirmation", async () => {
+  it("validates configuration on blur, retains recovery fields through review, and starts restoration only after confirmation", async () => {
     let finish: ((response: Response) => void) | undefined;
     const pending = new Promise<Response>((resolve) => {
       finish = resolve;
     });
     const requests = mockApi((request) =>
-      request.method === "POST" && request.path.includes("/staged/") ? pending : undefined,
+      request.method === "POST" && request.path.endsWith("/apply") ? pending : undefined,
     );
     mount(<RestoreBackupCard />);
     await configureFile();
@@ -294,17 +297,21 @@ describe("Settings backup workflows", () => {
     expect(screen.queryByRole("switch", { name: "Start the server after restoring" })).toBeNull();
     reviewConfiguration();
     await screen.findByText("Review Restore");
-    expect(posts(requests)).toHaveLength(1);
+    expect(requests.some((request) => request.path.endsWith("/apply"))).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect((screen.getByLabelText("Confirm temporary password") as HTMLInputElement).value).toBe("temporary-password");
     expect((screen.getByLabelText("Port (optional)") as HTMLInputElement).value).toBe("4000");
     reviewConfiguration();
     await confirmReview();
-    await screen.findByText("Preparing your restore");
+    await screen.findByText("Restoring your server");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByLabelText("Confirm temporary password")).toBeNull();
-    expect((screen.getByRole("button", { name: "Preparing…" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(JSON.parse(posts(requests)[1]?.body as string)).toEqual({
+    expect((screen.getByRole("button", { name: "Restoring…" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      JSON.parse(
+        requests.find((request) => request.path === "/api/admin/backups/staged/restore-stage")?.body as string,
+      ),
+    ).toEqual({
       mode: "same-machine",
       start: true,
       destination,
@@ -312,22 +319,19 @@ describe("Settings backup workflows", () => {
       recoveryUserId: "admin",
       temporaryPassword: "temporary-password",
     });
-    finish?.(
-      Response.json({
-        id: inspection.id,
-        expiresAt: Date.now() + 600000,
-        command: "subshell-server restore --staged restore-stage",
-      }),
-    );
-    await screen.findByText("Your restore is ready to apply");
-    expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
-    expect(screen.getByText("Your restore is ready to apply")).toBeTruthy();
-    expect(screen.getByText("subshell-server restore --staged restore-stage")).toBeTruthy();
+    finish?.(Response.json({ id: "restore-job", expiresAt: Date.now() + 60000 }));
+    await screen.findByText("Restore finished");
     expect(screen.queryByText("Restore Complete")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    await screen.findByText("Restore Your Server");
-    // Leaving the handoff must not delete the stage the copied command refers to.
-    expect(requests.some((request) => request.method === "DELETE")).toBe(false);
+    expect(screen.queryByText(/Run this command/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Open restore assistant" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText("Restore Complete");
+    expect(screen.getByText("Your server is ready")).toBeTruthy();
+    expect(requests.filter((request) => request.path.endsWith("/apply"))).toHaveLength(1);
+    expect(JSON.parse(requests.find((request) => request.path.endsWith("/apply"))?.body as string)).toEqual({
+      confirmed: true,
+      interruptSessions: false,
+    });
   });
 
   it("revalidates expired extraction before preparation and stops for review if the source changed", async () => {
@@ -343,11 +347,47 @@ describe("Settings backup workflows", () => {
     mount(<RestoreBackupCard />);
     await configureFile();
     reviewConfiguration();
-    await confirmReview();
     await screen.findByText("The backup changed. Review it again before preparing the restore.");
-    expect(posts(requests)).toHaveLength(2);
+    expect(requests.filter((request) => request.path.endsWith("/inspect"))).toHaveLength(2);
     expect(screen.getByText("2.0")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Prepare restore" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Start restore" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("reviews the affected-session count and carries its consent to the host worker", async () => {
+    const requests = mockApi((request) =>
+      request.path.endsWith("/preflight") ? Response.json({ affectedSessions: 12 }) : undefined,
+    );
+    mount(<RestoreBackupCard />);
+    await configureFile();
+    reviewConfiguration();
+    await screen.findByText(/12 active sessions cannot be preserved/);
+    expect(requests.some((request) => request.path.endsWith("/apply"))).toBe(false);
+    await confirmReview();
+    await screen.findByText("Restore finished");
+    expect(JSON.parse(requests.find((request) => request.path.endsWith("/apply"))?.body as string)).toEqual({
+      confirmed: true,
+      interruptSessions: true,
+    });
+  });
+
+  it("keeps progress visible while the server disconnects, then waits for Next after verified boot", async () => {
+    let polls = 0;
+    mockApi((request) => {
+      if (request.path.includes("/api/restore-status/")) {
+        if (++polls === 1) throw new TypeError("Connection refused");
+        return Response.json({ phase: "completed" });
+      }
+    });
+    mount(<RestoreBackupCard />);
+    await configureFile();
+    reviewConfiguration();
+    await confirmReview();
+    await screen.findByText("Restoring your server");
+    expect((screen.getByRole("button", { name: "Restoring…" }) as HTMLButtonElement).disabled).toBe(true);
+    await screen.findByText("Restore finished");
+    expect(screen.queryByText("Restore Complete")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText("Your server is ready");
   });
 
   it("rejects oversized files locally and never prepares an invalid archive", async () => {

@@ -28,6 +28,7 @@ import { routeOwnsBottomEdge } from "@/lib/app-frame";
 import { useCurrentUser } from "@/lib/auth";
 import { desktopPlatform, isServerDesktop } from "@/lib/desktop";
 import { queryClient } from "@/lib/query-client";
+import { useRestoreProgressActive } from "@/lib/restore-progress";
 import { shellGate } from "@/lib/shell-gate";
 
 export const Route = createRootRoute({
@@ -143,6 +144,7 @@ function Shell() {
   });
   const offline = useServerOffline();
   const location = useLocation();
+  const restoring = useRestoreProgressActive() && location.pathname === "/settings/backups";
   // Pre-auth pages own the whole frame: no sidebar, no drawer bar.
   // /pending is one too (spec 2026-09-24 §7): a pending identity has no
   // session, and without this the signed-out guard would bounce it to
@@ -184,6 +186,7 @@ function Shell() {
   // predicate (regressions #7/#8: a down server must be an offline notice,
   // never a blank screen, and never a bounce to an unreachable /login).
   const gate = shellGate({
+    restoring,
     isLoading,
     hasUser: !!user,
     offline,
@@ -194,8 +197,8 @@ function Shell() {
     progressLoading,
     resumeSetup: setupProgress?.step != null,
   });
-  if (user && recoveryLoading && !offline) return null;
-  if (user && recoveryError && !offline)
+  if (!restoring && user && recoveryLoading && !offline) return null;
+  if (!restoring && user && recoveryError && !offline)
     return (
       <main className="mx-auto max-w-xl p-6">
         <ErrorBanner
@@ -208,7 +211,7 @@ function Shell() {
         />
       </main>
     );
-  if (user && recovery?.passwordChangeRequired && !offline) return <BackupPasswordRecovery />;
+  if (!restoring && user && recovery?.passwordChangeRequired && !offline) return <BackupPasswordRecovery />;
   if (gate === "blank" || gate === "holdSetup") return null;
   if (gate === "offlineHold") return <OfflineBanner />;
   // The redirect elements MUST keep a stable identity across renders:

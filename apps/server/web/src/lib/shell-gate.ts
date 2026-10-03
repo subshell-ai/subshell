@@ -23,6 +23,7 @@ export type ShellGate = "blank" | "offlineHold" | "holdSetup" | "toSetup" | "toL
  *    person into a page whose data is also unreachable.
  */
 export function shellGate(args: {
+  restoring?: boolean;
   isLoading: boolean;
   hasUser: boolean;
   offline: boolean;
@@ -36,6 +37,7 @@ export function shellGate(args: {
   /** True when the caller's bookmark names a step — resume the wizard. */
   resumeSetup: boolean;
 }): ShellGate {
+  if (args.restoring && args.pathname === "/settings/backups") return "render";
   const { isLoading, hasUser, offline, setupLoading, needsSetup, bare, pathname, progressLoading, resumeSetup } = args;
   if (isLoading) return offline ? "offlineHold" : "blank";
   if (hasUser && !offline) {

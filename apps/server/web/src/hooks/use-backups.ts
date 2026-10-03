@@ -113,5 +113,42 @@ export function useRestoreBackup() {
     },
   });
   const cancel = useMutation({ mutationFn: (id: string) => apiFetch(`${ROOT}/staged/${id}`, { method: "DELETE" }) });
-  return { saved, inspect, prepare, cancel };
+  const preflight = useMutation({
+    mutationFn: (id: string) => apiPost<{ affectedSessions: number }>(`${ROOT}/staged/${id}/preflight`, {}),
+  });
+  const apply = useMutation({
+    mutationFn: (body: { id: string; confirmed: boolean; interruptSessions: boolean }) => {
+      const { id, ...consent } = body;
+      return apiPost<RestoreApplicationJob>(`${ROOT}/staged/${id}/apply`, consent);
+    },
+  });
+  return { saved, inspect, prepare, cancel, preflight, apply };
+}
+
+export interface RestoreApplicationJob {
+  id: string;
+  expiresAt: number;
+  port?: number;
+  priorPort?: number;
+}
+export function restoreConnectionOrigin(job: RestoreApplicationJob): string {
+  const current = new URL(window.location.origin);
+  if (
+    current.protocol === "http:" &&
+    job.port &&
+    job.priorPort &&
+    job.port !== job.priorPort &&
+    (Number(current.port || 80) === job.priorPort || ["localhost", "127.0.0.1", "[::1]"].includes(current.hostname))
+  )
+    current.port = String(job.port);
+  return current.origin;
+}
+export async function fetchRestoreApplicationStatus(
+  job: RestoreApplicationJob,
+): Promise<{ phase: "restoring" | "completed" | "failed"; error?: string }> {
+  const origin = restoreConnectionOrigin(job);
+  if (origin === window.location.origin) return apiFetch(`/api/restore-status/${job.id}`);
+  const response = await fetch(`${origin}/api/restore-status/${job.id}`, { credentials: "omit" });
+  if (!response.ok) throw new Error("Restore status is not ready.");
+  return response.json();
 }

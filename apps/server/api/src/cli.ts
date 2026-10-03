@@ -6,6 +6,7 @@ import { licenseNotice } from "@internal/subshell-protocol";
 import { runBackup } from "@/commands/backup.js";
 import { parseBackupFlags, parseRestoreFlags } from "@/commands/backup-options.js";
 import { type ConfigureOpts, runConfigure } from "@/commands/configure.js";
+import { runContainerSupervisor } from "@/commands/container-supervisor.js";
 import { type InitDeps, runInit, setupHandoffLines } from "@/commands/init.js";
 import { runReset } from "@/commands/reset.js";
 import { runRestore } from "@/commands/restore.js";
@@ -25,6 +26,7 @@ import {
   uninstallService,
 } from "@/service.js";
 import type { McpResolveIo } from "@/services/mcp-resolve.js";
+import { runRestoreWorker } from "@/services/restore-jobs.js";
 import { setConsoleVerbose } from "@/utils/logger.js";
 import { SERVER_VERSION } from "@/version.js";
 
@@ -593,6 +595,20 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
         isTTY: deps.isTTY ?? process.stdin.isTTY === true,
         confirm: deps.confirm ?? promptConfirm,
       });
+      exit(code);
+      return true;
+    }
+    case "container-supervisor": {
+      const code = await runContainerSupervisor(argv.slice(1));
+      exit(code);
+      return true;
+    }
+    case "restore-worker": {
+      if (argv.length !== 2) {
+        exit(1);
+        return true;
+      }
+      const code = await runRestoreWorker(argv[1] as string);
       exit(code);
       return true;
     }

@@ -12,4 +12,9 @@ set -euo pipefail
 if [ ! -f "${SUBSHELL_SERVER_CONFIG_DIR:-/data}/config.env" ]; then
   setsid -w subshell-server init < /dev/null
 fi
-exec subshell-server "$@"
+# Explicit CLI commands still run once. Serving uses a parent so stopping the
+# server during an authenticated browser restore does not stop the container.
+if [ "$#" -gt 0 ] && [[ "$1" != -* ]]; then
+  exec subshell-server "$@"
+fi
+exec subshell-server container-supervisor "$@"

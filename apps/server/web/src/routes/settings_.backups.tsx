@@ -5,15 +5,17 @@ import { RestoreBackupCard } from "@/components/backups/restore-backup-card";
 
 import { Segmented } from "@/components/ui/segmented";
 import { usePublicSettings } from "@/hooks/use-public-settings";
+import { useRestoreProgressActive } from "@/lib/restore-progress";
 
 export const Route = createFileRoute("/settings_/backups")({ component: BackupsPage });
 function BackupsPage() {
   const [operation, setOperation] = useState<"backup" | "restore">("backup");
   const [busy, setBusy] = useState(false);
   const { data } = usePublicSettings();
+  const restoring = useRestoreProgressActive();
   return (
     <main className="flex h-full min-h-0 w-full flex-col">
-      {data?.viewerIsAdmin === true ? (
+      {data?.viewerIsAdmin === true || restoring ? (
         <>
           <fieldset disabled={busy} className="shrink-0 border-b px-8 py-3">
             <Segmented

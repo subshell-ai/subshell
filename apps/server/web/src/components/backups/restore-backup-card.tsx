@@ -3,14 +3,19 @@ import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES, type RestoreMode } from 
 import { useStore } from "@tanstack/react-form";
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { CopyCommandRow } from "@/components/copy-command-row";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { type RestoreInspection, useRestoreBackup } from "@/hooks/use-backups";
-import { desktopInvokeStrict, desktopShell } from "@/lib/desktop";
+import {
+  fetchRestoreApplicationStatus,
+  type RestoreApplicationJob,
+  type RestoreInspection,
+  restoreConnectionOrigin,
+  useRestoreBackup,
+} from "@/hooks/use-backups";
 import { type FieldProblems, fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { setRestoreProgressActive } from "@/lib/restore-progress";
 import { Card, CardContent, CardHeader, CardTitle } from "./backup-card";
 import { BackupError, BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
 
@@ -115,33 +120,80 @@ function configurationProblems(draft: ConfigurationDraft, inspection: RestoreIns
   return problems;
 }
 
-type Step = "select" | "configure" | "review" | "progress";
+type Step = "select" | "configure" | "review" | "progress" | "complete";
 export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void }) {
   const restore = useRestoreBackup();
   const [step, setStep] = useState<Step>("select");
+  useEffect(() => {
+    setRestoreProgressActive(step === "progress" || step === "complete");
+  }, [step]);
+  useEffect(() => () => setRestoreProgressActive(false), []);
   const [source, setSource] = useState<"file" | "saved">("file");
   const [inspection, setInspection] = useState<RestoreInspection | null>(null);
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [selectionProblem, setSelectionProblem] = useState<string | null>(null);
   const [passwordProblem, setPasswordProblem] = useState<string | null>(null);
   const [preparationProblem, setPreparationProblem] = useState<string | null>(null);
-  const [desktopError, setDesktopError] = useState<string | null>(null);
+  const [affectedSessions, setAffectedSessions] = useState(0);
+  const [job, setJob] = useState<RestoreApplicationJob | null>(null);
+  const [outcome, setOutcome] = useState<"restoring" | "completed" | "failed">("restoring");
+  useEffect(() => {
+    if (!job || outcome !== "restoring") return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const result = await fetchRestoreApplicationStatus(job);
+        if (stopped) return;
+        setOutcome(result.phase);
+        if (result.error) setPreparationProblem(result.error);
+        if (result.phase !== "restoring") return;
+      } catch {
+        /* The serving process is expected to disconnect while replacement runs. */
+      }
+      if (!stopped) {
+        if (Date.now() >= job.expiresAt) {
+          setOutcome("failed");
+          setPreparationProblem("The server has not reconnected. Check the server host before retrying.");
+        } else timer = setTimeout(() => void poll(), 1000);
+      }
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [job, outcome]);
   const sourceRequest = useRef<{ file?: File; path?: string; password?: string } | null>(null);
   const validationSequence = useRef(0);
   const picker = useRef<HTMLInputElement>(null);
-  const busy = restore.inspect.isPending || restore.prepare.isPending || restore.cancel.isPending;
+  const busy =
+    restore.inspect.isPending ||
+    restore.prepare.isPending ||
+    restore.cancel.isPending ||
+    restore.preflight.isPending ||
+    restore.apply.isPending ||
+    (job !== null && outcome === "restoring");
   useEffect(() => {
-    onBusy?.(busy);
+    onBusy?.(busy || step === "progress" || step === "complete");
     return () => onBusy?.(false);
-  }, [busy, onBusy]);
+  }, [busy, onBusy, step]);
   const configuration = makeForm({
     defaultValues: CONFIGURATION_DEFAULTS,
     validator: (draft) => configurationProblems(draft, inspection),
-    onSubmit: (draft) => {
+    onSubmit: async (draft) => {
       if (busy || !inspection || Object.keys(configurationProblems(draft, inspection)).length) return;
       review.setFieldValue("confirmed", false);
       setPreparationProblem(null);
-      setStep("review");
+      try {
+        const prepared = await prepareSelection();
+        if (!prepared) return;
+        const preview = await restore.preflight.mutateAsync(prepared.id);
+        setAffectedSessions(preview.affectedSessions);
+        setStep("review");
+      } catch (error) {
+        setPreparationProblem(error instanceof Error ? error.message : "Could not review restore.");
+      }
     },
   });
   const draft = useStore(configuration.store, (state) => state.values);
@@ -166,7 +218,24 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
         Object.keys(configurationProblems(configuration.state.values, inspection)).length
       )
         return;
-      await prepareRestore();
+      if (!restore.prepare.data) return;
+      setStep("progress");
+      setOutcome("restoring");
+      setPreparationProblem(null);
+      try {
+        const started = await restore.apply.mutateAsync({
+          id: restore.prepare.data.id,
+          confirmed: true,
+          interruptSessions: affectedSessions > 0,
+        });
+        setJob(started);
+        configuration.setFieldValue("temporaryPassword", "");
+        configuration.setFieldValue("confirmation", "");
+        inspectForm.setFieldValue("password", "");
+      } catch (error) {
+        setPreparationProblem(error instanceof Error ? error.message : "Could not start restore.");
+        setOutcome("failed");
+      }
     },
   });
   const confirmed = useStore(review.store, (state) => state.values.confirmed);
@@ -175,7 +244,11 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
   const reviewDisabled = useSubmitDisabled(configuration, busy);
   const prepareDisabled = useSubmitDisabled(
     review,
-    busy || !confirmed || !inspection || Object.keys(configurationProblems(draft, inspection)).length > 0,
+    busy ||
+      !confirmed ||
+      !inspection ||
+      !restore.prepare.data ||
+      Object.keys(configurationProblems(draft, inspection)).length > 0,
   );
   const admins =
     inspection?.admins.map((admin) => ({ value: admin.id, label: `${admin.name} · ${admin.email}` })) ?? [];
@@ -262,57 +335,48 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
         : inspection?.destination?.configPath || "",
     };
   }
-  async function prepareRestore() {
+  async function prepareSelection() {
     if (!inspection) return;
     setPreparationProblem(null);
-    setStep("progress");
-    try {
-      let current = inspection;
-      const refresh = async () => {
-        if (!sourceRequest.current) throw new Error("Select the backup again to validate it.");
-        const refreshed = await restore.inspect.mutateAsync(sourceRequest.current);
-        setInspection(refreshed);
-        if (
-          JSON.stringify(refreshed.manifest) !== JSON.stringify(current.manifest) ||
-          JSON.stringify(refreshed.admins) !== JSON.stringify(current.admins) ||
-          JSON.stringify(refreshed.destination) !== JSON.stringify(current.destination)
-        ) {
-          review.setFieldValue("confirmed", false);
-          setStep("review");
-          throw new Error("The backup changed. Review it again before preparing the restore.");
-        }
-        current = refreshed;
-      };
-      if (current.expiresAt <= Date.now()) await refresh();
-      const values = configuration.state.values;
-      const request = () => ({
-        id: current.id,
-        mode: current.legacyDatabaseOnly ? ("same-machine" as const) : values.mode,
-        start: true,
-        ...(!current.legacyDatabaseOnly && {
-          destination: destination(values),
-          configOverrides: {
-            baseUrl: values.baseUrl || undefined,
-            host: values.host || undefined,
-            port: values.port || undefined,
-            trustedOrigins: values.trustedOrigins,
-          },
-        }),
-        ...(values.recover && { recoveryUserId: values.adminId, temporaryPassword: values.temporaryPassword }),
-      });
-      try {
-        await restore.prepare.mutateAsync(request());
-      } catch (error) {
-        if (!(error instanceof Error && /expired|already prepared/i.test(error.message))) throw error;
-        await refresh();
-        await restore.prepare.mutateAsync(request());
+    let current = inspection;
+    const refresh = async () => {
+      if (!sourceRequest.current) throw new Error("Select the backup again to validate it.");
+      const refreshed = await restore.inspect.mutateAsync(sourceRequest.current);
+      setInspection(refreshed);
+      if (
+        JSON.stringify(refreshed.manifest) !== JSON.stringify(current.manifest) ||
+        JSON.stringify(refreshed.admins) !== JSON.stringify(current.admins) ||
+        JSON.stringify(refreshed.destination) !== JSON.stringify(current.destination)
+      ) {
+        review.setFieldValue("confirmed", false);
+        setStep("review");
+        throw new Error("The backup changed. Review it again before preparing the restore.");
       }
-      // The configuration fields are already unmounted on this progress pane.
-      configuration.setFieldValue("temporaryPassword", "");
-      configuration.setFieldValue("confirmation", "");
-      inspectForm.setFieldValue("password", "");
+      current = refreshed;
+    };
+    if (current.expiresAt <= Date.now()) await refresh();
+    const values = configuration.state.values;
+    const request = () => ({
+      id: current.id,
+      mode: current.legacyDatabaseOnly ? ("same-machine" as const) : values.mode,
+      start: true,
+      ...(!current.legacyDatabaseOnly && {
+        destination: destination(values),
+        configOverrides: {
+          baseUrl: values.baseUrl || undefined,
+          host: values.host || undefined,
+          port: values.port || undefined,
+          trustedOrigins: values.trustedOrigins,
+        },
+      }),
+      ...(values.recover && { recoveryUserId: values.adminId, temporaryPassword: values.temporaryPassword }),
+    });
+    try {
+      return await restore.prepare.mutateAsync(request());
     } catch (error) {
-      setPreparationProblem(error instanceof Error ? error.message : "Could not prepare the restore.");
+      if (!(error instanceof Error && /expired|already prepared/i.test(error.message))) throw error;
+      await refresh();
+      return await restore.prepare.mutateAsync(request());
     }
   }
   function textField(name: TextField, label: string, password = false) {
@@ -408,110 +472,97 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
       ]
     : [];
 
-  if (step === "progress" && (!restore.prepare.data || preparationProblem))
+  if (step === "progress")
     return (
       <BackupWorkflow
-        title="Prepare Restore"
-        description="Your server stays running while the restore is prepared."
+        title="Restoring Your Server"
+        description="Your server will disconnect while its saved state is replaced."
         footer={
           <>
             <span />
-            {preparationProblem ? (
+            {outcome === "failed" ? (
               <Button
-                variant="outline"
+                variant="ghost"
                 disabled={busy}
                 onClick={() => {
+                  setJob(null);
                   review.setFieldValue("confirmed", false);
-                  setStep("review");
+                  setStep("configure");
                 }}
               >
                 Back
               </Button>
             ) : (
-              <Button disabled>Preparing…</Button>
-            )}
-          </>
-        }
-      >
-        {failureBanner() ?? (
-          <BackupProgress
-            finished={false}
-            title="Preparing your restore"
-            description="The backup and your configuration are checked before anything is replaced."
-          >
-            <ul className="flex list-disc flex-col gap-2 pl-5 text-muted-foreground">
-              <li>Your restore choices are saved in a private prepared copy.</li>
-              {draft.recover && <li>The selected administrator receives the temporary password on restore.</li>}
-              <li>The host command appears here when preparation finishes.</li>
-            </ul>
-          </BackupProgress>
-        )}
-      </BackupWorkflow>
-    );
-  if (step === "progress" && restore.prepare.data)
-    return (
-      <BackupWorkflow
-        title="Prepare Restore"
-        description="Apply this restore on the server host."
-        footer={
-          <>
-            <Button
-              variant="ghost"
-              disabled={busy}
-              onClick={() => void resetSelection(false).catch((error) => setPreparationProblem(String(error)))}
-            >
-              Done
-            </Button>
-            {desktopShell()?.app === "server" && (
-              <Button
-                onClick={() =>
-                  void desktopInvokeStrict("desktop_open_assistant", { screen: "restore" }).catch((error: unknown) =>
-                    setDesktopError(error instanceof Error ? error.message : "Could not open assistant."),
-                  )
-                }
-              >
-                Open restore assistant
+              <Button disabled={outcome !== "completed"} onClick={() => setStep("complete")}>
+                {outcome === "completed" ? "Next" : "Restoring…"}
               </Button>
             )}
           </>
         }
       >
         <BackupProgress
-          finished
-          title="Your restore is ready to apply"
-          description="The backup is prepared. Your server’s state has not been replaced."
+          finished={outcome === "completed"}
+          title={
+            outcome === "completed"
+              ? "Restore finished"
+              : outcome === "failed"
+                ? "Restore failed"
+                : "Restoring your server"
+          }
+          description={
+            outcome === "completed"
+              ? "Select Next to review the restore result."
+              : "The server is stopped, its saved state is restored, and its startup is checked."
+          }
         >
-          {restore.prepare.data && (
-            <>
-              <p>Run this command on the server host:</p>
-              <CopyCommandRow text={restore.prepare.data.command} label="restore command" />
-            </>
-          )}
-          <BackupFacts rows={details} />
-          <p className="text-muted-foreground">
-            The host tool confirms replacement and checks active sessions before applying. The browser disconnects
-            during restore; sign in again afterward.
-          </p>
-          <p className="text-muted-foreground">
-            This prepared copy is available for ten minutes. Keep the source backup to prepare it again if needed.
-          </p>
+          <ul className="flex list-disc flex-col gap-2 pl-5 text-muted-foreground">
+            <li>Compatible sessions are preserved.</li>
+            <li>The server restarts automatically. You will need to sign in again.</li>
+          </ul>
         </BackupProgress>
-        {desktopError && <BackupError message={desktopError} />}
-        {failureBanner()}
+        {preparationProblem && <BackupError message={preparationProblem} />}
+      </BackupWorkflow>
+    );
+  if (step === "complete")
+    return (
+      <BackupWorkflow
+        title="Restore Complete"
+        description="Your backup has been restored."
+        footer={
+          <>
+            <span />
+            <Button
+              onClick={() => {
+                window.location.href = job ? `${restoreConnectionOrigin(job)}/login` : "/login";
+              }}
+            >
+              Sign in
+            </Button>
+          </>
+        }
+      >
+        <BackupProgress
+          finished
+          title="Your server is ready"
+          description="Restore completed. The restored server confirmed a successful boot."
+        >
+          <BackupFacts rows={details} />
+          <p className="m-0 text-body text-muted-foreground">Sign in with an account from the backup.</p>
+        </BackupProgress>
       </BackupWorkflow>
     );
   if (step === "review")
     return (
       <BackupWorkflow
         title="Review Restore"
-        description="Review these details before preparing the replacement."
+        description="Review these details before restoring your server."
         footer={
           <>
             <Button variant="ghost" disabled={busy} onClick={() => setStep("configure")}>
               Back
             </Button>
             <Button type="submit" form="review-restore-form" disabled={prepareDisabled}>
-              Prepare restore
+              Start restore
             </Button>
           </>
         }
@@ -526,10 +577,14 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
         </Card>
         <ul className="flex list-disc flex-col gap-2 pl-5 text-muted-foreground">
           <li>Applying this restore replaces the displayed destination and signs everyone out.</li>
-          <li>
-            Compatible sessions are preserved. If any cannot survive the restore, the host tool asks for interruption
-            consent.
-          </li>
+          <li>Compatible sessions are preserved.</li>
+          {affectedSessions > 0 && (
+            <li className="text-warning">
+              {affectedSessions} active {affectedSessions === 1 ? "session cannot" : "sessions cannot"} be preserved.
+              Continuing closes affected local sessions. Affected remote sessions may disconnect or end when their node
+              reconnects.
+            </li>
+          )}
           {draft.mode === "migration" && <li>Network publication stays disabled until you review Networking.</li>}
         </ul>
         <form
@@ -550,7 +605,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                     onCheckedChange={field.handleChange}
                   />
                   <FieldLabel className="font-strong text-label" htmlFor="restore-confirm">
-                    I confirm the destination and restore options shown above
+                    I confirm replacement and the session effects shown above
                   </FieldLabel>
                 </Field>
               )}
@@ -576,6 +631,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
           </>
         }
       >
+        {failureBanner()}
         <form
           id="configure-restore-form"
           className="flex flex-col gap-4"

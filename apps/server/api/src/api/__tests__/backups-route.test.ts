@@ -207,6 +207,31 @@ describe("admin archive endpoints", () => {
     expect(JSON.stringify(readRestoreStage(body.id))).not.toContain("temporary-route-password");
     expect(JSON.stringify(readRestoreStage(body.id))).not.toContain("unique-archive-secret");
     expect(readRestoreStage(body.id).prepared).toBe(true);
+    for (const operation of ["preflight", "apply"]) {
+      const path = `/api/admin/backups/staged/${body.id}/${operation}`;
+      const init = { method: "POST", body: JSON.stringify({ confirmed: true }) };
+      expect(
+        (
+          await app.fetch(
+            new Request(`http://localhost:3080${path}`, { ...init, headers: { "Content-Type": "application/json" } }),
+          )
+        ).status,
+      ).toBe(401);
+      expect((await app.fetch(authedRequest(path, member.token, init))).status).toBe(403);
+      const foreign = await app.fetch(authedRequest(path, anotherAdmin.token, init));
+      expect(foreign.ok).toBe(false);
+      expect(await foreign.text()).toContain("another administrator");
+    }
+    expect(
+      (
+        await app.fetch(
+          authedRequest(`/api/admin/backups/staged/${body.id}/apply`, admin.token, {
+            method: "POST",
+            body: JSON.stringify({ confirmed: false }),
+          }),
+        )
+      ).status,
+    ).toBe(400);
   });
 
   it("inspects browser uploads beneath an aliased OS temporary root and cleans private upload files", async () => {

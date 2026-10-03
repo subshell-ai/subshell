@@ -51,8 +51,7 @@ to retain exclusion across await boundaries. Backup callers release capture in
 finally. Restarters release both locks before asking supervision to boot.
 
 The engine does not stop/start services, kill panes, install definitions, or
-change autostart. Those acts belong to CLI/native supervision with explicit
-replacement and pane-interruption consent. No API route applies a restore.
+change autostart. Those acts belong to CLI/native supervision or the independent control-plane restore worker, with explicit replacement and pane-interruption consent. The serving process never applies replacement under its own database handles.
 
 Native app-child restoration first uses `restore --prepare --json --no-start`:
 archive, paths, addresses and optional admin credential are validated and kept
@@ -104,7 +103,7 @@ Engine tests cover archive roundtrips, unsafe input/resource boundaries,
 committed WAL capture, required identities, migration publication disabling,
 legacy behavior, interrupted subprocess replacement, atomic config continuity,
 failed-boot WAL rollback, outcomes, and cleanup. Integration tests cover cookie
-admin/ownership/expiry, recovery restrictions, forms and browser handoff. Never
+admin/ownership/expiry, recovery restrictions, forms and headless HTTP application. Never
 exercise restore on the live instance; use isolated config/data/DB/TMUX roots.
 
 
@@ -128,3 +127,25 @@ secrets. Changed launches or identities and pane-killing service supervision
 require explicit interruption consent. Preflight checks this before the native
 child stops, and application rechecks after acquiring locks. Restored stale
 running records are retired except for the verified surviving sessions.
+
+## Control-plane application
+
+Configuration prepares and preflights a protected stage before the review pane.
+A cookie-admin POST to `/staged/:id/apply` requires explicit replacement consent
+and separate request consent when the review reports incompatible sessions. It
+rechecks ownership, stage expiry, exact serving-instance destination, and pane
+compatibility before launching an import-inert `restore-worker` CLI process.
+Linux service installs use a separate transient user systemd unit: `detached`
+alone does not escape the serving unit's cgroup. Its environment travels in a
+0600 file, deleted when the worker finishes; credentials never enter argv.
+Standalone servers use a detached worker with lock-proven PID ownership; an
+app-supervised host lets its existing parent restart the child. The container entrypoint similarly keeps a PID 1 supervisor alive while the serving child stops and the worker applies replacement. Explicit container CLI commands still run once. Older containers without that supervisor refuse before shutdown.
+
+The worker reuses `runRestore` for exclusion, pane preservation/termination,
+replacement, boot receipt verification, and rollback. Requests, diagnostics,
+and atomic progress files live in a 0700 OS-user temporary directory outside
+archived state. An unpredictable job UUID grants only read-only generic status
+at `/api/restore-status/:id`, for one hour; it exposes no paths, user identities,
+or credentials. This allows the initiating page to track verified completion
+after the restored instance revokes its former login cookie. The status capability allows anonymous cross-origin reads so direct connections can follow a restored port change without forwarding the old cookie. The page keeps the
+finished progress pane until Next. No native app or terminal handoff is required.

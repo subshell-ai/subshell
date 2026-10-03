@@ -23,6 +23,7 @@ import { validateRestoreConfigOverrides } from "@/services/backups/index.js";
 import { assertSafeHostPath, trustedTemporaryDirectory } from "@/services/backups/paths.js";
 import { instanceBackupPaths } from "@/services/instance-backup-source.js";
 import { restoreInspectionDefaults } from "@/services/restore-inspection.js";
+import { preflightRestoreJob, startRestoreJob } from "@/services/restore-jobs.js";
 
 function publicInspection(record: StageRecord) {
   return {
@@ -234,6 +235,26 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
         temporaryPassword: t.Optional(t.String({ maxLength: 4096 })),
       }),
     },
+  )
+  .post("/staged/:id/preflight", async ({ user, params }) => {
+    try {
+      return await preflightRestoreJob(params.id, user.id);
+    } catch (error) {
+      throw new HttpError(400, error instanceof Error ? error.message : "Could not review restore.");
+    }
+  })
+  .post(
+    "/staged/:id/apply",
+    async ({ user, params, body }) => {
+      if (!body.confirmed) throw new HttpError(400, "Confirm replacement before restoring.");
+      try {
+        await recordAudit(user.id, "backup.restore.apply", params.id);
+        return await startRestoreJob(params.id, user.id, body.interruptSessions === true);
+      } catch (error) {
+        throw new HttpError(409, error instanceof Error ? error.message : "Could not start restore.");
+      }
+    },
+    { body: t.Object({ confirmed: t.Boolean(), interruptSessions: t.Optional(t.Boolean()) }) },
   )
   .get("/staged/:id", ({ user, params }) => {
     try {

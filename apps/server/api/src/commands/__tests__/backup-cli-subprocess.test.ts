@@ -13,6 +13,7 @@ import {
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { hashPassword } from "better-auth/crypto";
 import { parseEnvFile } from "@/config-env.js";
 import type { StageRecord } from "@/services/backup-staging.js";
 import { readInstanceRestoreResult } from "@/services/backups/index.js";
@@ -129,11 +130,11 @@ function configured(name: string, port: number) {
   );
   return { configDir, databasePath };
 }
-async function boot(configDir: string, port: number) {
+async function boot(configDir: string, port: number, container = false) {
   const child = Bun.spawn({
-    cmd: [BUN, isolatedEntry],
+    cmd: [BUN, isolatedEntry, ...(container ? ["container-supervisor"] : [])],
     cwd: root,
-    env: environment(configDir),
+    env: { ...environment(configDir), ...(container ? { SUBSHELL_CONTAINER: "1" } : {}) },
     stdin: "ignore",
     stdout: "pipe",
     stderr: "pipe",
@@ -426,3 +427,109 @@ test("real entry: available older upgrade snapshot restores and migrates before 
     await Bun.sleep(25);
   }
 }, 30_000);
+
+for (const container of [false, true])
+  test(`real entry: confirmed HTTP restore works ${container ? "with a container supervisor" : "headlessly"} and revokes the old session`, async () => {
+    const port = await freePort();
+    const origin = `http://127.0.0.1:${port}`;
+    const nextPort = await freePort();
+    const restoredOrigin = `http://127.0.0.1:${nextPort}`;
+    const source = configured("headless", port);
+    const running = await boot(source.configDir, port, container);
+    const originalServerPid = readInstanceLock(join(source.configDir, "instance-state.lock"))?.pid;
+    const database = new Database(source.databasePath);
+    const adminId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    database
+      .query("INSERT INTO user(id,name,email,emailVerified,createdAt,updatedAt) VALUES (?,?,?,1,?,?)")
+      .run(adminId, "Restore admin", "restore@example.test", now, now);
+    database
+      .query(
+        "INSERT INTO account(id,issuer,accountId,providerId,userId,password,createdAt,updatedAt) VALUES (?,'local:credential',?,'credential',?,?,?,?)",
+      )
+      .run(adminId, adminId, adminId, await hashPassword("headless-restore-password"), now, now);
+    database.query("INSERT INTO user_meta(user_id,role) VALUES (?,'admin')").run(adminId);
+    database.exec(
+      "CREATE TABLE headless_restore_probe(value TEXT); INSERT INTO headless_restore_probe VALUES ('backup state');",
+    );
+    database.close();
+    const signedIn = await fetch(`${origin}/api/auth/sign-in/email`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin },
+      body: JSON.stringify({ email: "restore@example.test", password: "headless-restore-password" }),
+    });
+    expect(signedIn.status).toBe(200);
+    const cookie = signedIn.headers
+      .getSetCookie()
+      .map((value) => value.split(";")[0])
+      .join("; ");
+    const headers = { Cookie: cookie, "Content-Type": "application/json", Origin: origin };
+    const post = (path: string, body: unknown) =>
+      fetch(`${origin}/api/admin/backups${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+    const archive = ok(await cli(["backup", "--json"], source.configDir)).path as string;
+    const upload = new FormData();
+    upload.append("archive", new File([readFileSync(archive)], "instance.tar.gz"));
+    const inspected = await fetch(`${origin}/api/admin/backups/inspect`, {
+      method: "POST",
+      headers: { Cookie: cookie, Origin: origin },
+      body: upload,
+    });
+    expect(inspected.status).toBe(200);
+    const stage = (await inspected.json()) as { id: string };
+    expect(
+      (
+        await post(`/staged/${stage.id}`, {
+          mode: "same-machine",
+          start: true,
+          configOverrides: { port: String(nextPort) },
+        })
+      ).status,
+    ).toBe(200);
+    expect(await (await post(`/staged/${stage.id}/preflight`, {})).json()).toEqual({ affectedSessions: 0 });
+    const changed = new Database(source.databasePath);
+    changed.exec("UPDATE headless_restore_probe SET value='newer state'");
+    changed.close();
+    expect((await post(`/staged/${stage.id}/apply`, { confirmed: false })).status).toBe(400);
+    expect(running.exitCode).toBeNull();
+    const applied = await post(`/staged/${stage.id}/apply`, { confirmed: true, interruptSessions: false });
+    expect(applied.status).toBe(200);
+    const job = (await applied.json()) as { id: string; port: number; priorPort: number };
+    expect(job.port).toBe(nextPort);
+    expect(job.priorPort).toBe(port);
+    const directory = join(tmpdir(), `subshell-restore-jobs-${process.getuid?.() ?? "user"}`, job.id);
+    try {
+      const deadline = Date.now() + 15000;
+      let phase = "restoring";
+      while (Date.now() < deadline && phase === "restoring") {
+        try {
+          const response = await fetch(`${restoredOrigin}/api/restore-status/${job.id}`, {
+            headers: { Origin: origin },
+          });
+          if (response.ok) {
+            expect(response.headers.get("access-control-allow-origin")).toBe("*");
+            phase = ((await response.json()) as { phase: string }).phase;
+          }
+        } catch {
+          /* expected offline interval */
+        }
+        await Bun.sleep(100);
+      }
+      if (phase !== "completed")
+        throw new Error(
+          `Restore ${phase}: ${existsSync(join(directory, "error.log")) ? readFileSync(join(directory, "error.log"), "utf8") : "no diagnostics"}`,
+        );
+      expect(running.exitCode).toBe(container ? null : 0);
+      expect(readInstanceLock(join(source.configDir, "instance-state.lock"))?.pid).not.toBe(originalServerPid);
+      const restored = new Database(source.databasePath, { readonly: true });
+      expect(restored.query("SELECT value FROM headless_restore_probe").get()).toEqual({ value: "backup state" });
+      restored.close();
+      expect(readInstanceRestoreResult(join(source.configDir, "restore-journal.json"))).toMatchObject({
+        transactionId: stage.id,
+        outcome: "completed",
+      });
+      expect((await fetch(`${restoredOrigin}/api/admin/backups/saved`, { headers })).status).toBe(401);
+      expect((await fetch(`${restoredOrigin}/api/restore-status/${crypto.randomUUID()}`)).status).toBe(404);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  }, 30000);

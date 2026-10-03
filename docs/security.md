@@ -3467,9 +3467,7 @@ stream completion/cancellation; boot sweeps interrupted server download output.
 Decrypted restore staging is private and expires after ten minutes. Saved
 archives do not expire. The mounted browser workflow or native assistant may re-extract an expired
 stage from its source and requires review if the prepared details change. It stores no
-plaintext archive or temporary login password in metadata. Settings cannot apply
-a restore: CLI/native assistant application requires the server stopped and the
-OS-backed instance mutex held. Network/config/plugin/key writers cooperate with
+plaintext archive or temporary login password in metadata. A cookie-admin control-plane request can launch an independent restore worker after explicit replacement and affected-session consent. The worker stops the serving process and holds the OS-backed instance mutex during replacement. Linux service workers run in a separate transient unit so stopping the server’s cgroup cannot kill the worker. The container image keeps a parent supervisor alive while its serving child is restored; parent identity is checked against the real PPID, and each serving boot reads restored file configuration afresh. Private request/environment files stay outside archived state; the environment file is deleted on worker completion. A random job UUID permits only generic, read-only progress for one hour, without credentials or instance metadata, so the initiating page can reconnect after login revocation. Only that generic status capability allows anonymous cross-origin reads, enabling direct connections to follow a restored port change without transmitting the former cookie. Network/config/plugin/key writers cooperate with
 the separate capture mutex while online backups are collected.
 
 ### Archive encryption and password policy
