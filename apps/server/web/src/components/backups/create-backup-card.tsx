@@ -1,15 +1,16 @@
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Switch } from "@internal/node-admin";
+import { Button, Input, Switch } from "@internal/node-admin";
 import {
   BACKUP_PASSWORD_GUIDANCE,
   BACKUP_RESTORE_DEFAULTS,
   backupEncryptionPasswordProblem,
 } from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { useBackupDownload } from "@/hooks/use-backups";
 import { type FieldProblems, fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
 
 type BackupDraft = { encrypted: boolean; password: string; confirmation: string };
 function backupProblems(draft: BackupDraft): FieldProblems {
@@ -21,9 +22,20 @@ function backupProblems(draft: BackupDraft): FieldProblems {
   return problems;
 }
 
-export function CreateBackupCard() {
+export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void }) {
+  const [step, setStep] = useState<"configure" | "progress" | "complete">("configure");
+  const [archiveEncrypted, setArchiveEncrypted] = useState(false);
+  const [downloadRequested, setDownloadRequested] = useState(false);
   const backup = useBackupDownload();
-  const busy = backup.create.isPending || backup.job.data?.status === "creating";
+  const busy =
+    backup.create.isPending ||
+    backup.cancel.isPending ||
+    (backup.jobId !== null && backup.job.isPending) ||
+    backup.job.data?.status === "creating";
+  useEffect(() => {
+    onBusy?.(busy);
+    return () => onBusy?.(false);
+  }, [busy, onBusy]);
   const error = backup.create.error ?? backup.job.error ?? backup.cancel.error;
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const form = makeForm({
@@ -31,6 +43,8 @@ export function CreateBackupCard() {
     validator: backupProblems,
     onSubmit: (draft) => {
       if (busy || Object.keys(backupProblems(draft)).length > 0) return;
+      setArchiveEncrypted(draft.encrypted);
+      setStep("progress");
       backup.create.mutate(draft.encrypted ? draft.password : undefined, {
         onSuccess: () => {
           form.setFieldValue("password", "");
@@ -41,139 +55,215 @@ export function CreateBackupCard() {
   });
   const encrypted = useStore(form.store, (state) => state.values.encrypted);
   const disabled = useSubmitDisabled(form, busy);
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Create backup</CardTitle>
-        <CardDescription>
-          Download one archive containing the database, settings, identities, plugins, secrets, and server logs.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-detail text-muted-foreground">
-          Projects, project uploads, remote node files, external agent credentials, and operating system services stay
-          on their machines. Backups contain secrets; keep your archive somewhere private.
-        </p>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void form.handleSubmit();
-          }}
-          className="space-y-4"
-        >
-          <FieldGroup>
-            <Field className="flex-row items-center justify-between">
-              <FieldLabel htmlFor="backup-encrypt">Encrypt with a password</FieldLabel>
-              <Switch
-                id="backup-encrypt"
-                checked={encrypted}
-                onCheckedChange={(value) => form.setFieldValue("encrypted", value)}
-                disabled={busy}
-              />
-            </Field>
-            {encrypted && (
-              <>
-                <form.Field name="password">
-                  {(field) => {
-                    const problem =
-                      field.state.meta.isTouched && focusedField !== "password"
-                        ? fieldError(field.state.meta.errors)
-                        : null;
-                    return (
-                      <Field data-invalid={!!problem}>
-                        <FieldLabel htmlFor="backup-password">Encryption password</FieldLabel>
-                        <Input
-                          id="backup-password"
-                          type="password"
-                          autoComplete="new-password"
-                          required
-                          value={field.state.value}
-                          onChange={(event) => field.handleChange(event.target.value)}
-                          onFocus={() => setFocusedField("password")}
-                          onBlur={() => {
-                            field.handleBlur();
-                            setFocusedField(null);
-                          }}
-                          aria-invalid={!!problem}
-                          maxLength={4096}
-                          disabled={busy}
-                        />
-                        {problem && (
-                          <p role="alert" className="text-detail text-warning">
-                            {problem}
-                          </p>
-                        )}
-                      </Field>
-                    );
-                  }}
-                </form.Field>
-                <form.Field name="confirmation">
-                  {(field) => {
-                    const problem =
-                      field.state.meta.isTouched && focusedField !== "confirmation"
-                        ? fieldError(field.state.meta.errors)
-                        : null;
-                    return (
-                      <Field data-invalid={!!problem}>
-                        <FieldLabel htmlFor="backup-confirm">Confirm password</FieldLabel>
-                        <Input
-                          id="backup-confirm"
-                          type="password"
-                          autoComplete="new-password"
-                          required
-                          value={field.state.value}
-                          onChange={(event) => field.handleChange(event.target.value)}
-                          onFocus={() => setFocusedField("confirmation")}
-                          onBlur={() => {
-                            field.handleBlur();
-                            setFocusedField(null);
-                          }}
-                          aria-invalid={!!problem}
-                          maxLength={4096}
-                          disabled={busy}
-                        />
-                        {problem && (
-                          <p role="alert" className="text-detail text-warning">
-                            {problem}
-                          </p>
-                        )}
-                      </Field>
-                    );
-                  }}
-                </form.Field>
-                <p className="text-detail text-muted-foreground">{BACKUP_PASSWORD_GUIDANCE}</p>
-              </>
-            )}
-          </FieldGroup>
-          {error && <ErrorBanner message={error.message} className="rounded-md border" />}
-          {backup.job.data?.error && <ErrorBanner message={backup.job.data.error} className="rounded-md border" />}
-          <div className="flex flex-wrap items-center gap-2">
-            <Button type="submit" disabled={disabled}>
-              {busy ? "Creating backup…" : "Create backup"}
-            </Button>
-            {backup.jobId && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => backup.cancel.mutate()}
-                disabled={backup.cancel.isPending}
-              >
-                Discard download
+  const failure = error?.message ?? backup.job.data?.error;
+  const finished = backup.job.data?.status === "ready";
+  const restart = async () => {
+    if (backup.jobId) await backup.cancel.mutateAsync();
+    backup.create.reset();
+    backup.cancel.reset();
+    form.reset();
+    setDownloadRequested(false);
+    setStep("configure");
+  };
+  if (step === "progress")
+    return (
+      <BackupWorkflow
+        title="Backing Up Your Server"
+        description="Keep this page open while your archive is created."
+        footer={
+          <>
+            <span />
+            {failure ? (
+              <Button variant="outline" disabled={busy} onClick={() => void restart().catch(() => {})}>
+                Back
+              </Button>
+            ) : (
+              <Button disabled={!finished || busy} onClick={() => setStep("complete")}>
+                Next
               </Button>
             )}
-            {backup.job.data?.status === "ready" && backup.downloadUrl && (
-              <a href={backup.downloadUrl} download className="text-body underline">
-                Download {backup.job.data.filename}
-              </a>
+          </>
+        }
+      >
+        {failure ? (
+          <ErrorBanner message={failure} />
+        ) : (
+          <BackupProgress
+            finished={finished}
+            title={finished ? "Backup finished" : "Creating your backup"}
+            description={
+              finished
+                ? "Select Next to review the saved archive."
+                : "Your server can keep running while the archive is created."
+            }
+          >
+            <ul className="flex list-disc flex-col gap-2 pl-5 text-muted-foreground">
+              <li>The database and server files are captured in one archive.</li>
+              {archiveEncrypted && <li>The archive is encrypted with your password.</li>}
+              <li>When the backup finishes, select Next to review and download it.</li>
+            </ul>
+          </BackupProgress>
+        )}
+      </BackupWorkflow>
+    );
+  if (step === "complete")
+    return (
+      <BackupWorkflow
+        title="Backup Complete"
+        description="Your archive is ready to download."
+        footer={
+          <>
+            <Button variant="ghost" disabled={backup.cancel.isPending} onClick={() => void restart().catch(() => {})}>
+              Done
+            </Button>
+            {!downloadRequested && backup.downloadUrl && (
+              <Button
+                nativeButton={false}
+                role="link"
+                render={<a href={backup.downloadUrl} download />}
+                onClick={() => setDownloadRequested(true)}
+              >
+                Download backup
+              </Button>
             )}
-          </div>
-          {backup.job.data?.status === "ready" && (
-            <p className="text-detail text-muted-foreground">
-              This download is available once, for one hour. The server deletes its temporary copy after the download.
-            </p>
+          </>
+        }
+      >
+        <BackupProgress
+          finished
+          title="Your backup is ready"
+          description="Keep this archive somewhere safe so you can restore your server later."
+        >
+          <BackupFacts
+            rows={[
+              { label: "Archive", value: backup.job.data?.filename ?? "Unavailable" },
+              {
+                label: "Size",
+                value:
+                  backup.job.data?.bytes === undefined
+                    ? "Unavailable"
+                    : `${backup.job.data.bytes.toLocaleString()} bytes`,
+              },
+              { label: "Encryption", value: archiveEncrypted ? "On" : "Off" },
+            ]}
+          />
+          <p className="text-muted-foreground">
+            {downloadRequested
+              ? "Download requested. Check your browser’s downloads for the archive."
+              : "This download is available once, for one hour."}
+          </p>
+        </BackupProgress>
+        {failure && <ErrorBanner message={failure} />}
+      </BackupWorkflow>
+    );
+  return (
+    <BackupWorkflow
+      title="Back Up Your Server"
+      description="Save the database, supported configuration, identity, plugins and captured logs."
+      footer={
+        <>
+          <span />
+          <Button type="submit" form="create-backup-form" disabled={disabled}>
+            Create backup
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="create-backup-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void form.handleSubmit();
+        }}
+        className="flex flex-col gap-4"
+      >
+        <FieldGroup>
+          <Field className="flex-row items-center justify-between">
+            <FieldLabel htmlFor="backup-encrypt">Encrypt with a password</FieldLabel>
+            <Switch
+              id="backup-encrypt"
+              checked={encrypted}
+              onCheckedChange={(value) => form.setFieldValue("encrypted", value)}
+              disabled={busy}
+            />
+          </Field>
+          {encrypted && (
+            <>
+              <form.Field name="password">
+                {(field) => {
+                  const problem =
+                    !busy && field.state.meta.isTouched && focusedField !== "password"
+                      ? fieldError(field.state.meta.errors)
+                      : null;
+                  return (
+                    <Field data-invalid={!!problem}>
+                      <FieldLabel htmlFor="backup-password">Encryption password</FieldLabel>
+                      <Input
+                        id="backup-password"
+                        type="password"
+                        autoComplete="new-password"
+                        required
+                        value={field.state.value}
+                        onChange={(event) => field.handleChange(event.target.value)}
+                        onFocus={() => setFocusedField("password")}
+                        onBlur={() => {
+                          field.handleBlur();
+                          setFocusedField(null);
+                        }}
+                        aria-invalid={!!problem}
+                        maxLength={4096}
+                        disabled={busy}
+                      />
+                      {problem && (
+                        <p role="alert" className="text-detail text-warning">
+                          {problem}
+                        </p>
+                      )}
+                    </Field>
+                  );
+                }}
+              </form.Field>
+              <form.Field name="confirmation">
+                {(field) => {
+                  const problem =
+                    !busy && field.state.meta.isTouched && focusedField !== "confirmation"
+                      ? fieldError(field.state.meta.errors)
+                      : null;
+                  return (
+                    <Field data-invalid={!!problem}>
+                      <FieldLabel htmlFor="backup-confirm">Confirm password</FieldLabel>
+                      <Input
+                        id="backup-confirm"
+                        type="password"
+                        autoComplete="new-password"
+                        required
+                        value={field.state.value}
+                        onChange={(event) => field.handleChange(event.target.value)}
+                        onFocus={() => setFocusedField("confirmation")}
+                        onBlur={() => {
+                          field.handleBlur();
+                          setFocusedField(null);
+                        }}
+                        aria-invalid={!!problem}
+                        maxLength={4096}
+                        disabled={busy}
+                      />
+                      {problem && (
+                        <p role="alert" className="text-detail text-warning">
+                          {problem}
+                        </p>
+                      )}
+                    </Field>
+                  );
+                }}
+              </form.Field>
+              <p className="text-detail text-muted-foreground">{BACKUP_PASSWORD_GUIDANCE}</p>
+            </>
           )}
-        </form>
-      </CardContent>
-    </Card>
+        </FieldGroup>
+        {error && <ErrorBanner message={error.message} className="rounded-md border" />}
+        {backup.job.data?.error && <ErrorBanner message={backup.job.data.error} className="rounded-md border" />}
+      </form>
+    </BackupWorkflow>
   );
 }

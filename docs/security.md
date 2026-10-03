@@ -3459,10 +3459,13 @@ captured lengths and described as an interval, not a single atomic database
 instant. The manifest records this boundary.
 
 Settings creation/inspection/preparation are cookie-admin-only and audited.
+Saved-backup inspection accepts only an exact path from the current server backup
+catalogue; it cannot inspect an arbitrary host file. Browser preparation validates
+absolute, safe destination paths before mutating administrator recovery state.
 Downloads are single-use, temporary, expire after one hour, and are cleaned after
 stream completion/cancellation; boot sweeps interrupted server download output.
 Decrypted restore staging is private and expires after ten minutes. Saved
-archives do not expire. The mounted native assistant may re-extract an expired
+archives do not expire. The mounted browser workflow or native assistant may re-extract an expired
 stage from its source and requires review if the prepared details change. It stores no
 plaintext archive or temporary login password in metadata. Settings cannot apply
 a restore: CLI/native assistant application requires the server stopped and the

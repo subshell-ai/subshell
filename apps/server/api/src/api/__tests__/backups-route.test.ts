@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hashPassword } from "better-auth/crypto";
@@ -14,6 +14,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { authPlugin } from "@/plugins/auth.plugin.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { deleteRestoreStage, readRestoreStage, saveRestoreStage } from "@/services/backup-staging.js";
+import { instanceBackupPaths } from "@/services/instance-backup-source.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(backupsRoutes).use(backupRecoveryRoutes).use(authPlugin);
@@ -89,6 +90,73 @@ describe("admin archive endpoints", () => {
       ).status,
     ).toBe(401);
     expect((await download(member.token)).status).toBe(403);
+  });
+
+  it("lists only saved backups for administrators and refuses arbitrary host files", async () => {
+    expect((await app.fetch(new Request("http://localhost:3080/api/admin/backups/saved"))).status).toBe(401);
+    expect((await app.fetch(authedRequest("/api/admin/backups/saved", member.token))).status).toBe(403);
+    const archive = await download(admin.token);
+    const dir = join(instanceBackupPaths().dataDir, "backups");
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, `browser-route-${crypto.randomUUID()}.subshell`);
+    writeFileSync(path, Buffer.from(await archive.arrayBuffer()), { mode: 0o600 });
+    try {
+      const listed = await app.fetch(authedRequest("/api/admin/backups/saved", admin.token));
+      expect(listed.status).toBe(200);
+      expect(
+        ((await listed.json()) as { backups: { path: string }[] }).backups.some((file) => file.path === path),
+      ).toBe(true);
+      const inspect = (selected: string, token = admin.token) =>
+        app.fetch(
+          authedRequest("/api/admin/backups/inspect-saved", token, {
+            method: "POST",
+            body: JSON.stringify({ path: selected }),
+          }),
+        );
+      expect((await inspect(path, member.token)).status).toBe(403);
+      expect((await inspect(instanceBackupPaths().databasePath)).status).toBe(400);
+      const response = await inspect(path);
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        id: string;
+        destination: ReturnType<typeof instanceBackupPaths>;
+        choices: { mode: string };
+      };
+      stages.push(body.id);
+      expect(body.destination).toEqual(instanceBackupPaths());
+      expect(body.choices.mode).toBe("same-machine");
+      const invalid = await app.fetch(
+        authedRequest(`/api/admin/backups/staged/${body.id}`, admin.token, {
+          method: "POST",
+          body: JSON.stringify({
+            mode: "same-machine",
+            destination: { ...body.destination, databasePath: "relative.db" },
+            recoveryUserId: admin.id,
+            temporaryPassword: "temporary-route-password",
+          }),
+        }),
+      );
+      expect(invalid.status).toBe(400);
+      expect(readRestoreStage(body.id).prepared).not.toBe(true);
+      const destination = {
+        databasePath: join(dir, "restored.db"),
+        dataDir: join(dir, "restored"),
+        configPath: join(dir, "restored-config.env"),
+      };
+      const prepared = await app.fetch(
+        authedRequest(`/api/admin/backups/staged/${body.id}`, admin.token, {
+          method: "POST",
+          body: JSON.stringify({ mode: "same-machine", destination, start: false }),
+        }),
+      );
+      expect(prepared.status).toBe(200);
+      expect(((await prepared.json()) as { command: string }).command).toBe(
+        `subshell-server restore --staged ${body.id} --no-start`,
+      );
+      expect(readRestoreStage(body.id).destination).toEqual(destination);
+    } finally {
+      rmSync(path, { force: true });
+    }
   });
 
   it("refuses a short encryption password before starting a download", async () => {

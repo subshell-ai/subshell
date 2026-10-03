@@ -43,21 +43,22 @@ See [Security model](/concepts/security#backup-and-restore-protection) for encry
 You must be an instance administrator.
 
 1. Open **Server Settings → Backups** in the server dashboard.
-2. In **Create backup**, optionally enable **Encrypt with a password** and enter and confirm your password.
-3. Select **Create backup**, then the download link when it is ready.
-4. Keep a copy outside the server machine.
+2. Select **Backup**, optionally enable **Encrypt with a password**, and enter and confirm your password. Invalid or mismatched passwords prevent creation; field errors appear after blur.
+3. Select **Create backup**. Wait for the progress pane to finish, then select **Next**.
+4. Review the archive filename, size, and encryption status, then select **Download backup**. Select **Done** to return to configuration.
 
 The server keeps only a temporary download copy. The link is available once, for one hour, and the temporary copy is deleted after downloading or discarding it. There is no automatic backup schedule.
 
 ## Prepare a restore in the dashboard
 
 1. Open **Server Settings → Backups** as an instance administrator.
-2. Under **Restore backup**, choose an archive and supply its password if encrypted, then select **Inspect backup**.
-3. Review the archive details. Choose the same machine or migration. For migration, review addresses and extra trusted origins; network publication stays disabled until reviewed after restore.
-4. Optionally select **Set a temporary password for an existing admin**, choose an administrator from the backup, and enter a temporary password. This enables password sign-in and requires that administrator to change the temporary password before ordinary access.
-5. Select **Prepare restore** and run the displayed command on the server host, or open the Subshell Server restore assistant.
+2. Select **Restore**, then choose **Open a backup file** or **Use a saved backup**. Select **Choose backup file…** or choose a saved archive under **Available backups**. The selection is validated automatically.
+3. If the archive is encrypted, enter its password and select **Validate backup**. The password field appears only when needed. **Configure backup** stays disabled until validation succeeds.
+4. Select **Configure backup**. Choose the restore mode and review destination paths and addresses. Optionally enable **Recover an existing administrator**, choose the account, and enter and confirm a temporary password. Choose whether to start the server afterward.
+5. Select **Review backup**. Invalid configuration or recovery fields prevent advancing; errors appear after blur. Review the archive, destination, and options, then select the confirmation checkbox and **Prepare restore**. **Back** returns to configuration.
+6. Wait for preparation to finish, then select **Next**. Copy and run the displayed command on the server host, or open the Subshell Server restore assistant.
 
-Browser uploads support archives under 128 MB. Use the CLI or desktop assistant for larger files. Prepared uploads expire after ten minutes; **Discard staged restore** deletes one early. Preparation does not replace the running server's state.
+Browser uploads support archives up to 128 MB. Saved backups are selected from the server's backup directory. Use the CLI or desktop assistant for larger files on your own machine. Preparation does not replace the running server's state. Prepared copies expire after ten minutes; an expired extraction is validated again before preparation while its source remains available.
 
 ## Use Subshell Server on desktop
 

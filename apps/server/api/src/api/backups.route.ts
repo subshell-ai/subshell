@@ -1,10 +1,11 @@
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { backupEncryptionPasswordProblem } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { HttpError, requireAdmin } from "@/api/auth-guard.js";
 import { audit } from "@/services/audit.js";
 import { prepareBackupAdminRecovery } from "@/services/backup-admin-recovery.js";
+import { listLocalBackups } from "@/services/backup-catalog.js";
 import {
   backupDownloadJobStatus,
   cancelBackupDownloadJob,
@@ -15,11 +16,25 @@ import {
   createRestoreStage,
   deleteRestoreStage,
   readRestoreStage,
+  type StageRecord,
   saveRestoreStage,
 } from "@/services/backup-staging.js";
 import { validateRestoreConfigOverrides } from "@/services/backups/index.js";
-import { trustedTemporaryDirectory } from "@/services/backups/paths.js";
+import { assertSafeHostPath, trustedTemporaryDirectory } from "@/services/backups/paths.js";
 import { instanceBackupPaths } from "@/services/instance-backup-source.js";
+import { restoreInspectionDefaults } from "@/services/restore-inspection.js";
+
+function publicInspection(record: StageRecord) {
+  return {
+    id: record.id,
+    expiresAt: record.expiresAt,
+    manifest: record.stage.manifest,
+    admins: record.stage.admins,
+    legacyDatabaseOnly: record.stage.legacyDatabaseOnly,
+    destination: instanceBackupPaths(),
+    choices: restoreInspectionDefaults(record.stage, instanceBackupPaths()).choices,
+  };
+}
 
 const preparing = new Set<string>();
 
@@ -112,6 +127,23 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
       throw new HttpError(409, error instanceof Error ? error.message : "Backup unavailable.");
     }
   })
+  .get("/saved", async () => ({ backups: await listLocalBackups(instanceBackupPaths().dataDir) }))
+  .post(
+    "/inspect-saved",
+    async ({ user, body }) => {
+      const files = await listLocalBackups(instanceBackupPaths().dataDir);
+      const selected = files.find((file) => file.path === body.path);
+      if (!selected) throw new HttpError(400, "This saved backup is no longer available. Select another backup.");
+      try {
+        const record = await createRestoreStage(selected.path, user.id, body.password);
+        await recordAudit(user.id, "backup.inspect", record.id);
+        return publicInspection(record);
+      } catch (error) {
+        throw new HttpError(400, error instanceof Error ? error.message : "Invalid backup.");
+      }
+    },
+    { body: t.Object({ path: t.String({ maxLength: 4096 }), password: t.Optional(t.String({ maxLength: 4096 })) }) },
+  )
   .post(
     "/inspect",
     async ({ user, body }) => {
@@ -123,13 +155,7 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
         chmodSync(path, 0o600);
         const record = await createRestoreStage(path, user.id, body.password);
         await recordAudit(user.id, "backup.inspect", record.id);
-        return {
-          id: record.id,
-          expiresAt: record.expiresAt,
-          manifest: record.stage.manifest,
-          admins: record.stage.admins,
-          legacyDatabaseOnly: record.stage.legacyDatabaseOnly,
-        };
+        return publicInspection(record);
       } catch (error) {
         throw new HttpError(400, error instanceof Error ? error.message : "Invalid backup.");
       } finally {
@@ -154,6 +180,14 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
           throw new Error(
             "Database-only snapshots cannot migrate instance state or change addresses. Use a full archive.",
           );
+        const destination = body.destination ?? instanceBackupPaths();
+        for (const path of [destination.databasePath, destination.dataDir, destination.configPath]) {
+          if (!path || !isAbsolute(path) || /[\r\n\0]/.test(path))
+            throw new Error("Use absolute restore destination paths.");
+          await assertSafeHostPath(path);
+        }
+        if (record.stage.legacyDatabaseOnly && body.destination)
+          throw new Error("Database-only snapshots keep the current destination configuration.");
         if (body.recoveryUserId || body.temporaryPassword) {
           if (!body.recoveryUserId || !body.temporaryPassword)
             throw new Error("Select an admin and supply a temporary password.");
@@ -161,11 +195,16 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
         }
         record.choices = { mode: body.mode, configOverrides: body.configOverrides };
         record.recoveryUserId = body.recoveryUserId;
-        record.destination = instanceBackupPaths();
+        record.destination = destination;
         record.prepared = true;
         saveRestoreStage(record);
         await recordAudit(user.id, "backup.restore.stage", record.id);
-        return { id: record.id, expiresAt: record.expiresAt, command: `subshell-server restore --staged ${record.id}` };
+        return {
+          id: record.id,
+          expiresAt: record.expiresAt,
+          destination,
+          command: `subshell-server restore --staged ${record.id}${body.start === false ? " --no-start" : ""}`,
+        };
       } catch (error) {
         throw new HttpError(400, error instanceof Error ? error.message : "Could not stage restore.");
       } finally {
@@ -174,6 +213,14 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
     },
     {
       body: t.Object({
+        start: t.Optional(t.Boolean()),
+        destination: t.Optional(
+          t.Object({
+            databasePath: t.String({ maxLength: 4096 }),
+            dataDir: t.String({ maxLength: 4096 }),
+            configPath: t.String({ maxLength: 4096 }),
+          }),
+        ),
         mode: t.Union([t.Literal("same-machine"), t.Literal("migration")]),
         configOverrides: t.Optional(
           t.Object({

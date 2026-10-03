@@ -1,484 +1,882 @@
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Switch } from "@internal/node-admin";
+import { Button, Input, Switch } from "@internal/node-admin";
 import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES, type RestoreMode } from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
-import { useState } from "react";
+import { LoaderCircle } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
 import { ErrorBanner } from "@/components/error-banner";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Segmented } from "@/components/ui/segmented";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useRestoreBackup } from "@/hooks/use-backups";
+import { type RestoreInspection, useRestoreBackup } from "@/hooks/use-backups";
 import { desktopInvokeStrict, desktopShell } from "@/lib/desktop";
 import { type FieldProblems, fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
+import { BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
 
-type InspectionDraft = { file: File | null; password: string };
+type InspectionDraft = { file: File | null; path: string; password: string; encrypted: boolean };
 function inspectionProblems(draft: InspectionDraft): FieldProblems {
   const problems: FieldProblems = {};
-  if (!draft.file) problems.file = "Choose a backup archive or legacy .db snapshot.";
-  if (draft.password.length > 4096) problems.password = "Archive password must be at most 4096 characters.";
+  if (!draft.file && !draft.path) problems.file = "Choose a backup file.";
+  if (draft.file && draft.file.size > 128 * 1024 * 1024)
+    problems.file = "Use the CLI or desktop assistant for files larger than 128 MB.";
+  if (draft.encrypted && !draft.password) problems.password = "Enter the archive password.";
+  if (draft.password.length > 4096 || /[\r\n\0]/.test(draft.password))
+    problems.password = "Use a password of at most 4096 characters on one line.";
   return problems;
 }
 
-type PreparationDraft = { recover: boolean; adminId: string; temporaryPassword: string; confirmation: string };
-function preparationProblems(draft: PreparationDraft, adminIds: string[]): FieldProblems {
-  if (!draft.recover) return {};
+type ConfigurationDraft = {
+  mode: RestoreMode;
+  recover: boolean;
+  adminId: string;
+  temporaryPassword: string;
+  confirmation: string;
+  databasePath: string;
+  dataDir: string;
+  configDir: string;
+  baseUrl: string;
+  host: string;
+  port: string;
+  trustedOrigins: string;
+  start: boolean;
+};
+type TextField =
+  | "temporaryPassword"
+  | "confirmation"
+  | "databasePath"
+  | "dataDir"
+  | "configDir"
+  | "baseUrl"
+  | "host"
+  | "port"
+  | "trustedOrigins";
+const CONFIGURATION_DEFAULTS: ConfigurationDraft = {
+  mode: BACKUP_RESTORE_DEFAULTS.mode,
+  recover: false,
+  adminId: "",
+  temporaryPassword: "",
+  confirmation: "",
+  databasePath: "",
+  dataDir: "",
+  configDir: "",
+  baseUrl: "",
+  host: "",
+  port: "",
+  trustedOrigins: "",
+  start: true,
+};
+function originProblem(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (
+      !/^https?:$/.test(url.protocol) ||
+      !url.hostname ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      url.pathname !== "/" ||
+      /[\s*?\\]/.test(value)
+    )
+      return "Use an HTTP or HTTPS origin without a path or credentials.";
+    return null;
+  } catch {
+    return "Use an HTTP or HTTPS origin without a path or credentials.";
+  }
+}
+function configurationProblems(draft: ConfigurationDraft, inspection: RestoreInspection | null): FieldProblems {
   const problems: FieldProblems = {};
-  if (!adminIds.includes(draft.adminId)) problems.adminId = "Select an existing administrator.";
-  if (draft.temporaryPassword.length < 8 || draft.temporaryPassword.length > 4096)
-    problems.temporaryPassword = "Temporary password must be 8–4096 characters.";
-  if (!draft.confirmation || draft.temporaryPassword !== draft.confirmation)
-    problems.confirmation = "Temporary passwords do not match.";
+  if (!inspection?.legacyDatabaseOnly) {
+    for (const name of ["databasePath", "dataDir", "configDir"] as const) {
+      if (draft[name] && (!draft[name].startsWith("/") || /[\r\n\0]/.test(draft[name])))
+        problems[name] = "Use an absolute path.";
+    }
+    if (draft.port && (!/^\d+$/.test(draft.port) || Number(draft.port) < 1 || Number(draft.port) > 65535))
+      problems.port = "Enter a port from 1 to 65535.";
+    if (draft.host && !/^[a-zA-Z0-9.:[\]_-]+$/.test(draft.host)) problems.host = "Use a hostname or IP address.";
+    if (draft.baseUrl) {
+      const problem = originProblem(draft.baseUrl);
+      if (problem) problems.baseUrl = problem;
+    }
+    if (draft.trustedOrigins.split(",").some((value) => value.trim() && originProblem(value.trim())))
+      problems.trustedOrigins = "Use HTTP or HTTPS origins separated by commas.";
+  }
+  if (draft.recover) {
+    if (!inspection?.admins.some((admin) => admin.id === draft.adminId))
+      problems.adminId = "Select an existing administrator.";
+    if (
+      draft.temporaryPassword.length < 8 ||
+      draft.temporaryPassword.length > 4096 ||
+      /[\r\n\0]/.test(draft.temporaryPassword)
+    )
+      problems.temporaryPassword = "Use a temporary password of 8–4096 characters on one line.";
+    if (!draft.confirmation || draft.temporaryPassword !== draft.confirmation)
+      problems.confirmation = "Temporary passwords do not match.";
+  }
   return problems;
 }
 
-export function RestoreBackupCard() {
+type Step = "select" | "configure" | "review" | "progress" | "complete";
+export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void }) {
   const restore = useRestoreBackup();
-  const [mode, setMode] = useState<RestoreMode>(BACKUP_RESTORE_DEFAULTS.mode);
-  const [baseUrl, setBaseUrl] = useState("");
-  const [host, setHost] = useState("");
-  const [port, setPort] = useState("");
-  const [trustedOrigins, setTrustedOrigins] = useState("");
-  const [desktopError, setDesktopError] = useState<string | null>(null);
-  const inspected = restore.inspect.data;
-  const prepared = restore.prepare.data;
-  const busy = restore.inspect.isPending || restore.prepare.isPending || restore.cancel.isPending;
-  const error = restore.inspect.error ?? restore.prepare.error ?? restore.cancel.error;
-  const admins = inspected?.admins.map((admin) => ({ value: admin.id, label: `${admin.name} (${admin.email})` })) ?? [];
-
+  const [step, setStep] = useState<Step>("select");
+  const [source, setSource] = useState<"file" | "saved">("file");
+  const [inspection, setInspection] = useState<RestoreInspection | null>(null);
   const [focusedField, setFocusedField] = useState<string | null>(null);
-  const prepareForm = makeForm({
-    defaultValues: {
-      recover: BACKUP_RESTORE_DEFAULTS.recoverAdmin as boolean,
-      adminId: "",
-      temporaryPassword: "",
-      confirmation: "",
-    },
-    validator: (draft) =>
-      preparationProblems(
-        draft,
-        admins.map((admin) => admin.value),
-      ),
+  const [selectionProblem, setSelectionProblem] = useState<string | null>(null);
+  const [passwordProblem, setPasswordProblem] = useState<string | null>(null);
+  const [preparationProblem, setPreparationProblem] = useState<string | null>(null);
+  const [desktopError, setDesktopError] = useState<string | null>(null);
+  const sourceRequest = useRef<{ file?: File; path?: string; password?: string } | null>(null);
+  const validationSequence = useRef(0);
+  const picker = useRef<HTMLInputElement>(null);
+  const busy = restore.inspect.isPending || restore.prepare.isPending || restore.cancel.isPending;
+  useEffect(() => {
+    onBusy?.(busy);
+    return () => onBusy?.(false);
+  }, [busy, onBusy]);
+  const configuration = makeForm({
+    defaultValues: CONFIGURATION_DEFAULTS,
+    validator: (draft) => configurationProblems(draft, inspection),
     onSubmit: (draft) => {
+      if (busy || !inspection || Object.keys(configurationProblems(draft, inspection)).length) return;
+      review.setFieldValue("confirmed", false);
+      setPreparationProblem(null);
+      setStep("review");
+    },
+  });
+  const draft = useStore(configuration.store, (state) => state.values);
+  const inspectForm = makeForm({
+    defaultValues: { file: null as File | null, path: "", password: "", encrypted: false },
+    validator: inspectionProblems,
+    onSubmit: async (values) => {
+      if (busy || Object.keys(inspectionProblems(values)).length) return;
+      await validateSelection(values);
+    },
+  });
+  const selected = useStore(inspectForm.store, (state) => state.values);
+  const review = makeForm({
+    defaultValues: { confirmed: false },
+    validator: (values): FieldProblems =>
+      values.confirmed ? {} : { confirmed: "Confirm the displayed restore details." },
+    onSubmit: async (values) => {
       if (
         busy ||
-        !inspected ||
-        Object.keys(
-          preparationProblems(
-            draft,
-            admins.map((admin) => admin.value),
-          ),
-        ).length > 0
+        !values.confirmed ||
+        !inspection ||
+        Object.keys(configurationProblems(configuration.state.values, inspection)).length
       )
         return;
-      restore.prepare.mutate(
-        {
-          id: inspected.id,
-          mode,
-          configOverrides:
-            mode === "migration"
-              ? { baseUrl: baseUrl || undefined, host: host || undefined, port: port || undefined, trustedOrigins }
-              : undefined,
-          ...(draft.recover ? { recoveryUserId: draft.adminId, temporaryPassword: draft.temporaryPassword } : {}),
-        },
-        {
-          onSuccess: () => {
-            prepareForm.setFieldValue("temporaryPassword", "");
-            prepareForm.setFieldValue("confirmation", "");
-          },
-        },
-      );
+      await prepareRestore();
     },
   });
-  const inspectForm = makeForm({
-    defaultValues: { file: null as File | null, password: "" },
-    validator: inspectionProblems,
-    onSubmit: (draft) => {
-      if (busy || !draft.file || Object.keys(inspectionProblems(draft)).length > 0) return;
-      restore.inspect.mutate(
-        { file: draft.file, password: draft.password || undefined },
-        {
-          onSuccess: () => {
-            inspectForm.setFieldValue("password", "");
-            setMode(BACKUP_RESTORE_DEFAULTS.mode);
-            prepareForm.reset();
-            setBaseUrl("");
-            setHost("");
-            setPort("");
-            setTrustedOrigins("");
-          },
-        },
-      );
-    },
-  });
-  const { recover } = useStore(prepareForm.store, (state) => state.values);
   const inspectDisabled = useSubmitDisabled(inspectForm, busy);
-  const prepareDisabled = useSubmitDisabled(prepareForm, busy);
+  const configureDisabled = useSubmitDisabled(inspectForm, busy || !inspection);
+  const reviewDisabled = useSubmitDisabled(configuration, busy);
+  const prepareDisabled = useSubmitDisabled(
+    review,
+    busy || Object.keys(configurationProblems(draft, inspection)).length > 0,
+  );
+  const admins =
+    inspection?.admins.map((admin) => ({ value: admin.id, label: `${admin.name} · ${admin.email}` })) ?? [];
 
-  async function cancel() {
-    if (!inspected) return;
-    await restore.cancel.mutateAsync(inspected.id);
+  async function removeStage(id: string) {
+    try {
+      await restore.cancel.mutateAsync(id);
+    } catch (error) {
+      if (!(error instanceof Error && "status" in error && error.status === 404)) throw error;
+    }
+  }
+  async function validateSelection(values: InspectionDraft) {
+    const sequence = ++validationSequence.current;
+    const old = inspection;
+    setInspection(null);
+    setSelectionProblem(null);
+    setPasswordProblem(null);
+    restore.prepare.reset();
+    const problems = inspectionProblems({ ...values, encrypted: false });
+    if (Object.keys(problems).length) {
+      setSelectionProblem(problems.file ?? problems.password ?? null);
+      return;
+    }
+    const request = {
+      ...(values.path ? { path: values.path } : { file: values.file ?? undefined }),
+      ...(values.password && { password: values.password }),
+    };
+    try {
+      const result = await restore.inspect.mutateAsync(request);
+      if (sequence !== validationSequence.current) {
+        await removeStage(result.id);
+        return;
+      }
+      if (old) await removeStage(old.id);
+      sourceRequest.current = request;
+      setInspection(result);
+      const addresses = result.choices?.configOverrides;
+      configuration.reset(
+        {
+          ...CONFIGURATION_DEFAULTS,
+          databasePath: result.destination?.databasePath ?? "",
+          dataDir: result.destination?.dataDir ?? "",
+          configDir: result.destination?.configPath.replace(/[/\\][^/\\]+$/, "") ?? "",
+          baseUrl: addresses?.baseUrl ?? "",
+          host: addresses?.host ?? "",
+          port: String(addresses?.port ?? ""),
+          trustedOrigins: addresses?.trustedOrigins ?? "",
+        },
+        { keepDefaultValues: true },
+      );
+    } catch (error) {
+      if (sequence !== validationSequence.current) return;
+      const message = error instanceof Error ? error.message : "Could not validate this backup.";
+      if (/requires a password|password.*password-file/i.test(message)) {
+        inspectForm.setFieldValue("encrypted", true);
+        setPasswordProblem("This backup is encrypted. Enter its archive password, then select Validate backup.");
+      } else if (/authentication failed|wrong password/i.test(message)) {
+        inspectForm.setFieldValue("encrypted", true);
+        setPasswordProblem("The password is incorrect or this backup is damaged. Check the password and try again.");
+      } else setSelectionProblem(message.replace(/^subshell-server: restore failed:\s*/, ""));
+    }
+  }
+  async function resetSelection(discard = true) {
+    validationSequence.current++;
+    if (discard && inspection) await removeStage(inspection.id);
+    setInspection(null);
+    sourceRequest.current = null;
+    inspectForm.reset();
+    configuration.reset();
     restore.inspect.reset();
     restore.prepare.reset();
-    prepareForm.setFieldValue("temporaryPassword", "");
-    prepareForm.setFieldValue("confirmation", "");
+    restore.cancel.reset();
+    setSelectionProblem(null);
+    setPasswordProblem(null);
+    setPreparationProblem(null);
+    setStep("select");
   }
+  function destination(values: ConfigurationDraft) {
+    return {
+      databasePath: values.databasePath || inspection?.destination?.databasePath || "",
+      dataDir: values.dataDir || inspection?.destination?.dataDir || "",
+      configPath: values.configDir
+        ? `${values.configDir.replace(/\/$/, "")}/config.env`
+        : inspection?.destination?.configPath || "",
+    };
+  }
+  async function prepareRestore() {
+    if (!inspection) return;
+    setPreparationProblem(null);
+    setStep("progress");
+    try {
+      let current = inspection;
+      const refresh = async () => {
+        if (!sourceRequest.current) throw new Error("Select the backup again to validate it.");
+        const refreshed = await restore.inspect.mutateAsync(sourceRequest.current);
+        setInspection(refreshed);
+        if (
+          JSON.stringify(refreshed.manifest) !== JSON.stringify(current.manifest) ||
+          JSON.stringify(refreshed.admins) !== JSON.stringify(current.admins) ||
+          JSON.stringify(refreshed.destination) !== JSON.stringify(current.destination)
+        ) {
+          review.setFieldValue("confirmed", false);
+          setStep("review");
+          throw new Error("The backup changed. Review it again before preparing the restore.");
+        }
+        current = refreshed;
+      };
+      if (current.expiresAt <= Date.now()) await refresh();
+      const values = configuration.state.values;
+      const request = () => ({
+        id: current.id,
+        mode: current.legacyDatabaseOnly ? ("same-machine" as const) : values.mode,
+        start: values.start,
+        ...(!current.legacyDatabaseOnly && {
+          destination: destination(values),
+          configOverrides: {
+            baseUrl: values.baseUrl || undefined,
+            host: values.host || undefined,
+            port: values.port || undefined,
+            trustedOrigins: values.trustedOrigins,
+          },
+        }),
+        ...(values.recover && { recoveryUserId: values.adminId, temporaryPassword: values.temporaryPassword }),
+      });
+      try {
+        await restore.prepare.mutateAsync(request());
+      } catch (error) {
+        if (!(error instanceof Error && /expired|already prepared/i.test(error.message))) throw error;
+        await refresh();
+        await restore.prepare.mutateAsync(request());
+      }
+      // The configuration fields are already unmounted on this progress pane.
+      configuration.setFieldValue("temporaryPassword", "");
+      configuration.setFieldValue("confirmation", "");
+      inspectForm.setFieldValue("password", "");
+    } catch (error) {
+      setPreparationProblem(error instanceof Error ? error.message : "Could not prepare the restore.");
+    }
+  }
+  function textField(name: TextField, label: string, password = false) {
+    return (
+      <configuration.Field name={name}>
+        {(field) => {
+          const problem =
+            !busy && field.state.meta.isTouched && focusedField !== name ? fieldError(field.state.meta.errors) : null;
+          return (
+            <Field data-invalid={!!problem}>
+              <FieldLabel htmlFor={`restore-${name}`}>{label}</FieldLabel>
+              <Input
+                id={`restore-${name}`}
+                value={field.state.value}
+                type={password ? "password" : "text"}
+                required={password}
+                autoComplete={password ? "new-password" : "off"}
+                maxLength={4096}
+                disabled={busy}
+                aria-invalid={!!problem}
+                aria-describedby={problem ? `restore-${name}-error` : undefined}
+                onFocus={() => setFocusedField(name)}
+                onBlur={() => {
+                  field.handleBlur();
+                  setFocusedField(null);
+                }}
+                onChange={(event) => field.handleChange(event.target.value)}
+              />
+              {problem && (
+                <p id={`restore-${name}-error`} role="alert" className="text-detail text-warning">
+                  {problem}
+                </p>
+              )}
+            </Field>
+          );
+        }}
+      </configuration.Field>
+    );
+  }
+  function failureBanner() {
+    return preparationProblem ? <ErrorBanner message={preparationProblem} /> : null;
+  }
+  const archiveName =
+    selected.file?.name ??
+    restore.saved.data?.backups.find((file) => file.path === selected.path)?.name ??
+    "Selected backup";
+  const details = inspection
+    ? [
+        { label: "Archive", value: archiveName },
+        {
+          label: "Backup type",
+          value: inspection.legacyDatabaseOnly ? "Database-only snapshot" : "Full instance archive",
+        },
+        { label: "Captured", value: new Date(inspection.manifest.completedAt).toLocaleString() },
+        {
+          label: "Server version",
+          value:
+            inspection.manifest.serverVersion === "legacy"
+              ? "Unknown (not recorded in this backup)"
+              : inspection.manifest.serverVersion,
+        },
+        {
+          label: "Restore mode",
+          value: draft.mode === "migration" ? "Move to a new machine" : "Same-machine recovery",
+        },
+        ...Object.entries(destination(draft)).map(([key, value]) => ({
+          label: key === "databasePath" ? "Database" : key === "dataDir" ? "Data directory" : "Configuration",
+          value,
+          copy: true,
+        })),
+        {
+          label: "Control plane URL",
+          value: draft.baseUrl || inspection.choices?.configOverrides?.baseUrl || "Current configuration",
+          copy: true,
+        },
+        {
+          label: "Bind address",
+          value: draft.host || inspection.choices?.configOverrides?.host || "Current configuration",
+        },
+        {
+          label: "Port",
+          value: draft.port || String(inspection.choices?.configOverrides?.port ?? "Current configuration"),
+        },
+        {
+          label: "Admin recovery",
+          value: draft.recover
+            ? (inspection.admins.find((admin) => admin.id === draft.adminId)?.email ?? "Enabled")
+            : "Off",
+        },
+        { label: "Start after restoring", value: draft.start ? "Yes" : "No" },
+      ]
+    : [];
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Restore backup</CardTitle>
-        <CardDescription>
-          Inspect an archive and prepare the restore. Apply it with the CLI or desktop assistant while the server is
-          stopped.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {!inspected && (
-          <form
-            className="space-y-4"
-            onSubmit={(event) => {
-              event.preventDefault();
-              void inspectForm.handleSubmit();
-            }}
-          >
-            <FieldGroup>
-              <inspectForm.Field name="file">
-                {(field) => {
-                  const problem =
-                    field.state.meta.isTouched && focusedField !== "file" ? fieldError(field.state.meta.errors) : null;
-                  return (
-                    <Field data-invalid={!!problem}>
-                      <FieldLabel htmlFor="restore-archive">Backup archive or legacy .db snapshot</FieldLabel>
-                      <Input
-                        id="restore-archive"
-                        onFocus={() => setFocusedField("file")}
-                        onBlur={() => {
-                          field.handleBlur();
-                          setFocusedField(null);
-                        }}
-                        aria-invalid={!!problem}
-                        type="file"
-                        required
-                        disabled={busy}
-                        onChange={(event) => field.handleChange(event.target.files?.[0] ?? null)}
-                      />
-                      {problem && (
-                        <p role="alert" className="text-destructive text-detail">
-                          {problem}
-                        </p>
-                      )}
-                    </Field>
-                  );
-                }}
-              </inspectForm.Field>
-              <inspectForm.Field name="password">
-                {(field) => {
-                  const problem =
-                    field.state.meta.isTouched && focusedField !== "password"
-                      ? fieldError(field.state.meta.errors)
-                      : null;
-                  return (
-                    <Field data-invalid={!!problem}>
-                      <FieldLabel htmlFor="restore-password">Archive password, if encrypted</FieldLabel>
-                      <Input
-                        id="restore-password"
-                        onFocus={() => setFocusedField("password")}
-                        onBlur={() => {
-                          field.handleBlur();
-                          setFocusedField(null);
-                        }}
-                        aria-invalid={!!problem}
-                        type="password"
-                        maxLength={4096}
-                        autoComplete="off"
-                        disabled={busy}
-                        value={field.state.value}
-                        onChange={(event) => field.handleChange(event.target.value)}
-                      />
-                      {problem && (
-                        <p role="alert" className="text-destructive text-detail">
-                          {problem}
-                        </p>
-                      )}
-                    </Field>
-                  );
-                }}
-              </inspectForm.Field>
-            </FieldGroup>
-            <p className="text-detail text-muted-foreground">
-              Browser uploads support archives under 128 MB. Use the CLI or desktop assistant for larger files.
-            </p>
-            <Button type="submit" disabled={inspectDisabled}>
-              {restore.inspect.isPending ? "Inspecting…" : "Inspect backup"}
-            </Button>
-          </form>
-        )}
-        {inspected && (
+  if (step === "progress")
+    return (
+      <BackupWorkflow
+        title="Preparing Restore"
+        description="Your server stays running while the restore is prepared."
+        footer={
           <>
-            <div className="space-y-2 text-body">
-              <p>
-                {inspected.legacyDatabaseOnly
-                  ? "Legacy database-only snapshot: settings, identities, plugins, and files will stay as they are."
-                  : `Full instance backup from ${new Date(inspected.manifest.completedAt).toLocaleString()}.`}
-              </p>
-              <p className="text-detail text-muted-foreground">
-                Server version {inspected.manifest.serverVersion} · {inspected.manifest.entries.length} files. Staging
-                expires at {new Date(inspected.expiresAt).toLocaleTimeString()}.
-              </p>
-            </div>
-            {!prepared && (
-              <form
-                className="space-y-4"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void prepareForm.handleSubmit();
+            <span />
+            {preparationProblem ? (
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  review.setFieldValue("confirmed", false);
+                  setStep("review");
                 }}
               >
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="restore-mode">Restore destination</FieldLabel>
-                    <Select
-                      items={BACKUP_RESTORE_MODES}
-                      disabled={inspected.legacyDatabaseOnly}
-                      value={mode}
-                      onValueChange={(value) => {
-                        if (value) setMode(value);
-                      }}
-                    >
-                      <SelectTrigger id="restore-mode">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>
-                          {BACKUP_RESTORE_MODES.map((item) => (
-                            <SelectItem key={item.value} value={item.value}>
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </Field>
-                  {mode === "migration" && (
-                    <>
-                      <p className="text-detail text-muted-foreground">
-                        The offline tool will confirm destination paths. Network publication stays disabled until you
-                        review Networking. Leave the server address and listen fields blank to keep the archive's
-                        values. Blank extra origins clears the previous list.
-                      </p>
-                      <Field>
-                        <FieldLabel htmlFor="restore-base-url">Server address</FieldLabel>
-                        <Input
-                          id="restore-base-url"
-                          value={baseUrl}
-                          onChange={(event) => setBaseUrl(event.target.value)}
-                          placeholder="https://subshell.example.com"
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel htmlFor="restore-host">Listen host</FieldLabel>
-                        <Input
-                          id="restore-host"
-                          value={host}
-                          onChange={(event) => setHost(event.target.value)}
-                          placeholder="127.0.0.1"
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel htmlFor="restore-port">Listen port</FieldLabel>
-                        <Input
-                          id="restore-port"
-                          value={port}
-                          onChange={(event) => setPort(event.target.value)}
-                          inputMode="numeric"
-                        />
-                      </Field>
-                      <Field>
-                        <FieldLabel htmlFor="restore-origins">Extra trusted origins</FieldLabel>
-                        <Input
-                          id="restore-origins"
-                          value={trustedOrigins}
-                          onChange={(event) => setTrustedOrigins(event.target.value)}
-                          placeholder="https://subshell.example.com"
-                        />
-                      </Field>
-                    </>
-                  )}
-                  <Field className="flex-row items-center justify-between">
-                    <FieldLabel htmlFor="restore-recover">Set a temporary password for an existing admin</FieldLabel>
-                    <Switch
-                      id="restore-recover"
-                      checked={recover}
-                      onCheckedChange={(value) => prepareForm.setFieldValue("recover", value)}
-                      disabled={admins.length === 0}
-                    />
-                  </Field>
-                  {recover && (
-                    <>
-                      <prepareForm.Field name="adminId">
-                        {(field) => {
-                          const problem =
-                            field.state.meta.isTouched && focusedField !== "adminId"
-                              ? fieldError(field.state.meta.errors)
-                              : null;
-                          return (
-                            <Field data-invalid={!!problem}>
-                              <FieldLabel htmlFor="restore-admin">Administrator</FieldLabel>
-                              <Select
-                                items={admins}
-                                value={field.state.value || null}
-                                onValueChange={(value) => field.handleChange(value ?? "")}
-                              >
-                                <SelectTrigger
-                                  id="restore-admin"
-                                  onFocus={() => setFocusedField("adminId")}
-                                  onBlur={() => {
-                                    field.handleBlur();
-                                    setFocusedField(null);
-                                  }}
-                                  aria-invalid={!!problem}
-                                >
-                                  <SelectValue placeholder="Select an admin" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectGroup>
-                                    {admins.map((admin) => (
-                                      <SelectItem key={admin.value} value={admin.value}>
-                                        {admin.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectGroup>
-                                </SelectContent>
-                              </Select>
-                              {problem && (
-                                <p role="alert" className="text-destructive text-detail">
-                                  {problem}
-                                </p>
-                              )}
-                            </Field>
-                          );
-                        }}
-                      </prepareForm.Field>
-                      <prepareForm.Field name="temporaryPassword">
-                        {(field) => {
-                          const problem =
-                            field.state.meta.isTouched && focusedField !== "temporaryPassword"
-                              ? fieldError(field.state.meta.errors)
-                              : null;
-                          return (
-                            <Field data-invalid={!!problem}>
-                              <FieldLabel htmlFor="restore-temp-password">Temporary password</FieldLabel>
-                              <Input
-                                id="restore-temp-password"
-                                onFocus={() => setFocusedField("temporaryPassword")}
-                                onBlur={() => {
-                                  field.handleBlur();
-                                  setFocusedField(null);
-                                }}
-                                aria-invalid={!!problem}
-                                type="password"
-                                maxLength={4096}
-                                autoComplete="new-password"
-                                minLength={8}
-                                required
-                                value={field.state.value}
-                                onChange={(event) => field.handleChange(event.target.value)}
-                              />
-                              {problem && (
-                                <p role="alert" className="text-destructive text-detail">
-                                  {problem}
-                                </p>
-                              )}
-                            </Field>
-                          );
-                        }}
-                      </prepareForm.Field>
-                      <prepareForm.Field name="confirmation">
-                        {(field) => {
-                          const problem =
-                            field.state.meta.isTouched && focusedField !== "confirmation"
-                              ? fieldError(field.state.meta.errors)
-                              : null;
-                          return (
-                            <Field data-invalid={!!problem}>
-                              <FieldLabel htmlFor="restore-temp-confirm">Confirm temporary password</FieldLabel>
-                              <Input
-                                id="restore-temp-confirm"
-                                onFocus={() => setFocusedField("confirmation")}
-                                onBlur={() => {
-                                  field.handleBlur();
-                                  setFocusedField(null);
-                                }}
-                                aria-invalid={!!problem}
-                                type="password"
-                                maxLength={4096}
-                                autoComplete="new-password"
-                                required
-                                value={field.state.value}
-                                onChange={(event) => field.handleChange(event.target.value)}
-                              />
-                              {problem && (
-                                <p role="alert" className="text-destructive text-detail">
-                                  {problem}
-                                </p>
-                              )}
-                            </Field>
-                          );
-                        }}
-                      </prepareForm.Field>
-                      <p className="text-detail text-muted-foreground">
-                        Password sign-in will be enabled. This admin must change the temporary password before accessing
-                        the restored server.
-                      </p>
-                    </>
-                  )}
-                </FieldGroup>
-                <p className="text-detail text-muted-foreground">
-                  Restore replaces the destination state and signs everyone out. Running panes need explicit
-                  confirmation in the offline tool.
-                </p>
-                <Button type="submit" disabled={prepareDisabled}>
-                  {restore.prepare.isPending ? "Preparing…" : "Prepare restore"}
-                </Button>
-              </form>
+                Back
+              </Button>
+            ) : (
+              <Button disabled={busy || !restore.prepare.data} onClick={() => setStep("complete")}>
+                Next
+              </Button>
             )}
-            {prepared && (
-              <div className="space-y-3">
-                <p className="text-body">Restore is prepared. Run this command on the server host:</p>
-                <CopyCommandRow text={prepared.command} label="restore command" />
-                <p className="text-detail text-muted-foreground">
-                  The tool confirms the replacement, stops the server, and asks whether to start it afterward (Yes by
-                  default). This browser will lose its connection during restore.
-                </p>
-                {desktopShell()?.app === "server" && (
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      void desktopInvokeStrict("desktop_open_assistant", { screen: "restore" }).catch(
-                        (failure: unknown) =>
-                          setDesktopError(failure instanceof Error ? failure.message : "Could not open assistant."),
-                      );
-                    }}
-                  >
-                    Open restore assistant
-                  </Button>
-                )}
-              </div>
-            )}
+          </>
+        }
+      >
+        {failureBanner() ?? (
+          <BackupProgress
+            finished={!!restore.prepare.data}
+            title={restore.prepare.data ? "Preparation finished" : "Preparing your restore"}
+            description={
+              restore.prepare.data
+                ? "Select Next to review how to apply the restore."
+                : "The backup and your configuration are checked before anything is replaced."
+            }
+          >
+            <ul className="flex list-disc flex-col gap-2 pl-5 text-muted-foreground">
+              <li>Your restore choices are saved in a private prepared copy.</li>
+              {draft.recover && <li>The selected administrator receives the temporary password on restore.</li>}
+              <li>When preparation finishes, select Next for the host command.</li>
+            </ul>
+          </BackupProgress>
+        )}
+      </BackupWorkflow>
+    );
+  if (step === "complete")
+    return (
+      <BackupWorkflow
+        title="Restore Prepared"
+        description="Apply this restore on the server host."
+        footer={
+          <>
             <Button
-              type="button"
-              variant="outline"
+              variant="ghost"
               disabled={busy}
-              onClick={() => {
-                void cancel().catch(() => {});
-              }}
+              onClick={() => void resetSelection(false).catch((error) => setPreparationProblem(String(error)))}
             >
-              Discard staged restore
+              Done
+            </Button>
+            {desktopShell()?.app === "server" && (
+              <Button
+                onClick={() =>
+                  void desktopInvokeStrict("desktop_open_assistant", { screen: "restore" }).catch((error: unknown) =>
+                    setDesktopError(error instanceof Error ? error.message : "Could not open assistant."),
+                  )
+                }
+              >
+                Open restore assistant
+              </Button>
+            )}
+          </>
+        }
+      >
+        <BackupProgress
+          finished
+          title="Your restore is ready to apply"
+          description="The backup is prepared. Your server’s state has not been replaced."
+        >
+          {restore.prepare.data && (
+            <>
+              <p>Run this command on the server host:</p>
+              <CopyCommandRow text={restore.prepare.data.command} label="restore command" />
+            </>
+          )}
+          <BackupFacts rows={details} />
+          <p className="text-muted-foreground">
+            The host tool confirms replacement and checks active sessions before applying. The browser disconnects
+            during restore; sign in again afterward.
+          </p>
+          <p className="text-muted-foreground">
+            This prepared copy is available for ten minutes. Keep the source backup to prepare it again if needed.
+          </p>
+        </BackupProgress>
+        {desktopError && <ErrorBanner message={desktopError} />}
+        {failureBanner()}
+      </BackupWorkflow>
+    );
+  if (step === "review")
+    return (
+      <BackupWorkflow
+        title="Review Restore"
+        description="Review these details before preparing the replacement."
+        footer={
+          <>
+            <Button variant="ghost" disabled={busy} onClick={() => setStep("configure")}>
+              Back
+            </Button>
+            <Button type="submit" form="review-restore-form" disabled={prepareDisabled}>
+              Prepare restore
             </Button>
           </>
+        }
+      >
+        <BackupFacts rows={details} />
+        <ul className="flex list-disc flex-col gap-2 pl-5 text-muted-foreground">
+          <li>Applying this restore replaces the displayed destination and signs everyone out.</li>
+          <li>
+            Compatible sessions are preserved. If any cannot survive the restore, the host tool asks for interruption
+            consent.
+          </li>
+          {draft.mode === "migration" && <li>Network publication stays disabled until you review Networking.</li>}
+        </ul>
+        <form
+          id="review-restore-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void review.handleSubmit();
+          }}
+        >
+          <FieldGroup>
+            <review.Field name="confirmed">
+              {(field) => (
+                <Field className="flex-row items-center" data-disabled={busy}>
+                  <Checkbox
+                    id="restore-confirm"
+                    checked={field.state.value}
+                    disabled={busy}
+                    onCheckedChange={field.handleChange}
+                  />
+                  <FieldLabel htmlFor="restore-confirm">
+                    I confirm the destination and restore options shown above
+                  </FieldLabel>
+                </Field>
+              )}
+            </review.Field>
+          </FieldGroup>
+        </form>
+        {failureBanner()}
+      </BackupWorkflow>
+    );
+  if (step === "configure")
+    return (
+      <BackupWorkflow
+        title="Configure Restore"
+        description="Configure the destination and restore options, then review the replacement."
+        footer={
+          <>
+            <Button variant="ghost" disabled={busy} onClick={() => setStep("select")}>
+              Back
+            </Button>
+            <Button type="submit" form="configure-restore-form" disabled={reviewDisabled}>
+              Review backup
+            </Button>
+          </>
+        }
+      >
+        <form
+          id="configure-restore-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void configuration.handleSubmit();
+          }}
+        >
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="restore-mode">Restore mode</FieldLabel>
+              <Select
+                items={BACKUP_RESTORE_MODES}
+                disabled={busy || inspection?.legacyDatabaseOnly}
+                value={draft.mode}
+                onValueChange={(value) => {
+                  if (value) configuration.setFieldValue("mode", value);
+                }}
+              >
+                <SelectTrigger id="restore-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {BACKUP_RESTORE_MODES.map((item) => (
+                      <SelectItem key={item.value} value={item.value}>
+                        {item.label}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              {inspection?.legacyDatabaseOnly && (
+                <p className="text-muted-foreground">
+                  This backup contains only the database. It restores into this server using its current configuration
+                  and identity. Moving to a new machine requires a full instance archive.
+                </p>
+              )}
+            </Field>
+            {!inspection?.legacyDatabaseOnly && (
+              <>
+                {textField("databasePath", "Database path (optional)")}
+                {textField("dataDir", "Data directory (optional)")}
+                {textField("configDir", "Configuration directory (optional)")}
+                {textField("baseUrl", "Control plane URL (optional)")}
+                {textField("host", "Bind address (optional)")}
+                {textField("port", "Port (optional)")}
+                {textField("trustedOrigins", "Trusted origins (optional)")}
+              </>
+            )}
+            <Field className="flex-row items-center justify-between">
+              <FieldLabel htmlFor="restore-recover">Recover an existing administrator</FieldLabel>
+              <Switch
+                id="restore-recover"
+                checked={draft.recover}
+                onCheckedChange={(value) => configuration.setFieldValue("recover", value)}
+                disabled={busy || !admins.length}
+              />
+            </Field>
+            {draft.recover && (
+              <>
+                <p className="text-warning">
+                  Email/password authentication will be enabled. This administrator must change the temporary password
+                  after signing in.
+                </p>
+                <configuration.Field name="adminId">
+                  {(field) => {
+                    const problem =
+                      !busy && field.state.meta.isTouched && focusedField !== "adminId"
+                        ? fieldError(field.state.meta.errors)
+                        : null;
+                    return (
+                      <Field data-invalid={!!problem}>
+                        <FieldLabel htmlFor="restore-admin">Administrator</FieldLabel>
+                        <Select
+                          items={admins}
+                          disabled={busy}
+                          value={field.state.value || null}
+                          onValueChange={(value) => field.handleChange(value ?? "")}
+                        >
+                          <SelectTrigger
+                            id="restore-admin"
+                            aria-invalid={!!problem}
+                            onFocus={() => setFocusedField("adminId")}
+                            onBlur={() => {
+                              field.handleBlur();
+                              setFocusedField(null);
+                            }}
+                          >
+                            <SelectValue placeholder="Select an administrator" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {admins.map((admin) => (
+                                <SelectItem key={admin.value} value={admin.value}>
+                                  {admin.label}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        {problem && (
+                          <p role="alert" className="text-detail text-warning">
+                            {problem}
+                          </p>
+                        )}
+                      </Field>
+                    );
+                  }}
+                </configuration.Field>
+                {textField("temporaryPassword", "Temporary password (at least eight characters)", true)}
+                {textField("confirmation", "Confirm temporary password", true)}
+              </>
+            )}
+            <Field className="flex-row items-center justify-between">
+              <FieldLabel htmlFor="restore-start">Start the server after restoring</FieldLabel>
+              <Switch
+                id="restore-start"
+                checked={draft.start}
+                disabled={busy}
+                onCheckedChange={(value) => configuration.setFieldValue("start", value)}
+              />
+            </Field>
+          </FieldGroup>
+        </form>
+      </BackupWorkflow>
+    );
+  return (
+    <BackupWorkflow
+      title="Restore Your Server"
+      description="Choose a backup, configure the restore, and review it before preparing."
+      footer={
+        <>
+          <span />
+          <Button disabled={configureDisabled} onClick={() => setStep("configure")}>
+            Configure backup
+          </Button>
+        </>
+      }
+    >
+      <Field>
+        <FieldLabel>Restore from</FieldLabel>
+        <fieldset disabled={busy}>
+          <Segmented
+            ariaLabel="Restore from"
+            value={source}
+            options={[
+              { value: "file", label: "Open a backup file" },
+              { value: "saved", label: "Use a saved backup" },
+            ]}
+            onChange={(value) => {
+              setSource(value);
+              void resetSelection().catch((error) => setSelectionProblem(String(error)));
+            }}
+          />
+        </fieldset>
+      </Field>
+      <form
+        id="select-restore-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void inspectForm.handleSubmit();
+        }}
+        className="flex flex-col gap-4"
+      >
+        {source === "file" ? (
+          <Field>
+            <Input
+              ref={picker}
+              id="restore-archive"
+              type="file"
+              className="sr-only"
+              tabIndex={-1}
+              aria-label="Backup file"
+              disabled={busy}
+              onChange={(event) => {
+                const file = event.target.files?.[0] ?? null;
+                if (!file) return;
+                const values = { file, path: "", password: "", encrypted: false };
+                inspectForm.reset(values, { keepDefaultValues: true });
+                void validateSelection(values);
+              }}
+            />
+            <Button type="button" variant="outline" disabled={busy} onClick={() => picker.current?.click()}>
+              Choose backup file…
+            </Button>
+            {selected.file && <p className="break-words text-muted-foreground">{selected.file.name}</p>}
+          </Field>
+        ) : (
+          <Field>
+            <FieldLabel htmlFor="saved-backup">Available backups</FieldLabel>
+            <Select
+              id="saved-backup-select"
+              disabled={busy || !restore.saved.data?.backups.length}
+              value={selected.path || null}
+              items={(restore.saved.data?.backups ?? []).map((file) => ({
+                value: file.path,
+                label: `${new Date(file.createdAt).toLocaleString()} · ${file.name}`,
+              }))}
+              onValueChange={(path) => {
+                if (!path) return;
+                const values = { file: null, path, password: "", encrypted: false };
+                inspectForm.reset(values, { keepDefaultValues: true });
+                void validateSelection(values);
+              }}
+            >
+              <SelectTrigger id="saved-backup">
+                <SelectValue placeholder="Select a backup" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {(restore.saved.data?.backups ?? []).map((file) => (
+                    <SelectItem key={file.path} value={file.path}>
+                      {new Date(file.createdAt).toLocaleString()} · {file.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {restore.saved.isPending ? (
+              <p className="text-muted-foreground">Loading saved backups…</p>
+            ) : !restore.saved.data?.backups.length && !restore.saved.error ? (
+              <p className="text-muted-foreground">No saved backups are available. Open a backup file instead.</p>
+            ) : null}
+            {restore.saved.error && <ErrorBanner message={restore.saved.error.message} />}
+            {selected.path && (
+              <p className="break-words text-muted-foreground">
+                {restore.saved.data?.backups.find((file) => file.path === selected.path)?.name}
+              </p>
+            )}
+          </Field>
         )}
-        {error && <ErrorBanner message={error.message} className="rounded-md border" />}
-        {desktopError && <ErrorBanner message={desktopError} className="rounded-md border" />}
-      </CardContent>
-    </Card>
+        {selected.encrypted && (
+          <inspectForm.Field name="password">
+            {(field) => {
+              const problem =
+                !busy && focusedField !== "password"
+                  ? (passwordProblem ?? (field.state.meta.isTouched ? fieldError(field.state.meta.errors) : null))
+                  : null;
+              return (
+                <Field data-invalid={!!problem}>
+                  <FieldLabel htmlFor="restore-password">Archive password</FieldLabel>
+                  <Input
+                    id="restore-password"
+                    type="password"
+                    required
+                    maxLength={4096}
+                    autoComplete="off"
+                    disabled={busy}
+                    value={field.state.value}
+                    aria-invalid={!!problem}
+                    aria-describedby={problem ? "restore-password-error" : undefined}
+                    onFocus={() => setFocusedField("password")}
+                    onBlur={() => {
+                      field.handleBlur();
+                      setFocusedField(null);
+                    }}
+                    onChange={(event) => {
+                      field.handleChange(event.target.value);
+                      setInspection(null);
+                      setPasswordProblem(null);
+                    }}
+                  />
+                  {problem && (
+                    <p id="restore-password-error" role="alert" className="text-detail text-warning">
+                      {problem}
+                    </p>
+                  )}
+                </Field>
+              );
+            }}
+          </inspectForm.Field>
+        )}
+        {selectionProblem && (
+          <p role="alert" className="text-warning">
+            {selectionProblem}
+          </p>
+        )}
+        {restore.inspect.isPending && (
+          <p role="status" className="flex items-center gap-2 text-muted-foreground">
+            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+            Validating backup…
+          </p>
+        )}
+        {inspection ? (
+          <p role="status" className="text-muted-foreground">
+            Backup validated. Select Configure backup to continue.
+          </p>
+        ) : (
+          (selected.file || selected.path) && (
+            <Button type="submit" variant="outline" disabled={inspectDisabled}>
+              {restore.inspect.isPending && (
+                <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+              )}
+              Validate backup
+            </Button>
+          )
+        )}
+        {source === "file" && (
+          <p className="text-muted-foreground">
+            Browser uploads support archives up to 128 MB. Use the CLI or desktop assistant for larger files.
+          </p>
+        )}
+      </form>
+    </BackupWorkflow>
   );
 }

@@ -5,7 +5,23 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
 const ROOT = "/api/admin/backups";
+export interface RestoreDestination {
+  databasePath: string;
+  dataDir: string;
+  configPath: string;
+}
+export interface SavedBackup {
+  path: string;
+  name: string;
+  bytes: number;
+  createdAt: string;
+  encrypted: boolean;
+  legacyDatabaseOnly: boolean;
+  serverVersion?: string;
+}
 export interface RestoreInspection extends BackupInspection {
+  destination?: RestoreDestination;
+  choices?: BackupRestoreChoices;
   id: string;
   expiresAt: number;
 }
@@ -15,6 +31,8 @@ export interface PreparedRestore {
   command: string;
 }
 interface BackupJob {
+  bytes?: number;
+  expiresAt?: number;
   id: string;
   status: "creating" | "ready" | "failed" | "cancelled" | "downloading";
   error?: string;
@@ -54,22 +72,46 @@ export function useBackupDownload() {
     retry: false,
   });
   const cancel = useMutation({
-    mutationFn: () => apiFetch(`${ROOT}/jobs/${jobId}`, { method: "DELETE" }),
+    mutationFn: () =>
+      apiFetch(`${ROOT}/jobs/${jobId}`, { method: "DELETE" }).catch((error: unknown) => {
+        if (!(error instanceof ApiError && error.status === 404)) throw error;
+      }),
     onSuccess: () => setJobId(null),
   });
   return { create, job, cancel, jobId, downloadUrl: jobId ? `${ROOT}/download/${jobId}` : null };
 }
 
 export function useRestoreBackup() {
+  const saved = useQuery({
+    queryKey: ["saved-backups"],
+    queryFn: () => apiFetch<{ backups: SavedBackup[] }>(`${ROOT}/saved`),
+    retry: false,
+  });
   const inspect = useMutation({
-    mutationFn: ({ file, password }: { file: File; password?: string }) => inspectBackup(file, password),
+    mutationFn: ({ file, path, password }: { file?: File; path?: string; password?: string }) => {
+      if (path)
+        return apiPost<RestoreInspection>(`${ROOT}/inspect-saved`, {
+          path,
+          ...(password !== undefined && { password }),
+        });
+      if (!file) throw new Error("Choose a backup file.");
+      return inspectBackup(file, password);
+    },
   });
   const prepare = useMutation({
-    mutationFn: (body: BackupRestoreChoices & { id: string; recoveryUserId?: string; temporaryPassword?: string }) => {
+    mutationFn: (
+      body: BackupRestoreChoices & {
+        id: string;
+        destination?: RestoreDestination;
+        start?: boolean;
+        recoveryUserId?: string;
+        temporaryPassword?: string;
+      },
+    ) => {
       const { id, ...choices } = body;
       return apiPost<PreparedRestore>(`${ROOT}/staged/${id}`, choices);
     },
   });
   const cancel = useMutation({ mutationFn: (id: string) => apiFetch(`${ROOT}/staged/${id}`, { method: "DELETE" }) });
-  return { inspect, prepare, cancel };
+  return { saved, inspect, prepare, cancel };
 }
