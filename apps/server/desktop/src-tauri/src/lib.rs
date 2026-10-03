@@ -227,6 +227,18 @@ pub fn run() {
             // that is gone is the kind of state nobody thinks to check.
             if window.label() == trust::MAIN && matches!(event, tauri::WindowEvent::Destroyed) {
                 trust::window_state().clear();
+                // `ShellReady` means "this main window's SPA handshook," and the
+                // 6-second fallback raise stays suppressed while it is true. It
+                // used to be reset only by process death; the offline route can
+                // now destroy `main` in-process and `open_main` later rebuilds it,
+                // so the rebuilt window must be allowed to re-earn the flag (or
+                // the fallback to raise it) rather than come up invisible behind a
+                // stale `true`.
+                window
+                    .app_handle()
+                    .state::<windows::ShellReady>()
+                    .0
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Close-to-tray is opt-in, and the check RE-PROBES the desktop
