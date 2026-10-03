@@ -228,12 +228,13 @@ pub fn run() {
             if window.label() == trust::MAIN && matches!(event, tauri::WindowEvent::Destroyed) {
                 trust::window_state().clear();
                 // `ShellReady` means "this main window's SPA handshook," and the
-                // 6-second fallback raise stays suppressed while it is true. It
-                // used to be reset only by process death; the offline route can
-                // now destroy `main` in-process and `open_main` later rebuilds it,
-                // so the rebuilt window must be allowed to re-earn the flag (or
-                // the fallback to raise it) rather than come up invisible behind a
-                // stale `true`.
+                // 6-second fallback raise stays suppressed while it is true. It was
+                // cleared only when the process died, so any in-process destroy of
+                // `main` followed by a rebuild left the flag stale — a dev reset
+                // that skips the post-reset restart already did this; the offline
+                // route does it in the normal path. The rebuilt window must be
+                // allowed to re-earn the flag (or the fallback to raise it) rather
+                // than come up invisible behind a stale `true`.
                 window
                     .app_handle()
                     .state::<windows::ShellReady>()

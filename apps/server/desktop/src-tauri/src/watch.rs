@@ -26,10 +26,15 @@
 //! raw webview error "Could not connect to localhost"; tauri exposes no load
 //! failure (no `PageLoadEvent` variant for it on either backend), so a probe
 //! saying not-`Ready` beside an existing `main` is the only signal there is. The
-//! route therefore raises the assistant ONLY for a window that can show nothing
-//! else, and only after a debounce plus two exclusions (an in-flight action, a
-//! supervisor respawn about to bring the server back) so a loaded-SPA blip is
-//! never yanked.
+//! route therefore raises the assistant ONLY for a window that is on screen and
+//! can show nothing else, and only after a debounce plus two exclusions (an
+//! in-flight action, a supervisor respawn about to bring the server back) — so a
+//! blip shorter than two ticks is not yanked. It cannot see a restart the served
+//! page or a terminal starts (neither takes the desktop's in-flight lock), so a
+//! service-mode restart that leaves the port empty past the debounce still routes
+//! the loaded dashboard to the assistant `Status`. That is the honest trade: the
+//! alternative for the same not-`Ready` signal is an undetectable dead error page,
+//! and the landing spot here at least explains the outage and offers Start.
 
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -188,18 +193,28 @@ pub fn spawn(app: AppHandle) {
             };
             if should_route_offline(true, ready, false, supervisor_respawning, consecutive_not_ready) {
                 consecutive_not_ready = 0;
-                // Raise the offline surface FIRST, then remove the dead dashboard.
-                // Order is load-bearing: `should_prevent_exit` keys on `main`'s
-                // existence, so destroying it before a window is there to take its
-                // place could, with close-to-tray off, empty the set and quit the app.
-                // `destroy`, never `close`: close-to-tray answers `CloseRequested`
-                // with a hide, and a hidden `main` both keeps this thread probing and
-                // gets the stale error page re-raised by the next `open_main`.
-                match crate::windows::open_assistant(&app) {
-                    Ok(_) => {
-                        let _ = window.destroy();
+                // Only an ON-SCREEN dead window is routed. A hidden `main`
+                // (close-to-tray) must not build+raise the assistant over work the
+                // person has hidden it behind, and must not be destroyed either: the
+                // `ExitRequested` guard in `lib.rs` keeps the app up only while
+                // close-to-tray is on AND a `main` window still exists, so removing
+                // the last `main` here would let the app quit. The hidden dead page
+                // is inert until a reopen, which `open_home` re-gates on a fresh
+                // probe anyway.
+                if window.is_visible().unwrap_or(true) {
+                    // Raise the offline surface FIRST, then remove the dead
+                    // dashboard: destroying `main` before a window exists to take
+                    // its place would empty the set and, per the same guard, quit
+                    // the app. `destroy`, never `close`: close-to-tray answers
+                    // `CloseRequested` with a hide, and a hidden `main` both keeps
+                    // this thread probing and gets the stale page re-raised by the
+                    // next `open_main`.
+                    match crate::windows::open_assistant(&app) {
+                        Ok(_) => {
+                            let _ = window.destroy();
+                        }
+                        Err(e) => eprintln!("subshell: the server is down but the assistant could not open: {e}"),
                     }
-                    Err(e) => eprintln!("subshell: the server is down but the assistant could not open: {e}"),
                 }
                 continue;
             }
