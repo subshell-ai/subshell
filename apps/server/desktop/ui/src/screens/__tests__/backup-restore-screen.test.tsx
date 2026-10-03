@@ -672,9 +672,9 @@ describe("native backup and restore", () => {
     await screen.findByRole("heading", { name: "Backup details" });
     expect(screen.getByRole("radiogroup", { name: "Restore mode" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Same-machine recovery" }).getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByRole("radio", { name: "Restore on a different machine" }).getAttribute("aria-disabled")).toBe(
-      "true",
-    );
+    expect(
+      screen.getByRole("radio", { name: "This machine is different from the original" }).getAttribute("aria-disabled"),
+    ).toBe("true");
     expect(screen.getByRole("switch", { name: "Recover an existing administrator" }).getAttribute("aria-checked")).toBe(
       "false",
     );
@@ -696,15 +696,15 @@ describe("native backup and restore", () => {
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
     await reviewSelectedBackup();
-    await screen.findByRole("radio", { name: "Restore on a different machine" });
+    await screen.findByRole("radio", { name: "This machine is different from the original" });
     expect(screen.getByRole("radio", { name: "Same-machine recovery" }).getAttribute("aria-checked")).toBe("true");
     expect(screen.getByText(BACKUP_RESTORE_MODES[0].description)).toBeTruthy();
-    fireEvent.click(screen.getByRole("radio", { name: "Restore on a different machine" }));
+    fireEvent.click(screen.getByRole("radio", { name: "This machine is different from the original" }));
     expect(screen.getByText(BACKUP_RESTORE_MODES[1].description)).toBeTruthy();
     expect(screen.queryByText(BACKUP_RESTORE_MODES[0].description)).toBeNull();
-    expect(screen.getByRole("radio", { name: "Restore on a different machine" }).getAttribute("aria-checked")).toBe(
-      "true",
-    );
+    expect(
+      screen.getByRole("radio", { name: "This machine is different from the original" }).getAttribute("aria-checked"),
+    ).toBe("true");
     fireEvent.change(screen.getByLabelText("Public base URL (optional)"), {
       target: { value: "https://previous.example" },
     });

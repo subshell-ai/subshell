@@ -379,7 +379,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
         },
         {
           label: "Restore mode",
-          value: draft.mode === "migration" ? "Restore on a different machine" : "Same-machine recovery",
+          value: draft.mode === "migration" ? "This machine is different from the original" : "Same-machine recovery",
         },
         ...Object.entries(destination(draft)).map(([key, value]) => ({
           label: key === "databasePath" ? "Database" : key === "dataDir" ? "Data directory" : "Configuration",

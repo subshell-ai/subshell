@@ -769,7 +769,7 @@ export function BackupRestoreScreen(props: {
                     "Restore mode",
                     inspection.legacyDatabaseOnly || options.mode === "same-machine"
                       ? "Same-machine recovery"
-                      : "Restore on a different machine",
+                      : "This machine is different from the original",
                   ],
                   ["Database", inspection.destination?.databasePath ?? ""],
                   ["Data directory", inspection.destination?.dataDir ?? ""],
