@@ -300,8 +300,8 @@ export function BackupRestoreScreen(props: {
     await act("Creating a consistent instance archive…", async () => {
       const path = await save({
         title: "Save instance backup",
-        defaultPath: `subshell-instance-${new Date().toISOString().slice(0, 10)}.subshell`,
-        filters: [{ name: "Subshell instance archive", extensions: ["subshell"] }],
+        defaultPath: `subshell-instance-${new Date().toISOString().slice(0, 10)}.tar.gz${encrypt ? ".enc" : ""}`,
+        filters: [{ name: "Subshell instance archive", extensions: [encrypt ? "tar.gz.enc" : "tar.gz"] }],
       });
       if (!path) {
         clearPasswords();

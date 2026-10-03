@@ -60,7 +60,7 @@ export function startBackupDownloadJob(actorUserId: string, password?: string) {
     actorUserId,
     status: "creating",
     dir,
-    filename: `subshell-${new Date().toISOString().replace(/[:.]/g, "-")}.${password === undefined ? "tar.gz" : "subshell-backup"}`,
+    filename: `subshell-instance-${new Date().toISOString().slice(0, 10)}.tar.gz${password === undefined ? "" : ".enc"}`,
     expiresAt: Date.now() + JOB_TTL_MS,
     timer: setTimeout(() => {
       if (job.status === "creating") job.status = "cancelled";

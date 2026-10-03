@@ -169,6 +169,9 @@ describe("admin archive endpoints", () => {
     const response = await download(admin.token, "unique-archive-secret");
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-disposition")).toMatch(
+      /filename="subshell-instance-\d{4}-\d{2}-\d{2}\.tar\.gz\.enc"/,
+    );
     const bytes = await response.arrayBuffer();
     expect(Buffer.from(bytes).subarray(0, 8).toString()).toBe("SUBSHBAK");
     expect((await upload(bytes, admin.token, "wrong-secret")).status).toBe(400);
@@ -209,6 +212,9 @@ describe("admin archive endpoints", () => {
   it("inspects browser uploads beneath an aliased OS temporary root and cleans private upload files", async () => {
     const response = await download(admin.token);
     expect(response.status).toBe(200);
+    expect(response.headers.get("content-disposition")).toMatch(
+      /filename="subshell-instance-\d{4}-\d{2}-\d{2}\.tar\.gz"/,
+    );
     const bytes = await response.arrayBuffer();
     const root = mkdtempSync(join(realpathSync(tmpdir()), "subshell-upload-alias-"));
     const realTemp = join(root, "real-temp");
