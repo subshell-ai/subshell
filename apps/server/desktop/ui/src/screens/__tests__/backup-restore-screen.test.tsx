@@ -47,6 +47,39 @@ async function reviewSelectedBackup() {
 }
 
 describe("native backup and restore", () => {
+  it("places encrypted archive guidance on the password field instead of exposing CLI flags", async () => {
+    fake = installFakeIpc({
+      handlers: {
+        desktop_backup_list: () => ({ backups: [] }),
+        "plugin:dialog|open": () => "/tmp/encrypted.subshell",
+        desktop_restore_inspect: ({ password }) => {
+          if (!password)
+            throw new Error(
+              "subshell-server: restore failed: A password requires --password-file <path | -> when no interactive terminal is available.",
+            );
+          return { ...stage, prepared: false };
+        },
+      },
+    });
+    render(<BackupRestoreScreen {...props} kind="restore" />);
+    fireEvent.click(screen.getByRole("button", { name: "Choose backup file…" }));
+    const error = await screen.findByRole("alert");
+    expect(error.textContent).toBe(
+      "This backup is encrypted. Enter its archive password, then select Validate backup.",
+    );
+    expect(error.className).toContain("text-warning");
+    const password = screen.getByLabelText("Archive password (only for encrypted archives)");
+    expect(password.getAttribute("aria-describedby")).toBe(error.id);
+    expect(screen.queryByText(/--password-file/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Review backup" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(password, { target: { value: "secret" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Validate backup" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Review backup" }).hasAttribute("disabled")).toBe(false),
+    );
+  });
+
   it("uses browser-style required password validation after blur and disables invalid backup submission", async () => {
     fake = installFakeIpc({ handlers: {} });
     render(<BackupRestoreScreen {...props} kind="backup" />);

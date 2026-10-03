@@ -106,6 +106,8 @@ export function BackupRestoreScreen(props: {
   const [temporaryConfirmation, setTemporaryConfirmation] = useState("");
   const [recover, setRecover] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.recoverAdmin);
   const [start, setStart] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.start);
+  const [archivePasswordProblem, setArchivePasswordProblem] = useState("");
+  const [archiveProblem, setArchiveProblem] = useState("");
   const [validatedBackup, setValidatedBackup] = useState<RestoreInspection | null>(null);
   const [inspection, setInspection] = useState<RestoreInspection | null>(null);
   const [backups, setBackups] = useState<LocalBackupFile[]>([]);
@@ -140,7 +142,11 @@ export function BackupRestoreScreen(props: {
       ? "Temporary passwords do not match."
       : null;
   const update = (name: keyof RestorePrepare, value: string) => {
-    if (name === "password" || name === "archive") setValidatedBackup(null);
+    if (name === "password" || name === "archive") {
+      setValidatedBackup(null);
+      setArchivePasswordProblem("");
+      setArchiveProblem("");
+    }
     const cached = retryPreparation.current;
     retryPreparation.current = null;
     setInspection((old) => old && { ...old, prepared: false });
@@ -289,8 +295,22 @@ export function BackupRestoreScreen(props: {
         setStageId(value.id ?? "");
         setValidatedBackup(value);
       } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
         clearPasswords();
-        throw error;
+        if (
+          detail.includes("A password requires --password-file") ||
+          detail.includes("this backup requires a password")
+        ) {
+          setArchivePasswordProblem(
+            "This backup is encrypted. Enter its archive password, then select Validate backup.",
+          );
+        } else if (detail.includes("backup authentication failed")) {
+          setArchivePasswordProblem(
+            "The password is incorrect or this backup is damaged. Check the password and try again.",
+          );
+        } else {
+          setArchiveProblem(detail.replace(/^subshell-server: restore failed:\s*/, ""));
+        }
       }
     });
   };
@@ -737,6 +757,8 @@ export function BackupRestoreScreen(props: {
                         retryPreparation.current = null;
                         setBackupSource(value === "saved" ? "saved" : "file");
                         setValidatedBackup(null);
+                        setArchivePasswordProblem("");
+                        setArchiveProblem("");
                         setInspection(null);
                         setStageId("");
                         setReplace(false);
@@ -759,8 +781,31 @@ export function BackupRestoreScreen(props: {
                     </RadioGroup>
                   </FieldSet>
                 )}
-                {(backupSource === "file" || (selectedBackup && !selectedBackup.legacyDatabaseOnly)) &&
-                  field("password", "Archive password (only for encrypted archives)", true)}
+                {(backupSource === "file" || (selectedBackup && !selectedBackup.legacyDatabaseOnly)) && (
+                  <Field data-invalid={!!archivePasswordProblem}>
+                    <FieldLabel htmlFor="restore-password">Archive password (only for encrypted archives)</FieldLabel>
+                    <Input
+                      id="restore-password"
+                      type="password"
+                      autoComplete="new-password"
+                      disabled={locked}
+                      value={options.password}
+                      aria-invalid={!!archivePasswordProblem}
+                      aria-describedby={archivePasswordProblem ? "restore-password-error" : undefined}
+                      onChange={(event) => update("password", event.currentTarget.value)}
+                    />
+                    {archivePasswordProblem && (
+                      <p id="restore-password-error" role="alert" className="m-0 text-warning text-detail">
+                        {archivePasswordProblem}
+                      </p>
+                    )}
+                  </Field>
+                )}
+                {archiveProblem && (
+                  <p role="alert" className="m-0 text-warning text-detail">
+                    {archiveProblem}
+                  </p>
+                )}
                 {backupSource === "file" && (
                   <div className="flex flex-col gap-3">
                     <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
@@ -807,6 +852,8 @@ export function BackupRestoreScreen(props: {
                           onValueChange={(path) => {
                             setSelectedBackupPath(path ?? "");
                             setValidatedBackup(null);
+                            setArchivePasswordProblem("");
+                            setArchiveProblem("");
                           }}
                         >
                           <SelectTrigger aria-label="Available backup">
