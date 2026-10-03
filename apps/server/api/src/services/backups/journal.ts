@@ -12,7 +12,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { DATA_COMPONENTS } from "./paths.js";
 import type { InstancePaths } from "./types.js";
 
@@ -45,12 +45,17 @@ export interface RestoreJournal {
 
 function safePath(path: string): void {
   const absolute = resolve(path);
-  let current = parse(absolute).root;
-  for (const part of relative(current, absolute).split(/[\\/]/)) {
-    if (!part) continue;
-    current = join(current, part);
+  // Refuse a symlink at the target itself or at the directory that holds it:
+  // those are the components a crafted restore could repoint at a protected
+  // file. Components ABOVE that directory are left alone — a legitimate
+  // filesystem symlinks an ancestor (macOS `/var → /private/var`, `/tmp`, a bind
+  // mount), and walking from `/` refused those, so the server aborted at boot
+  // for every path under one (measured: the darwin release smoke died here). The
+  // local OS user who could plant a link in an ancestor is out of the threat
+  // model; the journal's own dir is app-created, but its ancestors need not be.
+  for (const component of [absolute, dirname(absolute)]) {
     try {
-      if (lstatSync(current).isSymbolicLink()) throw new Error("symlink in restore journal path");
+      if (lstatSync(component).isSymbolicLink()) throw new Error("symlink in restore journal path");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
@@ -145,7 +150,11 @@ export function replacementsFor(destination: InstancePaths, transactionId: strin
 /** Publish a fully written, flushed journal atomically, refusing an existing initial transaction. */
 export function writeRestoreJournalSync(path: string, journal: RestoreJournal, initial = false): void {
   const temporary = `${path}.writing-${journal.transactionId}`;
+  // Guard both names, like writeRestoreResult does; `"wx"` already refuses to
+  // open through a symlink, but the symmetric check removes the "is this a bug?"
+  // double-take and refuses a symlinked journal dir outright.
   safePath(path);
+  safePath(temporary);
   rmSync(temporary, { force: true });
   const fd = openSync(temporary, "wx", 0o600);
   try {
