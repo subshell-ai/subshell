@@ -12,7 +12,7 @@ The archive contains a consistent SQLite snapshot, supported server configuratio
 It excludes previous backups, temporary restore and update files, binaries and caches, operating system service definitions, projects and project-local uploads, external agent credentials, remote node files, and external network daemon state. Preserve those separately when you need them. A restore cannot recreate a running process or an agent's in-memory state.
 
 > [!warning] Backup credentials
-> A full archive contains keys and credentials, including when it is unencrypted. Keep it at least as private as the live server data directory. Store an encryption password separately; a forgotten password cannot be recovered.
+> A full archive contains keys and credentials. Enable encryption to protect them with a password, and keep the archive in a secure location. Store the password separately; a forgotten password cannot be recovered.
 
 ## Before you start
 
