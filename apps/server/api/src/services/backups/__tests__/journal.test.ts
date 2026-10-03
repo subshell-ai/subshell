@@ -2,46 +2,76 @@ import { describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readInstanceRestoreResult } from "../journal.js";
+import { assertInstanceRestoreDestination, readInstanceRestoreResult } from "../journal.js";
 
 /**
- * The journal guard walks the path refusing symlinks, but it must refuse only
- * the target and its owning directory — not the ancestors above it. macOS
- * symlinks `/var` (where `TMPDIR`, and so the release smoke's data dir, lives)
- * to `/private/var`; refusing any ancestor symlink made the server abort at
- * boot for every path under one. A crafted restore, by contrast, repoints the
- * journal/result FILE or a directory the app owns, and both still throw.
+ * The journal guard refuses a symlink at the target file and at its immediate
+ * directory, but tolerates symlinked ancestors. macOS symlinks `/var` (where
+ * `TMPDIR`, and so the release smoke's data dir, lives) to `/private/var`;
+ * refusing any ancestor symlink aborted boot for every path under one. A crafted
+ * restore instead repoints the journal/result file or its owning directory, and
+ * both still throw.
  */
 describe("restore journal path guard", () => {
-  it("resolves the result through a symlinked ancestor (macOS /var) and refuses a symlink at the result itself", () => {
-    const realRoot = mkdtempSync(join(tmpdir(), "journal-real-"));
+  const validResult = {
+    transactionId: "00000000-0000-0000-0000-000000000000",
+    outcome: "completed",
+    completedAt: "2026-10-03T00:00:00.000Z",
+  } as const;
+  const actual = { databasePath: "/x/db", dataDir: "/x", configPath: "/x/config.env" };
+
+  function tempConfig(): { root: string; config: string } {
+    const root = mkdtempSync(join(tmpdir(), "journal-"));
+    const config = join(root, "config");
+    mkdirSync(config, { mode: 0o700 });
+    return { root, config };
+  }
+
+  it("resolves the result through a symlinked ancestor (macOS /var)", () => {
+    const { root, config } = tempConfig();
     try {
-      const config = join(realRoot, "config");
-      mkdirSync(config, { mode: 0o700 });
-      const linkRoot = join(realRoot, "link-root");
-      symlinkSync(realRoot, linkRoot); // an ancestor symlink, like /var → /private/var
+      symlinkSync(root, join(root, "link-root")); // an ancestor symlink, like /var → /private/var
+      writeFileSync(join(config, "restore-result.json"), JSON.stringify(validResult), { mode: 0o600 });
+      const viaAncestorLink = join(root, "link-root", "config", "restore-journal.json");
+      expect(readInstanceRestoreResult(viaAncestorLink)).toEqual(validResult);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
-      const result = {
-        transactionId: "00000000-0000-0000-0000-000000000000",
-        outcome: "completed",
-        completedAt: "2026-10-03T00:00:00.000Z",
-      } as const;
-      writeFileSync(join(config, "restore-result.json"), JSON.stringify(result), { mode: 0o600 });
-
-      // Reach the same result through the symlinked ancestor: it must resolve, not throw.
-      const viaAncestorLink = join(linkRoot, "config", "restore-journal.json");
-      expect(readInstanceRestoreResult(viaAncestorLink)).toEqual(result);
-
-      // A symlink AT the result is still refused, and the link survives untouched.
-      rmSync(join(config, "restore-result.json"));
-      const protectedFile = join(realRoot, "protected");
+  it("refuses a symlink at the result file", () => {
+    const { root, config } = tempConfig();
+    try {
+      const protectedFile = join(root, "protected");
       writeFileSync(protectedFile, "protected-content", { mode: 0o600 });
-      const resultPath = join(config, "restore-result.json");
-      symlinkSync(protectedFile, resultPath);
+      symlinkSync(protectedFile, join(config, "restore-result.json"));
       expect(() => readInstanceRestoreResult(join(config, "restore-journal.json"))).toThrow("symlink");
       expect(readFileSync(protectedFile, "utf8")).toBe("protected-content");
     } finally {
-      rmSync(realRoot, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a symlink at the journal's own directory", () => {
+    const { root, config } = tempConfig();
+    try {
+      writeFileSync(join(config, "restore-result.json"), JSON.stringify(validResult), { mode: 0o600 });
+      const linkDir = join(root, "link-dir");
+      symlinkSync(config, linkDir); // the immediate parent of the journal path is a symlink
+      expect(() => readInstanceRestoreResult(join(linkDir, "restore-journal.json"))).toThrow("symlink");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a symlink at the journal file itself", () => {
+    const { root, config } = tempConfig();
+    try {
+      const journal = join(config, "restore-journal.json");
+      symlinkSync(join(root, "missing-target"), journal);
+      expect(() => assertInstanceRestoreDestination(journal, actual)).toThrow("symlink");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
