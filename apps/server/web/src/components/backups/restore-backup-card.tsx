@@ -1,4 +1,4 @@
-import { Button, Input, Switch } from "@internal/node-admin";
+import { Button, Card, CardContent, CardHeader, CardTitle, Input, Switch } from "@internal/node-admin";
 import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES, type RestoreMode } from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
 import { LoaderCircle } from "lucide-react";
@@ -7,7 +7,7 @@ import { CopyCommandRow } from "@/components/copy-command-row";
 import { ErrorBanner } from "@/components/error-banner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
-import { Segmented } from "@/components/ui/segmented";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { type RestoreInspection, useRestoreBackup } from "@/hooks/use-backups";
 import { desktopInvokeStrict, desktopShell } from "@/lib/desktop";
@@ -324,7 +324,9 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
             !busy && field.state.meta.isTouched && focusedField !== name ? fieldError(field.state.meta.errors) : null;
           return (
             <Field data-invalid={!!problem}>
-              <FieldLabel htmlFor={`restore-${name}`}>{label}</FieldLabel>
+              <FieldLabel className="font-strong text-label" htmlFor={`restore-${name}`}>
+                {label}
+              </FieldLabel>
               <Input
                 id={`restore-${name}`}
                 value={field.state.value}
@@ -521,7 +523,14 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
           </>
         }
       >
-        <BackupFacts rows={details} />
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-heading">Backup to restore</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <BackupFacts rows={details} />
+          </CardContent>
+        </Card>
         <ul className="flex list-disc flex-col gap-2 pl-5 text-muted-foreground">
           <li>Applying this restore replaces the displayed destination and signs everyone out.</li>
           <li>
@@ -547,7 +556,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                     disabled={busy}
                     onCheckedChange={field.handleChange}
                   />
-                  <FieldLabel htmlFor="restore-confirm">
+                  <FieldLabel className="font-strong text-label" htmlFor="restore-confirm">
                     I confirm the destination and restore options shown above
                   </FieldLabel>
                 </Field>
@@ -581,122 +590,133 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
             void configuration.handleSubmit();
           }}
         >
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="restore-mode">Restore mode</FieldLabel>
-              <Select
-                items={BACKUP_RESTORE_MODES}
-                disabled={busy || inspection?.legacyDatabaseOnly}
-                value={draft.mode}
-                onValueChange={(value) => {
-                  if (value) configuration.setFieldValue("mode", value);
-                }}
-              >
-                <SelectTrigger id="restore-mode">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-heading">Restore settings</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel className="font-strong text-label" htmlFor="restore-mode">
+                    Restore mode
+                  </FieldLabel>
+                  <RadioGroup
+                    aria-label="Restore mode"
+                    disabled={busy || inspection?.legacyDatabaseOnly}
+                    value={draft.mode}
+                    onValueChange={(value) =>
+                      configuration.setFieldValue("mode", value === "migration" ? "migration" : "same-machine")
+                    }
+                  >
                     {BACKUP_RESTORE_MODES.map((item) => (
-                      <SelectItem key={item.value} value={item.value}>
-                        {item.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-              {inspection?.legacyDatabaseOnly && (
-                <p className="text-muted-foreground">
-                  This backup contains only the database. It restores into this server using its current configuration
-                  and identity. Moving to a new machine requires a full instance archive.
-                </p>
-              )}
-            </Field>
-            {!inspection?.legacyDatabaseOnly && (
-              <>
-                {textField("databasePath", "Database path (optional)")}
-                {textField("dataDir", "Data directory (optional)")}
-                {textField("configDir", "Configuration directory (optional)")}
-                {textField("baseUrl", "Control plane URL (optional)")}
-                {textField("host", "Bind address (optional)")}
-                {textField("port", "Port (optional)")}
-                {textField("trustedOrigins", "Trusted origins (optional)")}
-              </>
-            )}
-            <Field className="flex-row items-center justify-between">
-              <FieldLabel htmlFor="restore-recover">Recover an existing administrator</FieldLabel>
-              <Switch
-                id="restore-recover"
-                checked={draft.recover}
-                onCheckedChange={(value) => configuration.setFieldValue("recover", value)}
-                disabled={busy || !admins.length}
-              />
-            </Field>
-            {draft.recover && (
-              <>
-                <p className="text-warning">
-                  Email/password authentication will be enabled. This administrator must change the temporary password
-                  after signing in.
-                </p>
-                <configuration.Field name="adminId">
-                  {(field) => {
-                    const problem =
-                      !busy && field.state.meta.isTouched && focusedField !== "adminId"
-                        ? fieldError(field.state.meta.errors)
-                        : null;
-                    return (
-                      <Field data-invalid={!!problem}>
-                        <FieldLabel htmlFor="restore-admin">Administrator</FieldLabel>
-                        <Select
-                          items={admins}
-                          disabled={busy}
-                          value={field.state.value || null}
-                          onValueChange={(value) => field.handleChange(value ?? "")}
-                        >
-                          <SelectTrigger
-                            id="restore-admin"
-                            aria-invalid={!!problem}
-                            onFocus={() => setFocusedField("adminId")}
-                            onBlur={() => {
-                              field.handleBlur();
-                              setFocusedField(null);
-                            }}
-                          >
-                            <SelectValue placeholder="Select an administrator" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectGroup>
-                              {admins.map((admin) => (
-                                <SelectItem key={admin.value} value={admin.value}>
-                                  {admin.label}
-                                </SelectItem>
-                              ))}
-                            </SelectGroup>
-                          </SelectContent>
-                        </Select>
-                        {problem && (
-                          <p role="alert" className="text-detail text-warning">
-                            {problem}
-                          </p>
-                        )}
+                      <Field key={item.value} className="flex-row items-center gap-2">
+                        <RadioGroupItem id={`restore-mode-${item.value}`} value={item.value} />
+                        <FieldLabel htmlFor={`restore-mode-${item.value}`} className="font-strong text-label">
+                          {item.label}
+                        </FieldLabel>
                       </Field>
-                    );
-                  }}
-                </configuration.Field>
-                {textField("temporaryPassword", "Temporary password (at least eight characters)", true)}
-                {textField("confirmation", "Confirm temporary password", true)}
-              </>
-            )}
-            <Field className="flex-row items-center justify-between">
-              <FieldLabel htmlFor="restore-start">Start the server after restoring</FieldLabel>
-              <Switch
-                id="restore-start"
-                checked={draft.start}
-                disabled={busy}
-                onCheckedChange={(value) => configuration.setFieldValue("start", value)}
-              />
-            </Field>
-          </FieldGroup>
+                    ))}
+                  </RadioGroup>
+                  {inspection?.legacyDatabaseOnly && (
+                    <p className="text-muted-foreground">
+                      This backup contains only the database. It restores into this server using its current
+                      configuration and identity. Moving to a new machine requires a full instance archive.
+                    </p>
+                  )}
+                </Field>
+                {!inspection?.legacyDatabaseOnly && (
+                  <>
+                    {textField("databasePath", "Database path (optional)")}
+                    {textField("dataDir", "Data directory (optional)")}
+                    {textField("configDir", "Configuration directory (optional)")}
+                    {textField("baseUrl", "Control plane URL (optional)")}
+                    {textField("host", "Bind address (optional)")}
+                    {textField("port", "Port (optional)")}
+                    {textField("trustedOrigins", "Trusted origins (optional)")}
+                  </>
+                )}
+                <Field className="flex-row items-center justify-between">
+                  <FieldLabel className="font-strong text-label" htmlFor="restore-recover">
+                    Recover an existing administrator
+                  </FieldLabel>
+                  <Switch
+                    id="restore-recover"
+                    checked={draft.recover}
+                    onCheckedChange={(value) => configuration.setFieldValue("recover", value)}
+                    disabled={busy || !admins.length}
+                  />
+                </Field>
+                {draft.recover && (
+                  <>
+                    <p className="text-warning">
+                      Email/password authentication will be enabled. This administrator must change the temporary
+                      password after signing in.
+                    </p>
+                    <configuration.Field name="adminId">
+                      {(field) => {
+                        const problem =
+                          !busy && field.state.meta.isTouched && focusedField !== "adminId"
+                            ? fieldError(field.state.meta.errors)
+                            : null;
+                        return (
+                          <Field data-invalid={!!problem}>
+                            <FieldLabel className="font-strong text-label" htmlFor="restore-admin">
+                              Administrator
+                            </FieldLabel>
+                            <Select
+                              items={admins}
+                              disabled={busy}
+                              value={field.state.value || null}
+                              onValueChange={(value) => field.handleChange(value ?? "")}
+                            >
+                              <SelectTrigger
+                                id="restore-admin"
+                                aria-invalid={!!problem}
+                                onFocus={() => setFocusedField("adminId")}
+                                onBlur={() => {
+                                  field.handleBlur();
+                                  setFocusedField(null);
+                                }}
+                              >
+                                <SelectValue placeholder="Select an administrator" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectGroup>
+                                  {admins.map((admin) => (
+                                    <SelectItem key={admin.value} value={admin.value}>
+                                      {admin.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectGroup>
+                              </SelectContent>
+                            </Select>
+                            {problem && (
+                              <p role="alert" className="text-detail text-warning">
+                                {problem}
+                              </p>
+                            )}
+                          </Field>
+                        );
+                      }}
+                    </configuration.Field>
+                    {textField("temporaryPassword", "Temporary password (at least eight characters)", true)}
+                    {textField("confirmation", "Confirm temporary password", true)}
+                  </>
+                )}
+                <Field className="flex-row items-center justify-between">
+                  <FieldLabel className="font-strong text-label" htmlFor="restore-start">
+                    Start the server after restoring
+                  </FieldLabel>
+                  <Switch
+                    id="restore-start"
+                    checked={draft.start}
+                    disabled={busy}
+                    onCheckedChange={(value) => configuration.setFieldValue("start", value)}
+                  />
+                </Field>
+              </FieldGroup>
+            </CardContent>
+          </Card>
         </form>
       </BackupWorkflow>
     );
@@ -714,21 +734,29 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
       }
     >
       <Field>
-        <FieldLabel>Restore from</FieldLabel>
-        <fieldset disabled={busy}>
-          <Segmented
-            ariaLabel="Restore from"
-            value={source}
-            options={[
-              { value: "file", label: "Open a backup file" },
-              { value: "saved", label: "Use a saved backup" },
-            ]}
-            onChange={(value) => {
-              setSource(value);
-              void resetSelection().catch((error) => setSelectionProblem(String(error)));
-            }}
-          />
-        </fieldset>
+        <FieldLabel className="font-strong text-label">Restore from</FieldLabel>
+        <RadioGroup
+          aria-label="Restore from"
+          value={source}
+          disabled={busy}
+          onValueChange={(value) => {
+            setSource(value === "saved" ? "saved" : "file");
+            void resetSelection().catch((error) => setSelectionProblem(String(error)));
+          }}
+        >
+          <Field className="flex-row items-center gap-2">
+            <RadioGroupItem id="backup-source-file" value="file" />
+            <FieldLabel htmlFor="backup-source-file" className="font-strong text-label">
+              Open a backup file
+            </FieldLabel>
+          </Field>
+          <Field className="flex-row items-center gap-2">
+            <RadioGroupItem id="backup-source-saved" value="saved" />
+            <FieldLabel htmlFor="backup-source-saved" className="font-strong text-label">
+              Use a saved backup
+            </FieldLabel>
+          </Field>
+        </RadioGroup>
       </Field>
       <form
         id="select-restore-form"
@@ -762,48 +790,57 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
             {selected.file && <p className="break-words text-muted-foreground">{selected.file.name}</p>}
           </Field>
         ) : (
-          <Field>
-            <FieldLabel htmlFor="saved-backup">Available backups</FieldLabel>
-            <Select
-              id="saved-backup-select"
-              disabled={busy || !restore.saved.data?.backups.length}
-              value={selected.path || null}
-              items={(restore.saved.data?.backups ?? []).map((file) => ({
-                value: file.path,
-                label: `${new Date(file.createdAt).toLocaleString()} · ${file.name}`,
-              }))}
-              onValueChange={(path) => {
-                if (!path) return;
-                const values = { file: null, path, password: "", encrypted: false };
-                inspectForm.reset(values, { keepDefaultValues: true });
-                void validateSelection(values);
-              }}
-            >
-              <SelectTrigger id="saved-backup">
-                <SelectValue placeholder="Select a backup" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {(restore.saved.data?.backups ?? []).map((file) => (
-                    <SelectItem key={file.path} value={file.path}>
-                      {new Date(file.createdAt).toLocaleString()} · {file.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            {restore.saved.isPending ? (
-              <p className="text-muted-foreground">Loading saved backups…</p>
-            ) : !restore.saved.data?.backups.length && !restore.saved.error ? (
-              <p className="text-muted-foreground">No saved backups are available. Open a backup file instead.</p>
-            ) : null}
-            {restore.saved.error && <ErrorBanner message={restore.saved.error.message} />}
-            {selected.path && (
-              <p className="break-words text-muted-foreground">
-                {restore.saved.data?.backups.find((file) => file.path === selected.path)?.name}
-              </p>
-            )}
-          </Field>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-heading">Available backups</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Field>
+                <FieldLabel className="sr-only" htmlFor="saved-backup">
+                  Available backups
+                </FieldLabel>
+                <Select
+                  id="saved-backup-select"
+                  disabled={busy || !restore.saved.data?.backups.length}
+                  value={selected.path || null}
+                  items={(restore.saved.data?.backups ?? []).map((file) => ({
+                    value: file.path,
+                    label: `${new Date(file.createdAt).toLocaleString()} · ${file.name}`,
+                  }))}
+                  onValueChange={(path) => {
+                    if (!path) return;
+                    const values = { file: null, path, password: "", encrypted: false };
+                    inspectForm.reset(values, { keepDefaultValues: true });
+                    void validateSelection(values);
+                  }}
+                >
+                  <SelectTrigger id="saved-backup">
+                    <SelectValue placeholder="Select a backup" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {(restore.saved.data?.backups ?? []).map((file) => (
+                        <SelectItem key={file.path} value={file.path}>
+                          {new Date(file.createdAt).toLocaleString()} · {file.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                {restore.saved.isPending ? (
+                  <p className="text-muted-foreground">Loading saved backups…</p>
+                ) : !restore.saved.data?.backups.length && !restore.saved.error ? (
+                  <p className="text-muted-foreground">No saved backups are available. Open a backup file instead.</p>
+                ) : null}
+                {restore.saved.error && <ErrorBanner message={restore.saved.error.message} />}
+                {selected.path && (
+                  <p className="break-words text-muted-foreground">
+                    {restore.saved.data?.backups.find((file) => file.path === selected.path)?.name}
+                  </p>
+                )}
+              </Field>
+            </CardContent>
+          </Card>
         )}
         {selected.encrypted && (
           <inspectForm.Field name="password">
@@ -814,7 +851,9 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                   : null;
               return (
                 <Field data-invalid={!!problem}>
-                  <FieldLabel htmlFor="restore-password">Archive password</FieldLabel>
+                  <FieldLabel className="font-strong text-label" htmlFor="restore-password">
+                    Archive password
+                  </FieldLabel>
                   <Input
                     id="restore-password"
                     type="password"

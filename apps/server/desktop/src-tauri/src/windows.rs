@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use subshell_desktop_core::zoom::assistant_frame;
 use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 /// The narrowest the dashboard may be dragged.
@@ -403,6 +404,31 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
         // still cannot be steered into `file:`, a custom handler, or anything
         // else the OS would act on.
         .on_navigation(move |u| crate::trust::window_state().allow_navigation(u))
+        // WebKitGTK needs a registered handler to save authenticated attachments.
+        // Let the webview choose a unique filename in Downloads; no new IPC grant.
+        .on_download(|webview, event| {
+            if let tauri::webview::DownloadEvent::Finished { path, success, .. } = event {
+                let message = if success {
+                    path.map_or_else(
+                        || "Your download is complete. Check Downloads.".to_owned(),
+                        |path| format!("Saved to {}", path.display()),
+                    )
+                } else {
+                    "The download could not be saved. Create the backup again and retry the download.".to_owned()
+                };
+                webview
+                    .app_handle()
+                    .dialog()
+                    .message(message)
+                    .title(if success {
+                        "Download complete"
+                    } else {
+                        "Download failed"
+                    })
+                    .show(|_| {});
+            }
+            true
+        })
         // **Arming happens HERE, on a committed main-frame load** (review,
         // 2026-09-18). `on_navigation` runs at request time and fires for
         // subframes, so a page that navigated somewhere trusted-looking and

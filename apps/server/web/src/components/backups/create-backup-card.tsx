@@ -179,7 +179,9 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
       >
         <FieldGroup>
           <Field className="flex-row items-center justify-between">
-            <FieldLabel htmlFor="backup-encrypt">Encrypt with a password</FieldLabel>
+            <FieldLabel className="font-strong text-label" htmlFor="backup-encrypt">
+              Encrypt with a password
+            </FieldLabel>
             <Switch
               id="backup-encrypt"
               checked={encrypted}
@@ -197,7 +199,9 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
                       : null;
                   return (
                     <Field data-invalid={!!problem}>
-                      <FieldLabel htmlFor="backup-password">Encryption password</FieldLabel>
+                      <FieldLabel className="font-strong text-label" htmlFor="backup-password">
+                        Encryption password
+                      </FieldLabel>
                       <Input
                         id="backup-password"
                         type="password"
@@ -231,7 +235,9 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
                       : null;
                   return (
                     <Field data-invalid={!!problem}>
-                      <FieldLabel htmlFor="backup-confirm">Confirm password</FieldLabel>
+                      <FieldLabel className="font-strong text-label" htmlFor="backup-confirm">
+                        Confirm password
+                      </FieldLabel>
                       <Input
                         id="backup-confirm"
                         type="password"

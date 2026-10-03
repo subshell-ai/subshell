@@ -235,7 +235,7 @@ describe("Settings backup workflows", () => {
         : undefined,
     );
     mount(<RestoreBackupCard />);
-    fireEvent.click(screen.getByRole("button", { name: "Use a saved backup" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Use a saved backup" }));
     await waitFor(() =>
       expect((screen.getByRole("combobox", { name: "Available backups" }) as HTMLButtonElement).disabled).toBe(false),
     );
@@ -250,7 +250,7 @@ describe("Settings backup workflows", () => {
   it("explains when no saved backups exist", async () => {
     mockApi();
     mount(<RestoreBackupCard />);
-    fireEvent.click(screen.getByRole("button", { name: "Use a saved backup" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Use a saved backup" }));
     await screen.findByText("No saved backups are available. Open a backup file instead.");
     expect((screen.getByRole("button", { name: "Configure backup" }) as HTMLButtonElement).disabled).toBe(true);
   });

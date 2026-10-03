@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { CreateBackupCard } from "@/components/backups/create-backup-card";
 import { RestoreBackupCard } from "@/components/backups/restore-backup-card";
-import { PageHeader } from "@/components/page-header";
+
 import { Segmented } from "@/components/ui/segmented";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 
@@ -12,11 +12,10 @@ function BackupsPage() {
   const [busy, setBusy] = useState(false);
   const { data } = usePublicSettings();
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-      <PageHeader title="Backups" subtitle="Save this server's state and restore it on this machine or another." />
+    <main className="flex h-full min-h-0 w-full flex-col">
       {data?.viewerIsAdmin === true ? (
         <>
-          <fieldset disabled={busy}>
+          <fieldset disabled={busy} className="shrink-0 border-b px-8 py-3">
             <Segmented
               ariaLabel="Backup operation"
               fill={false}
@@ -28,10 +27,16 @@ function BackupsPage() {
               onChange={setOperation}
             />
           </fieldset>
-          <section hidden={operation !== "backup"}>
+          <section
+            hidden={operation !== "backup"}
+            className={operation === "backup" ? "flex min-h-0 flex-1 flex-col" : undefined}
+          >
             <CreateBackupCard onBusy={setBusy} />
           </section>
-          <section hidden={operation !== "restore"}>
+          <section
+            hidden={operation !== "restore"}
+            className={operation === "restore" ? "flex min-h-0 flex-1 flex-col" : undefined}
+          >
             <RestoreBackupCard onBusy={setBusy} />
           </section>
         </>
