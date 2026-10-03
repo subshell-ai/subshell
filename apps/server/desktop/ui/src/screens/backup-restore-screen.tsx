@@ -50,6 +50,46 @@ export function passwordProblem(
   return password === confirmation ? null : "The passwords do not match.";
 }
 
+function RequiredPasswordField(props: {
+  id: string;
+  label: string;
+  value: string;
+  problem: string | null;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [touched, setTouched] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const problem = touched && !focused ? props.problem : null;
+  return (
+    <Field data-invalid={!!problem}>
+      <FieldLabel htmlFor={props.id}>{props.label}</FieldLabel>
+      <Input
+        id={props.id}
+        type="password"
+        autoComplete="new-password"
+        required
+        maxLength={4096}
+        value={props.value}
+        disabled={props.disabled}
+        aria-invalid={!!problem}
+        aria-describedby={problem ? `${props.id}-error` : undefined}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setTouched(true);
+          setFocused(false);
+        }}
+        onChange={(event) => props.onChange(event.currentTarget.value)}
+      />
+      {problem && (
+        <p id={`${props.id}-error`} role="alert" className="m-0 text-destructive text-detail">
+          {problem}
+        </p>
+      )}
+    </Field>
+  );
+}
+
 export function BackupRestoreScreen(props: {
   kind: "backup" | "restore";
   rail?: ReactElement;
@@ -91,6 +131,14 @@ export function BackupRestoreScreen(props: {
   const [progress, setProgress] = useState("");
   const [localBusy, setLocalBusy] = useState(false);
   const locked = props.busy || localBusy;
+  const backupPasswordProblem = passwordProblem(options.password, options.password, encrypt);
+  const backupConfirmationProblem =
+    encrypt && (!confirmation || options.password !== confirmation) ? "Passwords do not match." : null;
+  const recoveryPasswordProblem = passwordProblem(options.temporaryPassword, options.temporaryPassword, recover, true);
+  const recoveryConfirmationProblem =
+    recover && (!temporaryConfirmation || options.temporaryPassword !== temporaryConfirmation)
+      ? "Temporary passwords do not match."
+      : null;
   const update = (name: keyof RestorePrepare, value: string) => {
     if (name === "password" || name === "archive") setValidatedBackup(null);
     const cached = retryPreparation.current;
@@ -577,11 +625,21 @@ export function BackupRestoreScreen(props: {
       }
       barRight={
         props.kind === "backup" ? (
-          <Button disabled={locked} onClick={() => void backup()}>
+          <Button
+            disabled={locked || !!backupPasswordProblem || !!backupConfirmationProblem}
+            onClick={() => void backup()}
+          >
             Save backup…
           </Button>
         ) : inspection ? (
-          <Button disabled={locked || !replace} onClick={() => void apply()}>
+          <Button
+            disabled={
+              locked ||
+              !replace ||
+              (recover && (!options.recoverAdmin || !!recoveryPasswordProblem || !!recoveryConfirmationProblem))
+            }
+            onClick={() => void apply()}
+          >
             Restore
           </Button>
         ) : (
@@ -645,18 +703,22 @@ export function BackupRestoreScreen(props: {
             {toggle("backup-encrypt", "Encrypt the archive with a password", encrypt, setEncrypt)}
             {encrypt && (
               <>
-                {field("password", "Archive password", true)}
-                <div>
-                  <Label htmlFor="backup-confirmation">Confirm archive password</Label>
-                  <Input
-                    id="backup-confirmation"
-                    type="password"
-                    autoComplete="new-password"
-                    value={confirmation}
-                    disabled={locked}
-                    onChange={(e) => setConfirmation(e.currentTarget.value)}
-                  />
-                </div>
+                <RequiredPasswordField
+                  id="restore-password"
+                  label="Archive password"
+                  value={options.password}
+                  disabled={locked}
+                  problem={backupPasswordProblem}
+                  onChange={(value) => update("password", value)}
+                />
+                <RequiredPasswordField
+                  id="backup-confirmation"
+                  label="Confirm archive password"
+                  value={confirmation}
+                  disabled={locked}
+                  problem={backupConfirmationProblem}
+                  onChange={setConfirmation}
+                />
               </>
             )}
           </>
@@ -911,18 +973,22 @@ export function BackupRestoreScreen(props: {
                               </SelectContent>
                             </Select>
                           </div>
-                          {field("temporaryPassword", "Temporary password (at least eight characters)", true)}
-                          <div>
-                            <Label htmlFor="restore-temporary-confirmation">Confirm temporary password</Label>
-                            <Input
-                              id="restore-temporary-confirmation"
-                              type="password"
-                              autoComplete="new-password"
-                              disabled={locked}
-                              value={temporaryConfirmation}
-                              onChange={(e) => setTemporaryConfirmation(e.currentTarget.value)}
-                            />
-                          </div>
+                          <RequiredPasswordField
+                            id="restore-temporaryPassword"
+                            label="Temporary password (at least eight characters)"
+                            value={options.temporaryPassword}
+                            disabled={locked}
+                            problem={recoveryPasswordProblem}
+                            onChange={(value) => update("temporaryPassword", value)}
+                          />
+                          <RequiredPasswordField
+                            id="restore-temporary-confirmation"
+                            label="Confirm temporary password"
+                            value={temporaryConfirmation}
+                            disabled={locked}
+                            problem={recoveryConfirmationProblem}
+                            onChange={setTemporaryConfirmation}
+                          />
                         </>
                       )}
                     </CardContent>

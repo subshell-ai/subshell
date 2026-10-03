@@ -47,6 +47,36 @@ async function reviewSelectedBackup() {
 }
 
 describe("native backup and restore", () => {
+  it("uses browser-style required password validation after blur and disables invalid backup submission", async () => {
+    fake = installFakeIpc({ handlers: {} });
+    render(<BackupRestoreScreen {...props} kind="backup" />);
+    fireEvent.click(screen.getByRole("switch", { name: "Encrypt the archive with a password" }));
+    const save = screen.getByRole("button", { name: "Save backup…" });
+    const password = screen.getByLabelText("Archive password");
+    const confirmation = screen.getByLabelText("Confirm archive password");
+    expect(save.hasAttribute("disabled")).toBe(true);
+    expect(password.hasAttribute("required")).toBe(true);
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.change(password, { target: { value: "secret" } });
+    fireEvent.change(confirmation, { target: { value: "wrong" } });
+    fireEvent.blur(confirmation);
+    expect(screen.getByRole("alert").textContent).toBe("Passwords do not match.");
+    expect(confirmation.getAttribute("aria-invalid")).toBe("true");
+    expect(save.hasAttribute("disabled")).toBe(true);
+    fireEvent.focus(confirmation);
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.change(confirmation, { target: { value: "secret" } });
+    fireEvent.blur(confirmation);
+    expect(confirmation.getAttribute("aria-invalid")).toBe("false");
+    expect(save.hasAttribute("disabled")).toBe(false);
+    fireEvent.change(password, { target: { value: "" } });
+    fireEvent.blur(password);
+    expect(password.getAttribute("aria-invalid")).toBe("true");
+    expect(save.hasAttribute("disabled")).toBe(true);
+    fireEvent.click(screen.getByRole("switch", { name: "Encrypt the archive with a password" }));
+    expect(save.hasAttribute("disabled")).toBe(false);
+  });
+
   it("requires successful selection and validation before review and invalidates a changed password", async () => {
     fake = installFakeIpc({
       handlers: {
