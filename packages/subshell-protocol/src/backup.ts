@@ -21,8 +21,18 @@ export const BACKUP_RESTORE_DEFAULTS = {
 } as const;
 
 export const BACKUP_RESTORE_MODES = [
-  { value: "same-machine", label: "Same-machine recovery" },
-  { value: "migration", label: "Move to a new machine" },
+  {
+    value: "same-machine",
+    label: "Same-machine recovery",
+    description:
+      "Restore this server on its original machine, keeping the backup’s network settings and publication configuration.",
+  },
+  {
+    value: "migration",
+    label: "Move to a new machine",
+    description:
+      "Restore the backup on another machine. Network plugins are disabled and published addresses are cleared so you can review them before reconnecting. The server’s identity and credentials are kept.",
+  },
 ] as const;
 
 /** Shared archive-password policy; never trim or normalize password values. */

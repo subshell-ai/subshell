@@ -579,6 +579,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
       >
         <form
           id="configure-restore-form"
+          className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault();
             void configuration.handleSubmit();
@@ -596,6 +597,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                   </FieldLabel>
                   <RadioGroup
                     aria-label="Restore mode"
+                    aria-describedby="restore-mode-description"
                     disabled={busy || inspection?.legacyDatabaseOnly}
                     value={draft.mode}
                     onValueChange={(value) =>
@@ -611,6 +613,9 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                       </Field>
                     ))}
                   </RadioGroup>
+                  <p id="restore-mode-description" className="m-0 text-detail text-muted-foreground">
+                    {BACKUP_RESTORE_MODES.find((mode) => mode.value === draft.mode)?.description}
+                  </p>
                   {inspection?.legacyDatabaseOnly && (
                     <p className="text-muted-foreground">
                       This backup contains only the database. It restores into this server using its current

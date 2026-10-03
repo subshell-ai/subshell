@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { BACKUP_RESTORE_DEFAULTS } from "@internal/subshell-protocol";
+import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES } from "@internal/subshell-protocol";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { type FakeIpc, installFakeIpc as installBaseFakeIpc, makeProbe } from "../../__tests__/harness";
 import { route } from "../../lib/server-state";
@@ -696,7 +696,10 @@ describe("native backup and restore", () => {
     await reviewSelectedBackup();
     await screen.findByRole("radio", { name: "Move to a new machine" });
     expect(screen.getByRole("radio", { name: "Same-machine recovery" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByText(BACKUP_RESTORE_MODES[0].description)).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "Move to a new machine" }));
+    expect(screen.getByText(BACKUP_RESTORE_MODES[1].description)).toBeTruthy();
+    expect(screen.queryByText(BACKUP_RESTORE_MODES[0].description)).toBeNull();
     expect(screen.getByRole("radio", { name: "Move to a new machine" }).getAttribute("aria-checked")).toBe("true");
     fireEvent.change(screen.getByLabelText("Public base URL (optional)"), {
       target: { value: "https://previous.example" },
