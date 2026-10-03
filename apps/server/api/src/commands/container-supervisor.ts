@@ -1,8 +1,15 @@
 import { resolve } from "node:path";
-import { configEnvAppliedKeys } from "@/config-env.js";
+import { configEnvAppliedKeys, serverConfigDir } from "@/config-env.js";
+import { activeRestoreHold, clearRestoreHold } from "@/services/restore-hold.js";
 
 /** PID 1 stays alive while a restore worker replaces the serving child. */
 export async function runContainerSupervisor(args: string[]): Promise<number> {
+  // A marker left on the volume by a worker killed before it could clear
+  // (an OOM, or `docker stop`'s final SIGKILL) is never legitimate for THIS
+  // boot: the swap it named died with the previous container. Sweep it before
+  // the first spawn, or a later pid reuse would make `activeRestoreHold` defer
+  // forever and the server never start.
+  clearRestoreHold(serverConfigDir());
   let stopping = false;
   let child: ReturnType<typeof Bun.spawn> | null = null;
   const stop = () => {
@@ -17,6 +24,12 @@ export async function runContainerSupervisor(args: string[]): Promise<number> {
     : [process.execPath, resolve(script as string)];
   try {
     while (!stopping) {
+      // A control-plane restore worker holds the instance swap: respawning
+      // while its marker names a live process would race it for the lock the
+      // restore was refused for losing. A dead worker's stale marker never
+      // holds, and SIGTERM ends the wait within one half-second poll.
+      while (!stopping && activeRestoreHold(serverConfigDir())) await Bun.sleep(500);
+      if (stopping) break;
       const env: NodeJS.ProcessEnv = {
         ...process.env,
         SUBSHELL_CONTAINER: "1",

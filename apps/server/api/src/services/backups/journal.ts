@@ -240,6 +240,18 @@ function discardDatabaseSidecars(path: string): void {
   for (const sidecar of sidecars) rmSync(sidecar, { force: true });
 }
 
+/**
+ * Remove a file and, for SQLite databases, the sidecar names that can exist
+ * beside it. The prepared replacement is written with real transactions
+ * before the swap, so a process killed mid-apply can leave `<next>-wal`,
+ * `-shm` and `-journal` behind a main file that rollback already removed —
+ * staged session and config state, invisible to every later listing.
+ */
+function removeFileAndSidecars(path: string): void {
+  rmSync(path, { recursive: true, force: true });
+  for (const suffix of ["-journal", "-wal", "-shm"]) rmSync(`${path}${suffix}`, { force: true });
+}
+
 /** Synchronous failed-boot/interrupted-apply rollback, safe before config-env is evaluated. */
 export function rollbackInstanceRestoreSync(path: string): void {
   const journal = readJournal(path);
@@ -262,7 +274,7 @@ export function rollbackInstanceRestoreSync(path: string): void {
       }
       syncRestoreDirectory(dirname(item.target));
     }
-    rmSync(item.next, { recursive: true, force: true });
+    removeFileAndSidecars(item.next);
   }
   writeRestoreResult(path, journal, "rolled-back");
   rmSync(path, { force: true });
@@ -280,7 +292,7 @@ export function finalizeInstanceRestoreSync(path: string): void {
   writeRestoreJournalSync(path, journal);
   for (const item of journal.replacements) {
     rmSync(item.previous, { recursive: true, force: true });
-    rmSync(item.next, { recursive: true, force: true });
+    removeFileAndSidecars(item.next);
     syncRestoreDirectory(dirname(item.target));
   }
   writeRestoreResult(path, journal, "completed");

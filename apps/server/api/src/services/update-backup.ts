@@ -8,7 +8,7 @@ import { createInstanceBackup } from "./backups/archive.js";
 import { syncRestoreDirectory } from "./backups/journal.js";
 import { assertSafeHostPath } from "./backups/paths.js";
 import type { InstancePaths } from "./backups/types.js";
-import { listBackups } from "./db-backup.js";
+import { listUpdateArchives } from "./db-backup.js";
 import { instanceBackupConfig, instanceBackupPaths } from "./instance-backup-source.js";
 
 /** Full pre-upgrade archive plus an internal checkpoint for synchronous crash rollback. */
@@ -70,8 +70,10 @@ export async function createUpdateBackup(
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
     }
+    // This family's OWN retention: database snapshots in the same directory
+    // are pruned by backupDatabase's count, never here.
     if (keep > 0)
-      for (const old of listBackups(dir)
+      for (const old of listUpdateArchives(dir)
         .filter((file) => !pinned.has(file.path))
         .slice(Math.max(0, keep - 1))) {
         await rm(old.path, { force: true });

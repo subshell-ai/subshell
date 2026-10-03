@@ -30,5 +30,13 @@ export const backupRecoveryRoutes = new Elysia({ prefix: "/api/account/recovery"
       });
       return { signInRequired: true };
     },
-    { body: t.Object({ currentPassword: t.String({ maxLength: 4096 }), newPassword: t.String({ maxLength: 4096 }) }) },
+    {
+      body: t.Object(
+        {
+          currentPassword: t.String({ maxLength: 4096, description: "Temporary password issued by the restore" }),
+          newPassword: t.String({ maxLength: 4096, description: "Chosen replacement password" }),
+        },
+        { description: "Replace the temporary recovery password with a chosen one" },
+      ),
+    },
   );

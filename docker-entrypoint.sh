@@ -12,9 +12,12 @@ set -euo pipefail
 if [ ! -f "${SUBSHELL_SERVER_CONFIG_DIR:-/data}/config.env" ]; then
   setsid -w subshell-server init < /dev/null
 fi
-# Explicit CLI commands still run once. Serving uses a parent so stopping the
-# server during an authenticated browser restore does not stop the container.
-if [ "$#" -gt 0 ] && [[ "$1" != -* ]]; then
+# Any argument is a one-shot command, flags included: `docker run … --version`
+# must print and exit, not be handed to the parent below, which respawns
+# anything that exits and would loop on it forever. Serving is the NO-argument
+# case, and it uses a parent so stopping the server during an authenticated
+# browser restore does not stop the container.
+if [ "$#" -gt 0 ]; then
   exec subshell-server "$@"
 fi
-exec subshell-server container-supervisor "$@"
+exec subshell-server container-supervisor

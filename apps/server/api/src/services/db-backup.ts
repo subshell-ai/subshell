@@ -176,15 +176,23 @@ export async function backupDatabase(
 }
 
 /**
- * Every backup in the directory, NEWEST FIRST.
- *
- * Ordered by the name's own timestamp rather than by mtime: a restore, a copy
- * or an rsync rewrites mtimes, and the point of this list is which snapshot is
- * of which moment. Files that do not match the name shape are ignored — the
- * directory is the operator's too, and a file they put there is not ours to
- * list or to prune.
+ * The two name families that live in `backups/`, as the ONE predicates the
+ * listings share. `subshell-v*.db` are database snapshots; `subshell-update-v*`
+ * are full-instance archives written by the update rail ({@link
+ * listUpdateArchives}). They have different producers and different retention
+ * (SUBSHELL_DB_BACKUPS_KEEP counts each family SEPARATELY: pruning database
+ * snapshots must not reach into the update archives, whose pre-upgrade
+ * archives the pending/failed markers pin). One mixed list makes every
+ * "keep N" in the repo wrong about half its rows, which is why
+ * {@link listBackups} never grew past the snapshot family.
  */
-export function listBackups(dir: string = backupsDir()): BackupFile[] {
+const isDatabaseSnapshot = (name: string) => name.startsWith(BACKUP_PREFIX) && name.endsWith(BACKUP_SUFFIX);
+const isUpdateArchive = (name: string) => name.startsWith("subshell-update-v") && name.endsWith(".tar.gz");
+
+/** One family from the directory, NEWEST FIRST. Files outside the given
+ * name shape are ignored — the directory is the operator's too, and a file
+ * they put there is not ours to list or to prune. */
+function listMatching(dir: string, matches: (name: string) => boolean): BackupFile[] {
   let names: string[];
   try {
     names = readdirSync(dir);
@@ -195,11 +203,7 @@ export function listBackups(dir: string = backupsDir()): BackupFile[] {
   }
   const files: BackupFile[] = [];
   for (const name of names) {
-    if (
-      !(name.startsWith(BACKUP_PREFIX) && name.endsWith(BACKUP_SUFFIX)) &&
-      !(name.startsWith("subshell-update-v") && name.endsWith(".tar.gz"))
-    )
-      continue;
+    if (!matches(name)) continue;
     const path = join(dir, name);
     try {
       const st = statSync(path);
@@ -222,6 +226,16 @@ export function listBackups(dir: string = backupsDir()): BackupFile[] {
       ? right.seq - left.seq || b.at.localeCompare(a.at)
       : right.stamp.localeCompare(left.stamp);
   });
+}
+
+/** The database snapshots ({@link isDatabaseSnapshot}), newest first. */
+export function listBackups(dir: string = backupsDir()): BackupFile[] {
+  return listMatching(dir, isDatabaseSnapshot);
+}
+
+/** The update rail's full-instance archives ({@link isUpdateArchive}), newest first. */
+export function listUpdateArchives(dir: string = backupsDir()): BackupFile[] {
+  return listMatching(dir, isUpdateArchive);
 }
 
 /**

@@ -1,22 +1,42 @@
 /** Declarative form contract shared by the server, CLI and bundled recovery UI. */
 export type RestoreMode = "same-machine" | "migration";
 
+/** Address values a restore may rewrite in the restored config.env. */
 export interface RestoreAddressOverrides {
+  /** Public origin the restored instance will advertise (cookies, redirects). */
   baseUrl?: string;
+  /** Bind address the restored server listens on. */
   host?: string;
+  /** Listening port, as the form field's string value. */
   port?: string | number;
+  /** Extra browser origins trusted by the restored instance, one per line. */
   trustedOrigins?: string;
 }
 
+/** The prepared restore's stored choices, applied when the transaction is applied. */
 export interface BackupRestoreChoices {
+  /** Whether the backup's machine is this machine. */
   mode: RestoreMode;
+  /** Address rewrites applied to the restored config.env. */
   configOverrides?: RestoreAddressOverrides;
+  /**
+   * Start the restored server after replacing it (default true). Stored with
+   * the preparation so the CLI handoff and the control-plane worker apply the
+   * same choice; the control plane refuses `false` where a supervisor starts
+   * the server back up regardless.
+   */
+  start?: boolean;
 }
 
+/** Defaults for every restore choice the form does not carry explicitly. */
 export const BACKUP_RESTORE_DEFAULTS = {
+  /** Restore assumes this machine is the backup's machine unless the form says otherwise. */
   mode: "same-machine" as RestoreMode,
+  /** Admin recovery is opt-in; it rewrites a real credential. */
   recoverAdmin: false,
+  /** A restored server boots again unless the choice or the CLI says otherwise. */
   start: true,
+  /** Backups are plaintext until the operator supplies a password. */
   encrypt: false,
 } as const;
 

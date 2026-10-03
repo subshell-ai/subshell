@@ -43,6 +43,82 @@ function recordAudit(actorUserId: string, action: string, targetId: string | nul
   return audit({ actorUserId, action, targetType: "backup", targetId, metadataJson: null });
 }
 
+const CreateBackupBodySchema = t.Object(
+  {
+    password: t.Optional(t.String({ maxLength: 4096, description: "Archive encryption password; omit for plaintext" })),
+  },
+  { description: "Options for a fresh full-instance backup" },
+);
+
+const InspectSavedBodySchema = t.Object(
+  {
+    path: t.String({ maxLength: 4096, description: "Saved archive path from GET /saved" }),
+    password: t.Optional(t.String({ maxLength: 4096, description: "Decryption password for an encrypted archive" })),
+  },
+  { description: "Select a saved archive for restore staging" },
+);
+
+const InspectUploadBodySchema = t.Object(
+  {
+    archive: t.File({ maxSize: "128m", description: "Uploaded instance archive (.db, .tar.gz or .tar.gz.enc)" }),
+    password: t.Optional(t.String({ maxLength: 4096, description: "Decryption password for an encrypted archive" })),
+  },
+  { description: "Stage a restore from an uploaded archive" },
+);
+
+const PrepareRestoreBodySchema = t.Object(
+  {
+    start: t.Optional(
+      t.Boolean({ description: "Start the restored server after applying (default true; refused under a supervisor)" }),
+    ),
+    destination: t.Optional(
+      t.Object(
+        {
+          databasePath: t.String({ maxLength: 4096, description: "Absolute destination database path" }),
+          dataDir: t.String({ maxLength: 4096, description: "Absolute destination data directory" }),
+          configPath: t.String({ maxLength: 4096, description: "Absolute destination config.env path" }),
+        },
+        { description: "Where the restored instance will live; defaults to this server's paths" },
+      ),
+    ),
+    mode: t.Union([t.Literal("same-machine"), t.Literal("migration")], {
+      description: "Whether this machine is the backup's original machine",
+    }),
+    configOverrides: t.Optional(
+      t.Object(
+        {
+          baseUrl: t.Optional(
+            t.String({ maxLength: 4096, description: "Public origin the restored server advertises" }),
+          ),
+          host: t.Optional(t.String({ maxLength: 4096, description: "Bind address for the restored server" })),
+          port: t.Optional(t.String({ maxLength: 4096, description: "Listening port for the restored server" })),
+          trustedOrigins: t.Optional(
+            t.String({ maxLength: 4096, description: "Extra browser origins the restored instance trusts" }),
+          ),
+        },
+        { description: "Address values rewritten in the restored config.env" },
+      ),
+    ),
+    recoveryUserId: t.Optional(
+      t.String({ maxLength: 4096, description: "Administrator to receive the temporary recovery password" }),
+    ),
+    temporaryPassword: t.Optional(
+      t.String({ maxLength: 4096, description: "Temporary password set on the recovered administrator" }),
+    ),
+  },
+  { description: "Prepare a staged restore: choices, destination and optional admin recovery" },
+);
+
+const ApplyRestoreBodySchema = t.Object(
+  {
+    confirmed: t.Boolean({ description: "Operator confirmed replacing this instance with the backup" }),
+    interruptSessions: t.Optional(
+      t.Boolean({ description: "Also terminate live sessions the restore cannot preserve" }),
+    ),
+  },
+  { description: "Apply a prepared staged restore on this server" },
+);
+
 function downloadStream(path: string, cleanup: () => void, expiresAt: number): ReadableStream<Uint8Array> {
   const reader = Bun.file(path).stream().getReader();
   let controller: ReadableStreamDefaultController<Uint8Array>;
@@ -97,7 +173,7 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
         throw new HttpError(409, error instanceof Error ? error.message : "Could not create backup.");
       }
     },
-    { body: t.Object({ password: t.Optional(t.String({ maxLength: 4096 })) }) },
+    { body: CreateBackupBodySchema },
   )
   .get("/jobs/:id", ({ user, params }) => {
     try {
@@ -143,7 +219,7 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
         throw new HttpError(400, error instanceof Error ? error.message : "Invalid backup.");
       }
     },
-    { body: t.Object({ path: t.String({ maxLength: 4096 }), password: t.Optional(t.String({ maxLength: 4096 })) }) },
+    { body: InspectSavedBodySchema },
   )
   .post(
     "/inspect",
@@ -163,7 +239,7 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
         rmSync(dir, { recursive: true, force: true });
       }
     },
-    { body: t.Object({ archive: t.File({ maxSize: "128m" }), password: t.Optional(t.String({ maxLength: 4096 })) }) },
+    { body: InspectUploadBodySchema },
   )
   .post(
     "/staged/:id",
@@ -194,7 +270,7 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
             throw new Error("Select an admin and supply a temporary password.");
           await prepareBackupAdminRecovery(record.stage.databasePath, body.recoveryUserId, body.temporaryPassword);
         }
-        record.choices = { mode: body.mode, configOverrides: body.configOverrides };
+        record.choices = { mode: body.mode, configOverrides: body.configOverrides, start: body.start !== false };
         record.recoveryUserId = body.recoveryUserId;
         record.destination = destination;
         record.prepared = true;
@@ -212,29 +288,7 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
         preparing.delete(params.id);
       }
     },
-    {
-      body: t.Object({
-        start: t.Optional(t.Boolean()),
-        destination: t.Optional(
-          t.Object({
-            databasePath: t.String({ maxLength: 4096 }),
-            dataDir: t.String({ maxLength: 4096 }),
-            configPath: t.String({ maxLength: 4096 }),
-          }),
-        ),
-        mode: t.Union([t.Literal("same-machine"), t.Literal("migration")]),
-        configOverrides: t.Optional(
-          t.Object({
-            baseUrl: t.Optional(t.String({ maxLength: 4096 })),
-            host: t.Optional(t.String({ maxLength: 4096 })),
-            port: t.Optional(t.String({ maxLength: 4096 })),
-            trustedOrigins: t.Optional(t.String({ maxLength: 4096 })),
-          }),
-        ),
-        recoveryUserId: t.Optional(t.String({ maxLength: 4096 })),
-        temporaryPassword: t.Optional(t.String({ maxLength: 4096 })),
-      }),
-    },
+    { body: PrepareRestoreBodySchema },
   )
   .post("/staged/:id/preflight", async ({ user, params }) => {
     try {
@@ -254,7 +308,7 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
         throw new HttpError(409, error instanceof Error ? error.message : "Could not start restore.");
       }
     },
-    { body: t.Object({ confirmed: t.Boolean(), interruptSessions: t.Optional(t.Boolean()) }) },
+    { body: ApplyRestoreBodySchema },
   )
   .get("/staged/:id", ({ user, params }) => {
     try {

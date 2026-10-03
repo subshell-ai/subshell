@@ -68,7 +68,10 @@ export interface RestoreDeps extends PasswordDeps {
   checkDatabaseUsers?: (path: string) => void;
   probePort?: (host: string, port: number) => boolean | null;
   sleep?: (ms: number) => Promise<void>;
+  /** Budget for the service to STOP and the locks to free (default 15s). */
   waitMs?: number;
+  /** Budget for the restored server's confirmed boot (default 5 min; see runRestore). */
+  bootWaitMs?: number;
   startDetached?: (
     configDir: string,
     destination: InstancePaths,
@@ -89,6 +92,12 @@ export async function runRestore(opts: RestoreOpts, deps: RestoreDeps): Promise<
   const pause = deps.sleep ?? ((ms) => Bun.sleep(ms));
   const probe = deps.probePort ?? syncPortListening;
   const timeout = deps.waitMs ?? 15_000;
+  // Boot confirmation gets its own budget, deliberately longer than the
+  // stop/lock waits: the completion receipt is written at the END of a
+  // serving boot (after migrations and WAL recovery), so on a slow disk or a
+  // big WAL a healthy boot outruns 15s. Treating that as a failure would
+  // SIGTERM a restore that was succeeding and roll it back.
+  const bootTimeout = deps.bootWaitMs ?? 300_000;
   const interactive = !opts.json && deps.isTTY === true;
   try {
     if (opts.discardStaged) {
@@ -168,7 +177,9 @@ export async function runRestore(opts: RestoreOpts, deps: RestoreDeps): Promise<
     };
     let mode = record?.choices?.mode ?? opts.mode ?? BACKUP_RESTORE_DEFAULTS.mode;
     const overrides = record?.choices?.configOverrides ?? opts.configOverrides ?? {};
-    let start = opts.start ?? BACKUP_RESTORE_DEFAULTS.start;
+    // A stored choice travels with the prepared transaction so the handoff
+    // command and a bare `--staged` apply agree; an explicit CLI flag wins.
+    let start = opts.start ?? record?.choices?.start ?? BACKUP_RESTORE_DEFAULTS.start;
     let recoverAdmin = opts.recoverAdmin;
     if (interactive && !opts.staged && !opts.yes) {
       if (!opts.mode && deps.prompt) {
@@ -204,7 +215,7 @@ export async function runRestore(opts: RestoreOpts, deps: RestoreDeps): Promise<
       await prepareBackupAdminRecovery(stage.databasePath, recoverAdmin, password);
     }
     if (interactive && opts.start === undefined && deps.confirm) {
-      const answer = await deps.confirm("Start the server after restoring?", BACKUP_RESTORE_DEFAULTS.start);
+      const answer = await deps.confirm("Start the server after restoring?", start);
       if (answer === null) throw new Error("Cancelled; nothing was changed.");
       start = answer;
     }
@@ -236,7 +247,7 @@ export async function runRestore(opts: RestoreOpts, deps: RestoreDeps): Promise<
     } else targetPort = restoredListenPort(destination, SERVER_PORT);
     if (opts.prepare) {
       if (!record) throw new Error("Restore preparation did not create a protected stage.");
-      record.choices = { mode, configOverrides: overrides };
+      record.choices = { mode, configOverrides: overrides, start };
       record.destination = destination;
       record.recoveryUserId = recoverAdmin;
       record.prepared = true;
@@ -245,7 +256,7 @@ export async function runRestore(opts: RestoreOpts, deps: RestoreDeps): Promise<
       deps.log(
         opts.json
           ? JSON.stringify(publicStage(record))
-          : `Prepared restore ${record.id}. Apply with subshell-server restore --staged ${record.id}.`,
+          : `Prepared restore ${record.id}. Apply with subshell-server restore --staged ${record.id}${start ? "" : " --no-start"}.`,
       );
       ownedStage = false;
       return 0;
@@ -446,7 +457,7 @@ export async function runRestore(opts: RestoreOpts, deps: RestoreDeps): Promise<
             probe("127.0.0.1", targetPort) !== false
           );
         },
-        timeout,
+        bootTimeout,
         pause,
         "The restored server did not confirm a successful serving boot.",
       );

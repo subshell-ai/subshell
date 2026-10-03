@@ -70,6 +70,20 @@ status=$(curl -sS -c "$COOKIE_JAR" -o /dev/null -w '%{http_code}' \
 curl -sf "http://127.0.0.1:$PORT/api/setup/status" | grep -q '"needsSetup":false' \
   || { echo "FAIL: Docker signup did not finish setup" >&2; exit 1; }
 
+# The serving child is the `subshell-server` process that is NOT the entrypoint's
+# `container-supervisor` parent. /proc only: the image carries no procps.
+serving_pid() {
+  docker exec "$NAME" sh -c '
+    for d in /proc/[0-9]*; do
+      [ -r "$d/cmdline" ] || continue
+      cmd=$(tr "\0" " " < "$d/cmdline")
+      case "$cmd" in
+        *container-supervisor*) ;;
+        *subshell-server*) printf "%s" "${d#/proc/}"; exit 0 ;;
+      esac
+    done' 2>/dev/null || true
+}
+
 echo "==> dashboard config save and supervised Docker restart"
 SAVED_ORIGIN="http://192.0.2.18:$PORT"
 DEPLOYMENT=$(curl -fsS -b "$COOKIE_JAR" -H "Origin: $BROWSER_ORIGIN" \
@@ -79,22 +93,28 @@ DEPLOYMENT=$(curl -fsS -b "$COOKIE_JAR" -H "Origin: $BROWSER_ORIGIN" \
 echo "$DEPLOYMENT" | grep -q "\"saved\":\"$SAVED_ORIGIN\"" || { echo "FAIL: saved base URL did not refresh" >&2; exit 1; }
 echo "$DEPLOYMENT" | grep -q '"restartRequired":true' || { echo "FAIL: saved base URL did not require restart" >&2; exit 1; }
 echo "$DEPLOYMENT" | grep -q '"manager":"docker"' || { echo "FAIL: Docker supervision was not recognized" >&2; exit 1; }
-status=$(curl -sS -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -H "Origin: $BROWSER_ORIGIN" \
-  -H 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$PORT/api/admin/server/restart")
-[ "$status" = 409 ] || { echo "FAIL: Docker restart did not require pane-loss confirmation" >&2; exit 1; }
+# The serving child runs under the entrypoint's container-supervisor parent,
+# so a restart keeps panes: the unforced call is accepted (202), and the
+# CONTAINER never restarts (the parent stays PID 1) — only the serving child
+# is respawned with the saved config. Assert the child changes while the
+# container does not, which is the exact contract the parent exists for.
+SERVING_BEFORE=$(serving_pid)
+[ -n "$SERVING_BEFORE" ] || { echo "FAIL: no serving child to restart" >&2; exit 1; }
 STARTED=$(docker inspect --format '{{.State.StartedAt}}' "$NAME")
 status=$(curl -sS -b "$COOKIE_JAR" -o /dev/null -w '%{http_code}' -H "Origin: $BROWSER_ORIGIN" \
-  -H 'Content-Type: application/json' --data '{"force":true}' "http://127.0.0.1:$PORT/api/admin/server/restart")
-[ "$status" = 202 ] || { echo "FAIL: confirmed Docker restart returned $status" >&2; exit 1; }
+  -H 'Content-Type: application/json' --data '{}' "http://127.0.0.1:$PORT/api/admin/server/restart")
+[ "$status" = 202 ] || { echo "FAIL: supervised Docker restart returned $status, expected 202" >&2; exit 1; }
 RESTARTED=""
 for _ in $(seq 1 60); do
-  if [ "$(docker inspect --format '{{.State.StartedAt}}' "$NAME")" != "$STARTED" ] && \
+  SERVING_NOW=$(serving_pid)
+  if [ -n "$SERVING_NOW" ] && [ "$SERVING_NOW" != "$SERVING_BEFORE" ] && \
+      [ "$(docker inspect --format '{{.State.StartedAt}}' "$NAME")" = "$STARTED" ] && \
       curl -sf "http://127.0.0.1:$PORT/api/setup/status" >/dev/null; then
     RESTARTED=1; break
   fi
   sleep 1
 done
-[ -n "$RESTARTED" ] || { echo "FAIL: Docker did not restart the server" >&2; exit 1; }
+[ -n "$RESTARTED" ] || { echo "FAIL: the serving child was not respawned within its parent" >&2; exit 1; }
 DEPLOYMENT=$(curl -fsS -b "$COOKIE_JAR" -H "Origin: $BROWSER_ORIGIN" "http://127.0.0.1:$PORT/api/admin/server")
 echo "$DEPLOYMENT" | grep -q '"restartRequired":false' || { echo "FAIL: restart did not apply saved settings" >&2; exit 1; }
 

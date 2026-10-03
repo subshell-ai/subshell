@@ -109,6 +109,56 @@ describe("offline replacement transactions", () => {
     expect(recoverInstanceRestoreSync(journal)).toBe("none");
   });
 
+  it("removes a prepared database's sidecars when a killed apply is rolled back", async () => {
+    // The exact state a SIGKILL during revokeHumanSessions leaves: the journal
+    // is "applying", the original is renamed aside (previous), the destination
+    // main is momentarily absent, and the PREPARED replacement
+    // (`.restore-new-<uuid>`) sits on disk with its own live WAL/journal
+    // sidecars. Rollback already removed the prepared main; the sidecars are
+    // what used to survive — staged session/config state littering the data
+    // dir after every crashed restore, invisible to every later listing.
+    const staged = await stage(await backup(fixture("leak-source", "RESTORED")));
+    const destination = fixture("leak-destination", "ORIGINAL");
+    const transactionId = crypto.randomUUID();
+    const script = join(root, "kill-apply.ts");
+    const databaseTarget = destination.databasePath;
+    put(
+      script,
+      `import { mock } from "bun:test";
+      import { writeFileSync } from "node:fs";
+      import * as fsPromises from "node:fs/promises";
+      const originalFs = { ...fsPromises };
+      const target = ${JSON.stringify(databaseTarget)};
+      // Interrupt at the instant the prepared database is about to be renamed
+      // IN, and leave a hot WAL + shm beside it, as the killed writer would.
+      mock.module("node:fs/promises", () => ({ ...originalFs, rename: async (from, to) => {
+        if (String(to) === target && String(from).includes(".restore-new-")) {
+          writeFileSync(String(from) + "-wal", "hot-wal");
+          writeFileSync(String(from) + "-shm", "hot-shm");
+          writeFileSync(String(from) + "-journal", "hot-journal");
+          process.exit(17);
+        }
+        return originalFs.rename(from, to);
+      }}));
+      const { restoreInstanceBackup } = await import(${JSON.stringify(resolve(import.meta.dir, "../transaction.ts"))});
+      const stage = ${JSON.stringify({ ...staged, cleanup: undefined })};
+      await restoreInstanceBackup({ ...stage, cleanup: async () => {} }, {
+        destination: ${JSON.stringify(destination)}, transactionId: ${JSON.stringify(transactionId)},
+      });`,
+    );
+    const child = Bun.spawnSync([process.execPath, script]);
+    expect(child.exitCode).toBe(17);
+    const next = `${databaseTarget}.restore-new-${transactionId}`;
+    expect(existsSync(next)).toBe(true);
+    expect(existsSync(`${next}-wal`)).toBe(true);
+
+    const journal = join(dirname(destination.configPath as string), "restore-journal.json");
+    expect(recoverInstanceRestoreSync(journal)).toBe("rolled-back");
+    expect(databaseValue(destination.databasePath)).toBe("ORIGINAL");
+    // The prepared replacement and EVERY sidecar name beside it are gone.
+    for (const name of ["", "-wal", "-shm", "-journal"]) expect(existsSync(`${next}${name}`)).toBe(false);
+  });
+
   it("keeps service config present across the atomic config preservation boundary", async () => {
     const staged = await stage(await backup(fixture("source")));
     const destination = fixture("destination", "original");

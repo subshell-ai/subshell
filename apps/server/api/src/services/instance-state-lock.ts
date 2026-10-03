@@ -48,11 +48,20 @@ export function acquireInstanceLock(path: string, kind: InstanceLock["kind"]): (
   let released = false;
   return () => {
     if (released) return;
-    const lock = JSON.parse(readFileSync(path, "utf8")) as InstanceLock;
-    if (lock.pid !== process.pid || lock.kind !== kind) throw new Error("Instance lock ownership changed.");
-    rmSync(path);
-    mutex.exec("ROLLBACK");
-    mutex.close();
-    released = true;
+    try {
+      const lock = JSON.parse(readFileSync(path, "utf8")) as InstanceLock;
+      if (lock.pid !== process.pid || lock.kind !== kind) throw new Error("Instance lock ownership changed.");
+      rmSync(path);
+      mutex.exec("ROLLBACK");
+    } finally {
+      // The sqlite handle is closed even when the ownership check or the file
+      // read throws. A leaked handle keeps BEGIN IMMEDIATE conflicting with
+      // this process's OWN dead transaction for the life of the process, so
+      // one unreadable lock file used to poison every later state write.
+      // Nobody else could have taken the OS lock while this handle held it,
+      // so closing on a failed release cannot step on a live owner.
+      mutex.close();
+      released = true;
+    }
   };
 }

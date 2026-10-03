@@ -133,12 +133,18 @@ export interface RestoreApplicationJob {
 }
 export function restoreConnectionOrigin(job: RestoreApplicationJob): string {
   const current = new URL(window.location.origin);
+  if (!job.port || !job.priorPort || job.port === job.priorPort) return current.origin;
+  const defaultPort = current.protocol === "https:" ? "443" : "80";
+  // The page must be on the APP'S OWN port for the new port to be reachable:
+  // when the browser's port equals the port the restore replaced, the tab is
+  // talking to the server directly, whatever the scheme - an https page on
+  // the app's own custom TLS port retargets exactly like http loopback does.
+  // Behind a reverse proxy the page's port is the proxy's, not the app's, and
+  // retargeting would jump to a port nothing is listening on; that deployment
+  // keeps its origin and the card explains the wait in its own words.
   if (
-    current.protocol === "http:" &&
-    job.port &&
-    job.priorPort &&
-    job.port !== job.priorPort &&
-    (Number(current.port || 80) === job.priorPort || ["localhost", "127.0.0.1", "[::1]"].includes(current.hostname))
+    Number(current.port || defaultPort) === job.priorPort ||
+    ["localhost", "127.0.0.1", "[::1]"].includes(current.hostname)
   )
     current.port = String(job.port);
   return current.origin;

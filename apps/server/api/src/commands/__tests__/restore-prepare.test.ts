@@ -174,6 +174,68 @@ describe("native offline restore preparation", () => {
     expect(databaseValue(destination.databasePath)).toBe("source");
     await rollbackInstanceRestore(applied.journalPath);
   });
+  it("honors a start:false stored at preparation when the apply names no start choice", async () => {
+    // The whole point of storing the choice with the transaction: `--prepare
+    // --no-start` and a later bare `--staged <id>` must agree. The manager
+    // here THROWS on start, so a broken thread-through (defaulting to boot)
+    // fails the run, while the correct no-boot path leaves it pending-boot.
+    const source = fixture("start-stored-source");
+    const destination = fixture("start-stored-destination", "original");
+    rmSync(join(destination.dataDir, "update", "pending.json"), { force: true });
+    const logs: string[] = [];
+    const errors: string[] = [];
+    expect(
+      await runRestore(
+        {
+          archive: await backup(source),
+          prepare: true,
+          json: true,
+          start: false,
+          dataDir: destination.dataDir,
+          databasePath: destination.databasePath,
+          configDir: dirname(destination.configPath as string),
+        },
+        dependencies(source, logs, errors),
+      ),
+      errors.join("\n"),
+    ).toBe(0);
+    const result = JSON.parse(logs[0] ?? "{}");
+    stages.push(result.id);
+    expect(readLocalRestoreStage(result.id).choices?.start).toBe(false);
+    const applyDeps = {
+      ...dependencies(source, logs, errors),
+      manager: {
+        query: () =>
+          ({
+            installed: false,
+            definitionPath: null,
+            state: "stopped",
+            pid: null,
+            enabled: false,
+            linger: null,
+            paneSafety: "keeps",
+            detail: "",
+          }) as const,
+        stop: () => ({ code: 0, err: "" }),
+        start: () => {
+          throw new Error("boot was attempted despite the stored start:false");
+        },
+      },
+      startDetached: () => {
+        throw new Error("detached boot attempted despite the stored start:false");
+      },
+      checkDatabaseUsers: () => {},
+      probePort: () => false,
+    } satisfies RestoreDeps;
+    logs.length = 0;
+    // No `start` in the opts — it must read the stored false.
+    const code = await runRestore({ staged: result.id, json: true, yes: true }, applyDeps);
+    expect(code, errors.join("\n")).toBe(0);
+    const applied = JSON.parse(logs[0] ?? "{}");
+    expect(applied.status).toBe("pending-boot");
+    expect(applied.started).toBe(false);
+    await rollbackInstanceRestore(applied.journalPath);
+  });
   it("discards a protected expired stage and refuses conflicting preparation flags", async () => {
     const source = fixture("source");
     const logs: string[] = [];

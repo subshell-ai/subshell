@@ -28,6 +28,7 @@ import { trustedTemporaryDirectory } from "@/services/backups/paths.js";
 import type { InstancePaths } from "@/services/backups/types.js";
 import { instanceBackupPaths } from "@/services/instance-backup-source.js";
 import { readInstanceLock } from "@/services/instance-state-lock.js";
+import { clearRestoreHold, writeRestoreHold } from "@/services/restore-hold.js";
 import { appSupervised } from "@/services/server-deployment.js";
 
 const TTL = 60 * 60 * 1000;
@@ -42,8 +43,11 @@ interface RestoreJobRequest {
   pid: number;
   app: boolean;
   force: boolean;
+  /** The prepared transaction's stored boot choice (the control plane rejects false under a supervisor). */
+  start: boolean;
   expiresAt: number;
 }
+
 function jobRoot() {
   const root = join(trustedTemporaryDirectory(), `subshell-restore-jobs-${process.getuid?.() ?? "user"}`);
   mkdirSync(root, { mode: 0o700, recursive: true });
@@ -119,6 +123,10 @@ function unmanagedManager(request: RestoreJobRequest, deps: ServiceDeps) {
       const owner = readInstanceLock(lockPath);
       if (!stoppedOriginal) {
         assertRunningRestoreServiceOwner(lockPath, request.pid);
+        // Hold the native parent's respawn BEFORE the signal: the moment the
+        // child dies, a parent without this note would respawn it and race
+        // this worker for the instance lock.
+        if (request.app && request.source.configPath) writeRestoreHold(dirname(request.source.configPath as string));
         process.kill(request.pid, "SIGTERM");
         stoppedOriginal = true;
       } else if (started && owner?.kind === "server") {
@@ -130,6 +138,7 @@ function unmanagedManager(request: RestoreJobRequest, deps: ServiceDeps) {
     start: () => {
       // The native parent restarts its own child; never create a second supervisor.
       if (!request.app) startDetachedServer(dirname(request.source.configPath as string), request.source, false, deps);
+      else if (request.source.configPath) clearRestoreHold(dirname(request.source.configPath as string));
       started = true;
       return { code: 0, err: "" };
     },
@@ -181,6 +190,9 @@ export async function preflightRestoreJob(staged: string, actor: string): Promis
       (process.env.SUBSHELL_CONTAINER === "1" &&
         Number(process.env.SUBSHELL_CONTAINER_SUPERVISOR_PID) === process.ppid),
     force: false,
+    // Preflight never stops or starts anything; the field only has to be
+    // present so the request shape matches the apply worker's.
+    start: true,
     expiresAt: Date.now() + TTL,
   };
   const errors: string[] = [];
@@ -217,7 +229,11 @@ export async function startRestoreJob(
   if (activeJob) {
     try {
       const status = readRestoreJob(activeJob.id);
-      if (status.phase !== "failed" && activeJob.staged === staged && activeJob.actor === actor)
+      // Only an IN-PROGRESS job dedups to its own id. A COMPLETED job must
+      // not: returning its id would present a no-op as a fresh successful
+      // restore. The re-apply instead falls through, where the consumed
+      // transaction is refused honestly ("prepare another archive").
+      if (status.phase === "restoring" && activeJob.staged === staged && activeJob.actor === actor)
         return {
           id: activeJob.id,
           expiresAt: activeJob.expiresAt,
@@ -250,6 +266,18 @@ export async function startRestoreJob(
       ? {}
       : parseEnvFile(readFileSync(join(record.stage.dir, "config", "config.env"), "utf8"));
     const port = Number(record.choices?.configOverrides?.port ?? configuration.SERVER_PORT ?? SERVER_PORT);
+    const app =
+      appSupervised(process.env, process.ppid) ||
+      (process.env.SUBSHELL_CONTAINER === "1" &&
+        Number(process.env.SUBSHELL_CONTAINER_SUPERVISOR_PID) === process.ppid);
+    // The native parent restarts its own child, so on this server a stored
+    // start:false could not be honored; the preparation would have to be
+    // refused rather than silently overridden at apply time.
+    const start = record.choices?.start ?? true;
+    if (app && !start)
+      throw new Error(
+        "This server is supervised by its native parent, which starts it again after a restore; leave start enabled.",
+      );
     const id = crypto.randomUUID();
     const dir = jobDir(id);
     created = id;
@@ -258,11 +286,9 @@ export async function startRestoreJob(
       staged,
       source: instanceBackupPaths(),
       pid: process.pid,
-      app:
-        appSupervised(process.env, process.ppid) ||
-        (process.env.SUBSHELL_CONTAINER === "1" &&
-          Number(process.env.SUBSHELL_CONTAINER_SUPERVISOR_PID) === process.ppid),
+      app,
       force,
+      start,
       expiresAt: Date.now() + TTL,
     };
     writeFileSync(join(dir, "request.json"), JSON.stringify(request), { mode: 0o600 });
@@ -284,7 +310,12 @@ export async function startRestoreJob(
           .join("\n"),
         { mode: 0o600 },
       );
-      const result = Bun.spawnSync({
+      // ASYNC on purpose: this handler still serves traffic until the worker
+      // stops the server, and a synchronous spawn (bounded at ten seconds by
+      // the old spawnSync timeout) stalled every live request, socket and
+      // long-poll on a jammed systemd for that whole window. The ten-second
+      // bound carries over as a race against the kill below.
+      const runner = Bun.spawn({
         cmd: [
           "systemd-run",
           "--user",
@@ -295,11 +326,13 @@ export async function startRestoreJob(
           "--",
           ...argv,
         ],
-        stdout: "pipe",
-        stderr: "pipe",
-        timeout: 10_000,
+        stdout: "ignore",
+        stderr: "ignore",
+        stdin: "ignore",
       });
-      if (result.exitCode !== 0)
+      const outcome = await Promise.race([runner.exited, Bun.sleep(10_000).then(() => null)]);
+      if (outcome === null) runner.kill(9);
+      if (outcome !== 0)
         throw new Error("Could not start the independent restore worker; the server has not been stopped.");
     } else {
       const child = Bun.spawn({
@@ -330,13 +363,18 @@ export async function startRestoreJob(
   }
 }
 export async function runRestoreWorker(id: string): Promise<number> {
-  const request = protectedJson<RestoreJobRequest>(join(jobDir(id), "request.json"));
-  if (request.expiresAt <= Date.now()) throw new Error("Restore request expired.");
-  // Let the authenticated HTTP response reach the caller before stopping it.
-  await Bun.sleep(1000);
   const output: string[] = [];
   const errors: string[] = [];
+  let request: RestoreJobRequest | undefined;
   try {
+    // The read and the expiry check live INSIDE the try: a throw here used to
+    // skip both the failed status and the finally, stranding the browser at
+    // "restoring" for the rest of the TTL and the secret-bearing worker.env
+    // on disk until a later job's sweep.
+    request = protectedJson<RestoreJobRequest>(join(jobDir(id), "request.json"));
+    if (request.expiresAt <= Date.now()) throw new Error("Restore request expired.");
+    // Let the authenticated HTTP response reach the caller before stopping it.
+    await Bun.sleep(1000);
     const deps = serviceDeps();
     const runner = restoreDeps(
       request,
@@ -345,7 +383,7 @@ export async function runRestoreWorker(id: string): Promise<number> {
       (line) => errors.push(line),
     );
     const code = await runRestore(
-      { staged: request.staged, yes: true, force: request.force, start: true, native: true, json: true },
+      { staged: request.staged, yes: true, force: request.force, start: request.start, native: true, json: true },
       runner,
     );
     if (code) {
@@ -363,15 +401,28 @@ export async function runRestoreWorker(id: string): Promise<number> {
     return 0;
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
-    writeStatus(id, {
-      phase: "failed",
-      expiresAt: request.expiresAt,
-      error: "Restore could not complete. Check the server host’s restore logs before retrying.",
-    });
-    // Keep diagnostics private: status capability reveals no paths, secrets, or user names.
-    writeFileSync(join(jobDir(id), "error.log"), errors.join("\n"), { mode: 0o600 });
+    try {
+      // A failure must be READABLE: readRestoreJob drops anything past its
+      // expiry, so a failed status on an already-expired request would 404 the
+      // poller into "status unavailable" instead of the honest failure. Floor
+      // it a full window from now; the normal (in-window) failure keeps the
+      // request's own expiry.
+      const expires = request && request.expiresAt > Date.now() ? request.expiresAt : Date.now() + TTL;
+      writeStatus(id, {
+        phase: "failed",
+        expiresAt: expires,
+        error: "Restore could not complete. Check the server host’s restore logs before retrying.",
+      });
+      // Keep diagnostics private: status capability reveals no paths, secrets, or user names.
+      writeFileSync(join(jobDir(id), "error.log"), errors.join("\n"), { mode: 0o600 });
+    } catch {
+      /* The status file is the report, not the transaction; a broken job root cannot carry either. */
+    }
     return 1;
   } finally {
     rmSync(join(jobDir(id), "worker.env"), { force: true });
+    // Backstop for every exit path, including a failed swap before any start:
+    // once this process is gone nothing may keep the native parent waiting.
+    if (request?.source.configPath) clearRestoreHold(dirname(request.source.configPath as string));
   }
 }

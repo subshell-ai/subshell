@@ -17,8 +17,15 @@ export function beginBackupStateWrite(): () => void {
     released = true;
     writers--;
     if (writers === 0) {
-      releaseWriters?.();
+      // CLEAR THE STORED RELEASE BEFORE CALLING IT. Releasing can throw when
+      // the lock file was removed or replaced out from under this process;
+      // doing it last used to leave `releaseWriters` set with `writers`
+      // already zero, so the next acquisition skipped the acquire path that
+      // would have detected the leaked handle and the state-write mutex
+      // stayed conflicted for the life of the process.
+      const release = releaseWriters;
       releaseWriters = undefined;
+      release?.();
     }
   };
 }

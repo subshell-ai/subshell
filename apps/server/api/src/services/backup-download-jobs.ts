@@ -63,6 +63,11 @@ export function startBackupDownloadJob(actorUserId: string, password?: string) {
     filename: `subshell-instance-${new Date().toISOString().slice(0, 10)}.tar.gz${password === undefined ? "" : ".enc"}`,
     expiresAt: Date.now() + JOB_TTL_MS,
     timer: setTimeout(() => {
+      // The creation half may still be mid-write (holding the capture lock);
+      // mark it cancelled and let that path's finally forget it. Everything
+      // else — including a DOWNLOAD an abandoned connection never finished —
+      // is forgotten here, so no job outlives its TTL whatever the stream
+      // does or does not call.
       if (job.status === "creating") job.status = "cancelled";
       else forget(job);
     }, JOB_TTL_MS),
@@ -122,7 +127,11 @@ export function backupDownloadJobStatus(id: string, actorUserId: string) {
 export function cancelBackupDownloadJob(id: string, actorUserId: string): void {
   const job = ownedJob(id, actorUserId);
   if (job.status === "creating") job.status = "cancelled";
-  else if (job.status !== "downloading") forget(job);
+  // "downloading" forgets too: on POSIX the stream's open file survives the
+  // unlink, and a half-pulled connection that never calls cleanup must not
+  // hold the slot or the (possibly plaintext) archive past the operator's
+  // cancel.
+  else forget(job);
 }
 
 /** Claims the download once; the HTTP stream calls cleanup when complete or cancelled. */
@@ -130,7 +139,11 @@ export function claimBackupDownload(id: string, actorUserId: string) {
   const job = ownedJob(id, actorUserId);
   if (job.status !== "ready" || !job.path) throw new Error("Backup is not ready to download.");
   job.status = "downloading";
-  clearTimeout(job.timer);
+  // The TTL timer stays ARMED deliberately: a stream that is never fully
+  // pulled and never cancelled would otherwise leak its 0700 temp dir and its
+  // slot in the eight-job cap for the life of the process. The timer forgets
+  // the job at its published expiry whatever the stream does; `cleanup` and
+  // `forget` are both idempotent, so the normal completion path is unaffected.
   return {
     path: job.path,
     expiresAt: job.expiresAt,
