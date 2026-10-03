@@ -3,6 +3,7 @@ import { useState } from "react";
 import { CreateBackupCard } from "@/components/backups/create-backup-card";
 import { RestoreBackupCard } from "@/components/backups/restore-backup-card";
 
+import { PageHeader } from "@/components/page-header";
 import { Segmented } from "@/components/ui/segmented";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useRestoreProgressActive } from "@/lib/restore-progress";
@@ -17,6 +18,9 @@ function BackupsPage() {
     <main className="flex h-full min-h-0 w-full flex-col">
       {data?.viewerIsAdmin === true || restoring ? (
         <>
+          <div className="px-8 pt-6">
+            <PageHeader title="Backups" />
+          </div>
           <fieldset disabled={busy} className="shrink-0 border-b px-8 py-3">
             <Segmented
               ariaLabel="Backup operation"

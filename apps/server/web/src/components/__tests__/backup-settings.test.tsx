@@ -277,14 +277,26 @@ describe("Settings backup workflows", () => {
     mount(<RestoreBackupCard />);
     await configureFile();
     const port = screen.getByLabelText("Port (optional)");
-    fireEvent.change(port, { target: { value: "70000" } });
+    const portError = "Enter a port from 1 to 65535.";
+    await act(async () => {
+      fireEvent.focus(port);
+      fireEvent.change(port, { target: { value: "70000" } });
+    });
     expect((screen.getByRole("button", { name: "Review backup" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByRole("alert")).toBeNull();
-    fireEvent.blur(port);
-    expect(screen.getByRole("alert").textContent).toBe("Enter a port from 1 to 65535.");
-    fireEvent.focus(port);
-    expect(screen.queryByRole("alert")).toBeNull();
-    fireEvent.change(port, { target: { value: "4000" } });
+    expect(screen.queryByText(portError)).toBeNull();
+    await act(async () => {
+      fireEvent.blur(port);
+    });
+    expect(screen.getByRole("alert").textContent).toBe(portError);
+    await act(async () => {
+      fireEvent.focus(port);
+    });
+    expect(screen.queryByText(portError)).toBeNull();
+    await act(async () => {
+      fireEvent.change(port, { target: { value: "4000" } });
+      fireEvent.blur(port);
+    });
+    expect(screen.queryByText(portError)).toBeNull();
     fireEvent.click(screen.getByRole("switch", { name: "Recover an existing administrator" }));
     expect((screen.getByRole("button", { name: "Review backup" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("combobox", { name: "Administrator" }));
