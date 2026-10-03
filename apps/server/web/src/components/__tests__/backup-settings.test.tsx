@@ -283,7 +283,7 @@ describe("Settings backup workflows", () => {
       fireEvent.change(input, { target: { value: "temporary-password" } });
       fireEvent.blur(input);
     }
-    fireEvent.click(screen.getByRole("switch", { name: "Start the server after restoring" }));
+    expect(screen.queryByRole("switch", { name: "Start the server after restoring" })).toBeNull();
     reviewConfiguration();
     await screen.findByText("Review Restore");
     expect(posts(requests)).toHaveLength(1);
@@ -298,7 +298,7 @@ describe("Settings backup workflows", () => {
     expect((screen.getByRole("button", { name: "Preparing…" }) as HTMLButtonElement).disabled).toBe(true);
     expect(JSON.parse(posts(requests)[1]?.body as string)).toEqual({
       mode: "same-machine",
-      start: false,
+      start: true,
       destination,
       configOverrides: { baseUrl: "http://localhost:3080", host: "127.0.0.1", port: "4000", trustedOrigins: "" },
       recoveryUserId: "admin",
@@ -308,13 +308,13 @@ describe("Settings backup workflows", () => {
       Response.json({
         id: inspection.id,
         expiresAt: Date.now() + 600000,
-        command: "subshell-server restore --staged restore-stage --no-start",
+        command: "subshell-server restore --staged restore-stage",
       }),
     );
     await screen.findByText("Your restore is ready to apply");
     expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
     expect(screen.getByText("Your restore is ready to apply")).toBeTruthy();
-    expect(screen.getByText("subshell-server restore --staged restore-stage --no-start")).toBeTruthy();
+    expect(screen.getByText("subshell-server restore --staged restore-stage")).toBeTruthy();
     expect(screen.queryByText("Restore Complete")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     await screen.findByText("Restore Your Server");

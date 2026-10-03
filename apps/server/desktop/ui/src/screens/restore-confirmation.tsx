@@ -1,9 +1,6 @@
 import { ExternalLink } from "lucide-react";
 import { Fragment } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Field, FieldLabel } from "@/components/ui/field";
-import { Switch } from "@/components/ui/switch";
 import { CopyButton } from "./copy-button";
 
 export function RestoreFacts({
@@ -46,52 +43,5 @@ export function RestoreFacts({
         </Fragment>
       ))}
     </dl>
-  );
-}
-
-function RestoreChoice(props: {
-  id: string;
-  label: string;
-  description: string;
-  checked: boolean;
-  disabled: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <Field orientation="horizontal" data-disabled={props.disabled}>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <FieldLabel htmlFor={props.id}>{props.label}</FieldLabel>
-        <p id={`${props.id}-description`} className="m-0 text-detail text-muted-foreground">
-          {props.description}
-        </p>
-      </div>
-      <Switch
-        id={props.id}
-        aria-describedby={`${props.id}-description`}
-        checked={props.checked}
-        disabled={props.disabled}
-        onCheckedChange={props.onChange}
-      />
-    </Field>
-  );
-}
-
-export function RestoreConfirmation(props: { locked: boolean; start: boolean; setStart: (checked: boolean) => void }) {
-  return (
-    <Card aria-labelledby="restore-options-title">
-      <CardHeader>
-        <CardTitle id="restore-options-title">Restore options</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <RestoreChoice
-          id="restore-start"
-          label="Start the server after restoring"
-          description="Turn on to start the server and check that it’s ready after restoring. Turn off to leave it stopped and start it later."
-          checked={props.start}
-          disabled={props.locked}
-          onChange={props.setStart}
-        />
-      </CardContent>
-    </Card>
   );
 }

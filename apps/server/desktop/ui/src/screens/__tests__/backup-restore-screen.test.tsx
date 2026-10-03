@@ -489,9 +489,7 @@ describe("native backup and restore", () => {
     await screen.findByText(/Administrator \(admin@example.com\)/);
     expect(screen.queryByText(/Exclusions:/)).toBeNull();
     expect(screen.getByRole("switch", { name: "Recover an existing administrator" })).toBeTruthy();
-    expect(screen.getByRole("switch", { name: "Start the server after restoring" }).getAttribute("aria-checked")).toBe(
-      "true",
-    );
+    expect(screen.queryByRole("switch", { name: "Start the server after restoring" })).toBeNull();
     expect(screen.queryByRole("switch", { name: /Allow interruption/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Start backup" })).toBeNull();
     await reviewConfiguredRestore();

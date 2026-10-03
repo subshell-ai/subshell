@@ -39,7 +39,6 @@ type ConfigurationDraft = {
   host: string;
   port: string;
   trustedOrigins: string;
-  start: boolean;
 };
 type TextField =
   | "temporaryPassword"
@@ -64,7 +63,6 @@ const CONFIGURATION_DEFAULTS: ConfigurationDraft = {
   host: "",
   port: "",
   trustedOrigins: "",
-  start: true,
 };
 function originProblem(value: string): string | null {
   try {
@@ -289,7 +287,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
       const request = () => ({
         id: current.id,
         mode: current.legacyDatabaseOnly ? ("same-machine" as const) : values.mode,
-        start: values.start,
+        start: true,
         ...(!current.legacyDatabaseOnly && {
           destination: destination(values),
           configOverrides: {
@@ -405,7 +403,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
             ? (inspection.admins.find((admin) => admin.id === draft.adminId)?.email ?? "Enabled")
             : "Off",
         },
-        { label: "Start after restoring", value: draft.start ? "Yes" : "No" },
+        { label: "Start after restoring", value: "Yes" },
       ]
     : [];
 
@@ -703,31 +701,6 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                   </>
                 )}
               </FieldGroup>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Restore options</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Field className="flex-row items-center justify-between">
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <FieldLabel className="font-strong text-label" htmlFor="restore-start">
-                    Start the server after restoring
-                  </FieldLabel>{" "}
-                  <p id="restore-start-description" className="m-0 text-detail text-muted-foreground">
-                    Turn on to start the server and check that it’s ready after restoring. Turn off to leave it stopped
-                    and start it later.
-                  </p>
-                </div>
-                <Switch
-                  id="restore-start"
-                  aria-describedby="restore-start-description"
-                  checked={draft.start}
-                  disabled={busy}
-                  onCheckedChange={(value) => configuration.setFieldValue("start", value)}
-                />
-              </Field>
             </CardContent>
           </Card>
         </form>

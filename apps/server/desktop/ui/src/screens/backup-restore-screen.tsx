@@ -20,7 +20,7 @@ import { Switch } from "@/components/ui/switch";
 import { dashboardUrl, effectiveForm } from "../lib/config-form";
 import type { BackupResult, LocalBackupFile, RestoreApplyResult, RestoreInspection, RestorePrepare } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
-import { RestoreConfirmation, RestoreFacts } from "./restore-confirmation";
+import { RestoreFacts } from "./restore-confirmation";
 
 export const EMPTY_RESTORE: RestorePrepare = {
   archive: "",
@@ -115,7 +115,7 @@ export function BackupRestoreScreen(props: {
   const [confirmation, setConfirmation] = useState("");
   const [temporaryConfirmation, setTemporaryConfirmation] = useState("");
   const [recover, setRecover] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.recoverAdmin);
-  const [start, setStart] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.start);
+  const start = true;
   const [archiveEncrypted, setArchiveEncrypted] = useState(false);
   const [archivePasswordProblem, setArchivePasswordProblem] = useState("");
   const [archiveProblem, setArchiveProblem] = useState("");
@@ -1268,7 +1268,6 @@ export function BackupRestoreScreen(props: {
                     </CardContent>
                   </Card>
                 )}
-                {inspection && <RestoreConfirmation locked={locked} start={start} setStart={setStart} />}
               </>
             )}
           </>
