@@ -1,8 +1,9 @@
 import { Frame } from "@internal/assistant";
-import { Card, CardContent } from "@internal/node-admin";
+import { cn } from "@internal/node-admin";
 import { CheckCircle2, LoaderCircle } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 import { CopyButton } from "@/components/copy-button";
+import { Card, CardContent } from "./backup-card";
 
 export function BackupWorkflow({
   title,
@@ -48,9 +49,9 @@ export function BackupProgress({
           ) : (
             <LoaderCircle className="size-6 shrink-0 animate-spin text-primary" aria-hidden="true" />
           )}
-          <h3 className="font-strong text-card-title">{title}</h3>
+          <h3 className="m-0 font-strong text-heading">{title}</h3>
         </div>
-        <p className="text-body text-muted-foreground">{description}</p>
+        <p className="m-0 text-body text-muted-foreground">{description}</p>
         {children}
       </CardContent>
     </Card>
@@ -80,5 +81,13 @@ export function BackupFacts({ rows }: { rows: { label: string; value: string; co
         </Fragment>
       ))}
     </dl>
+  );
+}
+
+export function BackupError({ message, className }: { message: string; className?: string }) {
+  return (
+    <p role="alert" className={cn("m-0 text-detail text-warning", className)}>
+      {message}
+    </p>
   );
 }

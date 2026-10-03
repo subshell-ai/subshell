@@ -1,10 +1,9 @@
-import { Button, Card, CardContent, CardHeader, CardTitle, Input, Switch } from "@internal/node-admin";
+import { Button, Input, Switch } from "@internal/node-admin";
 import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES, type RestoreMode } from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { CopyCommandRow } from "@/components/copy-command-row";
-import { ErrorBanner } from "@/components/error-banner";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
@@ -12,7 +11,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { type RestoreInspection, useRestoreBackup } from "@/hooks/use-backups";
 import { desktopInvokeStrict, desktopShell } from "@/lib/desktop";
 import { type FieldProblems, fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
-import { BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
+import { Card, CardContent, CardHeader, CardTitle } from "./backup-card";
+import { BackupError, BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
 
 type InspectionDraft = { file: File | null; path: string; password: string; encrypted: boolean };
 function inspectionProblems(draft: InspectionDraft): FieldProblems {
@@ -117,7 +117,7 @@ function configurationProblems(draft: ConfigurationDraft, inspection: RestoreIns
   return problems;
 }
 
-type Step = "select" | "configure" | "review" | "progress" | "complete";
+type Step = "select" | "configure" | "review" | "progress";
 export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void }) {
   const restore = useRestoreBackup();
   const [step, setStep] = useState<Step>("select");
@@ -356,7 +356,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
     );
   }
   function failureBanner() {
-    return preparationProblem ? <ErrorBanner message={preparationProblem} /> : null;
+    return preparationProblem ? <BackupError message={preparationProblem} /> : null;
   }
   const archiveName =
     selected.file?.name ??
@@ -409,10 +409,10 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
       ]
     : [];
 
-  if (step === "progress")
+  if (step === "progress" && (!restore.prepare.data || preparationProblem))
     return (
       <BackupWorkflow
-        title="Preparing Restore"
+        title="Prepare Restore"
         description="Your server stays running while the restore is prepared."
         footer={
           <>
@@ -429,36 +429,30 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                 Back
               </Button>
             ) : (
-              <Button disabled={busy || !restore.prepare.data} onClick={() => setStep("complete")}>
-                Next
-              </Button>
+              <Button disabled>Preparing…</Button>
             )}
           </>
         }
       >
         {failureBanner() ?? (
           <BackupProgress
-            finished={!!restore.prepare.data}
-            title={restore.prepare.data ? "Preparation finished" : "Preparing your restore"}
-            description={
-              restore.prepare.data
-                ? "Select Next to review how to apply the restore."
-                : "The backup and your configuration are checked before anything is replaced."
-            }
+            finished={false}
+            title="Preparing your restore"
+            description="The backup and your configuration are checked before anything is replaced."
           >
             <ul className="flex list-disc flex-col gap-2 pl-5 text-muted-foreground">
               <li>Your restore choices are saved in a private prepared copy.</li>
               {draft.recover && <li>The selected administrator receives the temporary password on restore.</li>}
-              <li>When preparation finishes, select Next for the host command.</li>
+              <li>The host command appears here when preparation finishes.</li>
             </ul>
           </BackupProgress>
         )}
       </BackupWorkflow>
     );
-  if (step === "complete")
+  if (step === "progress" && restore.prepare.data)
     return (
       <BackupWorkflow
-        title="Restore Prepared"
+        title="Prepare Restore"
         description="Apply this restore on the server host."
         footer={
           <>
@@ -503,7 +497,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
             This prepared copy is available for ten minutes. Keep the source backup to prepare it again if needed.
           </p>
         </BackupProgress>
-        {desktopError && <ErrorBanner message={desktopError} />}
+        {desktopError && <BackupError message={desktopError} />}
         {failureBanner()}
       </BackupWorkflow>
     );
@@ -525,7 +519,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
       >
         <Card>
           <CardHeader>
-            <CardTitle className="text-heading">Backup to restore</CardTitle>
+            <CardTitle>Backup to restore</CardTitle>
           </CardHeader>
           <CardContent>
             <BackupFacts rows={details} />
@@ -546,7 +540,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
             void review.handleSubmit();
           }}
         >
-          <FieldGroup>
+          <FieldGroup className="gap-4">
             <review.Field name="confirmed">
               {(field) => (
                 <Field className="flex-row items-center" data-disabled={busy}>
@@ -592,10 +586,10 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
         >
           <Card>
             <CardHeader>
-              <CardTitle className="text-heading">Restore settings</CardTitle>
+              <CardTitle>Restore settings</CardTitle>
             </CardHeader>
             <CardContent>
-              <FieldGroup>
+              <FieldGroup className="gap-4">
                 <Field>
                   <FieldLabel className="font-strong text-label" htmlFor="restore-mode">
                     Restore mode
@@ -635,16 +629,16 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                     {textField("trustedOrigins", "Trusted origins (optional)")}
                   </>
                 )}
-                <Field className="flex-row items-center justify-between">
-                  <FieldLabel className="font-strong text-label" htmlFor="restore-recover">
-                    Recover an existing administrator
-                  </FieldLabel>
+                <Field className="flex-row items-center gap-2">
                   <Switch
                     id="restore-recover"
                     checked={draft.recover}
                     onCheckedChange={(value) => configuration.setFieldValue("recover", value)}
                     disabled={busy || !admins.length}
                   />
+                  <FieldLabel className="font-strong text-label" htmlFor="restore-recover">
+                    Recover an existing administrator
+                  </FieldLabel>
                 </Field>
                 {draft.recover && (
                   <>
@@ -703,18 +697,32 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                     {textField("confirmation", "Confirm temporary password", true)}
                   </>
                 )}
-                <Field className="flex-row items-center justify-between">
+              </FieldGroup>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Restore options</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Field className="flex-row items-center justify-between">
+                <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <FieldLabel className="font-strong text-label" htmlFor="restore-start">
                     Start the server after restoring
-                  </FieldLabel>
-                  <Switch
-                    id="restore-start"
-                    checked={draft.start}
-                    disabled={busy}
-                    onCheckedChange={(value) => configuration.setFieldValue("start", value)}
-                  />
-                </Field>
-              </FieldGroup>
+                  </FieldLabel>{" "}
+                  <p id="restore-start-description" className="m-0 text-detail text-muted-foreground">
+                    An installed service keeps its supervision and login setting. Otherwise, the host tool runs the
+                    restored server with a compatible binary.
+                  </p>
+                </div>
+                <Switch
+                  id="restore-start"
+                  aria-describedby="restore-start-description"
+                  checked={draft.start}
+                  disabled={busy}
+                  onCheckedChange={(value) => configuration.setFieldValue("start", value)}
+                />
+              </Field>
             </CardContent>
           </Card>
         </form>
@@ -792,7 +800,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
         ) : (
           <Card>
             <CardHeader>
-              <CardTitle className="text-heading">Available backups</CardTitle>
+              <CardTitle>Available backups</CardTitle>
             </CardHeader>
             <CardContent>
               <Field>
@@ -832,7 +840,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
                 ) : !restore.saved.data?.backups.length && !restore.saved.error ? (
                   <p className="text-muted-foreground">No saved backups are available. Open a backup file instead.</p>
                 ) : null}
-                {restore.saved.error && <ErrorBanner message={restore.saved.error.message} />}
+                {restore.saved.error && <BackupError message={restore.saved.error.message} />}
                 {selected.path && (
                   <p className="break-words text-muted-foreground">
                     {restore.saved.data?.backups.find((file) => file.path === selected.path)?.name}

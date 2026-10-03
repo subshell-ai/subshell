@@ -6,11 +6,10 @@ import {
 } from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
 import { useEffect, useState } from "react";
-import { ErrorBanner } from "@/components/error-banner";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { useBackupDownload } from "@/hooks/use-backups";
 import { type FieldProblems, fieldError, makeForm, useSubmitDisabled } from "@/lib/form";
-import { BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
+import { BackupError, BackupFacts, BackupProgress, BackupWorkflow } from "./backup-workflow";
 
 type BackupDraft = { encrypted: boolean; password: string; confirmation: string };
 function backupProblems(draft: BackupDraft): FieldProblems {
@@ -74,19 +73,19 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
           <>
             <span />
             {failure ? (
-              <Button variant="outline" disabled={busy} onClick={() => void restart().catch(() => {})}>
+              <Button variant="ghost" disabled={busy} onClick={() => void restart().catch(() => {})}>
                 Back
               </Button>
             ) : (
               <Button disabled={!finished || busy} onClick={() => setStep("complete")}>
-                Next
+                {finished ? "Next" : "Backing up…"}
               </Button>
             )}
           </>
         }
       >
         {failure ? (
-          <ErrorBanner message={failure} />
+          <BackupError message={failure} />
         ) : (
           <BackupProgress
             finished={finished}
@@ -153,7 +152,7 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
               : "This download is available once, for one hour."}
           </p>
         </BackupProgress>
-        {failure && <ErrorBanner message={failure} />}
+        {failure && <BackupError message={failure} />}
       </BackupWorkflow>
     );
   return (
@@ -177,17 +176,17 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
         }}
         className="flex flex-col gap-4"
       >
-        <FieldGroup>
-          <Field className="flex-row items-center justify-between">
-            <FieldLabel className="font-strong text-label" htmlFor="backup-encrypt">
-              Encrypt with a password
-            </FieldLabel>
+        <FieldGroup className="gap-4">
+          <Field className="flex-row items-center gap-2">
             <Switch
               id="backup-encrypt"
               checked={encrypted}
               onCheckedChange={(value) => form.setFieldValue("encrypted", value)}
               disabled={busy}
             />
+            <FieldLabel className="font-strong text-label" htmlFor="backup-encrypt">
+              Encrypt the archive with a password
+            </FieldLabel>
           </Field>
           {encrypted && (
             <>
@@ -200,7 +199,7 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
                   return (
                     <Field data-invalid={!!problem}>
                       <FieldLabel className="font-strong text-label" htmlFor="backup-password">
-                        Encryption password
+                        Archive password
                       </FieldLabel>
                       <Input
                         id="backup-password"
@@ -236,7 +235,7 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
                   return (
                     <Field data-invalid={!!problem}>
                       <FieldLabel className="font-strong text-label" htmlFor="backup-confirm">
-                        Confirm password
+                        Confirm archive password
                       </FieldLabel>
                       <Input
                         id="backup-confirm"
@@ -267,8 +266,8 @@ export function CreateBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void 
             </>
           )}
         </FieldGroup>
-        {error && <ErrorBanner message={error.message} className="rounded-md border" />}
-        {backup.job.data?.error && <ErrorBanner message={backup.job.data.error} className="rounded-md border" />}
+        {error && <BackupError message={error.message} />}
+        {backup.job.data?.error && <BackupError message={backup.job.data.error} />}
       </form>
     </BackupWorkflow>
   );

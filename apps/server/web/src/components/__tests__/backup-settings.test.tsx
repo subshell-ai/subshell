@@ -90,7 +90,7 @@ describe("Settings backup workflows", () => {
   it("holds a finished backup on progress until Next, then offers the download and facts", async () => {
     const requests = mockApi();
     mount(<CreateBackupCard />);
-    expect(screen.queryByLabelText("Encryption password")).toBeNull();
+    expect(screen.queryByLabelText("Archive password")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Create backup" }));
     await screen.findByText("Backup finished");
     expect(screen.queryByText("Backup Complete")).toBeNull();
@@ -117,7 +117,7 @@ describe("Settings backup workflows", () => {
     mount(<CreateBackupCard onBusy={(value) => activity.push(value)} />);
     fireEvent.click(screen.getByRole("button", { name: "Create backup" }));
     await screen.findByText("Creating your backup");
-    expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Backing up…" }) as HTMLButtonElement).disabled).toBe(true);
     expect(activity).toContain(true);
     finish?.(Response.json({ id: "backup-job" }));
     await screen.findByText("Backup finished");
@@ -127,11 +127,11 @@ describe("Settings backup workflows", () => {
   it("gates encryption on shared validation and keeps gold errors beside blurred fields", async () => {
     const requests = mockApi();
     mount(<CreateBackupCard />);
-    fireEvent.click(screen.getByRole("switch", { name: "Encrypt with a password" }));
+    fireEvent.click(screen.getByRole("switch", { name: "Encrypt the archive with a password" }));
     const submit = screen.getByRole("button", { name: "Create backup" }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
-    const password = screen.getByLabelText("Encryption password");
-    const confirm = screen.getByLabelText("Confirm password");
+    const password = screen.getByLabelText("Archive password");
+    const confirm = screen.getByLabelText("Confirm archive password");
     for (const input of [password, confirm]) fireEvent.change(input, { target: { value: "short" } });
     fireEvent.blur(password);
     expect(screen.getByRole("alert").textContent).toContain("at least 8");
@@ -295,7 +295,7 @@ describe("Settings backup workflows", () => {
     await screen.findByText("Preparing your restore");
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByLabelText("Confirm temporary password")).toBeNull();
-    expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Preparing…" }) as HTMLButtonElement).disabled).toBe(true);
     expect(JSON.parse(posts(requests)[1]?.body as string)).toEqual({
       mode: "same-machine",
       start: false,
@@ -311,9 +311,8 @@ describe("Settings backup workflows", () => {
         command: "subshell-server restore --staged restore-stage --no-start",
       }),
     );
-    await screen.findByText("Preparation finished");
-    expect(screen.queryByText("Your restore is ready to apply")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByText("Your restore is ready to apply");
+    expect(screen.queryByRole("button", { name: "Next" })).toBeNull();
     expect(screen.getByText("Your restore is ready to apply")).toBeTruthy();
     expect(screen.getByText("subshell-server restore --staged restore-stage --no-start")).toBeTruthy();
     expect(screen.queryByText("Restore Complete")).toBeNull();
