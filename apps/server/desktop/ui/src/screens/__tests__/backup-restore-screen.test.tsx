@@ -47,6 +47,21 @@ async function reviewSelectedBackup() {
 }
 
 describe("native backup and restore", () => {
+  it("does not request a password for an unencrypted archive", async () => {
+    fake = installFakeIpc({
+      handlers: {
+        desktop_backup_list: () => ({ backups: [] }),
+        "plugin:dialog|open": () => "/tmp/plain.subshell",
+        desktop_restore_inspect: () => ({ ...stage, prepared: false }),
+      },
+    });
+    render(<BackupRestoreScreen {...props} kind="restore" />);
+    expect(screen.queryByLabelText("Archive password")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Choose backup file…" }));
+    await screen.findByText("Backup validated. Select Review backup to continue.");
+    expect(screen.queryByLabelText("Archive password")).toBeNull();
+  });
+
   it("places encrypted archive guidance on the password field instead of exposing CLI flags", async () => {
     fake = installFakeIpc({
       handlers: {
@@ -68,7 +83,7 @@ describe("native backup and restore", () => {
       "This backup is encrypted. Enter its archive password, then select Validate backup.",
     );
     expect(error.className).toContain("text-warning");
-    const password = screen.getByLabelText("Archive password (only for encrypted archives)");
+    const password = screen.getByLabelText("Archive password");
     expect(password.getAttribute("aria-describedby")).toBe(error.id);
     expect(screen.queryByText(/--password-file/)).toBeNull();
     expect(screen.getByRole("button", { name: "Review backup" }).hasAttribute("disabled")).toBe(true);
@@ -116,24 +131,31 @@ describe("native backup and restore", () => {
       handlers: {
         desktop_backup_list: () => ({ backups: [] }),
         "plugin:dialog|open": () => "/tmp/validated.subshell",
-        desktop_restore_inspect: () => ({ ...stage, prepared: false }),
+        desktop_restore_inspect: ({ password }) => {
+          if (!password) throw new Error("this backup requires a password");
+          return { ...stage, prepared: false };
+        },
       },
     });
     render(<BackupRestoreScreen {...props} kind="restore" />);
     const review = screen.getByRole("button", { name: "Review backup" });
+    expect(screen.queryByLabelText("Archive password")).toBeNull();
     expect(review.hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Choose backup file…" }));
+    const archivePassword = await screen.findByLabelText("Archive password");
+    fireEvent.change(archivePassword, { target: { value: "original password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Validate backup" }));
     await screen.findByText("Backup validated. Select Review backup to continue.");
     await waitFor(() => expect(review.hasAttribute("disabled")).toBe(false));
     expect(screen.queryByRole("heading", { name: "Review Restore" })).toBeNull();
     expect(screen.getByText("/tmp/validated.subshell")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("Archive password (only for encrypted archives)"), {
+    fireEvent.change(screen.getByLabelText("Archive password"), {
       target: { value: "different password" },
     });
     expect(review.hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Validate backup" }));
     await waitFor(() => expect(review.hasAttribute("disabled")).toBe(false));
-    expect(fake.callsTo("desktop_restore_inspect")[1]?.password).toBe("different password");
+    expect(fake.callsTo("desktop_restore_inspect")[2]?.password).toBe("different password");
     fireEvent.click(review);
     await screen.findByRole("heading", { name: "Review Restore" });
   });

@@ -106,6 +106,7 @@ export function BackupRestoreScreen(props: {
   const [temporaryConfirmation, setTemporaryConfirmation] = useState("");
   const [recover, setRecover] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.recoverAdmin);
   const [start, setStart] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.start);
+  const [archiveEncrypted, setArchiveEncrypted] = useState(false);
   const [archivePasswordProblem, setArchivePasswordProblem] = useState("");
   const [archiveProblem, setArchiveProblem] = useState("");
   const [validatedBackup, setValidatedBackup] = useState<RestoreInspection | null>(null);
@@ -264,9 +265,13 @@ export function BackupRestoreScreen(props: {
       setInspection(null);
       setReplace(false);
       setSessionConfirmation("");
+      if (!selectedPath) {
+        setArchiveEncrypted(false);
+        setOptions((old) => ({ ...old, password: "" }));
+      }
       update("archive", path);
       try {
-        const value = await ipc.restoreInspect(path, "", options.password);
+        const value = await ipc.restoreInspect(path, "", selectedPath ? options.password : "");
         if (value.legacyDatabaseOnly) {
           setOptions((old) => ({
             ...old,
@@ -301,10 +306,12 @@ export function BackupRestoreScreen(props: {
           detail.includes("A password requires --password-file") ||
           detail.includes("this backup requires a password")
         ) {
+          setArchiveEncrypted(true);
           setArchivePasswordProblem(
             "This backup is encrypted. Enter its archive password, then select Validate backup.",
           );
         } else if (detail.includes("backup authentication failed")) {
+          setArchiveEncrypted(true);
           setArchivePasswordProblem(
             "The password is incorrect or this backup is damaged. Check the password and try again.",
           );
@@ -756,6 +763,7 @@ export function BackupRestoreScreen(props: {
                       onValueChange={(value) => {
                         retryPreparation.current = null;
                         setBackupSource(value === "saved" ? "saved" : "file");
+                        setArchiveEncrypted(false);
                         setValidatedBackup(null);
                         setArchivePasswordProblem("");
                         setArchiveProblem("");
@@ -791,11 +799,12 @@ export function BackupRestoreScreen(props: {
                     )}
                   </div>
                 )}
-                {(backupSource === "file" || (selectedBackup && !selectedBackup.legacyDatabaseOnly)) && (
+                {(backupSource === "file" ? archiveEncrypted : selectedBackup?.encrypted) && (
                   <Field data-invalid={!!archivePasswordProblem}>
-                    <FieldLabel htmlFor="restore-password">Archive password (only for encrypted archives)</FieldLabel>
+                    <FieldLabel htmlFor="restore-password">Archive password</FieldLabel>
                     <Input
                       id="restore-password"
+                      required
                       type="password"
                       autoComplete="new-password"
                       disabled={locked}
