@@ -29,9 +29,9 @@ export const BACKUP_RESTORE_MODES = [
   },
   {
     value: "migration",
-    label: "Move to a new machine",
+    label: "Restore on a different machine",
     description:
-      "Restore the backup on another machine. Network plugins are disabled and published addresses are cleared so you can review them before reconnecting. The server’s identity and credentials are kept.",
+      "Use when restoring here from a backup created on a different machine. Network plugins are disabled and published addresses are cleared so you can review them before reconnecting. The server’s identity and credentials are kept.",
   },
 ] as const;
 
