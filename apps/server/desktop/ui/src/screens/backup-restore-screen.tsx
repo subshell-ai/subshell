@@ -100,6 +100,7 @@ export function BackupRestoreScreen(props: {
 }): ReactElement {
   // Retained only in this mounted window so expired extraction can be repeated.
   const retryPreparation = useRef<RestorePrepare | null>(null);
+  const pickingFile = useRef(false);
   const [options, setOptions] = useState<RestorePrepare>({ ...EMPTY_RESTORE });
   const [encrypt, setEncrypt] = useState<boolean>(BACKUP_RESTORE_DEFAULTS.encrypt);
   const [confirmation, setConfirmation] = useState("");
@@ -251,15 +252,27 @@ export function BackupRestoreScreen(props: {
     });
   };
   const inspect = async (selectedPath?: string) => {
-    await act("Inspecting archive checksums and administrators…", async () => {
-      const path =
-        selectedPath ??
-        (await open({
+    if (locked || pickingFile.current) return;
+    let path = selectedPath;
+    if (!path) {
+      pickingFile.current = true;
+      try {
+        const selected = await open({
           title: "Open instance backup or database-only snapshot",
           multiple: false,
           directory: false,
-        }));
-      if (typeof path !== "string") return;
+        });
+        if (typeof selected !== "string") return;
+        path = selected;
+      } catch (error) {
+        setArchiveProblem(String(error));
+        return;
+      } finally {
+        pickingFile.current = false;
+      }
+    }
+    const archivePath = path;
+    await act("Inspecting archive checksums and administrators…", async () => {
       retryPreparation.current = null;
       setStageId("");
       setInspection(null);
@@ -269,9 +282,9 @@ export function BackupRestoreScreen(props: {
         setArchiveEncrypted(false);
         setOptions((old) => ({ ...old, password: "" }));
       }
-      update("archive", path);
+      update("archive", archivePath);
       try {
-        const value = await ipc.restoreInspect(path, "", selectedPath ? options.password : "");
+        const value = await ipc.restoreInspect(archivePath, "", selectedPath ? options.password : "");
         if (value.legacyDatabaseOnly) {
           setOptions((old) => ({
             ...old,

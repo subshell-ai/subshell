@@ -47,6 +47,39 @@ async function reviewSelectedBackup() {
 }
 
 describe("native backup and restore", () => {
+  it("does not change the form while the native file picker is open or cancelled", async () => {
+    let cancel!: () => void;
+    fake = installFakeIpc({
+      handlers: {
+        desktop_backup_list: () => ({
+          backups: [
+            {
+              path: "/tmp/saved.db",
+              name: "saved.db",
+              bytes: 1,
+              createdAt: stage.manifest.completedAt,
+              legacyDatabaseOnly: true,
+              encrypted: false,
+            },
+          ],
+        }),
+        "plugin:dialog|open": () =>
+          new Promise((resolve) => {
+            cancel = () => resolve(null);
+          }),
+      },
+    });
+    const view = render(<BackupRestoreScreen {...props} kind="restore" />);
+    await screen.findByRole("radio", { name: "Use a saved backup" });
+    const before = view.container.innerHTML;
+    fireEvent.click(screen.getByRole("button", { name: "Choose backup file…" }));
+    await waitFor(() => expect(fake?.callsTo("plugin:dialog|open")).toHaveLength(1));
+    expect(view.container.innerHTML).toBe(before);
+    cancel();
+    await waitFor(() => expect(view.container.innerHTML).toBe(before));
+    expect(fake.callsTo("desktop_restore_inspect")).toHaveLength(0);
+  });
+
   it("does not request a password for an unencrypted archive", async () => {
     fake = installFakeIpc({
       handlers: {
