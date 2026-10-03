@@ -808,9 +808,6 @@ export function BackupRestoreScreen(props: {
                 {backupSource === "file" && (
                   <div className="flex flex-col gap-3">
                     <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
-                      {locked && progress && (
-                        <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
-                      )}
                       Choose backup file…
                     </Button>
                     {options.archive && (
