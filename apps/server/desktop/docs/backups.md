@@ -14,7 +14,7 @@ The exact capability, permission-manifest and caller-set tests pin this split.
 A restore inspection and protected prepared stage validate choices, destination,
 expiry and administrator recovery before native supervision stops. Prepared
 mode, address and recovery choices remain authoritative. Replacement is confirmed in the review screen. Compatible sessions remain
-running; the assistant asks separately about incompatible sessions only when
+running; the assistant shows incompatible-session consequences inline for consent when
 the read-only preflight reports them, before stopping its child. Update, reset, service and restore share the exclusive action gate.
 Native `--native-preflight` reuses the CLI's independent loaded service proof
 before the app child is stopped; staged `--native` repeats it at application.
@@ -60,7 +60,9 @@ A rollback receipt reports the previous-state fact. Pending-journal errors leave
 the supervisor stopped so an old executable cannot respawn over replacement
 state. Passwords use exclusively created 0600 temporary files with RAII cleanup,
 never command arguments. Password and temporary-password limits count UTF-16
-units to match JavaScript/CLI (1–4096, with temporary minimum8), with one-line
+units for the upper bound (4096, with temporary minimum8). New archive
+passwords require eight Unicode code points through the shared creation policy;
+read-only decryption accepts guesses. All password transport enforces one-line
 CR/LF/NUL refusal and at most16384 UTF-8 transport bytes. Failure output is
 redacted. Successful responses are projected through bounded, typed public
 backup/inspection/stage/apply schemas; no unknown fields cross IPC. An unknown
@@ -87,7 +89,9 @@ Restore preparation expires after ten minutes. The mounted assistant keeps the
 preparation request (including entered passwords) only in memory, allowing it
 to re-extract and validate the source before applying an expired stage. A
 changed manifest, destination, choices or recovery administrator requires review
-again. Closing the screen releases the request; success and Back clear it.
+again. Closing the screen releases the request. Returning from final review restores
+the cached fields for editing; applying clears visible password fields, and
+leaving the selection releases the cached request.
 
 Desktop backup and restore always execute the CLI bundled with the app, so
 the native interface matches the caller. Installed binaries remain service

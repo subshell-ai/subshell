@@ -64,7 +64,7 @@ subshell-server backup [--output <archive>] [--encrypt]
                        [--password-file <file|->] [--json]
 ```
 
-Every new backup is a full instance archive. Older database-only snapshots remain restorable. Password files must be private, owned regular files containing one line; `-` reads a line from stdin. Passwords are never command-line arguments.
+Every new backup is a full instance archive. Encryption defaults off; new encrypted archives require at least eight Unicode characters. Password derivation uses a fixed work factor on every host with a 128 MiB scrypt memory allowance. See [Backups and restoration](/administration/backups#encrypted-backups) for password guidance and offline guessing limits. Older database-only snapshots remain restorable. Password files must be private, owned regular files containing one line; `-` reads a line from stdin. Passwords are never command-line arguments.
 
 ## restore
 
@@ -76,9 +76,9 @@ subshell-server restore --discard-staged <id> --json
 subshell-server restore --staged <id> [--yes] [--force] [--no-start] [--json]
 ```
 
-`--prepare` validates and saves an archive and its choices as a protected local stage without stopping the server or replacing state. Prepared destination paths remain fixed; prepare another archive to change them. Stages expire after one hour, and `--discard-staged` deletes one, including an expired stage.
+`--prepare` validates and saves an archive and its choices as a protected local stage without stopping the server or replacing state. Prepared destination paths remain fixed; prepare another archive to change them. Stages expire after ten minutes, and `--discard-staged` deletes one, including an expired stage.
 
-An interactive restore asks for destination choices and confirms replacement. `--yes` accepts replacement; `--force` separately accepts interruption of active local panes. Starting afterward defaults to yes; `--no-start` leaves the restored instance stopped, with the previous state retained until a successful boot.
+An interactive restore asks for destination choices and confirms replacement. `--yes` accepts replacement; `--force` separately accepts the reported interruption of sessions that cannot be preserved. Starting afterward defaults to yes; `--no-start` leaves the restored instance stopped, with the previous state retained until a successful boot.
 
 For migration, use `--mode migration` with `--data-dir`, `--database-path`, `--config-dir`, and address overrides `--base-url`, `--host`, `--port`, and `--trusted-origins`. Network publication stays disabled until reviewed. The default mode is `same-machine`.
 

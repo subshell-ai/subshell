@@ -3461,27 +3461,57 @@ instant. The manifest records this boundary.
 Settings creation/inspection/preparation are cookie-admin-only and audited.
 Downloads are single-use, temporary, expire after one hour, and are cleaned after
 stream completion/cancellation; boot sweeps interrupted server download output.
-Decrypted restore staging is private and expires after one hour. It stores no
+Decrypted restore staging is private and expires after ten minutes. Saved
+archives do not expire. The mounted native assistant may re-extract an expired
+stage from its source and requires review if the prepared details change. It stores no
 plaintext archive or temporary login password in metadata. Settings cannot apply
 a restore: CLI/native assistant application requires the server stopped and the
 OS-backed instance mutex held. Network/config/plugin/key writers cooperate with
 the separate capture mutex while online backups are collected.
 
-Unencrypted archives contain live credentials. Optional password encryption uses
-scrypt (N=65536, r=8, p=2; 64 MiB working memory, 128 MiB allowance), a fresh 16-byte salt and 12-byte nonce, and
-AES-256-GCM. The fixed format header is authenticated. Decryption authenticates
-the whole ciphertext in private staging before parsing tar entries. Passwords
-are never written into manifests or audit metadata. The archive and staged
-files are 0600; owned staging directories are 0700. Forgotten passwords cannot
-be recovered. New encrypted archives require at least 8 Unicode characters;
-passwords are not trimmed or normalized. Offline password guessing remains
-possible: use a unique random password or random passphrase. Algorithm id 3
-stores the fixed CPU work factor in the authenticated header. Every host uses
-p=2, independent of the creating machine's speed. This is an OWASP-listed
-scrypt configuration, with a 128 MiB derivation memory allowance. There is no
-runtime calibration or artificial delay. Elapsed time depends on hardware and
-load; no universal three-second bound is promised. The unreleased
-algorithm ids 1 and 2 are rejected.
+### Archive encryption and password policy
+
+Unencrypted archives contain live credentials. Encryption is optional and defaults
+off. AES-256-GCM uses a 32-byte key, a fresh 16-byte random salt, a fresh
+12-byte random nonce, and a 16-byte authentication tag. The versioned 40-byte
+header is authenticated as additional data. Decryption authenticates the complete
+ciphertext in private staging before parsing archive entries.
+
+Password derivation uses scrypt with fixed `N=65536`, `r=8`, and `p=2`, one of
+[OWASP's listed configurations](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#scrypt).
+Working memory is approximately 64 MiB; `maxmem` is 128 MiB to allow overhead.
+The allowance applies to each derivation, not total process memory or all
+concurrent operations. Derived key buffers are zeroed after use. JavaScript
+password strings are not reliably zeroizable; native transport and transient
+in-memory preparation still fall within the owning OS account's trust boundary.
+
+Every host uses the same fixed cost. There is no runtime calibration against
+the backup host, no artificial delay, and no universal two-to-three-second
+latency guarantee. Creating an archive on a high-end CPU does not increase its
+unlock work on a lower-end computer. Processing time depends on hardware and
+load. Algorithm id 3 records `p=2` in the authenticated header; other work
+factors and the unreleased algorithm ids 1 and 2 are rejected before derivation.
+Untrusted headers cannot request unbounded memory or CPU work.
+
+A shared creation policy requires at least eight Unicode code points, at most
+4096 UTF-16 code units, and no CR, LF, or NUL. Values are never trimmed or
+normalized. CLI, browser, desktop, and archive creation enforce this policy;
+read-only decryption accepts supplied guesses and reports authentication failure
+for incorrect passwords. The eight-character minimum is a usability decision,
+not a strength guarantee. Someone holding the archive can guess offline without
+rate limits, and attack hardware may run faster than the owner's computer.
+The fixed work factor raises each guess's cost but cannot make a weak short
+password equivalent to a strong longer password. User guidance recommends a
+unique random password or random passphrase, stored separately. Forgotten
+passwords cannot be recovered.
+
+Passwords never appear in manifests, audit metadata, or CLI arguments. Native
+password transport uses owned 0600 temporary files with cleanup; archives and
+staged files are 0600 in owned 0700 staging directories. Encryption protects a
+saved copy, not a compromised live host or access to its private plaintext
+staging. User procedures live in the [backup guide](../apps/docs/content/docs/administration/backups.mdx).
+
+### Restore validation and replacement
 
 Archive inspection refuses unsupported formats/newer migrations, invalid hashes,
 links, traversal, duplicate paths, and bounded-resource violations. Default
