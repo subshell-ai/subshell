@@ -67,6 +67,8 @@ export function Frame(props: {
   /** The rail node, when this screen's machine has one. Presentational slot:
       the Rail primitive is rendered by the caller and positioned here. */
   rail?: ReactNode;
+  /** Anchor growing forms at the top so adding rows does not move existing controls. */
+  contentAlignment?: "start" | "center";
 }): ReactElement {
   const { strings, art, children, barLeft, barRight, entranceKey, rail } = props;
   return (
@@ -84,7 +86,13 @@ export function Frame(props: {
               : "min-h-0 flex-1 overflow-y-auto px-8 py-8"
           }
         >
-          <div className="mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center">
+          <div
+            className={
+              props.contentAlignment === "start"
+                ? "mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-start"
+                : "mx-auto flex min-h-full w-full max-w-[560px] flex-col justify-center"
+            }
+          >
             {art && (
               <div aria-hidden className="flex justify-center">
                 {art}

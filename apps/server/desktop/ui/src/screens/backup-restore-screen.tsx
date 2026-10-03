@@ -434,6 +434,7 @@ export function BackupRestoreScreen(props: {
     const completion = showBackupCompletion ? backupResult : null;
     return (
       <Frame
+        contentAlignment="start"
         rail={props.rail}
         strings={{
           title: completion ? "Backup Complete" : "Backing Up Your Server",
@@ -509,6 +510,7 @@ export function BackupRestoreScreen(props: {
     const completion = showCompletion ? restoreResult : null;
     return (
       <Frame
+        contentAlignment="start"
         rail={props.rail}
         strings={{
           title: completion ? "Restore Complete" : "Restoring Your Server",
@@ -613,6 +615,7 @@ export function BackupRestoreScreen(props: {
     `${new Date(file.createdAt).toLocaleString()} · ${file.legacyDatabaseOnly ? "Database-only snapshot" : "Full instance archive"}${file.serverVersion ? ` · Server ${file.serverVersion}` : ""}`;
   return (
     <Frame
+      contentAlignment="start"
       rail={props.rail}
       strings={{
         title: props.kind === "backup" ? "Back Up Your Server" : inspection ? "Review Restore" : "Restore Your Server",
