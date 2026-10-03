@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { chmod, link, lstat, mkdir, mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { backupEncryptionPasswordProblem } from "@internal/subshell-protocol";
 import { SERVER_VERSION } from "../../version.js";
 import { captureConfig, serializeConfig } from "./config.js";
 import { inspectDatabase, requiredIdentityPaths, snapshotDatabase, validateMigrations } from "./database.js";
@@ -42,6 +43,10 @@ export async function createInstanceBackup(options: CreateInstanceBackupOptions)
   bytes: number;
   manifest: InstanceBackupManifest;
 }> {
+  if (options.password !== undefined) {
+    const problem = backupEncryptionPasswordProblem(options.password);
+    if (problem) throw new Error(problem);
+  }
   const limits = backupLimits(options.limits);
   const destination = resolve(options.destinationPath);
   for (const component of DATA_COMPONENTS) {

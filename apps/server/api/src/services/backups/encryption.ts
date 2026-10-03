@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes, scrypt } from "node:cryp
 import { createReadStream, createWriteStream } from "node:fs";
 import { open, stat } from "node:fs/promises";
 import { pipeline } from "node:stream/promises";
+import { backupEncryptionPasswordProblem } from "@internal/subshell-protocol";
 
 // Authenticated, fixed-size header: magic/version/algorithm, salt (16), nonce (12).
 const MAGIC = Buffer.from("SUBSHBAK");
@@ -11,7 +12,7 @@ const TAG_BYTES = 16;
 async function deriveKey(password: string, salt: Buffer): Promise<Buffer> {
   if (!password || password.length > 4096) throw new Error("backup password must contain 1-4096 characters");
   return new Promise((resolve, reject) => {
-    scrypt(password, salt, 32, { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }, (error, key) => {
+    scrypt(password, salt, 32, { N: 131072, r: 8, p: 1, maxmem: 160 * 1024 * 1024 }, (error, key) => {
       if (error) reject(error);
       else resolve(key);
     });
@@ -25,10 +26,12 @@ export function isEncryptedBackup(prefix: Uint8Array): boolean {
 
 /** Stream AES-256-GCM with scrypt and fresh salt/nonce, authenticating the entire header. */
 export async function encryptArchive(source: string, target: string, password: string): Promise<void> {
+  const problem = backupEncryptionPasswordProblem(password);
+  if (problem) throw new Error(problem);
   const header = Buffer.alloc(HEADER_BYTES);
   MAGIC.copy(header);
   header[8] = 1; // format
-  header[9] = 1; // AES-256-GCM+scrypt, fixed parameters
+  header[9] = 2; // AES-256-GCM+scrypt, fixed parameters
   randomBytes(16).copy(header, 12);
   randomBytes(12).copy(header, 28);
   const key = await deriveKey(password, header.subarray(12, 28));
@@ -68,7 +71,7 @@ export async function decryptArchive(source: string, target: string, password?: 
   } finally {
     await handle.close();
   }
-  if (!isEncryptedBackup(header) || header[8] !== 1 || header[9] !== 1 || header[10] !== 0 || header[11] !== 0) {
+  if (!isEncryptedBackup(header) || header[8] !== 1 || header[9] !== 2 || header[10] !== 0 || header[11] !== 0) {
     throw new Error("unsupported encrypted backup header");
   }
   const key = await deriveKey(password, header.subarray(12, 28));

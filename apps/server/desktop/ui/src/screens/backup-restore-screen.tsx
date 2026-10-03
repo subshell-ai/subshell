@@ -1,5 +1,10 @@
 import { Frame } from "@internal/assistant";
-import { BACKUP_RESTORE_DEFAULTS, BACKUP_RESTORE_MODES } from "@internal/subshell-protocol";
+import {
+  BACKUP_PASSWORD_GUIDANCE,
+  BACKUP_RESTORE_DEFAULTS,
+  BACKUP_RESTORE_MODES,
+  backupEncryptionPasswordProblem,
+} from "@internal/subshell-protocol";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { CheckCircle2, LoaderCircle } from "lucide-react";
 import { type ReactElement, useEffect, useRef, useState } from "react";
@@ -38,6 +43,10 @@ export function passwordProblem(
   temporary = false,
 ): string | null {
   if (!enabled) return null;
+  if (!temporary) {
+    const problem = backupEncryptionPasswordProblem(password);
+    if (problem) return problem;
+  }
   if (temporary && password.length < 8) return "Use at least eight characters for the temporary password.";
   if (
     !password ||
@@ -928,6 +937,7 @@ export function BackupRestoreScreen(props: {
                   problem={backupConfirmationProblem}
                   onChange={setConfirmation}
                 />
+                <p className="hint">{BACKUP_PASSWORD_GUIDANCE}</p>
               </>
             )}
           </>

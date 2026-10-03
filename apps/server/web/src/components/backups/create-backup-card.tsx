@@ -1,5 +1,9 @@
 import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle, Input, Switch } from "@internal/node-admin";
-import { BACKUP_RESTORE_DEFAULTS } from "@internal/subshell-protocol";
+import {
+  BACKUP_PASSWORD_GUIDANCE,
+  BACKUP_RESTORE_DEFAULTS,
+  backupEncryptionPasswordProblem,
+} from "@internal/subshell-protocol";
 import { useStore } from "@tanstack/react-form";
 import { useState } from "react";
 import { ErrorBanner } from "@/components/error-banner";
@@ -11,8 +15,8 @@ type BackupDraft = { encrypted: boolean; password: string; confirmation: string 
 function backupProblems(draft: BackupDraft): FieldProblems {
   if (!draft.encrypted) return {};
   const problems: FieldProblems = {};
-  if (!draft.password || draft.password.length > 4096)
-    problems.password = "Enter an encryption password of 1–4096 characters.";
+  const passwordProblem = backupEncryptionPasswordProblem(draft.password);
+  if (passwordProblem) problems.password = passwordProblem;
   if (!draft.confirmation || draft.password !== draft.confirmation) problems.confirmation = "Passwords do not match.";
   return problems;
 }
@@ -95,7 +99,7 @@ export function CreateBackupCard() {
                           disabled={busy}
                         />
                         {problem && (
-                          <p role="alert" className="text-destructive text-detail">
+                          <p role="alert" className="text-detail text-warning">
                             {problem}
                           </p>
                         )}
@@ -129,7 +133,7 @@ export function CreateBackupCard() {
                           disabled={busy}
                         />
                         {problem && (
-                          <p role="alert" className="text-destructive text-detail">
+                          <p role="alert" className="text-detail text-warning">
                             {problem}
                           </p>
                         )}
@@ -137,9 +141,7 @@ export function CreateBackupCard() {
                     );
                   }}
                 </form.Field>
-                <p className="text-detail text-muted-foreground">
-                  Store this password separately. A forgotten encryption password cannot be recovered.
-                </p>
+                <p className="text-detail text-muted-foreground">{BACKUP_PASSWORD_GUIDANCE}</p>
               </>
             )}
           </FieldGroup>

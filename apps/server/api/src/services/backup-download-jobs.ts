@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { backupEncryptionPasswordProblem } from "@internal/subshell-protocol";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { beginBackupCapture } from "@/services/backup-capture-lock.js";
 import { createInstanceBackup } from "@/services/backups/index.js";
@@ -38,8 +39,10 @@ function forget(job: DownloadJob): void {
 
 export function startBackupDownloadJob(actorUserId: string, password?: string) {
   if (jobs.size >= 8) throw new Error("Finish or cancel existing backup downloads before creating another.");
-  if (password !== undefined && (!password || password.length > 4096))
-    throw new Error("Enter an encryption password of 1–4096 characters.");
+  if (password !== undefined) {
+    const problem = backupEncryptionPasswordProblem(password);
+    if (problem) throw new Error(problem);
+  }
   const release = beginBackupCapture();
   let dir: string;
   try {

@@ -47,7 +47,11 @@ export async function runBackup(opts: BackupOpts, deps: BackupDeps): Promise<num
     const password = opts.passwordFile
       ? readPasswordFile(opts.passwordFile)
       : encrypt
-        ? await askPassword("Backup encryption password", true, { ...deps, isTTY: !opts.json && deps.isTTY })
+        ? await askPassword(
+            "Backup encryption password (at least 15 characters; use a unique random password or passphrase)",
+            true,
+            { ...deps, isTTY: !opts.json && deps.isTTY },
+          )
         : undefined;
     const destinationPath = resolve(opts.output ?? freeArchiveName(join(source.dataDir, "backups"), encrypt));
     release = (deps.capture ?? beginBackupCapture)();

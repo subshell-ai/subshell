@@ -164,16 +164,22 @@ describe("instance archive", () => {
   });
 
   it("rejects wrong password, truncated ciphertext and authenticated-header tampering", async () => {
-    const path = await backup(fixture("source"), "password");
+    const path = await backup(fixture("source"), "unique archive password");
     await expect(stage(path)).rejects.toThrow("requires a password");
     await expect(stage(path, "wrong")).rejects.toThrow("authentication failed");
     const bytes = readFileSync(path);
     const damaged = Buffer.from(bytes);
     damaged[12] ^= 1;
     put(join(root, "damaged"), damaged);
-    await expect(stage(join(root, "damaged"), "password")).rejects.toThrow("authentication failed");
+    await expect(stage(join(root, "damaged"), "unique archive password")).rejects.toThrow("authentication failed");
+    for (const offset of [40, bytes.length - 1]) {
+      const tampered = Buffer.from(bytes);
+      tampered[offset] ^= 1;
+      put(join(root, "tampered"), tampered);
+      await expect(stage(join(root, "tampered"), "unique archive password")).rejects.toThrow("authentication failed");
+    }
     put(join(root, "truncated"), bytes.subarray(0, 20));
-    await expect(stage(join(root, "truncated"), "password")).rejects.toThrow("truncated");
+    await expect(stage(join(root, "truncated"), "unique archive password")).rejects.toThrow("truncated");
     expect(readdirSync(join(root, "staging"))).toEqual([]);
   });
 

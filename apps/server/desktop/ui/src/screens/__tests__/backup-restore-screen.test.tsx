@@ -246,7 +246,7 @@ describe("native backup and restore", () => {
     expect(password.getAttribute("aria-describedby")).toBe(error.id);
     expect(screen.queryByText(/--password-file/)).toBeNull();
     expect(screen.getByRole("button", { name: "Configure backup" }).hasAttribute("disabled")).toBe(true);
-    fireEvent.change(password, { target: { value: "secret" } });
+    fireEvent.change(password, { target: { value: "unique archive secret" } });
     expect(screen.queryByRole("alert")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Validate backup" }));
     await waitFor(() =>
@@ -264,7 +264,12 @@ describe("native backup and restore", () => {
     expect(save.hasAttribute("disabled")).toBe(true);
     expect(password.hasAttribute("required")).toBe(true);
     expect(screen.queryByRole("alert")).toBeNull();
-    fireEvent.change(password, { target: { value: "secret" } });
+    fireEvent.change(password, { target: { value: "short" } });
+    fireEvent.change(confirmation, { target: { value: "short" } });
+    fireEvent.blur(password);
+    expect(screen.getByRole("alert").textContent).toContain("at least 15");
+    expect(save.hasAttribute("disabled")).toBe(true);
+    fireEvent.change(password, { target: { value: "unique archive secret" } });
     fireEvent.change(confirmation, { target: { value: "wrong" } });
     fireEvent.blur(confirmation);
     expect(screen.getByRole("alert").textContent).toBe("Passwords do not match.");
@@ -273,7 +278,7 @@ describe("native backup and restore", () => {
     expect(save.hasAttribute("disabled")).toBe(true);
     fireEvent.focus(confirmation);
     expect(screen.queryByRole("alert")).toBeNull();
-    fireEvent.change(confirmation, { target: { value: "secret" } });
+    fireEvent.change(confirmation, { target: { value: "unique archive secret" } });
     fireEvent.blur(confirmation);
     expect(confirmation.getAttribute("aria-invalid")).toBe("false");
     expect(save.hasAttribute("disabled")).toBe(false);
@@ -441,7 +446,7 @@ describe("native backup and restore", () => {
     }
     expect(EMPTY_RESTORE.mode).toBe(BACKUP_RESTORE_DEFAULTS.mode);
     expect(passwordProblem("short", "short", true, true)).toContain("eight");
-    expect(passwordProblem("password", "different", true)).toContain("match");
+    expect(passwordProblem("unique archive secret", "different", true)).toContain("match");
     expect(passwordProblem("line\nbreak", "line\nbreak", true)).toContain("one line");
   });
   it("leaves optional encryption off with password fields hidden", () => {

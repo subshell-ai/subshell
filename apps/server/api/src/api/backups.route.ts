@@ -1,5 +1,6 @@
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { backupEncryptionPasswordProblem } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { HttpError, requireAdmin } from "@/api/auth-guard.js";
 import { audit } from "@/services/audit.js";
@@ -68,6 +69,10 @@ export const backupsRoutes = new Elysia({ prefix: "/api/admin/backups" })
   .post(
     "/create",
     async ({ user, body }) => {
+      if (body.password !== undefined) {
+        const problem = backupEncryptionPasswordProblem(body.password);
+        if (problem) throw new HttpError(400, problem);
+      }
       try {
         const job = startBackupDownloadJob(user.id, body.password);
         await recordAudit(user.id, "backup.create", job.id);

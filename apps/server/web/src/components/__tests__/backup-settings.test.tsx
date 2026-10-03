@@ -62,6 +62,11 @@ describe("Settings backups", () => {
     });
     const password = screen.getByLabelText("Encryption password");
     const confirm = screen.getByLabelText("Confirm password");
+    for (const input of [password, confirm]) fireEvent.change(input, { target: { value: "short" } });
+    fireEvent.blur(password);
+    expect(screen.getByText("Use at least 15 characters for the archive password.")).toBeTruthy();
+    expect(submit.disabled).toBe(true);
+    fireEvent.focus(password);
     fireEvent.change(password, { target: { value: "secret" } });
     fireEvent.focus(confirm);
     fireEvent.change(confirm, { target: { value: "different" } });

@@ -91,14 +91,20 @@ describe("admin archive endpoints", () => {
     expect((await download(member.token)).status).toBe(403);
   });
 
+  it("refuses a short encryption password before starting a download", async () => {
+    const response = await download(admin.token, "short");
+    expect(response.status).toBe(400);
+    expect(JSON.stringify(await response.json())).toContain("at least 15");
+  });
+
   it("downloads an encrypted archive, refuses a bad password, and stages validated choices", async () => {
-    const response = await download(admin.token, "archive-secret");
+    const response = await download(admin.token, "unique-archive-secret");
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     const bytes = await response.arrayBuffer();
     expect(Buffer.from(bytes).subarray(0, 8).toString()).toBe("SUBSHBAK");
     expect((await upload(bytes, admin.token, "wrong-secret")).status).toBe(400);
-    const inspected = await upload(bytes, admin.token, "archive-secret");
+    const inspected = await upload(bytes, admin.token, "unique-archive-secret");
     expect(inspected.status).toBe(200);
     const body = (await inspected.json()) as { id: string; admins: { id: string }[]; legacyDatabaseOnly: boolean };
     stages.push(body.id);
@@ -128,7 +134,7 @@ describe("admin archive endpoints", () => {
     const result = (await prepared.json()) as { command: string };
     expect(result.command).toBe(`subshell-server restore --staged ${body.id}`);
     expect(JSON.stringify(readRestoreStage(body.id))).not.toContain("temporary-route-password");
-    expect(JSON.stringify(readRestoreStage(body.id))).not.toContain("archive-secret");
+    expect(JSON.stringify(readRestoreStage(body.id))).not.toContain("unique-archive-secret");
     expect(readRestoreStage(body.id).prepared).toBe(true);
   });
 

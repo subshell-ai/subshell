@@ -3468,12 +3468,15 @@ OS-backed instance mutex held. Network/config/plugin/key writers cooperate with
 the separate capture mutex while online backups are collected.
 
 Unencrypted archives contain live credentials. Optional password encryption uses
-scrypt (N=32768, r=8, p=1), a fresh 16-byte salt and 12-byte nonce, and
+scrypt (N=131072, r=8, p=1; 128 MiB working memory), a fresh 16-byte salt and 12-byte nonce, and
 AES-256-GCM. The fixed format header is authenticated. Decryption authenticates
 the whole ciphertext in private staging before parsing tar entries. Passwords
 are never written into manifests or audit metadata. The archive and staged
 files are 0600; owned staging directories are 0700. Forgotten passwords cannot
-be recovered.
+be recovered. New encrypted archives require at least 15 Unicode characters;
+passwords are not trimmed or normalized. Offline password guessing remains
+possible: use a unique random password or random passphrase. Algorithm id 2
+fixes the derivation cost; the unreleased weaker id 1 is rejected.
 
 Archive inspection refuses unsupported formats/newer migrations, invalid hashes,
 links, traversal, duplicate paths, and bounded-resource violations. Default
