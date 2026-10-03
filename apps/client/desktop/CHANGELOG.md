@@ -1,5 +1,23 @@
 # @internal/desktop-client
 
+## 1.2.5
+
+### Patch Changes
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Keep long assistant forms inside the window with a fixed action bar.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Use the desktop assistant frame and radio choices for dashboard backup and restore, with centered headings and separate footer navigation. Enable authenticated attachment downloads in both desktop control plane windows and show native completion or failure feedback.
+
+- [#310](https://github.com/subshell-ai/subshell/pull/310) [`7734283`](https://github.com/subshell-ai/subshell/commit/77342833d395c2c1fafc5f94ddf723761b07b51a) Thanks [@dependabot](https://github.com/apps/dependabot)! - Update native desktop dependencies, including the updater’s Linux certificate handling.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Summarize restore session interruptions by count and match desktop dialog prose to pane body text.
+  
+  Honor confirmed backup replacement in the desktop save dialog without losing the previous archive on capture failure.
+  
+  Separate backup selection, restore configuration, and final confirmation into three panes. Validate configuration on blur and show session effects inline before consent.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Harden instance backup and restore after review. A native parent now defers respawning while a control-plane restore holds the instance swap, so the swap no longer races a respawn for the lock. Boot confirmation gets a budget separate from the stop wait, so a slow healthy boot is not rolled back; a stored start choice survives to apply time; a re-applied completed restore is refused honestly instead of echoing a stale success; a failed or expired worker always reports and clears its secret file; abandoned download slots expire; a rolled-back prepared database removes its WAL sidecars; the state-write lock closes its handle when a release refuses; the client desktop registers the dialog plugin its download notice needs; and container one-shot invocations run once instead of respawning.
+
 ## 1.2.4
 
 ### Patch Changes
