@@ -69,6 +69,36 @@ async function reviewConfiguredRestore() {
 }
 
 describe("native backup and restore", () => {
+  it("automatically validates a saved backup selection without a manual validation action", async () => {
+    fake = installFakeIpc({
+      handlers: {
+        desktop_backup_list: () => ({
+          backups: [
+            {
+              path: "/tmp/saved.db",
+              name: "saved.db",
+              bytes: 10,
+              createdAt: stage.manifest.completedAt,
+              legacyDatabaseOnly: true,
+              encrypted: false,
+            },
+          ],
+        }),
+        desktop_restore_inspect: () => ({ ...stage, prepared: false, legacyDatabaseOnly: true }),
+      },
+    });
+    render(<BackupRestoreScreen {...props} kind="restore" />);
+    fireEvent.click(await screen.findByRole("radio", { name: "Use a saved backup" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Available backup" }));
+    fireEvent.click(await screen.findByRole("option", { name: /Database-only snapshot/ }));
+    await screen.findByText("Backup validated. Select Configure backup to continue.");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Configure backup" }).hasAttribute("disabled")).toBe(false),
+    );
+    expect(fake.callsTo("desktop_restore_inspect")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Validate backup" })).toBeNull();
+  });
+
   it("validates configuration on blur and requires final confirmation after read-only preflight", async () => {
     fake = installFakeIpc({
       handlers: {

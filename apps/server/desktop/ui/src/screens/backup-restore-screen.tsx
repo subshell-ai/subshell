@@ -309,7 +309,7 @@ export function BackupRestoreScreen(props: {
       }
     });
   };
-  const inspect = async (selectedPath?: string) => {
+  const inspect = async (selectedPath?: string, archivePassword = options.password) => {
     if (locked || pickingFile.current) return;
     let path = selectedPath;
     if (!path) {
@@ -342,7 +342,7 @@ export function BackupRestoreScreen(props: {
       }
       update("archive", archivePath);
       try {
-        const value = await ipc.restoreInspect(archivePath, "", selectedPath ? options.password : "");
+        const value = await ipc.restoreInspect(archivePath, "", selectedPath ? archivePassword : "");
         if (value.legacyDatabaseOnly) {
           setOptions((old) => ({
             ...old,
@@ -1010,18 +1010,21 @@ export function BackupRestoreScreen(props: {
                     {archiveProblem}
                   </p>
                 )}
-                {(backupSource === "saved" ? selectedBackup : options.archive) && !validatedBackup && (
-                  <Button
-                    variant="outline"
-                    disabled={locked}
-                    onClick={() => void inspect(backupSource === "saved" ? selectedBackup?.path : options.archive)}
-                  >
-                    {locked && progress && (
-                      <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
-                    )}
-                    Validate backup
-                  </Button>
-                )}
+                {(backupSource === "saved"
+                  ? selectedBackup && (archivePasswordProblem || archiveProblem)
+                  : options.archive) &&
+                  !validatedBackup && (
+                    <Button
+                      variant="outline"
+                      disabled={locked}
+                      onClick={() => void inspect(backupSource === "saved" ? selectedBackup?.path : options.archive)}
+                    >
+                      {locked && progress && (
+                        <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+                      )}
+                      Validate backup
+                    </Button>
+                  )}
                 {validatedBackup && (
                   <p role="status" className="m-0 text-body text-success">
                     Backup validated. Select Configure backup to continue.
@@ -1051,6 +1054,8 @@ export function BackupRestoreScreen(props: {
                             setValidatedBackup(null);
                             setArchivePasswordProblem("");
                             setArchiveProblem("");
+                            setOptions((old) => ({ ...old, password: "" }));
+                            if (path) void inspect(path, "");
                           }}
                         >
                           <SelectTrigger aria-label="Available backup">
@@ -1066,6 +1071,12 @@ export function BackupRestoreScreen(props: {
                             </SelectGroup>
                           </SelectContent>
                         </Select>
+                        {locked && progress && (
+                          <p role="status" className="m-0 flex items-center gap-2 text-body text-muted-foreground">
+                            <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                            Validating backup…
+                          </p>
+                        )}
                         {selectedBackup && (
                           <p className="m-0 break-words text-detail text-muted-foreground [overflow-wrap:anywhere]">
                             {selectedBackup.name} ·{" "}
