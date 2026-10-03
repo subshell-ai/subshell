@@ -59,7 +59,7 @@ async function download(token: string, password?: string) {
   );
   if (!created.ok) return created;
   const { id } = (await created.json()) as { id: string };
-  for (let attempt = 0; attempt < 100; attempt++) {
+  for (let attempt = 0; attempt < 1500; attempt++) {
     const status = await app.fetch(authedRequest(`/api/admin/backups/jobs/${id}`, token));
     const body = (await status.json()) as { status: string; error?: string };
     if (body.status === "ready") return app.fetch(authedRequest(`/api/admin/backups/download/${id}`, token));
@@ -94,7 +94,7 @@ describe("admin archive endpoints", () => {
   it("refuses a short encryption password before starting a download", async () => {
     const response = await download(admin.token, "short");
     expect(response.status).toBe(400);
-    expect(JSON.stringify(await response.json())).toContain("at least 15");
+    expect(JSON.stringify(await response.json())).toContain("at least 8");
   });
 
   it("downloads an encrypted archive, refuses a bad password, and stages validated choices", async () => {

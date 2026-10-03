@@ -3,7 +3,7 @@ import { createCipheriv, scryptSync } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { decryptArchive, encryptArchive } from "../encryption.js";
+import { backupWorkFactor, decryptArchive, encryptArchive } from "../encryption.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -20,20 +20,21 @@ it("decrypts an independently constructed AES-GCM envelope using the stronger sc
   const header = Buffer.alloc(40);
   header.write("SUBSHBAK");
   header[8] = 1;
-  header[9] = 2;
+  header[9] = 3;
+  header.writeUInt16BE(2, 10);
   header.fill(0x42, 12, 28);
   header.fill(0x17, 28);
-  const key = scryptSync("unique archive password", header.subarray(12, 28), 32, {
-    N: 131072,
+  const key = scryptSync("eightchr", header.subarray(12, 28), 32, {
+    N: 65536,
     r: 8,
-    p: 1,
-    maxmem: 160 * 1024 * 1024,
+    p: 2,
+    maxmem: 128 * 1024 * 1024,
   });
   const cipher = createCipheriv("aes-256-gcm", key, header.subarray(28));
   cipher.setAAD(header);
   const ciphertext = Buffer.concat([cipher.update("private archive contents"), cipher.final()]);
   writeFileSync(encrypted, Buffer.concat([header, ciphertext, cipher.getAuthTag()]));
-  await decryptArchive(encrypted, output, "unique archive password");
+  await decryptArchive(encrypted, output, "eightchr");
   expect(readFileSync(output, "utf8")).toBe("private archive contents");
   key.fill(0);
 });
@@ -45,7 +46,7 @@ it("uses fresh salt and nonce and rejects the unreleased weak algorithm", async 
   await encryptArchive(source, output, "unique archive password");
   const first = readFileSync(encrypted);
   const second = readFileSync(output);
-  expect(first[9]).toBe(2);
+  expect(first[9]).toBe(3);
   expect(first.subarray(12, 28).equals(second.subarray(12, 28))).toBe(false);
   expect(first.subarray(28, 40).equals(second.subarray(28, 40))).toBe(false);
   first[9] = 1;
@@ -59,8 +60,29 @@ it("uses fresh salt and nonce and rejects the unreleased weak algorithm", async 
 it("rejects short passwords before creating output, counting Unicode characters", async () => {
   const { source, encrypted } = paths();
   writeFileSync(source, "private archive contents");
-  for (const password of ["", "short", "😀".repeat(14)]) {
-    await expect(encryptArchive(source, encrypted, password)).rejects.toThrow("at least 15");
+  for (const password of ["", "short", "😀".repeat(7)]) {
+    await expect(encryptArchive(source, encrypted, password)).rejects.toThrow("at least 8");
     expect(existsSync(encrypted)).toBe(false);
+  }
+});
+
+it("bounds calibration for slow and fast hosts", () => {
+  expect(backupWorkFactor(500)).toBe(5);
+  expect(backupWorkFactor(1500)).toBe(2);
+  expect(backupWorkFactor(10)).toBe(48);
+  expect(backupWorkFactor(0)).toBe(48);
+});
+
+it("refuses hostile work factors before deriving a key or writing plaintext", async () => {
+  const { encrypted, output } = paths();
+  const envelope = Buffer.alloc(56);
+  envelope.write("SUBSHBAK");
+  envelope[8] = 1;
+  envelope[9] = 3;
+  for (const work of [0, 1, 49, 65535]) {
+    envelope.writeUInt16BE(work, 10);
+    writeFileSync(encrypted, envelope);
+    await expect(decryptArchive(encrypted, output, "eightchr")).rejects.toThrow("unsupported");
+    expect(existsSync(output)).toBe(false);
   }
 });

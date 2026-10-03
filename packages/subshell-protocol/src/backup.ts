@@ -29,7 +29,7 @@ export const BACKUP_RESTORE_MODES = [
 export function backupEncryptionPasswordProblem(password: string): string | null {
   if (password.length > 4096 || /[\r\n\0]/.test(password))
     return "Use a password of at most 4096 characters on one line.";
-  if (Array.from(password).length < 15) return "Use at least 15 characters for the archive password.";
+  if (Array.from(password).length < 8) return "Use at least 8 characters for the archive password.";
   return null;
 }
 

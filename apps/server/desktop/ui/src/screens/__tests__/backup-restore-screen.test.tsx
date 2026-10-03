@@ -267,7 +267,7 @@ describe("native backup and restore", () => {
     fireEvent.change(password, { target: { value: "short" } });
     fireEvent.change(confirmation, { target: { value: "short" } });
     fireEvent.blur(password);
-    expect(screen.getByRole("alert").textContent).toContain("at least 15");
+    expect(screen.getByRole("alert").textContent).toContain("at least 8");
     expect(save.hasAttribute("disabled")).toBe(true);
     fireEvent.change(password, { target: { value: "unique archive secret" } });
     fireEvent.change(confirmation, { target: { value: "wrong" } });

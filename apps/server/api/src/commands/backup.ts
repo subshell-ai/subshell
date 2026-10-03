@@ -48,7 +48,7 @@ export async function runBackup(opts: BackupOpts, deps: BackupDeps): Promise<num
       ? readPasswordFile(opts.passwordFile)
       : encrypt
         ? await askPassword(
-            "Backup encryption password (at least 15 characters; use a unique random password or passphrase)",
+            "Backup encryption password (at least 8 characters; use a unique random password or passphrase)",
             true,
             { ...deps, isTTY: !opts.json && deps.isTTY },
           )
