@@ -781,6 +781,16 @@ export function BackupRestoreScreen(props: {
                     </RadioGroup>
                   </FieldSet>
                 )}
+                {backupSource === "file" && (
+                  <div className="flex flex-col gap-3">
+                    <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
+                      Choose backup file…
+                    </Button>
+                    {options.archive && (
+                      <p className="m-0 break-words text-body text-muted-foreground">{options.archive}</p>
+                    )}
+                  </div>
+                )}
                 {(backupSource === "file" || (selectedBackup && !selectedBackup.legacyDatabaseOnly)) && (
                   <Field data-invalid={!!archivePasswordProblem}>
                     <FieldLabel htmlFor="restore-password">Archive password (only for encrypted archives)</FieldLabel>
@@ -805,16 +815,6 @@ export function BackupRestoreScreen(props: {
                   <p role="alert" className="m-0 text-warning text-detail">
                     {archiveProblem}
                   </p>
-                )}
-                {backupSource === "file" && (
-                  <div className="flex flex-col gap-3">
-                    <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
-                      Choose backup file…
-                    </Button>
-                    {options.archive && (
-                      <p className="m-0 break-words text-body text-muted-foreground">{options.archive}</p>
-                    )}
-                  </div>
                 )}
                 {(backupSource === "saved" ? selectedBackup : options.archive) && !validatedBackup && (
                   <Button
