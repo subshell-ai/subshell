@@ -715,7 +715,7 @@ export function BackupRestoreScreen(props: {
         </Dialog>
       )}
       <div className="flex flex-col gap-4">
-        {progress && (
+        {progress && (props.kind === "backup" || inspection) && (
           <p className="hint" role="status">
             {progress}
           </p>
@@ -792,6 +792,9 @@ export function BackupRestoreScreen(props: {
                 {backupSource === "file" && (
                   <div className="flex flex-col gap-3">
                     <Button variant="outline" disabled={locked} onClick={() => void inspect()}>
+                      {locked && progress && (
+                        <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+                      )}
                       Choose backup file…
                     </Button>
                     {options.archive && (
@@ -831,6 +834,9 @@ export function BackupRestoreScreen(props: {
                     disabled={locked}
                     onClick={() => void inspect(backupSource === "saved" ? selectedBackup?.path : options.archive)}
                   >
+                    {locked && progress && (
+                      <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+                    )}
                     Validate backup
                   </Button>
                 )}
