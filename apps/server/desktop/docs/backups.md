@@ -100,3 +100,10 @@ private sibling directory and publishing the completed archive atomically.
 A failed capture preserves the previous backup; CLI backups still refuse
 existing destinations. A newly created destination cannot overwrite a file
 that appeared after the save dialog.
+
+Restore uses three panes: select and validate a backup, configure its destination
+and recovery settings, then review prepared details and confirm replacement.
+The final pane runs native preflight read-only (`desktop_restore_apply` with
+`preview: true`) and shows incompatible-session consequences inline. It requires
+an explicit confirmation checkbox before starting replacement. Configuration
+errors are shown on blur in gold and prevent advancing to review.

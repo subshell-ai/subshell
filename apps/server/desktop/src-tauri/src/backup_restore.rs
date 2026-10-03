@@ -542,8 +542,15 @@ pub fn desktop_restore_apply(
     confirmed: bool,
     force: bool,
     start: bool,
+    preview: Option<bool>,
 ) -> Result<Value, String> {
     let _guard = control::ActionGuard::try_new().ok_or("Another server action is running.")?;
+    if preview == Some(true) {
+        let argv = executable(&app)?;
+        let mut args = stage_args(&staged)?;
+        args.extend(["--native-preflight".into(), "--json".into()]);
+        return json_command(&argv, args, &[]);
+    }
     if !confirmed {
         return Err("Confirm replacement of the displayed destination before restoring.".into());
     }

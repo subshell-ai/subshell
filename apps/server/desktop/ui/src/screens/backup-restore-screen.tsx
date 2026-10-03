@@ -5,7 +5,7 @@ import { CheckCircle2, LoaderCircle } from "lucide-react";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel, FieldLegend, FieldSet } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -111,6 +111,9 @@ export function BackupRestoreScreen(props: {
   const [archivePasswordProblem, setArchivePasswordProblem] = useState("");
   const [archiveProblem, setArchiveProblem] = useState("");
   const [validatedBackup, setValidatedBackup] = useState<RestoreInspection | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({});
+  const [focusedField, setFocusedField] = useState("");
   const [inspection, setInspection] = useState<RestoreInspection | null>(null);
   const [backups, setBackups] = useState<LocalBackupFile[]>([]);
   const [backupSource, setBackupSource] = useState("file");
@@ -160,6 +163,7 @@ export function BackupRestoreScreen(props: {
       [name]: value,
     }));
     setReplace(false);
+    setReviewing(false);
   };
   const clearPasswords = () => {
     setOptions((old) => ({ ...old, password: "", temporaryPassword: "" }));
@@ -198,20 +202,74 @@ export function BackupRestoreScreen(props: {
       live = false;
     };
   }, [props.kind]);
-  const field = (name: keyof RestorePrepare, label: string, password = false) => (
-    <div key={name}>
-      <Label htmlFor={`restore-${name}`}>{label}</Label>
-      <Input
-        id={`restore-${name}`}
-        type={password ? "password" : "text"}
-        autoComplete={password ? "new-password" : "off"}
-        spellCheck={false}
-        disabled={locked}
-        value={options[name]}
-        onChange={(event) => update(name, event.currentTarget.value)}
-      />
-    </div>
-  );
+  const configurationProblem = (name: keyof RestorePrepare): string | null => {
+    const value = options[name].trim();
+    if (!value) return null;
+    if (["databasePath", "dataDir", "configDir"].includes(name) && !value.startsWith("/"))
+      return "Enter an absolute path.";
+    if (name === "port" && (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535))
+      return "Enter a port from 1 to 65535.";
+    if (name === "host" && !/^[a-zA-Z0-9.:[\]-]+$/.test(value)) return "Enter a valid listen address or hostname.";
+    if (name === "baseUrl" || name === "trustedOrigins") {
+      for (const address of name === "trustedOrigins" ? value.split(",").map((part) => part.trim()) : [value]) {
+        try {
+          const url = new URL(address);
+          if (
+            !["http:", "https:"].includes(url.protocol) ||
+            url.username ||
+            url.password ||
+            url.search ||
+            url.hash ||
+            (url.pathname !== "/" && url.pathname !== "")
+          )
+            throw new Error();
+        } catch {
+          return name === "baseUrl"
+            ? "Enter an HTTP or HTTPS URL without a path."
+            : "Enter comma-separated HTTP or HTTPS origins.";
+        }
+      }
+    }
+    return null;
+  };
+  const configurationInvalid =
+    !inspection?.legacyDatabaseOnly &&
+    (["databasePath", "dataDir", "configDir", "port", "host", "baseUrl", "trustedOrigins"] as const).some((name) =>
+      configurationProblem(name),
+    );
+  const recoveryInvalid =
+    recover &&
+    (!options.recoverAdmin ||
+      (!retryPreparation.current && (!!recoveryPasswordProblem || !!recoveryConfirmationProblem)));
+  const field = (name: keyof RestorePrepare, label: string, password = false) => {
+    const error = touchedFields[name] && focusedField !== name ? configurationProblem(name) : null;
+    return (
+      <Field key={name} data-invalid={!!error}>
+        <FieldLabel htmlFor={`restore-${name}`}>{label}</FieldLabel>
+        <Input
+          id={`restore-${name}`}
+          type={password ? "password" : "text"}
+          autoComplete={password ? "new-password" : "off"}
+          spellCheck={false}
+          disabled={locked}
+          value={options[name]}
+          aria-invalid={!!error}
+          aria-describedby={error ? `restore-${name}-error` : undefined}
+          onFocus={() => setFocusedField(name)}
+          onBlur={() => {
+            setTouchedFields((old) => ({ ...old, [name]: true }));
+            setFocusedField("");
+          }}
+          onChange={(event) => update(name, event.currentTarget.value)}
+        />
+        {error && (
+          <p id={`restore-${name}-error`} role="alert" className="m-0 text-warning text-detail">
+            {error}
+          </p>
+        )}
+      </Field>
+    );
+  };
   const toggle = (
     id: string,
     label: string,
@@ -366,6 +424,39 @@ export function BackupRestoreScreen(props: {
       clearPasswords();
     }
   };
+  const backToConfiguration = () => {
+    setReviewing(false);
+    setReplace(false);
+    const cached = retryPreparation.current;
+    if (cached) {
+      setOptions((old) => ({ ...old, password: cached.password, temporaryPassword: cached.temporaryPassword }));
+      setTemporaryConfirmation(cached.temporaryPassword);
+    }
+  };
+  const reviewRestore = async () => {
+    if (configurationInvalid || recoveryInvalid) return;
+    await act("Checking the restore destination and active sessions…", async () => {
+      const prepared =
+        inspection?.prepared && stageId && (!inspection.expiresAt || inspection.expiresAt > Date.now())
+          ? inspection
+          : retryPreparation.current
+            ? await ipc.restorePrepare(retryPreparation.current)
+            : await prepare();
+      setInspection(prepared);
+      setStageId(prepared.id ?? "");
+      setReplace(false);
+      setSessionConfirmation("");
+      try {
+        await ipc.restorePreview(prepared.id ?? "");
+      } catch (error) {
+        const detail = String(error);
+        const marker = "RESTORE_SESSION_CONFIRMATION_REQUIRED:";
+        if (!detail.includes(marker)) throw error;
+        setSessionConfirmation(detail.slice(detail.indexOf(marker) + marker.length).trim());
+      }
+      setReviewing(true);
+    });
+  };
   const apply = async (force = false) => {
     if (!replace) return;
     await act("Preparing the backup for restore…", async () => {
@@ -437,6 +528,8 @@ export function BackupRestoreScreen(props: {
         const marker = "RESTORE_SESSION_CONFIRMATION_REQUIRED:";
         if (!detail.includes(marker)) throw error;
         setSessionConfirmation(detail.slice(detail.indexOf(marker) + marker.length).trim());
+        setReplace(false);
+        setReviewing(true);
       } finally {
         setRestoring(false);
         clearPasswords();
@@ -623,6 +716,114 @@ export function BackupRestoreScreen(props: {
   }
   const [sessionSummary, ...sessionConsequences] = sessionConfirmation.split(/(?<=\.)\s+/);
   const sessionCount = sessionSummary?.match(/^(\d+ active sessions?)(.*)$/);
+  if (reviewing && inspection) {
+    return (
+      <Frame
+        contentAlignment="start"
+        rail={props.rail}
+        strings={{
+          title: "Review Restore",
+          subtitle: "Confirm these details before replacing your server’s state.",
+          problem,
+        }}
+        barLeft={
+          <Button
+            variant="ghost"
+            disabled={locked}
+            onClick={() => {
+              backToConfiguration();
+            }}
+          >
+            Back
+          </Button>
+        }
+        barRight={
+          <Button disabled={locked || !replace} onClick={() => void apply(!!sessionConfirmation)}>
+            Start backup
+          </Button>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Backup and destination</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <RestoreFacts
+                rows={[
+                  ["Archive", options.archive],
+                  ["Captured", new Date(inspection.manifest.completedAt).toLocaleString()],
+                  [
+                    "Server version",
+                    inspection.manifest.serverVersion === "legacy"
+                      ? "Unknown (not recorded in this snapshot)"
+                      : inspection.manifest.serverVersion,
+                  ],
+                  [
+                    "Restore mode",
+                    inspection.legacyDatabaseOnly || options.mode === "same-machine"
+                      ? "Same-machine recovery"
+                      : "Move to a new machine",
+                  ],
+                  ["Database", inspection.destination?.databasePath ?? ""],
+                  ["Data directory", inspection.destination?.dataDir ?? ""],
+                  ["Configuration", inspection.destination?.configPath ?? ""],
+                  ["Control plane URL", options.baseUrl || "Current configuration"],
+                  [
+                    "Admin recovery",
+                    recover
+                      ? (inspection.admins.find((admin) => admin.id === options.recoverAdmin)?.email ?? "Enabled")
+                      : "Off",
+                  ],
+                  ["Start after restoring", start ? "Yes" : "No"],
+                ]}
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Before you restore</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-3">
+              <p className="m-0 text-body text-warning">
+                The displayed destination will be replaced and everyone will be signed out.
+              </p>
+              {sessionConfirmation ? (
+                <>
+                  <p className="m-0 text-body text-muted-foreground">
+                    {sessionCount ? (
+                      <>
+                        <span className="text-warning font-strong">{sessionCount[1]}</span>
+                        {sessionCount[2]}
+                      </>
+                    ) : (
+                      sessionSummary
+                    )}
+                  </p>
+                  <ul className="flex flex-col gap-2 list-disc pl-5 text-body text-muted-foreground">
+                    {sessionConsequences.map((line) => (
+                      <li key={line}>{line}</li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <p className="m-0 text-body text-muted-foreground">
+                  Compatible running sessions will be preserved. If session conditions change, you’ll be asked to
+                  confirm again.
+                </p>
+              )}
+              <Field orientation="horizontal" data-disabled={locked}>
+                <Checkbox id="restore-confirm" checked={replace} disabled={locked} onCheckedChange={setReplace} />
+                <FieldLabel htmlFor="restore-confirm">
+                  I confirm replacing this server’s state and the session effects shown above
+                </FieldLabel>
+              </Field>
+            </CardContent>
+          </Card>
+        </div>
+      </Frame>
+    );
+  }
   const selectedBackup = backups.find((file) => file.path === selectedBackupPath);
   const backupLabel = (file: LocalBackupFile) =>
     `${new Date(file.createdAt).toLocaleString()} · ${file.legacyDatabaseOnly ? "Database-only snapshot" : "Full instance archive"}${file.serverVersion ? ` · Server ${file.serverVersion}` : ""}`;
@@ -631,12 +832,13 @@ export function BackupRestoreScreen(props: {
       contentAlignment="start"
       rail={props.rail}
       strings={{
-        title: props.kind === "backup" ? "Back Up Your Server" : inspection ? "Review Restore" : "Restore Your Server",
+        title:
+          props.kind === "backup" ? "Back Up Your Server" : inspection ? "Configure Restore" : "Restore Your Server",
         subtitle:
           props.kind === "backup"
             ? "Save the database, supported configuration, identity, plugins and captured logs."
             : inspection
-              ? "Review the destination and restore options before replacing your server’s state."
+              ? "Configure the destination and restore options, then review the replacement."
               : "Restore an instance even when its server is stopped or has never been configured.",
         problem,
       }}
@@ -651,6 +853,7 @@ export function BackupRestoreScreen(props: {
                 retryPreparation.current = null;
                 setInspection(null);
                 setValidatedBackup(null);
+                setReviewing(false);
                 setStageId("");
                 setReplace(false);
                 setSessionConfirmation("");
@@ -675,63 +878,29 @@ export function BackupRestoreScreen(props: {
             Save backup…
           </Button>
         ) : inspection ? (
-          <Button
-            disabled={
-              locked ||
-              !replace ||
-              (recover && (!options.recoverAdmin || !!recoveryPasswordProblem || !!recoveryConfirmationProblem))
-            }
-            onClick={() => void apply()}
-          >
-            Restore
+          <Button disabled={locked || !!configurationInvalid || !!recoveryInvalid} onClick={() => void reviewRestore()}>
+            {locked && progress && (
+              <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
+            )}
+            Review backup
           </Button>
         ) : (
           <Button
             disabled={locked || !validatedBackup}
             onClick={() => {
-              if (validatedBackup) setInspection(validatedBackup);
+              if (validatedBackup) {
+                setInspection(validatedBackup);
+                setReviewing(false);
+              }
             }}
           >
-            Review backup
+            Configure backup
           </Button>
         )
       }
     >
-      {sessionConfirmation && (
-        <Dialog title="Some sessions cannot survive this restore" onClose={() => !locked && setSessionConfirmation("")}>
-          <p className="text-muted-foreground break-words">
-            {sessionCount ? (
-              <>
-                <span className="text-warning font-strong">{sessionCount[1]}</span>
-                {sessionCount[2]}
-              </>
-            ) : (
-              sessionSummary
-            )}
-          </p>
-          <ul className="mt-3 flex flex-col gap-2 list-disc pl-5 text-muted-foreground">
-            {sessionConsequences.map((consequence) => (
-              <li key={consequence}>{consequence}</li>
-            ))}
-          </ul>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" disabled={locked} onClick={() => setSessionConfirmation("")}>
-              Cancel
-            </Button>
-            <Button
-              disabled={locked}
-              onClick={() => {
-                setSessionConfirmation("");
-                void apply(true);
-              }}
-            >
-              Continue restore
-            </Button>
-          </div>
-        </Dialog>
-      )}
       <div className="flex flex-col gap-4">
-        {progress && (props.kind === "backup" || inspection) && (
+        {progress && props.kind === "backup" && (
           <p className="hint" role="status">
             {progress}
           </p>
@@ -855,7 +1024,7 @@ export function BackupRestoreScreen(props: {
                 )}
                 {validatedBackup && (
                   <p role="status" className="m-0 text-body text-success">
-                    Backup validated. Select Review backup to continue.
+                    Backup validated. Select Configure backup to continue.
                   </p>
                 )}
                 {backupsProblem && (
@@ -1023,8 +1192,8 @@ export function BackupRestoreScreen(props: {
                             Email/password authentication will be enabled. This administrator must change the temporary
                             password after signing in.
                           </p>
-                          <div>
-                            <Label htmlFor="restore-admin">Administrator</Label>
+                          <Field data-invalid={!!(touchedFields.recoverAdmin && !options.recoverAdmin)}>
+                            <FieldLabel htmlFor="restore-admin">Administrator</FieldLabel>
                             <Select
                               value={options.recoverAdmin || null}
                               disabled={locked}
@@ -1034,7 +1203,11 @@ export function BackupRestoreScreen(props: {
                               }))}
                               onValueChange={(id) => update("recoverAdmin", id ?? "")}
                             >
-                              <SelectTrigger id="restore-admin">
+                              <SelectTrigger
+                                id="restore-admin"
+                                aria-invalid={!!(touchedFields.recoverAdmin && !options.recoverAdmin)}
+                                onBlur={() => setTouchedFields((old) => ({ ...old, recoverAdmin: true }))}
+                              >
                                 <SelectValue placeholder="Select an administrator" />
                               </SelectTrigger>
                               <SelectContent>
@@ -1047,7 +1220,12 @@ export function BackupRestoreScreen(props: {
                                 </SelectGroup>
                               </SelectContent>
                             </Select>
-                          </div>
+                            {touchedFields.recoverAdmin && !options.recoverAdmin && (
+                              <p role="alert" className="m-0 text-warning text-detail">
+                                Choose an existing administrator.
+                              </p>
+                            )}
+                          </Field>
                           <RequiredPasswordField
                             id="restore-temporaryPassword"
                             label="Temporary password (at least eight characters)"
@@ -1069,15 +1247,7 @@ export function BackupRestoreScreen(props: {
                     </CardContent>
                   </Card>
                 )}
-                {inspection && (
-                  <RestoreConfirmation
-                    locked={locked}
-                    replace={replace}
-                    start={start}
-                    setReplace={setReplace}
-                    setStart={setStart}
-                  />
-                )}
+                {inspection && <RestoreConfirmation locked={locked} start={start} setStart={setStart} />}
               </>
             )}
           </>

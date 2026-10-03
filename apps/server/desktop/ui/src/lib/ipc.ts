@@ -607,3 +607,7 @@ export const restoreApply = (
   start: boolean,
 ): Promise<RestoreApplyResult> => invoke("desktop_restore_apply", { staged, confirmed, force, start });
 export const restoreDiscard = (staged: string): Promise<void> => invoke("desktop_restore_discard", { staged });
+
+/** Read-only destination and session check; never stops or replaces the server. */
+export const restorePreview = (staged: string): Promise<RestoreInspection> =>
+  invoke("desktop_restore_apply", { staged, confirmed: false, force: false, start: false, preview: true });
