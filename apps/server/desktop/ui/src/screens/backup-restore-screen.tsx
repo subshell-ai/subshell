@@ -82,7 +82,7 @@ function RequiredPasswordField(props: {
         onChange={(event) => props.onChange(event.currentTarget.value)}
       />
       {problem && (
-        <p id={`${props.id}-error`} role="alert" className="m-0 text-destructive text-detail">
+        <p id={`${props.id}-error`} role="alert" className="m-0 text-warning text-detail">
           {problem}
         </p>
       )}

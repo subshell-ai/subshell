@@ -61,6 +61,7 @@ describe("native backup and restore", () => {
     fireEvent.change(confirmation, { target: { value: "wrong" } });
     fireEvent.blur(confirmation);
     expect(screen.getByRole("alert").textContent).toBe("Passwords do not match.");
+    expect(screen.getByRole("alert").className).toContain("text-warning");
     expect(confirmation.getAttribute("aria-invalid")).toBe("true");
     expect(save.hasAttribute("disabled")).toBe(true);
     fireEvent.focus(confirmation);

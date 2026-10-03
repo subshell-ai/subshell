@@ -12,7 +12,7 @@ export function FieldLegend({ className, ...props }: ComponentProps<"legend">) {
   return <legend data-slot="field-legend" className={cn("mb-2 font-strong text-label", className)} {...props} />;
 }
 
-const fieldVariants = cva("group/field flex w-full gap-2 data-[invalid=true]:text-destructive", {
+const fieldVariants = cva("group/field flex w-full gap-2 data-[invalid=true]:text-warning", {
   variants: {
     orientation: {
       vertical: "flex-col",
