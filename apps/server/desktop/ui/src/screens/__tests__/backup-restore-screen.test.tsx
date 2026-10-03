@@ -99,6 +99,43 @@ describe("native backup and restore", () => {
     expect(screen.queryByRole("button", { name: "Validate backup" })).toBeNull();
   });
 
+  it("keeps recovery passwords filled until delayed preflight reaches review", async () => {
+    let finishPreview: (() => void) | undefined;
+    const preview = new Promise<void>((resolve) => {
+      finishPreview = resolve;
+    });
+    fake = installFakeIpc({
+      handlers: {
+        desktop_backup_list: () => ({ backups: [] }),
+        "plugin:dialog|open": () => "/tmp/backup.subshell",
+        desktop_restore_inspect: () => ({ ...stage, prepared: false }),
+        desktop_restore_apply: async () => {
+          await preview;
+          return stage;
+        },
+      },
+    });
+    render(<BackupRestoreScreen {...props} kind="restore" />);
+    await reviewSelectedBackup();
+    fireEvent.click(screen.getByRole("switch", { name: "Recover an existing administrator" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Administrator" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Administrator · admin@example.com" }));
+    const password = screen.getByLabelText("Temporary password (at least eight characters)") as HTMLInputElement;
+    const confirmation = screen.getByLabelText("Confirm temporary password") as HTMLInputElement;
+    for (const input of [password, confirmation]) {
+      fireEvent.change(input, { target: { value: "temporary-secret" } });
+      fireEvent.blur(input);
+    }
+    fireEvent.click(screen.getByRole("button", { name: "Review backup" }));
+    await waitFor(() => expect(fake?.callsTo("desktop_restore_apply")).toHaveLength(1));
+    expect(password.value).toBe("temporary-secret");
+    expect(confirmation.value).toBe("temporary-secret");
+    expect(screen.queryByRole("alert")).toBeNull();
+    finishPreview?.();
+    await screen.findByRole("heading", { name: "Review Restore" });
+    expect(screen.queryByLabelText("Confirm temporary password")).toBeNull();
+  });
+
   it("validates configuration on blur and requires final confirmation after read-only preflight", async () => {
     fake = installFakeIpc({
       handlers: {

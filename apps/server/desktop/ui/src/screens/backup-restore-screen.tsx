@@ -60,7 +60,7 @@ function RequiredPasswordField(props: {
 }) {
   const [touched, setTouched] = useState(false);
   const [focused, setFocused] = useState(false);
-  const problem = touched && !focused ? props.problem : null;
+  const problem = touched && !focused && !props.disabled ? props.problem : null;
   return (
     <Field data-invalid={!!problem}>
       <FieldLabel htmlFor={props.id}>{props.label}</FieldLabel>
@@ -400,29 +400,25 @@ export function BackupRestoreScreen(props: {
     if (recover && !options.recoverAdmin) {
       throw new Error("Choose an existing administrator from the archive.");
     }
-    try {
-      const request: RestorePrepare = {
-        ...options,
-        ...(!inspection?.legacyDatabaseOnly && {
-          databasePath: options.databasePath || inspection?.destination?.databasePath || "",
-          dataDir: options.dataDir || inspection?.destination?.dataDir || "",
-          configDir: options.configDir || inspection?.destination?.configPath.replace(/[/\\][^/\\]+$/, "") || "",
-          baseUrl: options.baseUrl || String(inspection?.choices?.configOverrides?.baseUrl ?? ""),
-          host: options.host || String(inspection?.choices?.configOverrides?.host ?? ""),
-          port: options.port || String(inspection?.choices?.configOverrides?.port ?? ""),
-          trustedOrigins: options.trustedOrigins || String(inspection?.choices?.configOverrides?.trustedOrigins ?? ""),
-        }),
-        recoverAdmin: recover ? options.recoverAdmin : "",
-        temporaryPassword: recover ? options.temporaryPassword : "",
-      };
-      const result = await ipc.restorePrepare(request);
-      retryPreparation.current = request;
-      setInspection(result);
-      setStageId(result.id ?? "");
-      return result;
-    } finally {
-      clearPasswords();
-    }
+    const request: RestorePrepare = {
+      ...options,
+      ...(!inspection?.legacyDatabaseOnly && {
+        databasePath: options.databasePath || inspection?.destination?.databasePath || "",
+        dataDir: options.dataDir || inspection?.destination?.dataDir || "",
+        configDir: options.configDir || inspection?.destination?.configPath.replace(/[/\\][^/\\]+$/, "") || "",
+        baseUrl: options.baseUrl || String(inspection?.choices?.configOverrides?.baseUrl ?? ""),
+        host: options.host || String(inspection?.choices?.configOverrides?.host ?? ""),
+        port: options.port || String(inspection?.choices?.configOverrides?.port ?? ""),
+        trustedOrigins: options.trustedOrigins || String(inspection?.choices?.configOverrides?.trustedOrigins ?? ""),
+      }),
+      recoverAdmin: recover ? options.recoverAdmin : "",
+      temporaryPassword: recover ? options.temporaryPassword : "",
+    };
+    const result = await ipc.restorePrepare(request);
+    retryPreparation.current = request;
+    setInspection(result);
+    setStageId(result.id ?? "");
+    return result;
   };
   const backToConfiguration = () => {
     setReviewing(false);
@@ -455,6 +451,7 @@ export function BackupRestoreScreen(props: {
         setSessionConfirmation(detail.slice(detail.indexOf(marker) + marker.length).trim());
       }
       setReviewing(true);
+      clearPasswords();
     });
   };
   const apply = async (force = false) => {
