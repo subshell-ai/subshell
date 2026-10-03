@@ -87,6 +87,10 @@ pub fn plan(mode: Supervision, running: bool, owns_child: bool) -> Plan {
 /// it. Menu callbacks are on the main thread and would freeze on the probe.
 pub fn handle(app: &AppHandle) {
     // Single-flight: take the flag or ignore this press (see the static's note).
+    // A panic between the take and the clear/exit cannot wedge it in a shipped
+    // build (`[profile.release] panic = "abort"` takes the process, flag, and
+    // every later press down together); a `tauri dev` unwind build could, which
+    // is acceptable because `boot_probe`/`sup.stop` already run unguarded there.
     if QUIT_IN_FLIGHT.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -166,6 +170,12 @@ fn present(app: AppHandle, action: Plan) {
 fn stop_child_then_quit(app: AppHandle) {
     std::thread::spawn(move || {
         let sup = app.state::<Supervisor>();
+        // DELIBERATELY not under `ActionGuard` (the service branch is): a Quit
+        // here only ever stops the supervisor's own child through the same idempotent
+        // `stop`, so the worst overlap with a supervision chain is two stops racing
+        // on one pid in a tiny pid-reuse window — narrower than the unit-file write
+        // the service guard exists to protect, and gating the common app-mode Quit
+        // behind a lock the assistant usually holds is not worth it.
         // If the child vanished between the press and now, there is nothing of
         // ours to signal. Resolve nothing (a fresh spawner would be a 15-second
         // binary-ladder walk that `wait_until_gone` never touches, since it
