@@ -47,11 +47,14 @@ describe("docker-image.yml chain", () => {
     // checked only GHCR, found nothing packaged, launched, and died
     // "release not found" in the build. The gate is the RELEASE's existence.
     const decide = WORKFLOW.split("id: decide")[1];
-    expect(decide).toMatch(/if ! gh release view "cli-server-v\$VERSION"/);
-    expect(decide).toMatch(/skip=true/);
-    expect(decide).toMatch(/move_latest=false/);
+    // Discriminate, never fail open: only the HTTP-404 branch skips; any
+    // other gh failure exits 1 (a red plan is re-dispatchable; a green
+    // wrong-skip would strand :latest until an unrelated re-arm).
+    expect(decide).toMatch(/gh api "repos\/\$GITHUB_REPOSITORY\/releases\/tags\/cli-server-v\$VERSION"/);
+    expect(decide).toMatch(/\*"HTTP 404"\*\)\n\s+echo "::notice[^"]*not published yet[^\n]*\n\s+echo "skip=true"[^\n]*\n\s+echo "move_latest=false"/);
+    expect(decide).toMatch(/::error::release existence check failed[^\n]*\n\s+exit 1/);
     // and the gate precedes the fresh-build branch that would move :latest.
-    expect(decide.indexOf("gh release view")).toBeLessThan(decide.indexOf("move_latest=true"));
+    expect(decide.indexOf("releases/tags/cli-server-v")).toBeLessThan(decide.indexOf("move_latest=true"));
   });
 
   test("a chained re-arm of an already-packaged version skips", () => {

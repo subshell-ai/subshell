@@ -17,9 +17,9 @@ name: docker-image
 # published release YET (the bump commit finishes a Release run before the
 # dispatched cut publishes the tag; that cut's completion re-arms this
 # trigger), build when it is not. Dispatch with a version rebuilds any
-# release into its tag on purpose - but never moves :latest, so a version
-# needing its first bake should reach the rail through the chain, not a
-# dispatch.
+# release into its tag on purpose - and never moves :latest except the one
+# bootstrap case below - so a version needing its FIRST bake should reach the
+# rail through the chain, not a dispatch.
 #
 # :latest moves on a fresh chained build (the parent's smoke gates are
 # exactly the old design's "release event whose smoke job passed") and, as
@@ -139,11 +139,25 @@ jobs:
             # it is absent, skip as a no-op; the dispatched cut's own
             # completion re-arms this trigger and packages the version for
             # real (with :latest moving, which a dispatch cannot do).
-            if ! gh release view "cli-server-v$VERSION" >/dev/null 2>&1; then
-              echo "::notice::cli-server-v$VERSION not published yet; the Release run that cuts it will re-arm this trigger"
-              echo "skip=true" >> "$GITHUB_OUTPUT"
-              echo "move_latest=false" >> "$GITHUB_OUTPUT"
-              exit 0
+            # Discriminate, never fail open: ONLY a real 404 means "not yet"
+            # (skip - the cut's completion re-arms); a 5xx, network or
+            # rate-limit failure EXITS 1, because a red plan run is
+            # recoverable (re-dispatch Release, the chain re-arms) while a
+            # green skip on the one run meant to bake the version would strand
+            # :latest until some unrelated future completion re-fired this.
+            if ! gate=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/cli-server-v$VERSION" --silent 2>&1); then
+              case "$gate" in
+                *"HTTP 404"*)
+                  echo "::notice::cli-server-v$VERSION not published yet; the Release run that cuts it will re-arm this trigger"
+                  echo "skip=true" >> "$GITHUB_OUTPUT"
+                  echo "move_latest=false" >> "$GITHUB_OUTPUT"
+                  exit 0
+                  ;;
+                *)
+                  echo "::error::release existence check failed: $gate"
+                  exit 1
+                  ;;
+              esac
             fi
             # A chained build of a version that was NOT packaged yet is
             # exactly the old design's fresh release: smoke gates this run,
