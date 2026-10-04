@@ -154,7 +154,7 @@ jobs:
                   exit 0
                   ;;
                 *)
-                  echo "::error::release existence check failed: $gate"
+                  echo "::error::release existence check failed: ${gate//$'\n'/ }"
                   exit 1
                   ;;
               esac

@@ -51,7 +51,9 @@ describe("docker-image.yml chain", () => {
     // other gh failure exits 1 (a red plan is re-dispatchable; a green
     // wrong-skip would strand :latest until an unrelated re-arm).
     expect(decide).toMatch(/gh api "repos\/\$GITHUB_REPOSITORY\/releases\/tags\/cli-server-v\$VERSION"/);
-    expect(decide).toMatch(/\*"HTTP 404"\*\)\n\s+echo "::notice[^"]*not published yet[^\n]*\n\s+echo "skip=true"[^\n]*\n\s+echo "move_latest=false"/);
+    expect(decide).toMatch(
+      /\*"HTTP 404"\*\)\n\s+echo "::notice[^"]*not published yet[^\n]*\n\s+echo "skip=true"[^\n]*\n\s+echo "move_latest=false"/,
+    );
     expect(decide).toMatch(/::error::release existence check failed[^\n]*\n\s+exit 1/);
     // and the gate precedes the fresh-build branch that would move :latest.
     expect(decide.indexOf("releases/tags/cli-server-v")).toBeLessThan(decide.indexOf("move_latest=true"));
