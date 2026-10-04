@@ -7,7 +7,7 @@ Deploy Subshell Server in a dedicated Proxmox LXC container.
 
 ## Before you start
 
-Use a Proxmox VE 8 or newer host where you can create containers as root. The server container defaults to a 20 GB disk; use at least 16 GB for the image and updates. The helper downloads a Debian template and creates an unprivileged container with nesting enabled for Docker.
+Use a Proxmox VE 8 or newer host where you can create containers as root. The server container defaults to a 40 GB disk; the minimum is 16 GB, and a smaller number only fits a thin-provisioned storage you watch. lvm-thin and ZFS allocate only what the container writes, so the default costs the pool nothing it has not used. The helper downloads a Debian template and creates an unprivileged container with nesting enabled for Docker.
 
 Review the [server helper](https://github.com/subshell-ai/subshell/blob/main/proxmox-server.sh) before running it. The server helper and node helper create different kinds of installation.
 

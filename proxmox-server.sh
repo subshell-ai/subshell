@@ -23,7 +23,13 @@ CT_ID="${CT_ID:-}"
 CT_HOSTNAME="${CT_HOSTNAME:-subshell}"
 CT_CORES="${CT_CORES:-1}"
 CT_RAM_MB="${CT_RAM_MB:-2048}"
-CT_DISK_GB="${CT_DISK_GB:-20}"
+# 40 G, not the 20 a first cut shipped: the measured CT holds ~13 G a couple
+# of months in, and a pull needs room for the old and new images at once
+# (2026-10-03: a routine update died with ENOSPC at 96.7% thin-volume use).
+# lvm-thin and ZFS allocate only what is WRITTEN, so a big number costs the
+# pool nothing it has not used; plain lvm reserves it whole, and that operator
+# answers this prompt with their free extent.
+CT_DISK_GB="${CT_DISK_GB:-40}"
 CT_BRIDGE="${CT_BRIDGE:-vmbr0}"
 APP_PORT="${APP_PORT:-3080}"
 TRUSTED_ORIGINS="${TRUSTED_ORIGINS:-}"
@@ -203,7 +209,7 @@ install_ct() {
   fn_prompt CT_CORES "Cores" "$CT_CORES"
   fn_prompt CT_RAM_MB "Memory MB" "$CT_RAM_MB"
   fn_prompt CT_DISK_GB "Disk GB" "$CT_DISK_GB"
-  [[ "$CT_DISK_GB" =~ ^[0-9]+$ && "$CT_DISK_GB" -ge 16 ]] || msg_err "the server container needs at least 16 GB for its image and updates (20 GB recommended)"
+  [[ "$CT_DISK_GB" =~ ^[0-9]+$ && "$CT_DISK_GB" -ge 16 ]] || msg_err "the server container needs at least 16 GB for its image and updates (40 GB recommended; lvm-thin and ZFS only allocate what is written)"
   fn_prompt CT_BRIDGE "Bridge" "$CT_BRIDGE"
   fn_prompt APP_PORT "Port the web UI maps on the CT" "$APP_PORT"
   echo "The container's address is detected automatically. Add other IPs, domains, or full URLs below."
@@ -291,9 +297,19 @@ update_app() {
   preflight
   need_ct_id
   header "Pull the new image and recreate the container (running panes end; data survives)"
-  pct exec "$CT_ID" -- bash -s -- "$CT_RUN_ENV" <<'REMOTE'
+  # Trim from the HOST: FITRIM is refused "Operation not permitted" inside an
+  # unprivileged container (the ioctl needs privilege in the host's namespace
+  # - forum-confirmed, and measured on this helper's own CT class 2026-10-03),
+  # and pct fstrim is PVE's own privileged implementation of exactly that. It
+  # is what hands an lvm-thin pool back the ext4 blocks the guest deleted
+  # weeks ago; best effort for filesystems without discard support.
+  # (No -v: pct fstrim's only option is --timeout, and a stray flag makes the
+  # whole call a usage error.)
+  pct fstrim "$CT_ID" 2>/dev/null || true
+  pct exec "$CT_ID" -- bash -s -- "$CT_RUN_ENV" "$CT_ID" <<'REMOTE'
     set -eu
     runenv="$1"
+    ctid="$2"
     set -a; . "$runenv"; set +a
     rollback() {
       docker rm -f "$NAME" >/dev/null 2>&1 || true
@@ -302,11 +318,40 @@ update_app() {
       echo "update failed: the previous container is restored" >&2
       exit 1
     }
+    # A pull extracts the whole new image while the image it replaces is still
+    # on disk, so the disk must hold BOTH at full unpacked size - and until
+    # now every update left its replaced image behind forever, so a
+    # month-old install answers a routine update with ENOSPC mid-extraction
+    # (operator report 2026-10-03: "no space left on device" at 6 G free).
+    # Dangling images go first; the running container's image is in use and
+    # prune never touches it. And on an lvm-thin host the guest's free space
+    # can be a lie: ext4 frees blocks without TRIM, and the thin volume
+    # never hands them back - measured at 96.7% volume use behind a guest df
+    # that still claimed 6 G free (2026-10-03). fstrim converts the guest's
+    # deleted-and-forgotten into allocatable space. It is a no-op error
+    # wherever discard is unsupported, hence the silence.
+    docker image prune -f >/dev/null 2>&1 || true
+    fstrim -av >/dev/null 2>&1 || true
+    avail_kb=$(df -k --output=avail /var/lib/docker 2>/dev/null | tail -1 | tr -d ' ')
+    if [ -n "$avail_kb" ] && [ "$avail_kb" -lt 4194304 ]; then
+      echo "WARN: only $((avail_kb / 1048576)) G free for Docker; a pull wants closer to 4 G of headroom" >&2
+    fi
     # A failed pull changed NOTHING yet - the rollback below is for the
     # post-rename steps, where it restores correctly. Deleting the running
     # container here would strand the instance on a registry hiccup
-    # (review finding, operator ruling 2026-09-29).
-    docker pull "$IMAGE" || { echo "pull failed: the running container was left alone" >&2; exit 1; }
+    # (review finding, operator ruling 2026-09-29). A full disk says exactly
+    # that word in docker's own error and nothing else, so on failure the
+    # script names the filesystem's state and the two ways out.
+    if ! docker pull "$IMAGE"; then
+      df -h /var/lib/docker >&2 || true
+      echo "pull failed: the running container was left alone" >&2
+      echo "    if the filesystem above is close to full: 'docker image prune -a -f' inside CT $ctid" >&2
+      echo "    frees every image no container uses; on an lvm-thin host also TRIM with" >&2
+      echo "    'pct fstrim $ctid' on the HOST (an unprivileged container's own fstrim is" >&2
+      echo "    refused, so deleted blocks never reach the pool otherwise), and" >&2
+      echo "    'pct resize $ctid --disk <new-total>' grows the container's disk around it." >&2
+      exit 1
+    fi
     # Clear a stale -old from an interrupted earlier run first: the rollback
     # below rm -f's $NAME to resurrect $NAME-old, so a leftover -old would
     # make it destroy the HEALTHY container to resurrect garbage.
@@ -324,6 +369,10 @@ update_app() {
     done
     [[ -n "$ok" ]] || rollback
     docker rm -f "$NAME-old" >/dev/null 2>&1 || true
+    # The re-pull untagged the image the old container was the last user of;
+    # with that container gone it is dangling, and this is the moment the
+    # NEXT update's headroom comes back.
+    docker image prune -f >/dev/null 2>&1 || true
     echo "updated: $(docker exec "$NAME" subshell-server version)"
 REMOTE
   [[ $? -eq 0 ]] || msg_err "update failed inside CT $CT_ID"

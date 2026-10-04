@@ -7,6 +7,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -377,7 +378,11 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // install sound, and nothing may become executable ahead of it.
     expect(body.indexOf('$VERIFY "$TMP.sha256"')).toBeLessThan(body.indexOf('chmod +x "$DEST"'));
     expect(body.indexOf("$TARGET.sha256")).toBeLessThan(body.indexOf('chmod +x "$DEST"'));
-    expect(body).not.toContain("exit 2");
+    // Not the usage script (which exits 2 for a MISSING key). The script does
+    // hold one more `exit 2` since the nameless-refusal guard: a keyless
+    // render and a nameless pipe share the usage code, so the pin is on the
+    // usage script's own copy, which must never appear on this path.
+    expect(body).not.toContain("usage: curl");
   });
 
   // ── the `server` param (the Add-node dialog's address dropdown) ─────────
@@ -516,6 +521,65 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain("sudo apt-get install tmux");
     const block = body.slice(tmuxAt, body.indexOf("==> downloading subshell"));
     expect(block).not.toContain("exit 1"); // a warning, never a refusal
+  });
+
+  it("install.sh OFFERS to install tmux, runs the package manager as root without sudo, and declines in silence", async () => {
+    const body = await (await install(await mkKey())).text();
+    // The offer runs here because this is the machine whose package manager
+    // works and the one moment a person stands at it. Proxmox hosts run as
+    // root and ship no sudo: a hint naming `sudo` there names a command not
+    // found, so the root spelling and the sudo spelling are separate branches.
+    // The question rides /dev/tty because stdin is the curl pipe.
+    const tmuxAt = body.indexOf("command -v tmux");
+    const block = body.slice(tmuxAt, body.indexOf("==> downloading subshell"));
+    expect(block).toContain("read -r TMUX_ANSWER < /dev/tty");
+    expect(block).toContain("apt-get install -y tmux");
+    expect(block).toContain('[ "$(id -u)" != "0" ] && command -v sudo'); // sudo only when it exists
+    // Declining (the default, and every unanswerable console) leaves the old
+    // warning path: the hint, and nothing else. A refusal to ENROLL still comes
+    // from setup, not from here.
+    expect(block).toContain("[y/N]");
+    expect(block).toContain("tmux_hint");
+    // The hint itself splits on root-ness: Proxmox ships no sudo, and a root
+    // shell told to "sudo apt-get" runs a command that is not found.
+    expect(body).toContain('[ "$(id -u)" = "0" ]');
+    // The SUDO_ARGS expansion is guarded in the script's empty-array form,
+    // the same bash-3.2 / set -u discipline pinned for the other arrays.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
+    expect(body).toContain('${SUDO_ARGS[@]+"${SUDO_ARGS[@]}"} apt-get install -y tmux');
+  });
+
+  it("install.sh shows download progress: the ~100 MB fetch must not read as a hang", async () => {
+    const body = await (await install(await mkKey())).text();
+    // --silent made minutes of healthy transfer on a slow link indistinguishable
+    // from a dead install (operator report, Proxmox, 2026-10-03). The progress
+    // bar writes to stderr, where the operator is looking; the http_code still
+    // rides stdout into the $HTTP capture.
+    expect(body).toContain("--progress-bar");
+    expect(body).not.toContain("curl --silent"); // only the sha256 sidecar fetch keeps --silent
+    expect(body).toContain("==> verifying the download");
+    expect(body.indexOf("==> verifying the download")).toBeLessThan(body.indexOf("$TARGET.sha256"));
+    // The offer's own headless-safety: the tty OPEN probe (not the [ -r ]
+    // permission test alone) and a prompt/read that cannot abort set -e.
+    expect(body).toContain("(exec >/dev/tty) 2>/dev/null");
+    expect(body).toContain("printf '    install it now? [y/N] ' 2>/dev/null > /dev/tty || true");
+  });
+
+  it("install.sh refuses a nameless, terminal-less install in two lines, not the CLI's usage wall", async () => {
+    const body = await (await install(await mkKey())).text();
+    // Piping into tee or running over a transport without a console used to
+    // fall through to `setup`'s own refusal, which prints the FULL help text
+    // before exiting 2. The guard says the same thing in two lines, keeps the
+    // exit 2 usage code the e2e pins, names both fixes the CLI names, and
+    // lands before the binary is ever invoked (the key stays unspent).
+    const guardAt = body.indexOf("subshell: setup requires");
+    expect(guardAt).toBeGreaterThan(-1);
+    expect(body.indexOf('"$DEST" setup')).toBeGreaterThan(guardAt);
+    expect(body.indexOf("exec </dev/tty")).toBeLessThan(guardAt);
+    const guardBlock = body.slice(guardAt, body.indexOf("exit 2", guardAt));
+    expect(guardBlock).toContain("--name <n>");
+    expect(guardBlock).toContain("no terminal");
+    expect(guardBlock).toContain("SUBSHELL_NODE_NAME");
   });
 
   it("install.sh reattaches /dev/tty so a piped install can answer setup's question", async () => {
@@ -688,8 +752,15 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   );
 
   const HASH_TOOL = Bun.which("sha256sum") ?? Bun.which("shasum");
+  // The nameless-refusal guard asks the script one question bash cannot fake:
+  // is fd 0 a terminal? A plain pipe spawn always answers "no", which would
+  // turn every nameless branch into the refusal and test nothing about the
+  // argv the stub setup actually receives. So the harness runs the script
+  // under a REAL pty (python3's pty.spawn, whose child sees a tty on all
+  // three fds), propagating the child's exit code through the wrapper.
+  const PTY_PY = Bun.which("python3");
 
-  it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC)(
+  it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC || !PTY_PY)(
     "install.sh EXECUTED end-to-end with stub curl/uname: default → ~/.local/bin/subshell and setup WITHOUT --data-dir or --name; SUBSHELL_DATA_DIR → relocated dest + --data-dir; SUBSHELL_NO_SERVICE → --no-service; SUBSHELL_NODE_NAME → --name",
     async () => {
       const key = await mkKey();
@@ -700,6 +771,8 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
       // the assertions read what enroll ACTUALLY RECEIVED through the real
       // download → verify → chmod → enroll chain.
       const work = mkdtempSync(join(tmpdir(), "subshell-install-exec-"));
+      const bodyFile = join(work, "install-body.sh");
+      writeFileSync(bodyFile, body);
       try {
         const bin = join(work, "bin");
         mkdirSync(bin);
@@ -727,7 +800,12 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           '#!/usr/bin/env bash\ncase "$1" in\n  -s) echo Linux ;;\n  -m) echo x86_64 ;;\nesac\n',
         );
         for (const tool of ["sha256sum", "shasum"]) writeFileSync(join(bin, tool), "#!/usr/bin/env bash\nexit 0\n");
-        for (const tool of ["curl", "uname", "sha256sum", "shasum"]) chmodSync(join(bin, tool), 0o755);
+        // A no-op tmux SHADOWS the host's under the prepended bin: without it,
+        // a host without tmux reaches the install-offer and the pty read
+        // blocks forever (and an interactive runner would see a stray "y"
+        // install packages from a test). Determinism over environment luck.
+        writeFileSync(join(bin, "tmux"), "#!/usr/bin/env bash\nexit 0\n");
+        for (const tool of ["curl", "uname", "sha256sum", "shasum", "tmux"]) chmodSync(join(bin, tool), 0o755);
 
         function runBranch(cwd: string, extraEnv: Record<string, string>) {
           mkdirSync(cwd, { recursive: true });
@@ -746,8 +824,21 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           if (extraEnv.SUBSHELL_DATA_DIR === undefined) delete env.SUBSHELL_DATA_DIR;
           if (extraEnv.SUBSHELL_NO_SERVICE === undefined) delete env.SUBSHELL_NO_SERVICE;
           if (extraEnv.SUBSHELL_NODE_NAME === undefined) delete env.SUBSHELL_NODE_NAME;
-          // `bash -c <body>` — exactly what `curl … | bash` hands the shell.
-          const proc = Bun.spawnSync(["bash", "-c", body], { cwd, env });
+          // The same `bash <body>` the pipe hands the shell, under a pty: the
+          // script's terminal guard (and setup's refusal behind it) key on
+          // fd 0 being a tty, which a piped spawn can never present. The
+          // script lands in a file because the pty wrapper takes argv, not a
+          // heredoc; `bash file` and `bash -c body` parse identically.
+          const proc = Bun.spawnSync(
+            [
+              PTY_PY as string,
+              "-c",
+              "import os,pty,sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))",
+              "bash",
+              bodyFile,
+            ],
+            { cwd, env },
+          );
           return {
             home,
             exitCode: proc.exitCode,
@@ -810,6 +901,92 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     },
   );
 
+  const SETSID = Bun.which("setsid");
+
+  it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC || !SETSID)(
+    "install.sh EXECUTED headless with tmux MISSING: the offer declines in silence and the install continues (the round-1 code died at the prompt's redirect-open)",
+    async () => {
+      // The shape the 2026-10-03 incident runs actually took: `ssh host
+      // 'curl … | bash'` on a Proxmox box - pipes on every fd, no controlling
+      // terminal, no tmux. setsid -w removes the ctty even when the developer
+      // running the suite has one. This executed case is what pins M1 as
+      // BEHAVIOR: the round-1 block aborted with rc=1 before the download.
+      const key = await mkKey();
+      const body = await (await install(key)).text();
+      const work = mkdtempSync(join(tmpdir(), "subshell-headless-nolt-"));
+      try {
+        const bin = join(work, "bin");
+        mkdirSync(bin);
+        // Stubs as in the happy-path chain, minus tmux - and a PATH built so
+        // NO tmux is reachable: system bins are per-name symlinks, not dirs.
+        writeFileSync(
+          join(bin, "curl"),
+          [
+            "#!/usr/bin/env bash",
+            'out=""',
+            'prev=""',
+            'for a in "$@"; do',
+            '  [ "$prev" = "--output" ] && out="$a"',
+            '  prev="$a"',
+            "done",
+            'if [ -n "$out" ]; then',
+            // The fake "agent" carries NO shebang: with PATH stripped, a
+            // `#!/usr/bin/env bash` header could not resolve bash. ENOEXEC
+            // makes the calling bash run it as a shell script, which is all
+            // this case needs from it (the setup line merely has to run).
+            "  printf 'echo SETUP-RAN\\n' > \"$out\"",
+            "  printf 200",
+            "else",
+            "  printf '%s\\n' \"$(printf '0%.0s' $(seq 1 64))\"",
+            "fi",
+            "",
+          ].join("\n"),
+        );
+        writeFileSync(
+          join(bin, "uname"),
+          '#!/usr/bin/env bash\ncase "$1" in\n  -s) echo Linux ;;\n  -m) echo x86_64 ;;\nesac\n',
+        );
+        writeFileSync(join(bin, "sha256sum"), "#!/usr/bin/env bash\nexit 0\n");
+        for (const tool of ["curl", "uname", "sha256sum"]) chmodSync(join(bin, tool), 0o755);
+        // The few external commands the script needs OUTSIDE the stubs,
+        // symlinked one by one so PATH holds no DIRECTORY that might
+        // contain a tmux - the whole point is that none is reachable.
+        // bash too: the stubs' shebangs resolve it through the child's PATH.
+        // perl is in the set because some builder images ship /usr/bin/mv as
+        // a `#!/usr/bin/env perl` stub (measured on the GHCR image, review
+        // round 3): without perl on the stripped PATH that stub dies at 127
+        // and the chain never reaches the assertion. Candidates are pinned to
+        // /usr/bin then /bin first so the host's PATH order cannot drag in a
+        // surprise.
+        for (const tool of ["id", "rm", "mv", "chmod", "tr", "mkdir", "seq", "bash", "perl"]) {
+          const src = ["/usr/bin", "/bin"].map((d) => join(d, tool)).find(existsSync) ?? Bun.which(tool);
+          if (src) symlinkSync(src, join(bin, tool));
+        }
+        const bodyFile = join(work, "install-body.sh");
+        writeFileSync(bodyFile, body);
+        const proc = Bun.spawnSync([SETSID as string, "-w", "/usr/bin/env", "bash", bodyFile], {
+          cwd: work,
+          stdin: "ignore",
+          env: {
+            PATH: bin,
+            HOME: join(work, "home"),
+            SUBSHELL_NODE_NAME: "headless box", // past the nameless guard: this case is about the offer
+            SUBSHELL_NO_SERVICE: "1",
+          },
+        });
+        const out = proc.stdout.toString();
+        const err = proc.stderr.toString();
+        expect(err).toContain("tmux is not installed");
+        expect(err).not.toContain("No such device or address"); // the abort's diagnostic
+        expect(out).toContain("==> downloading subshell"); // continued to the download, not aborted
+        expect(out).toContain("==> done.");
+        expect(proc.exitCode).toBe(0); // round-1 code: rc=1 here
+      } finally {
+        rmSync(work, { recursive: true, force: true });
+      }
+    },
+  );
+
   it.skipIf(!BASH || !FILE_EXEC)(
     "install.sh EXECUTED against a failing server: 404/network/mismatch arms advise, exit 1, and leave a pre-existing agent byte-intact",
     async () => {
@@ -845,8 +1022,13 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           join(bin, "uname"),
           '#!/usr/bin/env bash\ncase "$1" in\n  -s) echo Linux ;;\n  -m) echo x86_64 ;;\nesac\n',
         );
+        // Same no-op tmux stub as the happy-path chain above: a developer's
+        // interactive shell gives this run a ctty too, and on a tmux-less host
+        // the install-offer's /dev/tty read would block the suite forever.
+        writeFileSync(join(bin, "tmux"), "#!/usr/bin/env bash\nexit 0\n");
         chmodSync(join(bin, "curl"), 0o755);
         chmodSync(join(bin, "uname"), 0o755);
+        chmodSync(join(bin, "tmux"), 0o755);
 
         function runFailBranch(mode: string) {
           const cwd = join(work, `cwd-${mode}`);

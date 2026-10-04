@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -59,7 +59,10 @@ install_ct
       expect(result.code).toBe(0);
       expect(result.output).toContain("DOWNLOAD templates debian-13-standard_13.10-1_amd64.tar.zst");
       expect(result.output).toContain("PCT create 201 templates:vztmpl/debian-13-standard_13.10-1_amd64.tar.zst");
-      expect(result.output).toContain("--rootfs disks:");
+      // Server: 40 G default (2026-10-03 ENOSPC report) - a pull needs old+new
+      // images at full unpacked size, and thin storage charges only for what is
+      // written. Node: 4 G, it runs no image cache.
+      expect(result.output).toContain(`--rootfs disks:${script === "proxmox-server.sh" ? 40 : 4}`);
     });
 
     test("uses Debian 12 on PVE 8", () => {
@@ -114,6 +117,117 @@ check_server_image
       if (failure) expect(result.stderr.toString()).toContain("nothing was created");
     });
   }
+});
+
+describe("Proxmox server update reclaims disk around the pull", () => {
+  // The 2026-10-03 operator report: a routine update died mid-extraction with
+  // "no space left on device" at 6 G free, because every prior update left its
+  // replaced image on disk and the pull needs room for old and new at full
+  // unpacked size. update_app now prunes dangling images before the pull, and
+  // again after the old container is gone, and a failed pull must say the
+  // disk's state and both ways out instead of only docker's one word.
+  function runUpdate(pullFail: boolean, lowAvail = false) {
+    const source = readFileSync(join(import.meta.dir, "../../proxmox-server.sh"), "utf8").split(
+      "# ---------- menu ----------",
+    )[0];
+    const dir = mkdtempSync(join(tmpdir(), "proxmox-update-"));
+    const log = join(dir, "docker.log");
+    writeFileSync(
+      join(dir, "runenv"),
+      "IMAGE=ghcr.io/subshell-ai/subshell:latest\nNAME=subshell\nAPP_PORT=3080\nDATA=/var/lib/subshell\n",
+    );
+    try {
+      const result = Bun.spawnSync(
+        [
+          "env",
+          "-u",
+          "SHELLOPTS",
+          "-u",
+          "BASHOPTS",
+          "bash",
+          "-c",
+          `${source}
+preflight() { :; }
+need_ct_id() { :; }
+CT_ID=108
+CT_RUN_ENV='${dir}/runenv'
+pct() { case "$1" in
+  exec) shift 3; [[ "$1" == -- ]] && shift; "$@" ;;
+  fstrim) echo "pct $*" >> "$LOG" ;;
+esac; }
+df() { case "$*" in
+  *--output=avail*) echo ${lowAvail ? 3000000 : 6100000} ;;
+  *) echo "/dev/sim 20G 14G 6.1G 70% /var/lib/docker" ;;
+esac; }
+docker() {
+  echo "docker $*" >> "$LOG"
+  case "$1 $2" in
+    "pull "*) return ${pullFail ? 1 : 0} ;;
+    "exec "*) echo "subshell-server 9.9.9" ;;
+  esac
+  return 0
+}
+curl() { return 0; }
+fstrim() { echo "fstrim $*" >> "$LOG"; return 0; }
+# update_app hands the real work to pct exec, which in this harness is a
+# CHILD bash reading the heredoc. Functions do not cross into a child unless
+# they are exported - unexported, the remote silently called the host's real
+# docker and curl, and the health poll looped against a closed port.
+# (No backticks in this comment: it lives inside a JS template literal.)
+export -f df docker curl fstrim
+export LOG
+update_app
+`,
+        ],
+        { env: { ...process.env, LOG: log } },
+      );
+      const calls = existsSync(log) ? readFileSync(log, "utf8").trimEnd().split("\n") : [];
+      return { code: result.exitCode, out: result.stdout.toString(), err: result.stderr.toString(), calls };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test("a successful update prunes before the pull and again once the old container is gone", () => {
+    const r = runUpdate(false);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("subshell-server 9.9.9");
+    const prunes = r.calls.map((c, i) => [c, i] as const).filter(([c]) => c === "docker image prune -f");
+    expect(prunes.length).toBe(2);
+    const pullAt = r.calls.findIndex((c) => c.startsWith("docker pull "));
+    const trimAt = r.calls.indexOf("fstrim -av");
+    const hostTrimAt = r.calls.findIndex((c) => c.startsWith("pct fstrim 108"));
+    expect(trimAt).toBeGreaterThan(-1);
+    // The host-side trim is the one an unprivileged CT can actually do:
+    // FITRIM EPERMs inside the guest. It precedes even the remote reclaim.
+    expect(hostTrimAt).toBeGreaterThan(-1);
+    expect(hostTrimAt).toBeLessThan(prunes[0][1]);
+    expect(pullAt).toBeGreaterThan(prunes[0][1]); // the pre-pull reclaim precedes the extraction
+    expect(pullAt).toBeGreaterThan(trimAt); // the thin-pool TRIM too: df's free space can be a lie
+    // lastIndexOf, not findIndex: the remote ALSO clears a stale -old before
+    // the pull, and that first "rm -f subshell-old" is not the removal this
+    // ordering claim is about.
+    const finalRemovalAt = r.calls.lastIndexOf("docker rm -f subshell-old");
+    expect(prunes[1][1]).toBeGreaterThan(finalRemovalAt); // the post-success one follows the old container's removal
+  });
+
+  test("a failed pull leaves the container untouched and names the disk's state and both remedies", () => {
+    const r = runUpdate(true);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("pull failed: the running container was left alone");
+    expect(r.err).toContain("/var/lib/docker"); // the filesystem it failed on, in its own words
+    expect(r.err).toContain("docker image prune -a -f");
+    expect(r.err).toContain("fstrim"); // the lvm-thin class: freed blocks reach the pool only via TRIM
+    expect(r.err).toContain("pct resize 108");
+    expect(r.calls.some((c) => c.startsWith("docker rename"))).toBe(false);
+  });
+
+  test("a container under the 4 G headroom is warned about before the pull is attempted", () => {
+    const r = runUpdate(false, true);
+    expect(r.code).toBe(0); // a warning, never a refusal: the pull may still fit
+    expect(r.err).toContain("WARN:");
+    expect(r.err).toContain("headroom");
+  });
 });
 
 describe("Proxmox server browser address", () => {
