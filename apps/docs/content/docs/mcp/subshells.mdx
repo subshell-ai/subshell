@@ -15,7 +15,7 @@ Read both `status` and `alive`. A process that exited can retain `status: "runni
 
 ## Read output
 
-Use `read_subshell_log` to inspect the retained tail of an owned sibling pane. It returns ANSI-stripped lines and a `truncated` flag.
+Use `read_subshell_log` to inspect the retained tail of an owned sibling pane. It returns ANSI-stripped lines, a `truncated` flag, and a `nextByte` offset. Pass that offset back as `from_byte` to read only what printed since, which is how a driver loop watches a pane it is steering; see [Terminal sessions](/mcp/terminals).
 
 A pane may list shared sessions but still be unable to fetch or modify them. Operate only on sessions permitted by the pane token's owner boundary.
 

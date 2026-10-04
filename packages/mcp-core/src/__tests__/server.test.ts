@@ -144,13 +144,18 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     const createProps = byName.create_subshell.inputSchema.properties as Record<string, unknown>;
     expect(createProps).toHaveProperty("node");
     expect(JSON.stringify(createProps.working_dir)).toContain("TARGET NODE");
-    // Launching is FROM a preset (spec 2026-09-29 ruling): preset is the one
-    // required key, working_dir dropped to an optional override, and the
-    // prompt relationship is an explicit enum.
-    expect((byName.create_subshell.inputSchema.required as string[]).sort()).toEqual(["preset"]);
+    // Launching is FROM a preset by default (spec 2026-09-29 ruling) since
+    // spec 2026-10-01 §1 has ONE deliberate exception: a presetless launch of
+    // a terminal-type harness. So no key is schema-required any more (the
+    // preset-or-harness rule is a refine + the handler's type gate), the
+    // prompt relationship stays an explicit enum, and the cursor reads join
+    // the read tool.
+    expect(((byName.create_subshell.inputSchema.required as string[] | undefined) ?? []).sort()).toEqual([]);
+    expect(JSON.stringify(createProps.harness)).toContain("terminal");
     expect(createProps).toHaveProperty("prompt_mode");
     expect(JSON.stringify(createProps.prompt_mode)).toContain("append");
-    expect(byName.create_subshell.description).toContain("FROM a preset (required), addressed by its id");
+    expect(byName.create_subshell.description).toContain("PRESETLESS");
+    expect(byName.create_subshell.description).toContain("agent harnesses always launch from a preset");
     expect(byName.create_subshell.description).toContain("list_subshells before retrying");
     expect(byName.create_subshell.description).toContain("You own their cleanup");
     expect(byName.send_to_subshell.description).toContain("SUBSHELL_NOT_RUNNING");
@@ -163,6 +168,11 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect(byName.list_nodes.description).toContain("inventoryStale");
     expect(byName.send_to_subshell.description).toContain("untrusted");
     expect(byName.read_subshell_log.description).toContain("ANSI-stripped");
+    // The byte cursor (spec 2026-10-01 §3): taught on the wire, and honest
+    // about the loop's contract.
+    expect(Object.keys(byName.read_subshell_log.inputSchema.properties).sort()).toEqual(["from_byte", "id", "limit"]);
+    expect(byName.read_subshell_log.description).toContain("nextByte");
+    expect(byName.list_presets.description).toContain("a plain terminal harness can");
     expect(byName.list_presets.description).toContain("catalogOnly");
     expect(byName.list_presets.description).toContain("address them by id");
     expect(JSON.stringify(byName.create_subshell.inputSchema.properties.preset)).toContain("Preset ID");

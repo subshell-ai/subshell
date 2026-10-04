@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { NodeCommandBody } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
@@ -778,6 +778,145 @@ describe("POST /api/subshells node resolution (phase 2)", () => {
       const res = await post({ harnessId: "pi", presetId });
       expect(res.status).toBe(409);
       expect(((await res.json()) as { message: string }).message).toBe("That harness is disabled on this machine");
+    });
+  });
+
+  /**
+   * Presetless terminal launch and the home default (spec 2026-10-01 §1-2).
+   * REST has accepted a presetless launch since 2026-09-29; the new server
+   * half is the working-directory default: a presetless launch whose harness
+   * is a terminal-type plugin and which names no directory lands in the node's
+   * home, read only after the node is resolved, never fabricated. The MCP
+   * layer keeps the type gate on WHO may do it presetless; the server answer
+   * here is what a browser POST proves.
+   */
+  describe("presetless terminal launch and the home default (spec 2026-10-01 §2)", () => {
+    /**
+     * An own agent node carrying a fresh terminal inventory plus a scripted
+     * socket (the ENV-ONLY case's decode-only shape) that records every
+     * command. `homeDir` is the only knob: pass `undefined` to reproduce a
+     * node whose `ready` frame carried none.
+     */
+    async function attachTerminalNode(
+      homeDir: string | undefined,
+    ): Promise<{ nodeId: string; ws: NodeSocket; cmds: NodeCommandBody[] }> {
+      const nodeId = crypto.randomUUID();
+      createdNodeIds.push(nodeId);
+      const nodes = new NodesRepository(db);
+      await nodes.create({ id: nodeId, ownerUserId: userId, name: `cnode-${nodeId}`, kind: "agent" });
+      await nodes.applyInventory(
+        nodeId,
+        JSON.stringify([{ harnessId: "terminal", installed: true, binaryPath: "/bin/bash" }]),
+      );
+      const cmds: NodeCommandBody[] = [];
+      let conn: NodeConnection;
+      const ws: NodeSocket = {
+        send(data) {
+          const frame = JSON.parse(String(data)) as { jws: string };
+          const claims = JSON.parse(Buffer.from(frame.jws.split(".")[1] ?? "", "base64url").toString("utf8")) as {
+            jti: string;
+            cmd: NodeCommandBody;
+          };
+          cmds.push(claims.cmd);
+          const result: Parameters<typeof resolveResult>[1] = { type: "result", ref: claims.jti, ok: true };
+          if (claims.cmd.type === "stat_dir") result.data = { path: claims.cmd.path, isDirectory: true };
+          resolveResult(conn, result);
+          return 0;
+        },
+        close: () => {},
+      };
+      conn = attachConnection(nodeId, ws);
+      conn.agent = {
+        dataDir: "/node-data",
+        capabilities: [], // terminal declares no MCP; the launch stays ENV-only
+        hostname: "h",
+        agentVersion: "1.0.0",
+        ...(homeDir === undefined ? {} : { homeDir }),
+      };
+      return { nodeId, ws, cmds };
+    }
+
+    it("presetless terminal, no dir: validate + launch land in the reported home", async () => {
+      const { nodeId, ws, cmds } = await attachTerminalNode("/home/nodeu");
+      try {
+        const res = await post({ harnessId: "terminal", nodeId, name: "cnode-home" });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { id: string };
+        createdSubshellIds.push(body.id);
+        const dir = (await new SubshellsRepository(db).findById(body.id))?.workingDir;
+        expect(dir).toBe("/home/nodeu"); // the row records the defaulted dir, not a lie
+        const stat = cmds.find((c) => c.type === "stat_dir") as Extract<NodeCommandBody, { type: "stat_dir" }>;
+        expect(stat.path).toBe("/home/nodeu"); // the default is stat-verified like any typed dir
+        const launch = cmds.find((c) => c.type === "launch") as Extract<NodeCommandBody, { type: "launch" }>;
+        expect(launch.cwd).toBe("/home/nodeu");
+      } finally {
+        detachConnection(nodeId, ws);
+      }
+    });
+
+    it("presetless terminal WITH a named dir: the name wins, the home is never consulted", async () => {
+      const { nodeId, ws, cmds } = await attachTerminalNode("/home/nodeu");
+      try {
+        const res = await post({ harnessId: "terminal", nodeId, workingDir: "/srv/explicit", name: "cnode-named" });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { id: string };
+        createdSubshellIds.push(body.id);
+        const stat = cmds.find((c) => c.type === "stat_dir") as Extract<NodeCommandBody, { type: "stat_dir" }>;
+        expect(stat.path).toBe("/srv/explicit");
+      } finally {
+        detachConnection(nodeId, ws);
+      }
+    });
+
+    it("the node gate outranks the deferred home default: presetless terminal onto an offline node → NODE_OFFLINE, not the 400", async () => {
+      // The home default is computed AFTER resolveLaunchNode precisely so a
+      // machine that cannot take the launch answers its own structured 409.
+      // This is the spec §6 precedence case: the deferral must never mask a
+      // node refusal. The node has no live connection and no inventory, so
+      // both the online gate and (had it passed) the harness gate stop first.
+      const node = await mkNode(userId);
+      const res = await post({ harnessId: "terminal", nodeId: node, name: "cnode-offline" });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { code: string }).code).toBe("NODE_OFFLINE");
+    });
+
+    it("presetless terminal on a node that reported NO home: honest 400, no launch", async () => {
+      const { nodeId, ws, cmds } = await attachTerminalNode(undefined);
+      try {
+        const res = await post({ harnessId: "terminal", nodeId, name: "cnode-nohome" });
+        expect(res.status).toBe(400);
+        const body = (await res.json()) as { code: string; message: string };
+        expect(body.code).toBe("BAD_REQUEST");
+        expect(body.message).toMatch(/has not reported a home directory/);
+        expect(cmds).toEqual([]); // nothing shipped: the default is never invented
+      } finally {
+        detachConnection(nodeId, ws);
+      }
+    });
+
+    it("presetless terminal on LOCAL: the server host's home, launched for real", async () => {
+      // The same default computed from the other side: `local` has no `ready`
+      // frame, so the answer is the process's own homedir. This is a REAL
+      // launch (bash under tmux in $HOME) - reaped by the file-level socket
+      // sweep like the stub launches above.
+      const res = await post({ harnessId: "terminal", name: "cnode-local-home" });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { id: string; tmuxSocket: string };
+      createdSubshellIds.push(body.id);
+      sockets.add(body.tmuxSocket);
+      const row = await new SubshellsRepository(db).findById(body.id);
+      expect(row?.workingDir).toBe(homedir());
+    });
+
+    it("presetless AGENT harness with no dir still answers the OLD 400 (default is terminal-only)", async () => {
+      // The gate is the plugin type, not "presetless". A terminal-typed node
+      // inventory would not help claude-code; the missing-dir 400 fires before
+      // anything node-shaped runs, with the 2026-09-29 wording intact.
+      const res = await post({ harnessId: "claude-code", nodeId: LOCAL_NODE_ID, name: "cnode-agent-nodir" });
+      expect(res.status).toBe(400);
+      expect(((await res.json()) as { message: string }).message).toBe(
+        "A working directory is required: pass one, or launch from a preset that carries one",
+      );
     });
   });
 });
