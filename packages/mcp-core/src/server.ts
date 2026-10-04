@@ -301,7 +301,9 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
           .int()
           .positive()
           .optional()
-          .describe("Window budget in bytes (server default 64 KiB, ceiling 256 KiB; out-of-range values clamp)"),
+          .describe(
+            "Window budget in bytes for a cursor read (applies only beside from_byte; a no-cursor read is the fixed last-256-KiB/200-line tail instead). Cursor default 64 KiB, ceiling 256 KiB; out-of-range values clamp",
+          ),
       }),
     },
     guard(({ id, from_byte, limit }: { id: string; from_byte?: number; limit?: number }) =>

@@ -85,7 +85,7 @@ export const SubshellLogTailSchema = t.Object({
   }),
   truncated: t.Boolean({
     description:
-      "True when output existed but did not fit this response: a tail cut older lines, a cursor read left output following (or a single line longer than any window was cut mid-way)",
+      "True when this response is not the whole story: a tail dropped older lines; a cursor read had bytes following in the file, or its last line carried no newline yet (a still-unfinished or over-long line, whose remainder arrives on the next read). The liveness case always says truncated, even at EOF: the flag means the line it ended on was not known-complete",
   }),
   nextByte: t.Number({
     description:
