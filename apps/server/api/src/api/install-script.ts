@@ -190,7 +190,7 @@ esac
 # Warn AND offer: this is the one moment a person stands at the machine whose
 # package manager works. The question rides /dev/tty because stdin is the curl
 # pipe, and any console that cannot answer is a "no" - which is NOT merely the
-# absence of the device NODE ([ -r /dev/tty] is a permission check on a 0666
+# absence of the device NODE ([ -r /dev/tty ] is a permission check on a 0666
 # node, and it passes with no controlling terminal at all, so opening it then
 # fails ENXIO): the probe below is what asks whether /dev/tty can be OPENED,
 # because under set -e even the prompt's redirect-open would abort the whole

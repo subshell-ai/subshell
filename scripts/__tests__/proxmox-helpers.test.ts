@@ -195,7 +195,7 @@ update_app
     const prunes = r.calls.map((c, i) => [c, i] as const).filter(([c]) => c === "docker image prune -f");
     expect(prunes.length).toBe(2);
     const pullAt = r.calls.findIndex((c) => c.startsWith("docker pull "));
-    const trimAt = r.calls.findIndex((c) => c === "fstrim -av");
+    const trimAt = r.calls.indexOf("fstrim -av");
     const hostTrimAt = r.calls.findIndex((c) => c.startsWith("pct fstrim 108"));
     expect(trimAt).toBeGreaterThan(-1);
     // The host-side trim is the one an unprivileged CT can actually do:

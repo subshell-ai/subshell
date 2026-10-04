@@ -544,6 +544,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain('[ "$(id -u)" = "0" ]');
     // The SUDO_ARGS expansion is guarded in the script's empty-array form,
     // the same bash-3.2 / set -u discipline pinned for the other arrays.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: shell parameter expansion in an asserted script, not a JS template
     expect(body).toContain('${SUDO_ARGS[@]+"${SUDO_ARGS[@]}"} apt-get install -y tmux');
   });
 
@@ -934,8 +935,13 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           join(bin, "uname"),
           '#!/usr/bin/env bash\ncase "$1" in\n  -s) echo Linux ;;\n  -m) echo x86_64 ;;\nesac\n',
         );
+        // Same no-op tmux stub as the happy-path chain above: a developer's
+        // interactive shell gives this run a ctty too, and on a tmux-less host
+        // the install-offer's /dev/tty read would block the suite forever.
+        writeFileSync(join(bin, "tmux"), "#!/usr/bin/env bash\nexit 0\n");
         chmodSync(join(bin, "curl"), 0o755);
         chmodSync(join(bin, "uname"), 0o755);
+        chmodSync(join(bin, "tmux"), 0o755);
 
         function runFailBranch(mode: string) {
           const cwd = join(work, `cwd-${mode}`);
