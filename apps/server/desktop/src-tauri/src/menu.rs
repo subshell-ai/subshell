@@ -53,6 +53,8 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
             &item(DesktopAction::NewSubshell, "New Subshell…", Some("CmdOrCtrl+N"))?,
             &item(DesktopAction::NewWorkspace, "New Workspace…", Some("CmdOrCtrl+Shift+N"))?,
             &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, "native:backup", "Backup…", true, None::<&str>)?,
+            &MenuItem::with_id(app, "native:restore", "Restore…", true, None::<&str>)?,
             &PredefinedMenuItem::close_window(app, None)?,
         ],
     )?;
@@ -129,6 +131,15 @@ pub fn build(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
 
 /// Route a menu selection.
 pub fn on_event(app: &AppHandle, id: &str) {
+    if id == "native:backup" || id == "native:restore" {
+        let screen = if id == "native:backup" {
+            crate::reset::Screen::Backup
+        } else {
+            crate::reset::Screen::Restore
+        };
+        let _ = crate::reset::arm_and_raise(app, Some(screen.as_str().into()));
+        return;
+    }
     // Before the action dispatch, because that dispatch OPENS A WINDOW when
     // none is on screen — and "open this page in a browser" on a machine whose
     // server is down must not be the thing that launches the assistant. The

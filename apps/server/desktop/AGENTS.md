@@ -94,6 +94,17 @@ page.
 **Working on the assistant's screens, routing or the log panes: read
 apps/server/desktop/docs/assistant.md first.**
 
+## Native backup and restore
+
+**Backup…** and **Restore…** in the native menu/tray open bundled requested
+screens, including before setup and while the server is down. The six operation
+commands are wizard-only; the served page can only name the existing assistant
+screen. `src-tauri/src/backup_restore.rs` delegates archives and installed service
+ownership to the CLI and pauses only this app's own child. Its protected restored
+boot metadata and receipt-bound prior/next selection transaction keep full config and legacy database destinations correct for
+later starts and app reopening. Read [docs/backups.md](docs/backups.md) before
+changing these commands, metadata, secret transport or restored supervision.
+
 ## Who runs the server
 
 Two modes: a service (launchd / systemd user unit, survives the app closing)

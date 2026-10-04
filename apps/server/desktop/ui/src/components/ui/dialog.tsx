@@ -59,7 +59,7 @@ export function Dialog(props: {
         onClick={(e) => e.stopPropagation()}
       >
         {heading ?? <p className="font-strong text-label">{title}</p>}
-        <div className="mt-3">{children}</div>
+        <div className="mt-3 text-body [&_p]:text-body [&_ul]:text-body">{children}</div>
       </div>
     </div>
   );

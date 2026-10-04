@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use subshell_desktop_core::zoom::assistant_frame;
 use tauri::{AppHandle, LogicalSize, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 /// The narrowest the dashboard may be dragged.
@@ -403,6 +404,31 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
         // still cannot be steered into `file:`, a custom handler, or anything
         // else the OS would act on.
         .on_navigation(move |u| crate::trust::window_state().allow_navigation(u))
+        // WebKitGTK needs a registered handler to save authenticated attachments.
+        // Let the webview choose a unique filename in Downloads; no new IPC grant.
+        .on_download(|webview, event| {
+            if let tauri::webview::DownloadEvent::Finished { path, success, .. } = event {
+                let message = if success {
+                    path.map_or_else(
+                        || "Your download is complete. Check Downloads.".to_owned(),
+                        |path| format!("Saved to {}", path.display()),
+                    )
+                } else {
+                    "The download could not be saved. Create the backup again and retry the download.".to_owned()
+                };
+                webview
+                    .app_handle()
+                    .dialog()
+                    .message(message)
+                    .title(if success {
+                        "Download complete"
+                    } else {
+                        "Download failed"
+                    })
+                    .show(|_| {});
+            }
+            true
+        })
         // **Arming happens HERE, on a committed main-frame load** (review,
         // 2026-09-18). `on_navigation` runs at request time and fires for
         // subframes, so a page that navigated somewhere trusted-looking and
@@ -525,9 +551,12 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
 
 /// Whether the page has completed the title-bar handshake.
 ///
-/// Managed state rather than a local flag because two things read it: the
+/// Managed state rather than a local flag because three things touch it: the
 /// fallback thread (which must not re-show a tray-hidden window) and
-/// {@link shell_ready} itself (which must be idempotent — the SPA can remount).
+/// {@link shell_ready} itself (which must be idempotent — the SPA can remount),
+/// both readers, plus a writer — the `lib.rs` `main`+`Destroyed` handler clears
+/// it, so a window destroyed and rebuilt in-process (the offline route, a dev
+/// reset) re-earns the flag rather than coming up invisible behind a stale `true`.
 pub struct ShellReady(pub std::sync::Arc<AtomicBool>);
 
 impl ShellReady {

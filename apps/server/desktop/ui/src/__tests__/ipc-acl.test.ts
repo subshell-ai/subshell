@@ -513,13 +513,13 @@ describe("the assistant's IPC contract", () => {
     }
   });
 
-  it("keeps the assistant's dialog surface to open alone", () => {
+  it("keeps file pickers confined to the assistant", () => {
     // `pickBinary`'s file dialog is the page's only native popup. `ask` was
     // the console's — its update and restart confirmations — and both of those
     // are screens here, with their consequences written on the screen instead
     // of inside a system sheet.
     const dialog = capabilityPermissions("wizard.json").filter((id) => id.startsWith("dialog:"));
-    expect(dialog.sort()).toEqual(["dialog:allow-open"]);
+    expect(dialog.sort()).toEqual(["dialog:allow-open", "dialog:allow-save"]);
   });
 
   it("keeps the assistant's core grants to `default` and NO window verb", () => {

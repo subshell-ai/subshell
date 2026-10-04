@@ -1311,9 +1311,8 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
       "Paste it from Zero Trust → Networks → Tunnels → the tunnel's connector",
     );
     expect(screen.getByText(/Set \(typing here replaces it\)/)).toBeTruthy();
-    // The caveat the page owns rather than the plugin: the backup snapshots
-    // the database, and a plugin secret does not live there.
-    expect(screen.getByText(/does not include it; after a restore, paste it again/)).toBeTruthy();
+    // The page explains secret coverage for full archives versus DB-only snapshots.
+    expect(screen.getByText(/Full instance backups include this secret. Database-only snapshots do not./)).toBeTruthy();
   });
 
   it("a refused publish renders the plugin's reason inline, not as an error", async () => {

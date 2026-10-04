@@ -28,6 +28,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | `read_subshell_log` | Read the tail of captured pane output. |
 | `send_to_subshell` | Type into a live owned session. |
 | `transfer_files` | Copy or diff-sync a directory tree between two owned nodes. |
+| `exec_in_terminal` | Run one command in a terminal pane with its exit code. |
 | `list_channels` | Discover channels. |
 | `create_channel` | Create a channel and join it. |
 | `join_channel` | Join an existing channel. |
@@ -65,25 +66,27 @@ Each harness row has `harnessId`, `name`, `installed`, and an optional refusal `
 
 Arguments: `{}`. Returns rows with `id`, `name`, and `harnessId`.
 
-Real presets include `crossCommReady`, true when communication is enabled and the preset supplies a node and directory. Harness catalog rows have `catalogOnly: true`; they are informational and cannot be passed as launchable presets. A human must save a preset first.
+Real presets include `crossCommReady`, true when communication is enabled and the preset supplies a node and directory. Harness catalog rows have `catalogOnly: true`; an agent harness catalog row is informational and needs a human to save a preset before it can launch, but a plain terminal harness can launch presetless straight from `create_subshell`.
 
 ## create_subshell
 
+The tool has two shapes. From a preset (the default) it launches saved settings; presetless it starts a plain terminal shell.
+
 | Argument | Requirement | Meaning |
 | --- | --- | --- |
-| `preset` | Required string | Saved preset ID from `list_presets`. |
-| `harness` | Optional string | Assert the preset's harness; it must match. |
+| `preset` | Optional string | Saved preset ID from `list_presets`. Omit for a presetless terminal launch. |
+| `harness` | Optional string | Beside a preset, an assert that must match its harness. Without a preset, required, and only a plain terminal harness is accepted. |
 | `name` | Optional string | New subshell display name. |
 | `node` | Optional string | Node ID or unambiguous display name override. |
-| `working_dir` | Optional string | Absolute directory on that node. |
-| `prompt` | Optional string | Task text added to or replacing the preset prompt. |
-| `prompt_mode` | Optional enum | `append` by default, or `replace`. |
+| `working_dir` | Optional string | Absolute directory on that node. Omitted, a presetless terminal starts in the node's home. |
+| `prompt` | Optional string | Task text added to or replacing the preset prompt, or typed once a presetless shell settles. |
+| `prompt_mode` | Optional enum | `append` by default, or `replace`. Needs a preset. |
 
 Returns `{ id, promptDelivered }`. Node, directory, and prompt override or supplement the preset as described above. The final composed prompt is limited to 20,000 characters.
 
 A creation timeout can occur after the session was created. Inspect the session list before retrying.
 
-The helper is marked cross-agent and created with notifications off. Its creator is responsible for cleanup; see [Helper lifecycle](/mcp/lifecycle).
+The helper is marked cross-agent and created with notifications off. Its creator is responsible for cleanup; see [Helper lifecycle](/mcp/lifecycle). See [Terminal sessions](/mcp/terminals) for driving a shell pane with `send_to_subshell` and the `read_subshell_log` cursor.
 
 ## restart_subshell
 
@@ -101,7 +104,7 @@ Pass `{ "id": "SUBSHELL_ID" }`. Returns `{ ok }`. Stops a running process first,
 
 ## read_subshell_log
 
-Pass `{ "id": "SUBSHELL_ID" }`. Returns `{ lines, truncated }`, the captured tail with ANSI formatting removed. Works for owned panes and may be unavailable after retention or deletion.
+Pass `{ "id": "SUBSHELL_ID" }` for the tail, or add `from_byte` (a previous `nextByte`) and optional `limit` to read only what followed that raw byte offset. Returns `{ lines, truncated, nextByte }`, with ANSI formatting stripped from the lines. Tail reads end `nextByte` at the end of the log, so a tail seeds a cursor loop. Cursor reads never repeat or skip bytes and normally resume at line boundaries; a window that held no newline at all (a line longer than the budget, or still being written) returns its partial text and advances, so its remainder arrives as the next read's first line. Works for owned panes and may be unavailable after retention or deletion.
 
 ## send_to_subshell
 
@@ -121,7 +124,15 @@ Returns `{ sync, archiveBytes, files, bytes, changed }`. The tree rides one stre
 
 Both endpoints must be agent nodes the caller owns, online, and out of maintenance; the control-plane host and the browser are not transfer endpoints. Each node's operator directory list gates its side, and an empty list means unrestricted. Extraction is additive: matching files at the destination are overwritten and nothing is deleted, so re-running a finished `sync` converges and copies nothing.
 
-The call is synchronous and capped at 4 GiB uncompressed per archive. An interrupted transfer leaves no partial destination tree; re-running it is the retry. A refusal naming `update the node` means one endpoint's agent predates this feature.
+The call is synchronous and capped at 4 GiB uncompressed per archive. An interrupted transfer leaves no partial destination tree; re-running it is the retry. A refusal naming `update the node` means one endpoint's agent predates this feature; a permissions refusal on your own call means your pane's token predates the feature and a human must restart it.
+
+## exec_in_terminal
+
+Pass required `subshell_id` and `command`, plus optional `timeout_ms` (integer milliseconds; the server clamps it into 1000 to 300000, default 30000, rather than refusing an out-of-range ask). Returns `{ status, exitCode, output, truncated, nextByte }`: on `completed`, `exitCode` is the shell's status for the command; on `timed_out` it is null and the command keeps running untouched.
+
+Like `send_to_subshell` this is an edit act on a pane that must run a plain terminal harness, be running, and be quiet. Otherwise it refuses with nothing typed: `SUBSHELL_NOT_RUNNING`, `EXEC_TERMINAL_ONLY` (an agent pane would eat the line), `EXEC_IN_FLIGHT` (another exec already holds the pane), or `EXEC_PANE_BUSY` (read it or wait, then retry). A `timed_out` answer is a success: nothing further is sent, and `output` carries what printed so far, which can end mid-line. `output` holds the newest lines inside 256 KiB (`truncated` names the drop) and includes the shell's echo of the typed command. `nextByte` is the raw log offset just past the sentinel line, or where the wait stopped; pass it as `read_subshell_log`'s `from_byte` to continue exactly.
+
+The completion sentinel speaks POSIX `$?`, so a fish pane answers `timed_out` once its command completes. Interactive programs (password prompts, editors, TUIs) belong to `send_to_subshell` plus `read_subshell_log`; see [Terminal sessions](/mcp/terminals).
 
 ## list_channels
 

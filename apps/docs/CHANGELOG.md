@@ -1,5 +1,27 @@
 # @internal/docs
 
+## 0.6.3
+
+### Patch Changes
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Align dashboard backup cards, headings, toggle placement, field labels, validation colors, progress states, and detail spacing with the desktop assistant. Show the prepared restore result and host command on the preparation pane without an extra Next step.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Use .tar.gz for plain backup archives and .tar.gz.enc for encrypted archives consistently in desktop save dialogs, control plane downloads, and documentation.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Apply confirmed control-plane restores through an independent host worker, including on headless installations. Review affected sessions once, show restore and verified startup progress, and keep the result visible after login revocation without a CLI or desktop handoff.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Bring dashboard backup and restore preparation into the desktop workflow: separate selection, configuration, review, progress, and result panes, automatic saved-backup validation, contextual password errors, confirmation before preparation, and footer navigation. Add administrator-only saved-backup inspection and document the browser handoff to the host restore tool.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Use the desktop assistant frame and radio choices for dashboard backup and restore, with centered headings and separate footer navigation. Enable authenticated attachment downloads in both desktop control plane windows and show native completion or failure feedback.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Document current desktop, browser, and CLI backup and restore workflows, ten-minute restore staging, and fixed password derivation settings. Explain the eight-character minimum, 128 MiB derivation allowance, hardware-dependent timing, and offline guessing limits in the security model.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Update backup and restore instructions for automatic server startup after UI restores.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Add full instance backup and restore as a single archive with optional password encryption. Server Settings creates downloads and prepares restores; the CLI and desktop assistant apply them offline with recovery after interruption, failed-boot rollback, migration choices, and optional administrator password recovery. Create full archives before upgrades and preserve support for legacy database-only restores.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Strengthen encrypted backup password derivation to scrypt with 64 MiB of working memory with a 128 MiB scrypt memory allowance and a fixed CPU work factor independent of the backup host’s speed. Require at least 8 characters consistently in the CLI, browser, and desktop, and explain offline guessing and safe password selection. Reject the unreleased weaker encryption format.
+
 ## 0.6.2
 
 ### Patch Changes

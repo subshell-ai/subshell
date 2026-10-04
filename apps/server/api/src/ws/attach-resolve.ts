@@ -17,6 +17,7 @@ import { getRequestlessContext } from "@/lib/context.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
 import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
 import { accountDisabled } from "@/services/account-status.js";
+import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.js";
 import { publishLive } from "@/services/live-bus.js";
 import { logger } from "@/utils/logger.js";
 import { type AttachParams, parseAttachParams } from "@/ws/attach-params.js";
@@ -114,7 +115,12 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
     // twin: it re-asks `accountDisabled` on the session below.
     if (identity) {
       const { db } = getRequestlessContext();
-      if (await accountDisabled(db, identity.userId)) {
+      // Only unscoped tokens are human sessions. A scoped machine token names
+      // its pane's OWNER, whose recovery flag must not disable the pane key.
+      if (
+        (await accountDisabled(db, identity.userId)) ||
+        (identity.subshellId === null && (await backupPasswordChangeRequired(db, identity.userId)))
+      ) {
         return { ok: false, code: 4001, reason: "unauthorized" };
       }
     }
@@ -132,7 +138,9 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
     // path must not find the WS door open when the REST door is shut.
     if (session) {
       const { db } = getRequestlessContext();
-      if (await accountDisabled(db, session.user.id)) {
+      // This direct cookie door must enforce the same human recovery gate as
+      // REST, even when the caller bypasses the WS-token mint entirely.
+      if ((await accountDisabled(db, session.user.id)) || (await backupPasswordChangeRequired(db, session.user.id))) {
         return { ok: false, code: 4001, reason: "unauthorized" };
       }
     }

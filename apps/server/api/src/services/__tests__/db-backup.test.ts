@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { backupDatabase, listBackups, restoreDatabase } from "@/services/db-backup.js";
+import { backupDatabase, listBackups, listUpdateArchives, restoreDatabase } from "@/services/db-backup.js";
 
 /**
  * Everything here runs against a temp database in a temp directory: the module
@@ -177,6 +177,78 @@ describe("listBackups", () => {
       });
     }
     expect(listBackups(dir).map((b) => b.path.slice(-9))).toEqual(["000002.db", "000001.db", "000000.db"]);
+  });
+
+  it("counts only database snapshots, never the update archives", async () => {
+    // The two families share `backups/`. `listBackups` is the retention view
+    // `backupDatabase`'s prune slices, so a `subshell-update-v*.tar.gz`
+    // counted here would make "keep 3 database snapshots" delete a real
+    // pre-upgrade archive (and `status` would print tarballs under
+    // "database backups").
+    seed(1).close();
+    await backupDatabase({
+      reason: "manual",
+      databasePath: dbPath,
+      dir,
+      keep: 0,
+      now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, 0)),
+    });
+    const archive = join(dir, "subshell-update-v9.9.9-20260101-000000-00000000-0000-4000-8000-000000000000.tar.gz");
+    writeFileSync(archive, "full instance archive");
+    const dbs = listBackups(dir).map((b) => b.path);
+    expect(dbs).toHaveLength(1);
+    expect(dbs[0]?.endsWith(".db")).toBe(true);
+    expect(listUpdateArchives(dir).map((b) => b.path)).toEqual([archive]);
+  });
+
+  it("pruning database snapshots to the count leaves update archives standing", async () => {
+    // The retention count applies to its OWN family. With keep=1 and two
+    // snapshots plus a pinned-shaped update archive, exactly the two newest
+    // snapshots survive and the tarball is never in the slice.
+    seed(1).close();
+    for (let i = 0; i < 3; i++) {
+      await backupDatabase({
+        reason: "update",
+        version: `0.0.${i}`,
+        databasePath: dbPath,
+        dir,
+        keep: 1,
+        now: () => new Date(Date.UTC(2026, 0, 1, 0, 0, i)),
+      });
+    }
+    const archive = join(dir, "subshell-update-v9.9.9-20260101-000000-00000000-0000-4000-8000-000000000000.tar.gz");
+    writeFileSync(archive, "x");
+    await backupDatabase({
+      reason: "update",
+      version: "0.0.9",
+      databasePath: dbPath,
+      dir,
+      keep: 1,
+      now: () => new Date(Date.UTC(2026, 0, 1, 0, 1, 0)),
+    });
+    expect(existsSync(archive)).toBe(true); // the other family's file survives a snapshot prune
+    expect(listBackups(dir)).toHaveLength(1);
+  });
+});
+
+describe("listUpdateArchives", () => {
+  it("is empty when the directory only holds database snapshots", async () => {
+    seed(1).close();
+    await backupDatabase({ reason: "manual", databasePath: dbPath, dir });
+    expect(listUpdateArchives(dir)).toEqual([]);
+  });
+
+  it("orders update archives newest first by their own timestamp", () => {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    for (const second of [10, 30, 20]) {
+      const stamp = `20260101-0000${String(second).padStart(2, "0")}`;
+      writeFileSync(join(dir, `subshell-update-v1.0.0-${stamp}-00000000-0000-4000-8000-000000000000.tar.gz`), "x");
+    }
+    expect(listUpdateArchives(dir).map((b) => /-(\d{8}-\d{6})-/.exec(b.path)?.[1])).toEqual([
+      "20260101-000030",
+      "20260101-000020",
+      "20260101-000010",
+    ]);
   });
 });
 

@@ -249,14 +249,31 @@ export class LocalLauncher implements NodeLauncher {
    * between "pane died" and "log unlinked".
    */
   async readLog(id: string, fromByte: number, maxBytes: number): Promise<{ bytes: Uint8Array; next: number }> {
+    const { bytes, next } = await this.readLogWindow(id, fromByte, maxBytes);
+    return { bytes, next };
+  }
+
+  /**
+   * The window triple beside {@link readLog}: same read, plus the whole-file
+   * size so a cursor reader knows whether output still follows (spec
+   * 2026-10-01 §3). A missing/unreadable log is `size 0` (a valid empty read,
+   * never an error); at/after EOF the bytes are empty and `next` clamps to
+   * `size`, matching the remote launcher so line math lives only in the
+   * shared pure helpers.
+   */
+  async readLogWindow(
+    id: string,
+    fromByte: number,
+    maxBytes: number,
+  ): Promise<{ bytes: Uint8Array; next: number; size: number }> {
     const file = Bun.file(this.logPath(id));
-    const empty = { bytes: new Uint8Array(0), next: fromByte };
-    const size = file.size;
-    if (size === undefined || fromByte >= size) return empty;
+    const size = file.size ?? 0;
+    const empty = { bytes: new Uint8Array(0), next: Math.min(fromByte, size), size };
+    if (size === 0 || fromByte >= size) return empty;
     const end = Math.min(size, fromByte + maxBytes);
     try {
       const bytes = await file.slice(fromByte, end).bytes();
-      return { bytes, next: fromByte + bytes.byteLength };
+      return { bytes, next: fromByte + bytes.byteLength, size };
     } catch {
       return empty;
     }

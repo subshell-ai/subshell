@@ -39,7 +39,7 @@ import { basename, dirname } from "node:path";
 import { hostReleaseTarget, releaseAssetNames, semverLt } from "@internal/subshell-protocol";
 import { serverConfigDir } from "@/config-env.js";
 import { SUBSHELL_DB_BACKUPS_KEEP } from "@/constants.js";
-import { type BackupFile, backupDatabase, backupsDir, listBackups } from "@/services/db-backup.js";
+import { type BackupFile, backupsDir, listBackups } from "@/services/db-backup.js";
 import { binaryIsReplaceable, type InstalledBinary, resolveInstalledBinary } from "@/services/installed-binary.js";
 import { beginSelfUpdate } from "@/services/nodes/update-tracker.js";
 import {
@@ -53,6 +53,7 @@ import {
 } from "@/services/releases.js";
 import { collectDeployment, collectDeploymentCached, type DeploymentView } from "@/services/server-deployment.js";
 import { performRestart } from "@/services/server-restart.js";
+import { createUpdateBackup } from "@/services/update-backup.js";
 import {
   beginUpdate,
   clearPending,
@@ -149,8 +150,8 @@ export function tryClaimServerUpdate(to: string): boolean {
 
 /** What {@link startServerUpdate} touches outside itself; every one injectable for tests. */
 export interface ServerUpdateJobDeps {
-  /** Snapshot the database (default: {@link backupDatabase} over the configured one). */
-  backup?: () => Promise<{ path: string } | null>;
+  /** Capture a full pre-upgrade archive and private rollback checkpoint. */
+  backup?: () => Promise<{ path: string; rollbackDatabase?: string } | null>;
   /** Run `<file> version` and return the version it reports (default: a bounded spawn). */
   probeVersion?: (file: string) => string | null;
   /** Exit for the service manager (default: {@link performRestart}). */
@@ -289,12 +290,14 @@ async function runJob(
   //    state to report rather than fail on.
   if (job !== null) job = { ...job, phase: "backing-up" };
   let backup: string | null = null;
+  let rollbackDatabase: string | undefined;
   try {
-    const written = await (deps.backup ?? (() => backupDatabase({ reason: "update", version: SERVER_VERSION })))();
+    const written = await (deps.backup ?? (() => createUpdateBackup()))();
     backup = written?.path ?? null;
+    rollbackDatabase = written?.rollbackDatabase;
   } catch (error) {
     remove(tmp);
-    fail(`could not back up the database: ${error instanceof Error ? error.message : String(error)}`);
+    fail(`could not create the pre-upgrade archive: ${error instanceof Error ? error.message : String(error)}`);
     return;
   }
 
@@ -318,7 +321,8 @@ async function runJob(
       to: release.version,
       binary,
       previousBinary,
-      backup,
+      backup: rollbackDatabase ?? backup,
+      ...(rollbackDatabase && { archiveBackup: backup ?? undefined }),
       startedAt: new Date().toISOString(),
       origin: "api",
       forced: input.forced,
@@ -474,7 +478,10 @@ export async function collectServerUpdateView(refresh = false): Promise<ServerUp
     binary,
     paneSafety: deployment.service.paneSafety,
     job,
-    lastFailure: readFailed(),
+    lastFailure: (() => {
+      const failed = readFailed();
+      return failed ? { ...failed, backup: failed.archiveBackup ?? failed.backup } : null;
+    })(),
     backups: {
       dir: backupsDir(),
       keep: SUBSHELL_DB_BACKUPS_KEEP,

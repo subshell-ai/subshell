@@ -365,9 +365,25 @@ async function refreshManagedCopy(app: DesktopApp, staged: string): Promise<void
     return;
   }
   console.log(`Refreshed ${dest} from the binary just built.`);
-  console.log("(The app runs the INSTALLED copy, never the staged sidecar — see scripts/desktop-dev.ts.)");
+  console.log("(Server supervision uses the installed copy; backup and restore use the bundled CLI.)");
   warnIfServiceOutranksManaged(app, dest);
   console.log("");
+}
+
+/** Refresh the sibling CLI that an already-built dev desktop bundles. */
+async function refreshDevBundledCopy(app: DesktopApp, staged: string): Promise<void> {
+  const dest = join(REPO_ROOT, "apps", app.dir, "src-tauri", "target", "debug", app.sidecar);
+  if (!existsSync(dest)) return;
+  if (statSync(dest).size === statSync(staged).size && (await digest(dest)) === (await digest(staged))) return;
+  const tmp = `${dest}.tmp-${process.pid}`;
+  try {
+    copyFileSync(staged, tmp);
+    chmodSync(tmp, 0o755);
+    renameSync(tmp, dest);
+  } finally {
+    if (existsSync(tmp)) unlinkSync(tmp);
+  }
+  console.log(`Refreshed the dev app’s bundled CLI at ${dest}.`);
 }
 
 /**
@@ -1379,6 +1395,7 @@ if (import.meta.main) {
     console.log(`Sidecar for ${target} is newer than every source it is built from; not rebuilding.`);
   }
   await refreshManagedCopy(app, staged);
+  await refreshDevBundledCopy(app, staged);
 
   // The bundled page's vite consumes workspace dists (`@internal/assistant`
   // and friends), and nothing else in the dev path builds them. Always —

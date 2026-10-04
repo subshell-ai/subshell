@@ -136,6 +136,29 @@ describe("collectDeployment", () => {
     expect(docker(1, undefined).restart.available).toBe(false);
   });
 
+  it("recognizes a verified container parent and preserves panes on restart", () => {
+    const view = collectDeployment({
+      platform: "linux",
+      pid: 42,
+      ppid: 1,
+      env: { SUBSHELL_CONTAINER: "1", SUBSHELL_CONTAINER_SUPERVISOR_PID: "1" },
+      applied: new Set(),
+      queryService: () => service as never,
+    });
+    expect(view.service.manager).toBe("docker");
+    expect(view.restart.available).toBe(true);
+    expect(view.service.paneSafety).toBe("keeps");
+    const forged = collectDeployment({
+      platform: "linux",
+      pid: 42,
+      ppid: 7,
+      env: { SUBSHELL_CONTAINER: "1", SUBSHELL_CONTAINER_SUPERVISOR_PID: "1" },
+      applied: new Set(),
+      queryService: () => service as never,
+    });
+    expect(forged.restart.available).toBe(false);
+  });
+
   it("reads the container fact from the marker only, not from anything else in the env", () => {
     expect(isContainerized({})).toBe(false);
     expect(isContainerized({ SUBSHELL_CONTAINER: "true" })).toBe(false);

@@ -616,8 +616,13 @@ pub fn desktop_probe(app: AppHandle, settings: State<'_, SettingsState>) -> Prob
     // spawned. From then on the state was self-consistent, so it never healed
     // — no supervisor attached, the supervision row never completing, and the
     // assistant giving up 30 s later with nothing to show.
+    let restore_reconciliation = crate::backup_restore::poll_selection(&app);
     let observed = settings.get().supervision;
     let mut p = probe_now(settings.get().binary_path.as_deref(), observed);
+    if let Err(error) = restore_reconciliation {
+        p.error = Some(error);
+        p.next = ProbeStep::Unreachable;
+    }
     p.hostname = machine_hostname();
     p.onboarded = settings.get().onboarded;
     if p.next == ProbeStep::Ready && !p.onboarded {
@@ -991,6 +996,9 @@ pub fn boot_window(launch: LaunchWindow, p: &Probe) -> WindowChoice {
 /// the server is ready, else the assistant. One function, so no two openers
 /// can disagree about which window this machine gets (spec § 5.5).
 pub fn open_home(app: &AppHandle) -> Result<(), String> {
+    if crate::backup_restore::poll_selection(app).is_err() {
+        return crate::windows::open_assistant(app).map(|_| ());
+    }
     let settings = app.state::<SettingsState>();
     let p = probe_now(settings.get().binary_path.as_deref(), settings.get().supervision);
     if p.next == ProbeStep::Ready {
@@ -1220,7 +1228,7 @@ impl From<Run> for ActionResult {
 /// Materialise the bundled server at `~/.local/bin/subshell-server`.
 #[tauri::command(async)]
 pub fn desktop_install_server(settings: State<'_, SettingsState>) -> Result<ActionResult, String> {
-    let _guard = ActionGuard::new();
+    let _guard = ActionGuard::try_new().ok_or("Another server action is running.")?;
     install_server_now(&settings)
 }
 
@@ -1482,7 +1490,7 @@ pub async fn desktop_check_app_update(app: AppHandle) -> Result<crate::app_updat
 /// It does not return on success: `app.restart()` is `-> !`.
 #[tauri::command(async)]
 pub async fn desktop_install_app_update(app: AppHandle, forced: bool, install_server: bool) -> Result<(), String> {
-    let _guard = ActionGuard::new();
+    let _guard = ActionGuard::try_new().ok_or("Another server action is running.")?;
     crate::app_update::install_app_update(&app, forced, install_server).await
 }
 
@@ -1535,7 +1543,7 @@ pub fn desktop_setup(
     trusted_origins: Option<String>,
     supervision: Option<SetupSupervision>,
 ) -> Result<ActionResult, String> {
-    let _guard = ActionGuard::new();
+    let _guard = ActionGuard::try_new().ok_or("Another server action is running.")?;
     let addresses = SetupAddresses {
         port: port.unwrap_or_default(),
         host: host.unwrap_or_default(),
@@ -1728,7 +1736,7 @@ pub const INSTALL_LINE_EVENT: &str = "desktop-install-line";
 
 #[tauri::command(async)]
 pub fn desktop_install_tmux(app: AppHandle) -> Result<ActionResult, String> {
-    let _guard = ActionGuard::new();
+    let _guard = ActionGuard::try_new().ok_or("Another server action is running.")?;
     // STREAMED, unlike every other action here, because this one's wait is
     // the user experience: `brew install` on a cold cache runs for minutes
     // under a 10-minute deadline, and a screen that says nothing for that
@@ -1861,12 +1869,69 @@ impl ServiceCommand {
 /// IS the manager, so the same three control verbs drive its own child.
 #[tauri::command(async)]
 pub fn desktop_service(app: AppHandle, verb: ServiceCommand, force: bool) -> ActionResult {
-    let _guard = ActionGuard::new();
-    let settings = app.state::<SettingsState>();
-    if effective_supervision(settings.get().supervision, installed_now(&settings)) == Supervision::App {
-        return supervise_now(&app, verb);
+    let Some(_guard) = ActionGuard::try_new() else {
+        return ActionResult {
+            ok: false,
+            stdout: String::new(),
+            stderr: "Another server action is running.".into(),
+        };
+    };
+    let fail = |error: String| ActionResult {
+        ok: false,
+        stdout: String::new(),
+        stderr: error,
+    };
+    let starting = matches!(verb, ServiceCommand::Start | ServiceCommand::Restart);
+    let pending_restore = if starting {
+        match crate::backup_restore::begin_selection_start(&app) {
+            Ok(pending) => pending,
+            Err(error) => return fail(error),
+        }
+    } else {
+        if let Err(error) = crate::backup_restore::reconcile_selection(&app) {
+            return fail(error);
+        }
+        false
+    };
+    if crate::backup_restore::selection_blocks_boot()
+        && matches!(verb, ServiceCommand::Install | ServiceCommand::Uninstall)
+    {
+        return fail("Finish the pending restore before changing installed supervision.".into());
     }
-    service_now(&settings, verb, force)
+    let settings = app.state::<SettingsState>();
+    let result = if effective_supervision(settings.get().supervision, installed_now(&settings)) == Supervision::App {
+        if pending_restore {
+            let sup = app.state::<supervisor::Supervisor>();
+            if matches!(verb, ServiceCommand::Restart) {
+                if let Some(spawner) = sup.spawner() {
+                    if !sup.stop(spawner.as_ref()) {
+                        return fail("The restored child did not stop.".into());
+                    }
+                }
+            }
+            match server_spawner(&app) {
+                Ok(spawner) => {
+                    sup.start_once(spawner);
+                    ActionResult {
+                        ok: true,
+                        stdout: "subshell-server restore boot started.\n".into(),
+                        stderr: String::new(),
+                    }
+                }
+                Err(error) => return fail(error),
+            }
+        } else {
+            supervise_now(&app, verb)
+        }
+    } else {
+        service_now(&settings, verb, force)
+    };
+    if pending_restore && result.ok {
+        if let Err(error) = crate::backup_restore::finish_selection_start(&app) {
+            return fail(error.to_string());
+        }
+    }
+    result
 }
 
 /// The app-mode answer to a control verb.
@@ -1962,27 +2027,37 @@ pub(crate) fn server_spawner(app: &AppHandle) -> Result<std::sync::Arc<dyn super
         return Err("no subshell-server found".into());
     };
     let probe_status = server_cmd(&server, &["status", "--json"]).map(|cmd| json_of(&run(&cmd, QUERY_TIMEOUT)));
-    let cwd = probe_status
-        .flatten()
+    let restore_location = crate::backup_restore::restored_location();
+    let cwd = restore_location
         .as_ref()
-        .and_then(|st| {
-            field(&Some(st.clone()), "configEnv")?
-                .get("path")?
-                .as_str()
-                .map(String::from)
+        .map(|location| location.config_dir.clone())
+        .or_else(|| {
+            probe_status
+                .flatten()
+                .as_ref()
+                .and_then(|st| {
+                    field(&Some(st.clone()), "configEnv")?
+                        .get("path")?
+                        .as_str()
+                        .map(String::from)
+                })
+                .and_then(|p| std::path::Path::new(&p).parent().map(|d| d.to_path_buf()))
         })
-        .and_then(|p| std::path::Path::new(&p).parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(default_config_dir);
     Ok(std::sync::Arc::new(supervisor::ServerSpawner {
         argv,
         cwd,
         console_log: console_log_path(),
         own_pid: std::process::id(),
+        restore_location,
     }))
 }
 
 /// `~/.config/subshell-server`, the CLI's own default config home.
 fn default_config_dir() -> std::path::PathBuf {
+    if let Some(dir) = std::env::var_os("SUBSHELL_SERVER_CONFIG_DIR") {
+        return std::path::PathBuf::from(dir);
+    }
     let home = subshell_desktop_core::shell_env::home_dir().unwrap_or_default();
     std::path::Path::new(&home).join(".config").join("subshell-server")
 }
@@ -2448,6 +2523,19 @@ pub fn desktop_set_launch_window(settings: State<'_, SettingsState>, window: Lau
 /// `subshell_desktop_core::tray` holds no state, so every call is that probe.
 pub fn close_to_tray_now(settings: &SettingsState) -> bool {
     effective_close_to_tray(settings.get().close_to_tray, tray_support())
+}
+
+/// Whether `RunEvent::ExitRequested` must call `prevent_exit()`.
+///
+/// Keep-running-in-tray governs the ACCIDENTAL exit — the last window closing
+/// or hiding to the tray — and nothing else. A deliberate Quit arrives from
+/// `app.exit(0)` as `code: Some(…)`, while an accidental one carries `None`
+/// (`tauri-runtime-wry`). Holding on `code.is_none()` means an explicit Quit is
+/// always honored, even with keep-running ON (choosing to quit means they no
+/// longer want it in the tray). The rule is this pure predicate so it is testable
+/// without a running app; the call site in `lib.rs` only wraps it in the match.
+pub fn should_prevent_exit(keep_running: bool, main_window_exists: bool, is_programmatic: bool) -> bool {
+    keep_running && main_window_exists && !is_programmatic
 }
 
 /// Longest log tail the console renders. Enough to cover a boot and a restart,
@@ -3227,6 +3315,21 @@ pub fn desktop_shell_ready(app: AppHandle, overlay: bool) -> Result<(), String> 
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// The exit-guard rule, on its own: keep-running holds ONLY the accidental
+    /// exit. A deliberate quit (`is_programmatic`, i.e. `code: Some`) is always
+    /// honored even with keep-running ON and a window present — the whole point
+    /// of the tray Quit fix. Without keep-running, nothing is held regardless.
+    #[test]
+    fn keep_running_holds_only_the_accidental_exit() {
+        // Accidental exit (hidden/closed last window) with a tray + keep-running: held.
+        assert!(should_prevent_exit(true, true, false));
+        // Deliberate Quit (app.exit(0) → Some(code)): never held.
+        assert!(!should_prevent_exit(true, true, true));
+        // No keep-running, or no window to keep: never held.
+        assert!(!should_prevent_exit(false, true, false));
+        assert!(!should_prevent_exit(true, false, false));
+    }
 
     /// **Where the dashboard window opens**, which is not always where the
     /// server listens (operator's report, 2026-09-19).
@@ -4553,6 +4656,13 @@ mod tests {
         let port = listener.local_addr().expect("read the bound port").port();
         assert!(port_in_use(port), "a port this process is listening on");
         drop(listener);
-        assert!(!port_in_use(port), "the same port once nothing holds it");
+        // Parallel tests spawn children. A fork can temporarily retain the
+        // listener until exec closes CLOEXEC descriptors, even after this
+        // thread drops its copy. Assert eventual release within a real bound.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while port_in_use(port) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        assert!(!port_in_use(port), "the same port must be free after bounded release");
     }
 }

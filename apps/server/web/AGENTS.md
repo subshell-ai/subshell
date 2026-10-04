@@ -98,8 +98,8 @@ re-submitted ON is INERT, and `components/lockdown-banner.tsx` tells everyone
 signed-in, mounted in `__root`.
 **Working on the home page, the launch pickers, or these gates: read apps/server/web/docs/home-launch-guidance.md first.**
 
-**The admin surface is TEN pages behind one collapsible group** (General,
-Users, Auth, API keys, Plugins, Service, Networking, Updates, Status, Logs),
+**The admin surface is ELEVEN pages behind one collapsible group** (General,
+Users, Auth, API keys, Plugins, Service, Networking, Updates, Backups, Status, Logs),
 gated as a WHOLE: a member's rail lists none of them, and none of them
 renders for a member who types the URL. The gate the others copy is
 `routes/settings_.status.tsx`'s: server-derived `viewerIsAdmin`, with

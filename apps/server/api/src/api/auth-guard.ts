@@ -7,6 +7,7 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { accountDisabled } from "@/services/account-status.js";
+import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.js";
 
 /** How the request authenticated — drives permission and admin policy. */
 export type GuardActor = "cookie" | "system-key" | "subshell-key";
@@ -169,6 +170,14 @@ export const authGuard = new Elysia({ name: "auth-guard" })
     const resolved = await resolvePrincipal(request);
     // One indexed lookup by primary key, on every authenticated request.
     if (await accountDisabled(db, resolved.user.id)) throw new UnauthorizedError();
+    const path = new URL(request.url).pathname;
+    // Recovery restricts the human session, not a pane's independently scoped
+    // machine identity (whose principal also names its human owner).
+    if (resolved.actor === "cookie" && (await backupPasswordChangeRequired(db, resolved.user.id))) {
+      if (!["/api/account/recovery", "/api/account/recovery/", "/api/account/recovery/password"].includes(path)) {
+        throw new HttpError(403, "PASSWORD_CHANGE_REQUIRED: Change your temporary restore password before continuing.");
+      }
+    }
     return resolved;
   })
   .as("scoped");

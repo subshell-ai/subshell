@@ -13,8 +13,13 @@ name: docker-image
 # Every completion of Release re-arms this trigger, so the plan job decides:
 # version from the parent's own head commit, skip when that version is
 # already packaged (the common case; a cut that didn't move the server
-# version is no work here), build when it is not. Dispatch with a version
-# rebuilds any release into its tag on purpose.
+# version is no work here) or when a chained parent's version has no
+# published release YET (the bump commit finishes a Release run before the
+# dispatched cut publishes the tag; that cut's completion re-arms this
+# trigger), build when it is not. Dispatch with a version rebuilds any
+# release into its tag on purpose - and never moves :latest except the one
+# bootstrap case below - so a version needing its FIRST bake should reach the
+# rail through the chain, not a dispatch.
 #
 # :latest moves on a fresh chained build (the parent's smoke gates are
 # exactly the old design's "release event whose smoke job passed") and, as
@@ -101,6 +106,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           VERSION: ${{ steps.resolve.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "$VERSION" ]; then
@@ -123,6 +129,36 @@ jobs:
               echo "move_latest=false" >> "$GITHUB_OUTPUT"
             fi
           elif [ "$EVENT" = "workflow_run" ]; then
+            # The parent's HEAD COMMIT merely BEARING the version is not
+            # proof a release exists: the version-bump commit completes a
+            # Release run minutes BEFORE the dispatched cut publishes
+            # cli-server-v$VERSION, and this trigger re-arms the moment that
+            # run finishes. Measured 2026-10-04: that first re-arm lost the
+            # race and died "release not found" in the build. The release's
+            # existence, not the version string's, is the work signal - when
+            # it is absent, skip as a no-op; the dispatched cut's own
+            # completion re-arms this trigger and packages the version for
+            # real (with :latest moving, which a dispatch cannot do).
+            # Discriminate, never fail open: ONLY a real 404 means "not yet"
+            # (skip - the cut's completion re-arms); a 5xx, network or
+            # rate-limit failure EXITS 1, because a red plan run is
+            # recoverable (re-dispatch Release, the chain re-arms) while a
+            # green skip on the one run meant to bake the version would strand
+            # :latest until some unrelated future completion re-fired this.
+            if ! gate=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/cli-server-v$VERSION" --silent 2>&1); then
+              case "$gate" in
+                *"HTTP 404"*)
+                  echo "::notice::cli-server-v$VERSION not published yet; the Release run that cuts it will re-arm this trigger"
+                  echo "skip=true" >> "$GITHUB_OUTPUT"
+                  echo "move_latest=false" >> "$GITHUB_OUTPUT"
+                  exit 0
+                  ;;
+                *)
+                  echo "::error::release existence check failed: ${gate//$'\n'/ }"
+                  exit 1
+                  ;;
+              esac
+            fi
             # A chained build of a version that was NOT packaged yet is
             # exactly the old design's fresh release: smoke gates this run,
             # so :latest may move.

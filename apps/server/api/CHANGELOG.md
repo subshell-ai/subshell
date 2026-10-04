@@ -1,5 +1,49 @@
 # @internal/server
 
+## 1.9.1
+
+### Patch Changes
+
+- [#326](https://github.com/subshell-ai/subshell/pull/326) [`e5facc8`](https://github.com/subshell-ai/subshell/commit/e5facc815650e1c88460fe784a1c9454d014965e) Thanks [@theogravity](https://github.com/theogravity)! - Node installer: offer to install tmux (no sudo on Proxmox hosts), show download progress, and refuse a nameless terminal-less install in two lines instead of the help wall. Proxmox server helper: trim and prune around updates (lvm-thin ENOSPC), and default new containers to 40 GB.
+
+## 1.9.0
+
+### Minor Changes
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Add full instance backup and restore as a single archive with optional password encryption. Server Settings creates downloads and prepares restores; the CLI and desktop assistant apply them offline with recovery after interruption, failed-boot rollback, migration choices, and optional administrator password recovery. Create full archives before upgrades and preserve support for legacy database-only restores.
+
+### Patch Changes
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Align dashboard backup cards, headings, toggle placement, field labels, validation colors, progress states, and detail spacing with the desktop assistant. Show the prepared restore result and host command on the preparation pane without an extra Next step.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Match the dashboard backup validation success message to the desktop success color and body typography.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Use .tar.gz for plain backup archives and .tar.gz.enc for encrypted archives consistently in desktop save dialogs, control plane downloads, and documentation.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Apply confirmed control-plane restores through an independent host worker, including on headless installations. Review affected sessions once, show restore and verified startup progress, and keep the result visible after login revocation without a CLI or desktop handoff.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Bring dashboard backup and restore preparation into the desktop workflow: separate selection, configuration, review, progress, and result panes, automatic saved-backup validation, contextual password errors, confirmation before preparation, and footer navigation. Add administrator-only saved-backup inspection and document the browser handoff to the host restore tool.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Use the desktop assistant frame and radio choices for dashboard backup and restore, with centered headings and separate footer navigation. Enable authenticated attachment downloads in both desktop control plane windows and show native completion or failure feedback.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Summarize restore session interruptions by count and match desktop dialog prose to pane body text.
+  
+  Honor confirmed backup replacement in the desktop save dialog without losing the previous archive on capture failure.
+  
+  Separate backup selection, restore configuration, and final confirmation into three panes. Validate configuration on blur and show session effects inline before consent.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Always start and verify the server after restores performed through the desktop assistant or control plane; remove the startup toggle.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Harden instance backup and restore after review. A native parent now defers respawning while a control-plane restore holds the instance swap, so the swap no longer races a respawn for the lock. Boot confirmation gets a budget separate from the stop wait, so a slow healthy boot is not rolled back; a stored start choice survives to apply time; a re-applied completed restore is refused honestly instead of echoing a stale success; a failed or expired worker always reports and clears its secret file; abandoned download slots expire; a rolled-back prepared database removes its WAL sidecars; the state-write lock closes its handle when a release refuses; the client desktop registers the dialog plugin its download notice needs; and container one-shot invocations run once instead of respawning.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Keep restore preparation disabled until the destination confirmation is checked, including when the review form has not been touched.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Clarify that the different-machine restore mode applies a backup on the current host rather than transferring it to another machine.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Explain the selected restore mode consistently in the desktop assistant and control plane, and separate restore configuration cards with consistent spacing.
+
+- [#318](https://github.com/subshell-ai/subshell/pull/318) [`6fc945c`](https://github.com/subshell-ai/subshell/commit/6fc945c58ccf9c89d13f9507fdc8d2b4c2107981) Thanks [@theogravity](https://github.com/theogravity)! - Strengthen encrypted backup password derivation to scrypt with 64 MiB of working memory with a 128 MiB scrypt memory allowance and a fixed CPU work factor independent of the backup host’s speed. Require at least 8 characters consistently in the CLI, browser, and desktop, and explain offline guessing and safe password selection. Reject the unreleased weaker encryption format.
+
 ## 1.8.0
 
 ### Minor Changes

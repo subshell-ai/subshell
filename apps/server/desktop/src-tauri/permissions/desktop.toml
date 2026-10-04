@@ -214,3 +214,33 @@ commands.allow = ["desktop_install_app_update"]
 identifier = "allow-desktop-open-system-settings"
 description = "Open ONE of three System Settings panes: Notifications, Files and Folders, Photos. A closed enum, never a URL, the same shape desktop_open_web keeps. Assistant only: a page able to pop a system pane on its own is a nuisance an XSS could pull, and every route here already goes through raising the assistant."
 commands.allow = ["desktop_open_system_settings"]
+
+[[permission]]
+identifier = "allow-desktop-backup"
+description = "Bundled assistant backup and restore operation."
+commands.allow = ["desktop_backup"]
+
+[[permission]]
+identifier = "allow-desktop-restore-inspect"
+description = "Bundled assistant backup and restore operation."
+commands.allow = ["desktop_restore_inspect"]
+
+[[permission]]
+identifier = "allow-desktop-backup-list"
+description = "List backup files in this instance's backup directory without modifying state. Assistant only."
+commands.allow = ["desktop_backup_list"]
+
+[[permission]]
+identifier = "allow-desktop-restore-prepare"
+description = "Bundled assistant backup and restore operation."
+commands.allow = ["desktop_restore_prepare"]
+
+[[permission]]
+identifier = "allow-desktop-restore-apply"
+description = "Bundled assistant backup and restore operation."
+commands.allow = ["desktop_restore_apply"]
+
+[[permission]]
+identifier = "allow-desktop-restore-discard"
+description = "Bundled assistant backup and restore operation."
+commands.allow = ["desktop_restore_discard"]

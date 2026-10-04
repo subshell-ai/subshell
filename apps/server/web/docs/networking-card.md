@@ -39,7 +39,8 @@ Three rules the card keeps, each with a defect behind it:
 - **The plugin owns its copy.** Hints, labels and step text render verbatim.
   What this page owns is the shape, and the consequences that are the SERVER's
   rather than the network's: what a non-secure-context address costs, that
-`subshell-server backup` does not include a plugin secret. Publishing moves
+  full instance backups include plugin secrets while database-only snapshots do
+  not. Publishing moves
   no boot-time identity and writes no config: the base URL is the Addresses
   card's field (that card moved onto THIS page from `/settings/service` on
   2026-09-17, the one config.env writer here, saving through the same

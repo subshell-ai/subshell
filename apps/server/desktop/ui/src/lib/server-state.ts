@@ -47,6 +47,8 @@ export type Route =
   | { kind: "supervision" }
   | { kind: "addresses" }
   | { kind: "permissions" }
+  | { kind: "backup" }
+  | { kind: "restore" }
   | { kind: "boot" };
 
 /**
@@ -90,6 +92,8 @@ export function route(
 ): Route {
   if (probe === null) return { kind: "boot" };
   if (isRequestedScreen(screen)) {
+    if (screen === "backup") return { kind: "backup" };
+    if (screen === "restore") return { kind: "restore" };
     if (screen === "update") return { kind: "update" };
     if (screen === "supervision") return { kind: "supervision" };
     if (screen === "settings") return { kind: "addresses" };
@@ -182,6 +186,8 @@ export const RAIL_SECTIONS: RailSection[] = [
   // nothing and overriding nothing — the section underneath keeps its route
   // AND its share of the rail highlight, and the overlay itself is the room
   // (no navigation is reachable beside a chain that is deleting this server).
+  { id: "backup", label: "Backup" },
+  { id: "restore", label: "Restore" },
   { id: "reset", label: "Reset", danger: true },
 ];
 
@@ -210,6 +216,8 @@ export function railFor(r: Route, onboarded: boolean): RailSection[] | null {
     case "update":
     case "supervision":
     case "addresses":
+    case "backup":
+    case "restore":
       return RAIL_SECTIONS;
     default:
       return null;
@@ -227,6 +235,10 @@ export function railActive(r: Route): string | null {
       return "supervision";
     case "addresses":
       return "settings";
+    case "backup":
+      return "backup";
+    case "restore":
+      return "restore";
     default:
       return null;
   }

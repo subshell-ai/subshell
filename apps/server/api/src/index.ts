@@ -13,7 +13,19 @@
 // gate below, not the exit style.
 // biome-ignore-all assist/source/organizeImports: entry prelude must evaluate first — see comment
 import "./cli-bootstrap.js";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { serverConfigDir } from "@/config-env.js";
+import { closeAuthDatabase } from "@/auth/database.js";
+import { acquireInstanceLock } from "@/services/instance-state-lock.js";
+import {
+  instanceRestoreJournalPath,
+  assertInstanceRestoreDestination,
+  finalizeInstanceRestore,
+  rollbackInstanceRestore,
+} from "@/services/backups/index.js";
+import { sweepBackupDownloads } from "@/services/backup-download-jobs.js";
+import { sweepRestoreStages } from "@/services/backup-staging.js";
+import { instanceBackupPaths } from "@/services/instance-backup-source.js";
 import { getHarness, setPluginDataDir } from "@internal/pane-runtime";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { setAuthPolicyDb } from "@/auth.js";
@@ -59,6 +71,7 @@ import { SERVER_VERSION } from "@/version.js";
 import { sweepWsTokens } from "@/ws/ws-token.js";
 
 export type { App } from "@/server.js";
+export type { BackupInspection, InstanceBackupManifest, BackupAdmin } from "@/services/backups/types.js";
 
 // Plan 2 CLI gate: `isCliEngaged()` flips synchronously inside the prelude's
 // `dispatchCli` call the moment a subcommand is recognised, so an async CLI
@@ -68,14 +81,8 @@ export type { App } from "@/server.js";
 // is exactly what keeps that from booting the server around it.
 const bootRequested = !isCliEngaged();
 
-// Fail before ANYTHING (imports' side effects have run, but no DB write, no
-// listener, no handler wiring): a production boot with the placeholder
-// BETTER_AUTH_SECRET would sign cookies with a publicly known key. Thrown at
-// module top level (not inside the boot IIFE) so the error reaches stderr as
-// a real crash rather than an unhandled rejection whose console output can
-// be lost to process.exit's truncation. Skipped for CLI invocations: `status`
-// REPORTS a missing/placeholder secret, it must not die on one.
-if (bootRequested) assertProdAuthSecret();
+// Boot validates the production authentication secret inside its failure boundary,
+// so a restored configuration that cannot boot still rolls back safely.
 
 process.on("unhandledRejection", (reason, promise) => {
   const log = getLogger().withPrefix("[Unhandled Rejection]");
@@ -94,8 +101,26 @@ process.on("uncaughtException", (error) => {
   process.exit(1);
 });
 
+let bootListener: Awaited<ReturnType<typeof startServer>> | undefined;
+
 if (bootRequested) {
-  bootServer().catch((error: unknown) => {
+  const release = acquireInstanceLock(join(serverConfigDir(), "instance-state.lock"), "server");
+  process.once("exit", release);
+  sweepBackupDownloads();
+  bootServer().catch(async (error: unknown) => {
+    await bootListener?.stop(true).catch((stopError: unknown) => console.error("Listener stop failed:", stopError));
+    await stopAllProcesses().catch(() => {});
+    await db.destroy().catch((closeError: unknown) => console.error("Database close failed:", closeError));
+    try {
+      closeAuthDatabase();
+    } catch (closeError) {
+      console.error("Auth database close failed:", closeError);
+    }
+    try {
+      await rollbackInstanceRestore(instanceRestoreJournalPath(serverConfigDir()));
+    } catch (rollbackError) {
+      console.error("Restore rollback failed:", rollbackError);
+    }
     // A boot failure reaches stderr SYNCHRONOUSLY, before the exit the
     // unhandled-rejection handler would have performed: the FATAL log rides
     // an async destination and `process.exit(1)` truncates it — measured
@@ -109,6 +134,11 @@ if (bootRequested) {
 }
 
 async function bootServer(): Promise<void> {
+  assertInstanceRestoreDestination(instanceRestoreJournalPath(serverConfigDir()), instanceBackupPaths());
+  assertProdAuthSecret();
+  sweepRestoreStages();
+  const stageSweep = setInterval(sweepRestoreStages, 60_000);
+  stageSweep.unref();
   // Decoration, and deliberately separate from the version line below: the
   // banner rides its own transport (no timestamp/level prefix, or the wordmark
   // would be sheared at the top) and carries no fact, so anything filtering
@@ -223,7 +253,7 @@ async function bootServer(): Promise<void> {
   // exists at all — the window in which a signal can arrive starts now.
   installShutdownHandlers();
 
-  await startServer({ port: SERVER_PORT, host: HOST });
+  bootListener = await startServer({ port: SERVER_PORT, host: HOST });
 
   // ...and the processes AFTER it. A tunnel proxies to this port, so starting
   // one before the server answers publishes a machine that returns connection
@@ -405,6 +435,8 @@ async function bootServer(): Promise<void> {
   setInterval(() => {
     void idleWatcher.tick(Date.now());
   }, IDLE_TICK_MS);
+  // Preserve originals through every awaited boot step, including reconciliation.
+  await finalizeInstanceRestore(instanceRestoreJournalPath(serverConfigDir()));
 }
 
 /**

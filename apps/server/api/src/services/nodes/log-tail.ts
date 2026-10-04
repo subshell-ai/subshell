@@ -92,3 +92,108 @@ export async function readLogTailFrom(path: string): Promise<{ lines: string[]; 
   }
   return tailLinesFromWindowText(text, start === 0);
 }
+
+/** Hard ceiling on one cursor-read window (spec 2026-10-01 §3; same size as the tail). */
+export const LOG_MAX_WINDOW_BYTES = LOG_TAIL_BYTES;
+/** Window a cursor read asks for when the caller named none. */
+export const LOG_WINDOW_DEFAULT_BYTES = 64 * 1024;
+
+/**
+ * Byte truth behind a cursor read (spec 2026-10-01 §3), split from the
+ * launcher hop so local and remote answer from ONE implementation, the way
+ * {@link tailLinesFromWindowText} does for the tail.
+ *
+ * The caller passes the window's RAW bytes, never decoded text: `nextByte`
+ * must be a raw file offset (stripped text is shorter and cannot be fed back
+ * to a byte read), and a UTF-8 sequence may straddle the window edge, so
+ * counting is done on bytes. A newline cannot hide inside a multibyte
+ * sequence, so byte-level `lastIndexOf` is exact.
+ *
+ * Line-aligned resume: only newline-terminated lines are consumed, so the
+ * cursor always sits at a line boundary and a line cut by the window edge
+ * arrives whole on the next read. The exception is the liveness rule: a
+ * window containing NO newline returns its partial text and the cursor
+ * advances past the window. That branch fires not only for a line longer
+ * than any window but also for a line merely unterminated at read time (an
+ * active prompt, a mid-write append) - and it must fire in both cases, or a
+ * quiet pane would pin the cursor and a spinning loop would never see what
+ * follows. The visible cost: such a line's remainder arrives as the NEXT
+ * read's leading line. Output is never duplicated, skipped, or stuck; a
+ * logical line can be split across reads (pinned by test).
+ *
+ * Unlike the tail there is no line cap in cursor mode: the byte budget IS the
+ * cap, and silently dropping lines from a caller paging through output is the
+ * lossy behavior this whole path exists to remove.
+ *
+ * @param bytes - the window's raw bytes (the answer of one `readLogWindow`)
+ * @param fromByte - the raw offset the window began at
+ * @param size - whole-file size as reported beside the window
+ */
+export function cursorLinesFromWindow(
+  bytes: Uint8Array,
+  fromByte: number,
+  size: number,
+): { lines: string[]; truncated: boolean; nextByte: number } {
+  if (bytes.byteLength === 0) return { lines: [], truncated: false, nextByte: Math.min(fromByte, size) };
+  const lastNewline = bytes.lastIndexOf(0x0a);
+  if (lastNewline === -1) {
+    const text = Buffer.from(bytes).toString("utf8");
+    return { lines: [stripAnsi(text)], truncated: true, nextByte: fromByte + bytes.byteLength };
+  }
+  const consumed = lastNewline + 1;
+  const all = stripAnsi(Buffer.from(bytes.subarray(0, consumed)).toString("utf8")).split("\n");
+  if (all.at(-1) === "") all.pop();
+  const nextByte = fromByte + consumed;
+  return { lines: all, truncated: nextByte < size, nextByte };
+}
+
+/** The launcher seam's window triple, unbound (see `NodeLauncher.readLogWindow`). */
+export type LogWindowReader = (
+  fromByte: number,
+  maxBytes: number,
+) => Promise<{ bytes: Uint8Array; next: number; size: number }>;
+
+/** Optional window request beside a log read; `fromByte` absent means "tail". */
+export interface LogCursorRequest {
+  /** Inclusive raw file offset to resume from; absent keeps the EOF-anchored tail. */
+  fromByte?: number;
+  /** Window budget, clamped to [1, {@link LOG_MAX_WINDOW_BYTES}]; {@link LOG_WINDOW_DEFAULT_BYTES} when absent. */
+  maxBytes?: number;
+}
+
+/**
+ * One log read behind the cursor API (spec 2026-10-01 §3), composed over the
+ * launcher's window triple so local and remote are byte-identical by
+ * construction.
+ *
+ * TAIL mode (no `fromByte`): the byte-identical answer of today's
+ * `readLogTail` (size probe, last {@link LOG_TAIL_BYTES},
+ * {@link tailLinesFromWindowText} with its partial-leading-line drop and
+ * {@link LOG_TAIL_LINES} cap), plus `nextByte` = file size: the tail seeds a
+ * cursor at EOF. Lines beyond the 200 cap were not shown and are not replayed
+ * - the honesty is in the description, not the offset. (The two hops read
+ * append-only content at slightly different instants; output that landed
+ * between them shows in the tail AND re-arrives on the first cursor read:
+ * bounded duplication, never a skip.)
+ *
+ * CURSOR mode (`fromByte`): ONE window read through {@link cursorLinesFromWindow}.
+ * At or past EOF the answer is empty with the cursor parked at the offset (a
+ * reader polling a quiet pane never moves it).
+ */
+export async function readLogCursor(
+  read: LogWindowReader,
+  req: LogCursorRequest,
+): Promise<{ lines: string[]; truncated: boolean; nextByte: number }> {
+  if (req.fromByte === undefined) {
+    const { size } = await read(0, 1);
+    if (size === 0) return { lines: [], truncated: false, nextByte: 0 };
+    const start = Math.max(0, size - LOG_TAIL_BYTES);
+    const { bytes } = await read(start, LOG_TAIL_BYTES);
+    const tail = tailLinesFromWindowText(Buffer.from(bytes).toString("utf8"), start === 0);
+    return { ...tail, nextByte: size };
+  }
+  const fromByte = Math.max(0, Math.trunc(req.fromByte));
+  const maxBytes = Math.min(Math.max(1, Math.trunc(req.maxBytes ?? LOG_WINDOW_DEFAULT_BYTES)), LOG_MAX_WINDOW_BYTES);
+  const { bytes, size } = await read(fromByte, maxBytes);
+  return cursorLinesFromWindow(bytes, fromByte, size);
+}

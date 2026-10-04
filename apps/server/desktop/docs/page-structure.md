@@ -127,3 +127,7 @@ Rust from the same constants (no `desktop_about` round trip, no URL crossing
 the IPC boundary in either direction). And on a machine whose server is DOWN,
 where the SPA's About dialog is unreachable, the panel is still there, which
 is precisely the machine this page exists for.
+
+Required-field validation in the assistant uses the gold `warning` token,
+including password mismatches (operator ruling 2026-10-03). Show messages
+after blur, hide them while editing, and disable submission until valid.

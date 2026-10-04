@@ -539,3 +539,75 @@ export const setSupervision = (
   autostart: boolean,
   force = false,
 ): Promise<SupervisionResult> => invoke<SupervisionResult>("desktop_set_supervision", { mode, autostart, force });
+
+export interface RestoreInspection {
+  manifest: {
+    completedAt: string;
+    serverVersion: string;
+    exclusions: string[];
+    entries: { path: string; bytes: number }[];
+  };
+  admins: { id: string; name: string; email: string }[];
+  legacyDatabaseOnly: boolean;
+  destination?: { databasePath: string; dataDir: string; configPath: string };
+  id?: string;
+  expiresAt?: number;
+  prepared?: boolean;
+  recoveryUserId?: string;
+  choices?: {
+    mode: "same-machine" | "migration";
+    recoverAdmin?: string;
+    configOverrides?: Record<string, string | number>;
+    destination?: { databasePath: string; dataDir: string; configPath?: string };
+  };
+}
+export type RestorePrepare = {
+  archive: string;
+  password: string;
+  mode: "same-machine" | "migration";
+  dataDir: string;
+  databasePath: string;
+  configDir: string;
+  baseUrl: string;
+  host: string;
+  port: string;
+  trustedOrigins: string;
+  recoverAdmin: string;
+  temporaryPassword: string;
+};
+export interface BackupResult {
+  path: string;
+  bytes: number;
+}
+export interface RestoreApplyResult {
+  status: string;
+  started: boolean;
+  destination: { databasePath: string; dataDir: string; configPath: string };
+}
+export const backup = (output: string, password: string): Promise<BackupResult> =>
+  invoke("desktop_backup", { output, password });
+export const restoreInspect = (archive: string, staged: string, password: string): Promise<RestoreInspection> =>
+  invoke("desktop_restore_inspect", { archive, staged, password });
+export interface LocalBackupFile {
+  path: string;
+  name: string;
+  bytes: number;
+  createdAt: string;
+  legacyDatabaseOnly: boolean;
+  encrypted: boolean;
+  serverVersion?: string;
+}
+export const backupList = (): Promise<{ backups: LocalBackupFile[] }> => invoke("desktop_backup_list");
+export const restorePrepare = (options: RestorePrepare): Promise<RestoreInspection> =>
+  invoke("desktop_restore_prepare", { options });
+export const restoreApply = (
+  staged: string,
+  confirmed: boolean,
+  force: boolean,
+  start: boolean,
+): Promise<RestoreApplyResult> => invoke("desktop_restore_apply", { staged, confirmed, force, start });
+export const restoreDiscard = (staged: string): Promise<void> => invoke("desktop_restore_discard", { staged });
+
+/** Read-only destination and session check; never stops or replaces the server. */
+export const restorePreview = (staged: string): Promise<RestoreInspection> =>
+  invoke("desktop_restore_apply", { staged, confirmed: false, force: false, start: false, preview: true });

@@ -424,10 +424,10 @@ function buildDeployment(deps: DeploymentDeps): DeploymentView {
     platform,
     generatedAt: new Date().toISOString(),
   };
-  // The launch rail opts in only alongside Docker's restart policy. A plain
-  // container marker does not prove that exiting will bring this server back.
-  // PID 1 ensures exiting ends the container, including all pane processes.
-  if (isContainerized(env) && env.SUBSHELL_CONTAINER_RESTART === "1" && pid === 1) {
+  // The image's parent keeps the container alive while its serving child restarts.
+  // Retain the older explicitly opted-in PID 1 deployment contract too.
+  const containerParent = Number(env.SUBSHELL_CONTAINER_SUPERVISOR_PID) === (deps.ppid ?? process.ppid);
+  if (isContainerized(env) && (containerParent || (env.SUBSHELL_CONTAINER_RESTART === "1" && pid === 1))) {
     return {
       ...base,
       service: {
@@ -438,7 +438,7 @@ function buildDeployment(deps: DeploymentDeps): DeploymentView {
         pid,
         enabled: true,
         linger: null,
-        paneSafety: "kills",
+        paneSafety: containerParent ? "keeps" : "kills",
         logPath: null,
         logHint: "docker logs -f subshell",
         supervised: true,

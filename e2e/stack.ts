@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { BASE_URL, FAKE_IDP_URL, FAKE_REGISTRY_URL, PORTS } from "./ports";
@@ -38,7 +38,7 @@ interface Stack {
  * stay in the regular scratch dir where their length does not matter.
  */
 export function shortTmuxBase(): string {
-  const base = mkdtempSync(path.join("/tmp", "ss-e2e-"));
+  const base = mkdtempSync(path.join(realpathSync("/tmp"), "ss-e2e-"));
   return path.join(base, "t");
 }
 
@@ -119,7 +119,8 @@ async function waitForFakeIdp(idp: ReturnType<typeof spawn>, timeoutMs = 30_000)
  * only the parent leaves the server holding the port).
  */
 export async function startStack(): Promise<void> {
-  const dir = mkdtempSync(path.join(tmpdir(), "subshell-e2e-"));
+  // Test-owned source/config paths must not retain macOS's standard /var -> /private/var alias.
+  const dir = mkdtempSync(path.join(realpathSync(tmpdir()), "subshell-e2e-"));
   chmodSync(STUB_PI, 0o755);
   // tmux only honours TMUX_TMPDIR when the directory already exists (it does
   // not mkdir the base itself on this build), so create it before the backend

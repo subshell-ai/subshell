@@ -258,11 +258,11 @@ un-disable an owner, so a held socket would exist to carry a command
 that cannot fix the reason for the hold: a refused-and-hidden node
 rather than a refused-and-visible one.
 
-What still differs from the password reset, recorded as CURRENT behavior:
-better-auth's 5-minute `cookieCache` (`auth.ts:40-53`) lets a copied
-session cookie keep answering better-auth's OWN session endpoints for up to
-5 minutes after the flag lands. Route freshness is unaffected: `authGuard`
-reads the database every request.
+The auth fetch wrapper resolves the DB-backed session token before forwarding
+to better-auth. When the session row has been revoked, it strips cached
+session data while retaining unrelated OAuth and challenge cookies. A copied
+cookie cache therefore cannot keep a disabled or restored session alive.
+Ordinary route guards also read the database every request.
 
 ### The mobile app's credential
 
@@ -722,6 +722,12 @@ the prompt unsubmitted (the WS path's own at-least-once posture, restated
 here because the HTTP door makes the pair observable). The route writes no
 row, so it announces nothing and audits nothing; `{ ok: true }` means the
 bytes reached the pane's machine, not that the pane acted on them.
+
+**Exec rides the same pipe (2026-10-02).** `POST /api/subshells/:id/exec`
+types a command and its sentinel `printf` line over the same `sendInput` seam,
+so the argv posture above is its posture too (accepted, §11), and the sentinel
+lands in the pane's own log as random noise, not data; every refusal precedes
+the typing, and a `timed_out` answer signals nothing and types nothing further.
 
 ## 5. Sharing
 
@@ -3005,15 +3011,15 @@ The `update` command's wire shape is FROZEN across protocol bumps for this
 reason alone: it is the one command sent to an agent whose protocol the plane
 does not share.
 
-**The backup is the whole database**: credential hashes, API-key hashes, audit
-rows, channel ciphertext. It is the most sensitive single file this app writes
-and it is now written repeatedly: 0600 in a 0700 directory at
-`<SUBSHELL_SERVER_DATA_DIR>/backups/`, so it is inside the data dir the desktop
-reset deletes recursively and the disk posture is unchanged. SQLite creates the
-file with the umask (0644 measured), so the `chmod` after the `VACUUM INTO` is
-what makes 0600 true rather than a hope. Five are kept by default; an operator
-who wants fewer bytes on disk sets `SUBSHELL_DB_BACKUPS_KEEP`, and `0` keeps
-them forever. `subshell-server backup` takes one by hand.
+**Automatic update backups are full instance archives**: the database,
+configuration, identities, plugins and their secret store. Archives are 0600 in
+`<SUBSHELL_SERVER_DATA_DIR>/backups/` (0700), inside the data directory the
+desktop reset deletes. Five are kept by default; `SUBSHELL_DB_BACKUPS_KEEP`
+controls retention and `0` keeps them forever. Manual backups use the same
+archive format, with optional password encryption. Unattended upgrade archives
+are unencrypted. A private 0600 SQLite checkpoint under `update/checkpoints/`
+comes from the archive's exact snapshot and supports crash rollback by older
+server binaries; it is not listed as a user backup.
 
 Note which paths now write one. The desktop app's "install the bundled server"
 offer used to copy a file into place; when the outcome is a REPLACE of a
@@ -3021,7 +3027,7 @@ managed install it now runs `<installed> update --from <sidecar> --yes
 --no-restart --json` instead, so it takes the backup and writes the marker like
 every other path. That is a safety gain and a disclosure change in the same
 motion: a machine whose owner only ever presses a button in a GUI now
-accumulates full copies of its database on disk, bounded by
+accumulates full instance archives on disk, bounded by
 `SUBSHELL_DB_BACKUPS_KEEP` and by nothing else. The FIRST install still copies
 the sidecar: there is no installed CLI to run yet, and nothing to back up.
 
@@ -3160,15 +3166,15 @@ this project did not write.
   `<SUBSHELL_SERVER_DATA_DIR>/plugins-state/<id>/secrets/<name>`, 0600 inside
   0700 directories, same protection as `BETTER_AUTH_SECRET` and the node key,
   and inside the data dir the desktop reset already deletes. A stolen data dir
-  is a stolen tunnel. Two narrowing facts and one gap: the store is
+  is a stolen tunnel. Two protections and the backup boundary: the store is
   **write-only to plugins** (`set`, `has`, `delete`; there is deliberately no
   `get`, because a plugin that could read a credential could put it in argv, a
   log line or a hint that renders in a browser), the value is hydrated only
   into a process the HOST spawns (a 0600 file named by a flag, or an
-  environment variable), and **`subshell-server backup` does not include it**;
-  that verb snapshots the database alone (§11.12). After a restore the token
-  must be re-entered, and the UI says so at the field rather than leaving it to
-  be discovered.
+  environment variable), and **full instance archives include it** ("Full instance archives and offline restoration" below).
+  Legacy database-only snapshots do not; those restores require a separately preserved secret store or
+  re-entering the token. The UI distinguishes full archives from database-only
+  snapshots at the field.
 - **Mesh keys transit argv once.** A Tailscale auth key or a NetBird setup key
   is passed to the vendor CLI as an argv element and is `ps`-visible for the
   life of that one short command. Same accepted class as
@@ -3468,3 +3474,96 @@ holds and the following are prerequisites, not improvements:
       valid on the plane, so this surface must authenticate AND supply an actor
       for the agent-log record before either change ships. Until then
       `SUBSHELL_DASHBOARD=0` is the remedy and the correct default there.
+
+
+## Full instance archives and offline restoration
+
+Manual full backups include the consistent SQLite snapshot plus supported effective
+configuration (including the authentication secret), node/channel identities,
+installed plugin code, plugin secrets/state, and server/pane logs. Projects,
+project-local uploads, external harness credentials, remote node files, prior
+backups, temporary update/restore state, caches/binaries, service definitions,
+and external network daemon state are excluded. Logs are bounded at their
+captured lengths and described as an interval, not a single atomic database
+instant. The manifest records this boundary.
+
+Settings creation/inspection/preparation are cookie-admin-only and audited.
+Saved-backup inspection accepts only an exact path from the current server backup
+catalogue; it cannot inspect an arbitrary host file. Browser preparation validates
+absolute, safe destination paths before mutating administrator recovery state.
+Downloads are single-use, temporary, expire after one hour, and are cleaned after
+stream completion/cancellation; boot sweeps interrupted server download output.
+Decrypted restore staging is private and expires after ten minutes. Saved
+archives do not expire. The mounted browser workflow or native assistant may re-extract an expired
+stage from its source and requires review if the prepared details change. It stores no
+plaintext archive or temporary login password in metadata. A cookie-admin control-plane request can launch an independent restore worker after explicit replacement and affected-session consent. The worker stops the serving process and holds the OS-backed instance mutex during replacement. Linux service workers run in a separate transient unit so stopping the server’s cgroup cannot kill the worker. The container image keeps a parent supervisor alive while its serving child is restored; parent identity is checked against the real PPID, and each serving boot reads restored file configuration afresh. Private request/environment files stay outside archived state; the environment file is deleted on worker completion. A random job UUID permits only generic, read-only progress for one hour, without credentials or instance metadata, so the initiating page can reconnect after login revocation. Only that generic status capability allows anonymous cross-origin reads, enabling direct connections to follow a restored port change without transmitting the former cookie. Network/config/plugin/key writers cooperate with
+the separate capture mutex while online backups are collected.
+
+### Archive encryption and password policy
+
+Unencrypted archives contain live credentials. Encryption is optional and defaults
+off. AES-256-GCM uses a 32-byte key, a fresh 16-byte random salt, a fresh
+12-byte random nonce, and a 16-byte authentication tag. The versioned 40-byte
+header is authenticated as additional data. Decryption authenticates the complete
+ciphertext in private staging before parsing archive entries.
+
+Password derivation uses scrypt with fixed `N=65536`, `r=8`, and `p=2`, one of
+[OWASP's listed configurations](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#scrypt).
+Working memory is approximately 64 MiB; `maxmem` is 128 MiB to allow overhead.
+The allowance applies to each derivation, not total process memory or all
+concurrent operations. Derived key buffers are zeroed after use. JavaScript
+password strings are not reliably zeroizable; native transport and transient
+in-memory preparation still fall within the owning OS account's trust boundary.
+
+Every host uses the same fixed cost. There is no runtime calibration against
+the backup host, no artificial delay, and no universal two-to-three-second
+latency guarantee. Creating an archive on a high-end CPU does not increase its
+unlock work on a lower-end computer. Processing time depends on hardware and
+load. Algorithm id 3 records `p=2` in the authenticated header; other work
+factors and the unreleased algorithm ids 1 and 2 are rejected before derivation.
+Untrusted headers cannot request unbounded memory or CPU work.
+
+A shared creation policy requires at least eight Unicode code points, at most
+4096 UTF-16 code units, and no CR, LF, or NUL. Values are never trimmed or
+normalized. CLI, browser, desktop, and archive creation enforce this policy;
+read-only decryption accepts supplied guesses and reports authentication failure
+for incorrect passwords. The eight-character minimum is a usability decision,
+not a strength guarantee. Someone holding the archive can guess offline without
+rate limits, and attack hardware may run faster than the owner's computer.
+The fixed work factor raises each guess's cost but cannot make a weak short
+password equivalent to a strong longer password. User guidance recommends a
+unique random password or random passphrase, stored separately. Forgotten
+passwords cannot be recovered.
+
+Passwords never appear in manifests, audit metadata, or CLI arguments. Native
+password transport uses owned 0600 temporary files with cleanup; archives and
+staged files are 0600 in owned 0700 staging directories. Encryption protects a
+saved copy, not a compromised live host or access to its private plaintext
+staging. User procedures live in the [backup guide](../apps/docs/content/docs/administration/backups.mdx).
+
+### Restore validation and replacement
+
+Archive inspection refuses unsupported formats/newer migrations, invalid hashes,
+links, traversal, duplicate paths, and bounded-resource violations. Default
+limits are 16 GiB stored/expanded, 8 GiB per file, and 50,000 files; manifest and
+other metadata have tighter limits. Legacy .db sources must have no journal
+sidecars and are explicitly database-only. Archived absolute paths cannot pick
+restore destinations; explicit destination paths rewrite the configuration.
+
+Replacement is journaled with fsynced preparations and retained originals.
+Interrupted apply is recovered before boot configuration is read. The prior
+state is removed only after successful serving boot; failed boot closes
+SQLite/auth handles and rolls back. Restore revokes human login sessions.
+Optional existing-admin recovery enables password sign-in, writes a password
+hash to staged SQLite, and flags that account for forced change. Ordinary human
+API, terminal/live WebSocket and better-auth operations are blocked for flagged
+sessions until a verified
+password change deletes the flag and revokes its sessions. No administrator
+account is created through recovery. Scoped pane and node machine credentials
+retain their existing bindings and permissions while human recovery is pending.
+
+Migration retains plugin secrets but disables network plugin enable flags and
+clears network publication/address records. The destination's networking needs
+review before publication. A restored identity must not run concurrently with
+its original instance; backing up control-plane identities does not clone
+external daemons, remote files, or running processes.

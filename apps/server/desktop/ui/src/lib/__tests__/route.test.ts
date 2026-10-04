@@ -207,7 +207,15 @@ describe("railFor", () => {
     // select opens the dialog over whatever section's rail this is, and that
     // section keeps the highlight while it is up.
     expect(RAIL_SECTIONS.find((s) => s.id === "reset")?.danger).toBe(true);
-    expect(RAIL_SECTIONS.map((s) => s.id)).toEqual(["status", "update", "supervision", "settings", "reset"]);
+    expect(RAIL_SECTIONS.map((s) => s.id)).toEqual([
+      "status",
+      "update",
+      "supervision",
+      "settings",
+      "backup",
+      "restore",
+      "reset",
+    ]);
   });
 
   it("answers null for a standing route on a machine mid-first-run", () => {
@@ -222,15 +230,33 @@ describe("railFor", () => {
     // The fifth is Reset (operator ruling 2026-09-22): the DOOR in the rail,
     // marked destructive.
     const sections = railFor({ kind: "status" }, true);
-    expect(sections?.map((s) => s.id)).toEqual(["status", "update", "supervision", "settings", "reset"]);
-    expect(sections?.map((s) => s.label)).toEqual(["Status", "Update", "Service", "Addresses", "Reset"]);
+    expect(sections?.map((s) => s.id)).toEqual([
+      "status",
+      "update",
+      "supervision",
+      "settings",
+      "backup",
+      "restore",
+      "reset",
+    ]);
+    expect(sections?.map((s) => s.label)).toEqual([
+      "Status",
+      "Update",
+      "Service",
+      "Addresses",
+      "Backup",
+      "Restore",
+      "Reset",
+    ]);
     expect(sections?.find((s) => s.id === "reset")?.danger).toBe(true);
-    for (const kind of ["update", "supervision", "addresses"] as const) {
+    for (const kind of ["update", "supervision", "addresses", "backup", "restore"] as const) {
       expect(railFor({ kind }, true)?.map((s) => s.id)).toEqual([
         "status",
         "update",
         "supervision",
         "settings",
+        "backup",
+        "restore",
         "reset",
       ]);
     }

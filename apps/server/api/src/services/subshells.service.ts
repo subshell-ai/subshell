@@ -1,3 +1,4 @@
+import { homedir as osHomedir } from "node:os";
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 // The attention kinds are imported from the reporter that SPEAKS them rather
 // than restated here: the old local `Extract<NotifyKind, …>`, widened once to
@@ -22,8 +23,18 @@ import { BaseService, type CommonServiceParams } from "@/services/base.service.j
 import { publishLive } from "@/services/live-bus.js";
 import { lockdownEnabled } from "@/services/lockdown.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
+import type { LogCursorRequest, LogWindowReader } from "@/services/nodes/log-tail.js";
 import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
+import {
+  EXEC_MAX_OUTPUT_BYTES,
+  execOutputTail,
+  execSentinelCommand,
+  execSentinelToken,
+  execTimeoutMs,
+  probeQuiet,
+  waitSentinel,
+} from "@/services/nodes/pane-exec.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
@@ -31,7 +42,7 @@ import {
   PROMPT_POLL_MS,
   PROMPT_SETTLE_TIMEOUT_MS,
   RestartInFlightSwapError,
-  readSubshellLogTail,
+  readSubshellLogWindow,
   SubshellManagerService,
 } from "@/services/subshell-manager.service.js";
 import { extendSubshellToken, subshellTokenTtlSeconds } from "@/services/subshell-tokens.js";
@@ -324,6 +335,34 @@ export function resolvePresetLaunch(
   };
 }
 
+/** What one `execInTerminal` call answers (spec 2026-10-02 §2). */
+export interface ExecAnswer {
+  /** `completed`: the sentinel line landed before the deadline; `timed_out`: it never did (the command may still be running - ruling 2). */
+  status: "completed" | "timed_out";
+  /** The exit code the shell reported; null when no sentinel landed. */
+  exitCode: number | null;
+  /** The pane's output between the quiet mark and the sentinel, newline-joined, newest lines kept within the byte cap. */
+  output: string;
+  /** True when older output was dropped to keep `output` inside {@link EXEC_MAX_OUTPUT_BYTES}. */
+  truncated: boolean;
+  /** Raw byte offset just past the sentinel line (or where a timed-out scan stopped): the caller's next log cursor read. */
+  nextByte: number;
+}
+
+/**
+ * exec's per-pane lease (spec 2026-10-02 §2), shared process-wide by SUBSHELL ID.
+ *
+ * `SubshellsService` is constructed FRESH per HTTP request (contextPlugin's
+ * resolve), so a per-instance map would be inert, exactly the failure
+ * `restartInFlight` in `subshell-manager.service.ts` exists to avoid: two
+ * concurrent execs (two tabs, list + detail, web + MCP) would each hold their
+ * own map, both proceed, and their interleaved sentinels would corrupt each
+ * other. Living at module scope, every instance shares the one lease and a
+ * second caller on a held id answers 409 EXEC_IN_FLIGHT. The entry is added
+ * synchronously before the first await and removed in `finally`.
+ */
+const execInFlight = new Map<string, Promise<ExecAnswer>>();
+
 /**
  * Business logic behind `/api/subshells`, one method per endpoint.
  *
@@ -444,14 +483,22 @@ export class SubshellsService extends BaseService {
     // THE launch resolution (spec 2026-09-29 preset-launch-fields), pure form
     // in {@link resolvePresetLaunch}; the throws and gates below stay here.
     const resolved = resolvePresetLaunch({ workingDir, prompt, nodeId }, presetRow);
-    if (resolved.workingDir === undefined) {
+    const harnessPlugin = getHarness(harnessId);
+    // Spec 2026-10-01 §2: a PRESETLESS launch of a terminal-type harness with
+    // no named directory gets the launch node's home. The answer depends on
+    // which machine wins, so the default is computed after node resolution and
+    // the missing-dir 400 is deferred for exactly this shape — presetless,
+    // terminal type, no dir. Every other no-dir launch keeps answering the
+    // 400 HERE, before anything node-shaped can reply (the ordering the
+    // harness-existence check below cites for its own reason).
+    const presetlessTerminal = presetRow === undefined && harnessPlugin?.type === "terminal";
+    if (resolved.workingDir === undefined && !presetlessTerminal) {
       throw new SubshellCreateError(
         "bad_request",
         "A working directory is required: pass one, or launch from a preset that carries one",
         400,
       );
     }
-    const resolvedWorkingDir = resolved.workingDir;
     const resolvedPrompt = resolved.prompt;
     // An id that resolves to NO plugin names nothing — a typo, or a plugin
     // that failed to load (broken plugins enter neither the registry nor the
@@ -467,7 +514,7 @@ export class SubshellsService extends BaseService {
     // hand, and a bare "unknown" forces a guess-retry loop. The list is what
     // `getHarness` actually resolves against (built-ins plus the installed
     // overlay), sorted, so two identical mistakes answer identically.
-    if (!getHarness(harnessId)) {
+    if (!harnessPlugin) {
       const available = allHarnesses()
         .map((h) => h.id)
         .sort()
@@ -524,6 +571,24 @@ export class SubshellsService extends BaseService {
         409,
       );
     }
+    // The deferred default (spec 2026-10-01 §2): the launch node's home, read
+    // only from sources this request already has — the local host's homedir,
+    // or the agent's reported `ready` facts. A node that has never reported a
+    // home gets the honest 400 naming what is missing; a default is never
+    // fabricated, and an allowlist that excludes the home refuses the launch
+    // exactly as it would any hand-typed directory (gated downstream, twice).
+    let launchWorkingDir = resolved.workingDir;
+    if (launchWorkingDir === undefined) {
+      const home = resolvedNodeId === LOCAL_NODE_ID ? osHomedir() : getLive(resolvedNodeId)?.agent?.homeDir;
+      if (home === undefined || home === "") {
+        throw new SubshellCreateError(
+          "bad_request",
+          "A working directory is required: pass one (that node has not reported a home directory)",
+          400,
+        );
+      }
+      launchWorkingDir = home;
+    }
     // The manager already rolled the row + token back; a node that dropped
     // offline between resolution and launch answers with the same structured
     // 409 the restart boundary gives (§5.6) — everything else rethrows.
@@ -532,7 +597,7 @@ export class SubshellsService extends BaseService {
         userId,
         harnessId,
         presetId: presetId ?? null,
-        workingDir: resolvedWorkingDir,
+        workingDir: launchWorkingDir,
         name,
         prompt: resolvedPrompt,
         nodeId: resolvedNodeId,
@@ -551,7 +616,7 @@ export class SubshellsService extends BaseService {
     // remote machine's paths never surface in the local picker (and vice
     // versa). Best-effort: the subshell EXISTS at this point, and a book-
     // keeping insert failing must not turn a successful launch into an error.
-    await this.repos.recentPaths.touch(userId, resolvedWorkingDir, name ?? null, resolvedNodeId).catch(() => {});
+    await this.repos.recentPaths.touch(userId, launchWorkingDir, name ?? null, resolvedNodeId).catch(() => {});
     // The MCP apiKey is returned by the manager for env injection only; it is
     // a secret issued once and NEVER echoed to the HTTP client.
     return { id: created.id, tmuxSocket: created.tmuxSocket, promptDelivered: created.promptDelivered };
@@ -748,6 +813,9 @@ export class SubshellsService extends BaseService {
    *
    * Gated at `view`, the same level as GET /:id, so a stranger gets a 404 and
    * the log's contents never leak through timing or body differences.
+   * @param window - optional cursor (spec 2026-10-01 §3): `fromByte` resumes
+   *         raw bytes from that offset instead of tailing; absent keeps the
+   *         EOF-anchored tail and `nextByte` seeds the next read at EOF.
    * @throws SubshellError 404 when absent or invisible to the caller.
    * @throws ApiError 409 NODE_OFFLINE when the row's agent node has no live
    *         connection (spec §5.6, the create/restart mapping again — the UI
@@ -758,13 +826,15 @@ export class SubshellsService extends BaseService {
     viewerId: string,
     id: string,
     actor: GuardActor,
-  ): Promise<{ lines: string[]; truncated: boolean }> {
+    window?: LogCursorRequest,
+  ): Promise<{ lines: string[]; truncated: boolean; nextByte: number }> {
     const { row } = await this.#gate(viewerId, id, "view", actor);
     await this.#rememberSeen(actor, viewerId, row);
-    // Spec §6.5: the tail reads from the node that owns the pane — an
-    // agent-node row goes through its RemoteLauncher (`log_read` window),
-    // whose offline throw maps onto §5.6 exactly like create/restart.
-    return await readSubshellLogTail(id, row.nodeId).catch(rethrowLaunchRefusal);
+    // Spec §6.5: the read goes to the node that owns the pane — an agent-node
+    // row answers through its RemoteLauncher (`log_read` window), whose offline
+    // throw maps onto §5.6 exactly like create/restart. One composition
+    // (readSubshellLogWindow) now serves tail and cursor for every launcher.
+    return await readSubshellLogWindow(id, row.nodeId, window ?? {}).catch(rethrowLaunchRefusal);
   }
 
   /**
@@ -850,6 +920,121 @@ export class SubshellsService extends BaseService {
     await launcher.sendInput(socket, id, text).catch(rethrowLaunchRefusal);
     if (submit) await launcher.sendInput(socket, id, "\r").catch(rethrowLaunchRefusal);
     return { ok: true };
+  }
+
+  /**
+   * Run ONE shell command in a TERMINAL pane and answer with its output and
+   * exit code (spec 2026-10-02). Everything the pane cannot tell us is
+   * machinery's job: the sentinel protocol lives in `pane-exec.ts`, the two
+   * sends ride the SAME `sendInput` seam as every keystroke in this app (argv
+   * posture included, accepted §11.2), and the wait reads through the
+   * `readLogWindow` seam the cursor reads already use. Gates mirror
+   * `sendSubshellInput` verbatim (edit grant, the two facts, the offline
+   * mapper) and ADD two: a non-terminal harness is refused by name (an
+   * agent pane would eat the line into its own input box), and one exec per
+   * pane at a time (interleaved sentinels corrupt each other). The quiet
+   * check precedes EVERYTHING typed: a refusal never touches the pane, and
+   * neither does a lease, timeout, or wait (ruling 2 - the command keeps
+   * running; this call just stops watching). No publishLive, no audit row:
+   * like input, the row never changed; the pane's own log records the typing.
+   * @throws SubshellError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller holds only `view`.
+   * @throws ApiError 409 SUBSHELL_NOT_RUNNING when the row is not running OR
+   *         its pane has exited (the two facts, checked FIRST exactly as
+   *         input does); 400 EXEC_TERMINAL_ONLY when the pane's harness is not
+   *         a terminal; 409 EXEC_IN_FLIGHT when another exec already holds the
+   *         pane's lease; 409 EXEC_PANE_BUSY when the quiet probe finds the
+   *         log growing. All four refuse before anything is typed, and any
+   *         launcher refusal maps through the create/restart mapper.
+   */
+  async execInTerminal(
+    viewerId: string,
+    id: string,
+    command: string,
+    timeoutMs: number | undefined,
+    actor: GuardActor,
+  ): Promise<ExecAnswer> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    if (row.status !== "running" || row.alive !== 1) {
+      throwApiError({
+        code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
+        message: "The subshell is not running; nothing was typed. Restart it first.",
+        doNotLog: true,
+      });
+    }
+    const harness = getHarness(row.harnessId);
+    if (harness?.type !== "terminal") {
+      throwApiError({
+        code: BackendErrorCodes.EXEC_TERMINAL_ONLY,
+        // Two shapes under one code: a KNOWN non-terminal harness runs an
+        // agent (its own input box would eat the line); an unresolvable id
+        // names that instead, because "this pane runs a harness" would be a
+        // sentence about a harness nobody can look up (PR #319 review).
+        message: harness
+          ? "exec types shell commands into terminal panes; this pane runs a harness"
+          : "exec types shell commands into terminal panes; this pane's harness is not installed",
+        doNotLog: true,
+      });
+    }
+    const running = execInFlight.get(id);
+    if (running) {
+      throwApiError({
+        code: BackendErrorCodes.EXEC_IN_FLIGHT,
+        message: "Another exec is already waiting on this pane; retry once it finishes",
+        doNotLog: true,
+      });
+    }
+    // The lease spans the whole call - gate already passed, nothing between
+    // the get and the set awaits - so two racing calls never both proceed.
+    // A caller that abandons the HTTP request mid-wait still holds it until
+    // the deadline: this plane plumbs no request-abort anywhere (the channels
+    // long-poll has the same property), and the wait is bounded by the clamp,
+    // so the worst case is EXEC_TIMEOUT_MAX of EXEC_IN_FLIGHT refusals,
+    // self-healing at the deadline.
+    const call = this.#execInner(row, id, command, execTimeoutMs(timeoutMs)).finally(() => execInFlight.delete(id));
+    execInFlight.set(id, call);
+    return await call;
+  }
+
+  async #execInner(row: SubshellTable, id: string, command: string, timeoutMs: number): Promise<ExecAnswer> {
+    const launcher = launcherFor(row.nodeId);
+    const socket = row.tmuxSocket ?? tmuxSocketFor(id);
+    const read: LogWindowReader = (fromByte, maxBytes) =>
+      launcher.readLogWindow(id, fromByte, maxBytes).catch(rethrowLaunchRefusal);
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    const quiet = await probeQuiet(read, sleep);
+    if (!quiet.quiet) {
+      throwApiError({
+        code: BackendErrorCodes.EXEC_PANE_BUSY,
+        message: "The pane is producing output; nothing was typed. Read it or wait, then retry.",
+        doNotLog: true,
+      });
+    }
+    // The token is production's own, always (review choice 2026-10-02): the
+    // suites drive a scripted node whose `log_read` answer is drawn from the
+    // sentinel frame it actually received, so completion proves scanner and
+    // frame agree without a test seam in the signature.
+    const token = execSentinelToken();
+    for (const text of [command, "\r", execSentinelCommand(token), "\r"]) {
+      await launcher.sendInput(socket, id, text).catch(rethrowLaunchRefusal);
+    }
+    const waited = await waitSentinel(read, token, quiet.size, {
+      timeoutMs,
+      sleep,
+      now: Date.now,
+      alive: async () => {
+        const fresh = await this.repos.subshells.findById(id);
+        return fresh?.status === "running" && fresh?.alive === 1;
+      },
+    });
+    const tail = execOutputTail(waited.outputLines, EXEC_MAX_OUTPUT_BYTES);
+    return {
+      status: waited.status,
+      exitCode: waited.rc,
+      output: tail.text,
+      truncated: tail.truncated,
+      nextByte: waited.nextByte,
+    };
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   pluginStateDir,
 } from "@internal/pane-runtime";
 import { SERVER_PORT, SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
+import { beginBackupStateWrite } from "@/services/backup-capture-lock.js";
 
 /**
  * The host's record of what one network plugin is doing on this instance.
@@ -174,19 +175,24 @@ export async function writeNetworkState(
   patch: Partial<NetworkPluginState>,
 ): Promise<NetworkPluginState> {
   const run = async (): Promise<NetworkPluginState> => {
-    const next: NetworkPluginState = { ...(await readNetworkState(pluginId)), ...patch };
-    const dir = pluginStateDir(SUBSHELL_SERVER_DATA_DIR, pluginId);
-    await mkdir(dir, { recursive: true, mode: DIR_MODE });
-    // `mkdir` honours its mode only when it CREATES the directory, and a data
-    // dir restored from a backup or written by an older build may carry
-    // anything. Repairing on every write is cheap.
-    await chmod(dir, DIR_MODE);
-    const target = join(dir, STATE_FILE);
-    const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
-    await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, { mode: FILE_MODE });
-    await chmod(temp, FILE_MODE);
-    await rename(temp, target);
-    return next;
+    const release = beginBackupStateWrite();
+    try {
+      const next: NetworkPluginState = { ...(await readNetworkState(pluginId)), ...patch };
+      const dir = pluginStateDir(SUBSHELL_SERVER_DATA_DIR, pluginId);
+      await mkdir(dir, { recursive: true, mode: DIR_MODE });
+      // `mkdir` honours its mode only when it CREATES the directory, and a data
+      // dir restored from a backup or written by an older build may carry
+      // anything. Repairing on every write is cheap.
+      await chmod(dir, DIR_MODE);
+      const target = join(dir, STATE_FILE);
+      const temp = `${target}.tmp-${process.pid}-${Date.now()}`;
+      await writeFile(temp, `${JSON.stringify(next, null, 2)}\n`, { mode: FILE_MODE });
+      await chmod(temp, FILE_MODE);
+      await rename(temp, target);
+      return next;
+    } finally {
+      release();
+    }
   };
   // Chained on the previous write for this plugin, and the chain survives a
   // rejection so one failed write cannot wedge every later one.
@@ -207,7 +213,12 @@ export async function writeNetworkState(
  * make an unpublish and an uninstall the same act.
  */
 export async function clearNetworkState(pluginId: string): Promise<void> {
-  await rm(networkStatePath(pluginId), { force: true });
+  const release = beginBackupStateWrite();
+  try {
+    await rm(networkStatePath(pluginId), { force: true });
+  } finally {
+    release();
+  }
 }
 
 /**

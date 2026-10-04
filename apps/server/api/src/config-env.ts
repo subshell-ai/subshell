@@ -1,14 +1,18 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { instanceRestoreJournalPath, recoverInstanceRestoreSync } from "./services/backups/journal.js";
+import { acquireInstanceLock, readInstanceLock } from "./services/instance-state-lock.js";
 
 /**
  * The `config.env` layer of the server's config precedence ladder
  * (spec 2026-09-03, plan 2): **process env > config.env > `.env`-via-dotenvx
  * (already in place) > built-in defaults**.
  *
- * Deliberately dependency-light — node builtins only, which is what lets
- * `constants.ts` import and apply the layer at the TOP of its own module
+ * Deliberately import-inert, including the sanctioned restore-journal and
+ * instance-lock dependencies (which use bun:sqlite). The pre-config graph
+ * cannot reach constants, auth, or server startup, which lets `constants.ts`
+ * import and apply the layer at the TOP of its own module
  * body, before its dotenvx call. It cannot live in `cli-bootstrap.ts`'s
  * body: that body runs after the whole import graph has evaluated, and the
  * graph reaches `constants.ts` first — measured 2026-09-07, when the layer
@@ -161,6 +165,50 @@ export function configEnvAppliedKeys(): ReadonlySet<string> {
  * @returns True when the file existed and the setdefault pass ran
  */
 export function loadConfigEnv(): boolean {
+  const journalPath = instanceRestoreJournalPath(serverConfigDir());
+  const cliArgs = process.argv.slice(2);
+  const verb = cliArgs[0] ?? "";
+  const readOnlyCommand =
+    ["help", "version", "license", "status", "--help", "-h", "--version", "-v"].includes(verb) ||
+    verb === "restore-worker" ||
+    (verb === "service" && cliArgs[1] === "status") ||
+    (verb === "backup" && cliArgs.includes("--list")) ||
+    (verb === "restore" &&
+      (cliArgs.includes("--inspect") ||
+        cliArgs.includes("--list-staged") ||
+        cliArgs.includes("--prepare") ||
+        cliArgs.includes("--native-preflight") ||
+        cliArgs.includes("--discard-staged")));
+  if (!readOnlyCommand && existsSync(journalPath)) {
+    const lockPath = join(serverConfigDir(), "instance-state.lock");
+    let release: (() => void) | undefined;
+    try {
+      release = acquireInstanceLock(lockPath, "restore");
+    } catch (error) {
+      // Status against an already serving instance may read its stable config.
+      // A PID file alone cannot decide recovery: PIDs can be reused after a crash.
+      const owner = readInstanceLock(lockPath);
+      if (owner?.kind !== "server") throw error;
+    }
+    if (release) {
+      try {
+        const before = resolveConfig().values;
+        const outcome = recoverInstanceRestoreSync(journalPath);
+        if (outcome === "rolled-back") {
+          const restored = resolveConfig().values;
+          // systemd exports EnvironmentFile before this process starts. Replace only
+          // values matching the interrupted file; explicit differing overrides win.
+          for (const [key, value] of Object.entries(before)) {
+            if (process.env[key] !== value) continue;
+            if (restored[key] === undefined) delete process.env[key];
+            else process.env[key] = restored[key];
+          }
+        }
+      } finally {
+        release();
+      }
+    }
+  }
   const { exists, values } = resolveConfig();
   if (!exists) return false;
   for (const [key, value] of Object.entries(values)) {

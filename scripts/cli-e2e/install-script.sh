@@ -84,6 +84,13 @@ export HOME="$W/fakehome"
 export SUBSHELL_CONFIG_HOME="$W/fakehome/.config/subshell"
 export SUBSHELL_NO_SERVICE=1
 mkdir -p "$HOME"
+# A no-op tmux shadows any host one (or its absence): the installer's tmux
+# offer asks the terminal, and an interactive tmux-less runner would sit at
+# that prompt forever instead of reaching the refusal this scenario pins.
+mkdir -p "$W/bin-stubs"
+printf '#!/usr/bin/env bash\nexit 0\n' > "$W/bin-stubs/tmux"
+chmod +x "$W/bin-stubs/tmux"
+export PATH="$W/bin-stubs:$PATH"
 
 # FIRST the nameless pipe, which is the case this revamp made impossible: there is
 # no terminal to ask and no name in the command, so `setup` refuses. It must refuse

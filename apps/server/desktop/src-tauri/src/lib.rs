@@ -11,6 +11,7 @@
 // `DesktopAction` dispatch is what Linux has no use for.
 mod about;
 mod app_update;
+mod backup_restore;
 #[cfg(target_os = "macos")]
 mod bridge;
 mod control;
@@ -20,6 +21,7 @@ mod control;
 // dead code.
 #[cfg(target_os = "macos")]
 mod menu;
+mod quit;
 mod reset;
 mod server_bin;
 mod supervisor;
@@ -86,6 +88,7 @@ fn dispatch_menu_bar(_app: &tauri::AppHandle, _id: &str) {}
 /// instead. A machine that is not ready has no dashboard to open, so it lands
 /// on the assistant whichever way the preference is set.
 pub fn run() {
+    backup_restore::load_location();
     let mut builder = tauri::Builder::default();
 
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -173,6 +176,12 @@ pub fn run() {
         // address is refused before the handler sees it. The assistant is not
         // subject to it, and plugin commands (window dragging) never reach here.
         .invoke_handler(trust::guarding(tauri::generate_handler![
+            backup_restore::desktop_backup,
+            backup_restore::desktop_restore_inspect,
+            backup_restore::desktop_backup_list,
+            backup_restore::desktop_restore_prepare,
+            backup_restore::desktop_restore_apply,
+            backup_restore::desktop_restore_discard,
             control::desktop_probe,
             control::desktop_port_in_use,
             control::desktop_logs,
@@ -219,6 +228,19 @@ pub fn run() {
             // that is gone is the kind of state nobody thinks to check.
             if window.label() == trust::MAIN && matches!(event, tauri::WindowEvent::Destroyed) {
                 trust::window_state().clear();
+                // `ShellReady` means "this main window's SPA handshook," and the
+                // 6-second fallback raise stays suppressed while it is true. It was
+                // cleared only when the process died, so any in-process destroy of
+                // `main` followed by a rebuild left the flag stale — a dev reset
+                // that skips the post-reset restart already did this; the offline
+                // route does it in the normal path. The rebuilt window must be
+                // allowed to re-earn the flag (or the fallback to raise it) rather
+                // than come up invisible behind a stale `true`.
+                window
+                    .app_handle()
+                    .state::<windows::ShellReady>()
+                    .0
+                    .store(false, std::sync::atomic::Ordering::SeqCst);
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Close-to-tray is opt-in, and the check RE-PROBES the desktop
@@ -279,13 +301,20 @@ pub fn run() {
             // first probe answers ready (spec 2026-09-12 § 5.2).
             let choice = {
                 let settings = handle.state::<subshell_desktop_core::settings::SettingsState>();
+                let reconciliation = backup_restore::reconcile_selection(&handle);
                 let mut probe = control::boot_probe(&settings);
+                if let Err(error) = &reconciliation {
+                    probe.error = Some(error.clone());
+                    probe.next = control::ProbeStep::Unreachable;
+                }
                 // App mode: nothing else will start this server, so boot does
                 // — and then waits briefly for the port, because `spawn`
                 // returns when the process exists and the window choice needs
                 // it LISTENING. A server that takes longer lands on recovery,
                 // whose Start is idempotent.
-                if probe.supervision == subshell_desktop_core::settings::Supervision::App
+                if reconciliation.is_ok()
+                    && !backup_restore::selection_blocks_boot()
+                    && probe.supervision == subshell_desktop_core::settings::Supervision::App
                     && probe.next != control::ProbeStep::Ready
                 {
                     match control::server_spawner(&handle) {
@@ -348,9 +377,21 @@ pub fn run() {
             // The same fresh probe as the hide itself, so the two can never
             // disagree: a window that was NOT hidden because no tray answered
             // must be allowed to take the app down with it.
-            tauri::RunEvent::ExitRequested { api, .. }
-                if control::close_to_tray_now(&app.state::<SettingsState>())
-                    && app.get_webview_window("main").is_some() =>
+            //
+            // The `code` split is what keeps an EXPLICIT Quit from being
+            // swallowed by "Keep Running in Tray". The accidental exit (last
+            // window closed / hidden) arrives with `code: None`; a deliberate
+            // `app.exit(0)` from the tray arrives with `code: Some(0)`. Holding
+            // only the None case means close-to-tray still governs window-close
+            // while a real Quit is always honored (ruling: quitting means they
+            // no longer want it in the tray). The decision lives in
+            // `should_prevent_exit`, which is testable; see `quit.rs`.
+            tauri::RunEvent::ExitRequested { api, code, .. }
+                if control::should_prevent_exit(
+                    control::close_to_tray_now(&app.state::<SettingsState>()),
+                    app.get_webview_window("main").is_some(),
+                    code.is_some(),
+                ) =>
             {
                 api.prevent_exit();
             }

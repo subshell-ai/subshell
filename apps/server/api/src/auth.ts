@@ -83,15 +83,10 @@ export const AUTH_OPTIONS = {
   // widen this list — that is the DNS-rebinding rule the registry keeps.
   trustedOrigins: (_request?: Request) => [...originRegistry().current()],
   session: {
-    // Deliberately short (security audit 2026-08, F5): cookieCache lets
-    // better-auth answer its own session endpoints (sign-out freshness,
-    // requireSession inside better-auth plugins) from a client-held cookie
-    // for up to `maxAge` seconds WITHOUT a DB read — so a copied or stale
-    // cookie jar kept passing those endpoints for up to 7 days after
-    // sign-out. 5 minutes bounds that revocation window. App routes never
-    // depended on this cache: `authGuard` feeds only the session_token to
-    // `auth.api.getSession`, which is DB-backed every request, so route
-    // freshness is unchanged.
+    // Cache account display data for five minutes. The fetch wrapper first
+    // checks the DB-backed token and strips cached session data if that row
+    // was revoked, so restore/password recovery cannot resurrect a copied
+    // cookie jar. App route guards always pass only the token to getSession.
     cookieCache: {
       enabled: true,
       maxAge: 5 * 60, // 5 minutes in seconds

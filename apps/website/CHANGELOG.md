@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.9
+
+### Patch Changes
+
+- Serve the Proxmox server helper that trims and prunes around updates (lvm-thin containers could fill their thin volume silently and fail an update with "no space left on device"), defaults new server containers to 40 GB, and explains a failed pull with the disk's state and the remedies.
+
 ## 0.2.8
 
 ### Patch Changes
