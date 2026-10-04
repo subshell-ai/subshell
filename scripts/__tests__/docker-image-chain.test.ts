@@ -41,6 +41,19 @@ describe("docker-image.yml chain", () => {
     expect(WORKFLOW).toMatch(/apps\/server\/api\/package\.json/);
   });
 
+  test("a chained re-arm whose version has no published release yet skips, not dies", () => {
+    // 2026-10-04: the version-bump commit completed a Release run minutes
+    // before the dispatched cut published cli-server-v1.9.1; the re-arm
+    // checked only GHCR, found nothing packaged, launched, and died
+    // "release not found" in the build. The gate is the RELEASE's existence.
+    const decide = WORKFLOW.split("id: decide")[1];
+    expect(decide).toMatch(/if ! gh release view "cli-server-v\$VERSION"/);
+    expect(decide).toMatch(/skip=true/);
+    expect(decide).toMatch(/move_latest=false/);
+    // and the gate precedes the fresh-build branch that would move :latest.
+    expect(decide.indexOf("gh release view")).toBeLessThan(decide.indexOf("move_latest=true"));
+  });
+
   test("a chained re-arm of an already-packaged version skips", () => {
     // Both the skip and the no-latest-move live in the decide step, keyed on
     // the imagetools inspect of the version tag.
