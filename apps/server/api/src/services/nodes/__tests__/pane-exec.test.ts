@@ -175,6 +175,47 @@ describe("waitSentinel", () => {
     expect(r.outputLines).toEqual(["done line", "partial"]);
   });
 
+  it("a rejected read mid-wait is 'no data this poll', not a thrown failure", async () => {
+    // PR #319 review: after the typing, one transport blip must not cost the
+    // caller the receipt. The first read rejects, the second answers the
+    // sentinel, and the wait still COMPLETES with the right cursor; a reader
+    // that always rejects ends at the deadline with the accumulated output
+    // intact, because a merely slow link and a lost command are the same
+    // observed shape and only the deadline distinguishes them honestly.
+    const log = enc.encode("working\n__xcomm_a6a6a6a6a6a6a6a6_DONE rc=4\n");
+    let failed = false;
+    const flaky: LogWindowReader = async (fromByte, maxBytes) => {
+      if (!failed) {
+        failed = true;
+        throw new Error("sim: link blip");
+      }
+      const end = Math.min(log.byteLength, fromByte + maxBytes);
+      return { bytes: log.subarray(fromByte, end), next: end, size: log.byteLength };
+    };
+    const r = await waitSentinel(flaky, "a6a6a6a6a6a6a6a6", 0, {
+      timeoutMs: 5_000,
+      ...clock,
+    });
+    expect(r).toMatchObject({ status: "completed", rc: 4, outputLines: ["working"] });
+    expect(r.nextByte).toBe(log.byteLength);
+  });
+
+  it("a reader that always rejects times out with nothing lost", async () => {
+    let now = 0;
+    const dead: LogWindowReader = async () => {
+      throw new Error("sim: node gone quiet");
+    };
+    const r = await waitSentinel(dead, "a7a7a7a7a7a7a7a7", 42, {
+      timeoutMs: 100,
+      sleep: async (ms) => {
+        now += ms;
+      },
+      now: () => now,
+    });
+    expect(r).toMatchObject({ status: "timed_out", rc: null, outputLines: [] });
+    expect(r.nextByte).toBe(42); // the cursor never moves on bytes it never read
+  });
+
   it("a pane that died mid-wait ends the wait immediately", async () => {
     let now = 0;
     const read = readerOver(enc.encode("x\n".repeat(500)), 8);
@@ -206,5 +247,21 @@ describe("execOutputTail", () => {
   it("under the cap: everything, not truncated", () => {
     const r = execOutputTail(["one", "two"], EXEC_MAX_OUTPUT_BYTES);
     expect(r).toEqual({ text: "one\ntwo", truncated: false });
+  });
+  it("caps in UTF-8 BYTES, not code units (a CJK line costs 3, an emoji up to 4)", () => {
+    // Each line is 3 characters: 3 UTF-16 code units, but "é" is 2 bytes and
+    // "😀" is 4, so the joined text is 2(2+1)+... measured honestly below.
+    const line = "é😀a"; // 2 + 4 + 1 = 7 bytes
+    expect(execOutputTail([line], 7)).toEqual({ text: line, truncated: false }); // 7 bytes, the closing newline uncounted
+    expect(execOutputTail([line, line], 15)).toEqual({ text: `${line}\n${line}`, truncated: false }); // 7+1+7 = exactly 15
+    expect(execOutputTail([line, line], 14)).toEqual({ text: line, truncated: true }); // 14 does not: newest kept
+    // A `.length` count (3 per line) would have called 3+1+3 = 7 under a cap of 7
+    // and never truncated; the byte count is what the name and docs promise.
+  });
+  it("one line bigger than the cap yields an empty tail, honestly named", () => {
+    // Whole-line discipline: mid-character cutting is a worse promise than an
+    // empty answer with truncated: true (the reader can re-read via nextByte).
+    const big = "x".repeat(200);
+    expect(execOutputTail([big], 100)).toEqual({ text: "", truncated: true });
   });
 });

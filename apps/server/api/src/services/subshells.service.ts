@@ -962,10 +962,17 @@ export class SubshellsService extends BaseService {
         doNotLog: true,
       });
     }
-    if (getHarness(row.harnessId)?.type !== "terminal") {
+    const harness = getHarness(row.harnessId);
+    if (harness?.type !== "terminal") {
       throwApiError({
         code: BackendErrorCodes.EXEC_TERMINAL_ONLY,
-        message: "exec types shell commands into terminal panes; this pane runs a harness",
+        // Two shapes under one code: a KNOWN non-terminal harness runs an
+        // agent (its own input box would eat the line); an unresolvable id
+        // names that instead, because "this pane runs a harness" would be a
+        // sentence about a harness nobody can look up (PR #319 review).
+        message: harness
+          ? "exec types shell commands into terminal panes; this pane runs a harness"
+          : "exec types shell commands into terminal panes; this pane's harness is not installed",
         doNotLog: true,
       });
     }
@@ -979,6 +986,11 @@ export class SubshellsService extends BaseService {
     }
     // The lease spans the whole call - gate already passed, nothing between
     // the get and the set awaits - so two racing calls never both proceed.
+    // A caller that abandons the HTTP request mid-wait still holds it until
+    // the deadline: this plane plumbs no request-abort anywhere (the channels
+    // long-poll has the same property), and the wait is bounded by the clamp,
+    // so the worst case is EXEC_TIMEOUT_MAX of EXEC_IN_FLIGHT refusals,
+    // self-healing at the deadline.
     const call = this.#execInner(row, id, command, execTimeoutMs(timeoutMs)).finally(() => execInFlight.delete(id));
     execInFlight.set(id, call);
     return await call;

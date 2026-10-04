@@ -113,7 +113,7 @@ Text and Enter are ordered input operations, not an atomic transaction. An exite
 
 ## exec_in_terminal
 
-Pass required `subshell_id` and `command`, plus optional `timeout_ms` (an integer from 1000 to 300000 milliseconds, default 30000). Returns `{ status, exitCode, output, truncated, nextByte }`: on `completed`, `exitCode` is the shell's status for the command; on `timed_out` it is null and the command keeps running untouched.
+Pass required `subshell_id` and `command`, plus optional `timeout_ms` (integer milliseconds; the server clamps it into 1000 to 300000, default 30000, rather than refusing an out-of-range ask). Returns `{ status, exitCode, output, truncated, nextByte }`: on `completed`, `exitCode` is the shell's status for the command; on `timed_out` it is null and the command keeps running untouched.
 
 Like `send_to_subshell` this is an edit act on a pane that must run a plain terminal harness, be running, and be quiet. Otherwise it refuses with nothing typed: `SUBSHELL_NOT_RUNNING`, `EXEC_TERMINAL_ONLY` (an agent pane would eat the line), `EXEC_IN_FLIGHT` (another exec already holds the pane), or `EXEC_PANE_BUSY` (read it or wait, then retry). A `timed_out` answer is a success: nothing further is sent, and `output` carries what printed so far, which can end mid-line. `output` holds the newest lines inside 256 KiB (`truncated` names the drop) and includes the shell's echo of the typed command. `nextByte` is the raw log offset just past the sentinel line, or where the wait stopped; pass it as `read_subshell_log`'s `from_byte` to continue exactly.
 

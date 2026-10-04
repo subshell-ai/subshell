@@ -7,17 +7,28 @@ import type { ToolDeps } from "./tools.js";
  * long ago, and the terminal family (exec today) deserves a seam of its own.
  */
 
-/** Schema for `exec_in_terminal`. MCP args stay snake_case; the verb's body is camelCase. */
+/**
+ * Schema for `exec_in_terminal`. MCP args stay snake_case; the verb's body is
+ * camelCase. Deliberately NO min/max on `timeout_ms` (PR #319 review): the
+ * server clamps (spec 2026-10-02 §2), and a hard schema bound would refuse a
+ * caller asking 500 where the same intent over REST runs clamped - every
+ * protocol decision lives server-side, the thin tool mirrors none. `command`
+ * keeps only the empty-string refusal, so a stray "" names itself instead of
+ * riding to a generic 400.
+ */
 export const ExecInTerminalToolSchema = {
   subshell_id: z.string().describe("The terminal pane's subshell id (find it with list_subshells)"),
-  command: z.string().describe("One shell command line, typed verbatim into the pane's shell"),
+  command: z
+    .string()
+    .min(1)
+    .describe("One shell command line, typed verbatim into the pane's shell (the server caps it at 20000 chars)"),
   timeout_ms: z
     .number()
     .int()
-    .min(1000)
-    .max(300000)
     .optional()
-    .describe("How long to wait for the command (default 30000, max 300000; a timeout never touches the pane)"),
+    .describe(
+      "How long to wait for the command; the server clamps to [1000, 300000], default 30000; a timeout never touches the pane",
+    ),
 };
 
 export interface ExecInTerminalArgs {

@@ -310,6 +310,40 @@ describe("SubshellsService.execInTerminal (spec 2026-10-02)", () => {
     }
   });
 
+  it("a row that dies mid-wait ends the wait early - the DB-backed recheck, not just the unit stub", async () => {
+    // Spec §5 promised this at the SERVICE layer: the pure `waitSentinel` unit
+    // stubs `alive`, but the verb's real recheck reads the row each poll, and
+    // that composition (findById, the two facts, the early stop) is what the
+    // route ships. The scripted pane echoes and never answers, so WITHOUT the
+    // recheck this call could only end at its 30 s deadline.
+    const typed: string[] = [];
+    const echoLog: ScriptedHandler = (cmd) => {
+      if (cmd.type !== "log_read") return new Error(`exec sim: wrong cmd ${cmd.type}`);
+      const text = typed
+        .filter((frame) => frame !== "\r")
+        .map((frame) => `${frame}\n`)
+        .join("");
+      return windowOver(text, cmd.fromByte, cmd.maxBytes);
+    };
+    const sim = attachScriptedNode(node, { ...LIFECYCLE, input: typingInto(typed), log_read: echoLog });
+    const started = Date.now();
+    try {
+      const id = await directRow({ harnessId: "terminal", name: "exec-died" });
+      const answerP = exec(id, "sleep 99", 30_000);
+      // Let the typing land, then flip the row's facts like a death report does.
+      for (let i = 0; sim.countOf("input") < 4 && i < 600; i++) await new Promise((r) => setTimeout(r, 5));
+      expect(sim.countOf("input")).toBe(4);
+      await subshells.update(id, { status: "terminated", alive: 0 });
+      const answer = await answerP;
+      expect(answer).toMatchObject({ status: "timed_out", exitCode: null });
+      // ~2 s (quiet probe + one poll), never the 30 s deadline.
+      expect(Date.now() - started).toBeLessThan(8_000);
+      expect(sim.countOf("input")).toBe(4); // ruling 2: ending the watch types nothing
+    } finally {
+      sim.detach();
+    }
+  });
+
   it("a PARKED row (status running, alive 0) 409s SUBSHELL_NOT_RUNNING before the terminal-type check", async () => {
     const sim = attachScriptedNode(node, LIFECYCLE);
     try {

@@ -129,6 +129,10 @@ export interface ExecWaitAnswer {
  * would silently lose the pane's newest text. Never on the completed path:
  * a hit proves the sentinel line was newline-terminated in-window, so the
  * carry is empty there by construction.
+ * A REJECTED read inside the loop is treated as "no data this poll", not as
+ * a command failure: after the typing, one transport blip must not cost the
+ * caller the receipt (the output and cursor accumulated so far), so the
+ * deadline - or the next successful poll - renders the honest verdict.
  */
 export async function waitSentinel(
   read: LogWindowReader,
@@ -159,7 +163,22 @@ export async function waitSentinel(
     if (opts.alive && !(await opts.alive())) {
       return timedOut();
     }
-    const { bytes, size } = await read(cursor, LOG_WINDOW_DEFAULT_BYTES);
+    // PR #319 review: a transient read failure is noise at this point, not a
+    // refusal. Only THIS loop absorbs it - the quiet probe before any typing
+    // stays strict, because a refusal that touched nothing should name its
+    // real cause. An empty window at the cursor is the neutral answer: no
+    // lines to scan, no cursor move; the alive check above still ends the
+    // wait if the pane (or its node) actually went away.
+    let bytes: Uint8Array;
+    let size: number;
+    try {
+      const win = await read(cursor, LOG_WINDOW_DEFAULT_BYTES);
+      bytes = win.bytes;
+      size = win.size;
+    } catch {
+      bytes = new Uint8Array(0);
+      size = cursor;
+    }
     const { lines, nextByte } = cursorLinesFromWindow(bytes, cursor, size);
     if (lines.length > 0) {
       const hit = scanner.push(lines, windowIsPartial(bytes));
@@ -191,14 +210,25 @@ export async function waitSentinel(
   }
 }
 
-/** Keep whole lines newest-first inside the byte cap; past it, the head is dropped and named. */
+const textEncoder = new TextEncoder();
+
+/**
+ * Keep whole lines newest-first inside the byte cap; past it, the head is
+ * dropped and named. Measured in UTF-8 bytes (each line plus its joining
+ * newline), not UTF-16 code units: the cap is advertised as bytes and the
+ * pane's truth is bytes, so CJK or emoji output must not slip 3x through a
+ * `.length` count (PR #319 review). A single line over the cap yields an
+ * empty tail and `truncated: true`: whole-line discipline drops it rather
+ * than cutting mid-character.
+ */
 export function execOutputTail(lines: string[], capBytes: number): { text: string; truncated: boolean } {
-  const total = lines.reduce((n, l) => n + l.length + 1, 0) - (lines.length > 0 ? 1 : 0);
+  const sizes = lines.map((l) => textEncoder.encode(l).byteLength + 1);
+  const total = sizes.reduce((n, s) => n + s, 0) - (lines.length > 0 ? 1 : 0);
   if (total <= capBytes) return { text: lines.join("\n"), truncated: false };
   let size = -1; // first join adds nothing before line 0; track as sum(len+1), fix at the end
   let start = lines.length;
   for (let i = lines.length - 1; i >= 0; i--) {
-    size += lines[i].length + 1;
+    size += sizes[i];
     if (size > capBytes) break;
     start = i;
   }
