@@ -951,10 +951,15 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         // The few external commands the script needs OUTSIDE the stubs,
         // symlinked one by one so PATH holds no DIRECTORY that might
         // contain a tmux - the whole point is that none is reachable.
-        // bash too: the stubs' shebangs resolve it through the child's PATH,
-        // and nothing in this directory-set is a tmux.
-        for (const tool of ["id", "rm", "mv", "chmod", "tr", "mkdir", "seq", "bash"]) {
-          const src = Bun.which(tool);
+        // bash too: the stubs' shebangs resolve it through the child's PATH.
+        // perl is in the set because some builder images ship /usr/bin/mv as
+        // a `#!/usr/bin/env perl` stub (measured on the GHCR image, review
+        // round 3): without perl on the stripped PATH that stub dies at 127
+        // and the chain never reaches the assertion. Candidates are pinned to
+        // /usr/bin then /bin first so the host's PATH order cannot drag in a
+        // surprise.
+        for (const tool of ["id", "rm", "mv", "chmod", "tr", "mkdir", "seq", "bash", "perl"]) {
+          const src = ["/usr/bin", "/bin"].map((d) => join(d, tool)).find(existsSync) ?? Bun.which(tool);
           if (src) symlinkSync(src, join(bin, tool));
         }
         const bodyFile = join(work, "install-body.sh");
