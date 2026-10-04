@@ -182,17 +182,22 @@ esac
 
 # tmux BEFORE the download, and a warning rather than a refusal. A node cannot
 # run a single subshell without it, and the old path let you find that out from
-# a launch that failed an hour later — the enroll preflight refuses correctly,
-# but by then a 70 MB download has already happened and nobody said why.
+# a launch that failed an hour later - the enroll preflight refuses correctly,
+# but by then a ~100 MB download has already happened and nobody said why.
 # Not fatal, because \`setup\` refuses properly on its own and a download is
 # cheap next to an exit an operator cannot act on.
 #
 # Warn AND offer: this is the one moment a person stands at the machine whose
 # package manager works. The question rides /dev/tty because stdin is the curl
-# pipe, and any console that cannot answer (no /dev/tty, EOF, CI) is a "no".
-# A root shell runs its package manager directly; sudo is prefixed only when
-# it exists, because Proxmox hosts run as root and ship no sudo, and a hint
-# telling root to "sudo apt-get" names a command not found.
+# pipe, and any console that cannot answer is a "no" - which is NOT merely the
+# absence of the device NODE ([ -r /dev/tty] is a permission check on a 0666
+# node, and it passes with no controlling terminal at all, so opening it then
+# fails ENXIO): the probe below is what asks whether /dev/tty can be OPENED,
+# because under set -e even the prompt's redirect-open would abort the whole
+# install on a headless run (ssh host 'curl … | bash'). A root shell runs its
+# package manager directly; sudo is prefixed only when it exists, because
+# Proxmox hosts run as root and ship no sudo, and a hint telling root to
+# "sudo apt-get" names a command not found.
 tmux_hint() {
   case "$OS" in
     Darwin) echo "    install it with: brew install tmux" >&2 ;;
@@ -208,9 +213,12 @@ tmux_hint() {
 if ! command -v tmux >/dev/null 2>&1; then
   echo "subshell: tmux is not installed; a node needs it to run subshells." >&2
   TMUX_ANSWER=""
-  if [ -r /dev/tty ]; then
-    printf '    install it now? [y/N] ' > /dev/tty
-    read -r TMUX_ANSWER < /dev/tty || TMUX_ANSWER=""
+  # The probe opens /dev/tty for write in a subshell; a console with no
+  # controlling terminal fails the probe and the whole offer degrades to the
+  # old silent warning instead of taking the install down with it.
+  if [ -r /dev/tty ] && (exec >/dev/tty) 2>/dev/null; then
+    printf '    install it now? [y/N] ' 2>/dev/null > /dev/tty || true
+    read -r TMUX_ANSWER < /dev/tty 2>/dev/null || TMUX_ANSWER=""
   fi
   case "$TMUX_ANSWER" in
     [yY]*)

@@ -542,6 +542,9 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // The hint itself splits on root-ness: Proxmox ships no sudo, and a root
     // shell told to "sudo apt-get" runs a command that is not found.
     expect(body).toContain('[ "$(id -u)" = "0" ]');
+    // The SUDO_ARGS expansion is guarded in the script's empty-array form,
+    // the same bash-3.2 / set -u discipline pinned for the other arrays.
+    expect(body).toContain('${SUDO_ARGS[@]+"${SUDO_ARGS[@]}"} apt-get install -y tmux');
   });
 
   it("install.sh shows download progress: the ~100 MB fetch must not read as a hang", async () => {
@@ -554,6 +557,10 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).not.toContain("curl --silent"); // only the sha256 sidecar fetch keeps --silent
     expect(body).toContain("==> verifying the download");
     expect(body.indexOf("==> verifying the download")).toBeLessThan(body.indexOf("$TARGET.sha256"));
+    // The offer's own headless-safety: the tty OPEN probe (not the [ -r ]
+    // permission test alone) and a prompt/read that cannot abort set -e.
+    expect(body).toContain("(exec >/dev/tty) 2>/dev/null");
+    expect(body).toContain("printf '    install it now? [y/N] ' 2>/dev/null > /dev/tty || true");
   });
 
   it("install.sh refuses a nameless, terminal-less install in two lines, not the CLI's usage wall", async () => {
@@ -791,7 +798,12 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           '#!/usr/bin/env bash\ncase "$1" in\n  -s) echo Linux ;;\n  -m) echo x86_64 ;;\nesac\n',
         );
         for (const tool of ["sha256sum", "shasum"]) writeFileSync(join(bin, tool), "#!/usr/bin/env bash\nexit 0\n");
-        for (const tool of ["curl", "uname", "sha256sum", "shasum"]) chmodSync(join(bin, tool), 0o755);
+        // A no-op tmux SHADOWS the host's under the prepended bin: without it,
+        // a host without tmux reaches the install-offer and the pty read
+        // blocks forever (and an interactive runner would see a stray "y"
+        // install packages from a test). Determinism over environment luck.
+        writeFileSync(join(bin, "tmux"), "#!/usr/bin/env bash\nexit 0\n");
+        for (const tool of ["curl", "uname", "sha256sum", "shasum", "tmux"]) chmodSync(join(bin, tool), 0o755);
 
         function runBranch(cwd: string, extraEnv: Record<string, string>) {
           mkdirSync(cwd, { recursive: true });

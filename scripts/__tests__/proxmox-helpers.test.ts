@@ -126,7 +126,7 @@ describe("Proxmox server update reclaims disk around the pull", () => {
   // unpacked size. update_app now prunes dangling images before the pull, and
   // again after the old container is gone, and a failed pull must say the
   // disk's state and both ways out instead of only docker's one word.
-  function runUpdate(pullFail: boolean) {
+  function runUpdate(pullFail: boolean, lowAvail = false) {
     const source = readFileSync(join(import.meta.dir, "../../proxmox-server.sh"), "utf8").split(
       "# ---------- menu ----------",
     )[0];
@@ -156,7 +156,7 @@ pct() { case "$1" in
   fstrim) echo "pct $*" >> "$LOG" ;;
 esac; }
 df() { case "$*" in
-  *--output=avail*) echo 6100000 ;;
+  *--output=avail*) echo ${lowAvail ? 3000000 : 6100000} ;;
   *) echo "/dev/sim 20G 14G 6.1G 70% /var/lib/docker" ;;
 esac; }
 docker() {
@@ -195,7 +195,6 @@ update_app
     const prunes = r.calls.map((c, i) => [c, i] as const).filter(([c]) => c === "docker image prune -f");
     expect(prunes.length).toBe(2);
     const pullAt = r.calls.findIndex((c) => c.startsWith("docker pull "));
-    const oldGoneAt = r.calls.findIndex((c) => c === "docker rm -f subshell-old");
     const trimAt = r.calls.findIndex((c) => c === "fstrim -av");
     const hostTrimAt = r.calls.findIndex((c) => c.startsWith("pct fstrim 108"));
     expect(trimAt).toBeGreaterThan(-1);
@@ -205,7 +204,11 @@ update_app
     expect(hostTrimAt).toBeLessThan(prunes[0][1]);
     expect(pullAt).toBeGreaterThan(prunes[0][1]); // the pre-pull reclaim precedes the extraction
     expect(pullAt).toBeGreaterThan(trimAt); // the thin-pool TRIM too: df's free space can be a lie
-    expect(prunes[1][1]).toBeGreaterThan(oldGoneAt); // the post-success one follows the old container's removal
+    // lastIndexOf, not findIndex: the remote ALSO clears a stale -old before
+    // the pull, and that first "rm -f subshell-old" is not the removal this
+    // ordering claim is about.
+    const finalRemovalAt = r.calls.lastIndexOf("docker rm -f subshell-old");
+    expect(prunes[1][1]).toBeGreaterThan(finalRemovalAt); // the post-success one follows the old container's removal
   });
 
   test("a failed pull leaves the container untouched and names the disk's state and both remedies", () => {
@@ -217,6 +220,13 @@ update_app
     expect(r.err).toContain("fstrim"); // the lvm-thin class: freed blocks reach the pool only via TRIM
     expect(r.err).toContain("pct resize 108");
     expect(r.calls.some((c) => c.startsWith("docker rename"))).toBe(false);
+  });
+
+  test("a container under the 4 G headroom is warned about before the pull is attempted", () => {
+    const r = runUpdate(false, true);
+    expect(r.code).toBe(0); // a warning, never a refusal: the pull may still fit
+    expect(r.err).toContain("WARN:");
+    expect(r.err).toContain("headroom");
   });
 });
 
