@@ -20,7 +20,7 @@
  */
 
 import { BASE64_RE, isBool, isInt, isRecord, isStr, isStringMap } from "./guards.js";
-import { MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
+import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;
@@ -194,7 +194,18 @@ export interface NodeArchiveCreateResult {
  * @returns the narrowed result, or null when malformed
  */
 export function parseNodeArchiveCreateResult(data: unknown): NodeArchiveCreateResult | null {
-  if (!isRecord(data) || !isInt(data.size) || (data.size as number) < 0 || !isSha256Hex(data.sha256)) return null;
+  // The ceiling is part of the shape, not a caller's policy: the relay plans
+  // its loop by `size`, and a lying agent that reports 2^62 must not hand it
+  // an unbounded plan (the writer-side cap is enforced at creation; this one
+  // is the trust boundary on the way back).
+  if (
+    !isRecord(data) ||
+    !isInt(data.size) ||
+    (data.size as number) < 0 ||
+    (data.size as number) > MAX_ARCHIVE_BYTES ||
+    !isSha256Hex(data.sha256)
+  )
+    return null;
   return data as unknown as NodeArchiveCreateResult;
 }
 

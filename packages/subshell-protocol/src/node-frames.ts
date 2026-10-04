@@ -200,6 +200,20 @@ export const MAX_MANIFEST_PAGE_ENTRIES = 500;
 /** Largest `maxBytes` budget a `tree_manifest` page may be asked for. */
 export const MAX_MANIFEST_PAGE_BYTES = 256 * 1024;
 
+/**
+ * The `.part` temp name the chunked writer creates BESIDE a final path
+ * (dot-prefixed basename, rename-last discipline, spec 2026-10-01 §4). The
+ * agent's writer, the plane's abort cleanup, and the node's orphan sweep all
+ * derive it HERE: three sites naming the same file by hand is how a rename
+ * silently loses cleanup, and this package exists so they cannot drift.
+ * Pure string math (Metro-safe); POSIX separators only - every endpoint of
+ * this seam is a tmux host.
+ */
+export function partPathOf(finalPath: string): string {
+  const cut = finalPath.lastIndexOf("/");
+  return `${finalPath.slice(0, cut + 1)}.${finalPath.slice(cut + 1)}.part`;
+}
+
 /* ------------------------------------------------------------------ */
 /* shared close codes (phase-2 hoist)                                   */
 /* ------------------------------------------------------------------ */

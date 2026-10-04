@@ -293,6 +293,16 @@ describe("extractor refusals (hostile archives)", () => {
       /refusing entry type '2'/,
     );
   });
+  it("refuses a directory entry that declares a body (before any side effect)", async () => {
+    // The desync guard: a dir with a nonzero size would skip only the PADDING,
+    // desyncing the block stream so every later header parses mid-body. It
+    // must throw on the size, NOT mkdir the dir first - so nothing is created.
+    const archive = handBuiltTgz([
+      { name: "trap/", typeflag: "5", body: new Uint8Array(512) },
+      { name: "after.txt", typeflag: "0", body: new TextEncoder().encode("never reached cleanly") },
+    ]);
+    await expect(hostile("h-dirbody", archive)).rejects.toThrow(/directory entry .* declares a .*-byte body/);
+  });
   it("refuses a declared size past the per-file cap", async () => {
     const body = new Uint8Array(4096);
     await expect(

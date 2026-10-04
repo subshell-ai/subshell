@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import {
+  MAX_ARCHIVE_ENTRIES,
   MAX_MANIFEST_PAGE_BYTES,
   MAX_TRANSFER_LIST_FILES,
   MAX_TRANSFER_WINDOW_BYTES,
@@ -11,6 +12,7 @@ import {
   parseNodeFileReadResult,
   parseNodeTreeManifestPage,
   parseNodeWriteFileResult,
+  partPathOf,
 } from "@internal/subshell-protocol";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
@@ -334,6 +336,12 @@ async function collectManifest(
     }
     if (page === null) return malformed(endpoint.nodeId, "tree_manifest");
     all.push(...page.entries);
+    // A per-page count is capped at parse; the strictly-advancing-cursor rule
+    // below stops a loop that spins in place, but neither bounds the SUM: an
+    // agent can page a monotonic-but-endless list and grow this array without
+    // limit. The extraction-side cap is the ceiling an honest tree could
+    // reach, so anything past it is the same lie regardless of how it arrived.
+    if (all.length > MAX_ARCHIVE_ENTRIES) return malformed(endpoint.nodeId, "tree_manifest");
     if (page.nextCursor === null) return all;
     // The agent's contract is STRICTLY-after the last returned relPath, and
     // this loop's termination reads the cursor: one that repeats or walks
@@ -357,12 +365,6 @@ function stagingPathFor(nodeId: string): string {
     });
   }
   return `${facts.dataDir.replace(/\/+$/, "")}/transfers/${randomUUID()}.tar.gz`;
-}
-
-/** The `.part` name `chunked-stream.ts` uses beside a final path. */
-function partPathOf(path: string): string {
-  const cut = path.lastIndexOf("/");
-  return `${path.slice(0, cut + 1)}.${path.slice(cut + 1)}.part`;
 }
 
 /** Best-effort staging cleanup; a dead node needs no help (its files are inert). */

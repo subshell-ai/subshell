@@ -1,7 +1,7 @@
 import { appendFile, mkdir, rename, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { enforceMode } from "@internal/pane-runtime";
-import type { JsonValue, NodeWriteFileResult } from "@internal/subshell-protocol";
+import { type JsonValue, type NodeWriteFileResult, partPathOf } from "@internal/subshell-protocol";
 import type { CommandContext, CommandResult, UploadState } from "./context.js";
 
 /**
@@ -73,7 +73,10 @@ export async function receiveChunkedStream(
       }
     }
     await mkdir(dirname(key), { recursive: true });
-    const tmpPath = join(dirname(key), `.${basename(key)}.part`);
+    // The shared derivation (protocol package): the plane's abort cleanup and
+    // the sweep compute the SAME name from code they both import, so this
+    // writer cannot drift out of either.
+    const tmpPath = partPathOf(key);
     await writeFile(tmpPath, bytes, { mode: 0o600 });
     await enforceMode(tmpPath, 0o600); // umask can't loosen 0600, but a pre-existing temp might have
     state = { tmpPath, received: bytes.byteLength, expectedChunk: 1 };

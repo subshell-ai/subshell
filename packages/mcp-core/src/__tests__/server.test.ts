@@ -177,5 +177,12 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     // (the disclosure is the agent-visible decision).
     expect(byName.create_prompt.description).toContain("shared");
     expect(byName.list_prompts.description).toContain("shared");
+    // The transfer tool's own boundaries, spec 2026-10-01 §6: the RTT shape
+    // of a large call, the human-only remedies for both refusal families,
+    // and the rule that the agent never renews its OWN token by self-restart
+    // (the same transparency the restart_subshell round established).
+    expect(byName.transfer_files.description).toContain("round trips");
+    expect(byName.transfer_files.description).toContain("update the node");
+    expect(byName.transfer_files.description).toContain("never restart your own pane");
   });
 });

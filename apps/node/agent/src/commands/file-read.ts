@@ -37,9 +37,12 @@ export async function execFileRead(ctx: CommandContext, cmd: Cmd): Promise<Comma
   // itself on every node with a configured list: the plane reads ONLY the
   // `archive_create` staging file it minted under `<dataDir>/transfers/`,
   // and WORKING directories are what the allowlist names. The union is
-  // narrow on purpose (mirror of `transfer_write`'s, which admits dataDir
-  // wholesale): UNIONING ALL OF dataDir HERE would let one plane-issued
-  // read pull `node-signing.json` or `<dataDir>/subshells/*.log` - pane
+  // narrow on purpose, and the exact twin of `transfer_write`'s roots
+  // (staging subtree + named dirs, never dataDir wholesale - the symmetry
+  // is the contract: a name the write side may land is a name the read
+  // side can read back, and nothing wider on either). ADMITTING ALL OF
+  // dataDir HERE would let one plane-issued read pull `node-signing.json`
+  // or `<dataDir>/subshells/*.log` - pane
   // logs hold what operators typed, and `log_read` stays their only
   // reader. With an empty list the whole disk is readable by ruling, so
   // the subtree adds nothing and the check is skipped; with a list, the

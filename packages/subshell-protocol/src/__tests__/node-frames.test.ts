@@ -22,6 +22,7 @@ import {
   parseNodeCommandBody,
   parseNodeEvent,
   parseNodeRuntimeReport,
+  partPathOf,
 } from "../node-frames.js";
 import { MIN_NODE_VERSION } from "../versions.js";
 
@@ -941,5 +942,22 @@ describe("node-link close codes (spec 2026-09-24, ruling R12b)", () => {
       NODE_CLOSE_REPAIR_REQUIRED,
     ];
     expect(new Set(codes).size).toBe(codes.length);
+  });
+});
+
+describe("partPathOf (the shared .part derivation, spec 2026-10-01 §4)", () => {
+  it("dot-prefixes the basename beside the final path, POSIX separators only", () => {
+    // The exact strings the plane's abort cleanup and the node's sweep match;
+    // a rename that changes any of these strands the other two consumers.
+    expect(partPathOf("/data/transfers/abc.tar.gz")).toBe("/data/transfers/.abc.tar.gz.part");
+    expect(partPathOf("/x/y/.hidden")).toBe("/x/y/..hidden.part"); // dotfile keeps its dot
+    expect(partPathOf("bare")).toBe(".bare.part"); // no directory part, no leading dot invented
+  });
+  it("is the inverse of the sweep's isStagingName shape (a .part temp of a .tar.gz)", () => {
+    const final = "/data/transfers/uuid.tar.gz";
+    const temp = partPathOf(final);
+    const base = temp.slice(temp.lastIndexOf("/") + 1);
+    expect(base.startsWith(".")).toBe(true);
+    expect(base.endsWith(".tar.gz.part")).toBe(true);
   });
 });

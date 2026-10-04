@@ -226,9 +226,24 @@ export async function extractTarGz(
       const segs = rel.split("/");
 
       if (h.typeflag === TYPE_DIR) {
+        // A directory carries no body (the writer emits size 0, GNU/BSD
+        // readers agree). Skipping only the PADDING of a nonzero size would
+        // desync the block stream, and every header after it would parse
+        // mid-body - the honest answer is refusal before the mkdir, not a
+        // skip that trusts the lying size in one direction and not the other.
+        if (h.size !== 0) throw new Error(`tar: directory entry '${rel}' declares a ${h.size}-byte body`);
         if (++entries > limits.maxEntries) throw new Error(`tar: more than ${limits.maxEntries} entries`);
+        // The header's recorded dir MODE is deliberately NOT applied. This is
+        // the same reason the extractor never honors setuid or symlink modes:
+        // a destination directory's permissions are the DESTINATION node's
+        // decision, not a value the archive gets to impose, so recreating a
+        // source's 0777 as a world-writable hole (or a 0500 that strands the
+        // files the additive extract then writes into it) is exactly the class
+        // of surprise this pass refuses. Every component lands as a real dir
+        // under the fixed owner-only mode `ensureRealDir` sets; the writer
+        // still carries the mode because it is standard ustar and a plain
+        // `tar` on a workstation will honor it - we choose not to, here.
         ensureDirChain(segs, segs.length); // every component, leaf included, as a real dir
-        await skipBytes(blockPadding(h.size));
         continue;
       }
       if (h.typeflag !== TYPE_FILE) {

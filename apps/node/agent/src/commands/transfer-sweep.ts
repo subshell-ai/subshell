@@ -43,7 +43,16 @@ import type { CommandContext } from "./context.js";
  */
 const STALE_TRANSFER_MAX_AGE_MS = 4 * 60 * 60 * 1000;
 
-/** The plane-minted staging name shape (`transfers.service.ts`'s `stagingPathFor`). */
+/**
+ * The plane-minted staging name shape (`transfers.service.ts`'s
+ * `stagingPathFor`): `<uuid>.tar.gz` once renamed whole, and its temp is the
+ * basename of the shared `partPathOf` the writer and the plane's abort
+ * cleanup both use (`. + that name + .part`). This is the matcher view of
+ * that one contract, and it is deliberately permissive: over-matching a stray
+ * `.tar.gz` only means the age gate checks it too, while under-matching a
+ * real temp is what strands plaintext on disk. The builder in
+ * `@internal/subshell-protocol` is the source of truth for the temp's spelling.
+ */
 function isStagingName(name: string): boolean {
   return name.endsWith(".tar.gz") || (name.startsWith(".") && name.endsWith(".tar.gz.part"));
 }

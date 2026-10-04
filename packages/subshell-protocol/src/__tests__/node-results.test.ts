@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   FS_LS_MAX_ENTRIES,
+  MAX_ARCHIVE_BYTES,
   MAX_MANIFEST_PAGE_ENTRIES,
   NODE_CLOSE_SUPERSEDED,
   NODE_CLOSE_UPDATE_REQUIRED,
@@ -265,8 +266,10 @@ describe("detect result contract (inversion spec §4)", () => {
     const sha = "a".repeat(64);
     expect(parseNodeArchiveCreateResult({ size: 4096, sha256: sha })).toEqual({ size: 4096, sha256: sha });
     expect(parseNodeArchiveCreateResult({ size: 0, sha256: sha })).not.toBeNull();
+    expect(parseNodeArchiveCreateResult({ size: MAX_ARCHIVE_BYTES, sha256: sha })).not.toBeNull(); // at the cap passes
     for (const bad of [
       { size: -1, sha256: sha },
+      { size: MAX_ARCHIVE_BYTES + 1, sha256: sha }, // a lying huge size must not plan an unbounded relay
       { size: 1.5, sha256: sha },
       { size: 10, sha256: sha.toUpperCase() }, // uppercase hex is not the wire spelling
       { size: 10, sha256: "a".repeat(63) },

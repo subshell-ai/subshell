@@ -60,8 +60,11 @@ export function describeToolError(err: unknown): Error {
       // The transfer verbs' `unsupported` answer lands under this code
       // (spec 2026-10-01 §5): the machine itself is fine, its binary is a
       // version behind, and only a human can close that (the Updates page).
+      // The remedy sentence names only what an agent can actually verify:
+      // list_nodes rows carry no version, so pointing at one asked the agent
+      // to check a fact the tool does not report.
       return new Error(
-        `subshell: the agent on the target node predates this command (${err.message}); update the node (Nodes page asks a human), or check list_nodes for a machine at the current version`,
+        `subshell: the agent on the target node predates this command (${err.message}); ask a human to update that node's agent, or choose an agent node whose panes already answer this verb`,
       );
     }
     if (err.status === 401) {

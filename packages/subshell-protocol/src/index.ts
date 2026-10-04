@@ -102,6 +102,7 @@ export {
   parseNodeEvent,
   parseNodeMaintenance,
   parseNodeRuntimeReport,
+  partPathOf,
 } from "./node-frames.js";
 export {
   type DetectResultWire,
