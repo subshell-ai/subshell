@@ -377,7 +377,11 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // install sound, and nothing may become executable ahead of it.
     expect(body.indexOf('$VERIFY "$TMP.sha256"')).toBeLessThan(body.indexOf('chmod +x "$DEST"'));
     expect(body.indexOf("$TARGET.sha256")).toBeLessThan(body.indexOf('chmod +x "$DEST"'));
-    expect(body).not.toContain("exit 2");
+    // Not the usage script (which exits 2 for a MISSING key). The script does
+    // hold one more `exit 2` since the nameless-refusal guard: a keyless
+    // render and a nameless pipe share the usage code, so the pin is on the
+    // usage script's own copy, which must never appear on this path.
+    expect(body).not.toContain("usage: curl");
   });
 
   // ── the `server` param (the Add-node dialog's address dropdown) ─────────
@@ -516,6 +520,57 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain("sudo apt-get install tmux");
     const block = body.slice(tmuxAt, body.indexOf("==> downloading subshell"));
     expect(block).not.toContain("exit 1"); // a warning, never a refusal
+  });
+
+  it("install.sh OFFERS to install tmux, runs the package manager as root without sudo, and declines in silence", async () => {
+    const body = await (await install(await mkKey())).text();
+    // The offer runs here because this is the machine whose package manager
+    // works and the one moment a person stands at it. Proxmox hosts run as
+    // root and ship no sudo: a hint naming `sudo` there names a command not
+    // found, so the root spelling and the sudo spelling are separate branches.
+    // The question rides /dev/tty because stdin is the curl pipe.
+    const tmuxAt = body.indexOf("command -v tmux");
+    const block = body.slice(tmuxAt, body.indexOf("==> downloading subshell"));
+    expect(block).toContain("read -r TMUX_ANSWER < /dev/tty");
+    expect(block).toContain("apt-get install -y tmux");
+    expect(block).toContain('[ "$(id -u)" != "0" ] && command -v sudo'); // sudo only when it exists
+    // Declining (the default, and every unanswerable console) leaves the old
+    // warning path: the hint, and nothing else. A refusal to ENROLL still comes
+    // from setup, not from here.
+    expect(block).toContain("[y/N]");
+    expect(block).toContain("tmux_hint");
+    // The hint itself splits on root-ness: Proxmox ships no sudo, and a root
+    // shell told to "sudo apt-get" runs a command that is not found.
+    expect(body).toContain('[ "$(id -u)" = "0" ]');
+  });
+
+  it("install.sh shows download progress: the ~100 MB fetch must not read as a hang", async () => {
+    const body = await (await install(await mkKey())).text();
+    // --silent made minutes of healthy transfer on a slow link indistinguishable
+    // from a dead install (operator report, Proxmox, 2026-10-03). The progress
+    // bar writes to stderr, where the operator is looking; the http_code still
+    // rides stdout into the $HTTP capture.
+    expect(body).toContain("--progress-bar");
+    expect(body).not.toContain("curl --silent"); // only the sha256 sidecar fetch keeps --silent
+    expect(body).toContain("==> verifying the download");
+    expect(body.indexOf("==> verifying the download")).toBeLessThan(body.indexOf("$TARGET.sha256"));
+  });
+
+  it("install.sh refuses a nameless, terminal-less install in two lines, not the CLI's usage wall", async () => {
+    const body = await (await install(await mkKey())).text();
+    // Piping into tee or running over a transport without a console used to
+    // fall through to `setup`'s own refusal, which prints the FULL help text
+    // before exiting 2. The guard says the same thing in two lines, keeps the
+    // exit 2 usage code the e2e pins, names both fixes the CLI names, and
+    // lands before the binary is ever invoked (the key stays unspent).
+    const guardAt = body.indexOf("subshell: setup requires");
+    expect(guardAt).toBeGreaterThan(-1);
+    expect(body.indexOf('"$DEST" setup')).toBeGreaterThan(guardAt);
+    expect(body.indexOf("exec </dev/tty")).toBeLessThan(guardAt);
+    const guardBlock = body.slice(guardAt, body.indexOf("exit 2", guardAt));
+    expect(guardBlock).toContain("--name <n>");
+    expect(guardBlock).toContain("no terminal");
+    expect(guardBlock).toContain("SUBSHELL_NODE_NAME");
   });
 
   it("install.sh reattaches /dev/tty so a piped install can answer setup's question", async () => {
@@ -688,8 +743,15 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   );
 
   const HASH_TOOL = Bun.which("sha256sum") ?? Bun.which("shasum");
+  // The nameless-refusal guard asks the script one question bash cannot fake:
+  // is fd 0 a terminal? A plain pipe spawn always answers "no", which would
+  // turn every nameless branch into the refusal and test nothing about the
+  // argv the stub setup actually receives. So the harness runs the script
+  // under a REAL pty (python3's pty.spawn, whose child sees a tty on all
+  // three fds), propagating the child's exit code through the wrapper.
+  const PTY_PY = Bun.which("python3");
 
-  it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC)(
+  it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC || !PTY_PY)(
     "install.sh EXECUTED end-to-end with stub curl/uname: default → ~/.local/bin/subshell and setup WITHOUT --data-dir or --name; SUBSHELL_DATA_DIR → relocated dest + --data-dir; SUBSHELL_NO_SERVICE → --no-service; SUBSHELL_NODE_NAME → --name",
     async () => {
       const key = await mkKey();
@@ -700,6 +762,8 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
       // the assertions read what enroll ACTUALLY RECEIVED through the real
       // download → verify → chmod → enroll chain.
       const work = mkdtempSync(join(tmpdir(), "subshell-install-exec-"));
+      const bodyFile = join(work, "install-body.sh");
+      writeFileSync(bodyFile, body);
       try {
         const bin = join(work, "bin");
         mkdirSync(bin);
@@ -746,8 +810,21 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           if (extraEnv.SUBSHELL_DATA_DIR === undefined) delete env.SUBSHELL_DATA_DIR;
           if (extraEnv.SUBSHELL_NO_SERVICE === undefined) delete env.SUBSHELL_NO_SERVICE;
           if (extraEnv.SUBSHELL_NODE_NAME === undefined) delete env.SUBSHELL_NODE_NAME;
-          // `bash -c <body>` — exactly what `curl … | bash` hands the shell.
-          const proc = Bun.spawnSync(["bash", "-c", body], { cwd, env });
+          // The same `bash <body>` the pipe hands the shell, under a pty: the
+          // script's terminal guard (and setup's refusal behind it) key on
+          // fd 0 being a tty, which a piped spawn can never present. The
+          // script lands in a file because the pty wrapper takes argv, not a
+          // heredoc; `bash file` and `bash -c body` parse identically.
+          const proc = Bun.spawnSync(
+            [
+              PTY_PY as string,
+              "-c",
+              "import os,pty,sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))",
+              "bash",
+              bodyFile,
+            ],
+            { cwd, env },
+          );
           return {
             home,
             exitCode: proc.exitCode,

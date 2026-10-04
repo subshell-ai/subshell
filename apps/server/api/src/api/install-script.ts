@@ -186,11 +186,62 @@ esac
 # but by then a 70 MB download has already happened and nobody said why.
 # Not fatal, because \`setup\` refuses properly on its own and a download is
 # cheap next to an exit an operator cannot act on.
-if ! command -v tmux >/dev/null 2>&1; then
-  echo "subshell: tmux is not installed; a node needs it to run subshells." >&2
+#
+# Warn AND offer: this is the one moment a person stands at the machine whose
+# package manager works. The question rides /dev/tty because stdin is the curl
+# pipe, and any console that cannot answer (no /dev/tty, EOF, CI) is a "no".
+# A root shell runs its package manager directly; sudo is prefixed only when
+# it exists, because Proxmox hosts run as root and ship no sudo, and a hint
+# telling root to "sudo apt-get" names a command not found.
+tmux_hint() {
   case "$OS" in
     Darwin) echo "    install it with: brew install tmux" >&2 ;;
-    Linux)  echo "    install it with: sudo apt-get install tmux   (or your distribution's package manager)" >&2 ;;
+    Linux)
+      if [ "$(id -u)" = "0" ]; then
+        echo "    install it with: apt-get install -y tmux   (or your distribution's package manager)" >&2
+      else
+        echo "    install it with: sudo apt-get install tmux   (or your distribution's package manager)" >&2
+      fi
+      ;;
+  esac
+}
+if ! command -v tmux >/dev/null 2>&1; then
+  echo "subshell: tmux is not installed; a node needs it to run subshells." >&2
+  TMUX_ANSWER=""
+  if [ -r /dev/tty ]; then
+    printf '    install it now? [y/N] ' > /dev/tty
+    read -r TMUX_ANSWER < /dev/tty || TMUX_ANSWER=""
+  fi
+  case "$TMUX_ANSWER" in
+    [yY]*)
+      SUDO_ARGS=()
+      if [ "$(id -u)" != "0" ] && command -v sudo >/dev/null 2>&1; then
+        SUDO_ARGS=(sudo)
+      fi
+      echo "==> installing tmux" >&2
+      if [ "$OS" = "Darwin" ] && [ "$(id -u)" != "0" ] && command -v brew >/dev/null 2>&1; then
+        brew install tmux || true
+      elif command -v apt-get >/dev/null 2>&1; then
+        \${SUDO_ARGS[@]+"\${SUDO_ARGS[@]}"} apt-get install -y tmux || true
+      elif command -v dnf >/dev/null 2>&1; then
+        \${SUDO_ARGS[@]+"\${SUDO_ARGS[@]}"} dnf install -y tmux || true
+      elif command -v yum >/dev/null 2>&1; then
+        \${SUDO_ARGS[@]+"\${SUDO_ARGS[@]}"} yum install -y tmux || true
+      elif command -v pacman >/dev/null 2>&1; then
+        \${SUDO_ARGS[@]+"\${SUDO_ARGS[@]}"} pacman -S --noconfirm tmux || true
+      elif command -v zypper >/dev/null 2>&1; then
+        \${SUDO_ARGS[@]+"\${SUDO_ARGS[@]}"} zypper -n install tmux || true
+      elif command -v apk >/dev/null 2>&1; then
+        \${SUDO_ARGS[@]+"\${SUDO_ARGS[@]}"} apk add tmux || true
+      fi
+      if command -v tmux >/dev/null 2>&1; then
+        echo "==> tmux installed." >&2
+      else
+        echo "subshell: tmux is still missing; setup will refuse to enroll until it is installed." >&2
+        tmux_hint
+      fi
+      ;;
+    *) tmux_hint ;;
   esac
 fi
 
@@ -202,9 +253,10 @@ echo "==> downloading subshell ($TARGET) from $SERVER"
 # inspected rather than curl's exit status alone — "404, this server has no
 # artifact" and "401, your key is spent" need different advice (bare curl(22)
 # said neither, and an exit-status-only guard says 404 for both, and for
-# every network failure too).
+# every network failure too). The progress bar is on the wire because this
+# fetch is ~100 MB and --silent made minutes of healthy transfer indistinguishable from a hang.
 TMP="$DEST.part"
-if ! HTTP="$(curl --silent --show-error --location \\
+if ! HTTP="$(curl --show-error --location --progress-bar \\
   "$SERVER/api/downloads/node/$TARGET?setup_key=$KEY" \\
   --output "$TMP" --write-out '%{http_code}')"; then
   rm -f "$TMP" 2>/dev/null || true
@@ -239,6 +291,7 @@ case "$HTTP" in
     ;;
 esac
 
+echo "==> verifying the download" >&2
 # Verify the digest on the temp file BEFORE it can be executed or replace
 # $DEST. The endpoint answers with the bare 64-hex; sha256sum -c /
 # shasum -a 256 -c both take the "<hash>  <file>" spelling. A mismatch is a
@@ -302,9 +355,24 @@ fi
 # this script — it is read at runtime and quoted, so a name with spaces in the
 # operator's own environment cannot rewrite the command. (No backticks in this
 # comment: it lives inside a JS template literal.)
+NODE_NAME_SET=""
 SETUP_NAME_ARGS=()
 if [ -n "\${SUBSHELL_NODE_NAME:-}" ]; then
+  NODE_NAME_SET=1
   SETUP_NAME_ARGS=(--name "$SUBSHELL_NODE_NAME")
+fi
+
+# No name and no terminal means nothing can answer the name question. The CLI
+# does refuse that case (exit 2) but prints its full usage wall first, and an
+# operator piping this into tee saw eighty help lines for one missing name.
+# Refuse here instead in two lines that name both fixes; exit 2 stays the same
+# usage code, and the key is untouched either way, so this is a rerun, not a
+# redo. (\`exec <\` above only succeeded when a tty existed, so the fd-0 test
+# after the reattach block is the whole question.)
+if [ -z "$NODE_NAME_SET" ] && [ ! -t 0 ]; then
+  echo "subshell: setup requires --name <n> when nothing can be asked: this shell has no terminal to prompt on." >&2
+  echo "    re-run naming the node: SUBSHELL_NODE_NAME=\\"my-box\\" curl -fsSL <this-url> | bash" >&2
+  exit 2
 fi
 
 echo "==> enrolling with $SERVER"
