@@ -7,6 +7,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -894,6 +895,87 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         expect(named.args[0]).toBe("setup");
         expect(named.args).toContain("--name");
         expect(named.args[named.args.indexOf("--name") + 1]).toBe("mac mini 42");
+      } finally {
+        rmSync(work, { recursive: true, force: true });
+      }
+    },
+  );
+
+  const SETSID = Bun.which("setsid");
+
+  it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC || !SETSID)(
+    "install.sh EXECUTED headless with tmux MISSING: the offer declines in silence and the install continues (the round-1 code died at the prompt's redirect-open)",
+    async () => {
+      // The shape the 2026-10-03 incident runs actually took: `ssh host
+      // 'curl … | bash'` on a Proxmox box - pipes on every fd, no controlling
+      // terminal, no tmux. setsid -w removes the ctty even when the developer
+      // running the suite has one. This executed case is what pins M1 as
+      // BEHAVIOR: the round-1 block aborted with rc=1 before the download.
+      const key = await mkKey();
+      const body = await (await install(key)).text();
+      const work = mkdtempSync(join(tmpdir(), "subshell-headless-nolt-"));
+      try {
+        const bin = join(work, "bin");
+        mkdirSync(bin);
+        // Stubs as in the happy-path chain, minus tmux - and a PATH built so
+        // NO tmux is reachable: system bins are per-name symlinks, not dirs.
+        writeFileSync(
+          join(bin, "curl"),
+          [
+            "#!/usr/bin/env bash",
+            'out=""',
+            'prev=""',
+            'for a in "$@"; do',
+            '  [ "$prev" = "--output" ] && out="$a"',
+            '  prev="$a"',
+            "done",
+            'if [ -n "$out" ]; then',
+            // The fake "agent" carries NO shebang: with PATH stripped, a
+            // `#!/usr/bin/env bash` header could not resolve bash. ENOEXEC
+            // makes the calling bash run it as a shell script, which is all
+            // this case needs from it (the setup line merely has to run).
+            "  printf 'echo SETUP-RAN\\n' > \"$out\"",
+            "  printf 200",
+            "else",
+            "  printf '%s\\n' \"$(printf '0%.0s' $(seq 1 64))\"",
+            "fi",
+            "",
+          ].join("\n"),
+        );
+        writeFileSync(
+          join(bin, "uname"),
+          '#!/usr/bin/env bash\ncase "$1" in\n  -s) echo Linux ;;\n  -m) echo x86_64 ;;\nesac\n',
+        );
+        writeFileSync(join(bin, "sha256sum"), "#!/usr/bin/env bash\nexit 0\n");
+        for (const tool of ["curl", "uname", "sha256sum"]) chmodSync(join(bin, tool), 0o755);
+        // The few external commands the script needs OUTSIDE the stubs,
+        // symlinked one by one so PATH holds no DIRECTORY that might
+        // contain a tmux - the whole point is that none is reachable.
+        // bash too: the stubs' shebangs resolve it through the child's PATH,
+        // and nothing in this directory-set is a tmux.
+        for (const tool of ["id", "rm", "mv", "chmod", "tr", "mkdir", "seq", "bash"]) {
+          const src = Bun.which(tool);
+          if (src) symlinkSync(src, join(bin, tool));
+        }
+        const bodyFile = join(work, "install-body.sh");
+        writeFileSync(bodyFile, body);
+        const proc = Bun.spawnSync([SETSID as string, "-w", "/usr/bin/env", "bash", bodyFile], {
+          cwd: work,
+          stdin: "ignore",
+          env: {
+            PATH: bin,
+            HOME: join(work, "home"),
+            SUBSHELL_NODE_NAME: "headless box", // past the nameless guard: this case is about the offer
+            SUBSHELL_NO_SERVICE: "1",
+          },
+        });
+        const out = proc.stdout.toString();
+        const err = proc.stderr.toString();
+        expect(err).toContain("tmux is not installed");
+        expect(err).not.toContain("No such device or address"); // the abort's diagnostic
+        expect(out).toContain("==> downloading subshell"); // continued to the download, not aborted
+        expect(out).toContain("==> done.");
+        expect(proc.exitCode).toBe(0); // round-1 code: rc=1 here
       } finally {
         rmSync(work, { recursive: true, force: true });
       }
