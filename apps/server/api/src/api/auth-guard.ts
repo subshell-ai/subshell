@@ -200,7 +200,7 @@ export interface PermContext {
  */
 export function requirePerm(
   ctx: PermContext,
-  resource: "channels" | "subshells" | "prompts",
+  resource: "channels" | "subshells" | "prompts" | "transfers",
   action: "read" | "write",
 ): void {
   if (ctx.actor !== "subshell-key") return;

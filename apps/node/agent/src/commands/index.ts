@@ -1,5 +1,7 @@
 import type { NodeCommandBody } from "@internal/subshell-protocol";
 import { execAgentLogRead } from "./agent-log.js";
+import { execArchiveCreate } from "./archive-create.js";
+import { execArchiveExtract } from "./archive-extract.js";
 import {
   execCapture,
   execDetect,
@@ -17,6 +19,7 @@ import {
   execTerminate,
 } from "./basics.js";
 import type { CommandContext, CommandResult } from "./context.js";
+import { execFileRead } from "./file-read.js";
 import { execFsLs } from "./fs-ls.js";
 import { execLaunch } from "./launch.js";
 import { execPromptDeliver } from "./prompt.js";
@@ -25,6 +28,8 @@ import { execSetLogLevel } from "./set-log-level.js";
 import { execSetMaintenance } from "./set-maintenance.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
+import { execTransferWrite } from "./transfer-write.js";
+import { execTreeManifest } from "./tree-manifest.js";
 import { execUpdate } from "./update.js";
 import { execWriteFile } from "./write-file.js";
 
@@ -38,9 +43,11 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * `prompt_deliver`, `log_read`, `tail_start`, `tail_stop`, `write_file`,
  * `set_allowed_dirs`, `service`, `agent_log_read`, `set_server_url`, `set_log_level`
  * (Task 6), `fs_ls` (remote folder picker), `detect` (detection-on-demand,
- * inversion spec §4), and `update` (self-replacement, spec 2026-09-15 §5.2 —
+ * inversion spec §4), `update` (self-replacement, spec 2026-09-15 §5.2 —
  * the one command whose wire shape is frozen, because the plane sends it to
- * agents whose protocol it does not share). Any
+ * agents whose protocol it does not share), and the five archive-transfer
+ * commands `archive_create`, `file_read`, `transfer_write`, `archive_extract`
+ * and `tree_manifest` (spec 2026-10-01 §4, protocol 15). Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
  *
@@ -119,6 +126,16 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execSetServerUrl(ctx, cmd);
       case "update":
         return await execUpdate(ctx, cmd);
+      case "archive_create":
+        return await execArchiveCreate(ctx, cmd);
+      case "file_read":
+        return await execFileRead(ctx, cmd);
+      case "transfer_write":
+        return await execTransferWrite(ctx, cmd);
+      case "archive_extract":
+        return await execArchiveExtract(ctx, cmd);
+      case "tree_manifest":
+        return await execTreeManifest(ctx, cmd);
       default:
         return { ok: false, error: "unsupported" };
     }

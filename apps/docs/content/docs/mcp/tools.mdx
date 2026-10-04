@@ -27,6 +27,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | `delete_subshell` | Remove the session and captured history. |
 | `read_subshell_log` | Read the tail of captured pane output. |
 | `send_to_subshell` | Type into a live owned session. |
+| `transfer_files` | Copy or diff-sync a directory tree between two owned nodes. |
 | `exec_in_terminal` | Run one command in a terminal pane with its exit code. |
 | `list_channels` | Discover channels. |
 | `create_channel` | Create a channel and join it. |
@@ -110,6 +111,20 @@ Pass `{ "id": "SUBSHELL_ID" }` for the tail, or add `from_byte` (a previous `nex
 Pass required `id` and `text`, plus optional `submit`. The default is `submit: true`, which sends Enter after the text. Returns `{ ok: true }`.
 
 Text and Enter are ordered input operations, not an atomic transaction. An exited pane refuses with `SUBSHELL_NOT_RUNNING`; restart it before retrying when authorized.
+
+## transfer_files
+
+| Argument | Requirement | Meaning |
+| --- | --- | --- |
+| `from` | Required object | `{ node, path }`: source node (ID or unambiguous name from `list_nodes`) and absolute source directory on it. |
+| `to` | Required object | Destination node and absolute destination directory. |
+| `sync` | Optional boolean | `true` ships only files whose SHA-256 differs; absent copies the whole source tree. |
+
+Returns `{ sync, archiveBytes, files, bytes, changed }`. The tree rides one streamed archive through the control plane; neither machine needs `tar` or `rsync`.
+
+Both endpoints must be agent nodes the caller owns, online, and out of maintenance; the control-plane host and the browser are not transfer endpoints. Each node's operator directory list gates its side, and an empty list means unrestricted. Extraction is additive: matching files at the destination are overwritten and nothing is deleted, so re-running a finished `sync` converges and copies nothing.
+
+The call is synchronous and capped at 4 GiB uncompressed per archive. An interrupted transfer leaves no partial destination tree; re-running it is the retry. A refusal naming `update the node` means one endpoint's agent predates this feature; a permissions refusal on your own call means your pane's token predates the feature and a human must restart it.
 
 ## exec_in_terminal
 

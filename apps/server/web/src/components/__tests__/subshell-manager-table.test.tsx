@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
+import { setConfirmHandler } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -7,7 +8,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SubshellManagerTable } from "@/components/subshell-manager-table";
 import type { SubshellSection } from "@/lib/subshell-sections";
 import type { SubshellView } from "@/types/subshell";
@@ -225,5 +226,97 @@ describe("SubshellManagerTable sections bands", () => {
     const b = makeSubshell({ id: "b", name: "beta" });
     await renderTable([a, b]);
     expect(bodyRows()).toEqual(["alpha", "beta"]);
+  });
+});
+
+/**
+ * The bulk bar's restart asks when the selection contains a LIVE pane
+ * (ruling 2026-10-02): the same operation on the same row asks from the
+ * per-row menu, so the bar must not be the loose way to kill N running
+ * agent panes in one unconfirmed click. An all-dead selection revives in
+ * place and asks nothing, as the menu's dead rows have always done.
+ */
+describe("SubshellManagerTable bulk restart confirmation", () => {
+  let restore: (() => void) | undefined;
+  afterEach(() => {
+    cleanup();
+    setConfirmHandler(null);
+    restore?.();
+    restore = undefined;
+  });
+
+  /** Counts the bulk endpoints actually hit; presets/everything else answers empty. */
+  function mockRequests() {
+    const posts: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = ((input: unknown, init?: RequestInit) => {
+      const path = new URL(String(input), "http://localhost").pathname;
+      if (init?.method === "POST" && path.endsWith("/restart")) posts.push(path);
+      return Promise.resolve(new Response(JSON.stringify(path.startsWith("/api/presets") ? [] : {})));
+    }) as typeof fetch;
+    return {
+      posts,
+      restore: () => {
+        globalThis.fetch = original;
+      },
+    };
+  }
+
+  async function clickBulkRestart() {
+    fireEvent.click(screen.getByRole("button", { name: "Restart" }));
+  }
+
+  it("a selection with a live row is asked about, and a declined prompt fires nothing", async () => {
+    const { posts, restore: r } = mockRequests();
+    restore = r;
+    let asks = 0;
+    setConfirmHandler(() => {
+      asks++;
+      return Promise.resolve(false);
+    });
+    await renderTable([
+      makeSubshell({ id: "live", name: "live-one", alive: true }),
+      makeSubshell({ id: "dead", name: "dead-one", alive: false, status: "terminated" }),
+    ]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select subshell live-one" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select subshell dead-one" }));
+    await clickBulkRestart();
+    await new Promise((res) => setTimeout(res, 10)); // let the declined prompt settle
+
+    expect(asks).toBe(1);
+    expect(posts).toHaveLength(0);
+  });
+
+  it("a confirmed bulk restart POSTs the restart for every selected row", async () => {
+    const { posts, restore: r } = mockRequests();
+    restore = r;
+    setConfirmHandler(() => Promise.resolve(true));
+    await renderTable([
+      makeSubshell({ id: "live", name: "live-one", alive: true }),
+      makeSubshell({ id: "dead", name: "dead-one", alive: false, status: "terminated" }),
+    ]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select subshell live-one" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select subshell dead-one" }));
+    await clickBulkRestart();
+
+    await waitFor(() => expect(posts.sort()).toEqual(["/api/subshells/dead/restart", "/api/subshells/live/restart"]));
+  });
+
+  it("an all-dead selection restarts WITHOUT asking", async () => {
+    const { posts, restore: r } = mockRequests();
+    restore = r;
+    let asks = 0;
+    // The handler answers false: were a prompt raised, the POST would die,
+    // so a landing POST alongside asks === 0 is the direct proof.
+    setConfirmHandler(() => {
+      asks++;
+      return Promise.resolve(false);
+    });
+    await renderTable([makeSubshell({ id: "dead", name: "dead-one", alive: false, status: "terminated" })]);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Select subshell dead-one" }));
+    await clickBulkRestart();
+
+    await waitFor(() => expect(posts).toEqual(["/api/subshells/dead/restart"]));
+    expect(asks).toBe(0);
   });
 });

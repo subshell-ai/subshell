@@ -45,6 +45,7 @@ import {
 import { execInTerminal, ExecInTerminalToolSchema, type ExecInTerminalArgs } from "./terminal-tools.js";
 import type { ToolApi } from "./tools.js";
 import { describeToolError } from "./tools.js";
+import { transferFiles, TransferFilesToolSchema } from "./transfer-tools.js";
 
 /** Wraps a tool result as an MCP text-content payload (JSON-encoded). */
 function json(data: unknown) {
@@ -257,7 +258,7 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     {
       title: "Restart subshell",
       description:
-        "Restart a subshell in place (same id): kills its process tree and respawns it from the same harness, preset and directory; an optional prompt re-types a task into the revived pane once it settles. Calling it on your OWN subshell terminates you.",
+        "Restart a subshell in place (same id): kills its process tree and respawns it from the same harness, preset and directory; an optional prompt re-types a task into the revived pane once it settles. Calling it on your OWN subshell terminates you: the call never returns a tool result, because this process dies with the pane, so on that one call a client should expect the session's transport to close rather than an answer.",
       inputSchema: z.object({
         id: z.string(),
         prompt: z.string().optional().describe("Task text typed into the revived pane once it settles"),
@@ -333,6 +334,28 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
       sendToSubshell(deps, { id, text, submit }),
     ),
   );
+  // --- transfer (spec 2026-10-01 §6) ---
+  server.registerTool(
+    "transfer_files",
+    {
+      title: "Transfer files between nodes",
+      description:
+        "Copy (or diff-sync with sync:true) a directory tree between two AGENT nodes the caller owns, relayed as one streamed archive through the plane - no tar or rsync on either machine, no per-file round trips. Both endpoints must be agent nodes (the control-plane host and the browser are not transfer endpoints); each node's operator allowlist gates its directory, and an empty allowlist means unrestricted. Extraction is ADDITIVE: matching files at the destination are overwritten and nothing is deleted. The call is synchronous and capped (4 GiB uncompressed per archive); a large transfer's wall clock is dominated by round trips to the two nodes, not by their bandwidth, so budget your turn accordingly; an interrupted transfer leaves no partial tree - re-running it is the retry. A refusal naming 'update the node' means one endpoint's agent predates this feature, and only a human can update it. A permissions refusal on YOUR OWN call means your pane's token was minted before this feature existed: a human must restart your pane to renew it - never restart your own pane.",
+      inputSchema: TransferFilesToolSchema,
+    },
+    guard(
+      ({
+        from,
+        to,
+        sync,
+      }: {
+        from: { node: string; path: string };
+        to: { node: string; path: string };
+        sync?: boolean;
+      }) => transferFiles(deps, { from, to, sync }),
+    ),
+  );
+  // --- exec (spec 2026-10-02) ---
   server.registerTool(
     "exec_in_terminal",
     {
