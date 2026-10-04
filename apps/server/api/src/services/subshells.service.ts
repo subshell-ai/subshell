@@ -23,9 +23,18 @@ import { BaseService, type CommonServiceParams } from "@/services/base.service.j
 import { publishLive } from "@/services/live-bus.js";
 import { lockdownEnabled } from "@/services/lockdown.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
-import type { LogCursorRequest } from "@/services/nodes/log-tail.js";
+import type { LogCursorRequest, LogWindowReader } from "@/services/nodes/log-tail.js";
 import { getLive, isNodeOffline } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
+import {
+  EXEC_MAX_OUTPUT_BYTES,
+  execOutputTail,
+  execSentinelCommand,
+  execSentinelToken,
+  execTimeoutMs,
+  probeQuiet,
+  waitSentinel,
+} from "@/services/nodes/pane-exec.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
@@ -325,6 +334,34 @@ export function resolvePresetLaunch(
     prompt: body.prompt ?? (promptText.trim() === "" ? undefined : promptText),
   };
 }
+
+/** What one `execInTerminal` call answers (spec 2026-10-02 §2). */
+export interface ExecAnswer {
+  /** `completed`: the sentinel line landed before the deadline; `timed_out`: it never did (the command may still be running - ruling 2). */
+  status: "completed" | "timed_out";
+  /** The exit code the shell reported; null when no sentinel landed. */
+  exitCode: number | null;
+  /** The pane's output between the quiet mark and the sentinel, newline-joined, newest lines kept within the byte cap. */
+  output: string;
+  /** True when older output was dropped to keep `output` inside {@link EXEC_MAX_OUTPUT_BYTES}. */
+  truncated: boolean;
+  /** Raw byte offset just past the sentinel line (or where a timed-out scan stopped): the caller's next log cursor read. */
+  nextByte: number;
+}
+
+/**
+ * exec's per-pane lease (spec 2026-10-02 §2), shared process-wide by SUBSHELL ID.
+ *
+ * `SubshellsService` is constructed FRESH per HTTP request (contextPlugin's
+ * resolve), so a per-instance map would be inert, exactly the failure
+ * `restartInFlight` in `subshell-manager.service.ts` exists to avoid: two
+ * concurrent execs (two tabs, list + detail, web + MCP) would each hold their
+ * own map, both proceed, and their interleaved sentinels would corrupt each
+ * other. Living at module scope, every instance shares the one lease and a
+ * second caller on a held id answers 409 EXEC_IN_FLIGHT. The entry is added
+ * synchronously before the first await and removed in `finally`.
+ */
+const execInFlight = new Map<string, Promise<ExecAnswer>>();
 
 /**
  * Business logic behind `/api/subshells`, one method per endpoint.
@@ -883,6 +920,121 @@ export class SubshellsService extends BaseService {
     await launcher.sendInput(socket, id, text).catch(rethrowLaunchRefusal);
     if (submit) await launcher.sendInput(socket, id, "\r").catch(rethrowLaunchRefusal);
     return { ok: true };
+  }
+
+  /**
+   * Run ONE shell command in a TERMINAL pane and answer with its output and
+   * exit code (spec 2026-10-02). Everything the pane cannot tell us is
+   * machinery's job: the sentinel protocol lives in `pane-exec.ts`, the two
+   * sends ride the SAME `sendInput` seam as every keystroke in this app (argv
+   * posture included, accepted §11.2), and the wait reads through the
+   * `readLogWindow` seam the cursor reads already use. Gates mirror
+   * `sendSubshellInput` verbatim (edit grant, the two facts, the offline
+   * mapper) and ADD two: a non-terminal harness is refused by name (an
+   * agent pane would eat the line into its own input box), and one exec per
+   * pane at a time (interleaved sentinels corrupt each other). The quiet
+   * check precedes EVERYTHING typed: a refusal never touches the pane, and
+   * neither does a lease, timeout, or wait (ruling 2 - the command keeps
+   * running; this call just stops watching). No publishLive, no audit row:
+   * like input, the row never changed; the pane's own log records the typing.
+   * @throws SubshellError 404 when absent or invisible to the caller.
+   * @throws HttpError 403 when the caller holds only `view`.
+   * @throws ApiError 409 SUBSHELL_NOT_RUNNING when the row is not running OR
+   *         its pane has exited (the two facts, checked FIRST exactly as
+   *         input does); 400 EXEC_TERMINAL_ONLY when the pane's harness is not
+   *         a terminal; 409 EXEC_IN_FLIGHT when another exec already holds the
+   *         pane's lease; 409 EXEC_PANE_BUSY when the quiet probe finds the
+   *         log growing. All four refuse before anything is typed, and any
+   *         launcher refusal maps through the create/restart mapper.
+   */
+  async execInTerminal(
+    viewerId: string,
+    id: string,
+    command: string,
+    timeoutMs: number | undefined,
+    actor: GuardActor,
+  ): Promise<ExecAnswer> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
+    if (row.status !== "running" || row.alive !== 1) {
+      throwApiError({
+        code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
+        message: "The subshell is not running; nothing was typed. Restart it first.",
+        doNotLog: true,
+      });
+    }
+    const harness = getHarness(row.harnessId);
+    if (harness?.type !== "terminal") {
+      throwApiError({
+        code: BackendErrorCodes.EXEC_TERMINAL_ONLY,
+        // Two shapes under one code: a KNOWN non-terminal harness runs an
+        // agent (its own input box would eat the line); an unresolvable id
+        // names that instead, because "this pane runs a harness" would be a
+        // sentence about a harness nobody can look up (PR #319 review).
+        message: harness
+          ? "exec types shell commands into terminal panes; this pane runs a harness"
+          : "exec types shell commands into terminal panes; this pane's harness is not installed",
+        doNotLog: true,
+      });
+    }
+    const running = execInFlight.get(id);
+    if (running) {
+      throwApiError({
+        code: BackendErrorCodes.EXEC_IN_FLIGHT,
+        message: "Another exec is already waiting on this pane; retry once it finishes",
+        doNotLog: true,
+      });
+    }
+    // The lease spans the whole call - gate already passed, nothing between
+    // the get and the set awaits - so two racing calls never both proceed.
+    // A caller that abandons the HTTP request mid-wait still holds it until
+    // the deadline: this plane plumbs no request-abort anywhere (the channels
+    // long-poll has the same property), and the wait is bounded by the clamp,
+    // so the worst case is EXEC_TIMEOUT_MAX of EXEC_IN_FLIGHT refusals,
+    // self-healing at the deadline.
+    const call = this.#execInner(row, id, command, execTimeoutMs(timeoutMs)).finally(() => execInFlight.delete(id));
+    execInFlight.set(id, call);
+    return await call;
+  }
+
+  async #execInner(row: SubshellTable, id: string, command: string, timeoutMs: number): Promise<ExecAnswer> {
+    const launcher = launcherFor(row.nodeId);
+    const socket = row.tmuxSocket ?? tmuxSocketFor(id);
+    const read: LogWindowReader = (fromByte, maxBytes) =>
+      launcher.readLogWindow(id, fromByte, maxBytes).catch(rethrowLaunchRefusal);
+    const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+    const quiet = await probeQuiet(read, sleep);
+    if (!quiet.quiet) {
+      throwApiError({
+        code: BackendErrorCodes.EXEC_PANE_BUSY,
+        message: "The pane is producing output; nothing was typed. Read it or wait, then retry.",
+        doNotLog: true,
+      });
+    }
+    // The token is production's own, always (review choice 2026-10-02): the
+    // suites drive a scripted node whose `log_read` answer is drawn from the
+    // sentinel frame it actually received, so completion proves scanner and
+    // frame agree without a test seam in the signature.
+    const token = execSentinelToken();
+    for (const text of [command, "\r", execSentinelCommand(token), "\r"]) {
+      await launcher.sendInput(socket, id, text).catch(rethrowLaunchRefusal);
+    }
+    const waited = await waitSentinel(read, token, quiet.size, {
+      timeoutMs,
+      sleep,
+      now: Date.now,
+      alive: async () => {
+        const fresh = await this.repos.subshells.findById(id);
+        return fresh?.status === "running" && fresh?.alive === 1;
+      },
+    });
+    const tail = execOutputTail(waited.outputLines, EXEC_MAX_OUTPUT_BYTES);
+    return {
+      status: waited.status,
+      exitCode: waited.rc,
+      output: tail.text,
+      truncated: tail.truncated,
+      nextByte: waited.nextByte,
+    };
   }
 
   /**

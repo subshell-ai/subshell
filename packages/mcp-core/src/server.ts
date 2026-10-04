@@ -42,6 +42,7 @@ import {
   sendToSubshell,
   terminateSubshell,
 } from "./subshell-tools.js";
+import { execInTerminal, ExecInTerminalToolSchema, type ExecInTerminalArgs } from "./terminal-tools.js";
 import type { ToolApi } from "./tools.js";
 import { describeToolError } from "./tools.js";
 
@@ -330,6 +331,18 @@ export function registerTools(server: McpServer, deps: { api: ToolApi; own: Iden
     },
     guard(({ id, text, submit }: { id: string; text: string; submit?: boolean }) =>
       sendToSubshell(deps, { id, text, submit }),
+    ),
+  );
+  server.registerTool(
+    "exec_in_terminal",
+    {
+      title: "Exec in terminal",
+      description:
+        "Run one shell command in a terminal pane and return its output and exit code once the shell's sentinel confirms. Refuses without typing while the pane is producing output; on timeout it touches nothing and reports what printed so far. Interactive programs (password prompts, editors, TUIs) belong to send_to_subshell plus read_subshell_log, and the exit-code sentinel speaks POSIX: a fish pane answers timed_out once its command completes.",
+      inputSchema: z.object(ExecInTerminalToolSchema),
+    },
+    guard(({ subshell_id, command, timeout_ms }: ExecInTerminalArgs) =>
+      execInTerminal(deps, { subshell_id, command, ...(timeout_ms !== undefined ? { timeout_ms } : {}) }),
     ),
   );
   // No update_subshell_notes tool (spec 2026-09-03 follow-up): the operator
