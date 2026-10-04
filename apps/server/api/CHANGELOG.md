@@ -1,5 +1,11 @@
 # @internal/server
 
+## 1.9.1
+
+### Patch Changes
+
+- [#326](https://github.com/subshell-ai/subshell/pull/326) [`e5facc8`](https://github.com/subshell-ai/subshell/commit/e5facc815650e1c88460fe784a1c9454d014965e) Thanks [@theogravity](https://github.com/theogravity)! - Node installer: offer to install tmux (no sudo on Proxmox hosts), show download progress, and refuse a nameless terminal-less install in two lines instead of the help wall. Proxmox server helper: trim and prune around updates (lvm-thin ENOSPC), and default new containers to 40 GB.
+
 ## 1.9.0
 
 ### Minor Changes
