@@ -249,14 +249,15 @@ describe("execOutputTail", () => {
     expect(r).toEqual({ text: "one\ntwo", truncated: false });
   });
   it("caps in UTF-8 BYTES, not code units (a CJK line costs 3, an emoji up to 4)", () => {
-    // Each line is 3 characters: 3 UTF-16 code units, but "é" is 2 bytes and
-    // "😀" is 4, so the joined text is 2(2+1)+... measured honestly below.
+    // Each line is 3 CHARACTERS but 4 UTF-16 code units (the emoji is a
+    // surrogate pair) and 7 UTF-8 bytes (é=2, 😀=4, a=1).
     const line = "é😀a"; // 2 + 4 + 1 = 7 bytes
     expect(execOutputTail([line], 7)).toEqual({ text: line, truncated: false }); // 7 bytes, the closing newline uncounted
     expect(execOutputTail([line, line], 15)).toEqual({ text: `${line}\n${line}`, truncated: false }); // 7+1+7 = exactly 15
     expect(execOutputTail([line, line], 14)).toEqual({ text: line, truncated: true }); // 14 does not: newest kept
-    // A `.length` count (3 per line) would have called 3+1+3 = 7 under a cap of 7
-    // and never truncated; the byte count is what the name and docs promise.
+    // The cap-14 assertion is the discriminating one: the old `.length` count
+    // saw the joined pair as 9 units, kept both under 14, and never truncated;
+    // the honest 15-byte count drops the head. Bytes are what the name promises.
   });
   it("one line bigger than the cap yields an empty tail, honestly named", () => {
     // Whole-line discipline: mid-character cutting is a worse promise than an

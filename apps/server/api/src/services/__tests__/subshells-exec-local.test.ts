@@ -51,6 +51,7 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 // The pane's mini-shell (see the header): eval every typed line, with the
 // literal `$?` in it rewritten to the PREVIOUS line's status before eval -
 // `read` clobbers `$?`, so the substitution keeps §1's semantics honest.
+// biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion for the pane's shell, not a JS placeholder
 const SHELLY = '_prev=0; while IFS= read -r line; do eval "${line//\\$\\?/\\$_prev}"; _prev=$?; done';
 
 beforeAll(async () => {
