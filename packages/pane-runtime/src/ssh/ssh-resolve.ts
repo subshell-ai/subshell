@@ -73,19 +73,35 @@ function parseDashG(stdout: string): GLine[] {
   return lines;
 }
 
-/** All values of one keyword, whitespace-split (the list options' own delimiter). */
-function valuesOf(g: GLine[], keyword: string): string[] {
+/** All values of any of the accepted spellings, whitespace-split (the list options' own delimiter). */
+function valuesOf(g: GLine[], ...keywords: string[]): string[] {
   const out: string[] = [];
   for (const line of g) {
-    if (line.keyword === keyword) out.push(...line.value.split(/\s+/).filter((v) => v !== ""));
+    if (keywords.includes(line.keyword)) out.push(...line.value.split(/\s+/).filter((v) => v !== ""));
   }
   return out;
 }
 
 /** True when any value of the keyword is "set" (not none/off/no/0 — the option's unconfigured spelling). */
 function setWhere(g: GLine[], keyword: string, unconfigured: readonly string[] = ["none"]): boolean {
-  return valuesOf(g, keyword).some((v) => !unconfigured.includes(v.toLowerCase()));
+  return setWhereAny(g, [keyword], unconfigured);
 }
+
+function setWhereAny(g: GLine[], keywords: readonly string[], unconfigured: readonly string[] = ["none"]): boolean {
+  return valuesOf(g, ...keywords).some((v) => !unconfigured.includes(v.toLowerCase()));
+}
+
+/**
+ * The forward keyword, BOTH ways. OpenSSH's `ssh -G` echoes the option
+ * keyword, and the historical/config spellings of these three differ across
+ * versions (`LocalForward` vs the `locallyforward` echo, likewise remote) —
+ * accepting both spellings means a version drift can only ever make us
+ * REFUSE on a present directive, never miss one. Missing a forward would be
+ * the silent-omission defect §2 names.
+ */
+const FORWARD_LOCAL_KEYWORDS = ["localforward", "locallyforward"];
+const FORWARD_REMOTE_KEYWORDS = ["remoteforward", "remotelyforward"];
+const FORWARD_DYNAMIC_KEYWORDS = ["dynamicforward"];
 
 /** Parse one ProxyJump token `[user@]host[:port]` into the frozen hop shape; bracketed IPv6 keeps its brackets (the snapshot grammar wants them). */
 export function parseProxyHop(token: string, defaultUser: string | null): SshHopWire | null {
@@ -187,9 +203,9 @@ export async function resolveSshAliasConfig(
   // --- forbidden settings: any of these present at RESOLUTION fails setup ---
   const blocked: string[] = [];
   if (setWhere(g, "proxycommand")) blocked.push("ProxyCommand");
-  if (setWhere(g, "localforward")) blocked.push("LocalForward");
-  if (setWhere(g, "remoteforward")) blocked.push("RemoteForward");
-  if (setWhere(g, "dynamicforward")) blocked.push("DynamicForward");
+  if (setWhereAny(g, FORWARD_LOCAL_KEYWORDS)) blocked.push("LocalForward");
+  if (setWhereAny(g, FORWARD_REMOTE_KEYWORDS)) blocked.push("RemoteForward");
+  if (setWhereAny(g, FORWARD_DYNAMIC_KEYWORDS)) blocked.push("DynamicForward");
   if (setWhere(g, "tunnel", ["no"])) blocked.push("Tunnel");
   if (setWhere(g, "permitremoteopen")) blocked.push("PermitRemoteOpen");
   if (setWhere(g, "permitlocalcommand", ["no"])) blocked.push("PermitLocalCommand");
@@ -245,12 +261,15 @@ export async function resolveSshAliasConfig(
   const hostKeyAliasRaw = valuesOf(g, "hostkeyalias")[0] ?? "none";
   const hostKeyAlias = hostKeyAliasRaw !== "none" && hostKeyAliasRaw !== "" ? hostKeyAliasRaw : null;
 
-  // --- agent: ONLY an absolute socket from the account's trusted setup (env or an explicit IdentityAgent path) ---
+  // --- agent: ONLY an absolute socket from the account's trusted setup (an
+  // explicit IdentityAgent path, else the account's own SSH_AUTH_SOCK) ---
   const identityAgent = valuesOf(g, "identityagent")[0] ?? null;
   let authAgentSocket: string | null = null;
-  if (identityAgent !== null && identityAgent !== "none") {
-    authAgentSocket = identityAgent.startsWith("/") ? identityAgent : null; // a non-path value (future spellings) means "no representable agent"
-  } else if (env.SSH_AUTH_SOCK?.startsWith("/")) {
+  if (identityAgent?.startsWith("/")) {
+    authAgentSocket = identityAgent;
+  } else if (identityAgent !== "none" && env.SSH_AUTH_SOCK?.startsWith("/")) {
+    // "ssh-agent" (and the keyword's absence) mean "the account's agent";
+    // any OTHER future spelling fails closed to null, never to env.
     authAgentSocket = env.SSH_AUTH_SOCK;
   }
 

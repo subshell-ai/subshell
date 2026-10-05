@@ -63,6 +63,32 @@ import {
 /** How long the read long-poll sleeps between growth checks. */
 const READ_POLL_MS = 150;
 
+/** The minimal reader shape the drain needs (structural, like `run-bounded.ts` — the concrete reader class varies by stream generic). */
+interface DrainReader {
+  read(): Promise<{ done?: boolean; value?: Uint8Array }>;
+}
+
+/**
+ * Signal the child's PROCESS GROUP (it is the group leader: spawned
+ * `detached`). ssh leaves children behind on the simplest cancel path (the
+ * ProxyJump `-W` grandchildren), and a group signal is the only stop that
+ * reaches them; the single-pid kill is the fallback for a child that somehow
+ * is not a group leader.
+ */
+function killGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
+  try {
+    process.kill(-pid, signal);
+    return;
+  } catch {
+    // ESRCH / EPERM: no group (or not ours) — fall to the single pid.
+  }
+  try {
+    process.kill(pid, signal);
+  } catch {
+    // already reaped
+  }
+}
+
 /** Bytes of stderr tail kept in memory for exit classification (bounded; the file holds the rest). */
 const STDERR_TAIL_BYTES = 8 * 1024;
 
@@ -82,6 +108,8 @@ export type SshRunStartOutcome = { kind: "facts"; facts: SshRunFactsWire } | { k
 /** The live half of one run: processes and fds the state file cannot describe. */
 interface LiveRun {
   proc: Bun.Subprocess;
+  /** The child's pid — ALSO its process-group id (spawned `detached`), which is what makes the stop reach ssh's children (the ProxyJump `-W` grandchildren, the auth helpers): a SIGTERM to ssh alone lets an orphan keep the stdout pipe open forever, which would hold the drain, the `exited` gate, and the cancel answer open past any grace. */
+  pid: number;
   stdoutFd: number;
   stderrFd: number;
   /** Combined RETAINED bytes across both streams; past the cap the drain discards. */
@@ -92,6 +120,8 @@ interface LiveRun {
   deadlineTimer?: ReturnType<typeof setTimeout>;
   killEscalate?: ReturnType<typeof setTimeout>;
   stopping: boolean;
+  /** Releases both stream readers (the last-resort unstick if a survivor outside the killed group still holds the pipe). */
+  cancelReaders: () => void;
   /** Resolves when the child has exited AND both drains have stopped. */
   exited: Promise<void>;
 }
@@ -222,6 +252,10 @@ export class SshRunSupervisor {
         stderr: "pipe",
         env,
         cwd: this.#dataDir,
+        // own process group: the stop signals the GROUP (see LiveRun.pid),
+        // reaching every ssh helper/grandchild. Without this, the ssh client
+        // can outlive TERM or leave helpers holding the pipes.
+        detached: true,
       });
     } catch {
       // The child never existed. The record reads `unknown` — the same honest
@@ -238,25 +272,31 @@ export class SshRunSupervisor {
     } catch {
       // No place to keep output: stop the child before it produces any the
       // store cannot account for; `unknown`, like the spawn-failure branch.
-      try {
-        proc.kill("SIGKILL");
-      } catch {
-        // already gone
-      }
+      killGroup(proc.pid, "SIGKILL");
       this.#writeUnknownOnFailure(req.runId);
       return;
     }
     const rec = readRun(this.#dataDir, req.runId);
     if (rec)
       writeRunState(this.#dataDir, { ...rec.state, lifecycle: "running", startedAtMs: this.#nowMs(), spawned: true });
+    // Readers are acquired UP FRONT so the stop path can cancel them: a
+    // stream already locked by a running read refuses `stream.cancel()`,
+    // only its own reader can release it (the run-bounded.ts lesson).
+    const stdoutReader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+    const stderrReader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
     const live: LiveRun = {
       proc,
+      pid: proc.pid,
       stdoutFd,
       stderrFd,
       retained: 0,
       truncated: false,
       stderrTail: Buffer.alloc(0),
       stopping: false,
+      cancelReaders: () => {
+        void stdoutReader.cancel().catch(() => {});
+        void stderrReader.cancel().catch(() => {});
+      },
       exited: Promise.resolve(), // replaced immediately below with the real exit gate
     };
     this.#live.set(req.runId, live);
@@ -279,10 +319,7 @@ export class SshRunSupervisor {
     // buffer: the "bounded partial-line and in-flight buffers" promise is
     // made structural. Bytes land, or are discarded and counted — nothing
     // accumulates anywhere a stuck consumer could grow.
-    const drain = async (stream: "stdout" | "stderr"): Promise<void> => {
-      const source = (stream === "stdout" ? proc.stdout : proc.stderr) as ReadableStream<Uint8Array>;
-      const reader = source.getReader();
-      const fd = stream === "stdout" ? stdoutFd : stderrFd;
+    const drain = async (reader: DrainReader, fd: number): Promise<void> => {
       try {
         for (;;) {
           const { done, value } = await reader.read();
@@ -305,7 +342,7 @@ export class SshRunSupervisor {
           }
           live.retained += keep.byteLength;
           if (keep.byteLength < value.byteLength) live.truncated = true;
-          if (stream === "stderr") {
+          if (fd === stderrFd) {
             const merged = Buffer.concat([live.stderrTail, keep]);
             live.stderrTail =
               merged.byteLength > STDERR_TAIL_BYTES ? merged.subarray(merged.byteLength - STDERR_TAIL_BYTES) : merged;
@@ -317,7 +354,7 @@ export class SshRunSupervisor {
     };
 
     live.exited = (async (): Promise<void> => {
-      await Promise.all([drain("stdout"), drain("stderr")]);
+      await Promise.all([drain(stdoutReader, stdoutFd), drain(stderrReader, stderrFd)]);
       let exitCode: number | null = null;
       let exitSignal: string | null = null;
       try {
@@ -402,21 +439,22 @@ export class SshRunSupervisor {
     writeRunState(this.#dataDir, state);
   }
 
-  /** SIGTERM now, SIGKILL after the grace; `stopping` keeps double signals idempotent. */
+  /**
+   * SIGTERM the GROUP now, SIGKILL after the grace, and a last-resort reader
+   * cancel on escalation. `stopping` keeps double signals idempotent. The
+   * grace ends when the KILL goes out — `cancelLocalConfirmed` is decided by
+   * whether the exit arrived within it, never assumed from the signal.
+   */
   #stopLive(live: LiveRun): void {
     if (live.stopping) return;
     live.stopping = true;
-    try {
-      live.proc.kill("SIGTERM");
-    } catch {
-      // already reaped
-    }
+    killGroup(live.pid, "SIGTERM");
     live.killEscalate = setTimeout(() => {
-      try {
-        live.proc.kill("SIGKILL");
-      } catch {
-        // already reaped
-      }
+      killGroup(live.pid, "SIGKILL");
+      // If anything outside the killed group still holds the write ends, the
+      // drains would wait on an orphan forever; releasing the readers lets
+      // `exited` settle and finalize record what it can see.
+      live.cancelReaders();
     }, SSH_CANCEL_GRACE_MS);
     live.killEscalate.unref?.();
   }
