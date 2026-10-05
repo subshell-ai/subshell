@@ -29,6 +29,7 @@ import {
 } from "@/services/nodes/link-session.js";
 import { loadNodeEncryptionKeys, nodeEncryptionPublicKey } from "@/services/nodes/node-encryption-keys.js";
 import { announceNodePresence, projectNodeOffline } from "@/services/nodes/node-presence-announce.js";
+import { reconcileSshNode } from "@/services/ssh/ssh-reconcile.js";
 import { logger } from "@/utils/logger.js";
 import { refireInputHoldsForNode } from "@/ws/input-hold.js";
 import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
@@ -962,6 +963,21 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
         refireInputHoldsForNode(nodeId);
       } catch (err: unknown) {
         logger.withError(err).debug(`node ws: input-hold refire for ${nodeId} failed`);
+      }
+      // SSH reconciliation (spec 2026-10-04 §3): pending cancellations that
+      // stayed queued while this connecting node was offline dispatch here,
+      // BEFORE any new work, and unsettled run lifecycles are re-asked (an
+      // ambiguous disconnect becomes honest `unknown`, never a silent replay).
+      // Fire-and-forget like the detect and input-hold kicks: it guards `getLive`
+      // at entry and no-ops for a node with no SSH history, so the common
+      // case is a couple of empty indexed queries; a failed reconcile must
+      // never be why a handshake did not complete.
+      try {
+        void reconcileSshNode(nodeId).catch((err: unknown) => {
+          logger.withError(err).debug(`node ws: ssh reconcile for ${nodeId} failed`);
+        });
+      } catch (err: unknown) {
+        logger.withError(err).debug(`node ws: ssh reconcile dispatch for ${nodeId} failed`);
       }
       // Maintenance is the other half of that reconciliation and the harder
       // one, because it travels BOTH ways: the machine may have been flipped

@@ -200,11 +200,15 @@ export interface PermContext {
  */
 export function requirePerm(
   ctx: PermContext,
-  resource: "channels" | "subshells" | "prompts" | "transfers",
+  resource: "channels" | "subshells" | "prompts" | "transfers" | "ssh",
   action: "read" | "write",
 ): void {
   if (ctx.actor !== "subshell-key") return;
   const grants = ctx.apiKeyPermissions?.[resource];
+  // `ssh` deliberately has NO legacy concession (spec 2026-10-04 §2): every
+  // existing agent must NOT silently gain SSH reach, so a map without the
+  // `ssh` key predates nothing here - absence IS the refusal (the transfers
+  // posture, not the prompts one).
   // One backward-compat concession (spec 2026-09-28 §Token scopes): a map
   // minted BEFORE the prompts feature carries `channels` but no `prompts`
   // key, and self-extension never re-mints it, so absence there predates the
