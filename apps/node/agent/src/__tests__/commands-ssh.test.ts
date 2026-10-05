@@ -14,6 +14,7 @@ import {
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import type { NodeConfig } from "../config.js";
+import { getInputGenerationStore } from "../input-generation.js";
 import { writeMaintenance } from "../maintenance.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 
@@ -239,6 +240,23 @@ describe("ssh_input_control arm", () => {
     expect(stale).toEqual({ ok: false, error: NODE_RESULT_SSH_GENERATION_STALE });
   });
 
+  it("an applied takeover raises the FENCE store the input/prompt handlers read (Gate B seam)", async () => {
+    // The whole point of the node-side mirror: a human takeover must arm the
+    // fence, so a subsequently-queued agent input at the OLD generation is
+    // refused AT THE MACHINE, not just on the plane. Without the record() wire
+    // from the control handler, the store stays empty and the fence is inert.
+    const shim = writeShim(join(base, "shim-ctl-fence"));
+    const { dataDir, ctx } = setup("ctl-fence", shim.bin);
+    const id = runIdFor(31);
+    const store = getInputGenerationStore(dataDir);
+    expect(store.current(id)).toBeNull(); // ordinary until the pane exists
+    await send(ctx, { type: "ssh_input_control", subshellId: id, mode: "human", generation: 2 } as NodeCommandBody);
+    expect(store.current(id)).toBe(2);
+    expect(store.check(id, 1)).toBe("stale"); // the fenced pre-takeover generation
+    expect(store.check(id, 2)).toBe("ok"); // the current one
+    expect(store.check(id, undefined)).toBe("stale"); // an unsealed write is refused
+  });
+
   it("refuses malformed pane ids before touching state", async () => {
     const shim = writeShim(join(base, "shim-ctl3"));
     const { ctx } = setup("ctl3", shim.bin);
@@ -290,6 +308,10 @@ describe("ssh_terminal_launch arm", () => {
     expect(pipeCall![3]).toBe(join(dataDir, "subshells", `${id}.log`)); // conventional path
     expect(ctx.watchers.has(id)).toBe(true);
     expect(calls.some((c) => c[0] === "resize" && c[3] === "120" && c[4] === "30")).toBe(true);
+    // A fresh launch establishes gen 1 in the fence store, so the pane stops
+    // reading as an ordinary pane to the input/prompt fence the moment it exists
+    // (an unsealed later write is refused; a takeover above 1 is what fences).
+    expect(getInputGenerationStore(dataDir).current(id)).toBe(1);
     // stop the watcher's tick: a mid-file death pass against the stub would
     // race sibling tests (the real daemon's exit path is covered elsewhere)
     if (ctx.watchTick !== undefined) clearInterval(ctx.watchTick);

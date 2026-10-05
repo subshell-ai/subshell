@@ -18,6 +18,7 @@ import {
   NODE_RESULT_SSH_GENERATION_STALE,
   parseNodeSshControlResult,
 } from "@internal/subshell-protocol";
+import { getInputGenerationStore } from "../input-generation.js";
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance } from "../maintenance.js";
 import { selfInvocation } from "../self-invoke.js";
@@ -82,7 +83,14 @@ export async function execSshTerminalLaunch(
   // segments cleared, control state preserved (a restart of the row is a new
   // session, not a continuation of any held cursor — and anything fenced
   // before stays fenced).
-  initTerminalForLaunch(ctx.config.dataDir, cmd.subshellId);
+  // Mirror the launch generation into the input-generation fence store. B's
+  // control state lives in the runtime (Apache) and the fence reads the node's
+  // own store; the agent composes the two. `record` is monotonic, so a re-launch
+  // of a pane that a takeover fenced keeps the fence armed (the preserved
+  // generation >= the fenced one), and a first launch establishes gen 1 so the
+  // pane stops being "ordinary" to the fence the moment it exists.
+  const term = initTerminalForLaunch(ctx.config.dataDir, cmd.subshellId);
+  getInputGenerationStore(ctx.config.dataDir).record(cmd.subshellId, term.generation);
 
   // The rendered per-pane config, 0600, O_EXCL after unlink (an existing
   // file could only be this subtree's previous config or an intruder's
@@ -163,6 +171,10 @@ export async function execSshInputControl(ctx: CommandContext, cmd: Cmd<"ssh_inp
   if (!isSubshellId(cmd.subshellId)) return { ok: false, error: "invalid subshell id" };
   const transition = transitionControl(ctx.config.dataDir, cmd.subshellId, cmd.mode, cmd.generation);
   if (transition.kind === "stale") return { ok: false, error: NODE_RESULT_SSH_GENERATION_STALE };
+  // THE takeover/revocation fence: the raised generation must reach the store
+  // the input/prompt handlers consult, or a human takeover would fence only
+  // the plane's copy and the machine would keep accepting stale queued input.
+  getInputGenerationStore(ctx.config.dataDir).record(cmd.subshellId, transition.state.generation);
   const data = parseNodeSshControlResult({
     subshellId: cmd.subshellId,
     mode: transition.state.mode,

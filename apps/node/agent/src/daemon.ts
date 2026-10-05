@@ -17,6 +17,7 @@ import { backoffDelay } from "./backoff.js";
 import type { CommandContext, CommandResult, CommandWs } from "./commands/context.js";
 import { dispatchCommand } from "./commands/index.js";
 import { buildSubshellsReport, maybeReportMaintenance, seedMaintenanceMemo } from "./commands/report.js";
+import { sweepSshState } from "./commands/ssh-sweep.js";
 import { stopAllTails } from "./commands/tail.js";
 import { sweepStaleTransfers } from "./commands/transfer-sweep.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
@@ -514,6 +515,17 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   void sweepStaleTransfers(ctx);
   const transferSweepTimer = setInterval(() => void sweepStaleTransfers(ctx), PANE_LOG_RETENTION_PASS_MS);
   transferSweepTimer.unref?.();
+  // SSH run/terminal housekeeping (spec 2026-10-04 §3): a connecting node holds
+  // the structured-run output and terminal segments on ITS disk, so the plane's
+  // retention cannot reach them. Reconcile unsupervised runs (an unsupervised
+  // `accepted`/`running` becomes honest `unknown`, never restarted), sweep
+  // completed-run output past the 7-day window, and sweep dead-terminal state.
+  // Never throws by contract. Boot pass + hourly beat, unref'd like the
+  // transfer sweep — a crashed-then-orphaned run must not sit under the cap
+  // until the next restart on a daemon that keeps one connection for weeks.
+  void sweepSshState(ctx);
+  const sshSweepTimer = setInterval(() => void sweepSshState(ctx), PANE_LOG_RETENTION_PASS_MS);
+  sshSweepTimer.unref?.();
 
   // Pane-log retention (2026-09-23): the node ages out its own transcripts.
   // The plane's hourly sweep never reaches this disk, and the only node-side
