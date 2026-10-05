@@ -128,15 +128,16 @@ class ManagedPaneHooks implements SshPaneHooks {
   }
 
   /**
-   * Relay a takeover/return to the node - the SAME `ssh_input_control` call
-   * `sshControlTransition` makes, carrying the generation the PLANE just
-   * raised so queued writes below it fence machine-side. Called BEFORE the
-   * plane row moves (pane-ssh-gate's ordering rule: the mirror never trails
-   * the claim), so a refusal here leaves both sides untouched: a node
-   * transport/unsupported/malformed refusal surfaces as `backend_unavailable`
-   * (C maps it to the 503), a node-side stale (a takeover at the machine won
-   * the race) as `forbidden` (the 403 arm), and a vanished pane row as
-   * `gone` (the invisibility 404).
+   * Relay a takeover/return to the node - the `ssh_input_control` call the
+   * ONE registered takeover act (`pane-ssh-gate.ts::transitionPaneControl`)
+   * drives, carrying the generation the PLANE is about to raise so queued
+   * writes below it fence machine-side. Called BEFORE the plane row moves
+   * (pane-ssh-gate's ordering rule: the mirror never trails the claim), so a
+   * refusal here leaves both sides untouched: a node transport/unsupported/
+   * malformed refusal surfaces as `backend_unavailable` (C maps it to the
+   * 503), a node-side stale (a takeover at the machine won the race) as
+   * `forbidden` (the 403 arm), and a vanished pane row as `gone` (the
+   * invisibility 404).
    */
   async applyControlTransition(req: {
     subshellId: string;

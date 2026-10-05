@@ -43,7 +43,6 @@ import { getSshPolicy } from "@/services/ssh/ssh-policy-impl.js";
 import { reconcileSshNode } from "@/services/ssh/ssh-reconcile.js";
 import { SshRunsRepository } from "@/services/ssh/ssh-runs.repository.js";
 import { sshRunStart } from "@/services/ssh/ssh-runs.service.js";
-import { sshControlTransition } from "@/services/ssh/ssh-terminals.service.js";
 import { attachScriptedNode, ok, type ScriptedHandlers, type ScriptedNode } from "@/test-helpers/scripted-node.js";
 import { facts, readResult, SNAPSHOT } from "@/test-helpers/ssh-fixtures.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
@@ -534,11 +533,14 @@ describe("/api/ssh runs + terminals + revocation (spec 2026-10-04 §3)", () => {
       expect(shell?.harnessId).toBe("terminal");
       expect(shell?.status).toBe("running");
 
-      const take = await sshControlTransition(humanCaller(), view.subshellId, { mode: "agent" });
-      expect(take.controlGeneration).toBe(2);
-      expect(scripted.cmdsOf("ssh_input_control").length).toBe(1);
-      // A human never rides the agent arm, but the transition itself moved the
-      // state; the gate then refuses agent reads until a human returns it:
+      // The takeover/return ACT is exercised through its registered route
+      // surface (ssh-pane-gates.test.ts drives `POST /:id/ssh-control` end to
+      // end, node-first mirror + stream close included); here the open itself
+      // must NOT have dispatched any control command yet (human-opened panes
+      // START in human control, no transition fires):
+      expect(scripted.cmdsOf("ssh_input_control").length).toBe(0);
+      // Moving the plane control state by hand then fences agent reads (the
+      // gate reads the row, not the transition that wrote it):
       await panes.setControl(view.subshellId, "human");
       const gated = await getSshPolicy().gatePaneSurface({
         caller: {

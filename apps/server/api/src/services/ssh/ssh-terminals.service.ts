@@ -6,17 +6,12 @@ import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { publishLive } from "@/services/live-bus.js";
 import { getLive } from "@/services/nodes/node-registry.js";
-import type {
-  SshControlView,
-  SshPaneControlRequest,
-  SshTerminalCreateRequest,
-  SshTerminalView,
-} from "@/services/ssh/ssh-api-types.js";
+import type { SshTerminalCreateRequest, SshTerminalView } from "@/services/ssh/ssh-api-types.js";
 import { auditSsh } from "@/services/ssh/ssh-audit.js";
 import { SshConnectionsRepository } from "@/services/ssh/ssh-connections.repository.js";
 import { readStoredSnapshot } from "@/services/ssh/ssh-connections.service.js";
 import { SshGrantsRepository } from "@/services/ssh/ssh-grants.repository.js";
-import { nodeSshInputControl, nodeSshTerminalLaunch, SshNodeRefusal } from "@/services/ssh/ssh-node-client.js";
+import { nodeSshTerminalLaunch, SshNodeRefusal } from "@/services/ssh/ssh-node-client.js";
 import { SshPanesRepository } from "@/services/ssh/ssh-panes.repository.js";
 import type { SshCaller } from "@/services/ssh/ssh-policy.js";
 import { getSshPolicy } from "@/services/ssh/ssh-policy-impl.js";
@@ -175,50 +170,13 @@ export async function sshTerminalCreate(caller: SshCaller, body: SshTerminalCrea
   };
 }
 
-/**
- * Input-control transition (`POST /api/subshells/:id/ssh-control`, wired by
- * workstream C onto its pane routes): takeover and return are both cookie
- * acts, the generation moves by one (the plane's counter), and the node is
- * told so stale queued input fences BELOW the new number. The node answer's
- * echoed generation is what lets a caller detect a lost race against a
- * takeover at the machine; a refusal there leaves the PLANE raised (input
- * stays fenced, which is fail-safe, and C's surface re-reads state).
- *
- * `@internal`-adjacent: exported for C's route hunk and the pane lifecycle
- * hooks, not for direct MCP use.
- */
-export async function sshControlTransition(
-  caller: SshCaller,
-  subshellId: string,
-  body: SshPaneControlRequest,
-): Promise<SshControlView> {
-  const pane = await panes.findBySubshell(subshellId);
-  if (!pane) refuseSshDecision({ allow: false, code: "not_found" });
-  const policy = getSshPolicy();
-  const action = body.mode === "human" ? "take_control" : "return_control";
-  const gate = await policy.gateHumanConfig({ caller, action, connectionId: pane.connectionId });
-  if (!gate.allow) refuseSshDecision(gate);
-  const row = await subshells.findById(subshellId);
-  if (!row || row.userId !== caller.userId) refuseSshDecision({ allow: false, code: "not_found" });
-
-  const raised = await panes.setControl(subshellId, body.mode);
-  if (!raised) refuseSshDecision({ allow: false, code: "not_found" });
-  if (row.nodeId !== null && getLive(row.nodeId)) {
-    try {
-      await nodeSshInputControl(row.nodeId, {
-        subshellId,
-        mode: body.mode,
-        generation: raised.controlGeneration,
-      });
-    } catch (err) {
-      if (!(err instanceof SshNodeRefusal)) throw err;
-      // The node refused (or raced). The PLANE stays raised: agent input is
-      // fenced everywhere the plane can see it, which fails safe.
-    }
-  }
-  await auditSsh(caller.userId, "ssh.control.transition", "ssh_pane", subshellId, {
-    mode: body.mode,
-    generation: raised.controlGeneration,
-  });
-  return { subshellId, controlOwner: raised.controlOwner, controlGeneration: raised.controlGeneration };
-}
+// No `sshControlTransition` lives here (review I5). The takeover/return act is
+// the ONE registered path in `pane-ssh-gate.ts::transitionPaneControl` (node-
+// first mirror, streams closed on the raise commit); this was a dead second
+// implementation with the INVERTED contract - it moved the plane row
+// (`setControl`) BEFORE telling the node, and never closed viewer streams, so
+// a takeover through it fenced only the plane's copy while the machine kept
+// accepting stale queued input and live sockets kept streaming. Only tests
+// imported it; `POST /api/subshells/:id/ssh-control` and the revocation sweep
+// both drive the registered act. A second takeover act is a second contract to
+// keep honest, and the honest one already exists.

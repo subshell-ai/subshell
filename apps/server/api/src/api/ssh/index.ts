@@ -28,8 +28,9 @@ import { sshUpdateConnectionRoute } from "@/api/ssh/update-connection.route.js";
  * the exact hunk (per the TS2589 rule it must join as its own sub-aggregate
  * level, not an extra `.use()` on the fullest existing group). The
  * `POST /api/subshells/:id/ssh-control` verb of §4's last row is NOT here: it
- * rides workstream C's pane routes and calls the exported
- * `sshControlTransition` from `services/ssh/ssh-terminals.service.ts`.
+ * rides workstream C's pane routes and drives the registered takeover act in
+ * `pane-ssh-gate.ts::transitionPaneControl` (node-first mirror + stream close
+ * on the raise commit).
  */
 export const sshRoutes = new Elysia({ prefix: "/api/ssh" })
   .use(sshDiscoveryRoute)
