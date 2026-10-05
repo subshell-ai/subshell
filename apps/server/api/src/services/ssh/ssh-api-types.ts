@@ -397,3 +397,53 @@ export interface SshTerminalExecView {
   /** ISO 8601 resolution time; null while outstanding */
   resolvedAt: string | null;
 }
+
+/* ------------------------------------------------------------------ */
+/* MCP tool shapes (reference text; mcp-core is Apache and REDECLARES   */
+/* these locally - this block is the single source of the names)        */
+/* ------------------------------------------------------------------ */
+
+// MCP conventions (mirror of `packages/mcp-core/src/terminal-tools.ts`):
+// tool ARGS are snake_case, the plane's REST bodies stay camelCase, and the
+// tools add NO bounds the server also enforces (every protocol decision
+// lives server-side). Thin passthroughs over the shapes above; refusals ride
+// `describeToolError`'s code-to-prose map, so a named `SshErrorCode` reads
+// as an honest sentence, never a stack trace.
+//
+// list_ssh_connections
+//   input:  {} (the caller's grants decide the list; there is no "all")
+//   output: the `SshConnectionListView` shape, granted rows only (spec §2:
+//     "MCP lists only the connections granted to the caller"), with
+//     `displayName` plus the destination rendered from `snapshot` for display
+//     ("deploy@app-02.example.net:22" - display, never routable input).
+//
+// execute_ssh_command
+//   input:  { "connection_id": "uuid", "command": "…", "remote_dir"?: "abs path", "deadline_ms"?: int }
+//   output: the `SshRunView` shape verbatim (already camelCase, the REST view
+//     as-is); returns promptly with "status":"accepted".
+//   refusals: not_granted / token_stale / quota_runs / node_ineligible /
+//     storage_full, named, never a guessed retry.
+//
+// read_ssh_command
+//   input:  { "run_id": "opaque", "stdout_from_byte"?: int, "stderr_from_byte"?: int, "max_bytes"?: int, "wait_ms"?: int }
+//   output: the `SshRunOutputView` shape verbatim (run facts + window + cursorExpired).
+//   honesty: a timed-out wait answers an empty window (status still running);
+//     closing the read NEVER cancels.
+//
+// cancel_ssh_command
+//   input:  { "run_id": "opaque" }
+//   output: the `SshRunView` (`cancelRequested`/`cancelLocalConfirmed` tell
+//     the truth; remote descendants stay unconfirmed by contract).
+//
+// open_ssh_terminal
+//   input:  { "connection_id": "uuid", "cols"?: int, "rows"?: int }
+//   output: the `SshTerminalView` (agent-opened panes start in agent control;
+//     quota_terminals names the refusal).
+//
+// get_terminal_execution
+//   input:  { "subshell_id": "…", "execution_id": "uuid" }
+//   output: the `SshTerminalExecView` (read-only recovery of an
+//     exec_in_terminal result; `unknown` is reported as `unknown`, never renamed).
+//
+// No SSH-specific input/log tools are added: the existing pane tools reach
+// SSH terminals through the same generic-surface policy gate (spec §4).
