@@ -405,7 +405,18 @@ export class SshRunSupervisor {
     state.localExitSignal = exitSignal;
     state.outputTruncated = live.truncated;
     state.finishedAtMs = this.#nowMs();
-    if (exitCode !== null && exitCode !== 255) {
+    if (live.stopping && exitCode !== null && exitCode >= 128 && exitCode <= 159) {
+      // 128+signum spellings of a stop WE delivered: run-bounded.ts
+      // documented that a trapped/killed child surfaces numbers, not null.
+      // Reading 143 as "the remote program exited 143" would be the §3 lie
+      // in the other direction, so while stopping, a 128-range exit is OUR
+      // local signal fact, never a remote status. (A remote that genuinely
+      // exited 143 in the same instant as our cancel is indistinguishable —
+      // and the honest answer to "indistinguishable" is null status.)
+      state.lifecycle = state.cancelRequested || state.deadlineHit ? "completed" : "unknown";
+      state.remoteStatus = null;
+      state.remoteStatusConfirmed = false;
+    } else if (exitCode !== null && exitCode !== 255) {
       // A status in [0,254] can only arrive over an ESTABLISHED transport —
       // ssh reserves 255 for its own failures — so it is a confirmed remote
       // status. This asymmetry is the entire basis of the 255 rule.
