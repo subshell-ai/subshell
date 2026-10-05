@@ -19,6 +19,14 @@ export class ApiError extends Error {
      * codes the server rides by name and treats everything else by status.
      */
     readonly code?: string,
+    /**
+     * The structured body's client-safe metadata (`ApiErrorResponse.metadata`,
+     * set server-side via `metadataSafe`). The SSH surface routes its named
+     * refusals through it (`metadata.sshCode`) because its top-level `code`
+     * carries the generic family name; the ssh error map reads this by
+     * equality, exactly like `code` above.
+     */
+    readonly metadata?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -31,14 +39,17 @@ export class ApiError extends Error {
  * (`{errId, code, message, statusCode}`); anything that is not that shape
  * (legacy text, a proxy error page) is passed through verbatim with no code.
  */
-function extractErrorBody(raw: string): { message: string; code?: string } {
+function extractErrorBody(raw: string): { message: string; code?: string; metadata?: Record<string, unknown> } {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object") {
-      const body = parsed as { message?: unknown; code?: unknown };
+      const body = parsed as { message?: unknown; code?: unknown; metadata?: unknown };
       return {
         message: typeof body.message === "string" ? body.message : raw,
         ...(typeof body.code === "string" ? { code: body.code } : {}),
+        ...(body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata)
+          ? { metadata: body.metadata as Record<string, unknown> }
+          : {}),
       };
     }
   } catch {
@@ -75,8 +86,8 @@ export class SubshellApi {
       // exceed 300 chars (validation payloads), and slicing first would tear
       // the JSON and surface a blob where a clean `message` exists.
       const raw = await res.text().catch(() => "");
-      const { message, code } = extractErrorBody(raw);
-      throw new ApiError(res.status, (message || res.statusText).slice(0, 300), code);
+      const { message, code, metadata } = extractErrorBody(raw);
+      throw new ApiError(res.status, (message || res.statusText).slice(0, 300), code, metadata);
     }
     // 204 / empty bodies resolve to undefined rather than a JSON parse error.
     const text = await res.text();
