@@ -357,8 +357,8 @@ describe("ssh_discover_aliases / ssh_resolve_config arms", () => {
       );
       expect(res.ok).toBe(true);
       const data = (res as { data?: { accepted: boolean; snapshot?: { host?: string } } }).data;
-      expect(data.accepted).toBe(true);
-      expect(data.snapshot?.host).toBe("resolved.example");
+      expect(data?.accepted).toBe(true);
+      expect(data?.snapshot?.host).toBe("resolved.example");
     } finally {
       process.env.HOME = savedHome;
     }

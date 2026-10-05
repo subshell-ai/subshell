@@ -283,7 +283,7 @@ describe("cancellation and deadline", () => {
     await sup.start(req);
     await waitFor(() => {
       const s = sup.status(req.runId);
-      return s?.deadlineHit && s.lifecycle === "completed";
+      return s?.deadlineHit === true && s.lifecycle === "completed";
     }, 5_000);
     const facts = sup.status(req.runId);
     expect(facts?.deadlineHit).toBe(true);

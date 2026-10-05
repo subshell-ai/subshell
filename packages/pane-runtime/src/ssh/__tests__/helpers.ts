@@ -59,8 +59,8 @@ export function makeRunId(n: number): string {
   return `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 }
 
-/** Read every `ARGS:` line a recording shim appended, in order. */
-export function shimArgs(logPath: string): string[][] {
+/** Read every `ARGS:` line a recording shim appended, in order (one joined argv string per spawn). */
+export function shimArgs(logPath: string): string[] {
   try {
     return readFileSync(logPath, "utf8")
       .split("\n")
