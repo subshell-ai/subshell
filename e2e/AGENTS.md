@@ -54,6 +54,19 @@ Every fixed port in `ports.ts` takes an env override (`E2E_PORT_BACKEND`,
 committed defaults unchanged, the escape hatch for two suites running side by
 side on one machine, which the defaults collide on.
 
+Spec `21` adds a real SSH destination: `e2e/fixtures/sshd.ts` generates
+passphrase-less ed25519 keys, starts one loopback ephemeral-port `sshd` (its
+own pid tracked; `ssh`/`ssh-keygen`/`sshd` probed on PATH with an
+`E2E_SSHD_BIN` override), and hands the real node agent a `HOME` at the
+fixture's config dir so `ssh -G`, structured runs, and managed-terminal panes
+all resolve the alias `e2edest` against fixture bytes, never a developer's
+`~/.ssh`. Like specs 14/19 it is a third-party process, but started IN the
+Node worker (the Playwright runner is Node, so the in-repo Bun sshd fixture
+recipe is ported to `child_process`/`net`). The whole file is a loud skip
+(`test.skip(!haveSshStack(), …)` naming the missing binaries) on a host without
+openssh-server, never a silent green; ubuntu runners carry it, so CI executes
+the fixture rather than skipping it.
+
 Spec `12` extends the stack itself: it spawns the **real `subshell` from
 source** (`bun apps/node/agent/src/main.ts enroll|run` via `stub/client.ts`, with
 `SUBSHELL_CONFIG_HOME` and `TMUX_TMPDIR` pointed at temp dirs so its config and its
