@@ -1,29 +1,27 @@
-import { closeSync, writeSync } from "node:fs";
 import {
   type NodeSshRunReadResult,
   SSH_ACTIVE_RUNS_PER_NODE,
   SSH_AGGREGATE_OUTPUT_STORAGE_BYTES,
   SSH_CANCEL_GRACE_MS,
   SSH_READ_LONG_POLL_MAX_MS,
-  SSH_RUN_OUTPUT_RETENTION_BYTES,
   type SshConnectionSnapshotWire,
   type SshErrorCode,
   type SshRunFactsWire,
 } from "@internal/subshell-protocol";
 import { sshTransportFailure } from "./ssh-diagnose.js";
-import { buildSshInvocation, remoteCommandLine, renderSshConfigContents, sshChildEnv } from "./ssh-render.js";
+import { renderSshConfigContents } from "./ssh-render.js";
 import { reconcileUnsupervisedRuns } from "./ssh-retention.js";
+import { type SshRunChild, spawnSshRunChild, stopSshRunChild } from "./ssh-run-child.js";
 import {
   acceptRun,
   buildRunFacts,
   evictCompletedOutput,
   listRunIds,
-  openRunStreamAppend,
   readRun,
   readRunStreamWindow,
   runStreamSize,
   type SshRunState,
-  sshRunsStorageBytes,
+  sshAggregateStorageBytes,
   writeRunState,
 } from "./ssh-run-store.js";
 
@@ -63,34 +61,8 @@ import {
 /** How long the read long-poll sleeps between growth checks. */
 const READ_POLL_MS = 150;
 
-/** The minimal reader shape the drain needs (structural, like `run-bounded.ts` — the concrete reader class varies by stream generic). */
-interface DrainReader {
-  read(): Promise<{ done?: boolean; value?: Uint8Array }>;
-}
-
-/**
- * Signal the child's PROCESS GROUP (it is the group leader: spawned
- * `detached`). ssh leaves children behind on the simplest cancel path (the
- * ProxyJump `-W` grandchildren), and a group signal is the only stop that
- * reaches them; the single-pid kill is the fallback for a child that somehow
- * is not a group leader.
- */
-function killGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
-  try {
-    process.kill(-pid, signal);
-    return;
-  } catch {
-    // ESRCH / EPERM: no group (or not ours) — fall to the single pid.
-  }
-  try {
-    process.kill(pid, signal);
-  } catch {
-    // already reaped
-  }
-}
-
-/** Bytes of stderr tail kept in memory for exit classification (bounded; the file holds the rest). */
-const STDERR_TAIL_BYTES = 8 * 1024;
+/** The live half of one run: processes and fds the state file cannot describe (shape owned by `ssh-run-child.ts`). */
+type LiveRun = SshRunChild;
 
 /** One spawn request; everything except the digest arrives already parsed from the wire. */
 export interface SshSupervisedRunRequest {
@@ -104,27 +76,6 @@ export interface SshSupervisedRunRequest {
 
 /** Start outcomes: a facts envelope, or a named refusal the plane maps by equality. */
 export type SshRunStartOutcome = { kind: "facts"; facts: SshRunFactsWire } | { kind: "refused"; code: SshErrorCode };
-
-/** The live half of one run: processes and fds the state file cannot describe. */
-interface LiveRun {
-  proc: Bun.Subprocess;
-  /** The child's pid — ALSO its process-group id (spawned `detached`), which is what makes the stop reach ssh's children (the ProxyJump `-W` grandchildren, the auth helpers): a SIGTERM to ssh alone lets an orphan keep the stdout pipe open forever, which would hold the drain, the `exited` gate, and the cancel answer open past any grace. */
-  pid: number;
-  stdoutFd: number;
-  stderrFd: number;
-  /** Combined RETAINED bytes across both streams; past the cap the drain discards. */
-  retained: number;
-  truncated: boolean;
-  /** Rolling tail of stderr, only ever read by the exit classifier. */
-  stderrTail: Buffer;
-  deadlineTimer?: ReturnType<typeof setTimeout>;
-  killEscalate?: ReturnType<typeof setTimeout>;
-  stopping: boolean;
-  /** Releases both stream readers (the last-resort unstick if a survivor outside the killed group still holds the pipe). */
-  cancelReaders: () => void;
-  /** Resolves when the child has exited AND both drains have stopped. */
-  exited: Promise<void>;
-}
 
 export class SshRunSupervisor {
   readonly #dataDir: string;
@@ -160,10 +111,15 @@ export class SshRunSupervisor {
   async start(req: SshSupervisedRunRequest): Promise<SshRunStartOutcome> {
     const run = async (): Promise<SshRunStartOutcome> => {
       if (this.#activeCount() >= SSH_ACTIVE_RUNS_PER_NODE) return { kind: "refused", code: "quota_runs" };
-      const usage = sshRunsStorageBytes(this.#dataDir);
+      // The cap is the AGGREGATE store (ssh-limits: "INCLUDING managed SSH
+      // terminal logs"): run output AND terminal segments count, so a fat
+      // terminal log can hold the cap and refuse new runs. Eviction still
+      // frees only completed-run output — terminal bytes belong to panes,
+      // whose lifecycle the retention sweeps own, not this path.
+      const usage = sshAggregateStorageBytes(this.#dataDir);
       if (usage >= SSH_AGGREGATE_OUTPUT_STORAGE_BYTES) {
         evictCompletedOutput(this.#dataDir, usage - SSH_AGGREGATE_OUTPUT_STORAGE_BYTES + 1, this.#nowMs());
-        if (sshRunsStorageBytes(this.#dataDir) >= SSH_AGGREGATE_OUTPUT_STORAGE_BYTES) {
+        if (sshAggregateStorageBytes(this.#dataDir) >= SSH_AGGREGATE_OUTPUT_STORAGE_BYTES) {
           return { kind: "refused", code: "storage_full" };
         }
       }
@@ -234,165 +190,21 @@ export class SshRunSupervisor {
     return n;
   }
 
+  /**
+   * Spawn is delegated whole to `ssh-run-child.ts` (spawn mechanics, drains,
+   * deadline, bounded stop); the supervisor keeps the two hooks that bind a
+   * live child to durable truth: registration in the live map (so cancel and
+   * reconcile see it) and {@link #finalize} (so exit honesty stays here).
+   * Spawn/fd failure lands on `unknown` inside the child module — never a
+   * retry, never a claim about a remote program.
+   */
   async #spawn(req: SshSupervisedRunRequest): Promise<void> {
-    const dir = `${this.#dataDir}/ssh/runs/${req.runId}`;
-    const configPath = `${dir}/config`; // written by acceptRun BEFORE this call
-    const argv = buildSshInvocation({
-      sshBin: this.#sshBin,
-      snapshot: req.snapshot,
-      configPath,
-      remoteCommand: remoteCommandLine(req.command, req.remoteDir),
-    });
-    const env = await sshChildEnv(req.snapshot, this.#homeDir);
-    let proc: Bun.Subprocess;
-    try {
-      proc = Bun.spawn(argv, {
-        stdin: "ignore", // a prompt cannot stall a supervised run; BatchMode answers what an ignored stdin cannot
-        stdout: "pipe",
-        stderr: "pipe",
-        env,
-        cwd: this.#dataDir,
-        // own process group: the stop signals the GROUP (see LiveRun.pid),
-        // reaching every ssh helper/grandchild. Without this, the ssh client
-        // can outlive TERM or leave helpers holding the pipes.
-        detached: true,
-      });
-    } catch {
-      // The child never existed. The record reads `unknown` — the same honest
-      // state a crash between accept and spawn produces — NEVER a retry, and
-      // NEVER a "failed" claim about a remote program.
-      this.#writeUnknownOnFailure(req.runId);
-      return;
-    }
-    let stdoutFd: number;
-    let stderrFd: number;
-    try {
-      stdoutFd = openRunStreamAppend(this.#dataDir, req.runId, "stdout");
-      stderrFd = openRunStreamAppend(this.#dataDir, req.runId, "stderr");
-    } catch {
-      // No place to keep output: stop the child before it produces any the
-      // store cannot account for; `unknown`, like the spawn-failure branch.
-      killGroup(proc.pid, "SIGKILL");
-      this.#writeUnknownOnFailure(req.runId);
-      return;
-    }
-    const rec = readRun(this.#dataDir, req.runId);
-    if (rec)
-      writeRunState(this.#dataDir, { ...rec.state, lifecycle: "running", startedAtMs: this.#nowMs(), spawned: true });
-    // Readers are acquired UP FRONT so the stop path can cancel them: a
-    // stream already locked by a running read refuses `stream.cancel()`,
-    // only its own reader can release it (the run-bounded.ts lesson).
-    const stdoutReader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
-    const stderrReader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
-    const live: LiveRun = {
-      proc,
-      pid: proc.pid,
-      stdoutFd,
-      stderrFd,
-      retained: 0,
-      truncated: false,
-      stderrTail: Buffer.alloc(0),
-      stopping: false,
-      cancelReaders: () => {
-        void stdoutReader.cancel().catch(() => {});
-        void stderrReader.cancel().catch(() => {});
-      },
-      exited: Promise.resolve(), // replaced immediately below with the real exit gate
-    };
-    this.#live.set(req.runId, live);
-    live.deadlineTimer = setTimeout(
-      () => {
-        // The deadline is a SUPERVISION fact FIRST (recorded even if the stop
-        // itself misbehaves), then the same bounded-grace local stop a
-        // cancellation uses. It never claims anything about the remote side.
-        const current = readRun(this.#dataDir, req.runId);
-        if (current && (current.state.lifecycle === "running" || current.state.lifecycle === "accepted")) {
-          writeRunState(this.#dataDir, { ...current.state, deadlineHit: true });
-        }
-        this.#stopLive(live);
-      },
-      Math.max(1, req.deadlineMs),
+    await spawnSshRunChild(
+      { dataDir: this.#dataDir, homeDir: this.#homeDir, sshBin: this.#sshBin, nowMs: this.#nowMs },
+      req,
+      (child) => this.#live.set(req.runId, child),
+      (child, exitCode, exitSignal) => this.#finalize(req.runId, child, exitCode, exitSignal),
     );
-    live.deadlineTimer.unref?.();
-
-    // The drain loops write straight to the store's fds and hold NO line
-    // buffer: the "bounded partial-line and in-flight buffers" promise is
-    // made structural. Bytes land, or are discarded and counted — nothing
-    // accumulates anywhere a stuck consumer could grow.
-    const drain = async (reader: DrainReader, fd: number): Promise<void> => {
-      try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          if (value === undefined) continue;
-          const room = SSH_RUN_OUTPUT_RETENTION_BYTES - live.retained;
-          if (room <= 0) {
-            live.truncated = true; // KEEP draining: a blocked writer never exits
-            continue;
-          }
-          const keep = value.byteLength <= room ? value : value.subarray(0, room);
-          try {
-            writeSync(fd, keep);
-          } catch {
-            // the store vanished under a live run (an operator delete racing
-            // us): stop retaining, keep draining; honesty comes from
-            // `truncated`, and the exit finalize re-reads the record anyway.
-            live.truncated = true;
-            continue;
-          }
-          live.retained += keep.byteLength;
-          if (keep.byteLength < value.byteLength) live.truncated = true;
-          if (fd === stderrFd) {
-            const merged = Buffer.concat([live.stderrTail, keep]);
-            live.stderrTail =
-              merged.byteLength > STDERR_TAIL_BYTES ? merged.subarray(merged.byteLength - STDERR_TAIL_BYTES) : merged;
-          }
-        }
-      } catch {
-        // cancelled/errored stream (killed child): fall through to the exit path
-      }
-    };
-
-    live.exited = (async (): Promise<void> => {
-      await Promise.all([drain(stdoutReader, stdoutFd), drain(stderrReader, stderrFd)]);
-      let exitCode: number | null = null;
-      let exitSignal: string | null = null;
-      try {
-        exitCode = await proc.exited;
-        // `signal` is reported by Bun once the child died by signal; the
-        // typed surface in this bun version keys it off the generic, so the
-        // one-line cast reads the runtime truth (null unless signalled).
-        if (exitCode === null) exitSignal = (proc as unknown as { signal?: string | null }).signal ?? null;
-      } catch {
-        // `exited` never resolved cleanly; the exit facts stay null-null,
-        // which is the unknown side, never an invented failure.
-      }
-      try {
-        closeSync(stdoutFd);
-      } catch {
-        // already closed
-      }
-      try {
-        closeSync(stderrFd);
-      } catch {
-        // already closed
-      }
-      if (live.deadlineTimer !== undefined) clearTimeout(live.deadlineTimer);
-      if (live.killEscalate !== undefined) clearTimeout(live.killEscalate);
-      this.#finalize(req.runId, live, exitCode, exitSignal);
-    })();
-    live.exited.catch(() => {});
-  }
-
-  #writeUnknownOnFailure(runId: string): void {
-    const rec = readRun(this.#dataDir, runId);
-    if (rec) {
-      writeRunState(this.#dataDir, {
-        ...rec.state,
-        lifecycle: "unknown",
-        finishedAtMs: this.#nowMs(),
-      });
-    }
   }
 
   /** Write the terminal state from the exit facts. Exit-255 honesty lives HERE (see module doc). */
@@ -424,6 +236,15 @@ export class SshRunSupervisor {
       state.remoteStatus = exitCode;
       state.remoteStatusConfirmed = true;
     } else if (exitCode === 255) {
+      // The corroboration is STDERR TEXT, which a remote program that ran
+      // could in principle forge (print "Permission denied" and exit 255).
+      // The reading is direction-safe: agreement can only move the verdict
+      // FROM `unknown + 255` TO `completed with no remote status` — it
+      // never fabricates success, never invents a status, and at worst
+      // adopts "ssh itself failed" for a program that faked ssh's failure
+      // words and exited with ssh's own code, which is the same honest
+      // shape either way. A forged text CANNOT turn into a confirmed
+      // remote result.
       if (sshTransportFailure(live.stderrTail.toString("utf8"))) {
         // ssh's own failure is corroborated: NOTHING ran remotely, so there is
         // no remote status to carry (and NO license to call it a remote
@@ -448,26 +269,6 @@ export class SshRunSupervisor {
       state.remoteStatusConfirmed = false;
     }
     writeRunState(this.#dataDir, state);
-  }
-
-  /**
-   * SIGTERM the GROUP now, SIGKILL after the grace, and a last-resort reader
-   * cancel on escalation. `stopping` keeps double signals idempotent. The
-   * grace ends when the KILL goes out — `cancelLocalConfirmed` is decided by
-   * whether the exit arrived within it, never assumed from the signal.
-   */
-  #stopLive(live: LiveRun): void {
-    if (live.stopping) return;
-    live.stopping = true;
-    killGroup(live.pid, "SIGTERM");
-    live.killEscalate = setTimeout(() => {
-      killGroup(live.pid, "SIGKILL");
-      // If anything outside the killed group still holds the write ends, the
-      // drains would wait on an orphan forever; releasing the readers lets
-      // `exited` settle and finalize record what it can see.
-      live.cancelReaders();
-    }, SSH_CANCEL_GRACE_MS);
-    live.killEscalate.unref?.();
   }
 
   /** Current facts for one id — `null` is the store's `run_unknown` verdict (an unknown id is never a start). */
@@ -535,7 +336,7 @@ export class SshRunSupervisor {
       // (a pid it does not own — pid reuse makes boot-time re-kill roulette).
       return this.status(runId);
     }
-    this.#stopLive(live);
+    stopSshRunChild(live);
     const graceExpired = await Promise.race([
       live.exited.then(() => false),
       Bun.sleep(SSH_CANCEL_GRACE_MS + 250).then(() => true),

@@ -1,7 +1,8 @@
-import { closeSync, constants, mkdirSync, openSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants, openSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import {
   buildSshInvocation,
+  ensureTerminalsDir,
   initTerminalForLaunch,
   remoteTerminalLine,
   renderSshConfigContents,
@@ -86,15 +87,20 @@ export async function execSshTerminalLaunch(
   // The rendered per-pane config, 0600, O_EXCL after unlink (an existing
   // file could only be this subtree's previous config or an intruder's
   // object; either way the fresh pane must run against bytes it just wrote).
-  const termDir = join(ctx.config.dataDir, "ssh", "terminals");
-  mkdirSync(termDir, { recursive: true });
-  const configPath = join(termDir, `${cmd.subshellId}.config`);
+  ensureTerminalsDir(ctx.config.dataDir); // 0700 re-tightened after create, the same discipline as the state dir
+  const configPath = join(ctx.config.dataDir, "ssh", "terminals", `${cmd.subshellId}.config`);
   writeFreshFile(configPath, renderSshConfigContents(cmd.snapshot));
 
   const sshArgv = buildSshInvocation({
     sshBin,
     snapshot: cmd.snapshot,
     configPath,
+    // A remote PTY is forced ALWAYS, command or no command: OpenSSH only
+    // auto-requests a tty when ssh carries no command at all, and the
+    // cd + login-shell line below IS a command — without `-tt` the
+    // session would have no remote PTY whenever a directory was chosen
+    // (coordinator ruling: uniform behavior, the cd path covered).
+    forceTty: true,
     // NO remote command here: `sshTerminalPaneCommand` appends the cd +
     // login-shell line as its own quoted final token, so the destination
     // argv builder stays the single "route" artifact shared with runs.

@@ -276,6 +276,10 @@ describe("ssh_terminal_launch arm", () => {
     expect(paneCmd.startsWith("env -i ")).toBe(true);
     expect(paneCmd).toContain('TERM="$TERM"');
     expect(paneCmd).toContain(shim.bin); // the resolved binary, quoted into argv
+    // OpenSSH allocates a remote PTY on its own only for NO-command sessions,
+    // and the cd line below IS a command: the launch forces -tt ALWAYS, or
+    // choosing a directory would silently drop the remote PTY.
+    expect(paneCmd).toContain("'-tt'");
     // the remote line is ONE quoted token: its inner quotes come back escaped
     expect(paneCmd).toContain("cd '\\''/srv/app'\\''");
     expect(paneCmd).toContain("&& exec");
@@ -288,6 +292,28 @@ describe("ssh_terminal_launch arm", () => {
     expect(calls.some((c) => c[0] === "resize" && c[3] === "120" && c[4] === "30")).toBe(true);
     // stop the watcher's tick: a mid-file death pass against the stub would
     // race sibling tests (the real daemon's exit path is covered elsewhere)
+    if (ctx.watchTick !== undefined) clearInterval(ctx.watchTick);
+    ctx.watchers.clear();
+  });
+
+  it("forces -tt on the no-directory launch too (uniform terminal argv)", async () => {
+    const shim = writeShim(join(base, "shim-term3"));
+    const { ctx } = setup("term3", shim.bin);
+    const id = runIdFor(7);
+    const res = await send(ctx, {
+      type: "ssh_terminal_launch",
+      subshellId: id,
+      socket: "sock-7",
+      snapshot: SNAPSHOT,
+      remoteDir: null,
+    } as NodeCommandBody);
+    expect(res.ok).toBe(true);
+    const calls = (ctx.tmux as unknown as { calls: string[][] }).calls;
+    const paneCmd = calls.find((c) => c[0] === "new")![4]!;
+    expect(paneCmd).toContain("'-tt'");
+    // no command line rides after the host: the remote login shell is ssh's
+    // own default here, and the PTY is forced anyway for uniformity
+    expect(paneCmd).not.toContain("&& exec");
     if (ctx.watchTick !== undefined) clearInterval(ctx.watchTick);
     ctx.watchers.clear();
   });

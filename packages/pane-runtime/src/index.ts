@@ -170,7 +170,7 @@ export {
   sweepCompletedRuns,
   sweepSshTerminalState,
 } from "./ssh/ssh-retention.js";
-export { ensureSshDirs, sshRunsDir } from "./ssh/ssh-run-store.js";
+export { ensureSshDirs, sshAggregateStorageBytes, sshRunsDir } from "./ssh/ssh-run-store.js";
 export {
   getSshRunSupervisor,
   peekSshRunSupervisor,
@@ -183,6 +183,7 @@ export { runSshProcess, type SshProcessResult, sshChildPath } from "./ssh/ssh-sp
 export {
   assertSshTerminalId,
   controlStateFor,
+  ensureTerminalsDir,
   initTerminalForLaunch,
   readTerminalLog,
   readTerminalState,
@@ -191,6 +192,7 @@ export {
   type SshControlTransition,
   type SshTerminalLogRead,
   type SshTerminalState,
+  sshTerminalLogBytes,
   terminalLogPath,
   transitionControl,
 } from "./ssh/ssh-terminal-log.js";

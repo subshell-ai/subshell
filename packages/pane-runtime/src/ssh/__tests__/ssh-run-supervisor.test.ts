@@ -7,13 +7,21 @@ import {
   SSH_ACTIVE_RUNS_PER_NODE,
   SSH_RUN_OUTPUT_RETENTION_BYTES,
 } from "@internal/subshell-protocol";
-import { acceptRun, listRunIds, openRunStreamAppend, readRun, writeRunState } from "../ssh-run-store.js";
+import {
+  acceptRun,
+  listRunIds,
+  openRunStreamAppend,
+  readRun,
+  sshAggregateStorageBytes,
+  writeRunState,
+} from "../ssh-run-store.js";
 import {
   getSshRunSupervisor,
   peekSshRunSupervisor,
   resetSshSupervisorsForTests,
   SshRunSupervisor,
 } from "../ssh-run-supervisor.js";
+import { initTerminalForLaunch, terminalLogPath } from "../ssh-terminal-log.js";
 import { cleanup, makeDigest, makeRunId, shimArgs, shimLog, tempRoot, writeSshShim } from "./helpers.js";
 
 /**
@@ -79,6 +87,30 @@ async function waitFor(check: () => boolean, ms = 4_000): Promise<void> {
 }
 
 describe("the argv and the config it runs against", () => {
+  it("an identity path with a space round-trips through the shim's config read, quoted", async () => {
+    // Grammar allows the space (legal POSIX, control chars refused); the
+    // RENDERED file must be the tokenizer-safe quoted form all the way to
+    // the child that reads it, or ssh would see a truncated identity plus
+    // garbage. The shim captures the exact bytes of the -F file it was
+    // invoked with, so this is the whole path: accept → render → write →
+    // spawn → child reads.
+    const { sup, shim } = fixture("space-identity", { exitCode: 0 });
+    const req = {
+      ...baseReq(22),
+      snapshot: { ...baseReq(22).snapshot, identityFiles: ["/home/ops/my keys/id_ed25519"] },
+    };
+    const out = await sup.start(req);
+    if (out.kind !== "facts") throw new Error("start refused");
+    await waitFor(() => sup.status(req.runId)?.lifecycle === "completed");
+    const cfg = String((shimLog(shim.log).match(/CFG:<<\n([\s\S]*?)\n>>/) ?? [])[1]);
+    expect(cfg).toContain('    IdentityFile "/home/ops/my keys/id_ed25519"');
+    // and the run stayed a plain confirmed completion — quoting changed
+    // nothing about the exit-honesty path:
+    const facts = sup.status(req.runId);
+    expect(facts?.remoteStatus).toBe(0);
+    expect(facts?.remoteStatusConfirmed).toBe(true);
+  });
+
   it("spawns -F at the run's OWN rendered config, destination args, and the command as one element", async () => {
     const { sup, dataDir, shim } = fixture("argv", {});
     const req = baseReq(1);
@@ -397,6 +429,26 @@ describe("quotas and storage pressure", () => {
     const second = await b.sup.start(baseReq(18));
     expect(second).toEqual({ kind: "refused", code: "storage_full" });
     await b.sup.cancel(live.runId);
+  });
+
+  it("managed terminal logs count into the aggregate cap: a fat terminal log blocks new runs", async () => {
+    // ssh-limits' 1 GiB is "INCLUDING managed SSH terminal logs" — the live
+    // segment of a registered pane is pressure like any run output, and the
+    // eviction path cannot free it (a pane owns that file, not a completed
+    // run), so the honest answer at the cap is the named refusal.
+    const GiB = 1024 * 1024 * 1024;
+    const f = fixture("pressure-terminal", { exitCode: 0 });
+    const paneId = makeRunId(31);
+    initTerminalForLaunch(f.dataDir, paneId); // the terminals registry knows this pane
+    mkdirSync(join(f.dataDir, "subshells"), { recursive: true, mode: 0o700 });
+    const logPath = terminalLogPath(f.dataDir, paneId);
+    writeFileSync(logPath, ""); // the conventional path a live capture child would hold
+    truncateSync(logPath, GiB + 1); // sparse: the accounting is of SIZES
+    expect(sshAggregateStorageBytes(f.dataDir)).toBeGreaterThanOrEqual(GiB + 1);
+    const out = await f.sup.start(baseReq(21));
+    expect(out).toEqual({ kind: "refused", code: "storage_full" });
+    // ...and the refusal preceded any spawn: the shim logged nothing
+    expect(shimLog(f.shim.log)).toBe("");
   });
 });
 

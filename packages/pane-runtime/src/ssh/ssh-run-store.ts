@@ -16,6 +16,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { isNodeSubshellId, type SshRunFactsWire, type SshRunLifecycle } from "@internal/subshell-protocol";
+import { sshTerminalLogBytes } from "./ssh-terminal-log.js";
 
 /**
  * The durable run store (SSH-SUPPORT.md §3, Durable dispatch and storage).
@@ -353,6 +354,19 @@ export function listRunIds(dataDir: string): string[] {
  * never chased). The caller adds managed-terminal log bytes; together they
  * are the {@link SSH_AGGREGATE_OUTPUT_STORAGE_BYTES} number.
  */
+/**
+ * The FULL aggregate pressure number {@link SSH_AGGREGATE_OUTPUT_STORAGE_BYTES}
+ * speaks of (its doc: "1 GiB ... INCLUDING managed SSH terminal logs"): run
+ * output + acceptance records + the terminal segments (live log and rotated
+ * half, per the terminals registry). This is what a start weighs against the
+ * cap — a fat terminal log can hold the cap and refuse new runs; eviction
+ * then has only completed-run output to free (terminal bytes belong to
+ * panes, whose lifecycle the retention sweeps own, not the eviction path).
+ */
+export function sshAggregateStorageBytes(dataDir: string): number {
+  return sshRunsStorageBytes(dataDir) + sshTerminalLogBytes(dataDir);
+}
+
 export function sshRunsStorageBytes(dataDir: string): number {
   let total = 0;
   for (const id of listRunIds(dataDir)) {

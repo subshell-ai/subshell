@@ -61,6 +61,27 @@ describe("renderSshConfigContents", () => {
     expect(rendered).toContain("    CertificateFile /home/deploy/.ssh/id.pub");
   });
 
+  it("quotes path directives so a whitespace-bearing absolute path cannot misparse (and plain paths stay byte-stable)", () => {
+    const rendered = renderSshConfigContents(
+      makeSnapshot({
+        identityFiles: ["/home/deploy/my keys/id_ed25519"],
+        certificateFiles: ['/opt/we"ird/cert.pub'],
+        knownHostsFiles: ["/home/deploy/my hosts/known_hosts", "/plain/path"],
+      }),
+    );
+    // OpenSSH's config tokenizer splits values on whitespace and honors
+    // double quotes with backslash escapes — that IS the quoting accepted.
+    expect(rendered).toContain('    IdentityFile "/home/deploy/my keys/id_ed25519"');
+    expect(rendered).toContain('    CertificateFile "/opt/we\\"ird/cert.pub"');
+    expect(rendered).toContain('    UserKnownHostsFile "/home/deploy/my hosts/known_hosts"');
+    expect(rendered).toContain("    UserKnownHostsFile /plain/path"); // no churn for bytes that need none
+  });
+
+  it("ships its header with no em dash (the voice rule covers generated strings)", () => {
+    expect(config).toContain("# Subshell managed SSH config - GENERATED, do not edit.");
+    expect(config).not.toContain("—");
+  });
+
   it("never renders ProxyCommand or any forbidden concept", () => {
     for (const word of ["ProxyCommand", "LocalForward", "RemoteForward", "DynamicForward", "SendEnv", "SetEnv"]) {
       // The ONLY occurrence of the policy line words is the refusal line we DO render
@@ -104,6 +125,25 @@ describe("buildSshInvocation", () => {
     // the `--` terminator, then host, then the command as ONE element.
     const dash = argv.indexOf("--");
     expect(argv.slice(dash)).toEqual(["--", "app-02.example.com", "echo hi"]);
+  });
+
+  it("adds -tt only when the caller forces it (terminal launch always does; runs never do)", () => {
+    const plain = buildSshInvocation({
+      sshBin: "/usr/bin/ssh",
+      snapshot: makeSnapshot(),
+      configPath: "/x/config",
+      remoteCommand: "echo hi",
+    });
+    expect(plain).not.toContain("-tt");
+    const tty = buildSshInvocation({
+      sshBin: "/usr/bin/ssh",
+      snapshot: makeSnapshot(),
+      configPath: "/x/config",
+      forceTty: true,
+    });
+    expect(tty).toContain("-tt");
+    // -tt rides right after -F <path>, ahead of the destination-scoped facts
+    expect(tty.slice(3, 5)).toEqual(["-tt", "-p"]);
   });
 
   it("normalizes the whole ProxyJump chain into the approved hop list", () => {

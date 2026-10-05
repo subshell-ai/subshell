@@ -1,4 +1,9 @@
-import { SSH_PATH_MAX_CHARS, type SshConnectionSnapshotWire, type SshHopWire } from "@internal/subshell-protocol";
+import {
+  parseSshConnectionSnapshot,
+  SSH_PATH_MAX_CHARS,
+  type SshConnectionSnapshotWire,
+  type SshHopWire,
+} from "@internal/subshell-protocol";
 import { shellQuote } from "../shell.js";
 import { sshChildPath } from "./ssh-spawn.js";
 
@@ -36,20 +41,18 @@ import { sshChildPath } from "./ssh-spawn.js";
  * so renderer and wire can never disagree about what is renderable.
  */
 
-/** Refuse to render anything the frozen grammar rejects (a hand-built object never reaches the child). */
+/**
+ * Refuse to render anything the frozen grammar rejects (a hand-built object
+ * never reaches the child). The check IS `parseSshConnectionSnapshot`: the
+ * same rebuild the wire performs, so renderer and contract can never
+ * disagree about what is renderable, and grammar growth on the protocol side
+ * lands here automatically. The option-like leading dashes ride on top: the
+ * grammar's own doc names them ssh-argv material, and the renderer is the
+ * last station before argv.
+ */
 function assertRenderable(snapshot: SshConnectionSnapshotWire): void {
-  if (
-    snapshot.proxyCommand !== null ||
-    snapshot.forwards !== null ||
-    snapshot.tunnels !== null ||
-    snapshot.localCommands !== null ||
-    snapshot.remoteCommand !== null ||
-    snapshot.sendEnv !== null ||
-    snapshot.setEnv !== null ||
-    snapshot.escapes !== null ||
-    snapshot.host.startsWith("-") ||
-    snapshot.proxyJumps.some((h) => h.host.startsWith("-"))
-  ) {
+  if (parseSshConnectionSnapshot(snapshot) === null) throw new Error("snapshot not renderable");
+  if (snapshot.host.startsWith("-") || snapshot.proxyJumps.some((h) => h.host.startsWith("-"))) {
     throw new Error("snapshot not renderable");
   }
 }
@@ -100,10 +103,27 @@ function hopToken(hop: SshHopWire): string {
   return `${who}${hop.host}${port}`;
 }
 
+/**
+ * A file-valued ssh_config token as OpenSSH's own tokenizer accepts it: the
+ * config parser splits values on WHITESPACE (control chars are already
+ * refused by the snapshot grammar), so an absolute path carrying a space —
+ * legal POSIX, legal `isAbsPosixPath` — would otherwise misparse into two
+ * tokens (a truncated identity file plus garbage). Double quotes with
+ * backslash escapes are the quoting OpenSSH's strdelim honors for
+ * file-valued keywords; the escape is applied before the wrap so the value
+ * is byte-exact after the parser's unquote. Plain paths stay unquoted: the
+ * rendered file is byte-stable in the snapshot (a dedup record's config is
+ * re-read by digest), and quoting every path would churn bytes for no gain.
+ */
+function configPathValue(path: string): string {
+  if (!/[\s"\\]/.test(path)) return path;
+  return `"${path.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+
 /** One config line for each known-hosts ref, or the fail-closed /dev/null stand-in when the snapshot names none. */
 function knownHostsLines(files: string[]): string[] {
   if (files.length === 0) return ["    UserKnownHostsFile /dev/null"];
-  return files.map((f) => `    UserKnownHostsFile ${f}`);
+  return files.map((f) => `    UserKnownHostsFile ${configPathValue(f)}`);
 }
 
 /**
@@ -118,13 +138,13 @@ function knownHostsLines(files: string[]): string[] {
 export function renderSshConfigContents(snapshot: SshConnectionSnapshotWire): string {
   assertRenderable(snapshot);
   const lines = [
-    "# Subshell managed SSH config — GENERATED, do not edit.",
+    "# Subshell managed SSH config - GENERATED, do not edit.",
     "# Mandatory runtime policy for the connection and every ProxyJump hop (§2).",
     "Host *",
     ...MANDATORY_POLICY.map(([key, value]) => `    ${key} ${value}`),
     ...knownHostsLines(snapshot.knownHostsFiles),
-    ...snapshot.identityFiles.map((f) => `    IdentityFile ${f}`),
-    ...snapshot.certificateFiles.map((f) => `    CertificateFile ${f}`),
+    ...snapshot.identityFiles.map((f) => `    IdentityFile ${configPathValue(f)}`),
+    ...snapshot.certificateFiles.map((f) => `    CertificateFile ${configPathValue(f)}`),
     "",
   ];
   return lines.join("\n");
@@ -143,7 +163,17 @@ export interface SshInvocationInput {
    * no command: an interactive session under the pane's PTY.
    */
   remoteCommand?: string;
-  /** Force a remote PTY (`-tt`); managed structured runs pass nothing, terminal panes rely on the pane's own PTY and pass nothing. Reserved for callers with a measured need. */
+  /**
+   * Force a remote PTY (`-tt`). Structured runs pass nothing (their contract
+   * is a pipe, no TTY). Managed TERMINAL panes pass `true` ALWAYS, with or
+   * without a remote command: OpenSSH only auto-requests a tty when ssh
+   * carries no command at all, and the terminal launch's cd + login-shell
+   * line IS a command — without `-tt` that session would run with no remote
+   * PTY at all (no line editing, no programs that require a tty). The
+   * destination pane's own PTY is necessary but not sufficient; the remote
+   * one is what `ssh` must be told to allocate (coordinator ruling, fix
+   * round 1: uniform `-tt` for every terminal launch).
+   */
   forceTty?: boolean;
 }
 

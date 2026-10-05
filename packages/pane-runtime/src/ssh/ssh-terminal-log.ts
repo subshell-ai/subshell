@@ -6,6 +6,7 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readSync,
   renameSync,
   unlinkSync,
@@ -119,7 +120,8 @@ function writeStateAtomic(path: string, state: SshTerminalState): void {
   renameSync(tmp, path);
 }
 
-function ensureTerminalsDir(dataDir: string): void {
+/** Create `<dataDir>/ssh/terminals` idempotently, re-tightened to 0700 after a fresh create (the mode option is umask-masked). */
+export function ensureTerminalsDir(dataDir: string): void {
   const dir = join(dataDir, "ssh", "terminals");
   try {
     lstatSync(dir);
@@ -188,6 +190,38 @@ export function transitionControl(
   const state: SshTerminalState = { ...current, mode, generation };
   writeStateAtomic(statePath(dataDir, subshellId), state);
   return { kind: "applied", state };
+}
+
+/**
+ * Bytes the managed-terminal half of the aggregate SSH output store holds
+ * (`ssh-limits.ts`: the 1 GiB figure is "INCLUDING managed SSH terminal
+ * logs"): for every id the terminals registry knows, the live log at the
+ * conventional `subshells/<id>.log` path plus its one rotated segment.
+ * lstat only — a symlink leaf contributes 0 and is never chased; the
+ * registry grammar gates every composition. NEVER throws.
+ */
+export function sshTerminalLogBytes(dataDir: string): number {
+  let total = 0;
+  let names: string[];
+  try {
+    names = readdirSync(join(dataDir, "ssh", "terminals"));
+  } catch {
+    return 0;
+  }
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const id = name.slice(0, -".json".length);
+    if (!isNodeSubshellId(id)) continue;
+    for (const path of [terminalLogPath(dataDir, id), `${terminalLogPath(dataDir, id)}.1`]) {
+      try {
+        const st = lstatSync(path);
+        if (st.isFile()) total += Number(st.size);
+      } catch {
+        // no segment (never rotated / vanished): contributes nothing
+      }
+    }
+  }
+  return total;
 }
 
 /** Current control state for the generic-pane input gates (workstream C's seam); null when the pane is not a managed SSH terminal here. */
