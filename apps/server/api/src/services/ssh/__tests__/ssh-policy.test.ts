@@ -595,6 +595,70 @@ describe("DefaultSshPolicy (SSH-SUPPORT.md §2, Gate A interface)", () => {
     });
   });
 
+  describe("gatePaneSurface - the I-1 bearer restart fence", () => {
+    it("a bearer RESTART after a human edit refuses revision_mismatch; equal revision passes; the cookie owner is unaffected", async () => {
+      const conn = await makeConnection();
+      const managed = "i1-pane";
+      await makePane({ id: managed, apiKeyId: "k1" });
+      await grants.create({
+        id: "g-i1",
+        connectionId: conn.id,
+        connectionRevision: conn.revision,
+        subshellId: managed,
+        apiKeyId: "k1",
+        grantedByUserId: OWNER,
+        revokedAt: null,
+      });
+      await panes.create({
+        subshellId: managed,
+        connectionId: conn.id,
+        connectionRevision: conn.revision,
+        initiatedBy: "agent",
+        grantId: "g-i1",
+        apiKeyId: "k1",
+        controlOwner: "agent",
+        controlGeneration: 1,
+        logGeneration: 1,
+      });
+      // Equal revision: the bearer may restart its own session.
+      const before = await policy.gatePaneSurface({
+        caller: paneCaller(managed, "k1"),
+        subshellId: managed,
+        surface: "restart",
+      });
+      expect(before.allow).toBe(true);
+
+      // A routine human edit (revision bumps): the pane's OWN key must not
+      // relaunch it onto the new destination the grant never authorized.
+      await connections.updateSnapshot(conn.id, {
+        configSnapshot: JSON.stringify({ ...snapshot, host: "moved.example.net" }),
+      });
+      const after = await policy.gatePaneSurface({
+        caller: paneCaller(managed, "k1"),
+        subshellId: managed,
+        surface: "restart",
+      });
+      expect(after).toEqual({ allow: false, code: "revision_mismatch" });
+
+      // The cookie owner is unaffected by the revision move (editing then
+      // restarting is their own act), and non-restart bearer surfaces still
+      // ride the ALIVE-pane rule (the stale revision does not fence the
+      // already-spawned session's reads).
+      const ownerRestart = await policy.gatePaneSurface({
+        caller: cookieCaller(OWNER),
+        subshellId: managed,
+        surface: "restart",
+      });
+      expect(ownerRestart.allow).toBe(true);
+      const staleRead = await policy.gatePaneSurface({
+        caller: paneCaller(managed, "k1"),
+        subshellId: managed,
+        surface: "log",
+      });
+      expect(staleRead.allow).toBe(true);
+    });
+  });
+
   describe("gateSharing and gateControl", () => {
     it("refuses sharing a managed pane to EVERYONE including the owner, and passes unmanaged panes", async () => {
       const conn = await makeConnection();

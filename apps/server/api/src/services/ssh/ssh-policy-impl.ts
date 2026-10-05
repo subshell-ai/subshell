@@ -164,9 +164,17 @@ export class DefaultSshPolicy implements SshPolicy {
    * output may become visible again only after a human returns control.
    *
    * A pinned revision older than the connection's current one does NOT
-   * fence an ALIVE pane (the frozen `ssh_panes` doc: an edit mid-session
-   * does not move its argv); revocation does, which is why the grant is
-   * re-asked rather than the revision compared.
+   * fence an ALIVE pane's streams (the frozen `ssh_panes` doc: an edit
+   * mid-session does not move its already-spawned argv); revocation does,
+   * which is why the grant is re-asked rather than the revision compared.
+   * The one exception is `restart` for a BEARER actor (review I-1): a
+   * restart is a FRESH dispatch, and the effect side relaunches from the
+   * connection's CURRENT stored snapshot, so a bearer restart requires the
+   * opening grant to pin the current revision - the same `revision_mismatch`
+   * rule new runs obey (gateGrantedUse). Without this fence a routine human
+   * edit would let the pane's own key relaunch it into a destination its
+   * grant never authorized. A cookie owner is unaffected: editing and then
+   * restarting is the owner's own act, on their own destination.
    */
   async gatePaneSurface(req: SshPaneSurfaceRequest): Promise<SshDecision> {
     const pane = await this.#panes.findBySubshell(req.subshellId);
@@ -193,6 +201,17 @@ export class DefaultSshPolicy implements SshPolicy {
     const grant = pane.grantId === null ? undefined : await this.#grants.findById(pane.grantId);
     if (!grant || grant.revokedAt !== null) {
       return { allow: false, code: grant ? "grant_revoked" : "not_granted" };
+    }
+
+    // The I-1 restart fence: a bearer restart is a FRESH dispatch built from
+    // the connection's CURRENT stored snapshot, so it requires the opening
+    // grant to pin that revision. `revision_mismatch` is the named code every
+    // edit-invalidated-grant refusal uses (gateGrantedUse's new-run rule); a
+    // stale-revision grant authorizes the pane's EXISTING session, never a
+    // relaunch onto a destination the human re-pointed after granting. The
+    // cookie owner reaches the allow arm above, unaffected.
+    if (req.surface === "restart" && grant.connectionRevision !== conn.revision) {
+      return { allow: false, code: "revision_mismatch" };
     }
 
     // Control state fences every read AND write stream (spec §3's rule, and
