@@ -36,7 +36,6 @@ export class SshRefusalError extends Error {
  */
 export function refuseSshDecision(decision: Extract<SshDecision, { allow: false }>): never {
   const { code, detail } = decision;
-  const _status = code === "not_found" ? 404 : 403;
   throwApiError({
     code: code === "not_found" ? BackendErrorCodes.NOT_FOUND_ERROR : BackendErrorCodes.ACCESS_DENIED,
     message: POLICY_SENTENCES[code],

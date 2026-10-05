@@ -143,7 +143,7 @@ export async function sshRevoke(
     for (const pane of await panes.listByConnection(conn.id)) {
       if (pane.grantId !== grantId) continue;
       const raised = await panes.setControl(pane.subshellId, pane.controlOwner);
-      if (!raised || pane.connectionId === null) continue;
+      if (!raised) continue;
       const paneRow = await subshells.findById(pane.subshellId);
       if (!paneRow || paneRow.nodeId === null) continue;
       if (getLive(paneRow.nodeId)) {
