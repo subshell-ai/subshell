@@ -200,6 +200,85 @@ describe("DefaultSshPolicy (SSH-SUPPORT.md §2, Gate A interface)", () => {
       expect(d1).toEqual({ allow: false, code: "active_work" });
     });
 
+    it("refuses connection DELETE while a managed pane is PARKED (ssh exited, alive=0) - the C2 fallback hole", async () => {
+      // A parked pane's `ssh_panes` marker is what keeps its restart on the
+      // SSH seam. Letting the delete through would CASCADE the marker away
+      // (migration 0048 `connection_id ... onDelete("cascade")`) and leave the
+      // row as an ordinary presetless terminal whose next restart is the
+      // manager's local revive - a connecting-node shell in a pane the human
+      // approved only as an ssh foreground process (SSH-SUPPORT.md §3).
+      const conn = await makeConnection();
+      const pane = await makePane({ id: "c2-pane-parked", status: "running", alive: 0 });
+      await panes.create({
+        subshellId: pane,
+        connectionId: conn.id,
+        connectionRevision: conn.revision,
+        initiatedBy: "human",
+        grantId: null,
+        apiKeyId: null,
+        controlOwner: "human",
+        controlGeneration: 1,
+        logGeneration: 1,
+      });
+      const d = await policy.gateHumanConfig({
+        caller: cookieCaller(),
+        action: "delete_connection",
+        connectionId: conn.id,
+      });
+      expect(d).toEqual({ allow: false, code: "active_work" });
+
+      // Terminating the pane is the human's way out: the marker then cannot
+      // be re-misused (its pane's restart is not a reconnect promise), so the
+      // delete passes. A terminated pane that later restarts is the ORDINARY
+      // parked-row revive of a row its human already ended - never a managed
+      // pane's ssh-expectation betrayed, which is what the gate protects.
+      await subshells.update(pane, { status: "terminated", alive: 0 });
+      const d2 = await policy.gateHumanConfig({
+        caller: cookieCaller(),
+        action: "delete_connection",
+        connectionId: conn.id,
+      });
+      expect(d2).toEqual({ allow: true });
+    });
+
+    it("a still-managed pane never loses its marker: the refused delete keeps restart on the SSH seam", async () => {
+      // The delete-then-restart sequence in one test: the refusal WRITES
+      // nothing (the service gate precedes the row delete), so the marker
+      // survives a refused delete, and every restart of that pane still
+      // resolves as managed (gatePaneSurface finds the row) - the ordinary
+      // local-revive path is structurally unreachable for it.
+      const conn = await makeConnection();
+      const pane = await makePane({ id: "c2-pane-alive", status: "running", alive: 0 });
+      await panes.create({
+        subshellId: pane,
+        connectionId: conn.id,
+        connectionRevision: conn.revision,
+        initiatedBy: "agent",
+        grantId: null,
+        apiKeyId: null,
+        controlOwner: "agent",
+        controlGeneration: 1,
+        logGeneration: 1,
+      });
+      const refused = await policy.gateHumanConfig({
+        caller: cookieCaller(),
+        action: "delete_connection",
+        connectionId: conn.id,
+      });
+      expect(refused.allow).toBe(false);
+      const stillManaged = await panes.findBySubshell(pane);
+      expect(stillManaged?.connectionId).toBe(conn.id);
+      // The surface gate keeps routing the pane through the SSH policy (never
+      // "no marker -> ordinary path"):
+      const surface = await policy.gatePaneSurface({
+        caller: cookieCaller(),
+        subshellId: pane,
+        surface: "restart",
+      });
+      expect(surface.allow).toBe(true);
+      expect(await panes.findBySubshell(pane)).not.toBeNull();
+    });
+
     it("refuses human new-work acts on an offline node (eligibility is the other half of ownership)", async () => {
       const conn = await makeConnection({ nodeId: OFFLINE_NODE });
       const d = await policy.gateHumanConfig({ caller: cookieCaller(), action: "run_start", connectionId: conn.id });

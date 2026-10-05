@@ -129,7 +129,7 @@ export class SshRunsRepository extends BaseRepository {
     return Number(row?.n ?? 0);
   }
 
-  /** True when the connection has work the refuse-edit/delete rule counts: an active run or a live managed pane. */
+  /** True when the connection has work the refuse-edit/delete rule counts: an active run or a managed pane. */
   async hasActiveWork(connectionId: string): Promise<boolean> {
     const run = await this.db
       .selectFrom("sshRuns")
@@ -139,13 +139,22 @@ export class SshRunsRepository extends BaseRepository {
       .limit(1)
       .executeTakeFirst();
     if (run) return true;
+    // `status = "running"` ALONE, with no `alive = 1` conjunct (review C2):
+    // a PARKED managed pane (ssh exited, `running`/`alive:0`, the common
+    // "Start again" state) still carries a live `ssh_panes` marker, and
+    // deleting the connection would CASCADE that marker away while the
+    // `subshells` row survives as an ordinary presetless terminal whose next
+    // restart takes the manager's local revive - a connecting-node shell in a
+    // pane the human only ever approved as an ssh foreground process, exactly
+    // the fallback §3 forbids. The human ends that state by TERMINATING the
+    // pane, which cascades the marker through `subshell_id` and then the
+    // connection delete passes.
     const pane = await this.db
       .selectFrom("sshPanes")
       .innerJoin("subshells", "subshells.id", "sshPanes.subshellId")
       .select("sshPanes.subshellId")
       .where("sshPanes.connectionId", "=", connectionId)
       .where("subshells.status", "=", "running")
-      .where("subshells.alive", "=", 1)
       .limit(1)
       .executeTakeFirst();
     return pane !== undefined;
