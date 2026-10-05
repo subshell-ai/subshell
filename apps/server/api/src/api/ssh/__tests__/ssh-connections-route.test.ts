@@ -98,6 +98,7 @@ async function makeAgentPane(name: string): Promise<{ id: string; bearer: string
     nodeId: node,
     status: "running",
     alive: 1,
+    tmuxSocket: `sock-${crypto.randomUUID()}`,
     presetId: null,
   });
   const bearer = await issueSubshellToken(id, ownerId);
@@ -173,7 +174,7 @@ describe("/api/ssh connections + grants (spec 2026-10-04 §2/§4)", () => {
       const pane = await makeAgentPane("d-pane");
       const byPane = await get(`/api/ssh/discovery?nodeId=${node}`, { bearer: pane.bearer });
       expect(byPane.status).toBe(403);
-      expect((await byPane.json()).message).toContain("Forbidden");
+      expect(((await byPane.json()) as { message: string }).message).toContain("Forbidden");
     });
 
     it("404s a foreign node (config acts are the node owner's alone)", async () => {
@@ -191,7 +192,7 @@ describe("/api/ssh connections + grants (spec 2026-10-04 §2/§4)", () => {
     it("passes the fixed test through and refuses caller-forged snapshots (never a silent narrowing)", async () => {
       const ok = await post("/api/ssh/connections/test", { nodeId: node, snapshot: SNAPSHOT }, { cookie: ownerCookie });
       expect(ok.status).toBe(200);
-      expect((await ok.json()).passed).toBe(true);
+      expect(((await ok.json()) as { passed: boolean }).passed).toBe(true);
       // The route schema types the eight forbidden members as literal null, so
       // a `ProxyCommand` in the body cannot even parse (400 at the door); a
       // shape that parses but breaks the grammar is refused by the service's
@@ -226,7 +227,7 @@ describe("/api/ssh connections + grants (spec 2026-10-04 §2/§4)", () => {
         { cookie: ownerCookie, origin: null },
       );
       expect(noOrigin.status).toBe(200);
-      await del(`/api/ssh/connections/${(await noOrigin.json()).id}`);
+      await del(`/api/ssh/connections/${((await noOrigin.json()) as { id: string }).id}`);
       const saved = await createConnection(ownerCookie);
       expect(saved.revision).toBe(1);
     });
@@ -255,11 +256,25 @@ describe("/api/ssh connections + grants (spec 2026-10-04 §2/§4)", () => {
           connectionId: conn.id,
           connectionRevision: 1,
           configSnapshot: JSON.stringify(SNAPSHOT),
-          initiatedBy: "human",
+          initiatedBy: "human" as const,
+          grantId: null,
+          apiKeyId: null,
           command: "sleep 60",
+          remoteDir: null,
           requestDigest: "d",
           deadlineMs: 60_000,
-          status: "running",
+          status: "running" as const,
+          cancelRequested: 0,
+          cancelLocalConfirmed: 0,
+          deadlineHit: 0,
+          remoteStatus: null,
+          remoteStatusConfirmed: 0,
+          localExitCode: null,
+          localExitSignal: null,
+          startedAt: null,
+          finishedAt: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
         })
         .execute();
       const edit = await patch(`/api/ssh/connections/${conn.id}`, { displayName: "Later" }, { cookie: ownerCookie });
@@ -325,6 +340,7 @@ describe("/api/ssh connections + grants (spec 2026-10-04 §2/§4)", () => {
         nodeId: node,
         status: "terminated",
         alive: 0,
+        tmuxSocket: `sock-${crypto.randomUUID()}`,
         presetId: null,
       });
       const refused = await post(
@@ -341,7 +357,7 @@ describe("/api/ssh connections + grants (spec 2026-10-04 §2/§4)", () => {
 
       const revoked = await del(`/api/ssh/connections/${conn.id}/grants/${pane.id}`, { cookie: ownerCookie });
       expect(revoked.status).toBe(200);
-      expect((await revoked.json()).revoked).toBe(true);
+      expect(((await revoked.json()) as { revoked: boolean }).revoked).toBe(true);
       const after = (await (await get(`/api/ssh/connections/${conn.id}/grants`, { cookie: ownerCookie })).json()) as {
         grants: { active: boolean }[];
       };
@@ -360,6 +376,7 @@ describe("/api/ssh connections + grants (spec 2026-10-04 §2/§4)", () => {
         nodeId: foreignNode,
         status: "running",
         alive: 1,
+        tmuxSocket: `sock-${crypto.randomUUID()}`,
         presetId: null,
       });
       const byForeign = await post(

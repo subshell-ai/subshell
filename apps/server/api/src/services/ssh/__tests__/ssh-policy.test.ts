@@ -95,6 +95,7 @@ async function makePane(over: {
     nodeId: NODE,
     status: over.status ?? "running",
     alive: over.alive ?? 1,
+    tmuxSocket: `sock-${crypto.randomUUID()}`,
     presetId: null,
   });
   // The issued-key column is written by the token mint (and here, by the

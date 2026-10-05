@@ -2183,6 +2183,14 @@ Audit events are written, grouped by family:
   up is exactly the event an operator reads the trail for. A gate refusal
   (foreign node, `local`, maintenance, offline) writes neither - the trail
   records acts, and a pre-gate 403 is not one.
+- **SSH** (spec 2026-10-04, `SSH-SUPPORT.md` §3): `ssh.discover`, `ssh.resolve`,
+  `ssh.test`, `ssh.connection.create`, `ssh.connection.update`,
+  `ssh.connection.delete`, `ssh.grant`, `ssh.revoke`, `ssh.run.start`,
+  `ssh.run.cancel`, `ssh.run.lifecycle`, `ssh.terminal.open`, and
+  `ssh.control.transition`. The hygiene sentence the feature's own spec demands:
+  these rows carry actor, resource ids, connection revisions, grant/control
+  changes, destinations (alias + host - the same facts the SPA renders) and
+  lifecycle outcomes, and NEVER command text, config contents, or output.
 - **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`, `node.reregister_key`, `node.reregister`,
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.logging.update`, `node.update`,

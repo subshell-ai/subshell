@@ -407,6 +407,7 @@ describe("/api/ssh runs + terminals + revocation (spec 2026-10-04 §3)", () => {
         nodeId: node,
         status: "running",
         alive: 1,
+        tmuxSocket: `sock-${crypto.randomUUID()}`,
         presetId: null,
       });
       await panes.create({
@@ -504,6 +505,7 @@ describe("/api/ssh runs + terminals + revocation (spec 2026-10-04 §3)", () => {
           nodeId: node,
           status: "running",
           alive: 1,
+          tmuxSocket: `sock-${crypto.randomUUID()}`,
           presetId: null,
         });
         await panes.create({
@@ -546,6 +548,7 @@ describe("/api/ssh runs + terminals + revocation (spec 2026-10-04 §3)", () => {
           nodeId: node,
           status: "running",
           alive: 1,
+          tmuxSocket: `sock-${crypto.randomUUID()}`,
           presetId: null,
         });
       }

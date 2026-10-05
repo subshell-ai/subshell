@@ -163,6 +163,7 @@ describe("ssh retention + granted-pane projections", () => {
         nodeId: NODE,
         status: "running",
         alive: 1,
+        tmuxSocket: `sock-${crypto.randomUUID()}`,
         presetId: null,
       });
       await subshells.update(paneId, { apiKeyId: over.key });
