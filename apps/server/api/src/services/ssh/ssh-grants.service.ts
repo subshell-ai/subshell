@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import { db } from "@/db/index.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { SshGrantTable } from "@/db/types/ssh-grants.db-types.js";
+import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import type {
   SshGrantListView,
@@ -19,6 +21,9 @@ import type { SshCaller } from "@/services/ssh/ssh-policy.js";
 import { getSshPolicy } from "@/services/ssh/ssh-policy-impl.js";
 import { refuseSshDecision } from "@/services/ssh/ssh-refusal.js";
 import { applyRunFacts, sshRunsRepo } from "@/services/ssh/ssh-run-mirror.js";
+import { SubshellManagerService } from "@/services/subshell-manager.service.js";
+import { logger } from "@/utils/logger.js";
+import { closeViewersForSubshell } from "@/ws/viewers.js";
 
 /**
  * The grants domain (SSH-SUPPORT.md §2): a grant binds one connection
@@ -32,9 +37,11 @@ import { applyRunFacts, sshRunsRepo } from "@/services/ssh/ssh-run-mirror.js";
  * GRANT are cancelled where reachable (human sessions and other grants' work
  * are untouched - §2 says so by name), queued input is fenced by raising the
  * pane's control generation (the node enforces the fence below the new
- * number), and live stream closure lands with workstream C's subscription
- * seam (named in the task-D report; the generation raise is the durable half
- * that works without it).
+ * number), every live terminal stream on an affected pane is CLOSED
+ * ({@link closeViewersForSubshell} - a socket authenticates once and is
+ * never re-checked, so closing it is the ONLY thing that stops it streaming),
+ * and a live managed terminal is TERMINATED where reachable (see
+ * {@link revokeTerminateManaged} for the offline half).
  */
 
 const grants = new SshGrantsRepository(db);
@@ -42,6 +49,16 @@ const connections = new SshConnectionsRepository(db);
 const runs = sshRunsRepo();
 const panes = new SshPanesRepository(db);
 const subshells = new SubshellsRepository(db);
+/**
+ * A manager built from the module's `db` - the lifecycle act (terminate) is
+ * the ORDINARY pane teardown, the same requestless-graph construction
+ * `maintenance.ts` and `lockdown.ts` use; `restartInFlight` is module-global,
+ * so any instance is safe.
+ */
+const paneManager = new SubshellManagerService({
+  subshells,
+  presets: new PresetsRepository(db),
+});
 
 /** `GET …/connections/:id/grants`: the owner's view - active rows and revoked history. */
 export async function sshListGrants(caller: SshCaller, connectionId: string): Promise<SshGrantListView> {
@@ -105,8 +122,12 @@ export async function sshGrant(caller: SshCaller, connectionId: string, body: Ss
  * for the pair, then run the orchestration (§2's revocation sentence). The
  * generation raise fences queued input AT THE NODE even when the node is
  * offline - the plane's row is already raised and the transition is
- * re-dispatched by the reconnect pass's cancel sweep; stream closure is
- * workstream C's seam (report integration request).
+ * re-dispatched by the reconnect pass's cancel sweep; live streams close
+ * through C's {@link closeViewersForSubshell}; and every managed terminal
+ * opened under a revoked grant is terminated (reachable now, or retired with
+ * the reconnect census as the pending kill - see {@link revokeTerminateManaged}).
+ * The ordering is deliberate: raise the generation FIRST (the durable fence
+ * that holds whatever else fails), then close the streams, then terminate.
  */
 export async function sshRevoke(
   caller: SshCaller,
@@ -136,10 +157,10 @@ export async function sshRevoke(
       }
       await auditSsh(caller.userId, "ssh.run.cancel", "ssh_run", run.id, { reason: "grant_revoked" });
     }
-    // Terminals opened under this grant: fence their queued input by raising
-    // the generation (mode unchanged), and cancel where the pane is still
-    // live. Full termination of a managed pane runs C's lifecycle seam -
-    // report item; the generation raise already makes stale input refuse.
+    // Terminals opened under THIS grant (and only theirs): raise the
+    // generation first - the durable fence that holds even while the node is
+    // offline - then close every live stream on the pane, then terminate the
+    // pane where reachable (§2's full sentence; §6's "active streams" race).
     for (const pane of await panes.listByConnection(conn.id)) {
       if (pane.grantId !== grantId) continue;
       const raised = await panes.setControl(pane.subshellId, pane.controlOwner);
@@ -157,6 +178,12 @@ export async function sshRevoke(
           if (!(err instanceof SshNodeRefusal)) throw err;
         }
       }
+      // Stream closure AFTER the fence is raised: an attach socket
+      // authenticates once and is never re-checked, so this is the only
+      // thing that stops a viewer that was already streaming. The reconnect
+      // passes the attach-redeem gate fresh, and the gate now refuses.
+      closeViewersForSubshell(pane.subshellId, "grant revoked");
+      await revokeTerminateManaged(paneRow);
     }
     await auditSsh(caller.userId, "ssh.revoke", "ssh_grant", grantId, {
       connectionId: conn.id,
@@ -164,6 +191,34 @@ export async function sshRevoke(
     });
   }
   return { revoked: true };
+}
+
+/**
+ * Terminate one managed terminal because the grant that opened it was revoked
+ * (spec §2: "cancels runs/terminals initiated under that grant where
+ * reachable"). The act is C's ordinary lifecycle teardown - the manager's
+ * `terminateSubshell`, the same kill-then-retire every terminate surface
+ * runs, keyed by the ROW's owner (whoever the pane belongs to), never by the
+ * revoking caller.
+ *
+ * The offline half is why no new pending flag exists: `terminateSubshell` on
+ * an unreachable node still RETIRES the row (kill UNVERIFIED) and the node's
+ * own reconnect census (`SubshellManagerService.applySubshellsReport`)
+ * best-effort-kills any pane that reports itself alive under a terminated
+ * row - which is "stays pending, dispatched on reconnect before new work"
+ * expressed through the lifecycle machinery that already enforces it, not a
+ * second source of truth. A throw (a node that refused the kill) leaves the
+ * row running and fenced: the generation raise above already refuses its
+ * queued input and the closed streams above already stopped its readers, so
+ * a failed kill must never fail the durable half of the revocation.
+ */
+async function revokeTerminateManaged(paneRow: SubshellTable): Promise<void> {
+  if (paneRow.status !== "running") return; // parked or retired: nothing to stop
+  try {
+    await paneManager.terminateSubshell(paneRow.userId, paneRow.id);
+  } catch (err) {
+    logger.withError(err).warn(`ssh revocation terminate of managed pane ${paneRow.id} deferred (row stays fenced)`);
+  }
 }
 
 /** Project a grant row onto the frozen view. */

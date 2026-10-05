@@ -10,9 +10,14 @@ import { Elysia } from "elysia";
 /**
  * WORKSTREAM G (Wave 2) - the §6 matrix "Races" rows the per-branch suites
  * could not see end to end (SSH-SUPPORT.md §2 "Revocation prevents new
- * dispatch, rejects queued input..."; §3 takeover fencing), plus the
- * Grants-row case no suite names yet (disabled account) and the server→node
- * resource-bound clamps (spec §3's limits table).
+ * dispatch, rejects queued input, closes affected streams, and cancels
+ * runs/terminals initiated under that grant where reachable"; §3 takeover
+ * fencing), plus the Grants-row case no suite names yet (disabled account)
+ * and the server→node resource-bound clamps (spec §3's limits table).
+ * The Gate C fix wave joined: revocation now also CLOSES the managed pane's
+ * live attach sockets and TERMINATES its live terminals (reachable now, or
+ * retired with the reconnect census as the pending kill offline) - the
+ * "active streams" and "terminals where reachable" race rows are pinned here.
  *
  * The race machinery: the scripted node's `input` handler returns a promise
  * the test resolves later, so the WRITE is genuinely in flight on the wire
@@ -31,6 +36,7 @@ import { sshRoutes } from "@/api/ssh/index.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
@@ -43,9 +49,11 @@ import { sshRevoke } from "@/services/ssh/ssh-grants.service.js";
 import { sshPaneHooks } from "@/services/ssh/ssh-pane-hooks.js";
 import type { SshCaller } from "@/services/ssh/ssh-policy.js";
 import { getSshPolicy } from "@/services/ssh/ssh-policy-impl.js";
+import { SubshellManagerService } from "@/services/subshell-manager.service.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
-import { attachScriptedNode, ok, type ScriptedNode } from "@/test-helpers/scripted-node.js";
+import { attachScriptedNode, ok, type ScriptedHandlers, type ScriptedNode } from "@/test-helpers/scripted-node.js";
 import { facts, readResult, SNAPSHOT } from "@/test-helpers/ssh-fixtures.js";
+import { registerViewer, resetLiveViewersForTests, type WsSocket } from "@/ws/viewers.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes).use(sshRoutes);
@@ -99,6 +107,47 @@ function ownerCaller(): SshCaller {
   };
 }
 
+/**
+ * The scripted agent's answer table, hoisted so the offline-cancellation case
+ * can detach it (node down) and re-attach the identical agent (node back).
+ * `kill` is the revocation-terminate frame (the manager's teardown verb);
+ * the `input` handler is the in-flight race machinery (`holdInput`).
+ */
+function scriptedHandlers(): ScriptedHandlers {
+  return {
+    input: () =>
+      new Promise((resolve, reject) => {
+        if (holdInput !== null || rejectInput !== null) return resolve(undefined); // not held: answer ok
+        holdInput = resolve;
+        rejectInput = reject;
+      }),
+    ssh_terminal_launch: ok,
+    kill: ok,
+    ssh_input_control: (cmd) =>
+      cmd.type === "ssh_input_control"
+        ? { subshellId: cmd.subshellId, mode: cmd.mode, generation: cmd.generation }
+        : new Error("wrong cmd"),
+    ssh_run_start: (cmd) =>
+      cmd.type === "ssh_run_start" ? facts({ runId: cmd.runId, lifecycle: "running" }) : new Error("wrong cmd"),
+    ssh_run_read: (cmd) => (cmd.type === "ssh_run_read" ? readResult(cmd.runId) : new Error("wrong cmd")),
+    ssh_run_status: (cmd) =>
+      cmd.type === "ssh_run_status" ? facts({ runId: cmd.runId, lifecycle: "running" }) : new Error("wrong cmd"),
+  };
+}
+
+/** A minimal stand-in for one ATTACHED terminal socket, registrable in the viewer registry. */
+function fakeViewerSocket(subshellId: string) {
+  const closed: Array<{ code: number; reason: string }> = [];
+  const ws = {
+    data: { viewerId: crypto.randomUUID(), subshellId, canInput: true },
+    send: () => undefined,
+    close: (code?: number, reason?: string) => {
+      closed.push({ code: code ?? 0, reason: reason ?? "" });
+    },
+  } as unknown as WsSocket;
+  return { ws, closed };
+}
+
 async function json(res: Response) {
   return (await res.json()) as Record<string, unknown>;
 }
@@ -128,24 +177,7 @@ describe("SSH races + disabled account + server-side bound clamps (spec 2026-10-
       kind: "agent",
       status: "online",
     });
-    scripted = attachScriptedNode(node, {
-      input: () =>
-        new Promise((resolve, reject) => {
-          if (holdInput !== null || rejectInput !== null) return resolve(undefined); // not held: answer ok
-          holdInput = resolve;
-          rejectInput = reject;
-        }),
-      ssh_terminal_launch: ok,
-      ssh_input_control: (cmd) =>
-        cmd.type === "ssh_input_control"
-          ? { subshellId: cmd.subshellId, mode: cmd.mode, generation: cmd.generation }
-          : new Error("wrong cmd"),
-      ssh_run_start: (cmd) =>
-        cmd.type === "ssh_run_start" ? facts({ runId: cmd.runId, lifecycle: "running" }) : new Error("wrong cmd"),
-      ssh_run_read: (cmd) => (cmd.type === "ssh_run_read" ? readResult(cmd.runId) : new Error("wrong cmd")),
-      ssh_run_status: (cmd) =>
-        cmd.type === "ssh_run_status" ? facts({ runId: cmd.runId, lifecycle: "running" }) : new Error("wrong cmd"),
-    });
+    scripted = attachScriptedNode(node, scriptedHandlers());
 
     const conn = await connections.create({
       id: crypto.randomUUID(),
@@ -238,8 +270,78 @@ describe("SSH races + disabled account + server-side bound clamps (spec 2026-10-
         (await fetchAs(`/api/subshells/${managed}/input`, "POST", { token }, { text: "ls", submit: false })).status,
       ).toBe(403);
       expect(scripted.wire.length).toBe(before); // refused gates dispatch nothing
+      // Gate C (CRITICAL 1): revocation does not merely fence - it cancels
+      // the TERMINAL initiated under that grant where reachable. The kill is
+      // the ordinary lifecycle teardown frame, and the row ends `terminated`
+      // exactly like a human's own terminate.
+      expect(scripted.countOf("kill")).toBe(1);
       const row = await subshells.findById(managed);
-      expect(row?.status).toBe("running"); // revocation fences; it does not kill
+      expect(row?.status).toBe("terminated");
+    });
+  });
+
+  describe("revoke vs active streams (matrix: Races - a live attach socket dies with the grant)", () => {
+    it("the revocation closes every terminal socket streaming the managed pane, so the reconnect must pass the gate fresh", async () => {
+      const { pane, managed } = await openWorld();
+      // A viewer watching the managed terminal - registered exactly as both
+      // attach paths register (keyed by viewerId), with the socket the
+      // grant-authenticated attach left open.
+      const viewer = fakeViewerSocket(managed);
+      registerViewer(viewer.ws, managed);
+      try {
+        const revoked = await sshRevoke(ownerCaller(), connId, pane);
+        expect(revoked.revoked).toBe(true);
+        // The socket authenticates once and is never re-checked, so closing
+        // it is the ONLY thing that stops the stream (§2 "closes affected
+        // streams"); 1012 is the below-4000 retry convention.
+        expect(viewer.closed).toEqual([{ code: 1012, reason: "grant revoked" }]);
+        // And the terminate rode the same act (§2 "cancels terminals ...
+        // where reachable").
+        expect((await subshells.findById(managed))?.status).toBe("terminated");
+      } finally {
+        resetLiveViewersForTests();
+      }
+    });
+  });
+
+  describe("revoke vs offline node (matrix: §2 - the pending terminate dispatches on reconnect)", () => {
+    it("a revocation with the node down retires the row WITHOUT a kill frame, and the reconnect census then kills the surviving pane", async () => {
+      const { pane, managed } = await openWorld();
+      // The connecting node goes dark between the grant and the revocation.
+      const oldWire = scripted.wire;
+      const oldWireLen = oldWire.length;
+      scripted.detach();
+      resetNodeRegistryForTests();
+      try {
+        const revoked = await sshRevoke(ownerCaller(), connId, pane);
+        expect(revoked.revoked).toBe(true);
+        // The DURABLE fact lands while the node is down: the row retires
+        // (kill UNVERIFIED, the lifecycle pass's own offline posture)...
+        const row = await subshells.findById(managed);
+        expect(row?.status).toBe("terminated");
+        // ...and NOTHING is dispatched to the dead link (the detached
+        // handle's wire grew by zero frames during the whole revocation).
+        expect(oldWire).toHaveLength(oldWireLen);
+
+        // The node reconnects and its census reports the pane still alive:
+        // that is the pending terminate dispatching, before any new work on
+        // the machine can be accepted.
+        scripted = attachScriptedNode(node, scriptedHandlers());
+        const manager = new SubshellManagerService({
+          subshells: new SubshellsRepository(db),
+          presets: new PresetsRepository(db),
+        });
+        await manager.applySubshellsReport(node, [{ subshellId: managed, alive: true, exitCode: null }]);
+        expect(scripted.countOf("kill")).toBe(1);
+        // The census never resurrects the retired row.
+        expect((await subshells.findById(managed))?.status).toBe("terminated");
+      } finally {
+        // Leave the file's global handle attached and live for the suites
+        // that follow, whether or not the body reached its re-attach.
+        scripted.detach();
+        resetNodeRegistryForTests();
+        scripted = attachScriptedNode(node, scriptedHandlers());
+      }
     });
   });
 
