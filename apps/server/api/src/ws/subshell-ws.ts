@@ -6,6 +6,7 @@ import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { replayLineCap } from "@/services/nodes/log-tail.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
+import { getSshPaneHooks, readManagedPane } from "@/services/pane-ssh-gate.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import { resolveAttach } from "@/ws/attach-resolve.js";
@@ -465,6 +466,12 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
   // are dropped here; the resize branch above still applies (a view is a
   // legitimate layout action). The client emits one frame per keystroke and
   // already encodes Enter as "\r", so bytes must not be split or terminated.
+  //
+  // THE FENCE BRANCH (SSH-SUPPORT.md §2 "every input writer", Gate C): one
+  // primary-key read on `ssh_panes` decides which seam the bytes take. A
+  // managed pane rides the stamped SSH hook exactly like the REST input
+  // route; an ordinary pane takes the untouched launcher path (the read is
+  // its only new cost, and no hook is ever consulted for it).
   if (frame.data) {
     if (!data.canInput) return;
     // The owner's OWN keystroke answers the pane's unseen push (2026-09-25):
@@ -474,88 +481,156 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
     // retry branches, because a RETRIED frame is still a frame the human
     // typed. A `view` grantee never reaches this line.
     if (data.attendsPush) void answerUnseenPush(data.subshellId);
-    // Idempotent input (spec 2026-09-21 Wave A): a frame carrying an id is
-    // retried by its client, so the write must be deduped against what has
-    // ALREADY landed, and the client must learn when the write DID land. Both
-    // are keyed by the client's attach session (`&sid=`, read from the same
-    // upgrade-query channel `attachUrlFromQuery` feeds), per session and not
-    // per socket, so a retry arriving on the RECONNECTED socket is still
-    // recognized, and not per subshell alone, so two viewers on one shared
-    // pane, each counting ids from 1, never collide.
-    const sessionId = sessionIdOf(data) ?? data.viewerId;
-    const id = frame.id;
-    if (id !== undefined) {
-      if (inputWindowHas(data.subshellId, sessionId, id)) {
-        // Already written. Drop WITHOUT touching the pane, but still ack: the
-        // client must be able to retire an id the server has processed, or it
-        // would re-send it on every reconnect forever.
-        sendToSocket(ws, { type: "ack", id });
-        return;
-      }
-      // Wave D: once this session holds failed plane→node writes, a newer id
-      // JOINS the queue instead of dispatching past them — a held id must
-      // re-fire BEFORE anything newer is written, or the user's keystrokes
-      // land reordered. The append is itself a re-fire trigger, so a backlog
-      // arriving on a quietly-recovered node ships immediately.
-      if (hasHeldInput(data.nodeId, data.subshellId, sessionId)) {
-        holdFailedInput({
-          nodeId: data.nodeId,
-          subshellId: data.subshellId,
-          sessionId,
-          id,
-          payload: frame.data,
-          ws,
-          sendAck: () => sendToSocket(ws, { type: "ack", id }),
-        });
-        return;
-      }
-      void data.launcher
-        .sendInput(data.socket, data.subshellId, frame.data)
-        .then(() => {
-          // Committed only on SUCCESS: a failed write must stay re-writable,
-          // because the client's reconnect re-send is the only thing that
-          // would carry the keystroke. RESIDUAL AMBIGUITY (accepted,
-          // at-least-once): a write still in flight when the retry arrives is
-          // not yet in the window, so the retry writes too: the keystroke can
-          // land twice, never zero times.
-          // The commit happens BEFORE the ack, on the write resolving — so a
-          // resolved write is already in the window when anything (a client
-          // re-send, a Wave D re-fire) can consult it, and only a write whose
-          // result never came back is re-writable.
-          inputWindowAdd(data.subshellId, sessionId, id);
-          sendToSocket(ws, { type: "ack", id });
-        })
-        .catch((err) => {
-          // Wave D: a failed plane→node write is HELD, not dropped — the
-          // plane-side hold re-fires it when the node's connection is live
-          // again (ws/input-hold.ts), because the browser socket lives on and
-          // the client's own retry ships only on reconnect or ack-drain.
-          // Scoped to agent nodes: the local leg has no node-ready moment to
-          // re-fire from, and a local failure keeps today's drop-and-log.
-          if (data.nodeId !== LOCAL_NODE_ID) {
-            holdFailedInput({
-              nodeId: data.nodeId,
-              subshellId: data.subshellId,
-              sessionId,
-              id,
-              payload: frame.data,
-              ws,
-              sendAck: () => sendToSocket(ws, { type: "ack", id }),
-            });
-            return;
-          }
-          logFailure(err);
-        });
+    void routeKeystroke(ws, data, frame.data, frame.id, logFailure);
+  }
+}
+
+/**
+ * The keystroke dispatch, behind the one `ssh_panes` read that decides its
+ * seam. Ordering note: the bun:sqlite read answers within microtasks, so
+ * back-to-back keystrokes reach their writer in frame order on either seam.
+ *
+ * **Managed pane**: exactly the REST `sendSubshellInput` posture - the hook's
+ * EVERY frame carries the pane's CURRENT plane generation (read fresh here),
+ * the machine's mirror fences anything a takeover or revocation moved past,
+ * and a failed write is dropped-and-logged, NEVER entered into the Wave D
+ * hold (a hold re-fires through the ordinary `launcher.sendInput`, which is
+ * precisely the unstamped seam the fence refuses - an un-acked id is
+ * client-retried, and the retry takes this branch again). The policy arms
+ * that decide WHETHER this socket may type (attach redeem at open, control
+ * change closes it via C's `closeViewersForSubshell`) ran on the attach path;
+ * this branch keeps the HOW stamped.
+ *
+ * **Ordinary pane**: the pre-existing path verbatim - idempotent dedupe,
+ * Wave D hold, drop-and-log. No SSH machinery is consulted at all.
+ */
+async function routeKeystroke(
+  ws: WsSocket,
+  data: WsData,
+  text: string,
+  id: number | undefined,
+  logFailure: (err: unknown) => void,
+): Promise<void> {
+  // Idempotent input (spec 2026-09-21 Wave A): a frame carrying an id is
+  // retried by its client, so the write must be deduped against what has
+  // ALREADY landed, and the client must learn when the write DID land. Both
+  // are keyed by the client's attach session (`&sid=`, read from the same
+  // upgrade-query channel `attachUrlFromQuery` feeds), per session and not
+  // per socket, so a retry arriving on the RECONNECTED socket is still
+  // recognized, and not per subshell alone, so two viewers on one shared
+  // pane, each counting ids from 1, never collide. The dedupe runs on both
+  // seams; the hold machinery belongs to the ordinary one only.
+  const sessionId = sessionIdOf(data) ?? data.viewerId;
+  let managed: Awaited<ReturnType<typeof readManagedPane>>;
+  try {
+    managed = await readManagedPane(getRequestlessContext().db, data.subshellId);
+  } catch (err) {
+    // The seam is unknowable, and the unsafe default is the unstamped one -
+    // so an unanswerable read drops the keystroke (the browser's ack-timeout
+    // retry re-types it), it does NOT fall through to the ordinary path.
+    logFailure(err);
+    return;
+  }
+  if (managed) {
+    const hooks = getSshPaneHooks();
+    if (!hooks) {
+      // Deny by default: no SSH backend means no stamped seam, and typing
+      // through the unstamped one is the bypass this branch exists to close.
+      logger.warn(`ws input refused for managed pane ${data.subshellId}: the SSH backend is not registered`);
       return;
     }
-    // No id: nothing to hold, and this dispatches PAST any held ids of the
-    // session (Wave D). Unreachable with the engaged client — the queue
-    // either carries ids from its first frame or was disengaged, and
-    // disengage drops its own backlog first — so the only bare frame that
-    // can land behind a hold is a client that downgraded mid-session, whose
-    // own retry machinery has already given up. Today's drop-and-log.
-    void data.launcher.sendInput(data.socket, data.subshellId, frame.data).catch(logFailure);
+    if (id !== undefined && inputWindowHas(data.subshellId, sessionId, id)) {
+      sendToSocket(ws, { type: "ack", id });
+      return;
+    }
+    void hooks
+      .sendManagedInput({
+        subshellId: data.subshellId,
+        text,
+        submit: false,
+        inputGeneration: managed.controlGeneration,
+      })
+      .then(() => {
+        if (id === undefined) return;
+        inputWindowAdd(data.subshellId, sessionId, id);
+        sendToSocket(ws, { type: "ack", id });
+      })
+      .catch(logFailure);
+    return;
   }
+  // ---- the ordinary path, unchanged (the fence branch's byte-identity
+  // guarantee: one PK read above, no hook, same seams and same acks) ----
+  if (id !== undefined) {
+    if (inputWindowHas(data.subshellId, sessionId, id)) {
+      // Already written. Drop WITHOUT touching the pane, but still ack: the
+      // client must be able to retire an id the server has processed, or it
+      // would re-send it on every reconnect forever.
+      sendToSocket(ws, { type: "ack", id });
+      return;
+    }
+    // Wave D: once this session holds failed plane→node writes, a newer id
+    // JOINS the queue instead of dispatching past them — a held id must
+    // re-fire BEFORE anything newer is written, or the user's keystrokes
+    // land reordered. The append is itself a re-fire trigger, so a backlog
+    // arriving on a quietly-recovered node ships immediately.
+    if (hasHeldInput(data.nodeId, data.subshellId, sessionId)) {
+      holdFailedInput({
+        nodeId: data.nodeId,
+        subshellId: data.subshellId,
+        sessionId,
+        id,
+        payload: text,
+        ws,
+        sendAck: () => sendToSocket(ws, { type: "ack", id }),
+      });
+      return;
+    }
+    void data.launcher
+      .sendInput(data.socket, data.subshellId, text)
+      .then(() => {
+        // Committed only on SUCCESS: a failed write must stay re-writable,
+        // because the client's reconnect re-send is the only thing that
+        // would carry the keystroke. RESIDUAL AMBIGUITY (accepted,
+        // at-least-once): a write still in flight when the retry arrives is
+        // not yet in the window, so the retry writes too: the keystroke can
+        // land twice, never zero times.
+        // The commit happens BEFORE the ack, on the write resolving — so a
+        // resolved write is already in the window when anything (a client
+        // re-send, a Wave D re-fire) can consult it, and only a write whose
+        // result never came back is re-writable.
+        inputWindowAdd(data.subshellId, sessionId, id);
+        sendToSocket(ws, { type: "ack", id });
+      })
+      .catch((err) => {
+        // Wave D: a failed plane→node write is HELD, not dropped — the
+        // plane-side hold re-fires it when the node's connection is live
+        // again (ws/input-hold.ts), because the browser socket lives on and
+        // the client's own retry ships only on reconnect or ack-drain.
+        // Scoped to agent nodes: the local leg has no node-ready moment to
+        // re-fire from, and a local failure keeps today's drop-and-log.
+        if (data.nodeId !== LOCAL_NODE_ID) {
+          holdFailedInput({
+            nodeId: data.nodeId,
+            subshellId: data.subshellId,
+            sessionId,
+            id,
+            payload: text,
+            ws,
+            sendAck: () => sendToSocket(ws, { type: "ack", id }),
+          });
+          return;
+        }
+        logFailure(err);
+      });
+    return;
+  }
+  // No id: nothing to hold, and this dispatches PAST any held ids of the
+  // session (Wave D). Unreachable with the engaged client — the queue
+  // either carries ids from its first frame or was disengaged, and
+  // disengage drops its own backlog first — so the only bare frame that
+  // can land behind a hold is a client that downgraded mid-session, whose
+  // own retry machinery has already given up. Today's drop-and-log.
+  void data.launcher.sendInput(data.socket, data.subshellId, text).catch(logFailure);
 }
 
 /**

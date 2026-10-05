@@ -1,11 +1,25 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { hashPassword } from "better-auth/crypto";
+import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
+import { deleteUserByEmailOrId, setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
 import { db } from "@/db/index.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
+import { DENY_EVERYTHING_SSH_POLICY, setSshPaneHooksForTests, setSshPolicyForTests } from "@/services/pane-ssh-gate.js";
 import { parseClientBuild } from "@/ws/attach-params.js";
 import { handleSubshellMessage } from "@/ws/subshell-ws.js";
 import { registerViewer, resetGeometryQueueForTests, resetLiveViewersForTests, type WsSocket } from "@/ws/viewers.js";
+
+// The keystroke path now consults `ssh_panes` (the SSH fence branch), so this
+// suite touches the database: migrated before anything runs (the per-file
+// isolation rule - this file's own `beforeAll` calls below describe the
+// auth-table needs that sit on top).
+beforeAll(async () => {
+  await ensureMigratedTestDb();
+});
 
 // stripSyncMarkers / SyncStreamStripper moved to ws/sync-stripper.ts —
 // pinned there by __tests__/sync-stripper.test.ts.
@@ -69,31 +83,41 @@ function fakeSocket(
 const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
 describe("handleSubshellMessage", () => {
-  it("forwards a keystroke without submitting it", () => {
-    const { ws, inputs } = fakeSocket();
+  // The Gate C fence branch puts ONE `ssh_panes` primary-key read in front of
+  // the keystroke dispatch, so the ordinary path's delivery is a microtask
+  // later than it was; the bytes themselves are byte-identical (the fence's
+  // byte-identity guarantee) and frame ORDER survives (the bun:sqlite read
+  // answers within microtasks, in call order). `tick()` is that microtask.
+
+  it("forwards a keystroke without submitting it", async () => {
+    const { ws, inputs } = fakeSocket({ subshellId: "fwd-keystrokes" });
     for (const ch of "hello") handleSubshellMessage(ws, JSON.stringify({ type: "input", data: ch }));
+    await tick();
     expect(inputs).toEqual(["h", "e", "l", "l", "o"]);
   });
 
-  it("forwards a multi-line paste as a single unmodified chunk", () => {
-    const { ws, inputs } = fakeSocket();
+  it("forwards a multi-line paste as a single unmodified chunk", async () => {
+    const { ws, inputs } = fakeSocket({ subshellId: "fwd-paste" });
     const data = "line one\nline two\n\nline four";
     handleSubshellMessage(ws, JSON.stringify({ type: "input", data }));
+    await tick();
     expect(inputs).toEqual([data]);
   });
 
-  it("forwards control bytes verbatim", () => {
-    const { ws, inputs } = fakeSocket();
+  it("forwards control bytes verbatim", async () => {
+    const { ws, inputs } = fakeSocket({ subshellId: "fwd-control" });
     for (const data of ["\x04", "\x1b[A", "\r"]) {
       handleSubshellMessage(ws, JSON.stringify({ type: "input", data }));
     }
+    await tick();
     expect(inputs).toEqual(["\x04", "\x1b[A", "\r"]);
   });
 
-  it("delivers a pasted JSON object verbatim instead of eating it as a control frame", () => {
-    const { ws, inputs, resizes } = fakeSocket();
+  it("delivers a pasted JSON object verbatim instead of eating it as a control frame", async () => {
+    const { ws, inputs, resizes } = fakeSocket({ subshellId: "fwd-pasted-json" });
     const pasted = '{"type":"resize","cols":1,"rows":1}';
     handleSubshellMessage(ws, JSON.stringify({ type: "input", data: pasted }));
+    await tick();
     expect(inputs).toEqual([pasted]);
     expect(resizes).toEqual([]);
   });
@@ -320,6 +344,206 @@ describe("parseClientBuild", () => {
 
   it("keeps the dev sentinel intact", () => {
     expect(parseClientBuild(at("&build=dev"))).toBe("dev");
+  });
+});
+
+/**
+ * Gate C IMPORTANT 3, the §6 matrix "every input writer" row: the WS
+ * keystroke writer is an input writer, so on a MANAGED pane its bytes ride
+ * the same generation-stamped SSH seam as the REST input route (the node's
+ * fence store refuses anything below the mirror). The attach path already
+ * decided WHETHER this socket may type (redeem gate at open, control change
+ * closes it); this seam decides HOW - stamped, hook-routed, fail-closed.
+ */
+describe("managed-pane keystrokes ride the SSH fence", () => {
+  const ownerEmail = `wsfence-owner-${crypto.randomUUID()}@subshell.local`;
+  const pw = "wsfence-pass-1";
+  let ownerId: string;
+  let node: string;
+  let hookCalls: Array<{ subshellId: string; text: string; submit: boolean; inputGeneration: number }>;
+  let hookError: Error | null;
+  let surfaceCalls: string[];
+  const cleanup: Array<() => Promise<void>> = [];
+
+  async function seedManaged(over: { controlGeneration?: number } = {}): Promise<string> {
+    const paneId = crypto.randomUUID();
+    await new SubshellsRepository(db).create({
+      id: paneId,
+      userId: ownerId,
+      harnessId: "terminal",
+      name: "ws-fence",
+      workingDir: "/tmp",
+      tmuxSocket: `sock-${paneId.slice(0, 8)}`,
+      nodeId: node,
+      status: "running",
+      alive: 1,
+    });
+    const connId = crypto.randomUUID();
+    await db
+      .insertInto("sshConnections")
+      .values({
+        id: connId,
+        userId: ownerId,
+        nodeId: node,
+        displayName: "ws-fence-conn",
+        configSnapshot: "{}",
+        remoteDir: null,
+        revision: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .execute();
+    await db
+      .insertInto("sshPanes")
+      .values({
+        subshellId: paneId,
+        connectionId: connId,
+        connectionRevision: 1,
+        initiatedBy: "agent",
+        grantId: null,
+        apiKeyId: null,
+        controlOwner: "agent",
+        controlGeneration: over.controlGeneration ?? 1,
+        logGeneration: 1,
+        createdAt: new Date().toISOString(),
+      })
+      .execute();
+    cleanup.push(async () => {
+      await db.deleteFrom("sshPanes").where("subshellId", "=", paneId).execute();
+      await db.deleteFrom("sshConnections").where("id", "=", connId).execute();
+      await db.deleteFrom("subshells").where("id", "=", paneId).execute();
+    });
+    return paneId;
+  }
+
+  async function seedOrdinary(): Promise<string> {
+    const id = crypto.randomUUID();
+    await new SubshellsRepository(db).create({
+      id,
+      userId: ownerId,
+      harnessId: "terminal",
+      name: "ws-fence-ordinary",
+      workingDir: "/tmp",
+      tmuxSocket: `sock-${id.slice(0, 8)}`,
+      nodeId: node,
+      status: "running",
+      alive: 1,
+    });
+    cleanup.push(async () => {
+      await db.deleteFrom("subshells").where("id", "=", id).execute();
+    });
+    return id;
+  }
+
+  beforeAll(async () => {
+    await setupAuthTables();
+    ownerId = await new UsersRepository(db).createUser({
+      email: ownerEmail,
+      passwordHash: await hashPassword(pw),
+      name: "WS Fence Owner",
+      role: "user",
+    });
+    node = crypto.randomUUID();
+    await new NodesRepository(db).create({
+      id: node,
+      ownerUserId: ownerId,
+      name: `fence-${node.slice(0, 8)}`,
+      kind: "agent",
+    });
+  });
+
+  afterAll(async () => {
+    for (const fn of cleanup.splice(0).reverse()) await fn().catch(() => {});
+    await deleteUserByEmailOrId(ownerEmail);
+  });
+
+  beforeEach(() => {
+    hookCalls = [];
+    hookError = null;
+    surfaceCalls = [];
+    setSshPolicyForTests({
+      ...DENY_EVERYTHING_SSH_POLICY,
+      gatePaneSurface: async (req) => {
+        surfaceCalls.push(req.surface);
+        return { allow: true };
+      },
+    });
+    setSshPaneHooksForTests({
+      sendManagedInput: async (req) => {
+        hookCalls.push(req);
+        if (hookError !== null) throw hookError;
+      },
+      applyControlTransition: async () => undefined,
+      restartManagedPane: async () => ({ tmuxSocket: "sock-x" }),
+    });
+  });
+
+  afterEach(() => {
+    setSshPolicyForTests(null);
+    setSshPaneHooksForTests(null);
+    resetLiveViewersForTests();
+  });
+
+  it("types through the hook at the pane's CURRENT plane generation, with no ordinary write and no policy call", async () => {
+    const pane = await seedManaged({ controlGeneration: 4 });
+    const { ws, inputs, sent } = fakeSocket({ subshellId: pane, sid: "fence-a" });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "ls\r", id: 1 }));
+    await tick();
+    expect(inputs).toEqual([]); // the unstamped seam saw nothing
+    expect(hookCalls).toEqual([{ subshellId: pane, text: "ls\r", submit: false, inputGeneration: 4 }]);
+    expect(sent.filter((f) => f.type === "ack")).toEqual([{ type: "ack", id: 1 }]);
+    // The census guarantee: ONE ssh_panes PK read, no policy consultation
+    // (the socket's attach already passed the redeem gate; a control change
+    // closes it; the machine fences the race).
+    expect(surfaceCalls).toEqual([]);
+  });
+
+  it("reads the stamp per frame: the keystroke after a raised generation carries the raised value", async () => {
+    const pane = await seedManaged({ controlGeneration: 2 });
+    const { ws } = fakeSocket({ subshellId: pane, sid: "fence-b" });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "a" }));
+    await tick();
+    await db.updateTable("sshPanes").set({ controlGeneration: 5 }).where("subshellId", "=", pane).execute();
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "b" }));
+    await tick();
+    expect(hookCalls.map((c) => c.inputGeneration)).toEqual([2, 5]);
+  });
+
+  it("a write the machine refuses acks nothing, so the client's retry re-types it through the fence", async () => {
+    const pane = await seedManaged({ controlGeneration: 3 });
+    hookError = new Error("refused");
+    const { ws, inputs, sent } = fakeSocket({ subshellId: pane, sid: "fence-c" });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "x", id: 9 }));
+    await tick();
+    expect(sent.filter((f) => f.type === "ack")).toEqual([]);
+    expect(inputs).toEqual([]);
+    // The refused id entered no window: the retry dispatches again (stamped),
+    // it is never silently deduped away.
+    hookError = null;
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "x", id: 9 }));
+    await tick();
+    expect(hookCalls).toHaveLength(2);
+    expect(sent.filter((f) => f.type === "ack")).toEqual([{ type: "ack", id: 9 }]);
+  });
+
+  it("without the SSH backend hooks the managed keystroke is refused, never typed unstamped", async () => {
+    const pane = await seedManaged();
+    setSshPaneHooksForTests(null);
+    const { ws, inputs } = fakeSocket({ subshellId: pane, sid: "fence-d" });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "x" }));
+    await tick();
+    expect(inputs).toEqual([]);
+    expect(hookCalls).toEqual([]);
+  });
+
+  it("an ordinary pane's keystrokes never touch the hook (byte-identical seam, no policy)", async () => {
+    const pane = await seedOrdinary();
+    const { ws, inputs } = fakeSocket({ subshellId: pane, sid: "fence-e" });
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "abc" }));
+    await tick();
+    expect(inputs).toEqual(["abc"]);
+    expect(hookCalls).toEqual([]);
+    expect(surfaceCalls).toEqual([]);
   });
 });
 

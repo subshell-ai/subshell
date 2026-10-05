@@ -1,10 +1,18 @@
-import { describe, expect, it } from "bun:test";
+import { beforeAll, describe, expect, it } from "bun:test";
+import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { refireInputHoldsForNode } from "@/ws/input-hold.js";
 import { inputWindowHas } from "@/ws/input-window.js";
 import { cleanupSubshellWs, handleSubshellMessage } from "@/ws/subshell-ws.js";
 import { registerViewer, resetLiveViewersForTests, type WsSocket } from "@/ws/viewers.js";
+
+// The keystroke handler reads `ssh_panes` (the SSH fence branch) before it
+// dispatches, so this suite touches the migrated schema even though none of
+// its panes are managed.
+beforeAll(async () => {
+  await ensureMigratedTestDb();
+});
 
 /**
  * The plane→node input hold (spec 2026-09-21 Wave D): a failed write is held
