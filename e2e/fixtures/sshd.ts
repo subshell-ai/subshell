@@ -129,7 +129,14 @@ export async function startSshFixture(root: string): Promise<SshFixture> {
   if (sshBin === null || keygenBin === null || sshdBin === null) {
     throw new Error(`startSshFixture called on a host without ssh/ssh-keygen/sshd (${missingSshBins().join(", ")})`);
   }
-  const user = userInfo().username;
+  // The connecting account NAME, deterministically. `os.userInfo().username`
+  // is env-driven on bun (the Playwright runner IS bun) and passwd-driven on
+  // node: in a container with no USER/LOGNAME env bun answers "unknown" while
+  // sshd, matching the uid not the env, logs the real account ("root").
+  // uid 0 is root on every supported OS; otherwise env, then the passwd
+  // lookup. The spec also hands the agent `USER`/`LOGNAME` (see 21-ssh) so
+  // the daemon's own `connectingAccount` says the same thing everywhere.
+  const user = process.getuid?.() === 0 ? "root" : (process.env.USER ?? process.env.LOGNAME ?? userInfo().username);
   const home = path.join(root, "home");
   mkdirSync(home, { recursive: true, mode: 0o700 });
   mkdirSync(path.join(home, ".ssh"), { mode: 0o700 });

@@ -69,9 +69,13 @@ test.beforeAll(async () => {
     setupKey,
     name: NODE_NAME,
     // HOME is the whole fixture handoff (discovery, ssh -G, runs, the pane's
-    // env -i ssh all follow it); SSH_AUTH_SOCK is blanked so an ambient agent
+    // env -i ssh all follow it); USER/LOGNAME pin the daemon's
+    // `connectingAccount` to the fixture account NAME (bun's userInfo reads
+    // the env, node's reads passwd - without this the bun-run daemon answers
+    // "unknown" in a bare container and the snapshot's user-vs-default
+    // comparison drifts); SSH_AUTH_SOCK is blanked so an ambient agent
     // cannot leak into a snapshot's auth-agent reference.
-    extraEnv: { HOME: fixture.sshConfigHome, SSH_AUTH_SOCK: "" },
+    extraEnv: { HOME: fixture.sshConfigHome, USER: fixture.user, LOGNAME: fixture.user, SSH_AUTH_SOCK: "" },
   });
 
   await pollUntil(
