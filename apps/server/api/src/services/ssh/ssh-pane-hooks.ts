@@ -25,6 +25,12 @@ import { refuseSshErrorCode } from "@/services/ssh/ssh-refusal.js";
  * lower value with the bare {@link NODE_RESULT_SSH_GENERATION_STALE}, which
  * this module matches by EQUALITY on `NodeRpcError.detail` and frames as the
  * named refusal (AGENTS.md: node refusals map by equality, never substring).
+ * `unsupported` therefore means ONLY "the connected binary predates the fence"
+ * (503, update the node): it never arises from a restart that lost the mirror,
+ * because the node's InputGenerationStore fails OPEN for a pane it has no
+ * record of (`current()` null -> `check()` ok -> the write is ACCEPTED as an
+ * ordinary pane, C's deliberate design), so a restart un-fences rather than
+ * producing a stale 403. The 403 below is a real mid-write generation move.
  *
  * **No local fallback, ever** (SSH-SUPPORT.md §3): a missing subshell row,
  * connecting node, `ssh_panes` marker, or connection row is a refusal - never
