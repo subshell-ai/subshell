@@ -134,8 +134,8 @@ function findCommentStart(line: string): number {
   return -1;
 }
 
-/** Expand a leading `~` / `~/` against the home dir; anything else passes through. */
-function expandTilde(raw: string, homeDir: string): string {
+/** Expand a leading `~` / `~/` against the home dir; anything else passes through. Exported for {@link resolveSshAliasConfig}: `ssh -G` prints default identity paths in tilde form, and the snapshot grammar takes only absolutes. */
+export function expandTilde(raw: string, homeDir: string): string {
   if (raw === "~") return homeDir;
   if (raw.startsWith("~/")) return join(homeDir, raw.slice(2));
   return raw;

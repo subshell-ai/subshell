@@ -9,7 +9,13 @@ import {
   type SshErrorCode,
   type SshHopWire,
 } from "@internal/subshell-protocol";
-import { defaultSshConfigPath, type SshHostBlock, type SshWalkBudget, walkSshConfig } from "./ssh-discover.js";
+import {
+  defaultSshConfigPath,
+  expandTilde,
+  type SshHostBlock,
+  type SshWalkBudget,
+  walkSshConfig,
+} from "./ssh-discover.js";
 import { runSshProcess, sshChildPath } from "./ssh-spawn.js";
 
 /**
@@ -206,10 +212,16 @@ export async function resolveSshAliasConfig(
   if (setWhereAny(g, FORWARD_LOCAL_KEYWORDS)) blocked.push("LocalForward");
   if (setWhereAny(g, FORWARD_REMOTE_KEYWORDS)) blocked.push("RemoteForward");
   if (setWhereAny(g, FORWARD_DYNAMIC_KEYWORDS)) blocked.push("DynamicForward");
-  if (setWhere(g, "tunnel", ["no"])) blocked.push("Tunnel");
-  if (setWhere(g, "permitremoteopen")) blocked.push("PermitRemoteOpen");
+  // The unconfigured spellings are the ones OpenSSH's `-G` PRINTS for an
+  // unconfigured option, measured on 10.2p1: `tunnel false` and
+  // `permitremoteopen any`. A config-set value is whatever the config chose
+  // (`tunnel yes`, `permitremoteopen hosts:socks:1080`), which lands outside
+  // these lists and blocks. The historical `no` spelling stays accepted:
+  // older `-G` output and hand-fed fixtures use it.
+  if (setWhere(g, "tunnel", ["no", "false"])) blocked.push("Tunnel");
+  if (setWhere(g, "permitremoteopen", ["none", "any"])) blocked.push("PermitRemoteOpen");
   if (setWhere(g, "permitlocalcommand", ["no"])) blocked.push("PermitLocalCommand");
-  if (setWhere(g, "localecalcommand")) blocked.push("LocalCommand");
+  if (setWhere(g, "localcommand")) blocked.push("LocalCommand");
   if (setWhere(g, "remotecommand")) blocked.push("RemoteCommand");
   if (g.some((l) => l.keyword === "sendenv" && l.value !== "")) blocked.push("SendEnv");
   if (g.some((l) => l.keyword === "setenv" && l.value !== "")) blocked.push("SetEnv");
@@ -234,16 +246,21 @@ export async function resolveSshAliasConfig(
     // the token is neither an alias nor a destination the account can reach.
     if (host.toLowerCase() !== alias.toLowerCase()) return refuse("config_missing");
   } else {
-    // Two blocks setting conflicting destination facts cannot be reduced to
+    // Two blocks setting CONFLICTING destination facts cannot be reduced to
     // one route a human reviewed (first-obtained-wins makes -G deterministic,
     // but the ORDER that decided it is config-invisible noise the reviewer
-    // would never catch) — §2's config_ambiguous.
-    const conflicts = new Set<string>();
+    // would never catch) — §2's config_ambiguous. One HostName plus one Port
+    // is NOT a conflict (measured on 10.2p1: the shared-set spelling refused
+    // every `HostName x` + `Port n` block, the ordinary config shape) — each
+    // family is counted on its own, and only a family with two different
+    // values is the ambiguity this check names.
+    const hostNames = new Set<string>();
+    const ports = new Set<string>();
     for (const b of [...walk.globalDirectives, ...matchedBlocks.flatMap((m) => m.directives)]) {
-      if (b.keyword === "hostname" && b.value !== "") conflicts.add(b.value.toLowerCase());
-      if (b.keyword === "port" && b.value !== "") conflicts.add(`port:${b.value}`);
+      if (b.keyword === "hostname" && b.value !== "") hostNames.add(b.value.toLowerCase());
+      if (b.keyword === "port" && b.value !== "") ports.add(b.value);
     }
-    if (conflicts.size > 1) return refuse("config_ambiguous");
+    if (hostNames.size > 1 || ports.size > 1) return refuse("config_ambiguous");
   }
 
   const portRaw = Number(valuesOf(g, "port")[0] ?? "22");
@@ -255,9 +272,18 @@ export async function resolveSshAliasConfig(
   const user = userRaw !== null && userRaw.toLowerCase() !== (connectingAccount ?? "").toLowerCase() ? userRaw : null;
 
   // --- trust + identity refs (paths on THIS machine; the snapshot carries refs, never contents) ---
-  const identityFiles = valuesOf(g, "identityfile").filter((v) => v !== "" && v !== "none");
-  const certificateFiles = valuesOf(g, "certificatefile").filter((v) => v !== "" && v !== "none");
-  const knownHostsFiles = valuesOf(g, "userknownhostsfile").filter((v) => v !== "" && v !== "none");
+  // `-G` prints the DEFAULT identity files in tilde form (`identityfile
+  // ~/.ssh/id_rsa`); the snapshot grammar takes only absolute paths, so the
+  // tilde expands against the same home ssh itself would expand it against.
+  // `~user/...` does not expand: the parser refuses the ref whole, which is
+  // fail-closed, not a silent route change.
+  const refPaths = (keyword: string): string[] =>
+    valuesOf(g, keyword)
+      .filter((v) => v !== "" && v !== "none")
+      .map((v) => expandTilde(v, deps.homeDir));
+  const identityFiles = refPaths("identityfile");
+  const certificateFiles = refPaths("certificatefile");
+  const knownHostsFiles = refPaths("userknownhostsfile");
   const hostKeyAliasRaw = valuesOf(g, "hostkeyalias")[0] ?? "none";
   const hostKeyAlias = hostKeyAliasRaw !== "none" && hostKeyAliasRaw !== "" ? hostKeyAliasRaw : null;
 
@@ -268,8 +294,12 @@ export async function resolveSshAliasConfig(
   if (identityAgent?.startsWith("/")) {
     authAgentSocket = identityAgent;
   } else if (identityAgent !== "none" && env.SSH_AUTH_SOCK?.startsWith("/")) {
-    // "ssh-agent" (and the keyword's absence) mean "the account's agent";
-    // any OTHER future spelling fails closed to null, never to env.
+    // Everything that is not a path and not `none` — the explicit `ssh-agent`
+    // spelling, any future one, and the keyword's absence — means "use the
+    // account's agent", whose socket is exactly the account's env
+    // `SSH_AUTH_SOCK`. `none` above is the only way to say "no agent"; the
+    // env sock is trusted because it is the connecting account's own setup,
+    // and the child env carries it only when the snapshot names a socket.
     authAgentSocket = env.SSH_AUTH_SOCK;
   }
 
