@@ -3,6 +3,8 @@ import { tmuxSocketFor } from "@internal/pane-runtime";
 import { NODE_RESULT_SSH_GENERATION_STALE } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { getDefaultLocalLauncher } from "@/services/nodes/local-launcher.js";
 import { DEFAULT_COMMAND_TIMEOUT_MS, NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { SshGateFailure, type SshPaneHooks } from "@/services/pane-ssh-gate.js";
@@ -105,6 +107,15 @@ class ManagedPaneHooks implements SshPaneHooks {
    * froze at gate time (a lower or missing value is fenced node-side). With
    * `submit` the Enter is a SECOND stamped frame - ordered but non-atomic,
    * exactly the posture the REST input path documents for ordinary panes.
+   *
+   * A `local` pane (review I3) has no link and no separate machine store: the
+   * fence is the plane's own `ssh_panes.control_generation`, re-read at the
+   * beat of the write (a takeover that raised it since the gate froze the
+   * caller's generation is the same `SSH_ACCESS_DENIED` the node's store
+   * would answer), and the keystrokes go through the in-process local launcher
+   * (`sendInput`, then a second `send-keys` frame for a `submit` Enter, the
+   * byte-for-byte shape the managed remote path types). The pane's foreground
+   * process is still ssh; this is not a local shell.
    * @throws ApiError 404 when the pane or its connecting node is gone, 403
    *         `SSH_ACCESS_DENIED` when the machine refused the stamp (stale),
    *         409 NODE_OFFLINE / 503 SSH_BACKEND_UNAVAILABLE for transport
@@ -117,8 +128,27 @@ class ManagedPaneHooks implements SshPaneHooks {
     inputGeneration: number;
   }): Promise<void> {
     const row = await subshells.findById(req.subshellId);
-    const nodeId = row?.nodeId ?? null;
-    if (nodeId === null) refuseGone();
+    if (!row || row.nodeId === null) refuseGone();
+    const nodeId = row.nodeId;
+    if (nodeId === LOCAL_NODE_ID) {
+      const pane = await panes.findBySubshell(req.subshellId);
+      if (!pane) refuseGone();
+      // The plane row IS the machine's mirror for `local`; a generation that
+      // moved under this frozen write fences it exactly as the store would.
+      if (req.inputGeneration < pane.controlGeneration) {
+        throwApiError({
+          code: BackendErrorCodes.SSH_ACCESS_DENIED,
+          message:
+            "This terminal's input generation moved on (a takeover or a revocation fenced the write at the machine).",
+          doNotLog: true,
+        });
+      }
+      const socket = row.tmuxSocket ?? tmuxSocketFor(req.subshellId);
+      const launcher = getDefaultLocalLauncher();
+      await launcher.sendInput(socket, req.subshellId, req.text);
+      if (req.submit) await launcher.sendInput(socket, req.subshellId, "\r");
+      return;
+    }
     try {
       await typeFrame(nodeId, req.subshellId, req.text, req.inputGeneration);
       if (req.submit) await typeFrame(nodeId, req.subshellId, "\r", req.inputGeneration);

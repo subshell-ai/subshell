@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import { getHarness, tmuxSocketFor } from "@internal/pane-runtime";
 import { normalizeLabel, SSH_TERMINALS_PER_OWNER_PER_NODE } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { publishLive } from "@/services/live-bus.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import type { SshTerminalCreateRequest, SshTerminalView } from "@/services/ssh/ssh-api-types.js";
@@ -92,14 +94,17 @@ export async function sshTerminalCreate(caller: SshCaller, body: SshTerminalCrea
   // `workingDir` is the node's own home from its `ready` facts - the pane's
   // local cwd is irrelevant to an ssh-foregrounded window, but the column is
   // not-null and every pane view renders it; homeDir is what a connecting
-  // user sees before the first remote byte.
-  const facts = getLive(conn.nodeId)?.agent;
+  // user sees before the first remote byte. The `local` node reports no agent
+  // `ready` facts (it is this process), so its home is the server account's
+  // own - the same home `ssh-local.ts` connects from (review I3).
+  const facts = conn.nodeId === LOCAL_NODE_ID ? null : getLive(conn.nodeId)?.agent;
+  const localHome = conn.nodeId === LOCAL_NODE_ID ? process.env.HOME || homedir() : null;
   await subshells.create({
     id,
     userId: caller.userId,
     harnessId: "terminal",
     name: normalizeLabel(`SSH ${conn.displayName}`, 120),
-    workingDir: facts?.homeDir ?? "/",
+    workingDir: facts?.homeDir ?? localHome ?? "/",
     presetId: null,
     nodeId: conn.nodeId,
     tmuxSocket: socket,

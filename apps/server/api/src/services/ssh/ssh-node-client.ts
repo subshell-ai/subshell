@@ -16,9 +16,12 @@ import {
   type SshConnectionSnapshotWire,
   type SshErrorCode,
   type SshHopWire,
+  type SshNodeCommandBody,
   type SshRunFactsWire,
 } from "@internal/subshell-protocol";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { DEFAULT_COMMAND_TIMEOUT_MS, NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
+import { dispatchLocalSsh } from "@/services/ssh/ssh-local.js";
 import { logger } from "@/utils/logger.js";
 
 /**
@@ -183,7 +186,20 @@ export class SshNodeRefusal extends Error {
   }
 }
 
-/** One signed command with its deadline; node refusals surface as {@link SshNodeRefusal}. */
+/**
+ * One command with its deadline; node refusals surface as {@link SshNodeRefusal}.
+ *
+ * The dispatch seam (SSH-SUPPORT.md §1/§3, review I3): a `local` target is
+ * always "live" in-process, so its verb is served by {@link dispatchLocalSsh}
+ * calling the SAME pane-runtime the agent daemon wraps - no frame, no socket,
+ * no signature. The agent's `CommandResult` it hands back is fed through the
+ * IDENTICAL {@link classify} arm a socket answer's `NodeRpcError` takes, so a
+ * local refusal (`run_conflict`, `quota_runs`, `run_unknown`, a missing
+ * binary) maps to the same {@link SshNodeRefusal} the plane already knows how
+ * to name. The target is keyed on `LOCAL_NODE_ID`, the same identity
+ * `launcher-registry.ts` routes in-process local execution on: there is one
+ * local row and its id is its kind.
+ */
 async function call(
   nodeId: string,
   cmd: Parameters<typeof sendCommand>[1],
@@ -191,6 +207,16 @@ async function call(
   verb: string,
 ): Promise<unknown> {
   try {
+    if (nodeId === LOCAL_NODE_ID) {
+      const result = await dispatchLocalSsh(cmd as SshNodeCommandBody);
+      if (result.ok) return result.data;
+      throw new NodeRpcError(
+        "failed",
+        `node "${LOCAL_NODE_ID}" reported: ${result.error}`,
+        LOCAL_NODE_ID,
+        result.error,
+      );
+    }
     return await sendCommand(nodeId, cmd, { timeoutMs });
   } catch (err) {
     if (err instanceof NodeRpcError) throw classify(err, verb);

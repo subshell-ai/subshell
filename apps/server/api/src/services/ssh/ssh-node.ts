@@ -19,14 +19,18 @@ import type { SshCaller, SshDecision } from "@/services/ssh/ssh-policy.js";
  *   node answers to an admin subject to its maintenance flag. A foreign row
  *   is `not_found` - the usual non-enumerating convention.
  * - **new work** (resolve/test dispatch, run start, terminal open): not in
- *   maintenance, and a LIVE agent socket. Refused agents are HELD, never
- *   live, so a held node takes no SSH work - exactly the existing posture.
+ *   maintenance, and reachable now - a LIVE agent socket for an enrolled node.
+ *   Refused agents are HELD, never live, so a held node takes no SSH work -
+ *   exactly the existing posture. The built-in `local` node is always reachable
+ *   (it runs in-process), so it clears this arm without a socket.
  *
- * `local` DISPATCH (run start, terminal launch) is refused for all actors in
- * Wave 1: the in-process twin of the SSH runtime lands with the B+coordinator
- * local-launcher integration (named in the task-D report as an integration
- * request). Configure on `local` stays open so the rows and admin flow exist
- * the moment dispatch lands.
+ * `local` is always LIVE in-process: the built-in node runs the SAME
+ * pane-runtime the agent daemon wraps (`ssh-local.ts` dispatches every `ssh_*`
+ * verb directly, review I3), so there is no link to be offline and no socket
+ * to check. A `local` target that is not in maintenance is therefore eligible
+ * for `dispatch_rpc` and `new_work` exactly as an online agent is; the
+ * maintenance flag and the launch-enabled rule still gate it (the two rows
+ * below apply to every kind).
  */
 
 const nodes = new NodesRepository(db);
@@ -51,13 +55,18 @@ export async function sshNodeGate(caller: SshCaller, nodeId: string, ask: SshNod
   const row = await nodes.findById(nodeId);
   if (!row) return { allow: false, code: "not_found" };
   if (row.kind === "local") {
-    // §2's admin arm: an admin may configure private connections through the
-    // built-in node; a non-admin never reaches it as a config target (an
-    // invisible-to-config row answers 404, per the node's own local posture
-    // where config acts are cookie-admin). "Subject to its existing
+    // §2's admin arm, expressed by ACTOR: a COOKIE actor touching the built-in
+    // node must be an admin (only admins may configure/discover/test through
+    // it; a non-admin cookie is invisible-to-config and answers 404). A BEARER
+    // here has ALREADY been gated by `gateGrantedUse` (an explicit per-pane
+    // grant on a connection that can only exist under the admin who owns it),
+    // so its remaining local facts are the launch-enabled rule and the
+    // maintenance flag - not admin status. This adds no door: a bearer cannot
+    // mint a grant, and `gateHumanConfig` refuses every machine credential
+    // before it reaches this arm for a config ask. "Subject to its existing
     // launch-enabled rule" is `allow_server_subshells`, read live like the
     // launch path reads it.
-    if (!caller.isAdmin) return { allow: false, code: "not_found" };
+    if (caller.actor === "cookie" && !caller.isAdmin) return { allow: false, code: "not_found" };
     if (!(await serverSubshellsEnabled(db))) return { allow: false, code: "node_ineligible" };
   } else if (row.ownerUserId !== caller.userId) {
     // Owner-only configure; an admin is NOT a shortcut on an enrolled node.
@@ -65,8 +74,13 @@ export async function sshNodeGate(caller: SshCaller, nodeId: string, ask: SshNod
   }
   if (row.maintenance === 1) return { allow: false, code: "node_ineligible" };
   if (ask !== "configure") {
-    if (row.kind === "local") return { allow: false, code: "node_ineligible" };
-    if (!getLive(row.id)) return { allow: false, code: "node_ineligible" };
+    // Only an AGENT target can be offline: a refused agent is HELD (never
+    // live), so a held node takes no SSH work - the existing posture. `local`
+    // has no link to be down (it runs in-process, `ssh-local.ts`), so once the
+    // maintenance flag above clears it, it is eligible exactly as an online
+    // agent is (review I3: this is where Wave 1 refused `local` dispatch for
+    // every ask; the eligibility it was waiting on has now landed).
+    if (row.kind !== "local" && !getLive(row.id)) return { allow: false, code: "node_ineligible" };
   }
   return { allow: true };
 }
