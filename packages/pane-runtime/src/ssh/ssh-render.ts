@@ -87,8 +87,13 @@ const MANDATORY_POLICY: readonly [string, string][] = [
   ["PasswordAuthentication", "no"],
   ["KbdInteractiveAuthentication", "no"],
   ["HostbasedAuthentication", "no"],
+  // GSSAPIAuthentication is the canonical spelling; the legacy
+  // `KerberosAuthentication` alias it subsumed is REMOVED from recent OpenSSH
+  // (measured: 10.2p1 warns `Unsupported option "kerberosauthentication"` on
+  // EVERY launch, e2e fixture log). The warning was noise, never a refusal,
+  // but a policy line the client can no longer parse disables nothing: the
+  // GSSAPI line above is what actually kills that auth path.
   ["GSSAPIAuthentication", "no"],
-  ["KerberosAuthentication", "no"],
   // trust comes ONLY from the pinned files below: DNS- and fetch-based checks
   // are not "existing verified host trust", and canonicalization could send
   // the connection to a host the reviewer never approved
