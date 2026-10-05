@@ -188,7 +188,14 @@ describe("/api/ssh connections + grants (spec 2026-10-04 §2/§4)", () => {
       const pane = await makeAgentPane("d-pane");
       const byPane = await get(`/api/ssh/discovery?nodeId=${node}`, { bearer: pane.bearer });
       expect(byPane.status).toBe(403);
-      expect(((await byPane.json()) as { message: string }).message).toContain("Forbidden");
+      // A freshly-minted pane token carries the coarse `ssh` scope (it joined
+      // the mint map at Gate B), so it clears requirePerm and is refused one
+      // layer later by the human-only cookie arm - the more specific message.
+      // The security claim is unchanged: a machine credential never reaches
+      // config dispatch. A pre-feature token (no `ssh` key) is refused earlier,
+      // at the coarse gate; both layers return 403, and this is the layer a
+      // real current token actually hits.
+      expect(((await byPane.json()) as { message: string }).message).toMatch(/human session|not a machine|Forbidden/);
     });
 
     it("404s a foreign node (config acts are the node owner's alone)", async () => {
