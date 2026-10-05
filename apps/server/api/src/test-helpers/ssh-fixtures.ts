@@ -1,7 +1,7 @@
 import type { SshRunFactsWire } from "@internal/subshell-protocol";
 
 /**
- * Shared fixtures for the `/api/ssh` route suites: the approved-snapshot
+ * Shared fixtures for the SSH suites (route-boot and service-level): the approved-snapshot
  * builder (the grammar accepts it verbatim; `over` bends one member for the
  * refusal cases) and the run-facts answer builders the scripted node uses.
  * Suites stay readable because the 17-field snapshot is the contract, not

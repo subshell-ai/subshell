@@ -34,8 +34,8 @@ import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { attachScriptedNode, type ScriptedNode } from "@/test-helpers/scripted-node.js";
+import { SNAPSHOT, snapshotWith } from "@/test-helpers/ssh-fixtures.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
-import { SNAPSHOT, snapshotWith } from "./ssh-fixtures.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(sshRoutes);
 

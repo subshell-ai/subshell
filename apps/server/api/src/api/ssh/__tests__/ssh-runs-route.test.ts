@@ -45,8 +45,8 @@ import { SshRunsRepository } from "@/services/ssh/ssh-runs.repository.js";
 import { sshRunStart } from "@/services/ssh/ssh-runs.service.js";
 import { sshControlTransition } from "@/services/ssh/ssh-terminals.service.js";
 import { attachScriptedNode, ok, type ScriptedNode } from "@/test-helpers/scripted-node.js";
+import { facts, readResult, SNAPSHOT } from "@/test-helpers/ssh-fixtures.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
-import { facts, readResult, SNAPSHOT } from "./ssh-fixtures.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(sshRoutes);
 
