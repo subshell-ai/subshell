@@ -2,11 +2,13 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { initTerminalForLaunch, rotateTerminalLogIfNeeded } from "@internal/pane-runtime";
 import {
   type JsonValue,
   NODE_RESULT_MAINTENANCE,
   NODE_RESULT_SSH_GENERATION_STALE,
   type NodeCommandBody,
+  parseNodeLogReadResult,
   parseNodeSshRunFacts,
   parseNodeSshRunReadResult,
   type SshConnectionSnapshotWire,
@@ -417,5 +419,45 @@ describe("ssh_discover_aliases / ssh_resolve_config arms", () => {
     const res = await send(ctx, { type: "ssh_test_connection", snapshot: SNAPSHOT } as NodeCommandBody);
     expect(res.ok).toBe(false);
     expect(String((res as { error?: string }).error)).toInclude("binary missing");
+  });
+});
+
+describe("log_read generation echo (SSH-SUPPORT.md §3 rotation contract, the node's half)", () => {
+  it("carries the terminal's CURRENT log generation, the NEW one after a real rotation, and nothing for an ordinary pane", async () => {
+    const { dataDir, ctx } = setup("log-gen", "/nonexistent/ssh-binary");
+    const paneId = runIdFor(40);
+    await ctx.meta.record({
+      subshellId: paneId,
+      cwd: dataDir,
+      socket: "sock-40",
+      harnessId: "ssh",
+      name: paneId,
+      startedAt: new Date().toISOString(),
+    });
+    const readCmd = { type: "log_read", subshellId: paneId, fromByte: 0, maxBytes: 64 } as NodeCommandBody;
+
+    // Ordinary pane: no SSH terminal state exists, and the answer keeps the
+    // pre-feature shape EXACTLY (no logGeneration key, no policy reads).
+    writeFileSync(ctx.meta.logPath(paneId), "hello\n");
+    const ordinary = parseNodeLogReadResult(((await send(ctx, readCmd)) as { data?: unknown }).data);
+    expect(ordinary?.bytes_b64).toBe(Buffer.from("hello\n").toString("base64"));
+    expect(ordinary?.logGeneration).toBeUndefined();
+
+    // Managed launch: the terminal state starts at generation 1.
+    initTerminalForLaunch(dataDir, paneId); // deliberately AFTER the file write: it clears the old log
+    writeFileSync(ctx.meta.logPath(paneId), "hello\n");
+    const gen1 = parseNodeLogReadResult(((await send(ctx, readCmd)) as { data?: unknown }).data);
+    expect(gen1?.logGeneration).toBe(1);
+    expect(gen1?.bytes_b64).toBe(Buffer.from("hello\n").toString("base64"));
+
+    // The sweep's rotation is a real rename + bump (maxBytes 0 forces it on
+    // the non-empty file): after it, every answer carries the NEW generation
+    // until the re-armed child recreates the log, and the window reads as
+    // empty - never as the old bytes at the old offsets.
+    expect(rotateTerminalLogIfNeeded(dataDir, paneId, 0)).not.toBeNull();
+    const gen2 = parseNodeLogReadResult(((await send(ctx, readCmd)) as { data?: unknown }).data);
+    expect(gen2?.logGeneration).toBe(2);
+    expect(gen2?.bytes_b64).toBe("");
+    expect(gen2?.next).toBe(0);
   });
 });

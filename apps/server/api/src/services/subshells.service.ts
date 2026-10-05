@@ -54,6 +54,7 @@ import {
 } from "@/services/pane-ssh-gate.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import type { SshControlView, SshTerminalExecView } from "@/services/ssh/ssh-api-types.js";
+import { SshPanesRepository } from "@/services/ssh/ssh-panes.repository.js";
 import type { SshPaneSurface } from "@/services/ssh/ssh-policy.js";
 import {
   PROMPT_POLL_MS,
@@ -413,6 +414,8 @@ export interface ExecAnswer {
 export class SubshellsService extends BaseService {
   /** Built once per request (not once per call) from the context's repositories. */
   readonly #manager: SubshellManagerService;
+  /** The managed-pane marker table - the log-read branch persists rotation stamps through it. */
+  readonly #sshPanes: SshPanesRepository;
 
   constructor(params: CommonServiceParams) {
     super(params);
@@ -420,6 +423,7 @@ export class SubshellsService extends BaseService {
       subshells: params.repos.subshells,
       presets: params.repos.presets,
     });
+    this.#sshPanes = new SshPanesRepository(params.db);
   }
 
   /**
@@ -1033,7 +1037,12 @@ export class SubshellsService extends BaseService {
    * `logGeneration` - the rotation/reset counter - and a cursor whose stamp
    * is missing or other than the pane's current one answers the explicit
    * `cursorExpired` result (with the current generation) rather than reading
-   * fresh bytes at a dead offset. Tail reads (no cursor) need no stamp and
+   * fresh bytes at a dead offset. The pane's stamp is not a constant: the
+   * node echoes its CURRENT rotation generation in every `log_read` answer,
+   * the plane persists a higher one, and a cursor read whose echoed
+   * generation differs from what the reader stamped is the same explicit
+   * expiry (the rotation happened between reads, the bytes are not a
+   * continuation). Tail reads (no cursor) need no stamp and
    * answer the current one; ordinary panes keep the existing contract
    * EXACTLY - same shape, same semantics, one added optional field they
    * never receive.
@@ -1078,9 +1087,30 @@ export class SubshellsService extends BaseService {
         return { lines: [], truncated: false, nextByte: 0, cursorExpired: true, logGeneration: managed.logGeneration };
       }
       const res = await readSubshellLogWindow(id, row.nodeId, window ?? {}).catch(rethrowLaunchRefusal);
-      return { ...res, logGeneration: managed.logGeneration };
+      // The read's SECOND half: the node echoes its CURRENT terminal log
+      // generation (rotated on its own schedule; the plane has no other
+      // writer). A report above the persisted stamp persists first, and a
+      // CURSOR read whose echoed generation is not what the reader stamped
+      // answers the explicit expiry with the current value - the window read
+      // happened across a rotation, its bytes are NOT the reader's continuation.
+      const { logGeneration: reported, ...view } = res;
+      let current = managed.logGeneration;
+      if (reported !== undefined && reported > current) {
+        await this.#sshPanes.bumpLogGeneration(id, reported);
+        current = reported;
+      }
+      if (window?.fromByte !== undefined && reported !== undefined && reported !== cursorGeneration) {
+        return { lines: [], truncated: false, nextByte: 0, cursorExpired: true, logGeneration: current };
+      }
+      return { ...view, logGeneration: current };
     }
-    return await readSubshellLogWindow(id, row.nodeId, window ?? {}).catch(rethrowLaunchRefusal);
+    // An ordinary pane never receives the generation fields - belt against a
+    // node echoing one for a pane with no SSH terminal (there is nothing to
+    // strip on the common path; a node CANNOT mint `cursorExpired` here).
+    const { logGeneration: _reported, ...ordinary } = await readSubshellLogWindow(id, row.nodeId, window ?? {}).catch(
+      rethrowLaunchRefusal,
+    );
+    return ordinary;
   }
 
   /**

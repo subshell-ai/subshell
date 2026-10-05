@@ -1,4 +1,5 @@
 import { type FSWatcher, watch } from "node:fs";
+import { readTerminalState } from "@internal/pane-runtime";
 import type { JsonValue, NodeEvent, NodeLogReadResult } from "@internal/subshell-protocol";
 import { log } from "../log.js";
 import { isSubshellId } from "../subshell-meta.js";
@@ -57,11 +58,21 @@ const TAIL_SEND_FAILURE_LIMIT = 2;
 export async function execLogRead(ctx: CommandContext, cmd: Cmd<"log_read">): Promise<CommandResult> {
   if (!isSubshellId(cmd.subshellId)) return { ok: false, error: "invalid subshell id" };
   const file = Bun.file(ctx.meta.logPath(cmd.subshellId));
+  // The SSH terminal's CURRENT rotation generation, when this pane IS a
+  // managed SSH terminal on this machine (the sweep rotates the log and bumps
+  // it hourly; a relaunch bumps it again). The PLANE's `ssh_panes.log_generation`
+  // has no other writer, and without this echo every cursor check compares
+  // against the constant it was created with — §3's never-silent-reuse rule
+  // is only true end-to-end if the answer carries the truth. Ordinary panes
+  // have no terminal state and the field stays absent (the pre-existing shape).
+  const managedGeneration = readTerminalState(ctx.config.dataDir, cmd.subshellId)?.logGeneration;
+  const stamp = <T extends { bytes_b64: string; next: number; size: number }>(data: T): NodeLogReadResult =>
+    managedGeneration === undefined ? data : { ...data, logGeneration: managedGeneration };
   // The result shapes are JSON-safe by construction (`node-results.ts` owns
   // them); an interface cannot structurally satisfy JsonValue's index
   // signature, so the seam cast is the intended route (same as execProbe).
   const empty = (size: number): CommandResult => {
-    const data: NodeLogReadResult = { bytes_b64: "", next: Math.min(cmd.fromByte, size), size };
+    const data = stamp({ bytes_b64: "", next: Math.min(cmd.fromByte, size), size });
     return { ok: true, data: data as unknown as JsonValue };
   };
   const size = file.size; // Bun yields 0 for a missing file — the empty-read path covers it
@@ -69,11 +80,11 @@ export async function execLogRead(ctx: CommandContext, cmd: Cmd<"log_read">): Pr
   const end = Math.min(size, cmd.fromByte + cmd.maxBytes);
   try {
     const bytes = await file.slice(cmd.fromByte, end).bytes();
-    const data: NodeLogReadResult = {
+    const data = stamp({
       bytes_b64: byteView(bytes).toString("base64"),
       next: cmd.fromByte + bytes.byteLength,
       size,
-    };
+    });
     return { ok: true, data: data as unknown as JsonValue };
   } catch {
     return empty(size); // raced unlink between stat and slice — reads as empty, as the local twin does

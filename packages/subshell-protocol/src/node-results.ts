@@ -159,12 +159,23 @@ export interface NodeLogReadResult {
   next: number;
   /** Total size of the whole log file on the node */
   size: number;
+  /**
+   * MANAGED SSH panes only (additive; absent for ordinary panes and for a
+   * pre-feature answer): the node's CURRENT terminal log rotation generation
+   * for this pane. The node rotates SSH terminal logs on its own schedule, so
+   * this is the ONLY channel that keeps the plane's `ssh_panes.log_generation`
+   * honest end-to-end (SSH-SUPPORT.md §3's never-silent-reuse rule): the plane
+   * persists a higher report and answers a stale reader explicitly.
+   */
+  logGeneration?: number;
 }
 
 /**
  * Validates and narrows a `log_read` command's `result{data}`.
- * Invariant: base64 payload, non-negative integer offsets, and an empty read
- * must not report an offset past EOF (`bytes_b64 === "" ? next <= size : true`).
+ * Invariant: base64 payload, non-negative integer offsets, an empty read
+ * must not report an offset past EOF (`bytes_b64 === "" ? next <= size : true`),
+ * and when `logGeneration` is present it is a positive integer (the node's
+ * counter starts at 1; a zero or fractional spelling is malformed).
  * @param data - the `data` member of a successful result frame
  * @returns the narrowed result, or null when malformed
  */
@@ -174,6 +185,9 @@ export function parseNodeLogReadResult(data: unknown): NodeLogReadResult | null 
   if (!isInt(data.next) || (data.next as number) < 0) return null;
   if (!isInt(data.size) || (data.size as number) < 0) return null;
   if (data.bytes_b64 === "" && (data.next as number) > (data.size as number)) return null;
+  if (data.logGeneration !== undefined && (!isInt(data.logGeneration) || (data.logGeneration as number) < 1)) {
+    return null;
+  }
   return data as unknown as NodeLogReadResult;
 }
 

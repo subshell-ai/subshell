@@ -361,7 +361,7 @@ describe("SSH gates on the generic pane surfaces", () => {
       expect(res.status).toBe(404);
     });
 
-    it("managed cursor reads answer an explicit cursorExpired, never silent reuse", async () => {
+    it("managed cursor reads answer an explicit cursorExpired, never silent reuse (the plane-stamp arm)", async () => {
       const pane = await seedManaged("gate-log-gen", { logGeneration: 2 });
       allowAll();
       // A stale stamp: the explicit reset, with the CURRENT generation named.
@@ -387,13 +387,127 @@ describe("SSH gates on the generic pane surfaces", () => {
       expect(body.logGeneration).toBe(2);
     });
 
-    it("ordinary cursor reads never see the generation fields (contract untouched)", async () => {
+    it("a node-side rotation rotates the PLANE's stamp and expires the held cursor (the reported arm, end to end)", async () => {
+      // Gate C IMPORTANT 2: `ssh_panes.log_generation` was written only at
+      // create (=1), so the check above compared against a constant and a
+      // stale cursor reused bytes silently across every node-side rotation.
+      // The contract is real now: the `log_read` answer echoes the node's
+      // CURRENT generation, the plane persists it, and a reader stamped under
+      // the old one gets the explicit expiry - through the ROUTE, with the
+      // REAL launcher RPC chain to the scripted node.
+      const pane = await seedManaged("gate-log-rotate");
+      allowAll();
+      // A controllable "rotation" on the machine: the answer table carries the
+      // generation the node would report, and flipping `nodeGen` is exactly
+      // what the sweep's rotateTerminalLogIfNeeded does to its own counter.
+      sim.detach();
+      resetNodeRegistryForTests();
+      let nodeGen = 1;
+      const logBytes = "hello managed\n";
+      sim = attachScriptedNode(node, {
+        log_read: (cmd) => {
+          if (cmd.type !== "log_read") return new Error("wrong cmd");
+          const full = enc.encode(logBytes);
+          const end = Math.min(full.byteLength, cmd.fromByte + cmd.maxBytes);
+          const bytes = full.subarray(cmd.fromByte, Math.min(end, full.byteLength));
+          return {
+            bytes_b64: Buffer.from(bytes).toString("base64"),
+            next: cmd.fromByte + bytes.byteLength,
+            size: full.byteLength,
+            logGeneration: nodeGen,
+          };
+        },
+        terminate: ok,
+        kill: ok,
+        input: ok,
+      });
+      try {
+        // A cursor seeded under generation 1 reads normally while the node
+        // still says 1 - the stamp's whole point is that the CURRENT value
+        // passes (this is the arm the constant could never break).
+        let res = await call(`/${pane}/log?from_byte=0&max_bytes=12&log_generation=1`);
+        let body = (await res.json()) as {
+          cursorExpired?: boolean;
+          logGeneration?: number;
+          lines: string[];
+          nextByte: number;
+        };
+        expect(body.cursorExpired).toBeUndefined();
+        expect(body.logGeneration).toBe(1);
+        expect(body.lines.length).toBeGreaterThan(0);
+
+        // The hourly sweep rotates on the machine. The reader still holds its
+        // (1, offset) cursor - the NEXT read must never continue at that
+        // offset into the fresh generation.
+        nodeGen = 2;
+        res = await call(`/${pane}/log?from_byte=6&max_bytes=64&log_generation=1`);
+        body = (await res.json()) as typeof body;
+        expect(body.cursorExpired).toBe(true);
+        expect(body.lines).toEqual([]);
+        expect(body.nextByte).toBe(0);
+        expect(body.logGeneration).toBe(2);
+        // The plane's persisted stamp moved WITH the node's - the constant is
+        // dead, and the next read stamped 2 passes straight through.
+        const row = await db
+          .selectFrom("sshPanes")
+          .select("logGeneration")
+          .where("subshellId", "=", pane)
+          .executeTakeFirstOrThrow();
+        expect(row.logGeneration).toBe(2);
+        res = await call(`/${pane}/log?from_byte=6&max_bytes=64&log_generation=2`);
+        body = (await res.json()) as typeof body;
+        expect(body.cursorExpired).toBeUndefined();
+        expect(body.logGeneration).toBe(2);
+        // A tail read with no cursor learns the new stamp the same way.
+        nodeGen = 3;
+        res = await call(`/${pane}/log`);
+        body = (await res.json()) as typeof body;
+        expect(body.cursorExpired).toBeUndefined();
+        expect(body.logGeneration).toBe(3);
+      } finally {
+        // Restore the suite's shared scripted node for the cases that follow.
+        sim.detach();
+        resetNodeRegistryForTests();
+        sim = attachScriptedNode(node, {
+          terminate: ok,
+          kill: ok,
+          input: ok,
+          log_read: () => ({ bytes_b64: "", next: 0, size: 0 }),
+        });
+      }
+    });
+
+    it("ordinary cursor reads never see the generation fields (contract untouched, echo or not)", async () => {
       const pane = await seedPane("gate-log-ordinary");
       const res = await call(`/${pane}/log?from_byte=0`);
       expect(res.status).toBe(200);
       const body = (await res.json()) as Record<string, unknown>;
       expect("cursorExpired" in body).toBe(false);
       expect("logGeneration" in body).toBe(false);
+      // The node could not answer a generation for an ordinary pane even if
+      // asked (no SSH terminal state exists for it) - and the route shape
+      // never grows the field for an ordinary row.
+      sim.detach();
+      resetNodeRegistryForTests();
+      sim = attachScriptedNode(node, {
+        log_read: () => ({ bytes_b64: "", next: 0, size: 0, logGeneration: 7 }),
+        terminate: ok,
+        kill: ok,
+        input: ok,
+      });
+      try {
+        const again = await call(`/${pane}/log?from_byte=0`);
+        expect(((await again.json()) as Record<string, unknown>)["logGeneration"]).toBeUndefined();
+      } finally {
+        sim.detach();
+        resetNodeRegistryForTests();
+        sim = attachScriptedNode(node, {
+          terminate: ok,
+          kill: ok,
+          input: ok,
+          log_read: () => ({ bytes_b64: "", next: 0, size: 0 }),
+        });
+      }
     });
   });
 

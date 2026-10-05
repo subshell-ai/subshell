@@ -1813,7 +1813,7 @@ export async function readSubshellLogWindow(
   subshellId: string,
   nodeId: string,
   req: LogCursorRequest,
-): Promise<{ lines: string[]; truncated: boolean; nextByte: number }> {
+): Promise<{ lines: string[]; truncated: boolean; nextByte: number; logGeneration?: number }> {
   const launcher = launcherFor(nodeId);
   return await readLogCursor((fromByte, maxBytes) => launcher.readLogWindow(subshellId, fromByte, maxBytes), req);
 }

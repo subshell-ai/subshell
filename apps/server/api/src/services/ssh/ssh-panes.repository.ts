@@ -72,4 +72,23 @@ export class SshPanesRepository extends BaseRepository {
       .execute();
     return this.findBySubshell(subshellId);
   }
+
+  /**
+   * Persist a HIGHER terminal log generation the node reported on a
+   * `log_read` answer (the rotation contract, SSH-SUPPORT.md §3). The
+   * comparison rides the UPDATE: the plane's stamp only ever moves UP (a node
+   * that lost its terminal-state file answers lower or not at all and can
+   * never un-rotate the plane's memory), and no reader between the read and
+   * this write can observe a value the reporting node never had.
+   * @returns true when the row moved (the reported value was higher)
+   */
+  async bumpLogGeneration(subshellId: string, reported: number): Promise<boolean> {
+    const res = await this.db
+      .updateTable("sshPanes")
+      .set({ logGeneration: reported })
+      .where("subshellId", "=", subshellId)
+      .where("logGeneration", "<", reported)
+      .executeTakeFirst();
+    return Number(res?.numUpdatedRows ?? 0) > 0;
+  }
 }

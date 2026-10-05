@@ -49,6 +49,13 @@ describe("node result contracts (spec §3.3, phase-2 wire note)", () => {
     expect(parseNodeLogReadResult({ bytes_b64: "", next: 5, size: 3 })).toBeNull(); // empty read must not jump past EOF
     expect(parseNodeLogReadResult({ bytes_b64: "", next: 3, size: 3 })).not.toBeNull(); // empty tail read is legal
     expect(parseNodeLogReadResult({ bytes_b64: "aGk=", next: -1, size: 2 })).toBeNull();
+    // The SSH rotation echo (Gate C, spec §3): optional on every pane, and
+    // when present it is a POSITIVE INTEGER - the node's counter starts at 1.
+    expect(parseNodeLogReadResult({ bytes_b64: "aGk=", next: 2, size: 2, logGeneration: 3 })?.logGeneration).toBe(3);
+    expect(parseNodeLogReadResult({ bytes_b64: "aGk=", next: 2, size: 2, logGeneration: 0 })).toBeNull();
+    expect(parseNodeLogReadResult({ bytes_b64: "aGk=", next: 2, size: 2, logGeneration: 1.5 })).toBeNull();
+    expect(parseNodeLogReadResult({ bytes_b64: "aGk=", next: 2, size: 2, logGeneration: "2" })).toBeNull();
+    expect(parseNodeLogReadResult({ bytes_b64: "aGk=", next: 2, size: 2 })?.logGeneration).toBeUndefined();
   });
 
   it("the scalar results validate narrowly", () => {

@@ -147,11 +147,16 @@ export function cursorLinesFromWindow(
   return { lines: all, truncated: nextByte < size, nextByte };
 }
 
-/** The launcher seam's window triple, unbound (see `NodeLauncher.readLogWindow`). */
+/**
+ * The launcher seam's window triple, unbound (see `NodeLauncher.readLogWindow`).
+ * The optional `logGeneration` is the SSH terminal rotation stamp the node
+ * echoes on a managed pane's answer; the cursor composition carries it to the
+ * SSH branch of the log read (never line math - the byte math is generation-blind).
+ */
 export type LogWindowReader = (
   fromByte: number,
   maxBytes: number,
-) => Promise<{ bytes: Uint8Array; next: number; size: number }>;
+) => Promise<{ bytes: Uint8Array; next: number; size: number; logGeneration?: number }>;
 
 /** Optional window request beside a log read; `fromByte` absent means "tail". */
 export interface LogCursorRequest {
@@ -183,17 +188,28 @@ export interface LogCursorRequest {
 export async function readLogCursor(
   read: LogWindowReader,
   req: LogCursorRequest,
-): Promise<{ lines: string[]; truncated: boolean; nextByte: number }> {
+): Promise<{ lines: string[]; truncated: boolean; nextByte: number; logGeneration?: number }> {
+  // Tail mode reads TWICE (the size probe then the window); the window read's
+  // stamp is the fresher fact, so the probe's is only a fallback.
+  let reported: number | undefined;
   if (req.fromByte === undefined) {
-    const { size } = await read(0, 1);
-    if (size === 0) return { lines: [], truncated: false, nextByte: 0 };
-    const start = Math.max(0, size - LOG_TAIL_BYTES);
-    const { bytes } = await read(start, LOG_TAIL_BYTES);
-    const tail = tailLinesFromWindowText(Buffer.from(bytes).toString("utf8"), start === 0);
-    return { ...tail, nextByte: size };
+    const first = await read(0, 1);
+    reported = first.logGeneration;
+    if (first.size === 0)
+      return {
+        lines: [],
+        truncated: false,
+        nextByte: 0,
+        ...(reported === undefined ? {} : { logGeneration: reported }),
+      };
+    const start = Math.max(0, first.size - LOG_TAIL_BYTES);
+    const second = await read(start, LOG_TAIL_BYTES);
+    reported ??= second.logGeneration;
+    const tail = tailLinesFromWindowText(Buffer.from(second.bytes).toString("utf8"), start === 0);
+    return { ...tail, nextByte: first.size, ...(reported === undefined ? {} : { logGeneration: reported }) };
   }
   const fromByte = Math.max(0, Math.trunc(req.fromByte));
   const maxBytes = Math.min(Math.max(1, Math.trunc(req.maxBytes ?? LOG_WINDOW_DEFAULT_BYTES)), LOG_MAX_WINDOW_BYTES);
-  const { bytes, size } = await read(fromByte, maxBytes);
-  return cursorLinesFromWindow(bytes, fromByte, size);
+  const { bytes, size, logGeneration } = await read(fromByte, maxBytes);
+  return { ...cursorLinesFromWindow(bytes, fromByte, size), ...(logGeneration === undefined ? {} : { logGeneration }) };
 }
