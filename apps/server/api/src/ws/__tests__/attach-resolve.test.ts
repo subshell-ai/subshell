@@ -5,6 +5,7 @@ import { runMigrations } from "@/db/migrate.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { getRequestlessContext } from "@/lib/context.js";
+import { DENY_EVERYTHING_SSH_POLICY, setSshPolicyForTests } from "@/services/pane-ssh-gate.js";
 import type { AttachParams } from "@/ws/attach-params.js";
 import { attachJournalLine, resolveAttach } from "@/ws/attach-resolve.js";
 import { consumeWsToken, issueWsToken } from "@/ws/ws-token.js";
@@ -474,5 +475,148 @@ describe("resolveAttach clears the unseen push (spec 2026-09-23)", () => {
     // A machine credential attends nothing, at attach or at typing: the typed
     // frame would answer a push no human saw.
     if (res.ok) expect(res.attendsPush).toBe(false);
+  });
+});
+
+describe("resolveAttach SSH census: the attach_redeem gate", () => {
+  const email = `attach-ssh-${crypto.randomUUID()}@subshell.local`;
+  const pw = "attach-ssh-pass-1";
+  let ownerId: string;
+  let cookie: string;
+
+  /** A managed SSH pane: subshells row + sshConnections + the `ssh_panes` marker. */
+  async function managedRow(name: string): Promise<string> {
+    const { repos } = getRequestlessContext();
+    const row = await repos.subshells.create({
+      id: crypto.randomUUID(),
+      userId: ownerId,
+      presetId: "p-test",
+      harnessId: "shell",
+      name,
+      workingDir: "/tmp",
+      tmuxSocket: "subshell-attach-resolve",
+    });
+    const connId = crypto.randomUUID();
+    await db
+      .insertInto("sshConnections")
+      .values({
+        id: connId,
+        userId: ownerId,
+        nodeId: "local",
+        displayName: name,
+        configSnapshot: "{}",
+        remoteDir: null,
+        revision: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .execute();
+    await db
+      .insertInto("sshPanes")
+      .values({
+        subshellId: row.id,
+        connectionId: connId,
+        connectionRevision: 1,
+        initiatedBy: "human",
+        grantId: null,
+        apiKeyId: null,
+        controlOwner: "agent",
+        controlGeneration: 1,
+        logGeneration: 1,
+        createdAt: new Date().toISOString(),
+      })
+      .execute();
+    return row.id;
+  }
+
+  async function cleanSsh(name: string): Promise<void> {
+    const rows = await db.selectFrom("subshells").select("id").where("name", "=", name).execute();
+    for (const r of rows) {
+      await db.deleteFrom("sshPanes").where("subshellId", "=", r.id).execute();
+    }
+    await db.deleteFrom("sshConnections").where("displayName", "=", name).execute();
+    await db.deleteFrom("subshells").where("userId", "=", ownerId).execute();
+  }
+
+  beforeAll(async () => {
+    await setupAuthTables();
+    ownerId = await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    cookie = await signIn(email, pw);
+  });
+
+  afterAll(async () => {
+    setSshPolicyForTests(null);
+    await cleanSsh("attach-ssh");
+    await deleteUserByEmailOrId(email);
+  });
+
+  const cookieReq = (id: string) => ({
+    url: new URL(`ws://localhost/ws?subshell=${id}`),
+    cookieHeader: `better-auth.session_token=${cookie}`,
+    attachUa: "test-ua",
+  });
+
+  it("an ordinary pane never enters the SSH branch (no policy call, attach proceeds)", async () => {
+    const { repos } = getRequestlessContext();
+    const row = await repos.subshells.create({
+      id: crypto.randomUUID(),
+      userId: ownerId,
+      presetId: "p-test",
+      harnessId: "shell",
+      name: "attach-ordinary",
+      workingDir: "/tmp",
+      tmuxSocket: "subshell-attach-resolve",
+    });
+    let consulted = 0;
+    setSshPolicyForTests({
+      ...DENY_EVERYTHING_SSH_POLICY,
+      gatePaneSurface: async () => {
+        consulted += 1;
+        return { allow: true };
+      },
+    });
+    const res = await resolveAttach(cookieReq(row.id));
+    expect(res.ok).toBe(true);
+    expect(consulted).toBe(0); // one PK read decided it; the policy never ran
+    await db.deleteFrom("subshells").where("id", "=", row.id).execute();
+  });
+
+  it("a refused managed pane answers the uniform 4001 - never the 4005 that leaks existence", async () => {
+    const id = await managedRow("attach-ssh");
+    // The placeholder's deny-everything posture, read through its own arm.
+    let sawSurface = "";
+    setSshPolicyForTests({
+      ...DENY_EVERYTHING_SSH_POLICY,
+      gatePaneSurface: async (req) => {
+        sawSurface = req.surface;
+        return { allow: false, code: "not_found" };
+      },
+    });
+    // The FULL uniform pair: a managed refusal is indistinguishable from a
+    // bad token, so redeem cannot enumerate which ids are SSH panes.
+    expect(await resolveAttach(cookieReq(id))).toEqual({ ok: false, code: 4001, reason: "unauthorized" });
+    expect(sawSurface).toBe("attach_redeem");
+    // Same refusal through a SCOPED machine token bound to the pane.
+    const token = issueWsToken(ownerId, id);
+    expect(await resolveAttach(request(`subshell=${id}&token=${token}`))).toEqual({
+      ok: false,
+      code: 4001,
+      reason: "unauthorized",
+    });
+  });
+
+  it("an allowed managed pane attaches (the policy's allow is the whole door)", async () => {
+    const id = await managedRow("attach-ssh");
+    setSshPolicyForTests({
+      ...DENY_EVERYTHING_SSH_POLICY,
+      gatePaneSurface: async () => ({ allow: true }),
+    });
+    const res = await resolveAttach(cookieReq(id));
+    expect(res.ok).toBe(true);
   });
 });

@@ -3,7 +3,8 @@ import { stripAnsi } from "@internal/backend-errors";
 import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
-import type { NewSshTerminalExec } from "@/db/types/ssh-terminal-execs.db-types.js";
+import type { SshTerminalExecTable } from "@/db/types/ssh-terminal-execs.db-types.js";
+import type { NewSubshell } from "@/db/types/subshells.db-types.js";
 import { createSentinelScanner, execSentinelToken, windowIsPartial } from "@/services/nodes/pane-exec.js";
 import {
   cancelObservation,
@@ -42,11 +43,19 @@ async function seedPane(): Promise<string> {
     harnessId: "terminal",
     name: "exec-record-pane",
     workingDir: "/tmp",
-  });
+    // The repository fills every lifecycle default; the partial is the point
+    // of the call, and the cast matches what every other route suite does.
+  } as NewSubshell);
   return row.id;
 }
 
-function newRow(subshellId: string, over: Partial<NewSshTerminalExec> = {}): NewSshTerminalExec {
+/**
+ * One record in the FULL table shape (the registry's insert is per-column:
+ * `ssh_terminal_execs` has no Kysely `Generated` wrappers, so an insert
+ * supplies every column, defaults spelled out by the caller as the production
+ * `insertExec` does).
+ */
+function newRow(subshellId: string, over: Partial<SshTerminalExecTable> = {}): SshTerminalExecTable {
   return {
     id: crypto.randomUUID(),
     subshellId,
@@ -57,16 +66,19 @@ function newRow(subshellId: string, over: Partial<NewSshTerminalExec> = {}): New
     inputGeneration: 1,
     markerToken: execSentinelToken(),
     state: "outstanding",
+    exitCode: null,
+    output: null,
+    outputTruncated: 0,
+    nextByte: null,
+    createdAt: new Date().toISOString(),
+    resolvedAt: null,
     ...over,
   };
 }
 
-/** Insert a record through the module the same way the exec path does. */
-async function put(row: NewSshTerminalExec): Promise<string> {
-  await db
-    .insertInto("sshTerminalExecs")
-    .values({ ...row, createdAt: new Date().toISOString(), outputTruncated: 0 })
-    .execute();
+/** Insert a record the way the exec path does (every column named). */
+async function put(row: SshTerminalExecTable): Promise<string> {
+  await db.insertInto("sshTerminalExecs").values(row).execute();
   return row.id;
 }
 
@@ -85,10 +97,7 @@ describe("the exec record store", () => {
   it("inserts outstanding with the seeded observation cursor and reads back", async () => {
     const pane = await seedPane();
     const row = newRow(pane);
-    await db
-      .insertInto("sshTerminalExecs")
-      .values({ ...row, createdAt: new Date().toISOString(), outputTruncated: 0 })
-      .execute();
+    await put(row);
     await db.updateTable("sshTerminalExecs").set({ nextByte: 40 }).where("id", "=", row.id).execute();
     const loaded = await loadExec(db, row.id);
     expect(loaded?.state).toBe("outstanding");
@@ -202,7 +211,8 @@ describe("the bounded late-marker observation", () => {
           // LATE marker. (The scanner's carry makes the split honest.)
           const text = poll < 3 ? "" : poll === 3 ? "building" : `\n__xcomm_${token}_DONE rc=5\n`;
           const bytes = enc.encode(text);
-          return { bytes, size: fromByte + bytes.byteLength };
+          const size = fromByte + bytes.byteLength;
+          return { bytes, next: size, size };
         },
         isPaneCurrent: async () => true,
         sleep: clock.sleep,
@@ -225,7 +235,7 @@ describe("the bounded late-marker observation", () => {
       db,
       { id, subshellId: pane, markerToken: "0123456789abcdef", startByte: 0, priorLines: [], budgetMs: 100_000 },
       {
-        read: async () => ({ bytes: new Uint8Array(0), size: 0 }),
+        read: async () => ({ bytes: new Uint8Array(0), next: 0, size: 0 }),
         isPaneCurrent: async () => false,
         sleep: clock.sleep,
         now: clock.now,
@@ -242,7 +252,7 @@ describe("the bounded late-marker observation", () => {
       db,
       { id, subshellId: pane, markerToken: "0123456789abcdef", startByte: 0, priorLines: [], budgetMs: 100_000 },
       {
-        read: async () => ({ bytes: new Uint8Array(0), size: 0 }),
+        read: async () => ({ bytes: new Uint8Array(0), next: 0, size: 0 }),
         isPaneCurrent: async () => {
           throw new Error("db blip");
         },
@@ -261,7 +271,7 @@ describe("the bounded late-marker observation", () => {
       db,
       { id, subshellId: pane, markerToken: "0123456789abcdef", startByte: 0, priorLines: [], budgetMs: 30_000 },
       {
-        read: async () => ({ bytes: new Uint8Array(0), size: 0 }),
+        read: async () => ({ bytes: new Uint8Array(0), next: 0, size: 0 }),
         isPaneCurrent: async () => true,
         sleep: clock.sleep,
         now: clock.now,
@@ -280,7 +290,7 @@ describe("the bounded late-marker observation", () => {
     const deps = {
       read: async () => {
         reads++;
-        return { bytes: new Uint8Array(0), size: 0 };
+        return { bytes: new Uint8Array(0), next: 0, size: 0 };
       },
       isPaneCurrent: async () => paneCurrent,
       sleep: clock.sleep,
@@ -322,7 +332,7 @@ describe("the bounded late-marker observation", () => {
           polls++;
           const text = deliverMarker ? `__xcomm_${token}_DONE rc=0\n` : "";
           const bytes = enc.encode(text);
-          return { bytes, size: fromByte + bytes.byteLength };
+          return { bytes, next: fromByte + bytes.byteLength, size: fromByte + bytes.byteLength };
         },
         isPaneCurrent: async () => true,
         sleep: () => new Promise<void>((r) => (release = r)),

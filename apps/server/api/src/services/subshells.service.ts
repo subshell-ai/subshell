@@ -1549,6 +1549,51 @@ export class SubshellsService extends BaseService {
     // a refusal types nothing and swaps nothing, exactly like every other
     // gate above the manager.
     const managed = await this.#sshGate(seed, id, "restart");
+    // The instance gates are asked ONCE, for both paths: lockdown and the
+    // machine's maintenance/off-switch are not bypassed by a managed restart
+    // (a relaunch IS a launch, and a managed SSH terminal is a new SSH
+    // session onto its node), while the swap validation below stays
+    // ordinary-path-only.
+    //
+    // Lockdown is instance-wide, so it is asked before anything machine-shaped
+    // is read. It names no machine, per the restart path's own rule (the row's
+    // owner is the only guaranteed viewer of this refusal). And a stopped row's
+    // auto-restart hook cannot work around it: the terminate revoked its token,
+    // exactly as under maintenance.
+    if (await lockdownEnabled(this.db)) {
+      throw new SubshellCreateError(
+        "lockdown",
+        "This instance is in lockdown mode, so subshells cannot be restarted. Ask an admin to end it.",
+        403,
+      );
+    }
+    // A restart IS a launch, and this path never touches `resolveLaunchNode`
+    // — the node was decided when the subshell was created. So the
+    // maintenance gate is asserted here, or "restart" would be the one way to
+    // start a pane on a machine that is refusing them. On an AGENT node the
+    // node's own fail-closed file would refuse it a second time; on `local`
+    // there is no agent and no file, so THIS is the only gate that exists.
+    const node = await this.repos.nodes.findById(row.nodeId);
+    if (node?.maintenance === 1) {
+      throwApiError({
+        code: BackendErrorCodes.NODE_IN_MAINTENANCE,
+        message: MAINTENANCE_REFUSAL,
+        doNotLog: true,
+      });
+    }
+    // Same reasoning as the maintenance check one line above: the host
+    // switched off as a launch target must refuse a restart too, or restart
+    // is the one way onto it. The message names NO machine — the restart
+    // path's own rule (an edit grantee on a shared subshell may not be able
+    // to see the node; the named variant lives behind the visibility 404 in
+    // `resolveLaunchNode`).
+    if (node?.kind === "local" && !(await serverSubshellsEnabled(this.db))) {
+      throw new SubshellCreateError(
+        "node_launch_disabled",
+        "Launching subshells on this machine is switched off in the server settings. Ask an admin to turn it back on.",
+        403,
+      );
+    }
     if (managed) {
       const hooks = getSshPaneHooks();
       if (!hooks) {
@@ -1591,45 +1636,6 @@ export class SubshellsService extends BaseService {
         promptDelivered = true;
       }
       return { id, tmuxSocket: relaunched.tmuxSocket, promptDelivered };
-    }
-    // Lockdown is instance-wide, so it is asked before anything machine-shaped
-    // is read. It names no machine, per the restart path's own rule (the row's
-    // owner is the only guaranteed viewer of this refusal). And a stopped row's
-    // auto-restart hook cannot work around it: the terminate revoked its token,
-    // exactly as under maintenance.
-    if (await lockdownEnabled(this.db)) {
-      throw new SubshellCreateError(
-        "lockdown",
-        "This instance is in lockdown mode, so subshells cannot be restarted. Ask an admin to end it.",
-        403,
-      );
-    }
-    // A restart IS a launch, and this path never touches `resolveLaunchNode`
-    // — the node was decided when the subshell was created. So the
-    // maintenance gate is asserted here, or "restart" would be the one way to
-    // start a pane on a machine that is refusing them. On an AGENT node the
-    // node's own fail-closed file would refuse it a second time; on `local`
-    // there is no agent and no file, so THIS is the only gate that exists.
-    const node = await this.repos.nodes.findById(row.nodeId);
-    if (node?.maintenance === 1) {
-      throwApiError({
-        code: BackendErrorCodes.NODE_IN_MAINTENANCE,
-        message: MAINTENANCE_REFUSAL,
-        doNotLog: true,
-      });
-    }
-    // Same reasoning as the maintenance check one line above: the host
-    // switched off as a launch target must refuse a restart too, or restart
-    // is the one way onto it. The message names NO machine — the restart
-    // path's own rule (an edit grantee on a shared subshell may not be able
-    // to see the node; the named variant lives behind the visibility 404 in
-    // `resolveLaunchNode`).
-    if (node?.kind === "local" && !(await serverSubshellsEnabled(this.db))) {
-      throw new SubshellCreateError(
-        "node_launch_disabled",
-        "Launching subshells on this machine is switched off in the server settings. Ask an admin to turn it back on.",
-        403,
-      );
     }
     // The swap is validated HERE — after the gate and the maintenance 409,
     // before the manager touches anything — so a restart refused on this
@@ -1923,8 +1929,31 @@ export class SubshellsService extends BaseService {
     }
     const facts = await readManagedPane(this.db, id);
     if (!facts) throw new SubshellError("not_found", "Subshell not found");
-    await gateHumanActFor(this.db, seed, mode === "human" ? "take_control" : "return_control", facts.connectionId);
-    const state = await transitionPaneControl(this.db, id, mode);
+    let state: { controlOwner: SshActorSide; controlGeneration: number };
+    try {
+      await gateHumanActFor(this.db, seed, mode === "human" ? "take_control" : "return_control", facts.connectionId);
+      state = await transitionPaneControl(this.db, id, mode);
+    } catch (err) {
+      // Same mapping the pane-surface gate gives the policy's refusals: the
+      // human-config arm refusing (a `forbidden` decision) and the transition
+      // finding no SSH backend (a `backend_unavailable`) must answer with the
+      // named codes, not escape as an unmapped 500.
+      if (err instanceof SshGateFailure) {
+        if (err.reason === "not_found" || err.reason === "gone") {
+          throw new SubshellError("not_found", "Subshell not found");
+        }
+        if (err.reason === "backend_unavailable") {
+          throwApiError({ code: BackendErrorCodes.SSH_BACKEND_UNAVAILABLE, message: err.message, doNotLog: true });
+        }
+        throwApiError({
+          code: BackendErrorCodes.SSH_ACCESS_DENIED,
+          message: err.message,
+          ...(err.policyCode ? { metadataSafe: { sshPolicyCode: err.policyCode } } : {}),
+          doNotLog: true,
+        });
+      }
+      throw err;
+    }
     // The record-side fence (outstanding execs on this pane go `unknown`) and
     // the stream-side fence (every attached terminal socket closes; the
     // reconnection is what re-runs the redeem gate against the new state).
