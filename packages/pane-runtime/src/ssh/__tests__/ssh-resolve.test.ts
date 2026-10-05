@@ -283,6 +283,15 @@ describe("resolveSshAliasConfig", () => {
     expect(out).toEqual({ accepted: false, code: "config_ambiguous", settings: [] });
   });
 
+  it("resolves a conflicting-Port alias (same host, two ports) to config_ambiguous", async () => {
+    // The ports arm ALONE must refuse: no HostName difference is present to
+    // trip the hostNames set, so this pins the `ports.size > 1` branch.
+    const { out } = await resolveWith("app02", CLEAN_G, {
+      configBody: ["Host app02", "  Port 22", "Host app02", "  Port 2222"].join("\n"),
+    });
+    expect(out).toEqual({ accepted: false, code: "config_ambiguous", settings: [] });
+  });
+
   it("names the agent socket from the account env, and an explicit IdentityAgent path", async () => {
     const viaEnv = await resolveWith("app02", `${CLEAN_G}\nidentityagent ssh-agent`, {
       env: { SSH_AUTH_SOCK: "/run/user/1000/ssh.sock" },

@@ -147,8 +147,12 @@ export class SshRunsRepository extends BaseRepository {
     // restart takes the manager's local revive - a connecting-node shell in a
     // pane the human only ever approved as an ssh foreground process, exactly
     // the fallback §3 forbids. The human ends that state by TERMINATING the
-    // pane, which cascades the marker through `subshell_id` and then the
-    // connection delete passes.
+    // pane: a status UPDATE, not a row delete, so the marker is still there -
+    // but the row no longer matches below, the delete passes, and the marker
+    // goes with it through THIS delete's `connection_id` cascade (the
+    // `subshell_id` edge only fires when the pane row itself is deleted). The
+    // terminated row then keeps ordinary parked-pane semantics: a human
+    // restart only, since terminate revoked the pane's token instantly.
     const pane = await this.db
       .selectFrom("sshPanes")
       .innerJoin("subshells", "subshells.id", "sshPanes.subshellId")

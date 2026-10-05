@@ -89,7 +89,13 @@ export async function sweepExpiredSshRuns(
  * protocol's, the DB window is the operator's). Terminal STATE is gated on
  * liveness the same way the agent gates it: a pane whose subshell row is still
  * running-and-alive is unknown-not-dead, never swept, so a live managed
- * terminal's state file and rendered config survive.
+ * terminal's state file and rendered config survive. What is NOT here:
+ * hourly MID-LIFE rotation of a live terminal's log (the agent's sweep calls
+ * `rotateTerminalLogIfNeeded`; the plane's pass does not - generations only
+ * move at launch or rotation, and leaving one implementation of the rotation
+ * beat is the drift control). Live growth stays bounded by the aggregate
+ * pressure eviction plus this pass's after-death retention: the same
+ * unbounded-live property ordinary pane logs have.
  */
 async function sweepLocalSshFiles(nowMs: number): Promise<void> {
   const dataDir = SUBSHELL_SERVER_DATA_DIR;

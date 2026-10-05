@@ -1,5 +1,9 @@
 import { beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { sshRunsDir } from "@internal/pane-runtime";
 import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
+import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -129,6 +133,52 @@ describe("ssh retention + granted-pane projections", () => {
     expect(await runs.findById("old-done")).toBeUndefined();
     expect(await runs.findById("fresh-done")).toBeDefined();
     expect(await runs.findById("still-running")).toBeDefined();
+  });
+
+  it("sweeps the server's own ssh FILE subtree through the pass (I3 composition)", async () => {
+    // The parts (sweepCompletedRuns/sweepSshProbes) are runtime-tested; this
+    // pins that sweepExpiredSshRuns actually COMPOSES them against the
+    // server's data dir - the built-in local node's disk stays bounded the
+    // same way an agent node's does. File window is the frozen 7 days by
+    // design (documented asymmetry: SSH_RUN_RETENTION_DAYS moves DB rows).
+    const agedMs = Date.now() - (7 * 86_400_000 + 60_000);
+    const seedRunDir = (id: string, finishedAtMs: number): string => {
+      const dir = join(sshRunsDir(SUBSHELL_SERVER_DATA_DIR), id);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "accept.json"), JSON.stringify({ runId: id, acceptedAtMs: finishedAtMs }));
+      writeFileSync(
+        join(dir, "state.json"),
+        JSON.stringify({
+          runId: id,
+          lifecycle: "completed",
+          cancelRequested: false,
+          cancelLocalConfirmed: false,
+          deadlineHit: false,
+          remoteStatus: 0,
+          remoteStatusConfirmed: true,
+          localExitCode: 0,
+          localExitSignal: null,
+          startedAtMs: finishedAtMs,
+          finishedAtMs,
+          outputEvicted: false,
+          spawned: true,
+        }),
+      );
+      return dir;
+    };
+    const aged = seedRunDir(crypto.randomUUID(), agedMs);
+    const fresh = seedRunDir(crypto.randomUUID(), Date.now() - 60_000);
+    const probes = join(SUBSHELL_SERVER_DATA_DIR, "ssh", "probes");
+    mkdirSync(probes, { recursive: true });
+    const probe = join(probes, `${crypto.randomUUID()}.config`);
+    writeFileSync(probe, "Host x\n");
+    utimesSync(probe, new Date(agedMs), new Date(agedMs));
+
+    await sweepExpiredSshRuns(new Date(), 7 * 86_400_000);
+
+    expect(existsSync(aged)).toBe(false); // aged-out completed subtree gone
+    expect(existsSync(fresh)).toBe(true); // fresh subtree stays (window predicate holds)
+    expect(existsSync(probe)).toBe(false); // stranded probe config gone with the subtree
   });
 
   it("folds resolved terminal-exec rows into the same pass; outstanding rows never age out (I6)", async () => {
