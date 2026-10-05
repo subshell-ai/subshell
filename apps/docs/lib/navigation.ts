@@ -8,6 +8,7 @@ export const DOC_SECTIONS = [
   { slug: "prompts", title: "Reusable Prompts" },
   { slug: "agents", title: "Agents" },
   { slug: "nodes", title: "Manage nodes" },
+  { slug: "ssh", title: "SSH connections" },
   { slug: "administration", title: "Server administration" },
   { slug: "networking", title: "Networking" },
   { slug: "mcp", title: "MCP and agent communication" },

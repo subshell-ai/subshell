@@ -59,6 +59,7 @@ Everything below assumes that perimeter holds.
 | A malicious node path escaping into host paths | Structural id/path guards on both sides of the link |
 | DNS rebinding | A static origin allowlist, never "trust the requesting host" |
 | Terminal output injecting markup into the UI | PTY bytes are rendered only by xterm, never as HTML |
+| A pane using an SSH connection nobody granted it | Coarse `ssh` permission AND a human-issued per-pane, per-connection grant, rechecked at every surface through one policy; a refused caller sees the pane or connection as absent (§4b) |
 
 ### Explicitly NOT defended against
 
@@ -71,6 +72,7 @@ Everything below assumes that perimeter holds.
 | **A malicious admin** | Admins hold instance-wide edit access and can mint full-access system keys. There is no separation of duties |
 | **Denial of service** | Only login is rate-limited |
 | **Supply chain of the harnesses themselves** | Subshell launches whatever `claude`/`opencode`/`codex` binary is on the host's PATH and does not verify it |
+| **What a granted SSH command can do on the destination** | The destination account's permissions ARE the remote boundary. Subshell refuses to sandbox beyond its own APIs: the ssh process runs as the connecting OS account, with whatever that account already had (§4b) |
 
 ## 2. Identity and credentials
 
@@ -728,6 +730,125 @@ types a command and its sentinel `printf` line over the same `sendInput` seam,
 so the argv posture above is its posture too (accepted, §11), and the sentinel
 lands in the pane's own log as random noise, not data; every refusal precedes
 the typing, and a `timed_out` answer signals nothing and types nothing further.
+
+## 4b. SSH destinations (spec 2026-10-04, `SSH-SUPPORT.md`)
+
+A granted agent pane can run structured commands and interactive terminals on
+Linux and macOS machines through an enrolled node, without anything installed
+on the destination. The controls below protect SUBSHELL's APIs; they do not
+sandbox a process that already runs as the connecting OS account (§1: that
+account can run `ssh` itself, read its own key files, and reach whatever the
+destination account reaches). The destination account's permissions are the
+remote boundary, and a configured remote directory is a convenience, not a
+filesystem restriction. Compromised OS accounts, malicious administrators, and
+a compromised control plane stay outside the model, exactly as everywhere else
+in this document.
+
+**Credentials never enter Subshell.** There is no credential storage: a saved
+connection holds a NORMALIZED approved snapshot (destination, ports, identity
+and certificate PATHS, trust-file paths, a bounded jump chain), not key
+material, and the node's SSH configuration is never uploaded. Discovery names
+aliases only. Configuration file contents, key contents, and passphrases never
+cross the link in either direction. §1's OS-user boundary still applies to the
+node: whoever owns that account owns the credentials this feature points at.
+
+**Configuration is executable, so only humans configure it.** Discovery,
+resolution, save, edit, delete, grants, revocation, and every control
+transition require a COOKIE session with explicit origin validation on the
+writes; machine credentials are refused by name (`cookie_required`). Resolution
+discloses that trusted local configuration (`Match exec` and friends) can run
+helpers on the node when it resolves. The snapshot saved afterward is the
+approved answer: agent requests accept connection IDs only, never hosts,
+aliases, ports, options, environment, config paths, or proxy commands. Runtime
+config is rendered from that snapshot under a mandatory every-hop policy
+(strict host checking, no forwarding or tunnels, no local or remote commands,
+no escape characters, no control sockets, noninteractive key/certificate auth
+only) and never rereads ambient user or system configuration. Anything not
+representable safely is refused with a named limitation rather than silently
+weakened. Unknown, changed, and revoked host keys fail closed; there is no
+trust-acceptance endpoint, and no credential-upload endpoint exists.
+
+**Two independent doors, both required.** A pane needs the coarse `ssh`
+permission on its token AND a human-issued grant row binding the connection
+REVISION to the pane ID and the pane's CURRENT issued api-key identity. This is
+the deliberate exception to §4's "beyond its row": raw REST normally resolves a
+pane's token as its OWNER, but every SSH surface rechecks the key row, the
+grant, the revision, the pane lifecycle, and node eligibility at decision time.
+Old tokens receive no grandfathering, children inherit nothing, and a restarted
+pane holds a new key that nothing grants until a human grants it again.
+Inaccessible resource IDs answer the non-enumerating 404 convention; visible
+but unauthorized answers carry the named policy code (`not_granted`,
+`token_stale`, `grant_revoked`, `revision_mismatch`, `pane_lifecycle`,
+`node_ineligible`, `human_control`).
+
+**One policy, every surface.** A managed SSH pane is an ordinary pane row, so
+the generic surfaces are the bypass risk the spec names first, and they all
+consult the SAME policy seam before reading or acting: list previews, detail,
+logs, captures, the live feed, attach-token mint AND redeem, input, exec,
+prompts, restart, terminate, delete, and sharing. Everyone except the pane's
+owner (cookie) or the exact credential that opened it is answered invisibility,
+admins included; a same-owner sibling without its own grant cannot recover the
+pane through any door. Sharing a managed pane is refused to everyone in v1,
+owner included (two independent refusals: the policy arm and the sharing site,
+belt and braces). Revocation is the full sentence, not just a stamp: new
+dispatch stops, queued input is fenced (the plane's raised generation makes the
+machine refuse writes stamped below it), streams close at the next redemption
+check, and the runs and terminals started UNDER THAT GRANT are cancelled where
+reachable. Human-owned work and other grants' work are never cancelled,
+because every resource records its initiating grant and credential.
+
+**Execution honesty is the contract.** Run IDs are allocated server-side and
+bound to a digest of the whole deciding payload; the connecting runtime
+durably records acceptance BEFORE spawning, a duplicate delivery returns the
+existing record, and a different payload under the same ID is refused. A lost
+answer leaves the row `accepted` (not failed, not completed) and nothing
+re-dispatches it automatically: reconciliation after reconnect ASKS about known
+IDs, settles what the node no longer knows to `unknown`, and dispatches pending
+CANCELLATIONS before new work. `completed` carries a confirmed remote status
+only when the transport corroborates it; OpenSSH's 255 stays ambiguous (kept as
+a number, never a confirmed claim); a crash between acceptance and spawn yields
+unknown, not permission to retry. `cancel` confirms the LOCAL supervised
+process stopped, never that remote descendants died. Browser closure, a timed
+out read, or a dropped attach changes nothing about a running command.
+
+**Input ownership, every writer.** Managed-pane writes ride the node with the
+pane's frozen input generation (the additive `inputGeneration` frame field);
+the node's store refuses missing or lower values, so a takeover, a revocation,
+or a restart fences queued input at the machine, not just on the plane. Human
+takeover blocks agent reads AND writes on every API and stream until a human
+returns control (agent-opened panes start in agent control; only humans return
+it), invalidates outstanding terminal-exec results, and closes the pane's live
+subscriptions. Recorded output can become visible again after a return:
+takeover controls INPUT, not secrecy, and ordinary terminal history is not
+confidential secret storage. The `exec_in_terminal` convenience keeps its
+heuristic posture (quiet is not idle) and refuses managed SSH panes by name;
+after an exec record becomes `unknown`, further automated exec on that pane
+waits for human recovery.
+
+**Remote output is data.** Run and pane output renders in xterm, never HTML,
+exactly as for ordinary panes: the terminal never answers a clipboard-READ
+request, a clipboard-WRITE (OSC 52) only lands when a human clicks the explicit
+copy affordance, and nothing opens a link by itself. Identity and permission
+claims in output have no authority. Command text and output can contain
+secrets, so they stay out of operational logs, audit metadata, and
+notifications, and they live only in the bounded run-retention files on the
+connecting node.
+
+**Limits are frozen and enforced before the wire.** 4 active runs per owner per
+connecting node and 16 total per node, 4 SSH terminals per owner per node,
+10 MiB retained output per run, 1 GiB aggregate SSH output storage including
+managed terminal logs (completed output is evicted first, then new work is
+refused with `storage_full`), 5-minute default execution deadline selectable to
+1 hour, 256 KiB output windows, 30-second read long-polls, and 7-day completed
+run retention. Draining continues past every cap (a child blocked on an unread
+pipe would turn a size limit into a hang), reads report `truncated`, and a
+cursor that outlived its data answers `cursorExpired` rather than silently
+resuming. Managed terminal logs rotate with a log GENERATION namespace: a stale
+generation plus an offset is an explicit reset signal, never a reused cursor.
+
+**Audit names acts, never content.** The `ssh.*` family (§10) records actors,
+ids, revisions, destinations, and outcomes. No row carries command text, config
+contents, or output; route suites scan the whole audit table for the ban.
 
 ## 5. Sharing
 
@@ -2418,6 +2539,15 @@ Recorded so they are decisions rather than surprises:
 7. **No DoS protection** beyond login backoff.
 8. **The post bus is in-process**, so a multi-process deployment would silently
    lose cross-process wakeups.
+9. **SSH connections reuse the connecting account's existing trust** (spec
+   2026-10-04, §4b): the account's SSH configuration, keys, agent, and known
+   hosts decide what a saved destination really is, and a human who edits that
+   account's config outside Subshell widens or moves the ground under an
+   approved snapshot. That is the same OS-user boundary as item 1, restated
+   because the SSH feature makes the account's trust decisions load-bearing for
+   a granted pane's work. The mitigation that exists is procedural and shipped:
+   the human-only resolution/test/save loop shows the resolved destination, the
+   connecting account, and the route on every connection everywhere it renders.
 
 ## 11.9 Plugins run in the control-plane process
 

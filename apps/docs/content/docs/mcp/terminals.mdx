@@ -55,6 +55,12 @@ the exit code once the command completes, refusing with nothing typed while the
 pane is busy. Keep the manual loop for multi-command sessions and for programs
 that wait for input. See the [MCP tool reference](/mcp/tools).
 
+A managed SSH terminal, opened by `open_ssh_terminal` on a granted connection
+(see [SSH connections](/ssh)), participates in this loop too: input and
+output ride `send_to_subshell` and `read_subshell_log` behind that pane's SSH
+policy, and `exec_in_terminal` refuses those panes by name. A human takeover
+blocks agent reads and writes on them until a human returns control.
+
 ## What it is not
 
 - Not a one-shot `exec` by itself: this loop has no exit code and no
