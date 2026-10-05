@@ -287,9 +287,12 @@ describe("generic pane surfaces vs a managed SSH pane, real policy (spec 2026-10
         { cookie: adminCookie },
         { token: tokenA },
       ]) {
-        expect(
-          (await fetchAs(`/api/subshells/${m1}/execs/00000000-0000-4000-8000-000000000001`, "GET", who)).status,
-        ).toBe(404);
+        const res = await fetchAs(`/api/subshells/${m1}/execs/00000000-0000-4000-8000-000000000001`, "GET", who);
+        expect(res.status).toBe(404);
+        // The body shape proves the request ran the ROUTE and the SSH census,
+        // not the router's unmatched-path 404: a structured NOT_FOUND_ERROR
+        // answer comes out of `getTerminalExecution` refusing a managed pane.
+        expect(((await json(res)) as { code?: string }).code).toBe("NOT_FOUND_ERROR");
       }
     });
   });
