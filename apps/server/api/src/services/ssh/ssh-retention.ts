@@ -1,15 +1,22 @@
 import { SSH_COMPLETED_RUN_RETENTION_MS } from "@internal/subshell-protocol";
+import { sql } from "kysely";
+import { db } from "@/db/index.js";
 import { sshRunsRepo } from "@/services/ssh/ssh-run-mirror.js";
 import { logger } from "@/utils/logger.js";
 
 /**
  * Retention for the runs mirror (SSH-SUPPORT.md §3's "Completed-run
- * retention: 7 days" row). Imitates `pane-log-hygiene.ts`'s scheduling and
- * its central safety rule - a sweep deletes only rows that provably can
- * produce no more facts: `status` is terminal AND the terminal stamp (or,
- * for rows predating stamping, `updated_at`) is older than the window.
- * Active rows are never candidates; the predicate is the "running logs are
- * never swept" posture moved from files to rows.
+ * retention: 7 days" row) AND the terminal-exec records (review I6: every
+ * `exec_in_terminal` inserts a durable row with up to a 256 KiB output tail
+ * and, beside the pane's own cascade, nothing aged them out - "bound
+ * accumulation" is plan language). Imitates `pane-log-hygiene.ts`'s scheduling
+ * and its central safety rule - a sweep deletes only rows that provably can
+ * produce no more facts: for runs, `status` terminal AND the terminal stamp
+ * (or, for rows predating stamping, `updated_at`) older than the window; for
+ * exec records, `state != outstanding` AND the resolution stamp (or, for rows
+ * predating it, `created_at`) older than the window. Active rows are never
+ * candidates; the predicate is the "running logs are never swept" posture
+ * moved from files to rows.
  *
  * The same pass settles ORPHANS: a run whose NODE was deleted (the SET NULL
  * column) can never be asked again, so an unsettled row there is settled to
@@ -18,7 +25,10 @@ import { logger } from "@/utils/logger.js";
  *
  * Window source: `SSH_RUN_RETENTION_DAYS` env (whole days, `0` = keep
  * forever), default the frozen §3 row of 7. Read per pass like every other
- * env knob here, so an operator flipping it takes effect next tick.
+ * env knob here, so an operator flipping it takes effect next tick. exec
+ * records deliberately SHARE the run window: one knob bounds all the SSH
+ * durable-row accumulation, and an exec output tail is no worthier of a
+ * longer hold than the run output that already ages at 7 days.
  *
  * Wiring (boot + hourly, like the pane-log pass) is the task-D report's
  * index.ts integration request.
@@ -37,14 +47,48 @@ export function sshRetentionWindowMs(rawDays: string | undefined = process.env.S
 export async function sweepExpiredSshRuns(
   now: Date = new Date(),
   windowMs: number = sshRetentionWindowMs(),
-): Promise<{ deleted: number; orphaned: number }> {
+): Promise<{ deleted: number; orphaned: number; execsSwept: number }> {
   const runs = sshRunsRepo();
   const orphaned = await settleOrphanedRuns(runs, now);
-  if (!Number.isFinite(windowMs)) return { deleted: 0, orphaned };
+  if (!Number.isFinite(windowMs)) return { deleted: 0, orphaned, execsSwept: 0 };
   const cutoff = new Date(now.getTime() - windowMs).toISOString();
   const deleted = await runs.deleteCompletedBefore(cutoff);
   if (deleted > 0) logger.info(`ssh run retention swept ${deleted} completed run record(s)`);
-  return { deleted, orphaned };
+  const execsSwept = await sweepTerminalExecsBefore(cutoff);
+  if (execsSwept > 0) logger.info(`ssh run retention swept ${execsSwept} resolved terminal-exec record(s)`);
+  return { deleted, orphaned, execsSwept };
+}
+
+/**
+ * Delete RESOLVED terminal-exec rows older than `cutoffIso` (review I6). A
+ * record can produce no more facts once it has left `outstanding` - the
+ * one-shot transitions (`completeExec`/`markExecUnknown`, guarded on
+ * `state = 'outstanding'`) make a resolved row immutable, and the observation
+ * loop has retired - so the recovery handle (`get_terminal_execution`) may
+ * stop answering after the window, exactly as the run output it mirrors ages
+ * out. `outstanding` rows are NEVER candidates: the late-marker wait is what
+ * they exist for, and deleting one would silently drop a pending exec's
+ * result. `COALESCE(resolved_at, created_at)` covers a resolved row that
+ * predates `resolved_at` stamping (the pane-log-hygiene asymmetry: an old row
+ * with a terminal state and no stamp still ages, on its typing time).
+ */
+async function sweepTerminalExecsBefore(cutoffIso: string): Promise<number> {
+  const rows = await db
+    .selectFrom("sshTerminalExecs")
+    .select("id")
+    .where("state", "!=", "outstanding")
+    .where((eb) => eb(sql<string>`COALESCE(resolved_at, created_at)`, "<", cutoffIso))
+    .execute();
+  if (rows.length === 0) return 0;
+  await db
+    .deleteFrom("sshTerminalExecs")
+    .where(
+      "id",
+      "in",
+      rows.map((r) => r.id),
+    )
+    .execute();
+  return rows.length;
 }
 
 /**

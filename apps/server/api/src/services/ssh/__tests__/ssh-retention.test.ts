@@ -131,6 +131,73 @@ describe("ssh retention + granted-pane projections", () => {
     expect(await runs.findById("still-running")).toBeDefined();
   });
 
+  it("folds resolved terminal-exec rows into the same pass; outstanding rows never age out (I6)", async () => {
+    // Every exec_in_terminal inserts a durable row with up to a 256 KiB output
+    // tail; before I6 nothing deleted it except the pane's own cascade, so the
+    // table grew without bound. The resolved half now shares the run window.
+    const paneId = crypto.randomUUID();
+    await subshells.create({
+      id: paneId,
+      userId: OWNER,
+      harnessId: "terminal",
+      name: paneId,
+      workingDir: "/srv",
+      nodeId: NODE,
+      status: "running",
+      alive: 1,
+      tmuxSocket: `sock-${crypto.randomUUID()}`,
+      presetId: null,
+    });
+    const daysAgo = (n: number): string => new Date(Date.now() - n * 86_400_000).toISOString();
+    const seedExec = (
+      id: string,
+      state: "completed" | "unknown" | "outstanding",
+      created: string,
+      resolved: string | null,
+    ) =>
+      db
+        .insertInto("sshTerminalExecs")
+        .values({
+          id,
+          subshellId: paneId,
+          paneIncarnation: "2026-01-01T00:00:00.000Z",
+          initiatedBy: "human",
+          grantId: null,
+          apiKeyId: null,
+          inputGeneration: 1,
+          markerToken: id.replace(/-/g, "").slice(0, 16),
+          state,
+          exitCode: state === "completed" ? 0 : null,
+          output: state === "outstanding" ? null : "tail",
+          outputTruncated: 0,
+          nextByte: null,
+          createdAt: created,
+          resolvedAt: resolved,
+        })
+        .execute();
+    await seedExec("exec-old-done", "completed", daysAgo(9), daysAgo(9));
+    await seedExec("exec-old-unknown", "unknown", daysAgo(9), daysAgo(8));
+    await seedExec("exec-old-no-stamp", "completed", daysAgo(9), null); // predates resolved_at stamping -> ages on created_at
+    await seedExec("exec-fresh-done", "completed", daysAgo(1), daysAgo(1));
+    await seedExec("exec-still-outstanding", "outstanding", daysAgo(60), null); // NEVER swept
+
+    const swept = await sweepExpiredSshRuns(new Date(), 7 * 86_400_000);
+    expect(swept.execsSwept).toBe(3);
+    const remaining = await db.selectFrom("sshTerminalExecs").select("id").where("subshellId", "=", paneId).execute();
+    expect(remaining.map((r) => r.id).sort()).toEqual(["exec-fresh-done", "exec-still-outstanding"]);
+
+    // `keep forever` (window Infinity) sweeps NOTHING, resolved included:
+    await sweepExpiredSshRuns(new Date(), Number.POSITIVE_INFINITY);
+    const afterForever = await db
+      .selectFrom("sshTerminalExecs")
+      .select("id")
+      .where("subshellId", "=", paneId)
+      .execute();
+    expect(afterForever).toHaveLength(2);
+
+    await db.deleteFrom("subshells").where("id", "=", paneId).execute(); // cascades the rest
+  });
+
   it("settles runs whose node was deleted to unknown (the orphan can never be asked again)", async () => {
     await seedRun({ id: "orphan", status: "accepted", nodeId: null });
     const swept = await sweepExpiredSshRuns(new Date(), Number.POSITIVE_INFINITY);
