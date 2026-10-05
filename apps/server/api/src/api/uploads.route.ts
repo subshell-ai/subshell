@@ -9,6 +9,7 @@ import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { isNodeOffline } from "@/services/nodes/node-registry.js";
+import { readManagedPane } from "@/services/pane-ssh-gate.js";
 import { RemoteUploadError, UploadError, writeUpload, writeUploadRemote } from "@/services/uploads.service.js";
 import { logger } from "@/utils/logger.js";
 
@@ -68,6 +69,24 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
       // forbidden, so the endpoint never confirms another user's subshell id.
       if (!row || row.userId !== user.id) {
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Subshell not found" }));
+      }
+
+      // SSH feature (plan §3): "File uploads to SSH terminals are disabled
+      // until remote file operations exist." The client gate is tab-local
+      // sessionStorage, so after a reload / another device / any REST caller it
+      // is gone - the server is the real boundary. The check is the `ssh_panes`
+      // marker (the same fact the policy keys on), NOT tab memory, and it lands
+      // on every upload because this is the one REST entry point. Without it a
+      // managed pane's upload writes the file into the CONNECTING node's home
+      // dir (the row's workingDir), the exact failure the disable prevents.
+      if (await readManagedPane(db, params.id)) {
+        return status(
+          400,
+          apiErrorBody({
+            code: BackendErrorCodes.UPLOAD_SSH_UNSUPPORTED,
+            message: "file uploads are disabled on managed SSH terminals until remote file operations exist",
+          }),
+        );
       }
 
       const workingDir = row.workingDir;
