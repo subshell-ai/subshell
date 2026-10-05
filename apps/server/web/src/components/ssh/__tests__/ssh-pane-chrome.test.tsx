@@ -59,5 +59,8 @@ describe("SshPaneChrome", () => {
     // No input-state line: the state is unactionable while the node is away.
     expect(screen.queryByText("Agent has input")).toBeNull();
     expect(screen.queryByText("You have input")).toBeNull();
+    // And the control the copy says cannot work is not clickable (review I-2).
+    const button = screen.getByRole("button", { name: "Take over" }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
   });
 });

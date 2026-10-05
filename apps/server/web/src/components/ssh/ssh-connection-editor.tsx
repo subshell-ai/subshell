@@ -259,6 +259,15 @@ export function SshConnectionEditor({
             <p className="text-detail text-muted-foreground">
               An alias from the account's ssh config, or a destination name that resolves on its own.
             </p>
+            {/* Edit mode: typing a new alias changes nothing until it is
+                resolved again (review M-2) - the sentence states which act
+                makes the edit real. */}
+            {connection && alias.trim() !== connection.snapshot.alias ? (
+              <p className="text-detail text-muted-foreground">
+                This alias differs from the saved one. Resolve to preview it; saving a fresh resolution creates a new
+                revision.
+              </p>
+            ) : null}
           </Field>
 
           <div className="flex items-center gap-3">

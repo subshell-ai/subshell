@@ -101,7 +101,10 @@ export function SshGrantsDialog({
 
         {revoked.length > 0 ? (
           <div className="flex flex-col gap-1">
-            <p className="font-strong text-label">Revoked history</p>
+            <p className="font-strong text-label">
+              Revoked history{" "}
+              {grants.filter((g) => !g.active).length > revoked.length ? `(showing the latest ${revoked.length})` : ""}
+            </p>
             {revoked.map((g) => (
               <p key={g.id} className="text-detail text-muted-foreground">
                 {nameOf(g.subshellId)} · revoked {g.revokedAt ? new Date(g.revokedAt).toLocaleString() : "unknown"}

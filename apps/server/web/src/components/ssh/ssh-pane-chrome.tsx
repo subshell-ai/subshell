@@ -53,7 +53,10 @@ export function SshPaneChrome({
         type="button"
         variant="outline"
         size="sm"
-        disabled={busy}
+        // The act is known-refused while the node is away: the button sits
+        // inert beside the copy that says so, rather than offering a call
+        // that can only fail (review I-2).
+        disabled={busy || nodeOffline}
         title={
           humanHolds
             ? "Hand input back to the agent. Output recorded while you held control stays visible in the pane."
