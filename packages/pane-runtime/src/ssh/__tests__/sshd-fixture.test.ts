@@ -1,14 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { chmodSync, closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { userInfo } from "node:os";
-import { buildSshInvocation, remoteCommandLine, renderSshConfigContents, sshChildEnv } from "../ssh-render.js";
-import { runSshProcess } from "../ssh-spawn.js";
-import { classifySshFailure } from "../ssh-diagnose.js";
-import { SshRunSupervisor } from "../ssh-run-supervisor.js";
-import { makeDigest, makeRunId, tempRoot, cleanup } from "./helpers.js";
+import { join } from "node:path";
 import type { SshConnectionSnapshotWire } from "@internal/subshell-protocol";
+import { classifySshFailure } from "../ssh-diagnose.js";
+import { buildSshInvocation, remoteCommandLine, renderSshConfigContents, sshChildEnv } from "../ssh-render.js";
+import { SshRunSupervisor } from "../ssh-run-supervisor.js";
+import { runSshProcess } from "../ssh-spawn.js";
+import { cleanup, makeDigest, makeRunId, tempRoot } from "./helpers.js";
 
 /**
  * The real-daemon suite (brief: "real isolated sshd fixture … gated on sshd
@@ -93,10 +92,27 @@ async function startSshd(dir: string, listenPort: number, pidFile: string, hostK
   // is no longer "nobody is listening" (an auth refusal means the daemon is
   // up — exactly the fact we are waiting for).
   for (let i = 0; i < 100; i++) {
-    const probe = Bun.spawnSync([Bun.which("ssh")!, "-p", String(listenPort), "-o", "BatchMode=yes", "-o", "ConnectTimeout=1", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "127.0.0.1", "true"], {
-      stdout: "ignore",
-      stderr: "pipe",
-    });
+    const probe = Bun.spawnSync(
+      [
+        Bun.which("ssh")!,
+        "-p",
+        String(listenPort),
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=1",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "UserKnownHostsFile=/dev/null",
+        "127.0.0.1",
+        "true",
+      ],
+      {
+        stdout: "ignore",
+        stderr: "pipe",
+      },
+    );
     const err = probe.stderr.toString();
     if (!/Connection refused|connect to host 127\.0\.0\.1 port|Connection timed out/i.test(err)) return proc.pid;
     await Bun.sleep(100);
@@ -175,7 +191,12 @@ async function runSnapshot(p: number, command: string, overrides: Partial<SshCon
   const configPath = join(dir, "config");
   const snap = snapshotFor(p, overrides);
   writeFileSync(configPath, renderSshConfigContents(snap), { mode: 0o600 });
-  const argv = buildSshInvocation({ sshBin, snapshot: snap, configPath, remoteCommand: remoteCommandLine(command, null) });
+  const argv = buildSshInvocation({
+    sshBin,
+    snapshot: snap,
+    configPath,
+    remoteCommand: remoteCommandLine(command, null),
+  });
   const env = await sshChildEnv(snap, home); // HOME has NO .ssh: only -F and the argv exist
   return await runSshProcess(argv, env, 15_000);
 }
@@ -247,7 +268,10 @@ describe("real isolated sshd", () => {
     // compose the jump chain explicitly instead.
     const dir = join(root, "jump");
     mkdirSync(dir, { recursive: true });
-    const snap = snapshotFor(port2, { proxyJumps: [{ host: "127.0.0.1", user: account, port }], knownHostsFiles: [knownHosts2] });
+    const snap = snapshotFor(port2, {
+      proxyJumps: [{ host: "127.0.0.1", user: account, port }],
+      knownHostsFiles: [knownHosts2],
+    });
     const configPath = join(dir, "config");
     writeFileSync(configPath, renderSshConfigContents(snap), { mode: 0o600 });
     const argv = buildSshInvocation({
