@@ -310,7 +310,11 @@ describe("parseNodeCommandBody", () => {
     // 15 is the archive-transfer surface (spec 2026-10-01 §2): five commands
     // (archive_create, file_read, transfer_write, archive_extract,
     // tree_manifest) plus the window/entry constants both ends must agree on.
-    expect(NODE_PROTOCOL_VERSION).toBe(16);
+    // 16 is the SSH surface (spec SSH-SUPPORT.md §4): the nine-command family
+    // plus the snapshot/run-facts envelopes and the input-generation fence.
+    // 17 is the SSH session-runtime surface (design 2026-10-05 §2/§3): the
+    // three ssh_session_* commands and the session_frame event arm.
+    expect(NODE_PROTOCOL_VERSION).toBe(17);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {

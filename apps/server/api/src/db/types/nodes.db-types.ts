@@ -1,7 +1,20 @@
 /** Lifecycle status projection of a node (truth = the live agent socket). */
 export type NodeStatus = "online" | "offline";
-/** Whether a node is the control-plane host or an enrolled agent machine. */
-export type NodeKind = "local" | "agent";
+/** Runtime-listed statuses (the enum-as-data rule beside every union here). */
+export const NODE_STATUSES: readonly NodeStatus[] = ["online", "offline"];
+/**
+ * Whether a node is the control-plane host, an enrolled agent machine, or the
+ * HIDDEN row behind an SSH runtime session (design 2026-10-05 §4): a
+ * `runtime` row carries pane `node_id`s so list/detail/log/ws plumbing works
+ * unchanged, and it is owner-only, never listed by `GET /api/nodes`, never
+ * dialable (no node key can point at it), never enrollable, and never in any
+ * picker. The listing exclusion lives in `nodes.repository.ts` (`findAccessible`).
+ */
+export type NodeKind = "local" | "agent" | "runtime";
+/** Runtime-listed kinds - the union above as data (one edit site for both readings). */
+export const NODE_KINDS: readonly NodeKind[] = ["local", "agent", "runtime"];
+/** The `runtime` spelling, named once so every exclusion filter and every insert says the same word. */
+export const NODE_KIND_RUNTIME = "runtime" as const;
 
 /**
  * Which end wrote the maintenance value that currently stands

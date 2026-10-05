@@ -119,3 +119,25 @@ export const SSH_PATH_MAX_CHARS = 4094;
  * is named LOCAL.
  */
 export const SSH_CANCEL_GRACE_MS = 5_000;
+
+/* ------------------------------------------------------------------ */
+/* session-runtime limits (design 2026-10-05 §2/§3)                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Inbound runtime-frame queue bound per session (design §2: 128 frames).
+ * Overflow CLOSES the session fail-closed - a plane that cannot drain its own
+ * session must stop the flow at the source rather than buffer without bound.
+ */
+export const SSH_SESSION_INBOUND_QUEUE_FRAMES = 128;
+
+/**
+ * Open deadline: spawn the child AND receive its parsed hello within this
+ * window, or the open fails - never a half-open session, never a retry (the
+ * no-automatic-execution-replay rule reads the probe's failure as final here
+ * too).
+ */
+export const SSH_SESSION_OPEN_DEADLINE_MS = 30_000;
+
+/** Active brokered sessions one connecting node may hold, across all owners (sibling of the run/terminal quotas). */
+export const SSH_SESSIONS_PER_NODE = 8;

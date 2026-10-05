@@ -1,6 +1,7 @@
 import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
 import { parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
+import { parseSshSessionNodeCommandBody, type SshSessionNodeCommandBody } from "./ssh-session-frames.js";
 
 /**
  * Node ↔ control-plane wire contract (spec 2026-08-31 §3).
@@ -146,8 +147,21 @@ import { parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.j
  * agent's own version so `releases.ts` never offers a protocol-15 build to a
  * protocol-16 plane. No existing verb's shape changed (the additive field is
  * optional on old-frame senders).
+ *
+ * **16 → 17 is the SSH session-runtime surface (design 2026-10-05 §2/§3).**
+ * Three commands broker a destination runtime over a live SSH child —
+ * `ssh_session_open`, `ssh_session_send`, `ssh_session_close` (grammar in
+ * `ssh-session-frames.ts`) — and one new event arm carries the child's
+ * protocol bytes up: `session_frame { ref, data_b64 }`. The frames pumped
+ * INSIDE a session belong to the runtime's own `runtimeProtocol` namespace
+ * and never ride this version; the node link changes only by adding these
+ * four shapes. Additive, breaking as always (exact-match gate), and
+ * coordinated with `MIN_NODE_VERSION` and the agent's own version the same
+ * way every bump here has been. The 15→16 SSH family's commands stay on the
+ * wire (retirement is workstream C's, and retiring a frame is a bump of its
+ * own).
  */
-export const NODE_PROTOCOL_VERSION = 16;
+export const NODE_PROTOCOL_VERSION = 17;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -1099,7 +1113,12 @@ export type NodeCommandBody =
   // The SSH family (Gate A contract, spec SSH-SUPPORT.md §4): nine commands
   // folded in as one union member so the SSH grammar lives in `ssh-frames.ts`;
   // their answers are validated by the `parseNodeSsh*` set in `node-results.ts`.
-  | SshNodeCommandBody;
+  | SshNodeCommandBody
+  // The session-runtime family (design 2026-10-05 §3): three commands broker a
+  // destination runtime over one SSH child, folded in the same one-member way
+  // so the session grammar lives in `ssh-session-frames.ts`; the open
+  // command's answer is validated by `parseNodeSshSessionOpenResult`.
+  | SshSessionNodeCommandBody;
 
 /**
  * One node's maintenance state, as it travels in either direction.
@@ -1326,7 +1345,16 @@ export type NodeEvent =
   | { type: "output"; subshellId: string; subId: string; fromByte: number; toByte: number; data_b64: string }
   | { type: "exit"; subshellId: string; exitCode: number | null; at: string }
   | { type: "subshells_report"; subshells: { subshellId: string; alive: boolean; exitCode: number | null }[] }
-  | { type: "error"; code: string; message: string };
+  | { type: "error"; code: string; message: string }
+  /**
+   * Pumped bytes from one brokered session's SSH child (design 2026-10-05
+   * §3): `ref` is the plane-minted session id, `data_b64` raw stdout content
+   * in ≤ 192 KiB pieces (a chunk boundary is a chunk boundary - the session's
+   * own codec reassembles frames across pushes). The broker seals whatever the
+   * child wrote; the runtime frames inside are the plane's and the runtime's
+   * business, on their own `runtimeProtocol` version namespace.
+   */
+  | { type: "session_frame"; ref: string; data_b64: string };
 
 /* ------------------------------------------------------------------ */
 /* validators (hand-rolled, parseClientFrame style — spec §3)          */
@@ -1659,6 +1687,12 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       // Delegation, not a second parser: the SSH grammar (nine arms, one
       // file) lives in ssh-frames.ts beside the commands it narrows.
       return parseSshNodeCommandBody(value);
+    case "ssh_session_open":
+    case "ssh_session_send":
+    case "ssh_session_close":
+      // Same delegation posture: the session grammar lives in
+      // ssh-session-frames.ts beside the commands it narrows.
+      return parseSshSessionNodeCommandBody(value);
     default:
       return null;
   }
@@ -1765,6 +1799,16 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
     case "error":
       return isStr(value.code) && isStr(value.message)
         ? { type: "error", code: value.code, message: value.message }
+        : null;
+    case "session_frame":
+      // The broker's pump is the only producer; a chunk is opaque bytes here
+      // BY DESIGN - the session grammar is parsed one layer up, and an
+      // event-layer that reached inside would be a second decoder to drift.
+      return isStr(value.ref) &&
+        /^[0-9a-fA-F-]{1,64}$/.test(value.ref) &&
+        isStr(value.data_b64) &&
+        BASE64_RE.test(value.data_b64)
+        ? { type: "session_frame", ref: value.ref, data_b64: value.data_b64 }
         : null;
     default:
       return null;

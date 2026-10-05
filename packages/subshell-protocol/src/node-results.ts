@@ -32,6 +32,7 @@ import type {
   NodeSshTestOutcomeWire,
 } from "./ssh-results.js";
 import { readSshRunFacts, type SshRunFactsWire } from "./ssh-run-facts.js";
+import { parseSshSessionOpenResult, type SshSessionOpenResultWire } from "./ssh-session-frames.js";
 
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;
@@ -675,6 +676,19 @@ export function parseNodeSshRunReadResult(data: unknown): NodeSshRunReadResult |
     stderrTotal: stderrTotal as number,
     truncated: data.truncated,
   };
+}
+
+/**
+ * Validates and narrows an `ssh_session_open` command's `result{data}` (design
+ * 2026-10-05 §3: the open answer carries the parsed hello plus the real
+ * destination). Delegates the whole shape to `parseSshSessionOpenResult` -
+ * one grammar, the session file beside the frames it narrows; this export is
+ * the four-site result-validator rule made visible.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed open result, or null when malformed
+ */
+export function parseNodeSshSessionOpenResult(data: unknown): SshSessionOpenResultWire | null {
+  return parseSshSessionOpenResult(data);
 }
 
 /**

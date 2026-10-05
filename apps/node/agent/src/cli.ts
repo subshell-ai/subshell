@@ -19,6 +19,7 @@ import {
 } from "./maintenance-cli.js";
 import { runNodeMcp } from "./mcp/main.js";
 import { defaultNodeResetDeps, type NodeResetDeps, runNodeReset } from "./reset-cli.js";
+import { runRuntimeServe } from "./runtime/serve.js";
 import {
   controlService,
   DEFAULT_DEPS,
@@ -157,6 +158,13 @@ usage:
   subshell report exit <status> (the pane died; run by tmux's own hook)
   subshell pane-log --file <path> (append stdin to a pane log, flushing each
                           read; run by tmux's own pipe-pane, not by hand)
+  subshell runtime-serve --session <ref> --tmux-socket <name>
+                          the session-scoped runtime mode (INTERNAL, composed
+                          by a brokered SSH session's remote command line,
+                          never typed): drives tmux on THIS machine for one
+                          plane session over stdio frames, enlists nothing,
+                          binds no network listener. Panes survive it; a
+                          close frame exits 0.
 `;
 
 /** Malformed invocation → usage text, exit 2. */
@@ -173,6 +181,7 @@ const COMMANDS = new Set([
   "report",
   "reset",
   "run",
+  "runtime-serve",
   "service",
   "setup",
   "status",
@@ -316,6 +325,15 @@ const FLAGS: Record<string, boolean> = {
   // per-start. Exists for the cli-e2e scenario (a suite must never bind the
   // port a developer's node owns) as much as for an operator.
   "--dashboard-port": true,
+  // The session-runtime verbs (`subshell runtime-serve --session <ref>
+  // --tmux-socket <name>`, design 2026-10-05): composed by the broker's
+  // remote command line, never typed. `--session` is the plane-minted ref
+  // the broker passes through unchanged; `--tmux-socket` is the deterministic
+  // per-destination socket the broker computed. No data-dir flag: the runtime
+  // namespace is `SUBSHELL_RUNTIME_DATA_DIR` or the default, never argv -
+  // argv-carried roots are how a path gets chosen by the wrong party.
+  "--session": true,
+  "--tmux-socket": true,
 };
 /** Every flag any subtoken of `command` accepts — the union {@link SUBCOMMAND_FLAGS} narrows. */
 const subcommandFlagUnion = (command: string): string[] => [
@@ -344,6 +362,10 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   reset: ["--yes", "--confirm"],
   report: [], // same pane-env contract; a hook's command line is built by the control plane, never typed
   run: ["--dashboard-port"],
+  // The session-scoped runtime mode (design 2026-10-05 §1): both flags are
+  // REQUIRED and checked in the case block, because a runtime that serves
+  // without its ref or its socket would create panes nowhere.
+  "runtime-serve": ["--session", "--tmux-socket"],
   // Derived, never hand-listed: the command-level check is the union and the
   // per-subtoken check below is what actually decides.
   service: subcommandFlagUnion("service"),
@@ -626,6 +648,27 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           return fail(1, err);
         }
         return { code: 0, out: "", err: "" };
+      }
+      case "runtime-serve": {
+        // The session-scoped runtime mode (design 2026-10-05 §1): a pre-boot
+        // verb like `pane-log` and `report` - NO config, no lock, no daemon.
+        // A destination machine has no enrollment and must not need one; the
+        // runtime's whole authority is the SSH child's stdio it was born on.
+        // Both flags are required BY REFUSAL: a runtime that served panes
+        // without its session ref or its destination socket would be
+        // guessing at both, so a missing flag is the usage exit before any
+        // stdout byte (the pane-log rule for a bad --file, same reason).
+        const session = parsed.flags.session;
+        const socket = parsed.flags.tmuxSocket;
+        if (session === undefined || session === "" || socket === undefined || socket === "") {
+          return fail(2, new Error("runtime-serve requires --session <ref> and --tmux-socket <name>"));
+        }
+        // The serve loop holds the process open (stdin reader + tail timers);
+        // when it resolves the session is over and the exit code rides out
+        // normally - no keepAlive, unlike `mcp` whose transport must survive
+        // the connect promise.
+        const code = await runRuntimeServe({ session, tmuxSocket: socket });
+        return { code, out: "", err: "" };
       }
       case "dashboard": {
         // The standalone dashboard (spec 2026-09-19): the SAME surface

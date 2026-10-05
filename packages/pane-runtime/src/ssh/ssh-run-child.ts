@@ -27,8 +27,13 @@ interface DrainReader {
  * ProxyJump `-W` grandchildren), and a group signal is the only stop that
  * reaches them; the single-pid kill is the fallback for a child that somehow
  * is not a group leader.
+ *
+ * Exported for `ssh-session-supervisor.ts`, which leads its session children
+ * the same way and must reach the same grandchildren (the session's ssh may
+ * ProxyJump; the runtime it spawns on the destination is the SSH child's own
+ * remote problem, but the LOCAL group is ours to stop).
  */
-function killGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
+export function killGroup(pid: number, signal: "SIGTERM" | "SIGKILL"): void {
   try {
     process.kill(-pid, signal);
     return;

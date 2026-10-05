@@ -107,8 +107,17 @@ export function semverLt(a: string, b: string): boolean {
  * in the same commit. An agent below this speaks no handshake, and the whole
  * point of this bump is that no such agent may put a plaintext frame on the
  * link the encrypted one is meant to carry.
+ *
+ * Raised to 1.5.0 with protocol 17 (the SSH session-runtime surface, design
+ * 2026-10-05 §2/§3), the same way — `apps/node/agent/package.json` goes to
+ * 1.5.0 in the same commit (the published version line reached 1.4.x since
+ * the protocol-14 note above, so the floor lands one minor above it). An
+ * agent below this brokers no `ssh_session_open` and emits no
+ * `session_frame`, so the plane would open a session against a machine that
+ * could never carry one — the floor turns that into "install subshell >=
+ * 1.5.0" instead.
  */
-export const MIN_NODE_VERSION = "0.17.0";
+export const MIN_NODE_VERSION = "1.5.0";
 
 /**
  * Whether an agent reporting `version` may connect.

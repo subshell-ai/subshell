@@ -171,6 +171,7 @@ export {
   sweepSshProbes,
   sweepSshTerminalState,
 } from "./ssh/ssh-retention.js";
+export { killGroup } from "./ssh/ssh-run-child.js";
 export { ensureSshDirs, sshAggregateStorageBytes, sshRunsDir } from "./ssh/ssh-run-store.js";
 export {
   getSshRunSupervisor,
@@ -180,6 +181,18 @@ export {
   SshRunSupervisor,
   type SshSupervisedRunRequest,
 } from "./ssh/ssh-run-supervisor.js";
+export {
+  getSshSessionSupervisor,
+  peekSshSessionSupervisor,
+  resetSshSessionSupervisorsForTests,
+  type SshSessionHooks,
+  type SshSessionOpenOutcome,
+  type SshSessionOpenRequest,
+  SshSessionSupervisor,
+  type SshSessionSupervisorDeps,
+  sessionTargetSnapshot,
+  sshSessionTmuxSocket,
+} from "./ssh/ssh-session-supervisor.js";
 export { runSshProcess, type SshProcessResult, sshChildPath } from "./ssh/ssh-spawn.js";
 export {
   assertSshTerminalId,

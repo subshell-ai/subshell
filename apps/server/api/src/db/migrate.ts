@@ -48,6 +48,7 @@ import * as nodeReregistrationMigration from "@/db/migrations/0045-node-reregist
 import * as backupRecoveryMigration from "@/db/migrations/0046-backup-recovery.js";
 import * as sshConnectionsMigration from "@/db/migrations/0047-ssh-connections.js";
 import * as sshExecutionMigration from "@/db/migrations/0048-ssh-execution.js";
+import * as sshRuntimeSessionsMigration from "@/db/migrations/0049-ssh-runtime-sessions.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -139,6 +140,10 @@ export async function runMigrations(): Promise<void> {
           // write it arrive with workstream D.
           "0047-ssh-connections": sshConnectionsMigration,
           "0048-ssh-execution": sshExecutionMigration,
+          // SSH runtime sessions (design 2026-10-05 §4): brokered destination
+          // sessions + the hidden `runtime` node rows their panes carry. The
+          // `runtime` kind needs no ALTER (0017's `kind` is plain text).
+          "0049-ssh-runtime-sessions": sshRuntimeSessionsMigration,
         };
       },
     },

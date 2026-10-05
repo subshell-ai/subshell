@@ -21,6 +21,7 @@ import type { SshConnectionTable } from "@/db/types/ssh-connections.db-types.js"
 import type { SshGrantTable } from "@/db/types/ssh-grants.db-types.js";
 import type { SshPaneTable } from "@/db/types/ssh-panes.db-types.js";
 import type { SshRunTable } from "@/db/types/ssh-runs.db-types.js";
+import type { SshRuntimeSessionTable } from "@/db/types/ssh-runtime-sessions.db-types.js";
 import type { SshTerminalExecTable } from "@/db/types/ssh-terminal-execs.db-types.js";
 import type { SubshellShareTable } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
@@ -70,6 +71,7 @@ export interface Database {
   // migrations that create them; revocation and reconciliation queries are
   // documented there.
   sshConnections: SshConnectionTable;
+  sshRuntimeSessions: SshRuntimeSessionTable;
   sshGrants: SshGrantTable;
   sshRuns: SshRunTable;
   sshPanes: SshPaneTable;

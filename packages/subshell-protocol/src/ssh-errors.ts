@@ -60,6 +60,18 @@ export const SSH_ERROR_CODES = [
   "run_unknown",
   /** The fixed connection-test probe failed for no more specific reason. The one code that must never be dressed up as a diagnosis. */
   "connection_failed",
+  /**
+   * The session-runtime probe found no runtime binary on the destination
+   * (design 2026-10-05 §3: the `command -v` probe before the child spawns;
+   * the design names this refusal `SSH_RUNTIME_MISSING`). The remedy is the
+   * binary install ONLY - never enrollment, never `subshell setup` - and
+   * `SSH_ERROR_DESCRIPTIONS` keeps it to exactly that sentence.
+   */
+  "runtime_missing",
+  /** Opening a session was refused at the per-node active-session quota (design §3, sibling of `quota_terminals`). */
+  "session_quota",
+  /** The brokered child spoke something whose first frame is not a runtime hello (design §2: malformed leading bytes fail the open; the broker names it, the plane relays it). */
+  "session_protocol",
 ] as const;
 
 /** One named refusal from {@link SSH_ERROR_CODES}. */
@@ -105,4 +117,9 @@ export const SSH_ERROR_DESCRIPTIONS: Record<SshErrorCode, string> = {
     "This node has no record of that run. Its result may never have existed or its history expired; never assume it completed.",
   connection_failed:
     "The connection test failed. Check the destination, the network, and the connecting account's SSH setup.",
+  runtime_missing:
+    "The destination has no Subshell binary. Install the `subshell` binary there (the same install as any node's agent, without enrollment); no account setup or daemon is needed.",
+  session_quota: "This machine already carries its share of open SSH sessions. Close one first.",
+  session_protocol:
+    "The destination answered the session open with something that is not the Subshell runtime's handshake. Check that the named program is the `subshell` binary.",
 };

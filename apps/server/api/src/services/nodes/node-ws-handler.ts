@@ -30,6 +30,11 @@ import {
 import { loadNodeEncryptionKeys, nodeEncryptionPublicKey } from "@/services/nodes/node-encryption-keys.js";
 import { announceNodePresence, projectNodeOffline } from "@/services/nodes/node-presence-announce.js";
 import { reconcileSshNode } from "@/services/ssh/ssh-reconcile.js";
+import {
+  deliverSessionFrame,
+  deliverSessionLost,
+  markSessionsLostForNode,
+} from "@/services/ssh-runtime/session-registry.js";
 import { logger } from "@/utils/logger.js";
 import { refireInputHoldsForNode } from "@/ws/input-hold.js";
 import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
@@ -1047,6 +1052,15 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       else logger.warn(`node ws: maintenance from ${nodeId} with no lifecycle hook`);
       return;
     }
+    case "session_frame": {
+      // The brokered-session pump (design 2026-10-05 §3): route by the OUTER
+      // ref through the runtime registry, which checks the session belongs to
+      // THIS node (frames naming another node's ref are dropped, not routed).
+      if (!deliverSessionFrame(nodeId, event.ref, event.data_b64)) {
+        logger.debug(`node ws: dropped session_frame for unknown/foreign ref ${event.ref.slice(0, 8)} from ${nodeId}`);
+      }
+      return;
+    }
     case "result": {
       // Connection-scoped settle: the frame can only resolve pendings on the
       // socket it arrived on (same record the close path drains). Fall back to
@@ -1058,6 +1072,23 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       return;
     }
     case "error":
+      if (event.code === "ssh_session_lost") {
+        // The brokered child died (network, destination reboot, a user kill):
+        // the session's own close report. The message is the node's JSON
+        // ({ref, exitCode}); a malformed one names nothing and logs, exactly
+        // as an unparseable log line costs a log, never a state.
+        let ref: string | null = null;
+        try {
+          const parsed = JSON.parse(event.message) as { ref?: unknown };
+          if (typeof parsed.ref === "string") ref = parsed.ref;
+        } catch {
+          // fall through to the generic log below
+        }
+        if (ref !== null) {
+          deliverSessionLost(nodeId, ref);
+          return;
+        }
+      }
       logger.withMetadata({ nodeId, code: event.code }).warn(`node reported error: ${event.message}`);
       return;
   }
@@ -1114,6 +1145,10 @@ export async function handleNodeClose(deps: NodeWsDeps, ws: NodeWsSocket): Promi
   if (current && current.ws === mine) {
     detachConnection(nodeId, mine);
     failConnPendings(conn ?? current, "offline");
+    // Brokered sessions rode this socket's child; with the socket gone the
+    // SSH child's only path to the plane is gone (design §6 Disconnect). Panes
+    // flip to unavailable, never "completed".
+    markSessionsLostForNode(nodeId);
     await deps.nodes.setStatus(nodeId, "offline" satisfies NodeStatus);
     // Witnessed, and deliberately NOT read as a restart (design 2026-09-25):
     // this branch is the authenticated socket's own death, which is exactly

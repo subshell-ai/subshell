@@ -29,6 +29,7 @@ import { execSetMaintenance } from "./set-maintenance.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
 import { execSshRunCancel, execSshRunRead, execSshRunStart, execSshRunStatus } from "./ssh-runs.js";
+import { execSshSessionClose, execSshSessionOpen, execSshSessionSend } from "./ssh-session.js";
 import { execSshInputControl, execSshTerminalLaunch } from "./ssh-terminal.js";
 import { execSshTestConnection } from "./ssh-test.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
@@ -168,6 +169,18 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execSshTerminalLaunch(ctx, cmd);
       case "ssh_input_control":
         return await execSshInputControl(ctx, cmd);
+      // The brokered-session family (design 2026-10-05 §3; grammar frozen in
+      // the protocol's `ssh-session-frames.ts`, runtime in
+      // `@internal/pane-runtime`). `open` is the ONE ssh arm that holds its
+      // RPC until a real fact lands (the hello), bounded at the protocol's
+      // own open deadline and matched by the plane's per-command timeout -
+      // every other frame of the session streams as events after.
+      case "ssh_session_open":
+        return await execSshSessionOpen(ctx, cmd);
+      case "ssh_session_send":
+        return await execSshSessionSend(ctx, cmd);
+      case "ssh_session_close":
+        return await execSshSessionClose(ctx, cmd);
       default:
         return { ok: false, error: "unsupported" };
     }

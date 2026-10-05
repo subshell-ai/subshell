@@ -36,6 +36,11 @@ export const SshErrorCodeSchema = t.Union([
   t.Literal("run_conflict"),
   t.Literal("run_unknown"),
   t.Literal("connection_failed"),
+  // The session-runtime additions (design 2026-10-05); the header's rule in
+  // force: this tuple mirrors `SSH_ERROR_CODES`, so a code addition edits both.
+  t.Literal("runtime_missing"),
+  t.Literal("session_quota"),
+  t.Literal("session_protocol"),
 ]);
 
 /** One ProxyJump hop: a destination and nothing else (the §2 reviewability rule). */

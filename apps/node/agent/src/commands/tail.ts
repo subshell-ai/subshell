@@ -36,8 +36,8 @@ export const TAIL_BACKPRESSURE_BYTES = 512 * 1024;
 /** Safety net for missed watch events — same value the backend's log-tail pump uses. */
 export const TAIL_POLL_MS = 50;
 
-/** Re-check cadence inside the backpressure wait. */
-const TAIL_BACKPRESSURE_POLL_MS = 50;
+/** Re-check cadence inside the backpressure wait. Exported for the session pump, which throttles the same shape. */
+export const TAIL_BACKPRESSURE_POLL_MS = 50;
 
 /** Consecutive `send` throws that self-stop a sub (a dead ws must not be pumped into forever). */
 const TAIL_SEND_FAILURE_LIMIT = 2;

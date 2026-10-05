@@ -25,6 +25,7 @@ import { setupRoutes } from "@/api/setup.route.js";
 import { setupAgentInstallRoute } from "@/api/setup-agent-install.route.js";
 import { setupTmuxInstallRoute } from "@/api/setup-tmux-install.route.js";
 import { sshRoutes } from "@/api/ssh/index.js";
+import { sshRuntimeRoutes } from "@/api/ssh-runtime/index.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { systemKeysRoutes } from "@/api/system-keys.route.js";
 import { transferRoutes } from "@/api/transfers/index.js";
@@ -91,7 +92,11 @@ const paneRoutes = new Elysia()
 // node link and connects through a node - so the grouping is honest, not just
 // a compile dodge. `sshRoutes` stays a single self-contained sub-aggregate; the
 // seventeen `/api/ssh` endpoints are unchanged, only their mount point moved.
-const nodeRoutes = new Elysia().use(nodesRoutes).use(transferRoutes).use(sshRoutes);
+// The runtime-session slice (design 2026-10-05 §9) joins this basket for the
+// same reason ssh did: it is a machine-side surface (every frame rides a node
+// link), and the root chain has no depth to spare. Four arms here is still
+// shallower than the root's six.
+const nodeRoutes = new Elysia().use(nodesRoutes).use(transferRoutes).use(sshRoutes).use(sshRuntimeRoutes);
 
 const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use(channelRoutes);
 

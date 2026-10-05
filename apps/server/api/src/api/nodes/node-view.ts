@@ -1,9 +1,10 @@
 import { type Static, t } from "elysia";
+import { HttpError } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
 import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
-import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
 import { type NodeAccess, nodeCanLaunchOn, nodeCanManageFor } from "@/lib/node-access.js";
 import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/services/nodes/inventory.js";
 import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
@@ -310,6 +311,13 @@ function parseCapabilities(json: string | null): string[] {
   }
 }
 
+/** The view's `kind` narrow, named once: a `runtime` row at this boundary is a caller bug (the repository filters it), and the refusal says so. */
+function nodeViewKind(kind: NodeKind, id: string): "local" | "agent" {
+  if (kind === "local") return "local";
+  if (kind === "agent") return "agent";
+  throw new HttpError(404, `node ${id} has no view`);
+}
+
 /**
  * Everything but the harness merge — the one place row→view fields are mapped.
  * `local`'s os/arch fall back to this process (see the inline note) — the only
@@ -329,7 +337,10 @@ function nodeViewBase(
     allowedDirs,
     id: row.id,
     name: row.name,
-    kind: row.kind,
+    // The hidden runtime row never gets a view (design 2026-10-05 §4): the
+    // listing filters it in the repository, and a caller that reaches here
+    // with one anyway is refused, not laundered into the view grammar.
+    kind: nodeViewKind(row.kind, row.id),
     // `local` never sends `ready`, so its row CAN hold null os/arch (the seed
     // fills them only at creation) — report the control-plane host's real
     // platform from the view (spec 2026-09-02 §4b) so launch-picker labels

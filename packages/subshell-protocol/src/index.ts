@@ -147,6 +147,7 @@ export {
   parseNodeSshResolveOutcome,
   parseNodeSshRunFacts,
   parseNodeSshRunReadResult,
+  parseNodeSshSessionOpenResult,
   parseNodeSshTestOutcome,
   parseNodeStatDirResult,
   parseNodeTreeManifestPage,
@@ -298,5 +299,38 @@ export {
   type SshRunFactsWire,
   type SshRunLifecycle,
 } from "./ssh-run-facts.js";
+export {
+  encodeSshSessionFrame,
+  SSH_SESSION_FRAME_MAX_BYTES,
+  type SshSessionCodecFailure,
+  SshSessionFrameDecoder,
+} from "./ssh-session-codec.js";
+export {
+  isSshSessionRef,
+  parseSshRuntimeCommandFrame,
+  parseSshRuntimeEventFrame,
+  parseSshRuntimeHello,
+  parseSshSessionNodeCommandBody,
+  parseSshSessionOpenResult,
+  parseSshSessionTarget,
+  SSH_RUNTIME_PROTOCOL,
+  SSH_SESSION_COMMAND_TYPES,
+  SSH_SESSION_INBOUND_QUEUE_FRAMES,
+  SSH_SESSION_OPEN_DEADLINE_MS,
+  SSH_SESSION_RUNTIME_MISSING,
+  SSH_SESSION_UNKNOWN,
+  SSH_SESSIONS_PER_NODE,
+  type SshRuntimeCommandFrame,
+  type SshRuntimeEventFrame,
+  type SshRuntimeHelloWire,
+  type SshRuntimeLaunchBody,
+  type SshSessionCloseCommand,
+  type SshSessionNodeCommandBody,
+  type SshSessionOpenCommand,
+  type SshSessionOpenResultWire,
+  type SshSessionSendCommand,
+  type SshSessionTargetWire,
+  sshRuntimeProtocolSupported,
+} from "./ssh-session-frames.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
 export { MIN_NODE_VERSION, nodeVersionSupported, semverLt } from "./versions.js";

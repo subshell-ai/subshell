@@ -93,8 +93,12 @@ describe("ssh commands via parseNodeCommandBody (delegation)", () => {
     }
   });
 
-  it("the Gate A freeze did NOT bump the protocol version (integration owns that)", () => {
-    expect(NODE_PROTOCOL_VERSION).toBe(16);
+  it("the SSH family's commands shipped under protocol 16 and the 17 bump belongs to the session family", () => {
+    // The old Gate A note deferred the version bump to the integration; the
+    // session-runtime slice (design 2026-10-05) IS that integration and it
+    // took 17 for ssh_session_open/send/close + session_frame. The nine SSH
+    // commands' grammar is unchanged by that bump.
+    expect(NODE_PROTOCOL_VERSION).toBe(17);
   });
 
   it("a snapshot with any forbidden member set is refused inside every carrier command", () => {

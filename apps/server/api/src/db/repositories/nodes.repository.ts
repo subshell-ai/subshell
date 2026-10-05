@@ -1,5 +1,6 @@
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type { MaintenanceSource, NewNode, NodeStatus, NodeTable } from "@/db/types/nodes.db-types.js";
+import { NODE_KIND_RUNTIME } from "@/db/types/nodes.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 
 /** Fields a `ready` frame carries about the machine behind a node (spec §5.3). */
@@ -82,6 +83,13 @@ export class NodesRepository extends BaseRepository {
     return await this.db
       .selectFrom("nodes")
       .selectAll()
+      // Hidden runtime rows (design 2026-10-05 §4): a session's panes carry a
+      // `runtime` node id so ordinary pane plumbing works, and the LISTING
+      // must never show that row - it is not a machine anyone chose. The
+      // exclusion is a `kind` filter here (and in `listByOwner` below), not a
+      // per-route remember-to-filter, so every current and future reader of
+      // "nodes I can see" stays honest by construction.
+      .where("kind", "<>", NODE_KIND_RUNTIME)
       .where((eb) =>
         eb.or([
           eb("ownerUserId", "=", viewerUserId),
@@ -114,9 +122,18 @@ export class NodesRepository extends BaseRepository {
     return await this.db.selectFrom("nodes").selectAll().where("kind", "=", "agent").orderBy("name").execute();
   }
 
-  /** Every node one user owns, creation order. */
+  /**
+   * Every node one user owns, creation order. `runtime` rows are excluded for
+   * the same design §4 reason as `findAccessible`; owner-visible does not mean
+   * listable, and this read feeds pickers.
+   */
   async listByOwner(ownerUserId: string): Promise<NodeTable[]> {
-    return await this.db.selectFrom("nodes").selectAll().where("ownerUserId", "=", ownerUserId).execute();
+    return await this.db
+      .selectFrom("nodes")
+      .selectAll()
+      .where("ownerUserId", "=", ownerUserId)
+      .where("kind", "<>", NODE_KIND_RUNTIME)
+      .execute();
   }
 
   /** Renames a node (the name is what the picker shows). */
