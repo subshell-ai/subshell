@@ -139,6 +139,20 @@ export class SshRunsRepository extends BaseRepository {
       .execute();
   }
 
+  /**
+   * Unsettled runs whose NODE row was deleted (the SET NULL column is the
+   * orphan fact: dispatch always writes a non-null node). The retention pass
+   * settles these to `unknown` - the machine that answers for them is gone.
+   */
+  async listOrphans(): Promise<SshRunTable[]> {
+    return this.db
+      .selectFrom("sshRuns")
+      .selectAll()
+      .where("nodeId", "is", null)
+      .where("status", "in", ["accepted", "running"])
+      .execute();
+  }
+
   /** Non-terminal runs on one node - the reconcile-on-reconnect census. */
   async listUnsettledForNode(nodeId: string): Promise<SshRunTable[]> {
     return this.db
@@ -177,6 +191,23 @@ export class SshRunsRepository extends BaseRepository {
         updatedAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
       })
       .where("id", "=", id)
+      .execute();
+  }
+
+  /**
+   * Roll back a row whose dispatch the node REFUSED before acceptance: the
+   * run exists nowhere, and a mirror claiming `accepted` would lie. Guarded
+   * on the never-moved state so a concurrent settle (a reconcile answer
+   * landing between dispatch and rollback) is never overwritten by the
+   * rollback of a dispatch that in fact produced state.
+   */
+  async deleteIfUntouched(id: string): Promise<void> {
+    await this.db
+      .deleteFrom("sshRuns")
+      .where("id", "=", id)
+      .where("status", "=", "accepted")
+      .where("startedAt", "is", null)
+      .where("finishedAt", "is", null)
       .execute();
   }
 

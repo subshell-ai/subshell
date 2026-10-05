@@ -46,6 +46,18 @@ export class SshPanesRepository extends BaseRepository {
     return Number(row?.n ?? 0);
   }
 
+  /** Managed panes whose ordinary row is RUNNING on one node (the reconnect re-assert pass). */
+  async listByNodeLive(nodeId: string): Promise<SshPaneTable[]> {
+    return this.db
+      .selectFrom("sshPanes")
+      .innerJoin("subshells", "subshells.id", "sshPanes.subshellId")
+      .selectAll("sshPanes")
+      .where("subshells.nodeId", "=", nodeId)
+      .where("subshells.status", "=", "running")
+      .where("subshells.alive", "=", 1)
+      .execute();
+  }
+
   /**
    * Move the input-control state of a managed pane. The generation is RAISED
    * by exactly one (the plane's counter, mirrored node-side by
