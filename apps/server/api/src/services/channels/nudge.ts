@@ -1,5 +1,7 @@
 import { TmuxRunner } from "@internal/pane-runtime";
 import { IS_TEST } from "@/constants.js";
+import { getRequestlessContext } from "@/lib/context.js";
+import { readManagedPane } from "@/services/pane-ssh-gate.js";
 import { logger } from "@/utils/logger.js";
 
 /**
@@ -36,6 +38,14 @@ export function setNudgeTransportForTests(tmux: TmuxRunner | null): void {
  * `submit` adds the Enter that wakes an idle agent (see the module doc); the
  * line passed MUST be server-generated, never peer content.
  *
+ * Managed SSH panes are REFUSED here explicitly (review M2): a nudge is
+ * automated input, and the only sanctioned door for automated input to a
+ * managed pane is the generation-stamped SSH input seam (`input` surface +
+ * `SshPaneHooks.sendManagedInput`), which this raw-transport path bypasses.
+ * The node-side generation fence would already drop the frame (no generation
+ * on a managed pane = stale), but refusing at the plane makes the posture
+ * legible and costs one PK read. The `ssh_panes` row is the whole test.
+ *
  * AWAITED, not fired and forgotten, even though the caller does not need the
  * answer: the two tmux commands are async now, and a rejection nobody handles
  * is an unhandled rejection rather than the debug line below. The pane chain
@@ -44,15 +54,19 @@ export function setNudgeTransportForTests(tmux: TmuxRunner | null): void {
  */
 export async function nudgeSubshell(
   socket: string,
-  subshellName: string,
+  subshellId: string,
   text: string,
   opts: { submit?: boolean } = {},
 ): Promise<void> {
   try {
-    await transport.sendInput(socket, subshellName, text);
-    if (opts.submit) await transport.pressEnter(socket, subshellName);
+    if (await readManagedPane(getRequestlessContext().db, subshellId)) {
+      logger.debug(`nudge refused for ${subshellId} (managed SSH pane: automated input rides the gated seam)`);
+      return;
+    }
+    await transport.sendInput(socket, subshellId, text);
+    if (opts.submit) await transport.pressEnter(socket, subshellId);
   } catch (err) {
     // A vanished pane between liveness-check and type is a normal race.
-    logger.withError(err).debug(`nudge failed for ${subshellName}`);
+    logger.withError(err).debug(`nudge failed for ${subshellId}`);
   }
 }

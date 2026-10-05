@@ -2,7 +2,6 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
-
 /**
  * The SSH gates on the GENERIC pane surfaces (task-C brief deliverables 1-3):
  * every managed-SSH-pane act runs the injected policy and honors its refusal;
@@ -19,6 +18,9 @@ import { Elysia } from "elysia";
  * a signed-in cookie, like every other route suite here.
  */
 import { subshellRoutes } from "@/api/subshells/index.js";
+import { deleteApiKey } from "@/auth/apikey-store.js";
+import { ensureSystemUser } from "@/auth/system-user.js";
+import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -101,9 +103,11 @@ function scriptedHooks(): SshPaneHooks {
 describe("SSH gates on the generic pane surfaces", () => {
   const ownerEmail = `sshgate-owner-${crypto.randomUUID()}@subshell.local`;
   const foreignEmail = `sshgate-foreign-${crypto.randomUUID()}@subshell.local`;
+  const adminEmail = `sshgate-admin-${crypto.randomUUID()}@subshell.local`;
   const pw = "sshgate-pass-1";
   let ownerId: string;
   let ownerCookie: string;
+  let adminCookie: string;
 
   let node: string; // an agent node (rows live there; local fallback can never mask a missing gate)
   let sim: ScriptedNode;
@@ -218,6 +222,16 @@ describe("SSH gates on the generic pane surfaces", () => {
       name: "Foreign",
       role: "user",
     });
+    // A real admin (role "admin", not a grantee): the summary census test
+    // needs an account whose ordinary visibility is instance-wide, so the
+    // managed drop is proven to be the POLICY and not ordinary math.
+    await new UsersRepository(db).createUser({
+      email: adminEmail,
+      passwordHash: await hashPassword(pw),
+      name: "Gate Admin",
+      role: "admin",
+    });
+    adminCookie = await signIn(adminEmail, pw);
     node = crypto.randomUUID();
     await nodes.create({ id: node, ownerUserId: ownerId, name: `gate-${node.slice(0, 8)}`, kind: "agent" });
   });
@@ -226,6 +240,7 @@ describe("SSH gates on the generic pane surfaces", () => {
     resetNodeRegistryForTests();
     await deleteUserByEmailOrId(ownerEmail);
     await deleteUserByEmailOrId(foreignEmail);
+    await deleteUserByEmailOrId(adminEmail);
   });
 
   beforeEach(() => {
@@ -458,6 +473,19 @@ describe("SSH gates on the generic pane surfaces", () => {
       expect(((await res.json()) as { promptDelivered?: boolean }).promptDelivered).toBe(true);
       expect(hookCalls.input).toEqual([{ subshellId: pane, text: "do the thing", submit: true, inputGeneration: 5 }]);
       expect(sim.countOf("prompt_deliver")).toBe(0);
+    });
+
+    it("prompt injection is its own surface: allowed restart + refused prompt refuses the WHOLE call, relaunch included", async () => {
+      const pane = await seedManaged("gate-restart-prompt-deny");
+      allowAll();
+      scripted.paneSurface.set("prompt", { allow: false, code: "not_granted" });
+      const res = await call(`/${pane}/restart`, { method: "POST", body: { prompt: "sneak in" } });
+      expect(res.status).toBe(403);
+      // Nothing happened: the refusal precedes the relaunch (deny precedes
+      // effect, the house rule), so no SSH restart, no input hook, no launch.
+      expect(hookCalls.restart).toEqual([]);
+      expect(hookCalls.input).toEqual([]);
+      expect(sim.countOf("launch")).toBe(0);
     });
 
     it("a refused managed pane 404s restart and writes nothing", async () => {
@@ -742,6 +770,118 @@ describe("SSH gates on the generic pane surfaces", () => {
       expect(res.status).toBe(403);
       const row = await db.selectFrom("sshPanes").selectAll().where("subshellId", "=", pane).executeTakeFirstOrThrow();
       expect(row.controlGeneration).toBe(1);
+    });
+  });
+
+  describe("summary counts (review I-1) and the human-class recovery door (review M5)", () => {
+    it("a refused managed pane is absent from summary counts for owner, admin, and same-owner bearer", async () => {
+      const ordinary = await seedPane("sum-ordinary");
+      const managed = await seedManaged("sum-managed");
+      const token = await issueSubshellToken(ordinary, ownerId);
+
+      const counts = async (opts: { cookie?: string | null; bearer?: string } = {}) =>
+        (await (await call("/summary", opts)).json()) as { total: number; running: number; waiting: number };
+
+      // Denied (the placeholder default arm): the badge numbers never grew.
+      // Review I-1's leak: the counts ride the SAME policy-filtered set as
+      // the list, so an admin's or a sibling's arithmetic says "1 running",
+      // not "2".
+      expect(await counts()).toEqual({ total: 1, running: 1, waiting: 0 });
+      expect((await counts({ bearer: token })).total).toBe(1); // same-owner sibling bearer: not counted
+      expect(scripted.seenSurfaces.filter((x) => x === `${managed}:list_preview`).length).toBeGreaterThan(0);
+
+      // The admin's seed asks the policy for the admin's OWN caller facts
+      // (no bypass); the placeholder's deny is what hides the pane. Admin
+      // visibility spans the whole DB, so the honest assertion is the DELTA
+      // across the policy flip: exactly the managed pane moves.
+      const adminDenied = (await counts({ cookie: adminCookie })).total;
+      allowAll();
+      expect((await counts({ cookie: adminCookie })).total).toBe(adminDenied + 1);
+
+      // Allowed: the managed pane is a row like any other, counted by every
+      // caller whose policy decision is allow.
+      expect(await counts()).toEqual({ total: 2, running: 2, waiting: 0 });
+      expect((await counts({ bearer: token })).total).toBe(2);
+    });
+
+    it("after unknown, a system key passes the recovery gate like a cookie human; only pane keys are refused", async () => {
+      const pane = await seedPane("sum-afterunknown");
+      const row = await subshells.findById(pane);
+      await db
+        .insertInto("sshTerminalExecs")
+        .values({
+          id: crypto.randomUUID(),
+          subshellId: pane,
+          paneIncarnation: row?.startedAt ?? "2026-10-04T00:00:00.000Z",
+          initiatedBy: "agent",
+          grantId: null,
+          apiKeyId: null,
+          inputGeneration: 1,
+          markerToken: "0123456789abcdef",
+          state: "unknown",
+          createdAt: "2026-10-04T10:00:00.000Z",
+          resolvedAt: "2026-10-04T10:00:01.000Z",
+          outputTruncated: 0,
+        })
+        .execute();
+      // A deliberate edit grant makes the pane reachable for the system
+      // service user (grants DO reach it, unlike the pre-seeded nowhere
+      // default); the pane itself is parked DEAD, so the refusal a caller
+      // gets PROVES which gate answered: SUBSHELL_NOT_RUNNING means the
+      // after-unknown gate was passed, EXEC_UNKNOWN_RECOVERY means it refused.
+      const systemUserId = await ensureSystemUser();
+      await db
+        .insertInto("subshellShares")
+        .values({
+          id: crypto.randomUUID(),
+          subshellId: pane,
+          granteeUserId: systemUserId,
+          permission: "edit",
+          createdBy: ownerId,
+          createdAt: new Date().toISOString(),
+        })
+        .execute();
+      await subshells.update(pane, { status: "terminated", alive: 0 });
+      const systemKey = (await getAuth().api.createApiKey({
+        body: {
+          name: `gate-sys-${crypto.randomUUID()}`,
+          userId: systemUserId,
+          metadata: { kind: "system" },
+        },
+      })) as unknown as { id: string; key: string };
+      cleanup.push(async () => {
+        await db.deleteFrom("subshellShares").where("granteeUserId", "=", systemUserId).execute();
+        // The apikey table has no registry type (raw SQL lives only in
+        // apikey-store); its own delete is the honest cleanup.
+        deleteApiKey(systemKey.id);
+      });
+
+      // (M5, coordinator ruling 2026-10-05) system key = human-class: it
+      // passes the after-unknown gate exactly like the cookie owner and
+      // reaches the next fact (the pane is not running).
+      const sys = await call(`/${pane}/exec`, {
+        method: "POST",
+        body: { command: "recovery" },
+        cookie: null,
+        bearer: systemKey.key,
+      });
+      expect(sys.status).toBe(409);
+      expect(((await sys.json()) as { code: string }).code).toBe(BackendErrorCodes.SUBSHELL_NOT_RUNNING);
+      // A cookie human passes the same gate for the same reason.
+      const human = await call(`/${pane}/exec`, { method: "POST", body: { command: "recovery" } });
+      expect(human.status).toBe(409);
+      expect(((await human.json()) as { code: string }).code).toBe(BackendErrorCodes.SUBSHELL_NOT_RUNNING);
+      // The automated actor - a pane key - is the one refused by the rule.
+      const sibling = await seedPane("sum-afterunknown-sibling");
+      const token = await issueSubshellToken(sibling, ownerId);
+      const paneKey = await call(`/${pane}/exec`, {
+        method: "POST",
+        body: { command: "recovery" },
+        cookie: null,
+        bearer: token,
+      });
+      expect(paneKey.status).toBe(409);
+      expect(((await paneKey.json()) as { code: string }).code).toBe(BackendErrorCodes.EXEC_UNKNOWN_RECOVERY);
     });
   });
 });

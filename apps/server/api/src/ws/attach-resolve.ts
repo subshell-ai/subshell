@@ -192,7 +192,23 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
       getRequestlessContext().db,
       identity.subshellId === null
         ? { actor: "cookie", userId: identity.userId, principal: `user:${identity.userId}`, apiKeyId: null }
-        : { actor: "subshell-key", userId: identity.userId, principal: `sess:${identity.subshellId}`, apiKeyId: null },
+        : // The bound token's credential id: the token store's frozen shape
+          // carries only (userId, subshellId), so the honest fact redemption
+          // can name is the pane's CURRENTLY-BOUND api key (`row.apiKeyId`,
+          // written only by issueSubshellToken) - for a pane-key mint that IS
+          // the presenting credential; for a system-key mint it is the pane's
+          // own key, which D's token_stale recheck reads as "this pane's
+          // credential", exactly the seed's use. Null after revoke/rotate
+          // says so honestly. The mint's true key id on a SYSTEM-key mint is
+          // genuinely unknowable here and documented null; carrying it would
+          // need an additive `apiKeyId` on `WsTokenIdentity` (ws/ws-token.ts
+          // + the mint site, coordinator-owned - integration item).
+          {
+            actor: "subshell-key",
+            userId: identity.userId,
+            principal: `sess:${identity.subshellId}`,
+            apiKeyId: row.apiKeyId,
+          },
       subshellId,
       "attach_redeem",
     );

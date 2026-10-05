@@ -13,6 +13,7 @@ import type { GuardActor } from "@/api/auth-guard.js";
 import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { ShareEntry } from "@/db/repositories/subshell-shares.repository.js";
+import { summarizeSubshells } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import type { PresetTable } from "@/db/types/presets.db-types.js";
 import type { SshActorSide } from "@/db/types/ssh-actor-side.js";
@@ -771,13 +772,16 @@ export class SubshellsService extends BaseService {
     const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
     const wanted = new Set(ids);
     const visible = (await this.repos.subshells.listVisibleTo(viewerId, isAdmin)).filter((row) => wanted.has(row.id));
-    // The screen IS the pane's output: the list_preview census decides it
-    // (captured lines are the most sensitive bytes this app moves, and a
-    // managed pane's are additionally blocked while a human holds control).
+    // The screen IS the pane's output: the dedicated captures door is its own
+    // census surface (spec §2 lists captures beside list previews - the list
+    // row rides `list_preview`, the captured lines ride `capture`, and D's
+    // policy may admit one and refuse the other; captured lines are the most
+    // sensitive bytes this app moves, and a managed pane's are additionally
+    // blocked while a human holds control).
     const allowed = await this.#dropUngrantedSsh(
       ssh ?? { actor: "cookie", userId: viewerId, principal: `user:${viewerId}`, apiKeyId: null },
       visible.map((row) => row.id),
-      "list_preview",
+      "capture",
     );
     const keep = new Set(allowed);
     return await this.#manager.previewsFor(visible.filter((row) => keep.has(row.id)));
@@ -827,11 +831,38 @@ export class SubshellsService extends BaseService {
    * `isNodeOffline` predicate is passed so a waiting subshell behind an
    * unreachable node does not count as waiting (F1); `running`/`total` are
    * unaffected.
+   *
+   * The SSH census (review I-1): the counts ride the SAME rows the list
+   * returns, so the `list_preview` filter runs here too - a managed pane the
+   * caller cannot preview is absent from the badge numbers exactly as it is
+   * absent from their list. An admin's counts and a same-owner sibling's
+   * bearer counts therefore never leak a managed row's existence through
+   * arithmetic.
    * @param viewerId - The signed-in user whose visible set to count
+   * @param seed - The caller's SSH seed (default: the viewer's own cookie arm)
    */
-  async summarySubshells(viewerId: string): Promise<{ total: number; running: number; waiting: number }> {
+  async summarySubshells(
+    viewerId: string,
+    seed?: SshCallerSeed,
+  ): Promise<{ total: number; running: number; waiting: number }> {
     const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
-    return await this.repos.subshells.countsVisibleTo(viewerId, isAdmin, isNodeOffline);
+    const rows = await this.repos.subshells.listVisibleTo(viewerId, isAdmin);
+    // Same single source as the list: one `listVisibleTo`, then the policy
+    // filter, then the shared reduction (`summarizeSubshells` is the ONE
+    // formula, imported rather than restated).
+    const visible =
+      rows.length > 0
+        ? await this.#dropUngrantedSsh(
+            seed ?? { actor: "cookie", userId: viewerId, principal: `user:${viewerId}`, apiKeyId: null },
+            rows.map((r) => r.id),
+            "list_preview",
+          )
+        : [];
+    const keep = new Set(visible);
+    return summarizeSubshells(
+      rows.filter((r) => keep.has(r.id)),
+      isNodeOffline,
+    );
   }
 
   /**
@@ -1182,10 +1213,15 @@ export class SubshellsService extends BaseService {
     // of the pane (and before the after-unknown read below, so a restart
     // cannot read as a blocking unknown of the CURRENT incarnation).
     await reconcileStaleIncarnation(this.db, id, paneIncarnation(row));
-    // After unknown, automated exec waits (spec §3); a cookie human passes -
+    // After unknown, automated exec waits (spec §3); HUMAN-CLASS callers pass -
     // they are the recovery the rule waits for, and their next completed
-    // record is what clears it.
-    if (seed.actor !== "cookie" && (await hasBlockingUnknown(this.db, id, paneIncarnation(row)))) {
+    // record is what clears it. Human-class is cookie AND system key (M5,
+    // coordinator ruling 2026-10-05): a system key resolves through the full
+    // human gate as the `system` service user everywhere else in this tree,
+    // and an operator driving recovery over a machine credential is the same
+    // human act. Only a SUBSHELL key - the prompt-injectable automated actor
+    // the rule was written against - is refused.
+    if (seed.actor === "subshell-key" && (await hasBlockingUnknown(this.db, id, paneIncarnation(row)))) {
       refuseAfterUnknown();
     }
     if (row.status !== "running" || row.alive !== 1) {
@@ -1595,6 +1631,13 @@ export class SubshellsService extends BaseService {
       );
     }
     if (managed) {
+      // The restart PROMPT is its own census surface (spec §2 lists prompt
+      // injection separately from restart): a caller allowed to relaunch the
+      // pane may still be refused the injection into it, and the refusal
+      // precedes ANY effect, relaunch included (review I-4).
+      if (prompt?.trim()) {
+        await this.#sshGate(seed, id, "prompt");
+      }
       const hooks = getSshPaneHooks();
       if (!hooks) {
         throwApiError({
