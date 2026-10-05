@@ -18,7 +18,7 @@ import { SshPanesRepository } from "@/services/ssh/ssh-panes.repository.js";
 import type { SshCaller } from "@/services/ssh/ssh-policy.js";
 import { getSshPolicy } from "@/services/ssh/ssh-policy-impl.js";
 import { refuseSshDecision } from "@/services/ssh/ssh-refusal.js";
-import { applyRunFacts, sshRunsRepo } from "@/services/ssh/ssh-runs.service.js";
+import { applyRunFacts, sshRunsRepo } from "@/services/ssh/ssh-run-mirror.js";
 
 /**
  * The grants domain (SSH-SUPPORT.md §2): a grant binds one connection

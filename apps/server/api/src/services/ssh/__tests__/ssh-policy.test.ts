@@ -557,6 +557,14 @@ describe("DefaultSshPolicy (SSH-SUPPORT.md §2, Gate A interface)", () => {
         intent: "agent_write",
       });
       expect(write).toEqual({ allow: false, code: "human_control" });
+      // Review fix M-1: the cookie arm reads ownership first. A foreign human
+      // gets the standard invisible-row posture, never a control transition.
+      const foreign = await policy.gateControl({
+        caller: cookieCaller(FOREIGN),
+        subshellId: "ct-pane",
+        intent: "agent_read",
+      });
+      expect(foreign).toEqual({ allow: false, code: "not_found" });
       const human = await policy.gateControl({
         caller: cookieCaller(OWNER),
         subshellId: "ct-pane",

@@ -145,9 +145,11 @@ export async function sshCreateConnection(
 /**
  * `PATCH /api/ssh/connections/:id`: every edit is gated for ACTIVE WORK
  * first (spec §2: "Refuse edits while work is active; the human must stop or
- * finish it first"), and a snapshot-bearing edit is ONE statement that moves
- * the snapshot and the revision together - so a grant never sees the new
- * config under the old number (the atomic invalidation §2's revision rule).
+ * finish it first"). A snapshot-bearing OR remoteDir-bearing edit is ONE
+ * statement that moves the change and the revision together - a grant never
+ * sees new execution semantics under the old number (the atomic invalidation
+ * §2's revision rule, and review fix I-1: `remoteDir` counts, `displayName`
+ * alone does not bump).
  */
 export async function sshUpdateConnection(
   caller: SshCaller,
@@ -163,24 +165,28 @@ export async function sshUpdateConnection(
     throwApiError({ code: BackendErrorCodes.BAD_REQUEST, message: "The edit carries no changes", doNotLog: true });
   }
 
-  const patchLabel: { displayName?: string; remoteDir?: string | null } = {};
-  if (body.displayName !== undefined) patchLabel.displayName = labelOrRefuse(body.displayName);
-  if (body.remoteDir !== undefined) patchLabel.remoteDir = validateRemoteDir(body.remoteDir);
-  const labelOnly = Object.keys(patchLabel).length > 0 && body.snapshot === undefined;
-  if (labelOnly) {
-    await connections.updateLabel(row.id, patchLabel);
-  } else {
+  // Revision discipline (review fix I-1): `remoteDir` is execution semantics,
+  // so a standalone remoteDir edit is revision-bearing exactly like a snapshot
+  // edit - both ride the ONE atomic +1 write, so no grant ever observes new
+  // run-defaults under the old number. `displayName` is the ONLY non-bumping
+  // edit (a label names nothing that runs).
+  const bearing = body.snapshot !== undefined || body.remoteDir !== undefined;
+  const label = body.displayName === undefined ? undefined : labelOrRefuse(body.displayName);
+  if (bearing) {
     const snapshot = validateSnapshotForSave(body.snapshot ?? readStoredSnapshot(row));
     await connections.updateSnapshot(row.id, {
       configSnapshot: JSON.stringify(snapshot),
-      ...(body.displayName !== undefined ? { displayName: patchLabel.displayName } : {}),
-      ...(body.remoteDir !== undefined ? { remoteDir: patchLabel.remoteDir } : {}),
+      ...(label === undefined ? {} : { displayName: label }),
+      ...(body.remoteDir === undefined ? {} : { remoteDir: validateRemoteDir(body.remoteDir) }),
     });
+  } else {
+    // The empty guard above proves `body.displayName` is present here.
+    await connections.updateLabel(row.id, { displayName: label ?? "" });
   }
   const updated = await requireOwned(connectionId, caller);
   await auditSsh(caller.userId, "ssh.connection.update", "ssh_connection", row.id, {
     revision: updated.revision,
-    snapshotChanged: !labelOnly,
+    revisionBearing: bearing,
   });
   return toView(updated);
 }

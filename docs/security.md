@@ -2187,10 +2187,20 @@ Audit events are written, grouped by family:
   `ssh.test`, `ssh.connection.create`, `ssh.connection.update`,
   `ssh.connection.delete`, `ssh.grant`, `ssh.revoke`, `ssh.run.start`,
   `ssh.run.cancel`, `ssh.run.lifecycle`, `ssh.terminal.open`, and
-  `ssh.control.transition`. The hygiene sentence the feature's own spec demands:
-  these rows carry actor, resource ids, connection revisions, grant/control
-  changes, destinations (alias + host - the same facts the SPA renders) and
-  lifecycle outcomes, and NEVER command text, config contents, or output.
+  `ssh.control.transition`. Per family, exactly what the rows hold (review
+  fix M-3): the config verbs name the node and the outcome (resolve/test carry
+  the accepted/passed fact and, on refusal, the named code); a connection
+  SAVE names its node, revision and destination (alias + host, the one
+  destination-bearing row); an update carries the new revision and whether it
+  was revision-bearing; a DELETE carries the revision and the alias.
+  Grant/revoke name `{ connectionId, revision, subshellId }`. Run rows carry
+  ids only: `{ connectionId, connectionRevision, nodeId, initiatedBy }` at
+  start, the node (or `reason: "grant_revoked"`) at cancel,
+  `{ outcome, reason }` at lifecycle settle; a terminal open repeats the run
+  shape; a control transition names `{ mode, generation }`. The §3 hygiene
+  rule holds for every one of them: NEVER command text, config contents, or
+  output, a sentence two route suites enforce by scanning the whole audit
+  table.
 - **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`, `node.reregister_key`, `node.reregister`,
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.logging.update`, `node.update`,

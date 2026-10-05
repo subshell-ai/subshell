@@ -44,7 +44,7 @@ import { reconcileSshNode } from "@/services/ssh/ssh-reconcile.js";
 import { SshRunsRepository } from "@/services/ssh/ssh-runs.repository.js";
 import { sshRunStart } from "@/services/ssh/ssh-runs.service.js";
 import { sshControlTransition } from "@/services/ssh/ssh-terminals.service.js";
-import { attachScriptedNode, ok, type ScriptedNode } from "@/test-helpers/scripted-node.js";
+import { attachScriptedNode, ok, type ScriptedHandlers, type ScriptedNode } from "@/test-helpers/scripted-node.js";
 import { facts, readResult, SNAPSHOT } from "@/test-helpers/ssh-fixtures.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
@@ -70,6 +70,55 @@ const behavior = {
   statusRefusal: null as string | null,
 };
 let scripted: ScriptedNode;
+
+/** The shared node-side answers (honoring the `behavior` bends), for attach and re-attach. */
+function scriptedDefaults(): ScriptedHandlers {
+  return {
+    ssh_run_start: (cmd) => {
+      if (cmd.type !== "ssh_run_start") return new Error("wrong cmd");
+      if (behavior.startRefusal) throw new Error(behavior.startRefusal);
+      return facts({ runId: cmd.runId, lifecycle: "accepted" });
+    },
+    ssh_run_status: (cmd) => {
+      if (cmd.type !== "ssh_run_status") return new Error("wrong cmd");
+      if (behavior.statusRefusal) throw new Error(behavior.statusRefusal);
+      return facts({
+        runId: cmd.runId,
+        lifecycle: "completed",
+        remoteStatus: 0,
+        remoteStatusConfirmed: true,
+        localExitCode: 0,
+      });
+    },
+    ssh_run_read: (cmd) => {
+      if (cmd.type !== "ssh_run_read") return new Error("wrong cmd");
+      if (behavior.readRefusal) throw new Error(behavior.readRefusal);
+      return readResult(cmd.runId, {
+        stdoutB64: Buffer.from("remote says hi\n").toString("base64"),
+        stdoutTotal: 15,
+        lifecycle: "completed",
+        remoteStatus: 0,
+        remoteStatusConfirmed: true,
+        localExitCode: 0,
+      });
+    },
+    ssh_run_cancel: (cmd) =>
+      cmd.type === "ssh_run_cancel"
+        ? facts({
+            runId: cmd.runId,
+            cancelRequested: true,
+            cancelLocalConfirmed: true,
+            lifecycle: "completed",
+            remoteStatus: null,
+          })
+        : new Error("wrong cmd"),
+    ssh_terminal_launch: ok,
+    ssh_input_control: (cmd) =>
+      cmd.type === "ssh_input_control"
+        ? { subshellId: cmd.subshellId, mode: cmd.mode, generation: cmd.generation }
+        : new Error("wrong cmd"),
+  };
+}
 
 async function sshFetch(path: string, init: RequestInit, opts: { cookie?: string } = {}) {
   const headers = new Headers(init.headers);
@@ -158,51 +207,7 @@ describe("/api/ssh runs + terminals + revocation (spec 2026-10-04 §3)", () => {
       kind: "agent",
       status: "online",
     });
-    scripted = attachScriptedNode(node, {
-      ssh_run_start: (cmd) => {
-        if (cmd.type !== "ssh_run_start") return new Error("wrong cmd");
-        if (behavior.startRefusal) throw new Error(behavior.startRefusal);
-        return facts({ runId: cmd.runId, lifecycle: "accepted" });
-      },
-      ssh_run_status: (cmd) => {
-        if (cmd.type !== "ssh_run_status") return new Error("wrong cmd");
-        if (behavior.statusRefusal) throw new Error(behavior.statusRefusal);
-        return facts({
-          runId: cmd.runId,
-          lifecycle: "completed",
-          remoteStatus: 0,
-          remoteStatusConfirmed: true,
-          localExitCode: 0,
-        });
-      },
-      ssh_run_read: (cmd) => {
-        if (cmd.type !== "ssh_run_read") return new Error("wrong cmd");
-        if (behavior.readRefusal) throw new Error(behavior.readRefusal);
-        return readResult(cmd.runId, {
-          stdoutB64: Buffer.from("remote says hi\n").toString("base64"),
-          stdoutTotal: 15,
-          lifecycle: "completed",
-          remoteStatus: 0,
-          remoteStatusConfirmed: true,
-          localExitCode: 0,
-        });
-      },
-      ssh_run_cancel: (cmd) =>
-        cmd.type === "ssh_run_cancel"
-          ? facts({
-              runId: cmd.runId,
-              cancelRequested: true,
-              cancelLocalConfirmed: true,
-              lifecycle: "completed",
-              remoteStatus: null,
-            })
-          : new Error("wrong cmd"),
-      ssh_terminal_launch: ok,
-      ssh_input_control: (cmd) =>
-        cmd.type === "ssh_input_control"
-          ? { subshellId: cmd.subshellId, mode: cmd.mode, generation: cmd.generation }
-          : new Error("wrong cmd"),
-    });
+    scripted = attachScriptedNode(node, scriptedDefaults());
   });
 
   afterAll(() => {
@@ -245,6 +250,76 @@ describe("/api/ssh runs + terminals + revocation (spec 2026-10-04 §3)", () => {
       expect(await res.text()).toContain("run_conflict");
       const left = await runs.listRecentByOwner(ownerId, 50);
       expect(left.filter((r) => r.connectionId === conn.id && r.status === "accepted")).toHaveLength(0);
+    });
+
+    it("leaves the row accepted on an unresolved dispatch and NEVER re-dispatches (review fix M-4)", async () => {
+      const conn = await makeConnection("Transport");
+      scripted.detach();
+      // A node that answers a free-text failure (an agent that died mid
+      // acceptance): no named code, no transport classification to the
+      // caller - the row's fate is honestly unknown.
+      const weird = attachScriptedNode(node, {
+        ssh_run_start: () => new Error("agent connection lost mid-acceptance"),
+      });
+      const res = await sshFetch(
+        "/api/ssh/runs",
+        { method: "POST", body: JSON.stringify({ connectionId: conn.id, command: "uptime" }) },
+        { cookie: ownerCookie },
+      );
+      expect(res.status).toBe(200);
+      const view = (await res.json()) as { id: string; status: string };
+      expect(view.status).toBe("accepted");
+      expect(weird.countOf("ssh_run_start")).toBe(1);
+      weird.detach();
+
+      // Reconnect + reconcile: the run is ASKED about, never re-started.
+      const back = attachScriptedNode(node, {
+        ssh_run_status: (cmd) =>
+          cmd.type === "ssh_run_status" ? facts({ runId: cmd.runId, lifecycle: "running" }) : new Error("nope"),
+        ssh_run_cancel: (cmd) => (cmd.type === "ssh_run_cancel" ? facts({ runId: cmd.runId }) : new Error("nope")),
+        ssh_input_control: (cmd) =>
+          cmd.type === "ssh_input_control"
+            ? { subshellId: cmd.subshellId, mode: cmd.mode, generation: cmd.generation }
+            : new Error("nope"),
+      });
+      await reconcileSshNode(node);
+      expect(back.countOf("ssh_run_start")).toBe(0);
+      expect(back.cmdsOf("ssh_run_status").some((c) => c.runId === view.id)).toBe(true);
+      const row = await runs.findById(view.id);
+      expect(row?.status).toBe("running"); // the status answer folded; no new start frame exists
+      back.detach();
+      scripted = attachScriptedNode(node, scriptedDefaults());
+    });
+
+    it("drops a CONFIRMED claim standing on 255 alone (the ambiguity rule, review fix I-2a)", async () => {
+      scripted.detach();
+      const ambiguous = attachScriptedNode(node, {
+        ssh_run_start: (cmd) =>
+          cmd.type === "ssh_run_start"
+            ? facts({
+                runId: cmd.runId,
+                lifecycle: "completed",
+                remoteStatus: 255,
+                remoteStatusConfirmed: true,
+                localExitCode: 255,
+              })
+            : new Error("nope"),
+      });
+      const conn = await makeConnection("Ambiguous");
+      const res = await sshFetch(
+        "/api/ssh/runs",
+        { method: "POST", body: JSON.stringify({ connectionId: conn.id, command: "true" }) },
+        { cookie: ownerCookie },
+      );
+      expect(res.status).toBe(200);
+      const view = (await res.json()) as { id: string; remoteStatus: number; remoteStatusConfirmed: boolean };
+      expect(view.remoteStatus).toBe(255); // the observation is kept as a NUMBER
+      expect(view.remoteStatusConfirmed).toBe(false); // the claim on it is dropped
+      const row = await runs.findById(view.id);
+      expect(row?.remoteStatusConfirmed).toBe(0);
+      expect(row?.status).toBe("completed");
+      ambiguous.detach();
+      scripted = attachScriptedNode(node, scriptedDefaults());
     });
 
     it("refuses at the frozen quotas before a frame moves", async () => {

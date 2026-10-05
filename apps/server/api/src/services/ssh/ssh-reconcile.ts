@@ -7,7 +7,7 @@ import {
   SshNodeRefusal,
 } from "@/services/ssh/ssh-node-client.js";
 import { SshPanesRepository } from "@/services/ssh/ssh-panes.repository.js";
-import { applyRunFacts, sshRunsRepo } from "@/services/ssh/ssh-runs.service.js";
+import { applyRunFacts, sshRunsRepo } from "@/services/ssh/ssh-run-mirror.js";
 import { logger } from "@/utils/logger.js";
 
 /**

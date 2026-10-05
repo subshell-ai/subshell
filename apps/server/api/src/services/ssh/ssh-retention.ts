@@ -1,5 +1,5 @@
 import { SSH_COMPLETED_RUN_RETENTION_MS } from "@internal/subshell-protocol";
-import { sshRunsRepo } from "@/services/ssh/ssh-runs.service.js";
+import { sshRunsRepo } from "@/services/ssh/ssh-run-mirror.js";
 import { logger } from "@/utils/logger.js";
 
 /**

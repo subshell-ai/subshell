@@ -7,12 +7,14 @@ import type { NewSshConnection, SshConnectionTable } from "@/db/types/ssh-connec
  * routes and the policy ask, and the revision-bumping write path.
  *
  * Revision discipline (spec §2 "Configuration edits create a new revision and
- * invalidate grants"): a snapshot-bearing update runs as ONE statement that
- * sets the snapshot AND `revision = revision + 1` AND `updated_at`, so a
- * concurrent grant never observes the new snapshot with the old revision. A
- * label/directory-only update rewrites no connection semantics, so it does not
- * bump (the frozen `SshUpdateConnectionRequest` doc pins the bump to the
- * snapshot arm); every EDIT is still gated for active work upstream.
+ * invalidate grants", pinned by review fix I-1): a snapshot-BEARING update
+ * runs as ONE statement that sets the new value(s) AND `revision = revision +
+ * 1` AND `updated_at`, so a concurrent grant never observes new execution
+ * semantics with the old revision. `remoteDir` IS execution semantics (every
+ * run's default directory), so it rides that atomic +1 write even when the
+ * snapshot itself is unchanged; `displayName` is the ONLY non-bumping edit (a
+ * label names nothing that runs). Every EDIT is still gated for active work
+ * upstream.
  */
 export class SshConnectionsRepository extends BaseRepository {
   async create(connection: NewSshConnection): Promise<SshConnectionTable> {
@@ -39,8 +41,12 @@ export class SshConnectionsRepository extends BaseRepository {
       .execute();
   }
 
-  /** Patch the display facts WITHOUT a revision bump (label/remoteDir-only edit). */
-  async updateLabel(id: string, patch: { displayName?: string; remoteDir?: string | null }): Promise<void> {
+  /**
+   * Patch the display label WITHOUT a revision bump - the ONLY non-bumping
+   * edit (`displayName` rewrites nothing that runs). A remoteDir or snapshot
+   * change must NOT come through here; it belongs on {@link updateSnapshot}.
+   */
+  async updateLabel(id: string, patch: { displayName: string }): Promise<void> {
     await this.db
       .updateTable("sshConnections")
       .set({ ...patch, updatedAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` })
@@ -49,8 +55,10 @@ export class SshConnectionsRepository extends BaseRepository {
   }
 
   /**
-   * Replace the snapshot AT A NEW REVISION, one statement (see class doc).
-   * `remoteDir` rides the same write when the edit carried one.
+   * The revision-bearing write, one statement (see class doc): a snapshot
+   * edit, a `remoteDir` edit, or both move together with `revision + 1` - a
+   * standalone remoteDir change bumps the revision on purpose (review fix
+   * I-1: it is execution semantics, so prior grants must go stale).
    */
   async updateSnapshot(
     id: string,

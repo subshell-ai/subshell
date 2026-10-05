@@ -64,7 +64,7 @@ const POLICY_SENTENCES: Record<SshPolicyCode, string> = {
 };
 
 /**
- * Throw for a named {@link SshErrorCode} — the node's refusal (matched by
+ * Throw for a named {@link SshErrorCode}: the node's refusal (matched by
  * EQUALITY on `NodeRpcError.detail`, or carried in a parsed result envelope)
  * or a config-grammar refusal from the server's own validation. The sentence
  * is the protocol's own shipped description; the code rides the metadata.

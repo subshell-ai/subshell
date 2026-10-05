@@ -211,14 +211,21 @@ export class DefaultSshPolicy implements SshPolicy {
    * while a human holds input, allow otherwise. A pane with no managed row
    * has no control state to consult (allow - the policy does not apply).
    * Human takeover/return are NOT this gate's callers (they are
-   * {@link gateHumanConfig} acts); a cookie actor passing through allows,
-   * which is the interface's "Agent callers only" sentence honored by
-   * absence of a human refusal, not by a human bypass.
+   * {@link gateHumanConfig} acts). A cookie actor passing through answers
+   * OWNERSHIP first (review fix M-1): the pane's user row must be the
+   * caller's, with the standard non-enumerating `not_found` on foreign -
+   * control state is a fact about someone's pane, not a public read. The
+   * agent arm below stays exactly the interface's: no identity re-check
+   * here (that is {@link gatePaneSurface}'s composition), control only.
    */
   async gateControl(req: SshControlRequest): Promise<SshDecision> {
     const pane = await this.#panes.findBySubshell(req.subshellId);
     if (!pane) return { allow: true };
-    if (req.caller.actor === "cookie") return { allow: true };
+    if (req.caller.actor === "cookie") {
+      const row = await this.#subshells.findById(req.subshellId);
+      if (!row || row.userId !== req.caller.userId) return { allow: false, code: "not_found" };
+      return { allow: true };
+    }
     if (pane.controlOwner === "human") return { allow: false, code: "human_control" };
     return { allow: true };
   }

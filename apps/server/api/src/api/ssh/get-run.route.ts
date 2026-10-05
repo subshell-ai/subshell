@@ -3,7 +3,7 @@ import { authGuard } from "@/api/auth-guard.js";
 import { SshRunViewSchema } from "@/api/ssh/ssh-schemas.js";
 import { apiModels } from "@/schema/index.js";
 import { buildSshCaller, requireSshPerm } from "@/services/ssh/ssh-actor.js";
-import { sshRunGet } from "@/services/ssh/ssh-runs.service.js";
+import { sshRunGet } from "@/services/ssh/ssh-run-reads.service.js";
 
 /**
  * `GET /api/ssh/runs/:id`: the plane's current mirror of one run's facts -

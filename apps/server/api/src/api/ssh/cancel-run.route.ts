@@ -3,7 +3,7 @@ import { authGuard } from "@/api/auth-guard.js";
 import { SshRunViewSchema } from "@/api/ssh/ssh-schemas.js";
 import { apiModels } from "@/schema/index.js";
 import { assertCookieWriteOrigin, buildSshCaller, requireSshPerm } from "@/services/ssh/ssh-actor.js";
-import { sshRunCancel } from "@/services/ssh/ssh-runs.service.js";
+import { sshRunCancel } from "@/services/ssh/ssh-run-reads.service.js";
 
 /**
  * `POST /api/ssh/runs/:id/cancel` (spec §3): the REQUEST is the local fact -

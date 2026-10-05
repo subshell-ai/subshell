@@ -6,8 +6,8 @@ import type { NewSshRun, SshRunTable } from "@/db/types/ssh-runs.db-types.js";
 /**
  * Persistence for `ssh_runs` (Gate A §4): the plane's mirror of a run whose
  * truth (output, process supervision) lives on the connecting runtime. The
- * row doubles as the durable-dispatch dedup record — the server-allocated id
- * plus `request_digest` — and it OUTLIVES output and even its connection and
+ * row doubles as the durable-dispatch dedup record: the server-allocated id
+ * plus `request_digest`, and it OUTLIVES output and even its connection and
  * node (SET NULL columns), so "deleting output must not delete replay
  * protection" holds even after the retention sweep trimmed everything else.
  *
@@ -172,6 +172,15 @@ export class SshRunsRepository extends BaseRepository {
   async applyFacts(id: string, facts: SshRunFactsWire): Promise<void> {
     const terminal = facts.lifecycle === "completed" || facts.lifecycle === "unknown";
     const now = new Date().toISOString();
+    // The ambiguity rule, belt-and-braces on the PLANE's fold (review fix
+    // I-2a): OpenSSH's 255 cannot distinguish a transport failure from a
+    // remote exit 255 (man.openbsd.org/ssh#EXIT_STATUS), so a confirmed
+    // claim standing on 255 alone is treated as malformed HERE exactly as
+    // `requireParsed` treats an unparseable answer: the status is kept as
+    // the observed NUMBER, the confirmed CLAIM is dropped (stays 0). The
+    // protocol-side cross-check in `readSshRunFacts` is scheduled alongside
+    // (coordinator, Gate B); this fold makes the invariant hold either way.
+    const confirmed = facts.remoteStatusConfirmed && facts.remoteStatus !== 255;
     await this.db
       .updateTable("sshRuns")
       .set({
@@ -183,7 +192,7 @@ export class SshRunsRepository extends BaseRepository {
         cancelLocalConfirmed: facts.cancelLocalConfirmed ? 1 : sql`cancel_local_confirmed`,
         deadlineHit: facts.deadlineHit ? 1 : sql`deadline_hit`,
         remoteStatus: facts.remoteStatus ?? sql`remote_status`,
-        remoteStatusConfirmed: facts.remoteStatusConfirmed ? 1 : sql`remote_status_confirmed`,
+        remoteStatusConfirmed: confirmed ? 1 : sql`remote_status_confirmed`,
         localExitCode: facts.localExitCode ?? sql`local_exit_code`,
         localExitSignal: facts.localExitSignal ?? sql`local_exit_signal`,
         startedAt: sql`COALESCE(started_at, CASE WHEN ${terminal || facts.lifecycle === "running" ? 1 : 0} = 1 THEN ${now} ELSE NULL END)`,

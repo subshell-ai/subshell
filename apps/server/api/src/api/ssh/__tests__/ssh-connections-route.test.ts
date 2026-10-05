@@ -32,6 +32,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
+import { getSshPolicy } from "@/services/ssh/ssh-policy-impl.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { attachScriptedNode, type ScriptedNode } from "@/test-helpers/scripted-node.js";
 import { SNAPSHOT, snapshotWith } from "@/test-helpers/ssh-fixtures.js";
@@ -103,6 +104,19 @@ async function makeAgentPane(name: string): Promise<{ id: string; bearer: string
   });
   const bearer = await issueSubshellToken(id, ownerId);
   return { id, bearer };
+}
+
+/** A synthetic pane caller for the POLICY seam (the REST arm is Gate-B gated). */
+function paneCallerOf(subshellId: string, apiKeyId: string | null | undefined) {
+  if (typeof apiKeyId !== "string") throw new Error(`pane ${subshellId} has no issued key to bind`);
+  return {
+    actor: "subshell-key" as const,
+    userId: ownerId,
+    principal: `sess:${subshellId}`,
+    apiKeyId,
+    subshellId,
+    isAdmin: false,
+  };
 }
 
 describe("/api/ssh connections + grants (spec 2026-10-04 §2/§4)", () => {
@@ -308,11 +322,48 @@ describe("/api/ssh connections + grants (spec 2026-10-04 §2/§4)", () => {
       );
       expect(edited.status).toBe(200);
       expect(((await edited.json()) as { revision: number }).revision).toBe(2);
-      // The granted list read rides the coarse scope (Gate B adds `ssh` to the
-      // mint map); until then the projection itself is proven at the service
-      // level. The grant's staleness at REST is the policy matrix's job.
+      // Grant invalidation pinned at the policy seam (the REST pane read is
+      // still coarse-gated until Gate B adds `ssh` to the mint map): the
+      // grant pins revision 1, the connection now says 2.
+      const paneRow = await subshells.findById(pane.id);
+      const decision = await getSshPolicy().gateGrantedUse({
+        caller: paneCallerOf(pane.id, paneRow?.apiKeyId),
+        kind: "connection_view",
+        connectionId: conn.id,
+      });
+      expect(decision).toEqual({ allow: false, code: "revision_mismatch" });
       const deniedByScope = await get(`/api/ssh/connections/${conn.id}`, { bearer: pane.bearer });
       expect(deniedByScope.status).toBe(403);
+    });
+
+    it("treats a STANDALONE remoteDir edit as revision-bearing (review fix I-1); displayName alone does not bump", async () => {
+      const conn = await createConnection(ownerCookie);
+      const pane = await makeAgentPane("rd-pane");
+      expect(
+        (await await post(`/api/ssh/connections/${conn.id}/grants`, { subshellId: pane.id }, { cookie: ownerCookie }))
+          .status,
+      ).toBe(200);
+      // Label-only: same revision (a label names nothing that runs).
+      const label = await patch(`/api/ssh/connections/${conn.id}`, { displayName: "Renamed" }, { cookie: ownerCookie });
+      expect(((await label.json()) as { revision: number }).revision).toBe(1);
+      // remoteDir-only: the run default IS execution semantics -> +1 write.
+      const moved = await patch(
+        `/api/ssh/connections/${conn.id}`,
+        { remoteDir: "/srv/deploy/releases" },
+        { cookie: ownerCookie },
+      );
+      expect(moved.status).toBe(200);
+      const body = (await moved.json()) as { revision: number; remoteDir: string };
+      expect(body.revision).toBe(2);
+      expect(body.remoteDir).toBe("/srv/deploy/releases");
+      // ...and the revision-1 grant is now stale by mismatch, same rule.
+      const paneRow = await subshells.findById(pane.id);
+      const decision = await getSshPolicy().gateGrantedUse({
+        caller: paneCallerOf(pane.id, paneRow?.apiKeyId),
+        kind: "connection_view",
+        connectionId: conn.id,
+      });
+      expect(decision).toEqual({ allow: false, code: "revision_mismatch" });
     });
   });
 
@@ -324,11 +375,13 @@ describe("/api/ssh connections + grants (spec 2026-10-04 §2/§4)", () => {
       const granted = (await (
         await post(`/api/ssh/connections/${conn.id}/grants`, { subshellId: pane.id }, { cookie: ownerCookie })
       ).json()) as { apiKeyId: string; active: boolean; connectionRevision: number };
-      expect(granted).toMatchObject({
-        apiKeyId: row?.apiKeyId ?? expect.any(String),
-        active: true,
-        connectionRevision: 1,
-      });
+      // Loud assertions (review fix M-4): if the pane's issued-key lookup
+      // regresses to undefined, the grant binding must fail the test, not
+      // fall through a permissive matcher.
+      const issuedKey = row?.apiKeyId;
+      expect(typeof issuedKey).toBe("string");
+      expect(granted.apiKeyId).toBe(issuedKey as string);
+      expect(granted).toMatchObject({ active: true, connectionRevision: 1 });
 
       const dead = crypto.randomUUID();
       await subshells.create({
