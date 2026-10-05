@@ -17,6 +17,11 @@ import type { PromptStackItemTable, PromptStackTable } from "@/db/types/prompt-s
 import type { PromptTable } from "@/db/types/prompts.db-types.js";
 import type { RecentPathTable } from "@/db/types/recent-paths.db-types.js";
 import type { SettingTable } from "@/db/types/settings.db-types.js";
+import type { SshConnectionTable } from "@/db/types/ssh-connections.db-types.js";
+import type { SshGrantTable } from "@/db/types/ssh-grants.db-types.js";
+import type { SshPaneTable } from "@/db/types/ssh-panes.db-types.js";
+import type { SshRunTable } from "@/db/types/ssh-runs.db-types.js";
+import type { SshTerminalExecTable } from "@/db/types/ssh-terminal-execs.db-types.js";
 import type { SubshellShareTable } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import type { UserMetaTable } from "@/db/types/user-meta.db-types.js";
@@ -57,4 +62,16 @@ export interface Database {
   identities: IdentityTable;
   notificationsSubscriptions: NotificationSubscriptionTable;
   deviceTokens: DeviceTokenTable;
+  // SSH feature (Gate A contracts, SSH-SUPPORT.md §4). The five tables read
+  // as a chain: connections own snapshots, grants bind panes to a revision
+  // of one, runs record dispatched commands against a pinned revision,
+  // panes mark managed terminals (control + generations), and terminal execs
+  // track the pane-exec helper to recovery. The index choices live in the
+  // migrations that create them; revocation and reconciliation queries are
+  // documented there.
+  sshConnections: SshConnectionTable;
+  sshGrants: SshGrantTable;
+  sshRuns: SshRunTable;
+  sshPanes: SshPaneTable;
+  sshTerminalExecs: SshTerminalExecTable;
 }

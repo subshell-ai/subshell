@@ -1,5 +1,6 @@
 import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
+import { parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
 
 /**
  * Node ↔ control-plane wire contract (spec 2026-08-31 §3).
@@ -692,7 +693,20 @@ export type NodeCommandBody =
     }
   | { type: "terminate"; subshellId: string }
   | { type: "kill"; subshellId: string }
-  | { type: "input"; subshellId: string; data: string }
+  | {
+      type: "input";
+      subshellId: string;
+      data: string;
+      /**
+       * SSH feature (Gate A contract): the pane's input generation this write
+       * belongs to. REQUIRED by contract for managed SSH terminals - every
+       * writer goes through it, so a takeover or revocation fences queued
+       * input at the machine, not just at the plane. Absent means "no
+       * generation policy" (every ordinary pane); present-but-stale answers
+       * the bare `NODE_RESULT_SSH_GENERATION_STALE` refusal.
+       */
+      inputGeneration?: number;
+    }
   | { type: "resize"; subshellId: string; cols: number; rows: number }
   | {
       /** Agent-side prompt settle loop: capture-poll until the pane is quiet, type + Enter */
@@ -701,6 +715,8 @@ export type NodeCommandBody =
       text: string;
       settleTimeoutMs: number;
       pollMs: number;
+      /** Same input-generation fence as `input` (nudges and prompts are writers too). */
+      inputGeneration?: number;
     }
   | {
       /** Pane snapshot; optional `lines` prepends that many reflowed history rows (attach replay). */
@@ -1067,7 +1083,11 @@ export type NodeCommandBody =
        * sizing round trips is the caller that knows the frame cap.
        */
       maxBytes: number;
-    };
+    }
+  // The SSH family (Gate A contract, spec SSH-SUPPORT.md §4): nine commands
+  // folded in as one union member so the SSH grammar lives in `ssh-frames.ts`;
+  // their answers are validated by the `parseNodeSsh*` set in `node-results.ts`.
+  | SshNodeCommandBody;
 
 /**
  * One node's maintenance state, as it travels in either direction.
@@ -1398,8 +1418,16 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       }
       return { type: "capture", subshellId: value.subshellId };
     }
-    case "input":
-      return isStr(value.subshellId) && isStr(value.data) ? (value as unknown as NodeCommandBody) : null;
+    case "input": {
+      if (!isStr(value.subshellId) || !isStr(value.data)) return null;
+      // Optional input-generation fence (SSH Gate A): a positive integer or
+      // absent. WHAT pane requires it is policy (managed SSH terminals, by
+      // contract); the grammar only refuses a nonsense value, so a stale
+      // generation reaches the node's equality check rather than parsing away.
+      if ("inputGeneration" in value && !(isInt(value.inputGeneration) && (value.inputGeneration as number) >= 1))
+        return null;
+      return value as unknown as NodeCommandBody;
+    }
     case "resize":
       return isStr(value.subshellId) &&
         isInt(value.cols) &&
@@ -1414,7 +1442,9 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         isNum(value.settleTimeoutMs) &&
         (value.settleTimeoutMs as number) > 0 &&
         isNum(value.pollMs) &&
-        (value.pollMs as number) > 0
+        (value.pollMs as number) > 0 &&
+        // Same optional fence as `input` above: nudges and prompts are writers.
+        (!("inputGeneration" in value) || (isInt(value.inputGeneration) && (value.inputGeneration as number) >= 1))
         ? (value as unknown as NodeCommandBody)
         : null;
     case "probe":
@@ -1605,6 +1635,18 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       return "cursor" in value
         ? { type: "tree_manifest", root: value.root, cursor: value.cursor as string, maxBytes: value.maxBytes }
         : { type: "tree_manifest", root: value.root, maxBytes: value.maxBytes as number };
+    case "ssh_discover_aliases":
+    case "ssh_resolve_config":
+    case "ssh_test_connection":
+    case "ssh_run_start":
+    case "ssh_run_status":
+    case "ssh_run_read":
+    case "ssh_run_cancel":
+    case "ssh_terminal_launch":
+    case "ssh_input_control":
+      // Delegation, not a second parser: the SSH grammar (nine arms, one
+      // file) lives in ssh-frames.ts beside the commands it narrows.
+      return parseSshNodeCommandBody(value);
     default:
       return null;
   }

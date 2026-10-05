@@ -19,35 +19,100 @@ export const METADATA_LIMITS = {
 
 type IndexColumn = { cid: number; name: string | null; key: number; desc: number; coll: string };
 
-/** Only migration 0029's literal predicate is allowed; an index name alone conveys no trust. */
+/** One partial index this build ships: its exact creating spelling, key for key. */
+interface ShippedPartialIndex {
+  /** Owning table */
+  table: string;
+  /** Index name (conveys nothing alone; matched alongside the stored SQL) */
+  name: string;
+  /** Whether the shipped index is UNIQUE (the workspaces rule's uniqueness, or the grants tuple's) */
+  unique: 0 | 1;
+  /** Key columns in order, ASC/BINARY like every shipped spelling */
+  keys: string[];
+  /** The normalized `sqlite_schema.sql` the migration literally writes */
+  sql: RegExp;
+}
+
+/**
+ * The shipped partial indexes, each one's literal predicate pinned. An index
+ * name alone conveys no trust: the stored SQL must match the migration's
+ * spelling, because the whole point of refusing partials is that inspection
+ * never evaluates an ARCHIVE-chosen predicate - so only predicates THIS
+ * build demonstrably wrote are safe. Entries in migration order:
+ * 0029 (workspace drafts), 0047/0048 (the SSH active-state grammar -
+ * revoked grants, running runs, outstanding execs all read as
+ * `WHERE <state>` indexes, and the quota/recovery queries the SSH policy
+ * asks depend on them existing exactly as shipped).
+ */
+const SHIPPED_PARTIAL_INDEXES: readonly ShippedPartialIndex[] = [
+  {
+    table: "workspaces",
+    name: "idx_workspaces_user_name",
+    unique: 1,
+    keys: ["user_id", "name"],
+    sql: /^CREATE UNIQUE INDEX (?:IF NOT EXISTS )?idx_workspaces_user_name ON workspaces\s*\(\s*user_id\s*,\s*name\s*\)\s*WHERE draft\s*=\s*0$/i,
+  },
+  {
+    table: "ssh_grants",
+    name: "uq_ssh_grants_active",
+    unique: 1,
+    keys: ["connection_id", "subshell_id", "api_key_id"],
+    sql: /^CREATE UNIQUE INDEX (?:IF NOT EXISTS )?uq_ssh_grants_active ON ssh_grants\s*\(\s*connection_id\s*,\s*subshell_id\s*,\s*api_key_id\s*\)\s*WHERE revoked_at\s+IS NULL$/i,
+  },
+  {
+    table: "ssh_grants",
+    name: "idx_ssh_grants_pane",
+    unique: 0,
+    keys: ["subshell_id"],
+    sql: /^CREATE INDEX (?:IF NOT EXISTS )?idx_ssh_grants_pane ON ssh_grants\s*\(\s*subshell_id\s*\)\s*WHERE revoked_at\s+IS NULL$/i,
+  },
+  {
+    table: "ssh_runs",
+    name: "idx_ssh_runs_active",
+    unique: 0,
+    keys: ["node_id", "user_id"],
+    sql: /^CREATE INDEX (?:IF NOT EXISTS )?idx_ssh_runs_active ON ssh_runs\s*\(\s*node_id\s*,\s*user_id\s*\)\s*WHERE status IN\s*\(\s*'accepted'\s*,\s*'running'\s*\)$/i,
+  },
+  {
+    table: "ssh_runs",
+    name: "idx_ssh_runs_grant",
+    unique: 0,
+    keys: ["grant_id"],
+    sql: /^CREATE INDEX (?:IF NOT EXISTS )?idx_ssh_runs_grant ON ssh_runs\s*\(\s*grant_id\s*\)\s*WHERE status IN\s*\(\s*'accepted'\s*,\s*'running'\s*\)$/i,
+  },
+  {
+    table: "ssh_terminal_execs",
+    name: "idx_ssh_terminal_execs_outstanding",
+    unique: 0,
+    keys: ["subshell_id"],
+    sql: /^CREATE INDEX (?:IF NOT EXISTS )?idx_ssh_terminal_execs_outstanding ON ssh_terminal_execs\s*\(\s*subshell_id\s*\)\s*WHERE state\s*=\s*'outstanding'$/i,
+  },
+];
+
+/** Only a shipped partial index's literal predicate is allowed; an index name alone conveys no trust. */
 function isShippedPartialIndex(
   db: Database,
   table: string,
   index: { name: string; unique: number },
   columns: IndexColumn[],
 ): boolean {
-  if (table !== "workspaces" || index.name !== "idx_workspaces_user_name" || index.unique !== 1) return false;
+  const spec = SHIPPED_PARTIAL_INDEXES.find(
+    (shipped) => shipped.table === table && shipped.name === index.name && shipped.unique === index.unique,
+  );
+  if (!spec) return false;
   const keys = columns.filter((column) => column.key === 1);
   if (
-    keys.length !== 2 ||
+    keys.length !== spec.keys.length ||
     keys.some(
       (column, position) =>
-        column.cid < 0 ||
-        column.name !== ["user_id", "name"][position] ||
-        column.desc !== 0 ||
-        column.coll !== "BINARY",
+        column.cid < 0 || column.name !== spec.keys[position] || column.desc !== 0 || column.coll !== "BINARY",
     )
   )
     return false;
   const row = db
     .query("SELECT sql FROM sqlite_schema WHERE type='index' AND name=? AND tbl_name=?")
     .get(index.name, table) as { sql: string | null } | null;
-  return (
-    typeof row?.sql === "string" &&
-    /^CREATE UNIQUE INDEX (?:IF NOT EXISTS )?idx_workspaces_user_name ON workspaces\s*\(\s*user_id\s*,\s*name\s*\)\s*WHERE draft\s*=\s*0$/i.test(
-      row.sql.trim().replace(/\s+/g, " "),
-    )
-  );
+  return typeof row?.sql === "string" && spec.sql.test(row.sql.trim().replace(/\s+/g, " "));
 }
 
 /** Validate schemas before inspection or writes can evaluate archived expressions. */

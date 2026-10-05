@@ -19,8 +19,20 @@
  * validators stand on live in `guards.ts` (shared with `node-frames.ts`).
  */
 
-import { BASE64_RE, isBool, isInt, isRecord, isStr, isStringMap } from "./guards.js";
+import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
+import { parseSshConnectionSnapshot } from "./ssh-config.js";
+import { isSshErrorCode } from "./ssh-errors.js";
+import {
+  type NodeSshAliasListResult,
+  type NodeSshControlResult,
+  type NodeSshResolveOutcomeWire,
+  type NodeSshRunReadResult,
+  type NodeSshTestOutcomeWire,
+  readSshRunFacts,
+  type SshRunFactsWire,
+} from "./ssh-frames.js";
+import { SSH_MAX_DISCOVERED_ALIASES, SSH_OUTPUT_WINDOW_MAX_BYTES } from "./ssh-limits.js";
 
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;
@@ -536,4 +548,130 @@ export function parseNodeAgentLogSlice(data: unknown): NodeAgentLogSlice | null 
   if (!isStr(text) || !isInt(nextByte) || !isInt(size) || !isBool(truncated)) return null;
   if (nextByte < 0 || size < 0) return null;
   return { text, nextByte, size, truncated };
+}
+
+/* ------------------------------------------------------------------ */
+/* ssh (Gate A contract, spec SSH-SUPPORT.md §3/§4)                    */
+/* ------------------------------------------------------------------ */
+
+/** Raw byte count a strict-base64 string decodes to (length math, no decoding). */
+function b64RawBytes(b64: string): number {
+  if (b64.length === 0) return 0;
+  const pad = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return (b64.length / 4) * 3 - pad;
+}
+
+/**
+ * Validates and narrows an `ssh_discover_aliases` command's `result{data}`.
+ * The list cap is part of the shape (same reasoning as the transfer page
+ * cap): an answer past {@link SSH_MAX_DISCOVERED_ALIASES} is malformed here,
+ * because the `truncated` flag is what the cap's existence depends on.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed list, or null when malformed
+ */
+export function parseNodeSshAliasList(data: unknown): NodeSshAliasListResult | null {
+  if (!isRecord(data) || !isBool(data.includeCycle) || !isBool(data.truncated)) return null;
+  if (!isStrArray(data.aliases) || (data.aliases as string[]).length > SSH_MAX_DISCOVERED_ALIASES) return null;
+  return { aliases: [...(data.aliases as string[])], includeCycle: data.includeCycle, truncated: data.truncated };
+}
+
+/**
+ * Validates and narrows an `ssh_resolve_config` command's `result{data}`.
+ * The accepted arm runs the FULL snapshot validator: a resolve answer is the
+ * one moment an unvalidated snapshot could enter the system, so this is where
+ * the plane's copy gets its grammar checked before it is stored.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed outcome, or null when malformed
+ */
+export function parseNodeSshResolveOutcome(data: unknown): NodeSshResolveOutcomeWire | null {
+  if (!isRecord(data) || !isBool(data.accepted)) return null;
+  if (data.accepted) {
+    const snapshot = parseSshConnectionSnapshot(data.snapshot);
+    if (!snapshot) return null;
+    if ("connectingAccount" in data && !isStr(data.connectingAccount)) return null;
+    return {
+      accepted: true,
+      snapshot,
+      ...("connectingAccount" in data ? { connectingAccount: data.connectingAccount as string } : {}),
+    };
+  }
+  if (!isSshErrorCode(data.code) || !isStrArray(data.settings)) return null;
+  return { accepted: false, code: data.code, settings: [...(data.settings as string[])] };
+}
+
+/**
+ * Validates and narrows an `ssh_test_connection` command's `result{data}`.
+ * A failed test MUST name its code: `{passed:false}` with no code is refused,
+ * because "it failed" is the sentence SSH-SUPPORT.md forbids shipping alone.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed outcome, or null when malformed
+ */
+export function parseNodeSshTestOutcome(data: unknown): NodeSshTestOutcomeWire | null {
+  if (!isRecord(data) || !isBool(data.passed)) return null;
+  if (data.passed) return { passed: true };
+  return isSshErrorCode(data.code) ? { passed: false, code: data.code } : null;
+}
+
+/**
+ * Validates and narrows the run facts carried by `ssh_run_start`,
+ * `ssh_run_status` and `ssh_run_cancel` answers.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed facts, or null when malformed
+ */
+export function parseNodeSshRunFacts(data: unknown): SshRunFactsWire | null {
+  if (!isRecord(data)) return null;
+  return readSshRunFacts(data);
+}
+
+/**
+ * Validates and narrows an `ssh_run_read` command's `result{data}`: the full
+ * facts envelope plus the output window.
+ *
+ * Invariants: both payloads are strict base64; offsets and totals are
+ * non-negative integers; and the combined RAW bytes the answer carries never
+ * exceed {@link SSH_OUTPUT_WINDOW_MAX_BYTES}, the contract-wide window.
+ * A read may legitimately start past EOF (a run's output was swept while a
+ * slow reader held an old cursor), so `next`/`total` are checked for shape,
+ * not for a forced ordering: the caller treats `next > total` as its own
+ * cursor-expired signal, exactly as the terminal log generation does.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed window, or null when malformed
+ */
+export function parseNodeSshRunReadResult(data: unknown): NodeSshRunReadResult | null {
+  if (!isRecord(data)) return null;
+  const facts = readSshRunFacts(data);
+  if (!facts) return null;
+  if (!isStr(data.stdoutB64) || !BASE64_RE.test(data.stdoutB64)) return null;
+  if (!isStr(data.stderrB64) || !BASE64_RE.test(data.stderrB64)) return null;
+  const { stdoutNext, stderrNext, stdoutTotal, stderrTotal } = data;
+  if (!isInt(stdoutNext) || (stdoutNext as number) < 0) return null;
+  if (!isInt(stderrNext) || (stderrNext as number) < 0) return null;
+  if (!isInt(stdoutTotal) || (stdoutTotal as number) < 0) return null;
+  if (!isInt(stderrTotal) || (stderrTotal as number) < 0) return null;
+  if (!isBool(data.truncated)) return null;
+  // The window is part of the shape, not a caller's policy (see
+  // parseNodeArchiveCreateResult's identical reasoning on `size`).
+  if (b64RawBytes(data.stdoutB64) + b64RawBytes(data.stderrB64) > SSH_OUTPUT_WINDOW_MAX_BYTES) return null;
+  return {
+    ...facts,
+    stdoutB64: data.stdoutB64,
+    stderrB64: data.stderrB64,
+    stdoutNext: stdoutNext as number,
+    stderrNext: stderrNext as number,
+    stdoutTotal: stdoutTotal as number,
+    stderrTotal: stderrTotal as number,
+    truncated: data.truncated,
+  };
+}
+
+/**
+ * Validates and narrows an `ssh_input_control` command's `result{data}`.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed state, or null when malformed
+ */
+export function parseNodeSshControlResult(data: unknown): NodeSshControlResult | null {
+  if (!isRecord(data) || !isStr(data.subshellId)) return null;
+  if (data.mode !== "agent" && data.mode !== "human") return null;
+  if (!isInt(data.generation) || (data.generation as number) < 1) return null;
+  return { subshellId: data.subshellId, mode: data.mode, generation: data.generation as number };
 }
