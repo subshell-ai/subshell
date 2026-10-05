@@ -938,11 +938,37 @@ export class SubshellsService extends BaseService {
 
   /** The sharing refusal every v1 caller of a managed pane's shares routes gets. */
   async #sshSharingRefusedIfManaged(seed: SshCallerSeed, id: string): Promise<void> {
-    const facts = await gateSharingFor(this.db, seed, id);
-    // v1: sharing SSH panes is refused unconditionally (spec §2) - the owner,
-    // `view`, every actor. Even a future policy `allow` does not pass here;
-    // the v1 ruling lives in the surface, the policy's refusal in the arm,
-    // and neither may be the only one enforcing it (belt AND braces).
+    // (review R4) The policy refuses sharing with an `SshGateFailure` that
+    // carries no HTTP status; uncaught it reached the error handler as a 500.
+    // Map it exactly like `#sshGate`: an invisibility refusal stays a 404 (a
+    // foreign managed pane is indistinguishable from one that does not exist),
+    // a backend-unavailable refusal is a 503, and any other refusal - which is
+    // every OWNED managed pane, since v1 denies sharing categorically - is the
+    // named sharing-unsupported 403. A stranger never reaches here (the shares
+    // route's own ownership check 404s first); the owner always does.
+    let facts: Awaited<ReturnType<typeof gateSharingFor>>;
+    try {
+      facts = await gateSharingFor(this.db, seed, id);
+    } catch (err) {
+      if (err instanceof SshGateFailure) {
+        if (err.reason === "not_found" || err.reason === "gone") {
+          throw new SubshellError("not_found", "Subshell not found");
+        }
+        if (err.reason === "backend_unavailable") {
+          throwApiError({ code: BackendErrorCodes.SSH_BACKEND_UNAVAILABLE, message: err.message, doNotLog: true });
+        }
+        throwApiError({
+          code: BackendErrorCodes.SSH_SHARING_UNSUPPORTED,
+          message: "Managed SSH panes cannot be shared",
+          ...(err.policyCode ? { metadataSafe: { sshPolicyCode: err.policyCode } } : {}),
+          doNotLog: true,
+        });
+      }
+      throw err;
+    }
+    // Belt AND braces: even if a future policy ever ALLOWED sharing, v1 refuses
+    // it at the surface (spec §2). Today the policy arm denies first; this is
+    // the second lock.
     if (facts) {
       throwApiError({
         code: BackendErrorCodes.SSH_SHARING_UNSUPPORTED,

@@ -402,24 +402,17 @@ describe("generic pane surfaces vs a managed SSH pane, real policy (spec 2026-10
       const m3 = String((await json(opened)).subshellId);
 
       const ownerShare = await fetchAs(`/api/subshells/${m3}/shares`, "PUT", { cookie: ownerCookie }, { shares: [] });
-      // BUG REPORT R4 (fix owner: workstream C). With the REAL policy
-      // installed - production posture - a managed pane's sharing refusal is
-      // the policy's `sharing_unsupported` DENY arm, and
-      // `#sshSharingRefusedIfManaged` (subshells.service.ts:940) never catches
-      // the `SshGateFailure` that `gateSharingFor` throws on a refusal
-      // (its pane-surface sibling, `#sshGate`, maps that class; the sharing
-      // helper does not). The unmapped failure reaches the global error
-      // handler as an unknown throw: 500. C's gate suite masked the arm by
-      // flipping the scripted policy to ALLOW before asserting 403 - the
-      // belt's answer under the braces' refusal is what production serves,
-      // and today it is an internal error, not the named 403.
-      // TARGET BEHAVIOR (awaiting fix): status 403, code
-      // SSH_SHARING_UNSUPPORTED. The pin below holds today's WRONG answer so
-      // the suite stays honest-green until C lands the mapping; the gated
-      // check activates the moment the fix does, and then the pin flips.
+      // R4 (found by G, fixed at Gate B): the real policy's `sharing_unsupported`
+      // deny makes `gateSharingFor` throw an `SshGateFailure` (no HTTP status)
+      // that `#sshSharingRefusedIfManaged` originally let escape to the error
+      // handler as a 500. The helper now maps it like `#sshGate`: invisibility
+      // 404 / backend-unavailable 503 / every other (the owned, categorically-
+      // denied) case the named SSH_SHARING_UNSUPPORTED 403. The owner always
+      // reaches the helper (a stranger 404s at the shares route's own ownership
+      // check first), so this is the production posture.
       const ownerShareBody = (await json(ownerShare)) as { code?: string };
-      expect(ownerShare.status).toBe(500);
-      if (ownerShare.status === 403) expect(ownerShareBody.code).toBe("SSH_SHARING_UNSUPPORTED");
+      expect(ownerShare.status).toBe(403);
+      expect(ownerShareBody.code).toBe("SSH_SHARING_UNSUPPORTED");
       expect((await fetchAs(`/api/subshells/${m3}/shares`, "GET", { cookie: strangerCookie })).status).toBe(404);
       expect((await fetchAs(`/api/subshells/${m3}/shares`, "PUT", { token: tokenA }, { shares: [] })).status).toBe(403);
       // An ordinary pane's sharing is untouched by the census (belt AND braces).
