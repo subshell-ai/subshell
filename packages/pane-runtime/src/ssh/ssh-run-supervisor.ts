@@ -12,10 +12,10 @@ import {
 } from "@internal/subshell-protocol";
 import { sshTransportFailure } from "./ssh-diagnose.js";
 import { buildSshInvocation, remoteCommandLine, renderSshConfigContents, sshChildEnv } from "./ssh-render.js";
+import { reconcileUnsupervisedRuns } from "./ssh-retention.js";
 import {
   acceptRun,
   buildRunFacts,
-  ensureSshDirs,
   evictCompletedOutput,
   listRunIds,
   openRunStreamAppend,
@@ -510,19 +510,7 @@ export class SshRunSupervisor {
    * for a process this daemon never sees born.
    */
   reconcileAtBoot(): SshRunFactsWire[] {
-    ensureSshDirs(this.#dataDir);
-    const out: SshRunFactsWire[] = [];
-    const live = new Set(this.#live.keys());
-    for (const id of listRunIds(this.#dataDir)) {
-      const rec = readRun(this.#dataDir, id);
-      if (!rec || live.has(id)) continue;
-      if (rec.state.lifecycle === "accepted" || rec.state.lifecycle === "running") {
-        const state: SshRunState = { ...rec.state, lifecycle: "unknown", finishedAtMs: this.#nowMs() };
-        writeRunState(this.#dataDir, state);
-        out.push(buildRunFacts(state));
-      }
-    }
-    return out;
+    return reconcileUnsupervisedRuns(this.#dataDir, new Set(this.#live.keys()), this.#nowMs());
   }
 }
 
@@ -542,6 +530,11 @@ export function getSshRunSupervisor(deps: {
     supervisors.set(deps.dataDir, instance);
   }
   return instance;
+}
+
+/** The live supervisor for a data dir, if one was ever built (the hourly sweep reads its live ids through this; NEVER builds one). */
+export function peekSshRunSupervisor(dataDir: string): SshRunSupervisor | undefined {
+  return supervisors.get(dataDir);
 }
 
 /** Drop the registry (test isolation). @internal */

@@ -165,10 +165,15 @@ export {
   resolveSshAliasConfig,
   type SshResolutionDeps,
 } from "./ssh/ssh-resolve.js";
-export { sweepCompletedRuns, sweepSshTerminalState } from "./ssh/ssh-retention.js";
+export {
+  reconcileUnsupervisedRuns,
+  sweepCompletedRuns,
+  sweepSshTerminalState,
+} from "./ssh/ssh-retention.js";
 export { ensureSshDirs, sshRunsDir } from "./ssh/ssh-run-store.js";
 export {
   getSshRunSupervisor,
+  peekSshRunSupervisor,
   resetSshSupervisorsForTests,
   type SshRunStartOutcome,
   SshRunSupervisor,

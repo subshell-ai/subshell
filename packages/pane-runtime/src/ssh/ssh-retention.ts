@@ -1,7 +1,15 @@
 import { lstatSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import { isNodeSubshellId, SSH_COMPLETED_RUN_RETENTION_MS } from "@internal/subshell-protocol";
-import { listRunIds, readRun, removeRunDir } from "./ssh-run-store.js";
+import { isNodeSubshellId, SSH_COMPLETED_RUN_RETENTION_MS, type SshRunFactsWire } from "@internal/subshell-protocol";
+import {
+  buildRunFacts,
+  ensureSshDirs,
+  listRunIds,
+  readRun,
+  removeRunDir,
+  type SshRunState,
+  writeRunState,
+} from "./ssh-run-store.js";
 
 /**
  * The completed-run retention sweep, node-side (SSH-SUPPORT.md §3's retention
@@ -20,6 +28,37 @@ import { listRunIds, readRun, removeRunDir } from "./ssh-run-store.js";
  * subtree: `removeRunDir` re-guards, and this sweep only names ids that pass
  * `isNodeSubshellId`).
  */
+/**
+ * Crash reconciliation for runs the RECORD keeps but no supervised process
+ * owns: every state claiming `accepted`/`running` outside `liveRunIds` reads
+ * back `unknown`. The same function serves the boot pass (live set empty) and
+ * an hourly safety pass (live set from the in-process supervisor), which is
+ * why it lives beside the sweeps rather than only on the class — retention
+ * wiring must not have to conjure a supervisor (and its ssh-binary
+ * resolution) to finish a dead run's record. Never a restart, never a retry,
+ * never a claim about what an orphan may have done remotely. Returns the
+ * facts it changed, for any caller that wants to report the reconciliation.
+ */
+export function reconcileUnsupervisedRuns(
+  dataDir: string,
+  liveRunIds: ReadonlySet<string>,
+  nowMs: number = Date.now(),
+): SshRunFactsWire[] {
+  const out: SshRunFactsWire[] = [];
+  ensureSshDirs(dataDir);
+  for (const id of listRunIds(dataDir)) {
+    if (liveRunIds.has(id)) continue;
+    const rec = readRun(dataDir, id);
+    if (!rec) continue;
+    if (rec.state.lifecycle === "accepted" || rec.state.lifecycle === "running") {
+      const state: SshRunState = { ...rec.state, lifecycle: "unknown", finishedAtMs: nowMs };
+      writeRunState(dataDir, state);
+      out.push(buildRunFacts(state));
+    }
+  }
+  return out;
+}
+
 export function sweepCompletedRuns(dataDir: string, nowMs: number = Date.now()): { deleted: number } {
   const deleted = { deleted: 0 };
   try {

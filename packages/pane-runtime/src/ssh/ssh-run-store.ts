@@ -85,7 +85,7 @@ export function assertSshRunPath(dataDir: string, runId: string): string {
 
 /** True only for a REAL directory (a symlink at the name is not ours to enter). */
 function isRealDir(st: ReturnType<typeof lstatSync> | undefined): st is ReturnType<typeof lstatSync> {
-  return st?.isDirectory();
+  return st !== undefined && st.isDirectory() === true;
 }
 
 function lstatSafe(p: string): ReturnType<typeof lstatSync> | undefined {
