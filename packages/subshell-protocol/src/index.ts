@@ -246,25 +246,13 @@ export {
   type SshErrorCode,
 } from "./ssh-errors.js";
 export {
-  NODE_RESULT_SSH_GENERATION_STALE,
-  type NodeSshAliasListResult,
-  type NodeSshControlResult,
-  type NodeSshResolveOutcomeWire,
-  type NodeSshRunReadResult,
-  type NodeSshTestOutcomeWire,
   parseSshNodeCommandBody,
-  readSshRunFacts,
   SSH_COMMAND_TYPES,
-  SSH_CONTROL_MODES,
-  SSH_RUN_LIFECYCLES,
-  type SshControlMode,
   type SshDiscoverAliasesCommand,
   type SshInputControlCommand,
   type SshNodeCommandBody,
   type SshResolveConfigCommand,
   type SshRunCancelCommand,
-  type SshRunFactsWire,
-  type SshRunLifecycle,
   type SshRunReadCommand,
   type SshRunStartCommand,
   type SshRunStatusCommand,
@@ -294,5 +282,21 @@ export {
   SSH_RUN_OUTPUT_RETENTION_BYTES,
   SSH_TERMINALS_PER_OWNER_PER_NODE,
 } from "./ssh-limits.js";
+export type {
+  NodeSshAliasListResult,
+  NodeSshControlResult,
+  NodeSshResolveOutcomeWire,
+  NodeSshRunReadResult,
+  NodeSshTestOutcomeWire,
+} from "./ssh-results.js";
+export {
+  NODE_RESULT_SSH_GENERATION_STALE,
+  readSshRunFacts,
+  SSH_CONTROL_MODES,
+  SSH_RUN_LIFECYCLES,
+  type SshControlMode,
+  type SshRunFactsWire,
+  type SshRunLifecycle,
+} from "./ssh-run-facts.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
 export { MIN_NODE_VERSION, nodeVersionSupported, semverLt } from "./versions.js";

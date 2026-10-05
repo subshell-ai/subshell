@@ -14,16 +14,10 @@
 import type { SshConnectionSnapshotWire, SshHopWire } from "../../ssh-config.js";
 import type { SshErrorCode } from "../../ssh-errors.js";
 import type {
-  NodeSshAliasListResult,
-  NodeSshControlResult,
-  NodeSshResolveOutcomeWire,
-  NodeSshRunReadResult,
-  NodeSshTestOutcomeWire,
   SshDiscoverAliasesCommand,
   SshInputControlCommand,
   SshResolveConfigCommand,
   SshRunCancelCommand,
-  SshRunFactsWire,
   SshRunReadCommand,
   SshRunStartCommand,
   SshRunStatusCommand,
@@ -38,6 +32,14 @@ import {
   SSH_READ_LONG_POLL_MAX_MS,
   SSH_RUN_DEADLINE_MAX_MS,
 } from "../../ssh-limits.js";
+import type {
+  NodeSshAliasListResult,
+  NodeSshControlResult,
+  NodeSshResolveOutcomeWire,
+  NodeSshRunReadResult,
+  NodeSshTestOutcomeWire,
+} from "../../ssh-results.js";
+import type { SshRunFactsWire } from "../../ssh-run-facts.js";
 
 /** A well-formed hop (fixture arg for chains). */
 export function makeHop(n = 0): SshHopWire {

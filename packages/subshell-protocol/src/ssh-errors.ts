@@ -48,8 +48,6 @@ export const SSH_ERROR_CODES = [
   "run_conflict",
   /** A status/read/cancel named a run ID this node never accepted or has expired. Unknown IDs are never reusable start requests (SSH-SUPPORT.md §3, Durable dispatch). */
   "run_unknown",
-  /** A pane write carried an input generation below the node's current one: a takeover or revocation fenced it. */
-  "generation_stale",
   /** The fixed connection-test probe failed for no more specific reason. The one code that must never be dressed up as a diagnosis. */
   "connection_failed",
 ] as const;
@@ -95,8 +93,6 @@ export const SSH_ERROR_DESCRIPTIONS: Record<SshErrorCode, string> = {
     "A run with this ID already exists with different contents. The earlier request stands; this one was refused.",
   run_unknown:
     "This node has no record of that run. Its result may never have existed or its history expired; never assume it completed.",
-  generation_stale:
-    "Input control moved since this request. The write was fenced; check who holds the terminal and act through them.",
   connection_failed:
     "The connection test failed. Check the destination, the network, and the connecting account's SSH setup.",
 };

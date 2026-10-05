@@ -225,11 +225,11 @@ export interface SshRunView {
   initiatedBy: SshActorSide;
   /** The lifecycle state; `unknown` is honest, never dressed as failed or succeeded */
   status: SshRunLifecycle;
-  /** 1 = cancellation requested through the plane */
+  /** True = cancellation requested through the plane */
   cancelRequested: boolean;
-  /** 1 = local supervised ssh stopped; remote descendants are never confirmed */
+  /** True = local supervised ssh stopped; remote descendants are never confirmed */
   cancelLocalConfirmed: boolean;
-  /** 1 = the execution deadline fired */
+  /** True = the execution deadline fired */
   deadlineHit: boolean;
   /** The deadline the run was dispatched with (ms) */
   deadlineMs: number;

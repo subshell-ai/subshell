@@ -17,10 +17,15 @@ import { type Kysely, sql } from "kysely";
  *   (0048).
  * - `uq_ssh_grants_active` (PARTIAL UNIQUE on connection/pane/api-key WHERE
  *   revoked_at IS NULL): the spec's "unique ACTIVE binding for that tuple".
- *   Partial rather than full because a revoked grant STAYS as history (runs
- *   reference it by id for "who authorized this"), and re-granting the same
- *   tuple after revocation must be possible - exactly the soft-state posture
- *   of 0029's partial unique index.
+ *   Partial rather than full because a revoked grant STAYS while its rows
+ *   are reachable (re-granting the same tuple after revocation must be
+ *   possible, exactly the soft-state posture of 0029's partial unique
+ *   index) - but it does NOT survive forever: `subshell_id` CASCADEs, so
+ *   deleting the pane takes its grant rows, active and revoked, with it,
+ *   and `ssh_runs.grant_id` SET NULLs. Workstream D must not build
+ *   reconciliation on "grant id resolves forever": the pane row's
+ *   `api_key_id` is the survivor that answers "who authorized this", and
+ *   the grant row is the live binding only while it exists.
  * - `idx_ssh_grants_pane` (partial, active only): the pane-delete cascade's
  *   companion read - "which live grants does this pane hold" on terminate,
  *   and the revocation sweep ("which grants die when this row's credential

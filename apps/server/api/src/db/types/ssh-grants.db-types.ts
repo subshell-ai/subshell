@@ -21,7 +21,12 @@ export interface SshGrantTable {
    * the revision it authorized, which is what makes history honest.
    */
   connectionRevision: number;
-  /** The pane granted (subshell id). Rows cascade with the subshell: a deleted pane cannot hold a live grant. */
+  /**
+   * The pane granted (subshell id). Rows CASCADE with the subshell: a deleted
+   * pane takes its grant rows - active and revoked history alike - with it.
+   * This is why `ssh_runs.api_key_id` is the durable "who authorized this"
+   * fact and grant IDs are not guaranteed to resolve forever (migration 0047).
+   */
   subshellId: string;
   /**
    * The granted pane's CURRENT issued api-key identity (better-auth apikey id,

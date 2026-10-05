@@ -23,16 +23,15 @@ import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray, isStringMap } fr
 import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 import { parseSshConnectionSnapshot } from "./ssh-config.js";
 import { isSshErrorCode } from "./ssh-errors.js";
-import {
-  type NodeSshAliasListResult,
-  type NodeSshControlResult,
-  type NodeSshResolveOutcomeWire,
-  type NodeSshRunReadResult,
-  type NodeSshTestOutcomeWire,
-  readSshRunFacts,
-  type SshRunFactsWire,
-} from "./ssh-frames.js";
 import { SSH_MAX_DISCOVERED_ALIASES, SSH_OUTPUT_WINDOW_MAX_BYTES } from "./ssh-limits.js";
+import type {
+  NodeSshAliasListResult,
+  NodeSshControlResult,
+  NodeSshResolveOutcomeWire,
+  NodeSshRunReadResult,
+  NodeSshTestOutcomeWire,
+} from "./ssh-results.js";
+import { readSshRunFacts, type SshRunFactsWire } from "./ssh-run-facts.js";
 
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;

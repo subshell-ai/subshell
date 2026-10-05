@@ -9,13 +9,7 @@ import {
   parseNodeSshTestOutcome,
 } from "../node-results.js";
 import { isSshErrorCode, SSH_ERROR_CODES, SSH_ERROR_DESCRIPTIONS } from "../ssh-errors.js";
-import {
-  NODE_RESULT_SSH_GENERATION_STALE,
-  parseSshNodeCommandBody,
-  SSH_COMMAND_TYPES,
-  SSH_CONTROL_MODES,
-  SSH_RUN_LIFECYCLES,
-} from "../ssh-frames.js";
+import { parseSshNodeCommandBody, SSH_COMMAND_TYPES } from "../ssh-frames.js";
 import {
   SSH_ACTIVE_RUNS_PER_NODE,
   SSH_ACTIVE_RUNS_PER_OWNER_PER_NODE,
@@ -24,12 +18,14 @@ import {
   SSH_COMPLETED_RUN_RETENTION_DAYS,
   SSH_MAX_PROXY_HOPS,
   SSH_OUTPUT_WINDOW_MAX_BYTES,
+  SSH_PROBE_DEADLINE_MS,
   SSH_READ_LONG_POLL_MAX_MS,
   SSH_RUN_DEADLINE_DEFAULT_MS,
   SSH_RUN_DEADLINE_MAX_MS,
   SSH_RUN_OUTPUT_RETENTION_BYTES,
   SSH_TERMINALS_PER_OWNER_PER_NODE,
 } from "../ssh-limits.js";
+import { NODE_RESULT_SSH_GENERATION_STALE, SSH_CONTROL_MODES, SSH_RUN_LIFECYCLES } from "../ssh-run-facts.js";
 import {
   makeAliasList,
   makeControlResult,
@@ -200,6 +196,19 @@ describe("ssh result validators", () => {
     expect(parseNodeSshRunFacts({ ...makeRunFacts(), localExitSignal: 15 })).toBeNull();
   });
 
+  it("facts: the unknown lifecycle may carry ONLY the ambiguous 255", () => {
+    // The fixture truth, now enforced in the shared grammar: `unknown` with
+    // the 255 is the OpenSSH transport/remote ambiguity stated honestly
+    // (man.openbsd.org/ssh#EXIT_STATUS), but any other non-null status would
+    // be an observation that settles the question - such an answer cannot
+    // hide under `unknown` and the reader refuses it.
+    expect(parseNodeSshRunFacts(makeRunFactsAmbiguous255())).toEqual(makeRunFactsAmbiguous255());
+    expect(parseNodeSshRunFacts({ ...makeRunFacts(), lifecycle: "unknown", remoteStatus: null })).not.toBeNull();
+    expect(parseNodeSshRunFacts({ ...makeRunFacts(), lifecycle: "unknown", remoteStatus: 0 })).toBeNull();
+    expect(parseNodeSshRunFacts({ ...makeRunFacts(), lifecycle: "unknown", remoteStatus: 1 })).toBeNull();
+    expect(parseNodeSshRunFacts({ ...makeRunFacts(), lifecycle: "running", remoteStatus: null })).not.toBeNull(); // the null-status states are untouched by the cross-check
+  });
+
   it("SSH_RUN_LIFECYCLES is exactly the four frozen states; modes exactly two", () => {
     expect([...SSH_RUN_LIFECYCLES]).toEqual(["accepted", "running", "completed", "unknown"]);
     expect([...SSH_CONTROL_MODES]).toEqual(["agent", "human"]);
@@ -267,6 +276,7 @@ describe("the spec limits table is pinned", () => {
     expect(SSH_COMPLETED_RUN_RETENTION_DAYS).toBe(7);
     expect(SSH_OUTPUT_WINDOW_MAX_BYTES).toBe(256 * 1024);
     expect(SSH_READ_LONG_POLL_MAX_MS).toBe(30 * 1000);
+    expect(SSH_PROBE_DEADLINE_MS).toBe(30 * 1000);
   });
 
   it("derived bounds agree with what the parsers actually enforce", () => {

@@ -21,201 +21,24 @@
  * frame, and the executor never sees a `ProxyCommand` to "just render".
  *
  * Hand-rolled in the `node-frames.ts` style; imports no `node:` builtin;
- * lives in the Metro-safe barrel. Result ENVELOPE types are here (they are
- * part of the command's contract); their `parse*` validators live in
+ * lives in the Metro-safe barrel. The control-state and run-facts grammar
+ * live in `ssh-run-facts.ts` and the result ENVELOPE types in
+ * `ssh-results.ts` (Gate A review split); their `parse*` validators live in
  * `node-results.ts` beside every other result validator (the four-site rule
  * in the integration maps).
  */
 
-import { isBool, isInt, isRecord, isStr } from "./guards.js";
+import { isInt, isRecord, isStr } from "./guards.js";
 import { parseSshConnectionSnapshot, type SshConnectionSnapshotWire } from "./ssh-config.js";
-import type { SshErrorCode } from "./ssh-errors.js";
 import {
   SSH_COMMAND_MAX_CHARS,
-  SSH_MAX_DISCOVERED_ALIASES,
   SSH_NAME_MAX_CHARS,
   SSH_OUTPUT_WINDOW_MAX_BYTES,
+  SSH_PATH_MAX_CHARS,
   SSH_READ_LONG_POLL_MAX_MS,
   SSH_RUN_DEADLINE_MAX_MS,
 } from "./ssh-limits.js";
-
-/* ------------------------------------------------------------------ */
-/* control state                                                       */
-/* ------------------------------------------------------------------ */
-
-/**
- * Who holds input control of a managed SSH terminal. Humans can take over
- * immediately; ONLY humans return control to agents (SSH-SUPPORT.md §3).
- */
-export const SSH_CONTROL_MODES = ["agent", "human"] as const;
-
-/** One side of the input-control boundary. */
-export type SshControlMode = (typeof SSH_CONTROL_MODES)[number];
-
-/**
- * `result.error` from an input or prompt-delivery the node refused because its
- * per-pane generation had moved on: a takeover or a revocation fenced it.
- *
- * Bare, like every `NODE_RESULT_*` constant - the plane matches
- * `NodeRpcError.detail` by EQUALITY, and the same refusal on every input
- * surface is what makes "fence stale queued input" one fact rather than
- * several heuristics.
- */
-export const NODE_RESULT_SSH_GENERATION_STALE = "stale input generation";
-
-/* ------------------------------------------------------------------ */
-/* run lifecycle facts (SSH-SUPPORT.md §3, Structured commands)        */
-/* ------------------------------------------------------------------ */
-
-/**
- * Run lifecycle as a runtime list. `accepted` means the node DURABLY recorded
- * the request before spawning; a crash between acceptance and spawn reads
- * back `unknown`, never a retry. `unknown` must not masquerade as failed or
- * successful - that honesty is why it exists beside `completed`, not under
- * either.
- */
-export const SSH_RUN_LIFECYCLES = ["accepted", "running", "completed", "unknown"] as const;
-
-/** One lifecycle state from {@link SSH_RUN_LIFECYCLES}. */
-export type SshRunLifecycle = (typeof SSH_RUN_LIFECYCLES)[number];
-
-/**
- * The lifecycle + cancellation/deadline + exit facts of one run, as the
- * start/status/cancel/read answers all carry them. Cancellation and deadline
- * are SEPARATE facts from lifecycle on purpose: a `completed` run may also
- * carry `cancelRequested` (cancelled, then finished cleanly) or
- * `deadlineHit` (won its race against supervision), and a `running` run may
- * already carry a pending cancellation.
- */
-export interface SshRunFactsWire {
-  /** Echo of the server-allocated opaque run ID (also the node's filesystem name). */
-  runId: string;
-  /** Lifecycle state at answer time. */
-  lifecycle: SshRunLifecycle;
-  /** A cancellation was requested for this run. */
-  cancelRequested: boolean;
-  /**
-   * The LOCAL supervised ssh/helper processes are stopped (within
-   * `SSH_CANCEL_GRACE_MS`). Remote descendants are never confirmed -
-   * terminating SSH never guarantees they died.
-   */
-  cancelLocalConfirmed: boolean;
-  /** The run's execution deadline fired. */
-  deadlineHit: boolean;
-  /**
-   * Observed REMOTE exit status, null when nothing was observed. `completed`
-   * always carries one; `unknown` carries none.
-   */
-  remoteStatus: number | null;
-  /**
-   * True when `remoteStatus` is a CONFIRMED remote program status. OpenSSH
-   * reports 255 both for its own transport failures and for a remote program
-   * exiting 255 (man.openbsd.org/ssh#EXIT_STATUS), so a 255 seen without
-   * corroborating transport facts carries `false`: the number alone must
-   * never be asserted as a confirmed remote result.
-   */
-  remoteStatusConfirmed: boolean;
-  /** Local ssh child's exit code (null if it died by signal or status was never seen). */
-  localExitCode: number | null;
-  /** Signal name that killed the local ssh child (null unless it was signalled). */
-  localExitSignal: string | null;
-}
-
-/* ------------------------------------------------------------------ */
-/* result envelope types                                               */
-/* ------------------------------------------------------------------ */
-
-/**
- * `ssh_discover_aliases` answer: NAMES of usable aliases, never config file
- * contents (SSH-SUPPORT.md §2). Wildcard-only entries are already excluded
- * and include cycles detected (the cycle is a FACT the human reviewing the
- * list needs, never a silent stop).
- */
-export interface NodeSshAliasListResult {
-  /** Alias names, sorted, deduplicated, at most {@link SSH_MAX_DISCOVERED_ALIASES}. */
-  aliases: string[];
-  /** An include cycle was detected during the bounded parse; the list is what parsed before it. */
-  includeCycle: boolean;
-  /** The alias cap was hit; more exist. */
-  truncated: boolean;
-}
-
-/**
- * `ssh_resolve_config` answer. The refusal is IN THE DATA, not an `ok:false`
- * result: "this config needs a ProxyCommand" is a SUCCESSFUL resolution
- * outcome the human must read (which setting blocked), not a transport error.
- * `settings` names the blocked settings by the config keyword (a `ProxyCommand`
- * row, a `LocalForward` row, …) so the human can edit the config and re-resolve.
- */
-export type NodeSshResolveOutcomeWire =
-  | {
-      /** The alias normalized cleanly into an approved snapshot. */
-      accepted: true;
-      /** The snapshot the human reviews, then saves. */
-      snapshot: SshConnectionSnapshotWire;
-      /**
-       * The connecting account's OS user name, when the node could report it
-       * - the §3 UI sentence "review resolved destination AND connecting OS
-       * account" needs a name the snapshot itself never carries. Optional by
-       * design: an agent that cannot resolve `os.userInfo` answers without
-       * it and the review proceeds (the destination facts are the load-
-       * bearing half; this is display).
-       */
-      connectingAccount?: string;
-    }
-  | {
-      /** Resolution refused: the config needs something Subshell will not run, or the destination/auth facts failed. */
-      accepted: false;
-      /** The named limitation ({@link SshErrorCode} subset: unsupported_setting, config_missing, config_ambiguous, proxy_chain_too_long, …). */
-      code: SshErrorCode;
-      /** Config keywords that blocked acceptance; empty when the code names the whole cause. */
-      settings: string[];
-    };
-
-/**
- * `ssh_test_connection` answer. The probe is FIXED and benign - the node runs
- * its own connect-and-exit check against the snapshot; there is no
- * caller-supplied probe text anywhere in this contract, and the boolean plus
- * a named code is the whole answer.
- */
-export type NodeSshTestOutcomeWire = { passed: true } | { passed: false; code: SshErrorCode };
-
-/**
- * `ssh_run_read` answer: the bounded incremental window plus a full copy of
- * {@link SshRunFactsWire} - a read must always be able to answer "and is it
- * done?" without a second round trip, which is also what keeps a plane-driven
- * poll loop honest about a run that completed between windows.
- */
-export interface NodeSshRunReadResult extends SshRunFactsWire {
-  /** Base64 stdout bytes starting at the request's `stdoutFromByte`. */
-  stdoutB64: string;
-  /** Base64 stderr bytes starting at the request's `stderrFromByte`. */
-  stderrB64: string;
-  /** Offset to pass next for stdout (request offset + bytes returned). */
-  stdoutNext: number;
-  /** Offset to pass next for stderr. */
-  stderrNext: number;
-  /** Total bytes RETAINED for stdout (past `SSH_RUN_OUTPUT_RETENTION_BYTES` the node drained excess). */
-  stdoutTotal: number;
-  /** Total bytes RETAINED for stderr. */
-  stderrTotal: number;
-  /** Drain dropped bytes beyond the per-run retention; the window is not the whole transcript. */
-  truncated: boolean;
-}
-
-/**
- * `ssh_input_control` answer: the node's CURRENT control state after the
- * transition (echoing what took effect, which is what lets the plane detect a
- * lost race against a takeover happening at the machine).
- */
-export interface NodeSshControlResult {
-  /** The managed pane (echo). */
-  subshellId: string;
-  /** Whose input the node now accepts. */
-  mode: SshControlMode;
-  /** The node's current input generation after this transition; later writes must carry at least this. */
-  generation: number;
-}
+import { isSshRunId, type SshControlMode } from "./ssh-run-facts.js";
 
 /* ------------------------------------------------------------------ */
 /* command bodies                                                      */
@@ -252,8 +75,8 @@ export interface SshTestConnectionCommand {
  * Start a structured run. The node durably records acceptance BEFORE
  * spawning, under this exact ID + digest (SSH-SUPPORT.md §3, Durable
  * dispatch): a duplicate delivery returns the existing state, and a
- * different payload under the same ID answers {@link
- * SshErrorCode}"run_conflict" - never a second spawn.
+ * different payload under the same ID answers the bare `run_conflict` code
+ * - never a second spawn.
  */
 export interface SshRunStartCommand {
   type: "ssh_run_start";
@@ -320,10 +143,10 @@ export interface SshRunCancelCommand {
  * Launch a managed SSH terminal pane: a tmux pane whose FOREGROUND process is
  * ssh, no connecting-node shell fallback, exit ends the pane. The node builds
  * the ssh argv from the snapshot under the mandatory all-hop runtime policy
- * (strict host checking, no forwarding/agents/X11 forwarding/escapes/control
- * sockets/multiplexing, no ambient config reread) - the plane ships the
- * approved destination, the machine owns the argv construction, exactly the
- * inversion posture of `launch`.
+ * (strict host checking, no forwarding/agent forwarding/X11 forwarding/
+ * escapes/control sockets/multiplexing, no ambient config reread) - the
+ * plane ships the approved destination, the machine owns the argv
+ * construction, exactly the inversion posture of `launch`.
  */
 export interface SshTerminalLaunchCommand {
   type: "ssh_terminal_launch";
@@ -371,6 +194,19 @@ export type SshNodeCommandBody =
   | SshTerminalLaunchCommand
   | SshInputControlCommand;
 
+/** Every SSH command `type`, for census tests and dispatch tables. */
+export const SSH_COMMAND_TYPES = [
+  "ssh_discover_aliases",
+  "ssh_resolve_config",
+  "ssh_test_connection",
+  "ssh_run_start",
+  "ssh_run_status",
+  "ssh_run_read",
+  "ssh_run_cancel",
+  "ssh_terminal_launch",
+  "ssh_input_control",
+] as const;
+
 /* ------------------------------------------------------------------ */
 /* arm validators (delegated from parseNodeCommandBody)                */
 /* ------------------------------------------------------------------ */
@@ -386,45 +222,16 @@ function isAliasName(value: unknown): value is string {
   );
 }
 
-function isRunId(value: unknown): value is string {
-  return isStr(value) && value.length > 0 && value.length <= 64;
-}
-
-/** The facts grammar, shared by every command answer that carries run state. Used by node-results.ts. */
-export function readSshRunFacts(data: Record<string, unknown>): SshRunFactsWire | null {
-  if (!isRunId(data.runId)) return null;
-  if (
-    !(
-      data.lifecycle === "accepted" ||
-      data.lifecycle === "running" ||
-      data.lifecycle === "completed" ||
-      data.lifecycle === "unknown"
-    )
-  )
-    return null;
-  if (!isBool(data.cancelRequested) || !isBool(data.cancelLocalConfirmed) || !isBool(data.deadlineHit)) return null;
-  if (!("remoteStatus" in data) || !(data.remoteStatus === null || isInt(data.remoteStatus))) return null;
-  if (!isBool(data.remoteStatusConfirmed)) return null;
-  if (!("localExitCode" in data) || !(data.localExitCode === null || isInt(data.localExitCode))) return null;
-  if (!("localExitSignal" in data) || !(data.localExitSignal === null || isStr(data.localExitSignal))) return null;
-  return {
-    runId: data.runId,
-    lifecycle: data.lifecycle as SshRunLifecycle,
-    cancelRequested: data.cancelRequested,
-    cancelLocalConfirmed: data.cancelLocalConfirmed,
-    deadlineHit: data.deadlineHit,
-    remoteStatus: data.remoteStatus as number | null,
-    remoteStatusConfirmed: data.remoteStatusConfirmed,
-    localExitCode: data.localExitCode as number | null,
-    localExitSignal: data.localExitSignal as string | null,
-  };
+/** An absolute remote path on the wire: leading `/`, length-bounded like the snapshot's refs, no control characters. Shape only - the node stats it. */
+function isAbsPath(value: unknown): value is string {
+  return isStr(value) && value.startsWith("/") && value.length <= SSH_PATH_MAX_CHARS && !/\s|\p{Cc}/u.test(value);
 }
 
 /**
  * Validates and narrows any `ssh_*` command body. `parseNodeCommandBody`
  * routes its nine `type` arms here so the SSH grammar lives in ONE file
- * instead of nine cases in a 1700-line frame module; the contract it upholds
- * is the same: a NON-null return is safe to switch on by `type`.
+ * beside the commands it narrows; the contract it upholds is the same: a
+ * NON-null return is safe to switch on by `type`.
  *
  * @param value - candidate payload whose `type` starts with `ssh_`
  * @returns the narrowed command, or null when malformed
@@ -442,7 +249,7 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
     }
     case "ssh_run_start": {
       const snapshot = parseSshConnectionSnapshot(value.snapshot);
-      if (!snapshot || !isRunId(value.runId)) return null;
+      if (!snapshot || !isSshRunId(value.runId)) return null;
       if (!isStr(value.command) || value.command.length === 0 || value.command.length > SSH_COMMAND_MAX_CHARS)
         return null;
       if (!("remoteDir" in value) || !(value.remoteDir === null || isAbsPath(value.remoteDir))) return null;
@@ -464,11 +271,11 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       };
     }
     case "ssh_run_status":
-      return isRunId(value.runId) ? { type: "ssh_run_status", runId: value.runId } : null;
+      return isSshRunId(value.runId) ? { type: "ssh_run_status", runId: value.runId } : null;
     case "ssh_run_cancel":
-      return isRunId(value.runId) ? { type: "ssh_run_cancel", runId: value.runId } : null;
+      return isSshRunId(value.runId) ? { type: "ssh_run_cancel", runId: value.runId } : null;
     case "ssh_run_read": {
-      if (!isRunId(value.runId)) return null;
+      if (!isSshRunId(value.runId)) return null;
       if (
         !isInt(value.stdoutFromByte) ||
         (value.stdoutFromByte as number) < 0 ||
@@ -528,21 +335,3 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       return null;
   }
 }
-
-/** Local copy of ssh-config's path hygiene (shape grammar; the node still lstats everything). */
-function isAbsPath(value: unknown): value is string {
-  return isStr(value) && value.startsWith("/") && !/\p{Cc}/u.test(value);
-}
-
-/** Every SSH command `type`, for census tests and dispatch tables. */
-export const SSH_COMMAND_TYPES = [
-  "ssh_discover_aliases",
-  "ssh_resolve_config",
-  "ssh_test_connection",
-  "ssh_run_start",
-  "ssh_run_status",
-  "ssh_run_read",
-  "ssh_run_cancel",
-  "ssh_terminal_launch",
-  "ssh_input_control",
-] as const;

@@ -99,7 +99,14 @@ export interface SshCaller {
   isAdmin: boolean;
 }
 
-/** The human configuration acts that require a cookie session, explicitly. */
+/**
+ * The human acts that require a cookie session, explicitly (SSH-SUPPORT.md
+ * §4's caller column: config acts AND the run/terminal acts a human performs
+ * for their own connections - "Owning human or explicitly granted pane").
+ * A human at a run/terminal act passes through THIS seam, not `gateGrantedUse`:
+ * the policy is one seam for every surface, and the human arm simply checks
+ * ownership/eligibility where the pane arm checks the grant tuple.
+ */
 export type SshHumanConfigAction =
   | "discover"
   | "resolve"
@@ -110,7 +117,12 @@ export type SshHumanConfigAction =
   | "grant"
   | "revoke"
   | "take_control"
-  | "return_control";
+  | "return_control"
+  | "run_start"
+  | "run_read"
+  | "run_cancel"
+  | "terminal_open"
+  | "terminal_read";
 
 /** Input to {@link SshPolicy.gateHumanConfig}. */
 export interface SshHumanConfigRequest {
