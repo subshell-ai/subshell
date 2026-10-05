@@ -154,9 +154,7 @@ function expandIncludeGlob(pattern: string, includingFile: string, homeDir: stri
   if (!isAbsolute(expanded)) expanded = resolve(dirname(includingFile), expanded);
   const segments = expanded.split("/").filter((s) => s !== "");
   const out: string[] = ["/"];
-  let atRoot = true;
   for (const segment of segments) {
-    atRoot = false;
     const next: string[] = [];
     const globbing = segment.includes("*") || segment.includes("?");
     if (!globbing) {
@@ -172,7 +170,10 @@ function expandIncludeGlob(pattern: string, includingFile: string, homeDir: stri
         }
         for (const name of names) {
           if (re.test(name)) next.push(join(base, name));
-          if (next.length >= maxMatches) return atRoot ? [] : next;
+          // Cap hit mid-walk: `next` already holds `maxMatches` real matches,
+          // so return it (the old `atRoot ? [] : next` was dead - `atRoot` is
+          // false at every point this line runs, review M7).
+          if (next.length >= maxMatches) return next;
         }
       }
     }

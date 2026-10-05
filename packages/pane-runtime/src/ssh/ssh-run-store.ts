@@ -209,7 +209,12 @@ export function acceptRun(
     // accepted-but-stateless residue (crash between the two writes): re-write
     // state and fall through as the SAME request; no second acceptance.
   } else {
-    if (lstatSafe(dir) !== undefined && !isRealDir(lstatSafe(dir))) throw new Error("run path occupied");
+    // One lstat, not two (review M5): the old `!== undefined && !isRealDir(...)`
+    // asked the filesystem twice and could read a DIFFERENT object between the
+    // calls. A real directory is ours to reuse; anything else occupying the name
+    // (a file, a symlink, a device) is refused.
+    const occupant = lstatSafe(dir);
+    if (occupant !== undefined && !isRealDir(occupant)) throw new Error("run path occupied");
     mkdirSync(dir, { mode: 0o700 });
     try {
       chmodSync(dir, 0o700);

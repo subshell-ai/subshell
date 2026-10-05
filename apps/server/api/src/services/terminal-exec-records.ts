@@ -415,10 +415,15 @@ export function releasePane(subshellId: string, observation?: Promise<void>): vo
 
 /**
  * The exec gate's after-unknown refusal (shared shape so every entry point
- * answers identically). Humans pass it - the cookie actor IS the recovery the
- * rule waits for, and they can SEE the pane; every automated caller (bearer
- * pane token, system key) waits until a completed record succeeds the unknown
- * one or the pane restarts.
+ * answers identically). Human-CLASS callers pass it - they are the recovery the
+ * rule waits for, and they can SEE the pane; per the shipped M5 ruling (the
+ * exec gate in `subshells.service.ts`) human-class is COOKIE AND SYSTEM KEY,
+ * and the ONLY actor refused here is the bearer SUBSHELL key - the
+ * prompt-injectable automated caller the rule was written against. A system key
+ * resolves through the full human gate as the `system` service user everywhere
+ * else in this tree, so waiting it would contradict that posture; it waits for
+ * nothing. Only a completed record succeeding the unknown one, or a pane
+ * restart, clears it for the bearer.
  */
 export function refuseAfterUnknown(): never {
   throwApiError({

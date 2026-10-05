@@ -42,7 +42,17 @@ export const SSH_ERROR_CODES = [
   "quota_terminals",
   /** The node's aggregate SSH output store is full; completed output was already evicted (SSH-SUPPORT.md §3's pressure rule), so this is the "still full" refusal. */
   "storage_full",
-  /** A signed command arrived past its freshness window after a reconnect. Rejecting it is the no-automatic-replay rule; the caller re-decides, the node never does. */
+  /**
+   * A signed command arrived past its freshness window after a reconnect.
+   * Rejecting it is the no-automatic-replay rule; the caller re-decides, the
+   * node never does. RESERVED, emitted nowhere (review M8): the freshness
+   * window the JWS signature carries is what actually refuses a stale start
+   * (the signing layer rejects the expired command before any handler runs),
+   * so no dispatch site names this code. It stays in the frozen set on purpose
+   * - the wire grammar and every reader's equality table are protocol-frozen
+   * and a bump cannot reclaim a removed name; the note is what keeps a future
+   * reader from "fixing" the apparent dead code by emitting it.
+   */
   "stale_command",
   /** A start carried an ID the node already accepted for a DIFFERENT request digest. Durable dedup refused it; nothing was spawned twice. */
   "run_conflict",

@@ -224,7 +224,18 @@ export function sshTerminalLogBytes(dataDir: string): number {
   return total;
 }
 
-/** Current control state for the generic-pane input gates (workstream C's seam); null when the pane is not a managed SSH terminal here. */
+/**
+ * Current control state for the generic-pane input gates (workstream C's seam);
+ * null when the pane is not a managed SSH terminal here. FROZEN-CONTRACT
+ * IMPL pinned by `ssh-terminal-log.test.ts`, not a live caller (review M4):
+ * C's real input fence reads `ssh_panes.control_generation` (the plane's
+ * counter), and the local twin in `ssh-local.ts` reads the plane row too - so
+ * this node-side view has no production consumer, but it stays as the
+ * runtime's own statement of the contract the tests hold, and it is the one
+ * place `readTerminalState` is shaped for the input gate. Do not delete: the
+ * suite IS its consumer and the second implementation the overview warns
+ * against would be a SILENT one; this one says what it is.
+ */
 export function controlStateFor(
   dataDir: string,
   subshellId: string,
@@ -259,6 +270,15 @@ export type SshTerminalLogRead =
  * `O_RDONLY | O_NOFOLLOW` and fstat'd through the fd, and a generation that
  * is not the current one is answered `cursor-expired` — the ONLY sanctioned
  * way for a stale cursor to learn the truth (§3's never-silent-reuse rule).
+ *
+ * FROZEN-CONTRACT IMPL pinned by `ssh-terminal-log.test.ts`, not a live
+ * caller (review M4, the same decision as {@link controlStateFor} above): the
+ * server relays managed-terminal output through the ordinary pane-log reader
+ * on the conventional `<id>.log` path, so this generation-aware reader has no
+ * production consumer. It stays because it is the runtime's own executable
+ * statement of the cursor-expired contract the tests hold - the honest
+ * "second implementation" is the one that names itself, which is exactly what
+ * this note and its sibling do. Do not delete.
  */
 export function readTerminalLog(
   dataDir: string,
