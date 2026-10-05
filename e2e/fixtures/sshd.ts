@@ -213,6 +213,18 @@ export async function startSshFixture(root: string): Promise<SshFixture> {
       "LogLevel VERBOSE",
     ].join("\n"),
   );
+  // sshd's privilege-separation directory is compiled in (/run/sshd; no
+  // sshd_config keyword overrides it) and the daemon refuses to start without
+  // it. Measured: the CI builder image's openssh-server postinst does NOT
+  // create it in a non-systemd container (job run 37274033881 died exactly
+  // there), while dev hosts usually have one because sshd is installed and
+  // running. Ensure it opportunistically: an existing dir or a non-writable
+  // /run surfaces through sshd's own stderr in the readiness failure below.
+  try {
+    mkdirSync("/run/sshd", { mode: 0o755 });
+  } catch {
+    // already there, or not ours to make - sshd's log will say which
+  }
   // sshd -e means "log to stderr" and takes NO file argument: the fixture
   // redirects the child's stderr into its own file (the bun recipe's rule).
   const logFd = openSync(sshdLog, "w");

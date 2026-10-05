@@ -931,9 +931,10 @@ jobs:
       # Spec 21's real-sshd composition needs ssh, ssh-keygen and sshd: the
       # builder image carries none of them, so WITHOUT these the SSH specs
       # loud-skip on every CI run - an honest skip, but a flagship suite that
-      # silently never runs is what e2e/AGENTS.md promises against. apt's
-      # openssh-server postinst also creates /run/sshd, the privilege-
-      # separation dir the root-launched fixture daemon needs.
+      # silently never runs is what e2e/AGENTS.md promises against. The
+      # fixture daemon's privilege-separation dir (/run/sshd) is NOT created
+      # by the postinst in this non-systemd container (measured on the exact
+      # image); the fixture itself ensures it before spawning.
       - name: Ensure tmux, jq, and OpenSSH
         run: |
           set -euo pipefail
