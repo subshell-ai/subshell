@@ -9,35 +9,36 @@ import { SSH_PANE_SURFACES } from "@/services/ssh/ssh-policy.js";
  * quoted literal at a PRODUCTION gate call site (the surfaces are passed to
  * `#sshGate` / `gatePaneSurfaceFor` / the policy arms exactly as a string
  * literal, so a rename or a removed gate breaks this test). A member with
- * zero call sites fails, EXCEPT the explicitly-pending ones below:
+ * zero call sites fails - and there is no exception list any more:
  *
- * - `attach_mint`: intentionally has no plane call site (ruling, review round
- *   1): the REST mint path mints for the pane the client is trusted to attach
- *   to; a managed pane needed policy at create to exist; the ATTACH-REDEEM
- *   gate (`ws/attach-resolve.ts`) covers the same trust boundary and is
- *   strictly stronger, because it decides at the moment bytes flow.
- * - `live`: wired HERE in `ws/live-publisher.ts` (review I-5: the publisher
+ * - `attach_mint`: wired in `api/ws-token.route.ts` (the mint-time census;
+ *   Gate C minor 5 removed it from PENDING_WIRING once the coordinator's
+ *   hunk landed - a stale pending entry is exactly the drift this census
+ *   exists to catch, and a surface that is wired must not be excused).
+ * - `live`: wired in `ws/live-publisher.ts` (review I-5: the publisher
  *   asks the policy for the owner instead of narrowing structurally).
- * - `capture` / `prompt`: wired HERE - the dedicated screens door
- *   (`previewsFor`) asks `capture`, the restart-prompt path asks `prompt`
- *   before any effect.
- *
- * The `attach_mint` entry documents that decision; it is not a pending hunk.
+ * - `capture` / `prompt`: wired in `subshells.service.ts` - the dedicated
+ *   screens door (`previewsFor`) asks `capture`, the restart-prompt path
+ *   asks `prompt` before any effect.
  */
 
-/** Files that own gate call sites (service surfaces + the two ws doors). */
+/** Files that own gate call sites (service surfaces + the ws doors + the mint). */
 const PRODUCTION_SOURCES = [
   new URL("../../services/subshells.service.ts", import.meta.url),
   new URL("../../services/pane-ssh-gate.ts", import.meta.url),
   new URL("../../ws/live-publisher.ts", import.meta.url),
   new URL("../../ws/attach-resolve.ts", import.meta.url),
   new URL("../../api/subshells/ssh-pane-ops.route.ts", import.meta.url),
+  new URL("../../api/ws-token.route.ts", import.meta.url),
 ];
 
-/** Surfaces whose call site lands with another workstream (see module doc). */
-const PENDING_WIRING: Record<string, string> = {
-  attach_mint: "coordinator Gate B ws-token.route.ts hunk (report integration request 1)",
-};
+/**
+ * Surfaces whose call site has NOT landed yet. EMPTY by design: the day a
+ * surface moves here, the entry must name the workstream hunk that lands it
+ * (a nameless pending excuse is the drift rule), and nothing may live here
+ * across a release.
+ */
+const PENDING_WIRING: Record<string, string> = {};
 
 describe("SSH surface census", () => {
   it("every frozen surface has a production call site (or a named pending wiring)", async () => {

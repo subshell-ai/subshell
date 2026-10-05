@@ -1182,6 +1182,18 @@ export class SubshellsService extends BaseService {
     // connecting-node shell, which is the same no-fallback rule restart has.
     const managed = await this.#sshGate(seed, id, "input");
     if (managed) {
+      // The SAME two liveness facts the ordinary path requires, checked on the
+      // managed branch too (Gate C minor 4): a pane parked at
+      // `status:running, alive:0` answers the clean 409 here instead of
+      // dispatching a doomed stamped write and mapping whatever the node
+      // answers for a dead pane. After the gate, before the effect.
+      if (row.status !== "running" || row.alive !== 1) {
+        throwApiError({
+          code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
+          message: "The subshell is not running; nothing was typed. Restart it first.",
+          doNotLog: true,
+        });
+      }
       const hooks = getSshPaneHooks();
       if (!hooks) {
         throwApiError({

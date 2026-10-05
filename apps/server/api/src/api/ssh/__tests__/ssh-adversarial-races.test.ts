@@ -527,5 +527,59 @@ describe("SSH races + disabled account + server-side bound clamps (spec 2026-10-
       expect(await fifth.text()).toContain("quota_runs");
       expect(scripted.cmdsOf("ssh_run_start").length).toBe(before);
     });
+
+    it("six CONCURRENT starts admit exactly the ceiling: the per-owner count and the insert are one transaction (Gate C minor 6)", async () => {
+      // Check-then-act on a FRESH (owner, node) pair, so only the race itself
+      // can overshoot: the old two-counts-then-insert let interleaved starts
+      // all read the same pre-insert count. Fresh node and connection because
+      // the shared pair is already at its ceiling from the test above.
+      const node2 = crypto.randomUUID();
+      await nodes.create({
+        id: node2,
+        ownerUserId: ownerId,
+        name: `q2-${node2.slice(0, 8)}`,
+        kind: "agent",
+        status: "online",
+      });
+      const sim2 = attachScriptedNode(node2, {
+        ssh_run_start: (cmd) =>
+          cmd.type === "ssh_run_start" ? facts({ runId: cmd.runId, lifecycle: "running" }) : new Error("wrong cmd"),
+      });
+      const conn2 = await connections.create({
+        id: crypto.randomUUID(),
+        userId: ownerId,
+        nodeId: node2,
+        displayName: "Quota Race",
+        configSnapshot: JSON.stringify(SNAPSHOT),
+        remoteDir: null,
+      });
+      try {
+        const results = await Promise.all(
+          Array.from({ length: 6 }, (_, i) =>
+            fetchAs("/api/ssh/runs", "POST", { cookie: ownerCookie }, { connectionId: conn2.id, command: `race${i}` }),
+          ),
+        );
+        const statuses = results.map((r) => r.status);
+        const bodies = await Promise.all(results.map((r) => r.text()));
+        expect(statuses.filter((s) => s === 200)).toHaveLength(4);
+        expect(statuses.filter((s) => s === 409)).toHaveLength(2);
+        expect(bodies.filter((t) => t.includes("quota_runs"))).toHaveLength(2);
+        // The plane admitted 4 to its mirror AND its wire: the refused starts
+        // dispatched nothing.
+        expect(sim2.countOf("ssh_run_start")).toBe(4);
+        const active = await db
+          .selectFrom("sshRuns")
+          .select("id")
+          .where("nodeId", "=", node2)
+          .where("status", "in", ["accepted", "running"])
+          .execute();
+        expect(active).toHaveLength(4);
+      } finally {
+        sim2.detach();
+        await db.deleteFrom("sshRuns").where("nodeId", "=", node2).execute();
+        await db.deleteFrom("sshConnections").where("id", "=", conn2.id).execute();
+        await db.deleteFrom("nodes").where("id", "=", node2).execute();
+      }
+    });
   });
 });

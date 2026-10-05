@@ -66,16 +66,6 @@ export async function sshRunStart(caller: SshCaller, body: SshRunStartRequest): 
   const deadlineMs = clamp(body.deadlineMs ?? SSH_RUN_DEADLINE_DEFAULT_MS, 1, SSH_RUN_DEADLINE_MAX_MS);
   const snapshot = readStoredSnapshot(conn);
 
-  // Quotas first, both §3 rows (per-owner-per-node 4, per-node total 16):
-  // counted on the PLANE's mirror before dispatch, because the plane
-  // allocates the ids and the mirror is what the quota was promised against.
-  if (
-    (await runs.countActiveForOwnerNode(caller.userId, conn.nodeId)) >= SSH_ACTIVE_RUNS_PER_OWNER_PER_NODE ||
-    (await runs.countActiveForNode(conn.nodeId)) >= SSH_ACTIVE_RUNS_PER_NODE
-  ) {
-    refuseSshErrorCode("quota_runs");
-  }
-
   const runId = randomUUID();
   const requestDigest = digestOf({ snapshot, remoteDir, command: body.command, deadlineMs });
   const grant =
@@ -86,31 +76,40 @@ export async function sshRunStart(caller: SshCaller, body: SshRunStartRequest): 
   // revoked between the two reads is the race's answer, not a pass-through.
   if (!isHuman && !grant) refuseSshDecision({ allow: false, code: "grant_revoked" });
 
-  await runs.create({
-    id: runId,
-    userId: caller.userId,
-    nodeId: conn.nodeId,
-    connectionId: conn.id,
-    connectionRevision: conn.revision,
-    configSnapshot: JSON.stringify(snapshot),
-    initiatedBy: isHuman ? "human" : "agent",
-    grantId: isHuman ? null : (grant?.id ?? null),
-    apiKeyId: isHuman ? null : caller.apiKeyId,
-    command: body.command,
-    remoteDir,
-    requestDigest,
-    deadlineMs,
-    status: "accepted",
-    cancelRequested: 0,
-    cancelLocalConfirmed: 0,
-    deadlineHit: 0,
-    remoteStatus: null,
-    remoteStatusConfirmed: 0,
-    localExitCode: null,
-    localExitSignal: null,
-    startedAt: null,
-    finishedAt: null,
-  });
+  // The §3 quota rows (per-owner-per-node 4, per-node total 16) are counted
+  // on the PLANE's mirror - and the count rides ONE transaction with the
+  // insertion (Gate C minor 6: a separate count-then-create let two racing
+  // starts both pass). The node's serialized 16 stays the hard cap; this is
+  // the plane's promise to its own mirror.
+  const created = await runs.createGuardedByQuota(
+    {
+      id: runId,
+      userId: caller.userId,
+      nodeId: conn.nodeId,
+      connectionId: conn.id,
+      connectionRevision: conn.revision,
+      configSnapshot: JSON.stringify(snapshot),
+      initiatedBy: isHuman ? "human" : "agent",
+      grantId: isHuman ? null : (grant?.id ?? null),
+      apiKeyId: isHuman ? null : caller.apiKeyId,
+      command: body.command,
+      remoteDir,
+      requestDigest,
+      deadlineMs,
+      status: "accepted",
+      cancelRequested: 0,
+      cancelLocalConfirmed: 0,
+      deadlineHit: 0,
+      remoteStatus: null,
+      remoteStatusConfirmed: 0,
+      localExitCode: null,
+      localExitSignal: null,
+      startedAt: null,
+      finishedAt: null,
+    },
+    { perOwnerNode: SSH_ACTIVE_RUNS_PER_OWNER_PER_NODE, perNode: SSH_ACTIVE_RUNS_PER_NODE },
+  );
+  if (created === null) refuseSshErrorCode("quota_runs");
   await auditSsh(caller.userId, "ssh.run.start", "ssh_run", runId, {
     connectionId: conn.id,
     connectionRevision: conn.revision,

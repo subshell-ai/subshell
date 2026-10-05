@@ -27,6 +27,52 @@ export class SshRunsRepository extends BaseRepository {
       .executeTakeFirstOrThrow();
   }
 
+  /**
+   * The §3 quota rows and the row insertion as ONE unit (Gate C minor 6):
+   * two `countActive*` reads followed by a plain `create` is check-then-act,
+   * and two racing starts could both read "3 active" and both land, leaving
+   * the owner transiently over the ceiling the mirror promised. The
+   * `db.transaction()` wrapping is the house pattern for exactly this, and
+   * what makes it SUFFICIENT is a property of the dialect (`UserMetaRepository
+   * .setRole`'s JSDoc, measured): `bun:sqlite` is synchronous and Kysely's
+   * dialect hands out ONE shared connection, so the awaits never yield between
+   * the count and the write and concurrent starts serialize in practice.
+   *
+   * The NODE's serialized per-machine ceilings stay the hard cap this best
+   * mirrors - the plane guards its own arithmetic, not the machine's.
+   *
+   * @returns the created row, or null when the insert was withheld (quota
+   *   full: nothing written, the caller refuses with the named code)
+   */
+  async createGuardedByQuota(
+    run: NewSshRun,
+    limits: { perOwnerNode: number; perNode: number },
+  ): Promise<SshRunTable | null> {
+    return await this.db.transaction().execute(async (trx) => {
+      const now = new Date().toISOString();
+      const ownerActive = await trx
+        .selectFrom("sshRuns")
+        .select((eb) => eb.fn.countAll<number>().as("n"))
+        .where("userId", "=", run.userId)
+        .where("nodeId", "=", run.nodeId)
+        .where("status", "in", ["accepted", "running"])
+        .executeTakeFirstOrThrow();
+      if (Number(ownerActive.n) >= limits.perOwnerNode) return null;
+      const nodeActive = await trx
+        .selectFrom("sshRuns")
+        .select((eb) => eb.fn.countAll<number>().as("n"))
+        .where("nodeId", "=", run.nodeId)
+        .where("status", "in", ["accepted", "running"])
+        .executeTakeFirstOrThrow();
+      if (Number(nodeActive.n) >= limits.perNode) return null;
+      return await trx
+        .insertInto("sshRuns")
+        .values({ ...run, createdAt: now, updatedAt: now })
+        .returningAll()
+        .executeTakeFirstOrThrow();
+    });
+  }
+
   async findById(id: string): Promise<SshRunTable | undefined> {
     return this.db.selectFrom("sshRuns").selectAll().where("id", "=", id).executeTakeFirst();
   }
