@@ -139,6 +139,56 @@ export {
   runBounded,
 } from "./run-bounded.js";
 export { shellQuote } from "./shell.js";
+export { classifySshFailure, sshTransportFailure } from "./ssh/ssh-diagnose.js";
+export {
+  defaultSshConfigPath,
+  discoverSshAliases,
+  isDiscoverableAlias,
+  type SshAliasDiscovery,
+  type SshConfigWalk,
+  type SshHostBlock,
+  type SshWalkBudget,
+  walkSshConfig,
+} from "./ssh/ssh-discover.js";
+export {
+  buildSshInvocation,
+  remoteCommandLine,
+  remoteTerminalLine,
+  renderSshConfigContents,
+  type SshInvocationInput,
+  sshChildEnv,
+  sshTerminalEnvPairs,
+  sshTerminalPaneCommand,
+} from "./ssh/ssh-render.js";
+export {
+  parseProxyHop,
+  resolveSshAliasConfig,
+  type SshResolutionDeps,
+} from "./ssh/ssh-resolve.js";
+export { sweepCompletedRuns, sweepSshTerminalState } from "./ssh/ssh-retention.js";
+export { ensureSshDirs, sshRunsDir } from "./ssh/ssh-run-store.js";
+export {
+  getSshRunSupervisor,
+  resetSshSupervisorsForTests,
+  type SshRunStartOutcome,
+  SshRunSupervisor,
+  type SshSupervisedRunRequest,
+} from "./ssh/ssh-run-supervisor.js";
+export { runSshProcess, type SshProcessResult, sshChildPath } from "./ssh/ssh-spawn.js";
+export {
+  assertSshTerminalId,
+  controlStateFor,
+  initTerminalForLaunch,
+  readTerminalLog,
+  readTerminalState,
+  rotateTerminalLogIfNeeded,
+  SSH_TERMINAL_LOG_SEGMENT_BYTES,
+  type SshControlTransition,
+  type SshTerminalLogRead,
+  type SshTerminalState,
+  terminalLogPath,
+  transitionControl,
+} from "./ssh/ssh-terminal-log.js";
 export { safeTransferPath } from "./tar-blocks.js";
 export { type ExtractResult, extractTarGz } from "./tar-extractor.js";
 export { extractTgz, type TarEntry, type TgzLimits } from "./tar-vendor.js";
