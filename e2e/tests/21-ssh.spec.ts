@@ -65,6 +65,11 @@ const ssh = (): SshFixture => {
 /** Polls surface the agent log tail on a stuck fixture (shared helpers.ts; spec 21 always has an agent). */
 const agentTail = (): string => agent?.logTail() ?? "(agent never started)";
 
+/** Delete a scratch dir only when it is a real absolute path (never "" or "."). */
+function rmScratch(dir: string): void {
+  if (path.isAbsolute(dir)) rmSync(dir, { recursive: true, force: true });
+}
+
 /** Resolve the fixture alias on the real node through the human door (a fresh approved snapshot). */
 async function resolveFixtureSnapshot(): Promise<SshConnectionSnapshotWire> {
   const res = await api.post("/api/ssh/connections/resolve", {
@@ -100,17 +105,27 @@ async function ensureConnection(displayName: string, portOverride: number | null
 }
 
 test.beforeAll(async () => {
-  // A focused run never booted spec 01, so the admin and its storage state are
-  // seeded here when absent; in the full suite 01 already did it.
-  const anon = await pwRequest.newContext({ baseURL: BASE_URL, extraHTTPHeaders: { origin: BASE_URL } });
+  // A focused run never booted spec 01, so the admin, its storage state, AND
+  // its completed-onboarding bookmark are seeded here when absent; in the full
+  // suite 01 already did all three. `request` from @playwright/test inherits the
+  // file's `test.use` storageState, so the anon seed context passes an EXPLICIT
+  // empty state — a bare newContext would READ the (focused-run: not-yet-written)
+  // admin.json and ENOENT before the seed could create it.
+  const anon = await pwRequest.newContext({
+    baseURL: BASE_URL,
+    extraHTTPHeaders: { origin: BASE_URL },
+    storageState: { cookies: [], origins: [] },
+  });
   const status = await anon.get("/api/setup/status");
   expect(status.ok(), await status.text()).toBe(true);
+  let seededAdmin = false;
   if (((await status.json()) as { needsSetup: boolean }).needsSetup) {
     const signUp = await anon.post("/api/auth/sign-up/email", {
       data: { name: ADMIN.name, email: ADMIN.email, password: ADMIN.password },
     });
-    expect(signUp.ok(), `seed sign-up: ${await signUp.text()}`).toBe(true);
+    expect(signUp.ok(), `seed sign-up: HTTP ${signUp.status()}`).toBe(true);
     await anon.storageState({ path: ADMIN_STATE });
+    seededAdmin = true;
   }
   await anon.dispose();
   api = await pwRequest.newContext({
@@ -118,6 +133,15 @@ test.beforeAll(async () => {
     storageState: ADMIN_STATE,
     extraHTTPHeaders: { origin: BASE_URL },
   });
+  // A user minted through the raw sign-up endpoint has never walked the boot
+  // wizard, so its `setup-progress` bookmark is set and the root gate RESUMES
+  // it onto /setup — which would bounce every /settings/* navigation. Clearing
+  // the bookmark (step:null) is exactly the write the wizard's final step makes;
+  // only the seeded (focused-run) case needs it — spec 01 already finished it.
+  if (seededAdmin) {
+    const progress = await api.patch("/api/setup/progress", { data: { step: null } });
+    expect(progress.ok(), `clear seeded onboarding bookmark: HTTP ${progress.status()}`).toBe(true);
+  }
 
   fixtureRoot = mkdtempSync(path.join(tmpdir(), "subshell-e2e-sshd-"));
   fixture = await startSshFixture(fixtureRoot);
@@ -215,9 +239,12 @@ test.afterAll(async () => {
     }
     await api.dispose();
   }
-  rmSync(agentHome, { recursive: true, force: true });
-  rmSync(fixtureRoot, { recursive: true, force: true });
-  rmSync(path.dirname(tmuxBase), { recursive: true, force: true });
+  // Guard against removing anything but an absolute scratch path: if beforeAll
+  // failed before a var was set it is still "", and path.dirname("") is "." —
+  // an unguarded rmSync(".") deletes the whole e2e working tree (the worker CWD).
+  rmScratch(agentHome);
+  rmScratch(fixtureRoot);
+  rmScratch(path.dirname(tmuxBase));
   if (leaks.length > 0) console.error(`[21-ssh] cleanup problems: ${leaks.join("; ")}`);
 });
 
@@ -340,6 +367,12 @@ test("managed terminal: opens from the card with the trusted chrome, and control
   await page.goto("/settings/ssh");
   const card = page.locator("div.rounded-lg", { hasText: `E2E Term ${RUN}` });
   await expect(card).toHaveCount(1);
+  // Wait until the nodes read has resolved the connecting node's NAME: the
+  // managed-terminal facts are captured at open time from the card's label,
+  // which is the short node id until that read lands.
+  await expect(card.getByText(`127.0.0.1:${f.port} · via ${NODE_NAME}`, { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
 
   await card.getByRole("button", { name: "Open terminal" }).click();
   await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: 30_000 });

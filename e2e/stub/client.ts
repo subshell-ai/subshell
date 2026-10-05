@@ -57,6 +57,9 @@ function nodeEnv(o: StartNodeOptions): NodeJS.ProcessEnv {
     SUBSHELL_CONFIG_HOME: o.home,
     PI_PATH: STUB_PI,
     TMUX_TMPDIR: o.tmuxBase,
+    // Extra env LAST so a caller can retarget HOME (spec 21's ssh fixture
+    // home) or blank SSH_AUTH_SOCK, overriding the inherited process.env.
+    ...(o.extraEnv ?? {}),
   };
 }
 

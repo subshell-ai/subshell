@@ -156,6 +156,20 @@ export async function startSshFixture(root: string): Promise<SshFixture> {
   // the fixture's single trusted key against sshd's MaxAuthTries).
   const port = await freePort();
   const deadPort = await freePort();
+
+  // Pre-trusted known_hosts, named ABSOLUTE in the config below. ssh resolves
+  // the DEFAULT `userknownhostsfile` against the passwd home, not the injected
+  // $HOME, so a bare `~/.ssh/known_hosts` default would make the approved
+  // snapshot point at the host user's real file and the mandatory
+  // `StrictHostKeyChecking yes` probe fail host_key_unknown. The bracketed
+  // `[host]:port` authority form is what the non-22 port matches.
+  const knownHosts = path.join(home, ".ssh", "known_hosts");
+  const keyTypeAndBlob = readFileSync(`${hostKey}.pub`, "utf8").trim().split(" ").slice(0, 2).join(" ");
+  writeFileSync(knownHosts, `[127.0.0.1]:${port} ${keyTypeAndBlob}\n`);
+
+  // The account's config: the alias every consumer references. `IdentityAgent
+  // none` keeps an ambient ssh-agent out of resolution (its keys could crowd
+  // the fixture's single trusted key against sshd's MaxAuthTries).
   writeFileSync(
     path.join(home, ".ssh", "config"),
     [
@@ -166,15 +180,11 @@ export async function startSshFixture(root: string): Promise<SshFixture> {
       `    IdentityFile ${clientKey}`,
       "    IdentitiesOnly yes",
       "    IdentityAgent none",
+      `    UserKnownHostsFile ${knownHosts}`,
       "",
     ].join("\n"),
     { mode: 0o600 },
   );
-
-  // Pre-trusted known_hosts at the default path ssh consults with HOME=home;
-  // the bracketed `[host]:port` form is what the non-22 port authority uses.
-  const keyTypeAndBlob = readFileSync(`${hostKey}.pub`, "utf8").trim().split(" ").slice(0, 2).join(" ");
-  writeFileSync(path.join(home, ".ssh", "known_hosts"), `[127.0.0.1]:${port} ${keyTypeAndBlob}\n`);
 
   // sshd trusts exactly the fixture's client key; the host's own `~/.ssh` is
   // never consulted (StrictModes off lets authorized_keys live at the root).
