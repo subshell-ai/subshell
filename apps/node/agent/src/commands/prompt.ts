@@ -1,5 +1,10 @@
 import { stripAnsi } from "@internal/backend-errors";
-import type { JsonValue, NodePromptDeliverResult } from "@internal/subshell-protocol";
+import {
+  type JsonValue,
+  NODE_RESULT_SSH_GENERATION_STALE,
+  type NodePromptDeliverResult,
+} from "@internal/subshell-protocol";
+import { getInputGenerationStore } from "../input-generation.js";
 import { resolveSocket } from "./basics.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 
@@ -26,6 +31,14 @@ import type { Cmd, CommandContext, CommandResult } from "./context.js";
  * enforced here so the promise itself never rejects).
  */
 export async function execPromptDeliver(ctx: CommandContext, cmd: Cmd<"prompt_deliver">): Promise<CommandResult> {
+  // SSH feature - the same generation fence as `input`, BEFORE the settle
+  // wait: a restart prompt or a queued delivery that a takeover or a
+  // revocation has fenced types nothing at all, not even after the pane
+  // settles (prompts are writers too - SSH-SUPPORT.md §3). Ordinary panes
+  // carry no record and pass untouched.
+  if (getInputGenerationStore(ctx.config.dataDir).check(cmd.subshellId, cmd.inputGeneration) === "stale") {
+    return { ok: false, error: NODE_RESULT_SSH_GENERATION_STALE };
+  }
   let socket: string;
   try {
     socket = await resolveSocket(ctx, cmd.subshellId); // id gate FIRST (store throws on bad ids)

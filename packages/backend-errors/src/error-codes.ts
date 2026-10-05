@@ -113,6 +113,16 @@ export enum BackendErrorCodes {
   EXEC_PANE_BUSY = "EXEC_PANE_BUSY",
   /** exec: another exec already holds this pane's lease. */
   EXEC_IN_FLIGHT = "EXEC_IN_FLIGHT",
+  /** exec (SSH feature): the pane is a MANAGED SSH terminal; the marker helper does not run there (SSH-SUPPORT.md §3). Nothing was typed. */
+  EXEC_SSH_UNSUPPORTED = "EXEC_SSH_UNSUPPORTED",
+  /** exec (SSH feature): a prior exec on this pane went `unknown` (lost observation or restart); further automated exec waits for human recovery or a pane restart. Nothing was typed. */
+  EXEC_UNKNOWN_RECOVERY = "EXEC_UNKNOWN_RECOVERY",
+  /** SSH policy refusal on a generic pane surface (SSH-SUPPORT.md §2): the named `SshPolicyCode` rides the response metadata. The refusal says nothing about whether the pane exists. */
+  SSH_ACCESS_DENIED = "SSH_ACCESS_DENIED",
+  /** v1 refuses sharing managed SSH panes, to anyone, always (SSH-SUPPORT.md §2). */
+  SSH_SHARING_UNSUPPORTED = "SSH_SHARING_UNSUPPORTED",
+  /** A managed SSH pane's lifecycle act needs the SSH backend (its terminal launch / control dispatch), which is not installed on this plane. */
+  SSH_BACKEND_UNAVAILABLE = "SSH_BACKEND_UNAVAILABLE",
   /**
    * `POST /api/subshells`: the row was retired between its INSERT and its
    * spawn — a maintenance window opening on that node, or a plain terminate.
@@ -292,6 +302,26 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.EXEC_IN_FLIGHT]: {
     message: "Another exec is already waiting on this pane",
     statusCode: 409,
+  },
+  [BackendErrorCodes.EXEC_SSH_UNSUPPORTED]: {
+    message: "exec does not run on managed SSH terminals",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.EXEC_UNKNOWN_RECOVERY]: {
+    message: "A previous exec on this pane has unknown state; recover it by hand or restart the pane",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_ACCESS_DENIED]: {
+    message: "The SSH policy refuses this action on this pane",
+    statusCode: 403,
+  },
+  [BackendErrorCodes.SSH_SHARING_UNSUPPORTED]: {
+    message: "Managed SSH panes cannot be shared",
+    statusCode: 403,
+  },
+  [BackendErrorCodes.SSH_BACKEND_UNAVAILABLE]: {
+    message: "The SSH backend needed for this pane action is not available",
+    statusCode: 503,
   },
   [BackendErrorCodes.SUBSHELL_STOPPED_WHILE_STARTING]: {
     message: "The subshell was stopped while it was starting",

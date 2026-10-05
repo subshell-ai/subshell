@@ -5,10 +5,12 @@ import {
   type DetectResultWire,
   type JsonValue,
   NODE_MAX_FRAME_BYTES,
+  NODE_RESULT_SSH_GENERATION_STALE,
   type NodeProbeEntry,
 } from "@internal/subshell-protocol";
 import { writeAllowedDirs } from "../allowed-dirs.js";
 import { hostEnvAnswers } from "../host-env.js";
+import { getInputGenerationStore } from "../input-generation.js";
 import { buildInventoryEvent } from "../inventory.js";
 import { pathAllowed } from "../path-policy.js";
 import { isSubshellId } from "../subshell-meta.js";
@@ -75,8 +77,22 @@ export async function execKill(ctx: CommandContext, cmd: Cmd<"kill">): Promise<C
   return { ok: true };
 }
 
-/** `input` (spec §7): raw keystrokes into the pane, byte-for-byte (`send-keys -l`). */
+/**
+ * `input` (spec §7): raw keystrokes into the pane, byte-for-byte (`send-keys -l`).
+ *
+ * SSH feature - the input-generation fence: a pane this agent has a generation
+ * record for is a MANAGED SSH terminal, and every write to it must carry the
+ * generation it was queued under. A missing or lower `inputGeneration` is the
+ * takeover/revocation fact - the write is refused here, at the machine, with
+ * the frozen `NODE_RESULT_SSH_GENERATION_STALE` spelling (the plane matches
+ * `NodeRpcError.detail` against that constant by equality). An ordinary pane
+ * has no record and passes untouched. Refused BEFORE the socket resolves: a
+ * fenced write never reaches tmux.
+ */
 export async function execInput(ctx: CommandContext, cmd: Cmd<"input">): Promise<CommandResult> {
+  if (getInputGenerationStore(ctx.config.dataDir).check(cmd.subshellId, cmd.inputGeneration) === "stale") {
+    return { ok: false, error: NODE_RESULT_SSH_GENERATION_STALE };
+  }
   const socket = await resolveSocket(ctx, cmd.subshellId);
   await ctx.tmux.sendInput(socket, cmd.subshellId, cmd.data);
   return { ok: true };
