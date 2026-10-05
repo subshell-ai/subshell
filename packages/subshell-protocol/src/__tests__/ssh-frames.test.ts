@@ -94,7 +94,7 @@ describe("ssh commands via parseNodeCommandBody (delegation)", () => {
   });
 
   it("the Gate A freeze did NOT bump the protocol version (integration owns that)", () => {
-    expect(NODE_PROTOCOL_VERSION).toBe(15);
+    expect(NODE_PROTOCOL_VERSION).toBe(16);
   });
 
   it("a snapshot with any forbidden member set is refused inside every carrier command", () => {

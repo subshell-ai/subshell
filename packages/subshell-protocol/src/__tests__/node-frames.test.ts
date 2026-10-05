@@ -310,7 +310,7 @@ describe("parseNodeCommandBody", () => {
     // 15 is the archive-transfer surface (spec 2026-10-01 §2): five commands
     // (archive_create, file_read, transfer_write, archive_extract,
     // tree_manifest) plus the window/entry constants both ends must agree on.
-    expect(NODE_PROTOCOL_VERSION).toBe(15);
+    expect(NODE_PROTOCOL_VERSION).toBe(16);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {

@@ -134,8 +134,20 @@ import { parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.j
  * log-confined beside the generalized `file_read`, and `write_file`'s upload
  * roots stay exactly as narrow as they are while `transfer_write` arrives as
  * its own policy-gated sibling.
+ *
+ * **15 → 16 is the SSH surface (spec 2026-10-04 §4).** Nine commands drive an
+ * SSH destination through a connecting node without installing anything there:
+ * `ssh_discover_aliases`, `ssh_resolve_config`, `ssh_test_connection`,
+ * `ssh_run_start`, `ssh_run_status`, `ssh_run_read`, `ssh_run_cancel`,
+ * `ssh_terminal_launch` and `ssh_input_control`, plus the normalized-config
+ * snapshot, the run-facts envelope, and the additive `inputGeneration` fence
+ * field on `input`/`prompt_deliver`. Additive, and breaking anyway, because the
+ * gate is exact-match — the bump is coordinated with `MIN_NODE_VERSION` and the
+ * agent's own version so `releases.ts` never offers a protocol-15 build to a
+ * protocol-16 plane. No existing verb's shape changed (the additive field is
+ * optional on old-frame senders).
  */
-export const NODE_PROTOCOL_VERSION = 15;
+export const NODE_PROTOCOL_VERSION = 16;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
