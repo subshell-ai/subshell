@@ -328,4 +328,45 @@ describe("the real SshPaneHooks on the node wire", () => {
       expect(control.status).toBe(403);
     });
   });
+
+  /**
+   * §6 "Compatibility - protocol mismatch" (Gate C coverage): an agent whose
+   * binary predates the SSH wire answers `unsupported`, which the RPC layer
+   * names by equality. Every hooks effect must map it to the named
+   * 503 `SSH_BACKEND_UNAVAILABLE` (the remedy is updating the node) - never
+   * a silent local fallback, never a bare 500, and never a plane claim the
+   * machine refused to mirror.
+   */
+  describe("a node answering `unsupported` maps to SSH_BACKEND_UNAVAILABLE", () => {
+    it("the stamped managed input refuses 503 by name, typing nothing further", async () => {
+      const pane = await seedPane("hooks-unsupported-input", { controlGeneration: 2 });
+      inputAnswer = () => new Error("unsupported");
+      const res = await call(`/${pane}/input`, { method: "POST", body: { text: "ls", submit: true } });
+      expect(res.status).toBe(503);
+      expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_BACKEND_UNAVAILABLE);
+      // The refusal stopped the pair: only the text frame reached the wire.
+      expect(sim.cmdsOf("input")).toHaveLength(1);
+      // And the write never leaked onto the ordinary unstamped path.
+      expect(sim.cmdTypes().filter((t) => t.startsWith("ssh_"))).toEqual([]);
+    });
+
+    it("the takeover transition refuses 503 and moves NOTHING on the plane (node-first rule)", async () => {
+      const pane = await seedPane("hooks-unsupported-control", { controlGeneration: 1 });
+      // Swap the scripted agent: now its `ssh_input_control` predates the wire.
+      sim.detach();
+      resetNodeRegistryForTests();
+      sim = attachScriptedNode(node, {
+        input: (cmd) => inputAnswer(cmd),
+        ssh_input_control: () => new Error("unsupported"),
+        ssh_terminal_launch: ok,
+        terminate: ok,
+        kill: ok,
+      });
+      const res = await call(`/${pane}/ssh-control`, { method: "POST", body: { mode: "human" } });
+      expect(res.status).toBe(503);
+      expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_BACKEND_UNAVAILABLE);
+      const row = await db.selectFrom("sshPanes").selectAll().where("subshellId", "=", pane).executeTakeFirstOrThrow();
+      expect({ owner: row.controlOwner, gen: row.controlGeneration }).toEqual({ owner: "agent", gen: 1 });
+    });
+  });
 });

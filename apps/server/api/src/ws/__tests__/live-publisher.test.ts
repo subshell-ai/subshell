@@ -1,8 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
+import { deleteUserByEmailOrId, setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
 import { db } from "@/db/index.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { publishLive } from "@/services/live-bus.js";
+import { DENY_EVERYTHING_SSH_POLICY, setSshPolicyForTests } from "@/services/pane-ssh-gate.js";
+import type { SshPolicy } from "@/services/ssh/ssh-policy.js";
 import { startLivePublisher } from "@/ws/live-publisher.js";
 import { ADMINS_TOPIC, EVERYONE_TOPIC, userTopic } from "@/ws/live-topics.js";
 
@@ -283,6 +287,156 @@ describe("a share revocation reaches the person who lost it", () => {
       expect(gone.every((x) => x.frame.id === id)).toBe(true);
     } finally {
       stop();
+    }
+  });
+});
+
+/**
+ * The SSH `live` census (SSH-SUPPORT.md §2 "live updates", §6's alternate-
+ * paths row; Gate C coverage): the publisher asks the policy for the OWNER
+ * and publishes to the owner's user topic ONLY - never `recipientTopics`,
+ * which would put admins (and Everyone) in the room of a managed pane the
+ * spec keeps private. A refused decision publishes NOTHING and asserts no
+ * removal either: an invisible row still exists, and the audience for a
+ * denial is not addressable by name. Until this suite existed the branch was
+ * implemented but had no cover.
+ */
+describe("live publisher SSH branch (managed panes: owner-topic-only on allow, silence on refuse)", () => {
+  const ownerEmail = `sshpub-${crypto.randomUUID()}@subshell.local`;
+  let ownerId: string;
+  let nodeId: string;
+  const managedPanes: string[] = [];
+
+  beforeAll(async () => {
+    ownerId = await new UsersRepository(db).createUser({
+      email: ownerEmail,
+      name: "SSH Publisher Owner",
+      passwordHash: "unused",
+      role: "user",
+    });
+    nodeId = crypto.randomUUID();
+    await new NodesRepository(db).create({
+      id: nodeId,
+      ownerUserId: ownerId,
+      name: `pub-${nodeId.slice(0, 8)}`,
+      kind: "agent",
+    });
+  });
+
+  afterAll(async () => {
+    for (const id of managedPanes) {
+      await db.deleteFrom("sshPanes").where("subshellId", "=", id).execute();
+      await db.deleteFrom("sshConnections").where("id", "=", `${id}-conn`).execute();
+      await db.deleteFrom("subshells").where("id", "=", id).execute();
+    }
+    await db.deleteFrom("nodes").where("id", "=", nodeId).execute();
+    await deleteUserByEmailOrId(ownerEmail);
+  });
+
+  /** A real RUNNING row with the managed marker its surface keys on. */
+  async function managedRow(): Promise<string> {
+    const id = crypto.randomUUID();
+    managedPanes.push(id);
+    await new SubshellsRepository(db).create({
+      id,
+      userId: ownerId,
+      presetId: null,
+      harnessId: "terminal",
+      name: "sshpub",
+      workingDir: "/tmp",
+      tmuxSocket: `sock-${id.slice(0, 8)}`,
+      nodeId,
+      status: "running",
+      alive: 1,
+    });
+    await db
+      .insertInto("sshConnections")
+      .values({
+        id: `${id}-conn`,
+        userId: ownerId,
+        nodeId,
+        displayName: "pub-conn",
+        configSnapshot: "{}",
+        remoteDir: null,
+        revision: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .execute();
+    await db
+      .insertInto("sshPanes")
+      .values({
+        subshellId: id,
+        connectionId: `${id}-conn`,
+        connectionRevision: 1,
+        initiatedBy: "human",
+        grantId: null,
+        apiKeyId: null,
+        controlOwner: "agent",
+        controlGeneration: 1,
+        logGeneration: 1,
+        createdAt: new Date().toISOString(),
+      })
+      .execute();
+    return id;
+  }
+
+  const allowLive: SshPolicy = {
+    ...DENY_EVERYTHING_SSH_POLICY,
+    gatePaneSurface: async () => ({ allow: true }),
+  };
+
+  it("a refused managed row publishes NO frame (the deny placeholder's arm)", async () => {
+    const id = await managedRow();
+    setSshPolicyForTests(DENY_EVERYTHING_SSH_POLICY);
+    const { target, sent } = fakeTarget();
+    const stop = startLivePublisher({ target, coalesceMs: 10 });
+    try {
+      publishLive({ kind: "subshell.changed", id });
+      await settle();
+      expect(sent.filter((s) => s.frame.id === id)).toEqual([]);
+    } finally {
+      stop();
+      setSshPolicyForTests(null);
+    }
+  });
+
+  it("an allowed managed row reaches the OWNER's user topic only - never the admin topic, never Everyone", async () => {
+    const id = await managedRow();
+    setSshPolicyForTests(allowLive);
+    const { target, sent } = fakeTarget();
+    const stop = startLivePublisher({ target, coalesceMs: 10 });
+    try {
+      publishLive({ kind: "subshell.changed", id });
+      await settle();
+      const mine = sent.filter((s) => s.frame.id === id);
+      expect(mine).toHaveLength(1);
+      expect(mine[0]?.topic).toBe(userTopic(ownerId));
+      expect(mine[0]?.frame.type).toBe("subshell");
+      expect(sent.some((s) => s.topic === ADMINS_TOPIC)).toBe(false);
+      expect(sent.some((s) => s.topic === EVERYONE_TOPIC)).toBe(false);
+    } finally {
+      stop();
+      setSshPolicyForTests(null);
+    }
+  });
+
+  it("a foreign viewer's presence changes nothing: the managed frame never lands on their topic", async () => {
+    const id = await managedRow();
+    setSshPolicyForTests(allowLive);
+    const { target, sent } = fakeTarget();
+    const stop = startLivePublisher({ target, coalesceMs: 10 });
+    try {
+      publishLive({ kind: "subshell.changed", id });
+      await settle();
+      // v1 never shares a managed pane, so no grantee topic exists at all;
+      // the allow path is owner-only by construction, and a stranger's user
+      // topic saw nothing of it.
+      expect(sent.filter((s) => s.frame.id === id).every((s) => s.topic === userTopic(ownerId))).toBe(true);
+      expect(sent.filter((s) => s.topic === userTopic("someone-else"))).toEqual([]);
+    } finally {
+      stop();
+      setSshPolicyForTests(null);
     }
   });
 });

@@ -25,8 +25,10 @@ import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { getRequestlessContext } from "@/lib/context.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
+import { previewCacheDrop, previewCachePut } from "@/services/nodes/preview-cache.js";
 import {
   DENY_EVERYTHING_SSH_POLICY,
   type SshPaneHooks,
@@ -35,6 +37,7 @@ import {
 } from "@/services/pane-ssh-gate.js";
 import type { SshDecision, SshPolicy } from "@/services/ssh/ssh-policy.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { SubshellsService } from "@/services/subshells.service.js";
 import { cancelObservation, observationActive } from "@/services/terminal-exec-records.js";
 import { attachScriptedNode, ok, type ScriptedNode } from "@/test-helpers/scripted-node.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
@@ -106,6 +109,7 @@ describe("SSH gates on the generic pane surfaces", () => {
   const adminEmail = `sshgate-admin-${crypto.randomUUID()}@subshell.local`;
   const pw = "sshgate-pass-1";
   let ownerId: string;
+  let foreignId: string;
   let ownerCookie: string;
   let adminCookie: string;
 
@@ -216,7 +220,7 @@ describe("SSH gates on the generic pane surfaces", () => {
       role: "user",
     });
     ownerCookie = await signIn(ownerEmail, pw);
-    await new UsersRepository(db).createUser({
+    foreignId = await new UsersRepository(db).createUser({
       email: foreignEmail,
       passwordHash: await hashPassword(pw),
       name: "Foreign",
@@ -351,6 +355,47 @@ describe("SSH gates on the generic pane surfaces", () => {
       const pane = await seedPane("gate-shares-ordinary");
       const res = await call(`/${pane}/shares`, { method: "PUT", body: { shares: [] } });
       expect(res.status).toBe(200);
+    });
+  });
+
+  // The §6 "captures" door (Gate C coverage): the dedicated-screens path is
+  // the most sensitive bytes the app moves, and it is its own census surface
+  // beside `list_preview` - the live-ws snapshot pulls screens through
+  // `previewsFor`, and the alternate-paths header has always claimed the row.
+  describe("the captures door (previewsFor)", () => {
+    function service(): SubshellsService {
+      const ctx = getRequestlessContext();
+      return new SubshellsService({ log: ctx.log, db: ctx.db, repos: ctx.repos });
+    }
+
+    it("refuses a non-owner's capture AND the un-allowed owner's, passes only what the policy admits, and asks `capture`", async () => {
+      const ordinary = await seedPane("cap-ordinary");
+      const managed = await seedManaged("cap-managed");
+      // The screens are cached facts (the agent-node preview path), so an
+      // ABSENT map entry is proof the door filtered the id, not that no
+      // screen existed.
+      previewCachePut(ordinary, ["ORDINARY SCREEN"]);
+      previewCachePut(managed, ["MANAGED REMOTE SCREEN"]);
+      try {
+        // Default arm (invisible): the owner's own snapshots answer without
+        // the managed screen, and the door was ASKED for it.
+        const denied = await service().previewsFor(ownerId, [ordinary, managed]);
+        expect(denied.get(managed)).toBeUndefined();
+        expect(denied.get(ordinary)).toEqual(["ORDINARY SCREEN"]);
+        expect(scripted.seenSurfaces).toContain(`${managed}:capture`);
+        // A foreign viewer sees neither row (the ordinary visibility already
+        // excludes both; the capture door cannot reopen them).
+        const foreign = await service().previewsFor(foreignId, [ordinary, managed]);
+        expect(foreign.size).toBe(0);
+        // Allowed: the managed screen rides the answer like any row's.
+        allowAll();
+        const allowed = await service().previewsFor(ownerId, [ordinary, managed]);
+        expect(allowed.get(managed)).toEqual(["MANAGED REMOTE SCREEN"]);
+        expect(allowed.get(ordinary)).toEqual(["ORDINARY SCREEN"]);
+      } finally {
+        previewCacheDrop(ordinary);
+        previewCacheDrop(managed);
+      }
     });
   });
 
@@ -517,6 +562,20 @@ describe("SSH gates on the generic pane surfaces", () => {
       await subshells.update(pane, { status: "terminated", alive: 0 });
       const res = await call(`/${pane}/input`, { method: "POST", body: { text: "ls" } });
       expect(res.status).toBe(404);
+      expect(sim.countOf("input")).toBe(0);
+    });
+
+    it("a PARKED managed pane answers the clean 409 on the managed branch too, dispatching nothing (Gate C minor 4)", async () => {
+      // The two facts are the manager's posture, not an ordinary-branch quirk:
+      // `status: running, alive: 0` (self-exited, restartable) must refuse
+      // HERE, not dispatch a doomed stamped write and map a node error.
+      const pane = await seedManaged("gate-input-parked");
+      allowAll();
+      await subshells.update(pane, { alive: 0 });
+      const res = await call(`/${pane}/input`, { method: "POST", body: { text: "ls" } });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SUBSHELL_NOT_RUNNING);
+      expect(hookCalls.input).toEqual([]);
       expect(sim.countOf("input")).toBe(0);
     });
 
