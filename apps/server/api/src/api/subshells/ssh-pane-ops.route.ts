@@ -3,6 +3,7 @@ import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { sshCallerSeed } from "@/services/pane-ssh-gate.js";
+import { assertCookieWriteOrigin } from "@/services/ssh/ssh-actor.js";
 
 /**
  * The SSH-pane OPERATIONS on the existing pane family: the read-only
@@ -88,10 +89,13 @@ const SshControlViewSchema = t.Object({
  * `POST /api/subshells/:id/ssh-control` (SSH feature): the human takeover /
  * return act for a MANAGED SSH terminal. Cookie session only (spec §2:
  * control changes are human configuration acts; machine credentials cannot
- * call them); the generation is the server's to raise, never the caller's to
- * choose. The pane must exist AND be managed - an ordinary pane 404s, because
- * takeover is not a control surface for panes that never had a control
- * boundary.
+ * call them), with the SAME explicit origin check every `/api/ssh` write
+ * carries (§2: "Validate request origin/CSRF on these writes explicitly";
+ * docs/security.md §4b: control transitions require a cookie session with
+ * explicit origin validation); the generation is the server's to raise, never
+ * the caller's to choose. The pane must exist AND be managed - an ordinary
+ * pane 404s, because takeover is not a control surface for panes that never
+ * had a control boundary.
  */
 export const sshPaneOpsRoutes = new Elysia()
   .use(contextPlugin)
@@ -125,8 +129,9 @@ export const sshPaneOpsRoutes = new Elysia()
   )
   .post(
     "/:id/ssh-control",
-    async ({ params, body, user, principal, apiKeyId, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, body, user, principal, apiKeyId, actor, apiKeyPermissions, request, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
+      assertCookieWriteOrigin(actor, request);
       return await ctx.services.subshells.takeSshControl(
         user.id,
         params.id,

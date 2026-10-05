@@ -908,6 +908,39 @@ describe("SSH gates on the generic pane surfaces", () => {
       expect(row.controlGeneration).toBe(2);
     });
 
+    it("refuses the takeover WRITE from a cross-site Origin and accepts the instance's own (§2's explicit origin check)", async () => {
+      const pane = await seedManaged("gate-control-origin");
+      const cookieReq = (origin: string | null): Request => {
+        const h = new Headers({ "content-type": "application/json" });
+        h.set("cookie", `better-auth.session_token=${ownerCookie}`);
+        if (origin !== null) h.set("origin", origin);
+        return new Request(`http://localhost:3080/api/subshells/${pane}/ssh-control`, {
+          method: "POST",
+          headers: h,
+          body: JSON.stringify({ mode: "human" }),
+        });
+      };
+      // Cross-site Origin: refused BEFORE any control move (nothing raised).
+      const bad = await app.fetch(cookieReq("http://evil.example.com"));
+      expect(bad.status).toBe(403);
+      const before = await db
+        .selectFrom("sshPanes")
+        .select("controlGeneration")
+        .where("subshellId", "=", pane)
+        .executeTakeFirstOrThrow();
+      expect(before.controlGeneration).toBe(1);
+      expect(hookCalls.control).toEqual([]);
+      // The instance's own Origin: the write proceeds.
+      const good = await app.fetch(cookieReq("http://localhost:3080"));
+      expect(good.status).toBe(200);
+      const after = await db
+        .selectFrom("sshPanes")
+        .select("controlGeneration")
+        .where("subshellId", "=", pane)
+        .executeTakeFirstOrThrow();
+      expect(after.controlGeneration).toBe(2);
+    });
+
     it("takeover blocks the agent surface while it holds, and return unblocks at the new generation", async () => {
       const pane = await seedManaged("gate-control-cycle");
       allowAll();
