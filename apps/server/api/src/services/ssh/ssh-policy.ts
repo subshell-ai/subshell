@@ -233,8 +233,10 @@ export interface SshPolicy {
    * pane's CURRENT issued key), pane lifecycle, grant active for THIS
    * connection revision, and node eligibility (spec §2: "Every operation
    * rechecks the token, pane lifecycle, owner, grant, connection revision,
-   * and node eligibility"). Human cookie callers reach uses through the
-   * owning-human path, not this one.
+   * and node eligibility"). Human use is gated too, through this same
+   * interface's other arm: {@link gateHumanConfig} with its `run_start` /
+   * `run_read` / `run_cancel` / `terminal_open` / `terminal_read` actions.
+   * This method is the granted-pane arm, not an exit from the policy.
    */
   gateGrantedUse(req: SshGrantedUseRequest): Promise<SshDecision>;
 
