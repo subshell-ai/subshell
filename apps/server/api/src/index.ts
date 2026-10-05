@@ -61,7 +61,8 @@ import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { completeUpdate, readPending, recordFailure, revertUpdate } from "@/services/update-transaction.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { sweepExpiredPaneLogs, tightenPaneLogModes } from "@/services/pane-log-hygiene.js";
-import { registerSshPolicy } from "@/services/pane-ssh-gate.js";
+import { registerSshPaneHooks, registerSshPolicy } from "@/services/pane-ssh-gate.js";
+import { sshPaneHooks } from "@/services/ssh/ssh-pane-hooks.js";
 import { getSshPolicy } from "@/services/ssh/ssh-policy-impl.js";
 import { sweepExpiredSshRuns } from "@/services/ssh/ssh-retention.js";
 import { expirePendingApprovals, remarkUnmarkedArrivals } from "@/services/pending-approvals.js";
@@ -341,6 +342,10 @@ async function bootServer(): Promise<void> {
   // concrete `DefaultSshPolicy` here is what turns "SSH exists" into
   // "SSH enforces" without any surface ever seeing a success-returning stub.
   registerSshPolicy(getSshPolicy());
+  // ...and the pane HOOKS beside it (Gate B): managed-pane input/restart now
+  // reach the connecting node; until this line runs the gate's null-hooks
+  // deny (503) still answers, so the composition root is the only registrar.
+  registerSshPaneHooks(sshPaneHooks);
   tightenPaneLogModes();
   // ...and they no longer live forever. Hourly rather than on the 60s sweep:
   // a retention window measured in days gains nothing from a fast tick, and
