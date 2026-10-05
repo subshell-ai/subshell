@@ -3,6 +3,7 @@ import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { CreateSubshellResponseSchema } from "@/api/subshells/create-subshell.route.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
+import { sshCallerSeed } from "@/services/pane-ssh-gate.js";
 
 /**
  * The optional preset swap riding a restart (spec 2026-09-23 §2), and since
@@ -55,9 +56,15 @@ export const restartSubshellRoute = new Elysia()
   .use(apiModels)
   .post(
     "/:id/restart",
-    async ({ params, body, user, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, body, user, principal, apiKeyId, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
-      return await ctx.services.subshells.restartSubshell(user.id, params.id, actor, body?.presetId, body?.prompt);
+      return await ctx.services.subshells.restartSubshell(
+        user.id,
+        params.id,
+        sshCallerSeed({ user, actor, principal, apiKeyId }),
+        body?.presetId,
+        body?.prompt,
+      );
     },
     {
       body: t.Optional(RestartBodySchema),

@@ -1,9 +1,10 @@
 import type { LiveServerFrame } from "@internal/subshell-protocol";
 import { getRequestlessContext } from "@/lib/context.js";
 import { type LiveEvent, subscribeLive } from "@/services/live-bus.js";
+import { readManagedPanes } from "@/services/pane-ssh-gate.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
-import { levelChangedTopics, recipientTopics, revocationTopics } from "@/ws/live-topics.js";
+import { levelChangedTopics, recipientTopics, revocationTopics, userTopic } from "@/ws/live-topics.js";
 
 /**
  * How long changes to one subshell are collected before a frame goes out.
@@ -169,6 +170,22 @@ async function publishEvent(target: LivePublisherTarget, event: LiveEvent): Prom
     } else {
       const shares = (await repos.subshellShares.listForSubshells([event.id])).get(event.id) ?? [];
       currentTopics = recipientTopics({ ownerUserId: row.userId, shares });
+      // The SSH `live` census (payload AND audience). Managed SSH panes
+      // broadcast to the OWNER's topic ONLY: `recipientTopics` would put an
+      // admin in the room (they hold instance-wide `edit`), and §2 is
+      // explicit - "Admin status does not bypass those rules or grant API
+      // access to another user's private connection". A broadcast cannot
+      // carry per-viewer state, so the one topic set that is honest for a
+      // managed row excludes admins entirely; the feed's SNAPSHOT path hides
+      // the row from non-granted callers through `listSubshells`' policy
+      // filter, and the list is where a viewer learns visibility anyway.
+      // A pane whose OWNER is an admin subscribes to `admins` alone, so that
+      // owner misses live updates for their own managed pane until the next
+      // snapshot - a missed frame beats a leak, and the pane's own rows
+      // change rarely by design.
+      if ((await readManagedPanes(getRequestlessContext().db, [event.id])).size > 0) {
+        currentTopics = [userTopic(row.userId)];
+      }
       if (event.kind === "subshell.shares-changed") {
         levelChanged = levelChangedTopics({ ownerUserId: row.userId, before: event.before.shares, after: shares });
       }

@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
+import { sshCallerSeed } from "@/services/pane-ssh-gate.js";
 
 /** `DELETE /api/subshells/:id` — deletes a subshell (terminates first if running). */
 export const deleteSubshellRoute = new Elysia()
@@ -10,9 +11,13 @@ export const deleteSubshellRoute = new Elysia()
   .use(apiModels)
   .delete(
     "/:id",
-    async ({ params, user, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, user, principal, apiKeyId, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
-      return await ctx.services.subshells.deleteSubshell(user.id, params.id, actor);
+      return await ctx.services.subshells.deleteSubshell(
+        user.id,
+        params.id,
+        sshCallerSeed({ user, actor, principal, apiKeyId }),
+      );
     },
     {
       response: {

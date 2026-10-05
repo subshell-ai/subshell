@@ -126,8 +126,16 @@ describe("SubshellsService.execInTerminal (spec 2026-10-02)", () => {
     return id;
   }
 
+  // ownerId is assigned in beforeAll (after setupAuthTables + signIn), so the
+  // seed is built per call, not captured at describe scope.
+  const cookieSeed = () => ({
+    actor: "cookie" as const,
+    userId: ownerId,
+    principal: `user:${ownerId}`,
+    apiKeyId: null,
+  });
   const exec = (id: string, command = "echo hi", timeoutMs?: number) =>
-    ctx.services.subshells.execInTerminal(ownerId, id, command, timeoutMs, "cookie");
+    ctx.services.subshells.execInTerminal(ownerId, id, command, timeoutMs, cookieSeed());
 
   beforeAll(async () => {
     await setupAuthTables();
@@ -260,7 +268,7 @@ describe("SubshellsService.execInTerminal (spec 2026-10-02)", () => {
       // from the process-wide lease, not one instance's map. Were the map
       // per-instance, this second service would see nothing in flight.
       const twin = new SubshellsService({ log: ctx.log, db: ctx.db, repos: ctx.repos });
-      const err = await expectRefusal(twin.execInTerminal(ownerId, id, "echo hi", undefined, "cookie"));
+      const err = await expectRefusal(twin.execInTerminal(ownerId, id, "echo hi", undefined, cookieSeed()));
       expect(err.statusCode).toBe(409);
       expect(err.code).toBe(BackendErrorCodes.EXEC_IN_FLIGHT);
       expect(sim.countOf("input")).toBe(0); // the refused call typed nothing at all

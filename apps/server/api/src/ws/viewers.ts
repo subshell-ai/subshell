@@ -615,6 +615,43 @@ export function dropTerminalSocketsFor(userId: string, reason = "account disable
 }
 
 /**
+ * Close every terminal socket ATTACHED TO ONE PANE, with one code.
+ *
+ * The SSH control seam's stream half (SSH-SUPPORT.md §2: active subscriptions
+ * must be closed or filtered when permission/control changes). A socket
+ * authenticates at connect and is never re-checked - the same §11.5 property
+ * every other path has - so a takeover or a revocation that only changed the
+ * POLICY would leave an already-open stream streaming: this is the thing that
+ * closes it. The caller (the takeover act, or the SSH backend on a
+ * revocation) calls this, then every reconnection passes the attach-redeem
+ * gate fresh.
+ *
+ * Same BELOW-4000 close convention as {@link dropTerminalSocketsFor}: a human
+ * whose socket this drops on their own takeover reconnects immediately and
+ * passes (their arm is allowed); a stale machine socket reconnects, re-redeems,
+ * and the gate is what refuses it now. Teardown bookkeeping stays in each
+ * socket's close handler (`detachViewer`); the maps are not touched here.
+ *
+ * @param subshellId - whose pane's sockets to drop
+ * @param reason - the close reason the sockets carry
+ * @returns how many sockets were asked to close
+ */
+export function closeViewersForSubshell(subshellId: string, reason = "pane control changed"): number {
+  const viewers = liveViewers.get(subshellId);
+  if (!viewers) return 0;
+  let closed = 0;
+  for (const ws of [...viewers.values()]) {
+    try {
+      ws.close(1012, reason);
+      closed++;
+    } catch {
+      // A socket already gone is the outcome this wanted anyway.
+    }
+  }
+  return closed;
+}
+
+/**
  * Removes a viewer and re-settles everything that depended on it.
  *
  * The whole detach bookkeeping lives here rather than in the close handler so

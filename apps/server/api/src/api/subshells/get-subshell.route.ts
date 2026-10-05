@@ -3,6 +3,7 @@ import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { SubshellSchema } from "@/api/models.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
+import { sshCallerSeed } from "@/services/pane-ssh-gate.js";
 
 /** `GET /api/subshells/:id` — gets a single subshell by id. */
 export const getSubshellRoute = new Elysia()
@@ -11,9 +12,13 @@ export const getSubshellRoute = new Elysia()
   .use(apiModels)
   .get(
     "/:id",
-    async ({ params, user, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, user, principal, apiKeyId, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
-      return await ctx.services.subshells.getSubshell(user.id, params.id, actor);
+      return await ctx.services.subshells.getSubshell(
+        user.id,
+        params.id,
+        sshCallerSeed({ user, actor, principal, apiKeyId }),
+      );
     },
     {
       response: {
