@@ -370,13 +370,13 @@ Read each app's `AGENTS.md` before its code and the relevant rules/deep dives.
 
 | ID / agent | Ownership | Deliverables and acceptance | Dependencies |
 | --- | --- | --- | --- |
-| A — coordinator/contracts | Shared protocol/types/errors, integration registries, migration allocation, this plan | Freeze request/result and authorization/control contracts; define test fixtures; coordinated protocol bump; no ambiguous ownership | First |
-| B — SSH runtime | New `packages/pane-runtime/src/ssh/` modules and node SSH command handlers/tests | Normalized safe config, all-hop policy, probes, supervised runs, durable deduplication, bounded storage, cancellation; real isolated sshd tests | A |
-| C — pane control | Terminal execution service, generic pane routes/WS gates, input generation plumbing and tests | All writers fenced; timeout/late completion/restart recovery; comprehensive SSH gate hook; no fallback local shell; bounded SSH terminal history | A; B for final SSH lifecycle integration |
-| D — SSH backend | New server SSH repositories, services, API schemas/routes and tests | Connection revisions, grants, runs, authorization, revocation/reconciliation, audit/retention orchestration; deny-by-default policy implementation | A; B for runtime adapters; C for pane hooks |
-| E — MCP | `packages/mcp-core` tools, registration, instructions and tests | New tools, honest errors/results, explicit grants, status recovery, no automatic retries, existing-tool compatibility | A and frozen D/C APIs |
-| F — SPA | New SSH settings/hooks/views and existing terminal control UI/tests | Human setup/grants, clear route identity, error states, run output, takeover, private SSH panes, no uploads/auth-secret forms | A and frozen D/C APIs |
-| G — verification/docs | Isolated e2e SSH fixtures, adversarial integration tests, public docs/security updates | Cross-path bypass/race coverage, compiled smoke tests, security accounting, acceptance evidence | Can prepare fixtures after A; final execution after B–F |
+| A: coordinator/contracts | Shared protocol/types/errors, integration registries, migration allocation, this plan | Freeze request/result and authorization/control contracts; define test fixtures; coordinated protocol bump; no ambiguous ownership | First |
+| B: SSH runtime | New `packages/pane-runtime/src/ssh/` modules and node SSH command handlers/tests | Normalized safe config, all-hop policy, probes, supervised runs, durable deduplication, bounded storage, cancellation; real isolated sshd tests | A |
+| C: pane control | Terminal execution service, generic pane routes/WS gates, input generation plumbing and tests | All writers fenced; timeout/late completion/restart recovery; comprehensive SSH gate hook; no fallback local shell; bounded SSH terminal history | A; B for final SSH lifecycle integration |
+| D: SSH backend | New server SSH repositories, services, API schemas/routes and tests | Connection revisions, grants, runs, authorization, revocation/reconciliation, audit/retention orchestration; deny-by-default policy implementation | A; B for runtime adapters; C for pane hooks |
+| E: MCP | `packages/mcp-core` tools, registration, instructions and tests | New tools, honest errors/results, explicit grants, status recovery, no automatic retries, existing-tool compatibility | A and frozen D/C APIs |
+| F: SPA | New SSH settings/hooks/views and existing terminal control UI/tests | Human setup/grants, clear route identity, error states, run output, takeover, private SSH panes, no uploads/auth-secret forms | A and frozen D/C APIs |
+| G: verification/docs | Isolated e2e SSH fixtures, adversarial integration tests, public docs/security updates | Cross-path bypass/race coverage, compiled smoke tests, security accounting, acceptance evidence | Can prepare fixtures after A; final execution after B–F |
 
 ### Scheduling with four slots
 
