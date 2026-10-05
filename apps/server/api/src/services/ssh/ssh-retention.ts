@@ -1,5 +1,13 @@
+import {
+  peekSshRunSupervisor,
+  reconcileUnsupervisedRuns,
+  sweepCompletedRuns,
+  sweepSshProbes,
+  sweepSshTerminalState,
+} from "@internal/pane-runtime";
 import { SSH_COMPLETED_RUN_RETENTION_MS } from "@internal/subshell-protocol";
 import { sql } from "kysely";
+import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { sshRunsRepo } from "@/services/ssh/ssh-run-mirror.js";
 import { logger } from "@/utils/logger.js";
@@ -56,7 +64,61 @@ export async function sweepExpiredSshRuns(
   if (deleted > 0) logger.info(`ssh run retention swept ${deleted} completed run record(s)`);
   const execsSwept = await sweepTerminalExecsBefore(cutoff);
   if (execsSwept > 0) logger.info(`ssh run retention swept ${execsSwept} resolved terminal-exec record(s)`);
+  // The FILE half of the built-in local node's accumulation (review I3): the
+  // `local` node writes run output, probe configs, and terminal state under the
+  // server's own data dir exactly as an agent writes them under its own, but
+  // nothing swept that subtree - so a plane running SSH through the built-in
+  // node would grow disk without bound even though its DB mirror swept. The
+  // SAME pane-runtime sweeps, against `SUBSHELL_SERVER_DATA_DIR`, with the
+  // window this pass already resolved. An agent node's files are swept by the
+  // agent's own hourly pass; this only ever touches the server's dir.
+  await sweepLocalSshFiles(now.getTime());
   return { deleted, orphaned, execsSwept };
+}
+
+/**
+ * Sweep the server's own ssh file subtree (review I3, so the built-in node's
+ * disk is bounded the way an agent node's is). `reconcileUnsupervisedRuns`
+ * first: a crash-left `running` file record becomes `unknown` so this same pass
+ * can delete it (the in-process supervisor, if one was ever built, is the
+ * authority on which runs are live). Then completed/unknown run subtrees,
+ * stranded probe configs, and dead-terminal state all age out. The runtime
+ * sweeps anchor on the frozen `SSH_COMPLETED_RUN_RETENTION_MS` internally - a
+ * `SSH_RUN_RETENTION_DAYS` override moves the DB rows this pass also prunes, not
+ * the file subtree (an honest, documented asymmetry: the file window is the
+ * protocol's, the DB window is the operator's). Terminal STATE is gated on
+ * liveness the same way the agent gates it: a pane whose subshell row is still
+ * running-and-alive is unknown-not-dead, never swept, so a live managed
+ * terminal's state file and rendered config survive.
+ */
+async function sweepLocalSshFiles(nowMs: number): Promise<void> {
+  const dataDir = SUBSHELL_SERVER_DATA_DIR;
+  try {
+    const live = new Set(peekSshRunSupervisor(dataDir)?.liveRunIds() ?? []);
+    reconcileUnsupervisedRuns(dataDir, live, nowMs);
+    sweepCompletedRuns(dataDir, nowMs);
+    sweepSshProbes(dataDir, nowMs);
+  } catch (err) {
+    logger.withError(err).warn("local ssh file sweep failed (ignored; the node keeps its pane)");
+    return;
+  }
+  // Terminal STATE last, gated on liveness: the read is a DB query (unlike the
+  // runtime sweeps, which are pure fs), so it is done apart and a failure here
+  // skips ONLY the terminal sweep - never sweeps on an unknown (the agent's
+  // unknown-not-dead contract, applied to the plane's own row read).
+  try {
+    const rows = await db
+      .selectFrom("sshPanes")
+      .innerJoin("subshells", "subshells.id", "sshPanes.subshellId")
+      .select("sshPanes.subshellId")
+      .where("subshells.status", "=", "running")
+      .where("subshells.alive", "=", 1)
+      .execute();
+    const liveTerminals = new Set(rows.map((r) => r.subshellId));
+    sweepSshTerminalState(SUBSHELL_SERVER_DATA_DIR, nowMs, { isPaneLive: (id) => liveTerminals.has(id) });
+  } catch (err) {
+    logger.withError(err).warn("local ssh terminal-state sweep skipped (liveness read failed; fail closed)");
+  }
 }
 
 /**

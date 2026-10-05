@@ -84,6 +84,46 @@ export function sweepCompletedRuns(dataDir: string, nowMs: number = Date.now()):
 }
 
 /**
+ * Sweep stranded connection-test probe configs under `<dataDir>/ssh/probes/`
+ * (review M3). The probe is transient by construction - `ssh-test` writes it
+ * `O_EXCL` and unlinks it in a `finally` - but an uncaught crash between the
+ * create and the unlink leaves a 0600 rendered config that carries the
+ * approved destination's host facts (host, port, user, identity/known-hosts
+ * refs, the ProxyJump chain). `ssh-test`'s comment promised "a lingering
+ * rendered config is swept with the ssh subtree by retention"; this IS that
+ * sweep. Age is the file's own mtime (a probe config is written once); a file
+ * younger than the window is left (an in-flight probe's config is live for at
+ * most the 30-second probe budget, far under the window), an unparseable name
+ * is skipped, and a symlink leaf is refused, never chased. The `<uuid>.config`
+ * name grammar is this sweep's own contract (the probe mints `randomUUID()`),
+ * so the matcher is the name form, not the subshell-id grammar. NEVER throws.
+ */
+export function sweepSshProbes(dataDir: string, nowMs: number = Date.now()): { deleted: number } {
+  let deleted = 0;
+  const dir = join(dataDir, "ssh", "probes");
+  const PROBE_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.config$/i;
+  try {
+    const names = readdirSync(dir);
+    for (const name of names) {
+      try {
+        if (!PROBE_NAME.test(name)) continue; // only names the probe could have written
+        const path = join(dir, name);
+        const st = lstatSync(path);
+        if (!st.isFile()) continue; // a symlink leaf is never chased
+        if (nowMs - st.mtimeMs < SSH_COMPLETED_RUN_RETENTION_MS) continue;
+        unlinkSync(path);
+        deleted += 1;
+      } catch {
+        // one bad entry never stops the sweep
+      }
+    }
+  } catch {
+    // probes dir absent: no connection test has run on this node
+  }
+  return { deleted };
+}
+
+/**
  * Sweep stranded SSH-terminal leftovers under `<dataDir>/ssh/terminals/`:
  * per-pane state files whose log names point at nothing left on disk. The
  * PANE log itself lives in the conventional `<dataDir>/subshells/` subtree

@@ -168,6 +168,7 @@ export {
 export {
   reconcileUnsupervisedRuns,
   sweepCompletedRuns,
+  sweepSshProbes,
   sweepSshTerminalState,
 } from "./ssh/ssh-retention.js";
 export { ensureSshDirs, sshAggregateStorageBytes, sshRunsDir } from "./ssh/ssh-run-store.js";

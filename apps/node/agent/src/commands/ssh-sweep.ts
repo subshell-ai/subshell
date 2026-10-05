@@ -7,6 +7,7 @@ import {
   rotateTerminalLogIfNeeded,
   shellQuote,
   sweepCompletedRuns,
+  sweepSshProbes,
   sweepSshTerminalState,
   terminalLogPath,
 } from "@internal/pane-runtime";
@@ -94,6 +95,12 @@ export async function sweepSshState(ctx: CommandContext): Promise<void> {
 
     // (3) completed-run retention.
     sweepCompletedRuns(dataDir, ctx.nowMs());
+
+    // (3b) stranded connection-test probe configs (review M3): a crash between
+    // the probe's O_EXCL create and its finally-unlink leaves a 0600 rendered
+    // config naming the approved destination; `ssh-test` promises retention
+    // sweeps it, and this is that sweep. Same window, disk-bounded, never throws.
+    sweepSshProbes(dataDir, ctx.nowMs());
 
     // (4) dead-terminal ssh-subtree state, gated on the SAME unknown-not-dead
     // probe (sync closure over the answers the async probes already collected).

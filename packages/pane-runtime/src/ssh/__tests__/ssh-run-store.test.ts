@@ -13,7 +13,12 @@ import {
   writeSync,
 } from "node:fs";
 import { join } from "node:path";
-import { reconcileUnsupervisedRuns, sweepCompletedRuns, sweepSshTerminalState } from "../ssh-retention.js";
+import {
+  reconcileUnsupervisedRuns,
+  sweepCompletedRuns,
+  sweepSshProbes,
+  sweepSshTerminalState,
+} from "../ssh-retention.js";
 import {
   acceptRun,
   assertSshRunPath,
@@ -291,6 +296,49 @@ describe("terminal state sweep", () => {
     });
     expect(out.deleted).toBe(0);
     expect(existsSync(p)).toBe(true);
+  });
+});
+
+describe("probe-config sweep (M3)", () => {
+  const OLD = 1_000;
+  const LATER = OLD + 7 * 24 * 60 * 60 * 1000 + 1;
+  it("deletes a stranded uuid .config past the window, keeps a fresh one, ignores foreign names and symlinks", () => {
+    const probes = join(dataDir, "ssh", "probes");
+    mkdirSync(probes, { recursive: true });
+    const staleName = "11111111-2222-4333-8444-555555555555.config"; // an old probe config
+    const freshName = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.config"; // an in-flight probe's config
+    const foreignName = "keepme.txt"; // not the probe's name grammar
+    const write = (name: string, mtime: number): string => {
+      const path = join(probes, name);
+      writeFileSync(path, "# rendered ssh config\n");
+      utimesSync(path, new Date(mtime), new Date(mtime));
+      return path;
+    };
+    const stale = write(staleName, OLD);
+    const fresh = write(freshName, LATER - 1); // younger than the window
+    const foreign = write(foreignName, OLD);
+    const out = sweepSshProbes(dataDir, LATER);
+    expect(out.deleted).toBe(1);
+    expect(existsSync(stale)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
+    expect(existsSync(foreign)).toBe(true);
+  });
+
+  it("a symlink leaf named like a probe is refused, never chased", () => {
+    const probes = join(dataDir, "ssh", "probes");
+    mkdirSync(probes, { recursive: true });
+    const victim = join(root, "victim-config");
+    writeFileSync(victim, "secret host facts\n");
+    const link = join(probes, "99999999-1111-4222-8333-444444444444.config");
+    symlinkSync(victim, link);
+    utimesSync(link, new Date(OLD), new Date(OLD));
+    const out = sweepSshProbes(dataDir, LATER);
+    expect(out.deleted).toBe(0);
+    expect(existsSync(victim)).toBe(true); // the target was never chased
+  });
+
+  it("an absent probes dir is not an error (the node ran no connection test)", () => {
+    expect(sweepSshProbes(join(dataDir, "ssh", "no-probes-here"), LATER)).toEqual({ deleted: 0 });
   });
 });
 
