@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import {
   NODE_RESULT_SSH_GENERATION_STALE,
+  type NodeCommandBody,
   SSH_OUTPUT_WINDOW_MAX_BYTES,
   SSH_READ_LONG_POLL_MAX_MS,
 } from "@internal/subshell-protocol";
@@ -72,6 +73,13 @@ let connId: string;
 /** The pending `input` frame: the handler resolves only when the test says so. */
 let holdInput: ((v: unknown) => void) | null = null;
 let rejectInput: ((e: Error) => void) | null = null;
+/**
+ * The `ssh_input_control` arrival observer (ordering tests): called with the
+ * frame the moment the machine RECEIVES the transition dispatch, so a test
+ * can inspect plane-side state (a viewer's close, for one) from inside the
+ * RPC window - the exact span the revocation ordering must not leave open.
+ */
+let observeInputControl: ((cmd: NodeCommandBody) => void) | null = null;
 let scripted: ScriptedNode;
 
 /** Wait until the machine has RECEIVED `n` input frames for `managed` (the write is on the wire). */
@@ -123,10 +131,12 @@ function scriptedHandlers(): ScriptedHandlers {
       }),
     ssh_terminal_launch: ok,
     kill: ok,
-    ssh_input_control: (cmd) =>
-      cmd.type === "ssh_input_control"
+    ssh_input_control: (cmd) => {
+      observeInputControl?.(cmd);
+      return cmd.type === "ssh_input_control"
         ? { subshellId: cmd.subshellId, mode: cmd.mode, generation: cmd.generation }
-        : new Error("wrong cmd"),
+        : new Error("wrong cmd");
+    },
     ssh_run_start: (cmd) =>
       cmd.type === "ssh_run_start" ? facts({ runId: cmd.runId, lifecycle: "running" }) : new Error("wrong cmd"),
     ssh_run_read: (cmd) => (cmd.type === "ssh_run_read" ? readResult(cmd.runId) : new Error("wrong cmd")),
@@ -226,6 +236,7 @@ describe("SSH races + disabled account + server-side bound clamps (spec 2026-10-
     const managed = String((await json(opened)).subshellId);
     holdInput = null;
     rejectInput = null;
+    observeInputControl = null;
     return { pane, token, managed };
   }
 
@@ -288,6 +299,17 @@ describe("SSH races + disabled account + server-side bound clamps (spec 2026-10-
       // grant-authenticated attach left open.
       const viewer = fakeViewerSocket(managed);
       registerViewer(viewer.ws, managed);
+      // THE ORDERING CONTRACT (re-review round 1): the close must land on the
+      // same beat the plane's generation raise commits and BEFORE the
+      // `ssh_input_control` dispatch - while a stamped writer is live, an
+      // open socket reads the RAISED generation and the node's
+      // equal-or-higher rule accepts it, so any live-socket window across
+      // the raise->RPC span is §2 "prevents new dispatch" violated for that
+      // span. The scripted agent answers the transition RPC from inside the
+      // revocation, and the arrival observer sees the viewer's close state at
+      // that exact instant: 1 close already recorded = closed first.
+      const closesAtRpcArrival: number[] = [];
+      observeInputControl = () => closesAtRpcArrival.push(viewer.closed.length);
       try {
         const revoked = await sshRevoke(ownerCaller(), connId, pane);
         expect(revoked.revoked).toBe(true);
@@ -295,10 +317,18 @@ describe("SSH races + disabled account + server-side bound clamps (spec 2026-10-
         // it is the ONLY thing that stops the stream (§2 "closes affected
         // streams"); 1012 is the below-4000 retry convention.
         expect(viewer.closed).toEqual([{ code: 1012, reason: "grant revoked" }]);
+        // Deterministic ordering proof: when the machine received the
+        // raised-generation dispatch, the socket had ALREADY been closed -
+        // never zero (the close trailed the RPC, the round-1 shape).
+        expect(closesAtRpcArrival).toEqual([1]);
         // And the terminate rode the same act (§2 "cancels terminals ...
-        // where reachable").
+        // where reachable"), LAST (it needs the row facts).
         expect((await subshells.findById(managed))?.status).toBe("terminated");
+        expect(scripted.cmdTypes().lastIndexOf("kill")).toBeGreaterThan(
+          scripted.cmdTypes().lastIndexOf("ssh_input_control"),
+        );
       } finally {
+        observeInputControl = null;
         resetLiveViewersForTests();
       }
     });

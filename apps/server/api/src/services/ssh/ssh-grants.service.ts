@@ -126,8 +126,19 @@ export async function sshGrant(caller: SshCaller, connectionId: string, body: Ss
  * through C's {@link closeViewersForSubshell}; and every managed terminal
  * opened under a revoked grant is terminated (reachable now, or retired with
  * the reconnect census as the pending kill - see {@link revokeTerminateManaged}).
- * The ordering is deliberate: raise the generation FIRST (the durable fence
- * that holds whatever else fails), then close the streams, then terminate.
+ * The ordering is deliberate and it is a race contract, not style: raise the
+ * generation FIRST (the durable fence that holds whatever else fails), then
+ * close the streams IMMEDIATELY after the raise commits and before ANY
+ * further await, then terminate last (it needs the row facts). The middle
+ * step has to hug the commit because the stamped input writers (REST and
+ * WS) read the PLANE's generation per write and the node accepts anything
+ * AT the mirror ("equal-or-higher", `input-generation.ts`): every await
+ * between the commit and the close is a window in which a revoked pane's
+ * already-open socket keeps typing at the raised number. A frame stamped
+ * BELOW the raise (read before the commit) is refused node-side - the arm
+ * the races suite pins - so what this ordering shrinks is the
+ * climb-the-fence window, from an RPC round trip (re-review round 1) to a
+ * microtask (now).
  */
 export async function sshRevoke(
   caller: SshCaller,
@@ -165,6 +176,14 @@ export async function sshRevoke(
       if (pane.grantId !== grantId) continue;
       const raised = await panes.setControl(pane.subshellId, pane.controlOwner);
       if (!raised) continue;
+      // Stream closure on the SAME beat the raise commits - before any
+      // further await, and before the row re-read and the node RPC below
+      // (re-review round 1). An attach socket authenticates once and is
+      // never re-checked; while one is open it can read the RAISED plane
+      // generation and be ACCEPTED by the node's equal-or-higher rule, so
+      // the close must not trail the `ssh_input_control` round trip. The
+      // reconnect passes the attach-redeem gate fresh, and the gate refuses.
+      closeViewersForSubshell(pane.subshellId, "grant revoked");
       const paneRow = await subshells.findById(pane.subshellId);
       if (!paneRow || paneRow.nodeId === null) continue;
       if (getLive(paneRow.nodeId)) {
@@ -178,11 +197,6 @@ export async function sshRevoke(
           if (!(err instanceof SshNodeRefusal)) throw err;
         }
       }
-      // Stream closure AFTER the fence is raised: an attach socket
-      // authenticates once and is never re-checked, so this is the only
-      // thing that stops a viewer that was already streaming. The reconnect
-      // passes the attach-redeem gate fresh, and the gate now refuses.
-      closeViewersForSubshell(pane.subshellId, "grant revoked");
       await revokeTerminateManaged(paneRow);
     }
     await auditSsh(caller.userId, "ssh.revoke", "ssh_grant", grantId, {

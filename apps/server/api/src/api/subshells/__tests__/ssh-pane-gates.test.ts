@@ -40,6 +40,7 @@ import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { SubshellsService } from "@/services/subshells.service.js";
 import { cancelObservation, observationActive } from "@/services/terminal-exec-records.js";
 import { attachScriptedNode, ok, type ScriptedNode } from "@/test-helpers/scripted-node.js";
+import { registerViewer, resetLiveViewersForTests, type WsSocket } from "@/ws/viewers.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 const app = new Elysia().use(errorHandlerPlugin).use(subshellRoutes);
@@ -948,6 +949,35 @@ describe("SSH gates on the generic pane surfaces", () => {
       expect(res.status).toBe(403);
       const row = await db.selectFrom("sshPanes").selectAll().where("subshellId", "=", pane).executeTakeFirstOrThrow();
       expect(row.controlGeneration).toBe(1);
+    });
+
+    it("the takeover act closes the pane's live terminal sockets within itself (the revoke-side ordering, mirrored)", async () => {
+      // Gate C re-review round 1 moved the stream close to the beat the raise
+      // commits, BEFORE the exec-invalidate/cancel awaits (a still-open
+      // socket stamps its writes at the RAISED generation, which the node's
+      // equal-or-higher rule accepts). The deterministic ordering proof lives
+      // in the races suite (close observed inside the `ssh_input_control`
+      // dispatch window); this pins the act's half: a registered viewer is
+      // closed by the takeover itself, with the below-4000 retry code and
+      // the named reason, before the response lands.
+      const pane = await seedManaged("gate-control-closes");
+      allowAll();
+      const closed: Array<{ code: number; reason: string }> = [];
+      const ws = {
+        data: { viewerId: crypto.randomUUID(), subshellId: pane, canInput: true },
+        send: () => undefined,
+        close: (code?: number, reason?: string) => {
+          closed.push({ code: code ?? 0, reason: reason ?? "" });
+        },
+      } as unknown as WsSocket;
+      registerViewer(ws, pane);
+      try {
+        const res = await call(`/${pane}/ssh-control`, { method: "POST", body: { mode: "human" } });
+        expect(res.status).toBe(200);
+        expect(closed).toEqual([{ code: 1012, reason: "human took control" }]);
+      } finally {
+        resetLiveViewersForTests();
+      }
     });
   });
 

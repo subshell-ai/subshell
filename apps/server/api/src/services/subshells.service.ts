@@ -2008,10 +2008,12 @@ export class SubshellsService extends BaseService {
    * What a takeover does, in one act: raise the generation (queued stale
    * input is refused at the machine from that moment), move control state
    * (`human` blocks agent reads AND writes on every API/stream until a human
-   * returns it), invalidate the pane's outstanding exec records (spec §3: "An
-   * explicit human takeover invalidates the result"), and close the pane's
-   * live terminal subscriptions (spec §2: streams close when control changes
-   * - the attach-redeem gate is what re-admits each reconnect).
+   * returns it), close the pane's live terminal subscriptions FIRST (spec §2:
+   * streams close when control changes - the attach-redeem gate is what
+   * re-admits each reconnect; closing before any further await is the race
+   * contract, since a live socket stamps its writes at the RAISED generation
+   * the node accepts), then invalidate the pane's outstanding exec records
+   * (spec §3: "An explicit human takeover invalidates the result").
    *
    * A pane with no `ssh_panes` row 404s: takeover is a managed-pane act, and
    * making it answer for ordinary panes would be a second terminal-control
@@ -2065,12 +2067,17 @@ export class SubshellsService extends BaseService {
       }
       throw err;
     }
-    // The record-side fence (outstanding execs on this pane go `unknown`) and
-    // the stream-side fence (every attached terminal socket closes; the
-    // reconnection is what re-runs the redeem gate against the new state).
+    // The stream-side fence FIRST, on the same beat the raise committed
+    // (re-review round 1): every attached terminal socket closes before the
+    // record-side housekeeping awaits below, because a socket still open
+    // after the commit can read the RAISED generation and be accepted
+    // node-side (the equal-or-higher fence rule) - the human must not share
+    // the terminal with a stale stream for the span of two more awaits. The
+    // reconnection is what re-runs the redeem gate against the new state.
+    closeViewersForSubshell(id, mode === "human" ? "human took control" : "control returned to agent");
+    // The record-side fence: outstanding execs on this pane go `unknown`.
     await invalidateOutstandingExecs(this.db, id);
     await cancelObservation(this.db, id);
-    closeViewersForSubshell(id, mode === "human" ? "human took control" : "control returned to agent");
     // Announce so the dashboard re-derives the row for its audience (the
     // feed carries no control field yet - wave 2's SPA reads it through the
     // SSH views; the changed-event is what makes clients re-resolve visibility
