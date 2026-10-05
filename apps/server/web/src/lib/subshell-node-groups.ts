@@ -143,7 +143,7 @@ export function groupSubshellsByNode(
 }
 
 /**
- * The pseudo-node id that keys the rail's "Cross-agent comms" section — its
+ * The pseudo-node id that keys the rail's "Agent-created" section — its
  * collapse preference, its DOM id, and its React key. A real node id is a
  * uuid and can never collide with this string.
  */

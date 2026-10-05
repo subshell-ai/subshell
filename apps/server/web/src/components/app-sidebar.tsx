@@ -417,7 +417,7 @@ export function AppSidebar({
               </div>
               {/* The whole subshell section — mode control, filter, the
                   Needs Attention spotlight, the machine groups and the
-                  cross-agent comms — is `RailSubshells`, which owns that
+                  Agent-created section — is `RailSubshells`, which owns that
                   shape and its localStorage prefs. The ONE thing staying
                   here is the filter query: this mount unmounts on collapse,
                   and the query outlives it (see its prop JSDoc). It stays

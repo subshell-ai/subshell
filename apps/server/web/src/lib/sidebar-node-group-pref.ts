@@ -65,7 +65,7 @@ export function toggleNodeGroup(collapsed: readonly string[], nodeId: string): s
 }
 
 /**
- * The rail's "Cross-agent comms" section has the OPPOSITE default to the
+ * The rail's "Agent-created" section has the OPPOSITE default to the
  * machine groups (operator ask 2026-09-25): it is CLOSED until opened. A
  * machine's groups default open because a human's own live work should greet
  * them; comms panes are internal chatter that can multiply without warning

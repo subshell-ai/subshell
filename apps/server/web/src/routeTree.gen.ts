@@ -30,6 +30,7 @@ import { Route as SettingsLogsRouteImport } from './routes/settings_.logs'
 import { Route as SettingsNetworkingRouteImport } from './routes/settings_.networking'
 import { Route as SettingsPluginsRouteImport } from './routes/settings_.plugins'
 import { Route as SettingsServiceRouteImport } from './routes/settings_.service'
+import { Route as SettingsSshRouteImport } from './routes/settings_.ssh'
 import { Route as SettingsStatusRouteImport } from './routes/settings_.status'
 import { Route as SettingsUpdatesRouteImport } from './routes/settings_.updates'
 import { Route as SettingsUsersRouteImport } from './routes/settings_.users'
@@ -143,6 +144,11 @@ const SettingsServiceRoute = SettingsServiceRouteImport.update({
   path: '/settings/service',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsSshRoute = SettingsSshRouteImport.update({
+  id: '/settings_/ssh',
+  path: '/settings/ssh',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsStatusRoute = SettingsStatusRouteImport.update({
   id: '/settings_/status',
   path: '/settings/status',
@@ -201,6 +207,7 @@ export interface FileRoutesByFullPath {
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
   '/settings/service': typeof SettingsServiceRoute
+  '/settings/ssh': typeof SettingsSshRoute
   '/settings/status': typeof SettingsStatusRoute
   '/settings/updates': typeof SettingsUpdatesRoute
   '/settings/users': typeof SettingsUsersRoute
@@ -231,6 +238,7 @@ export interface FileRoutesByTo {
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
   '/settings/service': typeof SettingsServiceRoute
+  '/settings/ssh': typeof SettingsSshRoute
   '/settings/status': typeof SettingsStatusRoute
   '/settings/updates': typeof SettingsUpdatesRoute
   '/settings/users': typeof SettingsUsersRoute
@@ -262,6 +270,7 @@ export interface FileRoutesById {
   '/settings_/networking': typeof SettingsNetworkingRoute
   '/settings_/plugins': typeof SettingsPluginsRoute
   '/settings_/service': typeof SettingsServiceRoute
+  '/settings_/ssh': typeof SettingsSshRoute
   '/settings_/status': typeof SettingsStatusRoute
   '/settings_/updates': typeof SettingsUpdatesRoute
   '/settings_/users': typeof SettingsUsersRoute
@@ -294,6 +303,7 @@ export interface FileRouteTypes {
     | '/settings/networking'
     | '/settings/plugins'
     | '/settings/service'
+    | '/settings/ssh'
     | '/settings/status'
     | '/settings/updates'
     | '/settings/users'
@@ -324,6 +334,7 @@ export interface FileRouteTypes {
     | '/settings/networking'
     | '/settings/plugins'
     | '/settings/service'
+    | '/settings/ssh'
     | '/settings/status'
     | '/settings/updates'
     | '/settings/users'
@@ -354,6 +365,7 @@ export interface FileRouteTypes {
     | '/settings_/networking'
     | '/settings_/plugins'
     | '/settings_/service'
+    | '/settings_/ssh'
     | '/settings_/status'
     | '/settings_/updates'
     | '/settings_/users'
@@ -385,6 +397,7 @@ export interface RootRouteChildren {
   SettingsNetworkingRoute: typeof SettingsNetworkingRoute
   SettingsPluginsRoute: typeof SettingsPluginsRoute
   SettingsServiceRoute: typeof SettingsServiceRoute
+  SettingsSshRoute: typeof SettingsSshRoute
   SettingsStatusRoute: typeof SettingsStatusRoute
   SettingsUpdatesRoute: typeof SettingsUpdatesRoute
   SettingsUsersRoute: typeof SettingsUsersRoute
@@ -543,6 +556,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsServiceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings_/ssh': {
+      id: '/settings_/ssh'
+      path: '/settings/ssh'
+      fullPath: '/settings/ssh'
+      preLoaderRoute: typeof SettingsSshRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings_/status': {
       id: '/settings_/status'
       path: '/settings/status'
@@ -617,6 +637,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsNetworkingRoute: SettingsNetworkingRoute,
   SettingsPluginsRoute: SettingsPluginsRoute,
   SettingsServiceRoute: SettingsServiceRoute,
+  SettingsSshRoute: SettingsSshRoute,
   SettingsStatusRoute: SettingsStatusRoute,
   SettingsUpdatesRoute: SettingsUpdatesRoute,
   SettingsUsersRoute: SettingsUsersRoute,

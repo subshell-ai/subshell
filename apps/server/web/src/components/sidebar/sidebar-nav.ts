@@ -7,6 +7,7 @@ import {
   type LucideIcon,
   MessageSquareText,
   Network,
+  Plug,
   Power,
   Puzzle,
   ScrollText,
@@ -94,6 +95,11 @@ const NAV_ENTRIES: NavEntry[] = [
       // server listens (the Addresses card, here from Service since
       // 2026-09-17) and how anything not on this machine gets to it.
       { to: "/settings/networking", label: "Networking", icon: Network, short: "Net" },
+      // After Networking because the two answer the two directions of "how do
+      // machines reach each other": Networking is how anything reaches this
+      // server, SSH connections is how work on this instance reaches OTHER
+      // machines through an enrolled node (SSH-SUPPORT.md §3).
+      { to: "/settings/ssh", label: "SSH", icon: Plug, short: "SSH" },
       // Beside Service, because the two are about the same machine: Service is
       // the process as it runs now, Updates is what it could be running next.
       { to: "/settings/updates", label: "Updates", icon: ArrowUpCircle, short: "Upd" },

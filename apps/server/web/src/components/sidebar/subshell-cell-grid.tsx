@@ -87,7 +87,7 @@ const NODE_TINT_CLASS = [
 /**
  * The flat grid's cell set, ordered in FOUR bands (operator order
  * 2026-09-26): the Needs Attention spotlight, then machine clusters that hold a
- * SELECTED pane, then every other machine cluster, then cross-agent comms.
+ * SELECTED pane, then every other machine cluster, then the Agent-created section.
  *
  * The four arguments are the pieces grouped mode draws: each machine group's
  * CAPPED rows, the comms section's rows, the Needs Attention spotlight, and the
@@ -129,7 +129,7 @@ export function flatCellRows(
   const machines = clusters
     .sort((a, b) => Number(b.selected) - Number(a.selected) || a.rank - b.rank)
     .flatMap((cluster) => sortByStatus(cluster.members));
-  // Band 4: cross-agent comms last.
+  // Band 4: Agent-created panes last.
   return [...notifications, ...machines, ...sortByStatus(comms)];
 }
 

@@ -19,6 +19,9 @@ const GROUP_PAGES = [
   "/settings/plugins",
   "/settings/service",
   "/settings/networking",
+  // SSH sits after Networking: the two are the two directions of machine
+  // reach (SSH-SUPPORT.md §3's connection UI, workstream F).
+  "/settings/ssh",
   "/settings/updates",
   "/settings/backups",
   "/settings/status",

@@ -56,7 +56,7 @@ const OTHERS_GROUP_ID = "others";
 
 /**
  * The rail's whole subshell section: the mode control, the filter box, the
- * Needs Attention spotlight, the Cross-agent comms section and the machine
+ * Needs Attention spotlight, the Agent-created section and the machine
  * groups, in one of THREE renderings behind a single choice.
  *
  * - `rows` (the default): text rows — the shape the rail has always had.
@@ -142,7 +142,7 @@ export function RailSubshells({
   // than two identical expressions kept in sync by a comment.
   const railRows = q ? filterSubshells(byStatus, query) : byStatus;
   // Panes an AGENT opened over MCP leave the machine groups entirely
-  // (operator ask 2026-09-25): they are internal cross-agent comms, filed in
+  // (operator ask 2026-09-25; the SSH-wave rename calls them Agent-created), filed in
   // one section of their own ABOVE the machine groups (moved from below on
   // operator ask 2026-09-26), each row naming the machine it runs on since
   // the section spans them. The partition runs on the FILTERED list, so a
@@ -150,7 +150,7 @@ export function RailSubshells({
   const { human: railHuman, comms: railComms } = partitionCrossAgent(railRows);
   const commsGroup = {
     nodeId: CROSS_AGENT_GROUP_ID,
-    label: "Cross-agent comms",
+    label: "Agent-created",
     // The header's hover line is the whole explanation; two sentences max,
     // per the design system's rule for UI text.
     title:

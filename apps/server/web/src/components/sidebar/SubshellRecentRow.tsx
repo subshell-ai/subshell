@@ -62,7 +62,7 @@ export function SubshellRecentRow({
   presetLabel?: string;
   /**
    * Text for the row's muted second line, REPLACING the working directory.
-   * The "Cross-agent comms" section uses it to name the MACHINE each pane runs
+   * The "Agent-created" section uses it to name the MACHINE each pane runs
    * on: its rows span every machine, so the header cannot say which one a row
    * is on the way a node group's header can, and the path is less useful there
    * than the machine. Every other rail row leaves it undefined (the path).

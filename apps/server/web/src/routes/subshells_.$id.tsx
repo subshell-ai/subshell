@@ -6,11 +6,13 @@ import type { SearchAddon } from "@xterm/addon-search";
 import type { Terminal } from "@xterm/xterm";
 import { SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { SplitSubshellButton } from "@/components/split-subshell-button";
+import { SshPaneChrome } from "@/components/ssh/ssh-pane-chrome";
 import { StatusPill } from "@/components/status-pill";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDevices } from "@/components/subshell-devices";
@@ -28,6 +30,7 @@ import { useNodes } from "@/hooks/use-nodes";
 import { useSwipeOrderedSubshells } from "@/hooks/use-ordered-subshells";
 import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { usePresets } from "@/hooks/use-presets";
+import { useSetSshPaneControl } from "@/hooks/use-ssh";
 import { useSubshellData } from "@/hooks/use-subshell-data";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellMutations } from "@/hooks/use-subshell-mutations";
@@ -35,6 +38,9 @@ import { useSwipeNav } from "@/hooks/use-swipe-nav";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
 import { paneDiagnosticsIds, setPaneDiagnosticsIds, togglePaneDiagnostics } from "@/lib/pane-diagnostics-pref";
 import { SUBSHELL_QUERY_KEY, SUBSHELLS_QUERY_KEY, WORKSPACE_QUERY_KEY } from "@/lib/query-keys";
+import type { SshActorSide } from "@/lib/ssh";
+import { sshErrorText } from "@/lib/ssh";
+import { getSshTerminalFacts, patchSshTerminalFacts } from "@/lib/ssh-terminal-facts";
 import { ACTIVITY_TICK_MS } from "@/lib/subshell-indicator";
 import { findNeighbors } from "@/lib/subshell-neighbors";
 import { FALLBACK_NODE_ID, nodeLabelFor } from "@/lib/subshell-node-groups";
@@ -80,6 +86,32 @@ function SubshellPage() {
   // exited/offline precedence was this page's second copy of a rule that lives
   // in `subshellIndicator`, and the dot consumes that one directly.
   const { subshell, isLoading, isError, isNotFound, dead } = useSubshellData(id);
+  /**
+   * This TAB's memory that the pane is a managed SSH terminal, with the
+   * display material and control state frozen at open (see
+   * `lib/ssh-terminal-facts.ts` for why it is a tab store and what the
+   * frozen copy is for). Re-read when swipe navigation repoints the page.
+   * Null = ordinary pane, rendered with its ordinary chrome.
+   */
+  const [sshFacts, setSshFacts] = useState(() => getSshTerminalFacts(id));
+  useEffect(() => setSshFacts(getSshTerminalFacts(id)), [id]);
+  const sshControl = useSetSshPaneControl(id);
+  /**
+   * The takeover/return act. The server raises the generation and fences
+   * stale input; this records the new state into the tab store so the label
+   * says who holds input NOW, then republishes it for the render.
+   */
+  async function handleSshControl(mode: SshActorSide): Promise<void> {
+    try {
+      const view = await sshControl.mutateAsync(mode);
+      patchSshTerminalFacts(id, { controlOwner: view.controlOwner, controlGeneration: view.controlGeneration });
+      setSshFacts(getSshTerminalFacts(id));
+    } catch (err) {
+      // A refused transition (pane gone, node unreachable, policy) says why;
+      // the control state on screen is unchanged and stays honest.
+      toast.error(sshErrorText(err, "The control change did not apply."));
+    }
+  }
   // What this subshell discloses and to whom (foreign node / shared). The
   // icons render always; the banner shows once per exposure.
   const trustNotices = useTrustNotices(subshell);
@@ -309,7 +341,20 @@ function SubshellPage() {
                     not a human at the UI (operator ask 2026-09-25). A fact
                     about the pane stated where its own name is, worded the way
                     the rail's section labels it. */}
-                {subshell?.crossAgent && <span className="text-detail text-muted-foreground">Cross-agent comms</span>}
+                {subshell?.crossAgent && <span className="text-detail text-muted-foreground">Agent-created</span>}
+                {/* The SSH pane's trusted identity + the human takeover/return
+                    control (SSH feature). The label is this tab's copy of what
+                    the create answer said - never anything the pane's own
+                    output claims, and it renders only while that memory
+                    stands (see lib/ssh-terminal-facts.ts). */}
+                {sshFacts && (
+                  <SshPaneChrome
+                    facts={sshFacts}
+                    nodeOffline={Boolean(subshell?.nodeOffline)}
+                    busy={sshControl.isPending}
+                    onControl={(mode) => void handleSshControl(mode)}
+                  />
+                )}
                 {/* Permanent disclosure: whose machine this runs on, and who
                     else can read it. Never suppressible — see
                     components/trust-indicators.tsx. */}
@@ -376,6 +421,11 @@ function SubshellPage() {
             key={`${id}:${subshell?.startedAt ?? "missing"}`}
             subshellId={id}
             subshell={subshell}
+            // Remote file operations do not exist yet, so an SSH terminal
+            // gets no upload affordance at all (spec §3): the drag, paste, and
+            // drop-zone half of the hook is switched off here, and the key
+            // bar's picker beside it below.
+            showUploads={!sshFacts}
             onReady={handleTerminalReady}
             onDispose={handleTerminalDispose}
             onStatusChange={(status) => {
@@ -427,7 +477,7 @@ function SubshellPage() {
           onPaste={(text) => pasteInputRef.current?.(text)}
           onInjectPrompt={subshell.alive && subshell.access !== "view" ? () => setInjectTarget(id) : undefined}
           copyMode={{ on: copyOn, onToggle: toggleCopyMode }}
-          onPickImage={subshell.access === "view" ? undefined : () => openImagePickerRef.current?.()}
+          onPickImage={subshell.access === "view" || sshFacts ? undefined : () => openImagePickerRef.current?.()}
           onScrollTop={handleScrollTop}
           onScrollBottom={handleScrollBottom}
           onScrollPageUp={() => termRef.current?.scrollPages(-1)}
