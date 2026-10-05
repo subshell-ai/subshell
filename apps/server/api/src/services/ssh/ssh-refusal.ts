@@ -41,7 +41,9 @@ export function refuseSshDecision(decision: Extract<SshDecision, { allow: false 
     code: code === "not_found" ? BackendErrorCodes.NOT_FOUND_ERROR : BackendErrorCodes.ACCESS_DENIED,
     message: POLICY_SENTENCES[code],
     doNotLog: true,
-    ...(detail === undefined ? {} : { metadataSafe: { sshCode: code, detail } }),
+    // The named code ALWAYS rides (the surface contract: equality over
+    // parsing a sentence); `detail` elaborates when the decision carried one.
+    metadataSafe: { sshCode: code, ...(detail === undefined ? {} : { detail }) },
   });
 }
 
