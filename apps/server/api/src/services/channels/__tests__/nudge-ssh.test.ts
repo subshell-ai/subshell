@@ -57,7 +57,7 @@ describe("nudgeSubshell SSH refusal (review M2)", () => {
       status: "running",
       alive: 1,
       startedAt: "2026-10-04T00:00:00.000Z",
-    } as never);
+    });
     if (managed) {
       const connId = crypto.randomUUID();
       await db
