@@ -928,15 +928,23 @@ jobs:
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # The session-lifecycle spec spawns real tmux sessions (stub harness).
-      - name: Ensure tmux and jq
+      # Spec 21's real-sshd composition needs ssh, ssh-keygen and sshd: the
+      # builder image carries none of them, so WITHOUT these the SSH specs
+      # loud-skip on every CI run - an honest skip, but a flagship suite that
+      # silently never runs is what e2e/AGENTS.md promises against. apt's
+      # openssh-server postinst also creates /run/sshd, the privilege-
+      # separation dir the root-launched fixture daemon needs.
+      - name: Ensure tmux, jq, and OpenSSH
         run: |
           set -euo pipefail
           missing=()
           for tool in tmux jq; do command -v "$tool" >/dev/null || missing+=("$tool"); done
+          { command -v ssh >/dev/null && command -v ssh-keygen >/dev/null; } || missing+=(openssh-client)
+          command -v sshd >/dev/null || [ -x /usr/sbin/sshd ] || missing+=(openssh-server)
           if [ ${#missing[@]} -gt 0 ]; then
             apt-get update && apt-get install -y --no-install-recommends "${missing[@]}"
           fi
-          tmux -V && jq --version
+          tmux -V && jq --version && ssh -V && ls -x /usr/sbin/sshd
 
       # tsdown/rolldown run under NODE, not bun — their bin shebang is
       # `#!/usr/bin/env node` — so the repo has always had a Node requirement

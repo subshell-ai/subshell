@@ -45,9 +45,10 @@ describe("renderSshConfigContents", () => {
     for (const [key, value] of required) {
       expect(config).toContain(`    ${key} ${value}`);
     }
-    // The removed Kerberos* alias must never come back: recent OpenSSH
-    // refuses to parse it (10.2p1 warns per launch), and GSSAPIAuthentication
-    // above is the spelling that actually disables that auth path.
+    // The removed Kerberos* alias must never come back: recent OpenSSH no
+    // longer resolves it (10.2p1 warns on every launch and continues), and
+    // GSSAPIAuthentication above is the spelling that actually disables that
+    // auth path.
     expect(config).not.toContain("KerberosAuthentication");
   });
 

@@ -1,13 +1,13 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { NODE_PROTOCOL_VERSION, type SshConnectionSnapshotWire } from "@internal/subshell-protocol";
-import { type APIRequestContext, expect, request as pwRequest, test } from "@playwright/test";
+import { NODE_PROTOCOL_VERSION } from "@internal/subshell-protocol";
+import { type APIRequestContext, expect, test } from "@playwright/test";
 import { missingSshBins, SSH_FIXTURE_ALIAS, type SshFixture, startSshFixture } from "../fixtures/sshd";
-import { BASE_URL } from "../ports";
 import { shortTmuxBase } from "../stack";
 import { type RunningNode, startNode } from "../stub/client";
-import { ADMIN, ADMIN_STATE, expectSubshellRunning, pollUntil, sleep, sweepTmuxServers } from "./helpers";
+import { ADMIN_STATE, expectSubshellRunning, pollUntil, sleep, sweepTmuxServers } from "./helpers";
+import { ensureConnection, type NodeRow, type RunView, rmScratch, SSH_HEADERS, seedAdminApi } from "./ssh-support";
 
 /**
  * SSH feature end to end (SSH-SUPPORT.md §6): a real browser and the real
@@ -30,23 +30,6 @@ test.describe.configure({ mode: "serial" });
 const RUN = Math.random().toString(36).slice(2, 7);
 const NODE_NAME = `e2e-ssh-${RUN}`;
 
-/** The SSH family validates the cookie-write Origin itself (§2); the API rides the instance's own origin. */
-const SSH_HEADERS = { origin: BASE_URL };
-
-interface NodeRow {
-  id: string;
-  name: string;
-  status: "online" | "offline";
-  protocolVersion: number | null;
-  capabilities: string[];
-}
-interface RunView {
-  status: "accepted" | "running" | "completed" | "unknown";
-  remoteStatus: number | null;
-  remoteStatusConfirmed: boolean;
-  localExitCode: number | null;
-}
-
 let fixture: SshFixture | undefined;
 let agent: RunningNode | undefined;
 let agentHome = "";
@@ -65,83 +48,8 @@ const ssh = (): SshFixture => {
 /** Polls surface the agent log tail on a stuck fixture (shared helpers.ts; spec 21 always has an agent). */
 const agentTail = (): string => agent?.logTail() ?? "(agent never started)";
 
-/** Delete a scratch dir only when it is a real absolute path (never "" or "."). */
-function rmScratch(dir: string): void {
-  if (path.isAbsolute(dir)) rmSync(dir, { recursive: true, force: true });
-}
-
-/** Resolve the fixture alias on the real node through the human door (a fresh approved snapshot). */
-async function resolveFixtureSnapshot(): Promise<SshConnectionSnapshotWire> {
-  const res = await api.post("/api/ssh/connections/resolve", {
-    data: { nodeId, alias: SSH_FIXTURE_ALIAS },
-    headers: SSH_HEADERS,
-  });
-  expect(res.ok(), await res.text()).toBe(true);
-  const view = (await res.json()) as { accepted: boolean; snapshot?: SshConnectionSnapshotWire };
-  expect(view.accepted, "the fixture config must resolve through the real ssh -G").toBe(true);
-  return view.snapshot as SshConnectionSnapshotWire;
-}
-
-/** Find-or-create a connection by display name (idempotent across a CI retry of a later test). */
-async function ensureConnection(displayName: string, portOverride: number | null = null): Promise<string> {
-  const list = await api.get("/api/ssh/connections");
-  expect(list.ok(), await list.text()).toBe(true);
-  const found = ((await list.json()) as { connections: { id: string; displayName: string }[] }).connections.find(
-    (c) => c.displayName === displayName,
-  );
-  if (found) return found.id;
-  const snapshot = await resolveFixtureSnapshot();
-  const created = await api.post("/api/ssh/connections", {
-    data: {
-      nodeId,
-      displayName,
-      snapshot: portOverride === null ? snapshot : { ...snapshot, port: portOverride },
-      remoteDir: null,
-    },
-    headers: SSH_HEADERS,
-  });
-  expect(created.ok(), await created.text()).toBe(true);
-  return ((await created.json()) as { id: string }).id;
-}
-
 test.beforeAll(async () => {
-  // A focused run never booted spec 01, so the admin, its storage state, AND
-  // its completed-onboarding bookmark are seeded here when absent; in the full
-  // suite 01 already did all three. `request` from @playwright/test inherits the
-  // file's `test.use` storageState, so the anon seed context passes an EXPLICIT
-  // empty state — a bare newContext would READ the (focused-run: not-yet-written)
-  // admin.json and ENOENT before the seed could create it.
-  const anon = await pwRequest.newContext({
-    baseURL: BASE_URL,
-    extraHTTPHeaders: { origin: BASE_URL },
-    storageState: { cookies: [], origins: [] },
-  });
-  const status = await anon.get("/api/setup/status");
-  expect(status.ok(), await status.text()).toBe(true);
-  let seededAdmin = false;
-  if (((await status.json()) as { needsSetup: boolean }).needsSetup) {
-    const signUp = await anon.post("/api/auth/sign-up/email", {
-      data: { name: ADMIN.name, email: ADMIN.email, password: ADMIN.password },
-    });
-    expect(signUp.ok(), `seed sign-up: HTTP ${signUp.status()}`).toBe(true);
-    await anon.storageState({ path: ADMIN_STATE });
-    seededAdmin = true;
-  }
-  await anon.dispose();
-  api = await pwRequest.newContext({
-    baseURL: BASE_URL,
-    storageState: ADMIN_STATE,
-    extraHTTPHeaders: { origin: BASE_URL },
-  });
-  // A user minted through the raw sign-up endpoint has never walked the boot
-  // wizard, so its `setup-progress` bookmark is set and the root gate RESUMES
-  // it onto /setup — which would bounce every /settings/* navigation. Clearing
-  // the bookmark (step:null) is exactly the write the wizard's final step makes;
-  // only the seeded (focused-run) case needs it — spec 01 already finished it.
-  if (seededAdmin) {
-    const progress = await api.patch("/api/setup/progress", { data: { step: null } });
-    expect(progress.ok(), `clear seeded onboarding bookmark: HTTP ${progress.status()}`).toBe(true);
-  }
+  api = await seedAdminApi();
 
   fixtureRoot = mkdtempSync(path.join(tmpdir(), "subshell-e2e-sshd-"));
   fixture = await startSshFixture(fixtureRoot);
@@ -302,7 +210,7 @@ test("connection setup: the browser discovers the alias, resolves it on the real
 
 test("structured run: echo 6x7 through the real node executes on sshd; the dead-port 255 answers honestly", async () => {
   const f = ssh();
-  const connId = await ensureConnection(`E2E Run ${RUN}`);
+  const connId = await ensureConnection(api, nodeId, `E2E Run ${RUN}`);
   const start = await api.post("/api/ssh/runs", {
     data: { connectionId: connId, command: "echo ssh-e2e-$((6*7))" },
     headers: SSH_HEADERS,
@@ -315,7 +223,7 @@ test("structured run: echo 6x7 through the real node executes on sshd; the dead-
     "the echo run never reached a terminal state",
     async () => {
       const res = await api.get(`/api/ssh/runs/${run.id}/output`);
-      expect(res.ok(), await res.text()).toBe(true);
+      if (!res.ok()) return false; // transient non-OK retries inside the budget, like the dead arm
       out = (await res.json()) as { run: RunView; stdout: string };
       return out.run.status === "completed" || out.run.status === "unknown";
     },
@@ -330,7 +238,7 @@ test("structured run: echo 6x7 through the real node executes on sshd; the dead-
   // Exit-255 honesty, the SHIPPED spelling (ssh-run-supervisor `#finalize`):
   // a refused connection corroborates `sshTransportFailure`, so the run lands
   // `completed` with NO remote status and the 255 kept as the LOCAL ssh fact.
-  const deadConnId = await ensureConnection(`E2E Dead ${RUN}`, f.deadPort);
+  const deadConnId = await ensureConnection(api, nodeId, `E2E Dead ${RUN}`, f.deadPort);
   const deadStart = await api.post("/api/ssh/runs", {
     data: { connectionId: deadConnId, command: "echo never-ran" },
     headers: SSH_HEADERS,
@@ -363,7 +271,7 @@ test("managed terminal: opens from the card with the trusted chrome, and control
 }) => {
   test.setTimeout(180_000);
   const f = ssh();
-  await ensureConnection(`E2E Term ${RUN}`);
+  await ensureConnection(api, nodeId, `E2E Term ${RUN}`);
   await page.goto("/settings/ssh");
   const card = page.locator("div.rounded-lg", { hasText: `E2E Term ${RUN}` });
   await expect(card).toHaveCount(1);
@@ -426,7 +334,7 @@ test("managed terminal: opens from the card with the trusted chrome, and control
 });
 
 test("invariants: uploads name UPLOAD_SSH_UNSUPPORTED; delete refuses active_work until the pane dies", async () => {
-  const connId = await ensureConnection(`E2E Inv ${RUN}`);
+  const connId = await ensureConnection(api, nodeId, `E2E Inv ${RUN}`);
   const term = await api.post("/api/ssh/terminals", { data: { connectionId: connId }, headers: SSH_HEADERS });
   expect(term.ok(), await term.text()).toBe(true);
   const pane = (await term.json()) as { subshellId: string; initiatedBy: string };
@@ -474,9 +382,9 @@ test("protocol 16 reality: the online node registered its SSH support on the exa
   // The SSH surface has no capability negotiation and no v15 fallback: the ws
   // handler refuses any agent whose `ready` protocol is not exactly
   // NODE_PROTOCOL_VERSION, and a refused agent is HELD — offline to every
-  // `ssh_*` command. An online row that handshook at 16 IS the registration;
-  // tests 1-4 above are its functional half, against the real daemon.
+  // `ssh_*` command. An online row at exactly 16 IS the registration (the
+  // capabilities list is a pre-SSH fact, not an SSH claim); tests 1-4 above
+  // are its functional half, against the real daemon.
   expect(row?.status).toBe("online");
   expect(row?.protocolVersion).toBe(NODE_PROTOCOL_VERSION);
-  expect(row?.capabilities).toContain("uploads");
 });

@@ -54,15 +54,6 @@ export function missingSshBins(): string[] {
   return missing;
 }
 
-/** Loud-skip sentinel (house rule: an unverified trust surface says so, never a silent green). */
-export function haveSshStack(): boolean {
-  const missing = missingSshBins();
-  if (missing.length > 0) {
-    console.warn(`[e2e/sshd] ${missing.join(", ")} not present on this host: REAL-SSH E2E SPECS SKIPPED`);
-  }
-  return missing.length === 0;
-}
-
 /** A loopback ephemeral port, freed the instant it is named (the Node stand-in for `Bun.listen`). */
 async function freePort(): Promise<number> {
   const srv = createServer();
@@ -75,7 +66,7 @@ async function freePort(): Promise<number> {
   return port;
 }
 
-/** The probe asks "is anything listening"; StrictHostKeyChecking=no is the probe's own trust, never the feature's (the real trust is the pre-trusted known_hosts). */
+/** The probe asks "is anything listening"; StrictHostKeyChecking=no is the probe's own trust, never the feature's (the real trust is the pre-trusted known_hosts). `-F /dev/null` seals the ambient `~/.ssh/config` out of a probe meant to be ambient-free. */
 const PROBE_OPTS = [
   "BatchMode=yes",
   "ConnectTimeout=1",
@@ -86,7 +77,7 @@ const PROBE_OPTS = [
 /** sshd's readiness, probed through ssh itself: "not refused" means the daemon answers (the bun recipe's rule). */
 async function waitListening(sshBin: string, port: number, logPath: string): Promise<void> {
   for (let i = 0; i < 100; i++) {
-    const probe = spawnSync(sshBin, ["-p", String(port), ...PROBE_OPTS, "127.0.0.1", "true"], {
+    const probe = spawnSync(sshBin, ["-F", "/dev/null", "-p", String(port), ...PROBE_OPTS, "127.0.0.1", "true"], {
       stdio: ["ignore", "ignore", "pipe"],
     });
     const err = probe.stderr?.toString() ?? "";
@@ -99,7 +90,7 @@ async function waitListening(sshBin: string, port: number, logPath: string): Pro
 export interface SshFixture {
   /** The loopback port the fixture sshd answers on. */
   port: number;
-  /** A named-free loopback port nothing listens on: the honest transport-failure target. */
+  /** A loopback port THIS fixture holds with an accept-then-destroy listener: the dead-run target answers with an immediate connection reset (a freed port could be silently rebound between free and dial, turning the honest 255 into a ssh-connect timeout). */
   deadPort: number;
   /** The fixture user — the host's own account (sshd refuses passwords; keys only). */
   user: string;
@@ -151,11 +142,18 @@ export async function startSshFixture(root: string): Promise<SshFixture> {
     if (kg.status !== 0) throw new Error(`ssh-keygen failed for ${f}: exit ${kg.status}`);
   }
 
-  // The account's config: the alias every consumer references. `IdentityAgent
-  // none` keeps an ambient ssh-agent out of resolution (its keys could crowd
-  // the fixture's single trusted key against sshd's MaxAuthTries).
   const port = await freePort();
+  // The dead-run target, HELD for the fixture's life (review M2): we bind the
+  // named-free port ourselves and destroy every inbound socket, so a dial is
+  // refused fast (ssh: "Connection closed", exit 255 - exactly what
+  // sshTransportFailure corroborates) and NO third party can re-bind the name
+  // between our freePort and the dead run's connect.
   const deadPort = await freePort();
+  const refuseHold = createServer((sock) => sock.destroy());
+  await new Promise<void>((resolve, reject) => {
+    refuseHold.once("error", reject);
+    refuseHold.listen(deadPort, "127.0.0.1", () => resolve());
+  });
 
   // Pre-trusted known_hosts, named ABSOLUTE in the config below. ssh resolves
   // the DEFAULT `userknownhostsfile` against the passwd home, not the injected
@@ -247,6 +245,7 @@ export async function startSshFixture(root: string): Promise<SshFixture> {
     trustedKeyPath: clientKey,
     logPath: sshdLog,
     async stop(): Promise<void> {
+      await new Promise<void>((resolve) => refuseHold.close(() => resolve()));
       live.delete(pid);
       for (const sig of ["SIGTERM", "SIGKILL"] as const) {
         try {

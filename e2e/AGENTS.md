@@ -62,10 +62,12 @@ fixture's config dir so `ssh -G`, structured runs, and managed-terminal panes
 all resolve the alias `e2edest` against fixture bytes, never a developer's
 `~/.ssh`. Like specs 14/19 it is a third-party process, but started IN the
 Node worker (the Playwright runner is Node, so the in-repo Bun sshd fixture
-recipe is ported to `child_process`/`net`). The whole file is a loud skip
-(`test.skip(!haveSshStack(), …)` naming the missing binaries) on a host without
-openssh-server, never a silent green; ubuntu runners carry it, so CI executes
-the fixture rather than skipping it.
+recipe is ported to `child_process`/`net`). The whole file skips with a
+reason naming the missing binaries (`missingSshBins()` → `test.skip(…)`) on
+a host without ssh/ssh-keygen/sshd, never a silent green. The builder-image
+e2e container carries none of them, so the job's ensure-step installs
+`openssh-client`/`openssh-server` and CI executes the fixture rather than
+skipping it. Keep that step and this sentence in agreement.
 
 Spec `12` extends the stack itself: it spawns the **real `subshell` from
 source** (`bun apps/node/agent/src/main.ts enroll|run` via `stub/client.ts`, with
@@ -83,7 +85,7 @@ against ONE shared database:
 - `01-setup-wizard` creates the admin (`.test` email TLD: better-auth rejects
   digit TLDs like `.e2e`) and writes `.auth/admin.json`.
 - The specs after it load that storage state via `ADMIN_STATE` from
-  `helpers.ts` (`04`–`19`, less `15`, which boots its own clean
+  `helpers.ts` (`04`–`21`, less `15`, which boots its own clean
   machine and loads no state; `02` deliberately stays anonymous: it pins
   the 401 boundary itself; `19` reads it through an admin `APIRequestContext`
   for its provider seeding, while every browser context it drives stays
