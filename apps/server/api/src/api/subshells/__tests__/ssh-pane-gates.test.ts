@@ -613,6 +613,11 @@ describe("SSH gates on the generic pane surfaces", () => {
       expect(res.status).toBe(200);
     });
 
+    // A 15 s per-test budget (bun's default is 5 s): the re-armed watcher polls
+    // at the REAL production `EXEC_OBSERVE_POLL_MS` (5 s), so retiring it after
+    // the pane row is killed needs one full poll. The internal wait-loop caps at
+    // 8 s; the margin is for parallel-run drift. A fake clock cannot drive it
+    // because the observation is armed module-scoped, outside the test's sleep.
     it("the status door re-arms observation for an outstanding record with no watcher", async () => {
       const pane = await seedPane("gate-rearm");
       const row = await subshells.findById(pane);
@@ -644,7 +649,7 @@ describe("SSH gates on the generic pane surfaces", () => {
       while (observationActive(execId) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
       expect(observationActive(execId)).toBe(false);
       await cancelObservation(db, pane);
-    });
+    }, 15_000);
 
     it("a record from another pane is not recoverable through this pane's door", async () => {
       const a = await seedPane("gate-status-a");
