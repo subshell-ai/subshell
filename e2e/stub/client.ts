@@ -31,6 +31,8 @@ export interface StartNodeOptions {
   name: string;
   /** Control plane base URL (default: the e2e stack's). */
   server?: string;
+  /** Extra env merged LAST over the defaults — spec 21 points `HOME` at its ssh fixture's config dir. */
+  extraEnv?: Record<string, string>;
 }
 
 /** A live `subshell run` daemon + its operator-facing surface. */

@@ -1,3 +1,6 @@
+import { spawnSync } from "node:child_process";
+import { readdirSync } from "node:fs";
+import path from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 
 /**
@@ -173,4 +176,48 @@ export async function pickAgent(input: Locator, label: string): Promise<void> {
  */
 export async function dismissDirectoryPanel(page: Page, heading = "New subshell"): Promise<void> {
   await page.getByRole("heading", { name: heading }).click();
+}
+
+/** A wall-clock pause (shared: spec 21's polls and teardown beats use it). */
+export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Polls `check` until it returns true or `budgetMs` elapses; on timeout throws
+ * `label` plus an optional `tail` (the agent log, so a stuck fixture says what
+ * to look at rather than timing out silently). `tickMs` widens for tmux-
+ * spawning checks (each probe is a blocking spawnSync; pane liveness moves on
+ * seconds, not 500 ms) while pure-API polls keep the tight default.
+ */
+export async function pollUntil(
+  label: string,
+  check: () => Promise<boolean>,
+  opts: { tail?: () => string; budgetMs?: number; tickMs?: number } = {},
+): Promise<void> {
+  const { tail, budgetMs = 60_000, tickMs = 500 } = opts;
+  const deadline = Date.now() + budgetMs;
+  for (;;) {
+    if (await check()) return;
+    if (Date.now() > deadline) {
+      throw new Error(`${label}${tail === undefined ? "" : `\n--- agent log tail ---\n${tail()}`}`);
+    }
+    await sleep(tickMs);
+  }
+}
+
+/**
+ * Kill every tmux server the caller's isolated `TMUX_TMPDIR` holds, found by
+ * enumerating `$TMUX_TMPDIR/tmux-<uid>/` — the socket NAMES are the backend's
+ * hash, deliberately not recomputed here (enumerating the dir pins agent-side
+ * truth without coupling to the hashing scheme). Spec 12 and 14 keep their own
+ * copies; this is the shared home a new spec imports.
+ */
+export function sweepTmuxServers(tmuxBase: string): void {
+  const uidDir = path.join(tmuxBase, `tmux-${process.getuid?.() ?? 0}`);
+  let socks: string[] = [];
+  try {
+    socks = readdirSync(uidDir).map((s) => path.join(uidDir, s));
+  } catch {
+    return; // no sockets, nothing to sweep
+  }
+  for (const sock of socks) spawnSync("tmux", ["-S", sock, "kill-server"]);
 }

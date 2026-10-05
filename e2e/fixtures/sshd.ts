@@ -1,0 +1,259 @@
+/**
+ * The e2e sshd fixture (spec 21): a REAL isolated sshd, the port of
+ * `packages/pane-runtime/src/ssh/__tests__/sshd-fixture.test.ts`'s recipe
+ * from Bun APIs to Node ones (the Playwright runner is Node). It owns and
+ * cleans only its own pieces: generated host + client keys, one sshd on a
+ * loopback ephemeral port (own pid tracked), and an `sshConfigHome` the node
+ * agent runs as its HOME. The developer's `~/.ssh` is never touched — every
+ * byte lives under the caller's temp root.
+ *
+ * Trust choice (one pick, documented per the brief): a PRE-TRUSTED
+ * `known_hosts` at `<sshConfigHome>/.ssh/known_hosts` — exactly where the
+ * node's `ssh -G` resolves the default `UserKnownHostsFile` (the child HOME
+ * is this dir), so the approved snapshot carries the fixture's trusted file
+ * and the runtime's mandatory `StrictHostKeyChecking yes` passes on the
+ * pinned key. No `accept-new` first-contact pinning: the feature requires
+ * existing verified trust, and the fixture enters that contract already
+ * trusted rather than exercising a mode production never uses.
+ */
+import { spawn, spawnSync } from "node:child_process";
+import { accessSync, chmodSync, closeSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import type { AddressInfo } from "node:net";
+import { createServer } from "node:net";
+import { userInfo } from "node:os";
+import path from "node:path";
+
+/** The alias every consumer of this fixture references (`~/.ssh/config`). */
+export const SSH_FIXTURE_ALIAS = "e2edest";
+
+/** sshd's known install locations beyond PATH (probe fallbacks, the ladder's shape). */
+const SSHD_KNOWN_PATHS = ["/usr/sbin/sshd"];
+
+/** PATH probe (the Node stand-in for `Bun.which`); sshd also checks the known install paths and honors `E2E_SSHD_BIN`. */
+function which(bin: string, extraPaths: readonly string[] = []): string | null {
+  const override = bin === "sshd" ? process.env["E2E_SSHD_BIN"] : undefined;
+  if (override !== undefined && override !== "") return override;
+  const dirs = (process.env.PATH ?? "").split(path.delimiter).filter((d) => d !== "");
+  for (const dir of [...dirs, ...extraPaths]) {
+    try {
+      accessSync(path.join(dir, bin));
+      return path.join(dir, bin);
+    } catch {
+      // not here
+    }
+  }
+  return null;
+}
+
+/** The missing pieces, empty when the host can run the real-daemon suite. */
+export function missingSshBins(): string[] {
+  const missing: string[] = [];
+  if (which("ssh") === null) missing.push("ssh");
+  if (which("ssh-keygen") === null) missing.push("ssh-keygen");
+  if (which("sshd", SSHD_KNOWN_PATHS) === null) missing.push("sshd");
+  return missing;
+}
+
+/** Loud-skip sentinel (house rule: an unverified trust surface says so, never a silent green). */
+export function haveSshStack(): boolean {
+  const missing = missingSshBins();
+  if (missing.length > 0) {
+    console.warn(`[e2e/sshd] ${missing.join(", ")} not present on this host: REAL-SSH E2E SPECS SKIPPED`);
+  }
+  return missing.length === 0;
+}
+
+/** A loopback ephemeral port, freed the instant it is named (the Node stand-in for `Bun.listen`). */
+async function freePort(): Promise<number> {
+  const srv = createServer();
+  await new Promise<void>((resolve, reject) => {
+    srv.once("error", reject);
+    srv.listen(0, "127.0.0.1", () => resolve());
+  });
+  const { port } = srv.address() as AddressInfo;
+  await new Promise<void>((resolve) => srv.close(() => resolve()));
+  return port;
+}
+
+/** The probe asks "is anything listening"; StrictHostKeyChecking=no is the probe's own trust, never the feature's (the real trust is the pre-trusted known_hosts). */
+const PROBE_OPTS = [
+  "BatchMode=yes",
+  "ConnectTimeout=1",
+  "StrictHostKeyChecking=no",
+  "UserKnownHostsFile=/dev/null",
+].flatMap((o) => ["-o", o]);
+
+/** sshd's readiness, probed through ssh itself: "not refused" means the daemon answers (the bun recipe's rule). */
+async function waitListening(sshBin: string, port: number, logPath: string): Promise<void> {
+  for (let i = 0; i < 100; i++) {
+    const probe = spawnSync(sshBin, ["-p", String(port), ...PROBE_OPTS, "127.0.0.1", "true"], {
+      stdio: ["ignore", "ignore", "pipe"],
+    });
+    const err = probe.stderr?.toString() ?? "";
+    if (!/Connection refused|connect to host 127\.0\.0\.1 port|Connection timed out/i.test(err)) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`sshd did not come up on 127.0.0.1:${port}\n${readFileSync(logPath, "utf8").slice(-2000)}`);
+}
+
+export interface SshFixture {
+  /** The loopback port the fixture sshd answers on. */
+  port: number;
+  /** A named-free loopback port nothing listens on: the honest transport-failure target. */
+  deadPort: number;
+  /** The fixture user — the host's own account (sshd refuses passwords; keys only). */
+  user: string;
+  /** The directory to hand the node agent as HOME (its `.ssh/` carries config + known_hosts). */
+  sshConfigHome: string;
+  /** Absolute path of the passphrase-less client key sshd authorizes. */
+  trustedKeyPath: string;
+  /** The daemon's own stderr log — a real "Accepted publickey" line is a connect truth no client-side fact gives. */
+  logPath: string;
+  /** SIGTERM the daemon this fixture started (and only that one). */
+  stop(): Promise<void>;
+}
+
+/** Live fixture daemons, killed on process exit so a crashed worker never strands an sshd. */
+const live = new Set<number>();
+process.on("exit", () => {
+  for (const pid of live) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // already gone
+    }
+  }
+});
+
+/**
+ * Start the fixture under `root` (a caller-mkdtemp'd dir; the caller owns the
+ * bytes, this function owns the daemon). Generates ed25519 host + client keys,
+ * writes the account config alias `e2edest`, the pre-trusted `known_hosts`,
+ * and sshd's own config (loopback-only, key-only auth, no PAM).
+ */
+export async function startSshFixture(root: string): Promise<SshFixture> {
+  const sshBin = which("ssh");
+  const keygenBin = which("ssh-keygen");
+  const sshdBin = which("sshd", SSHD_KNOWN_PATHS);
+  if (sshBin === null || keygenBin === null || sshdBin === null) {
+    throw new Error(`startSshFixture called on a host without ssh/ssh-keygen/sshd (${missingSshBins().join(", ")})`);
+  }
+  const user = userInfo().username;
+  const home = path.join(root, "home");
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  mkdirSync(path.join(home, ".ssh"), { mode: 0o700 });
+  chmodSync(home, 0o700);
+
+  const hostKey = path.join(root, "hostkey");
+  const clientKey = path.join(root, "clientkey");
+  for (const f of [hostKey, clientKey]) {
+    const kg = spawnSync(keygenBin, ["-q", "-t", "ed25519", "-N", "", "-f", f], { stdio: "ignore" });
+    if (kg.status !== 0) throw new Error(`ssh-keygen failed for ${f}: exit ${kg.status}`);
+  }
+
+  // The account's config: the alias every consumer references. `IdentityAgent
+  // none` keeps an ambient ssh-agent out of resolution (its keys could crowd
+  // the fixture's single trusted key against sshd's MaxAuthTries).
+  const port = await freePort();
+  const deadPort = await freePort();
+  writeFileSync(
+    path.join(home, ".ssh", "config"),
+    [
+      `Host ${SSH_FIXTURE_ALIAS}`,
+      "    HostName 127.0.0.1",
+      `    Port ${port}`,
+      `    User ${user}`,
+      `    IdentityFile ${clientKey}`,
+      "    IdentitiesOnly yes",
+      "    IdentityAgent none",
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+
+  // Pre-trusted known_hosts at the default path ssh consults with HOME=home;
+  // the bracketed `[host]:port` form is what the non-22 port authority uses.
+  const keyTypeAndBlob = readFileSync(`${hostKey}.pub`, "utf8").trim().split(" ").slice(0, 2).join(" ");
+  writeFileSync(path.join(home, ".ssh", "known_hosts"), `[127.0.0.1]:${port} ${keyTypeAndBlob}\n`);
+
+  // sshd trusts exactly the fixture's client key; the host's own `~/.ssh` is
+  // never consulted (StrictModes off lets authorized_keys live at the root).
+  const authorizedKeys = path.join(root, "authorized_keys");
+  writeFileSync(authorizedKeys, `${readFileSync(`${clientKey}.pub`, "utf8").trim()}\n`);
+
+  const sshdDir = path.join(root, "sshd");
+  mkdirSync(sshdDir, { recursive: true });
+  const sshdConfig = path.join(sshdDir, "sshd_config");
+  const sshdLog = path.join(sshdDir, "sshd.log");
+  writeFileSync(
+    sshdConfig,
+    [
+      `Port ${port}`,
+      "ListenAddress 127.0.0.1",
+      "AddressFamily inet",
+      `HostKey ${hostKey}`,
+      `PidFile ${path.join(sshdDir, "sshd.pid")}`,
+      `AuthorizedKeysFile ${authorizedKeys}`,
+      "StrictModes no",
+      "UsePAM no",
+      "UseDNS no",
+      "PasswordAuthentication no",
+      "KbdInteractiveAuthentication no",
+      "PubkeyAuthentication yes",
+      "PermitUserEnvironment no",
+      "PrintMotd no",
+      "LogLevel VERBOSE",
+    ].join("\n"),
+  );
+  // sshd -e means "log to stderr" and takes NO file argument: the fixture
+  // redirects the child's stderr into its own file (the bun recipe's rule).
+  const logFd = openSync(sshdLog, "w");
+  const child = spawn(sshdBin, ["-D", "-f", sshdConfig, "-e"], {
+    stdio: ["ignore", "ignore", logFd],
+    env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+  });
+  closeSync(logFd);
+  const pid = child.pid;
+  if (pid === undefined) throw new Error("sshd spawn returned no pid");
+  live.add(pid);
+  child.once("exit", () => live.delete(pid));
+  // A spawn-adjacent failure is async on a long-lived child: hold the message
+  // for the readiness failure text rather than letting it throw unhandled.
+  let spawnError: string | null = null;
+  child.once("error", (err) => {
+    spawnError = String(err);
+  });
+  try {
+    await waitListening(sshBin, port, sshdLog);
+  } catch (err) {
+    throw new Error(`${String(err)}${spawnError === null ? "" : `\nspawn error: ${spawnError}`}`);
+  }
+
+  return {
+    port,
+    deadPort,
+    user,
+    sshConfigHome: home,
+    trustedKeyPath: clientKey,
+    logPath: sshdLog,
+    async stop(): Promise<void> {
+      live.delete(pid);
+      for (const sig of ["SIGTERM", "SIGKILL"] as const) {
+        try {
+          process.kill(pid, sig);
+        } catch {
+          return;
+        }
+        const deadline = Date.now() + 5_000;
+        while (Date.now() < deadline) {
+          try {
+            process.kill(pid, 0);
+          } catch {
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      }
+    },
+  };
+}
