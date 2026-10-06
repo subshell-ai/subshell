@@ -45,4 +45,41 @@ describe("matchCallbackPath", () => {
     expect(matchCallbackPath("/api/subshells/../users", "GET", OWN).allow).toBe(false);
     expect(matchCallbackPath("/api/subshells/NOT-A-UUID/input", "POST", OWN).allow).toBe(false);
   });
+
+  /**
+   * The C2 belt (review 2026-10-06): the caller normalizes with `new URL`
+   * BEFORE matching and executes the SAME normalized value, so the raw
+   * traversal strings below cannot reach the matcher through the production
+   * path. They reach it DIRECTLY in tests and through a lying runtime, and
+   * the matcher must still refuse them by segment, not just by the first-
+   * segment id equality the old matcher could be walked around with.
+   */
+  test("dot segments inside the pane path are refused outright (the C2 traversal belt)", () => {
+    // own id, then `../` to another pane's id: the old matcher sliced to the
+    // first segment, named the OWN id, and the executor's URL normalization
+    // took it to the OTHER pane's route with this pane's token.
+    expect(matchCallbackPath(`/api/subshells/${OWN}/../${FOREIGN}/input`, "POST", OWN).allow).toBe(false);
+    expect(matchCallbackPath(`/api/subshells/${OWN}/../${FOREIGN}/input`, "POST", OWN)).toMatchObject({
+      allow: false,
+    });
+    // own id, then `../` out of the family entirely: `/api/users`.
+    expect(matchCallbackPath(`/api/subshells/${OWN}/../../users`, "GET", OWN).allow).toBe(false);
+    // single-dot and encoded spellings (the URL parser folds these before the
+    // matcher sees them in production; this pins the belt anyway).
+    expect(matchCallbackPath(`/api/subshells/${OWN}/./input`, "GET", OWN).allow).toBe(false);
+    expect(matchCallbackPath(`/api/subshells/${OWN}/%2e%2e/users`, "GET", OWN).allow).toBe(false);
+    expect(matchCallbackPath(`/api/subshells/${FOREIGN}%2f..%2f${OWN}/input`, "POST", OWN).allow).toBe(false);
+    // the identities/channels families carry no id slot but obey the same rule
+    expect(matchCallbackPath("/api/channels/../users", "GET", OWN).allow).toBe(false);
+    expect(matchCallbackPath("/api/identities/..%2fadmin", "GET", OWN).allow).toBe(false);
+  });
+
+  test("a query on the own-pane path is uniform grammar: matched on pathname, id intact", () => {
+    // (the folded Minor: the old matcher glued `?…` into the id segment, so
+    // `/api/subshells/<own>?x=1` refused while `/log?from=` passed.)
+    // Production matches u.pathname and passes u.search separately, so the
+    // bare pathname is what hits the matcher; the query never corrupts the id.
+    expect(matchCallbackPath(`/api/subshells/${OWN}`, "GET", OWN)).toEqual({ allow: true, paneId: OWN });
+    expect(matchCallbackPath(`/api/subshells/${OWN}/log`, "GET", OWN)).toEqual({ allow: true, paneId: OWN });
+  });
 });

@@ -38,14 +38,34 @@ const CHANNELS_PATH = "/api/channels";
 export type CallbackDecision = { allow: true; paneId: string } | { allow: false; reason: string };
 
 /**
+/**
+ * The C2 belt (review 2026-10-06): the caller already normalizes with
+ * `new URL` before matching, so a production path never carries `.`/`..`
+ * segments or percent-encoding into here. It still checks, because a
+ * `.`-segment or an encoded separator is the exact shape that let a traversal
+ * slip past the first-segment id equality, and no legitimate path in any
+ * allowed family contains either: ids are uuids, channel slugs are
+ * `[a-z0-9-]`, and percent signs have no place in a pathname this door
+ * executes. Refused by segment, before any other rule.
+ */
+function carriesTraversalShape(pathname: string): boolean {
+  if (pathname.includes("%")) return true; // encoded `.`/`/`/anything: never a legal callback byte
+  for (const segment of pathname.split("/")) {
+    if (segment === "." || segment === "..") return true;
+  }
+  return false;
+}
+
+/**
  * Match one forwarded callback against the pane's own-token reach.
  *
- * @param path - the frame's path (pathname, no origin; the runtime normalized it)
+ * @param path - the frame's NORMALIZED pathname (the caller's `new URL`: no origin, no query - `u.search` rides to the executor separately, so a `?…` can never corrupt the id grammar)
  * @param method - the HTTP verb
  * @param paneId - the session's pane id, server-side truth (never read from the frame's path as authority: a path that NAMES this id is required to equal it)
  */
 export function matchCallbackPath(path: string, method: string, paneId: string): CallbackDecision {
   if (!ALLOWED_METHODS.has(method)) return { allow: false, reason: `method ${method} is not a callback verb` };
+  if (carriesTraversalShape(path)) return { allow: false, reason: "path carries a dot or encoded segment" };
   if (path === IDENTITIES_PATH || path.startsWith(`${IDENTITIES_PATH}/`)) return { allow: true, paneId };
   if (path === CHANNELS_PATH || path.startsWith(`${CHANNELS_PATH}/`)) return { allow: true, paneId };
   if (!path.startsWith(OWN_PANE_PREFIX)) return { allow: false, reason: "not a per-subshell path" };

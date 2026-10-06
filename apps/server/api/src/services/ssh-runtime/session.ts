@@ -437,14 +437,39 @@ export class SshRuntimeSession {
       settle(503, JSON.stringify({ error: "too many callbacks in flight" }));
       return;
     }
-    const paneId = this.hooks.resolveCallbackPane(this, path, method, framePaneId);
+    // Normalize BEFORE matching, and execute the SAME normalized value
+    // (review C2): the executor's `new URL(path, loopback)` already resolves
+    // `.`/`..`, so a matcher working on the RAW string and an executor
+    // working on the normalized one disagree exactly where it hurts - a path
+    // like `/api/subshells/<own>/../../users` matched the own id and then
+    // EXECUTED `/api/users` with this pane's token. One parse, shared by the
+    // gate and the door. The sentinel base is inert here: only `pathname`
+    // and `search` are ever recomposed, onto the executor's own loopback.
+    let normalized: URL;
+    try {
+      normalized = new URL(path, RUNTIME_PANE_BASE_URL);
+    } catch {
+      // A path this parser cannot read is not a path to execute, matched or
+      // otherwise: fail closed with the same 403 every refusal answers.
+      logger.warn(`ssh-runtime callback refused an unparsable path for ${this.id.slice(0, 8)}`);
+      settle(403, JSON.stringify({ error: "forbidden" }));
+      return;
+    }
+    const paneId = this.hooks.resolveCallbackPane(this, normalized.pathname, method, framePaneId);
     if (paneId === null) {
       settle(403, JSON.stringify({ error: "forbidden" }));
       return;
     }
     this.#callbacksInFlight += 1;
     try {
-      const answer = await this.hooks.executeCallback(this, reqId, paneId, method, path, body);
+      const answer = await this.hooks.executeCallback(
+        this,
+        reqId,
+        paneId,
+        method,
+        `${normalized.pathname}${normalized.search}`,
+        body,
+      );
       settle(answer.status, answer.body);
     } catch (err) {
       logger.withError(err).warn(`ssh-runtime callback execution failed for ${path}`);

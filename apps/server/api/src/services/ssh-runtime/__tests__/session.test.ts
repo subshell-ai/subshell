@@ -15,8 +15,10 @@ import {
   SshSessionFrameDecoder,
   type SshSessionTargetWire,
 } from "@internal/subshell-protocol";
+import { SERVER_PORT } from "@/constants.js";
 import * as nodeRpc from "@/services/nodes/node-rpc.js";
 import { type SessionLossReason, SshRuntimeSession } from "../session.js";
+import { sessionHooks } from "../session-registry.js";
 
 const SESSION_ID = "0f4c1a7e-9b62-4a11-8d3e-5c2b1a0f9e8d";
 const PANE_ID = "1e5d2b8f-0a73-5c22-9e41-6d3c2b1a0f7c";
@@ -431,6 +433,114 @@ describe("callback reqId honesty (I-A)", () => {
     } finally {
       process.off("unhandledRejection", onRejection);
       mock.module("@/services/nodes/node-rpc.js", () => ({ ...nodeRpc, sendCommand: original }));
+    }
+  });
+});
+
+/**
+ * The C2 traversal closure (review 2026-10-06): the plane normalizes the
+ * forwarded path with `new URL` BEFORE the allowlist match and executes the
+ * SAME normalized value, so the two normalization points cannot disagree.
+ * Real `sessionHooks()` wiring (the registry's matcher), a global-fetch spy
+ * (so a slipped traversal would be VISIBLE as a fetch to the wrong route,
+ * not an accidental real request), and intercepted `rest_response` frames.
+ */
+describe("callback path normalization (C2)", () => {
+  const OWN = "2a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d";
+
+  function wireRealHooks(session: SshRuntimeSession): { fetchCalls: string[]; sent: { status: number }[] } {
+    session.hooks = sessionHooks();
+    session.registerPane(OWN, "subshell_token_for_own_pane");
+    const fetchCalls: string[] = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      fetchCalls.push(String(input));
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as typeof fetch;
+    const sent: { status: number }[] = [];
+    const original = nodeRpc.sendCommand;
+    mock.module("@/services/nodes/node-rpc.js", () => ({
+      ...nodeRpc,
+      sendCommand: async (_nodeId: string, cmd: { type: string; data_b64?: string }) => {
+        if (cmd.type === "ssh_session_send") {
+          const d = new SshSessionFrameDecoder();
+          for (const raw of d.push(new Uint8Array(Buffer.from(cmd.data_b64 ?? "", "base64")))) {
+            const f = raw as { type?: string; status?: number };
+            if (f.type === "rest_response") sent.push({ status: f.status ?? -1 });
+          }
+        }
+        return { ok: true };
+      },
+    }));
+    (restoreBag as { fetch: typeof fetch; rpc: typeof nodeRpc.sendCommand }).fetch = originalFetch;
+    (restoreBag as { fetch: typeof fetch; rpc: typeof nodeRpc.sendCommand }).rpc = original;
+    return { fetchCalls, sent };
+  }
+  const restoreBag: Record<string, unknown> = {};
+  const restore = (): void => {
+    globalThis.fetch = restoreBag.fetch as typeof fetch;
+    mock.module("@/services/nodes/node-rpc.js", () => ({ ...nodeRpc, sendCommand: restoreBag.rpc }));
+  };
+
+  const request = (session: SshRuntimeSession, path: string): void => {
+    session.ingestBytes(
+      encodeSshSessionFrame({ type: "rest_request", reqId: crypto.randomUUID(), method: "GET", path, paneId: OWN }),
+    );
+  };
+
+  test("own-id-then-../ to /api/users: normalized before matching, refused 403, NOTHING fetched", async () => {
+    const { session } = newSession();
+    const { fetchCalls, sent } = wireRealHooks(session);
+    try {
+      request(session, `/api/subshells/${OWN}/../../users`);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(fetchCalls, "the traversal must never reach the executor").toEqual([]);
+      expect(sent).toEqual([{ status: 403 }]);
+    } finally {
+      restore();
+    }
+  });
+
+  test("own-id-then-../ back to another pane's route: refused even though the first segment names own", async () => {
+    const { session } = newSession();
+    const { fetchCalls, sent } = wireRealHooks(session);
+    try {
+      request(session, `/api/subshells/${OWN}/../1e5d2b8f-0a73-5c22-9e41-6d3c2b1a0f7c/input`);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(fetchCalls).toEqual([]);
+      expect(sent).toEqual([{ status: 403 }]);
+    } finally {
+      restore();
+    }
+  });
+
+  test("a same-tree dot detour EXECUTES the normalized own path, not the raw string", async () => {
+    const { session } = newSession();
+    const { fetchCalls, sent } = wireRealHooks(session);
+    try {
+      // `..` back into own id then down: the NORMALIZED path IS the allowed
+      // own route; the executor must be handed exactly that, on loopback.
+      request(session, `/api/subshells/other/../${OWN}/input`);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(fetchCalls.length).toBe(1);
+      expect(fetchCalls[0]).toBe(`http://127.0.0.1:${SERVER_PORT}/api/subshells/${OWN}/input`);
+      expect(sent).toEqual([{ status: 200 }]);
+    } finally {
+      restore();
+    }
+  });
+
+  test("query glue is uniform: /api/subshells/<own>?x=1 matches (id intact) and the search rides through", async () => {
+    const { session } = newSession();
+    const { fetchCalls, sent } = wireRealHooks(session);
+    try {
+      request(session, `/api/subshells/${OWN}?x=1`);
+      await new Promise((r) => setTimeout(r, 30));
+      expect(fetchCalls.length).toBe(1);
+      expect(fetchCalls[0]).toBe(`http://127.0.0.1:${SERVER_PORT}/api/subshells/${OWN}?x=1`);
+      expect(sent).toEqual([{ status: 200 }]);
+    } finally {
+      restore();
     }
   });
 });
