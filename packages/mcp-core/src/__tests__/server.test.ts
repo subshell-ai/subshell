@@ -72,10 +72,10 @@ describe("subshell mcp instructions", () => {
     expect(SUBSHELL_MCP_INSTRUCTIONS.length).toBeLessThan(1200);
   });
 
-  it("the briefing no longer claims EVERY pane is an agent (SSH-SUPPORT.md §1: SSH panes are agents-optional and gated)", () => {
+  it("the briefing no longer claims EVERY pane is an agent (plain terminal panes are not; the managed SSH pane retired with its product)", () => {
     expect(SUBSHELL_MCP_INSTRUCTIONS).not.toMatch(/panes on this control plane are agent sessions/);
     expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("are not agents");
-    expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("grant-gated");
+    expect(SUBSHELL_MCP_INSTRUCTIONS).not.toContain("grant-gated");
   });
 });
 
@@ -150,15 +150,6 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
         // Node-to-node archive transfer (spec 2026-10-01 §6): one tool, copy
         // and diff-sync, the mode a flag not a second verb.
         "transfer_files",
-        // The SSH family (SSH-SUPPORT.md §4, Wave 2): six thin passthroughs
-        // over the frozen /api/ssh REST surface. No SSH-specific input/log
-        // tools: the existing pane tools reach SSH terminals behind policy.
-        "list_ssh_connections",
-        "execute_ssh_command",
-        "read_ssh_command",
-        "cancel_ssh_command",
-        "open_ssh_terminal",
-        "get_terminal_execution",
       ]),
     );
   });
@@ -224,55 +215,5 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect(byName.transfer_files.description).toContain("round trips");
     expect(byName.transfer_files.description).toContain("update the node");
     expect(byName.transfer_files.description).toContain("never restart your own pane");
-  });
-
-  it("the SSH family carries the frozen arg names and its honesty contract on the wire (SSH-SUPPORT.md §4)", async () => {
-    const byName = Object.fromEntries((await listTools()).map((t) => [t.name, t]));
-    // Arg names are the frozen MCP block's, snake_case, no invented extras.
-    expect(Object.keys(byName.list_ssh_connections.inputSchema.properties ?? {})).toEqual([]);
-    expect(Object.keys(byName.execute_ssh_command.inputSchema.properties).sort()).toEqual([
-      "command",
-      "connection_id",
-      "deadline_ms",
-      "remote_dir",
-    ]);
-    expect(Object.keys(byName.read_ssh_command.inputSchema.properties).sort()).toEqual([
-      "max_bytes",
-      "run_id",
-      "stderr_from_byte",
-      "stdout_from_byte",
-      "wait_ms",
-    ]);
-    expect(Object.keys(byName.cancel_ssh_command.inputSchema.properties)).toEqual(["run_id"]);
-    expect(Object.keys(byName.open_ssh_terminal.inputSchema.properties).sort()).toEqual([
-      "cols",
-      "connection_id",
-      "rows",
-    ]);
-    expect(Object.keys(byName.get_terminal_execution.inputSchema.properties).sort()).toEqual([
-      "execution_id",
-      "subshell_id",
-    ]);
-    // The honesty contract is shipped copy, so it is pinned on the wire:
-    // grants-only list, no auto-retry, read-never-cancels, the exit-255
-    // caveat, cancellation's unconfirmed remote half, unknown stayed unknown.
-    expect(byName.list_ssh_connections.description).toContain("GRANTED");
-    expect(byName.execute_ssh_command.description).toContain("auto-retried");
-    expect(byName.read_ssh_command.description).toContain("NEVER cancels");
-    expect(byName.read_ssh_command.description).toContain("255");
-    expect(byName.cancel_ssh_command.description).toContain("UNCONFIRMED");
-    expect(byName.open_ssh_terminal.description).toContain("quota_terminals");
-    expect(byName.get_terminal_execution.description).toContain("never renamed");
-    // No bounds the server also holds (the exec-tool precedent): the numeric
-    // args carry only zod's safe-integer sentinel as their bound, i.e. the
-    // schema refuses nothing the REST clamp would not itself decide.
-    const deadline = JSON.stringify(
-      (byName.execute_ssh_command.inputSchema.properties as Record<string, unknown>).deadline_ms,
-    );
-    expect(deadline).toContain('"maximum":9007199254740991');
-    expect(deadline).not.toContain('"maximum":3600000');
-    const waitMs = JSON.stringify((byName.read_ssh_command.inputSchema.properties as Record<string, unknown>).wait_ms);
-    expect(waitMs).toContain('"maximum":9007199254740991');
-    expect(waitMs).not.toContain('"maximum":30000');
   });
 });

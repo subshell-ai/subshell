@@ -21,10 +21,9 @@ export class ApiError extends Error {
     readonly code?: string,
     /**
      * The structured body's client-safe metadata (`ApiErrorResponse.metadata`,
-     * set server-side via `metadataSafe`). The SSH surface routes its named
-     * refusals through it (`metadata.sshCode`) because its top-level `code`
-     * carries the generic family name; the ssh error map reads this by
-     * equality, exactly like `code` above.
+     * set server-side via `metadataSafe`), carried through verbatim so any
+     * refusal that names itself in metadata (e.g. `metadata.sshCode` on the
+     * SSH-runtime surface) stays inspectable at the tool layer.
      */
     readonly metadata?: Record<string, unknown>,
   ) {

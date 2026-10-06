@@ -66,15 +66,14 @@ describe("subshell tokens", () => {
     expect(res.key.metadata).toEqual({ kind: "subshell", subshellId: sid });
     // EXACT map, not a subset: `prompts` arrived with the saved-prompt
     // library (spec 2026-09-28), `transfers` with node-to-node archive
-    // transfer (spec 2026-10-01), `ssh` with SSH support (spec 2026-10-04 -
-    // the coarse half of the grant double-lock; useless without a row-level
-    // grant), and this line is what notices a mint drift.
+    // transfer (spec 2026-10-01); the `ssh` scope retired with the
+    // destination product (design 2026-10-05 §7), and this line is what
+    // notices a mint drift.
     expect(res.key.permissions).toEqual({
       channels: ["read", "write"],
       subshells: ["read", "write"],
       prompts: ["read", "write"],
       transfers: ["read", "write"],
-      ssh: ["read", "write"],
     });
   });
 

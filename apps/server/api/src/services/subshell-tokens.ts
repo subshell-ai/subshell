@@ -40,12 +40,9 @@ export async function issueSubshellToken(subshellId: string, userId: string): Pr
         subshells: ["read", "write"],
         prompts: ["read", "write"],
         transfers: ["read", "write"],
-        // `ssh` joined with SSH support (spec 2026-10-04 §2): the coarse half
-        // of the double lock. It grants nothing by itself - every SSH use also
-        // needs a live row-level grant binding THIS key id to a connection
-        // revision. No legacy pass: pre-feature maps 403 until a restart
-        // re-mints, so no existing agent ever silently gains SSH reach.
-        ssh: ["read", "write"],
+        // The `ssh` scope retired with the destination product (design
+        // 2026-10-05 §7): a fresh map carries no `ssh` key, and the guard's
+        // read of an old key's stale map finds no `ssh` route to act on.
       },
     },
   })) as unknown as CreatedApiKey;
