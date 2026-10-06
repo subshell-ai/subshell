@@ -1,4 +1,5 @@
 import { chmodSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { createConnection } from "node:net";
 import { join } from "node:path";
 import { isSubshellId } from "../subshell-meta.js";
 import { diag } from "./stdio.js";
@@ -88,12 +89,43 @@ interface Door {
   readonly pending: Map<string, { settle(status: number, body: string): void }>;
 }
 
-/** Bind one door: unlink a stale socket file, bind, then PIN the mode to 0600 before any pane can connect. */
+/**
+ * Is another process LISTENING on this exact path? A refused connect (or a
+ * non-socket file, or a timeout - the kernel answers ECONNREFUSED for a
+ * socket inode whose owner died) is the honest word for STALE, which is the
+ * file §6's reconciliation exists to clear. A path that ACCEPTS is a live
+ * door belonging to a session, and stealing it (the I5 collision: a second
+ * live serve's reconcile loop unlinked the first session's pane doors, so
+ * every callback moved onto a channel that never issued those panes' tokens
+ * and 403'd them) is refused instead - by the bind, and by the plane's
+ * refuse-a-second-live-session gate that should have prevented the spawn at
+ * all.
+ */
+function hasLiveListener(path: string, budgetMs = 250): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const socket = createConnection({ path });
+    let settled = false;
+    const settle = (live: boolean): void => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(live);
+    };
+    socket.setTimeout(budgetMs, () => settle(false)); // a silent accept is not an answering door either
+    socket.once("connect", () => settle(true));
+    socket.once("error", () => settle(false));
+  });
+}
+
+/** Bind one door: refuse a LIVE path, unlink a stale one, bind, then PIN the mode to 0600. */
 async function bindDoor(
   path: string,
   paneId: string | undefined,
   onRequest: (req: CallbackRequest) => void,
 ): Promise<Door> {
+  if (existsSync(path) && (await hasLiveListener(path))) {
+    throw new Error(`callback socket path has a live listener (another session serves it): ${path}`);
+  }
   if (existsSync(path)) {
     try {
       unlinkSync(path);
@@ -146,6 +178,11 @@ async function bindDoor(
   });
   // The socket IS the access control surface: mode 0600 pins it to this OS
   // user before any pane could connect (bind creates it 0755-and-umask).
+  // Acknowledged microsecond window between `listen` and this chmod (the
+  // pane-log-hygiene posture, restated): the path lives inside a 0700 dir
+  // that only this OS user can even traverse, so the directory mode is the
+  // door and the file mode the belt; a same-user connector could race the
+  // chmod, and a same-user attacker is the accepted boundary (security.md §0).
   try {
     chmodSync(path, 0o600);
   } catch {

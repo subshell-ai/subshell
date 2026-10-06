@@ -123,6 +123,59 @@ describe("callback doors", () => {
     }
   });
 
+  /**
+   * The I5 collision (review 2026-10-06, mechanism VERIFIED against this
+   * code): `runtimeDataDir` is destination-deterministic, and a second live
+   * session's serve RE-CREATES every door the meta store names at startup
+   * (`serve.ts`'s reconcile loop) with the plain unlink-then-bind rule.
+   * Unlinking a LIVE socket the FIRST session's panes are dialing moves
+   * those panes' callbacks onto the second session's channel, where the
+   * plane never issued their tokens: every callback 403s and the first
+   * session's panes lose MCP until it re-attaches. The bind must therefore
+   * PROBE: a path with a live listener is not stale, and a door whose path
+   * is live elsewhere is refused, not stolen. A path nobody is listening on
+   * (the killed-previous-serve case below, and the whole point of §6's
+   * reconciliation) still unlinks and binds.
+   */
+  test("a colliding serve dies at the shared door and steals nothing, pane doors intact (I5)", async () => {
+    const dataDir = freshDataDir();
+    const first: CallbackRequest[] = [];
+    const secondSeen: CallbackRequest[] = [];
+    const doorsA = await startCallbackDoors(dataDir, (r) => first.push(r));
+    await doorsA.ensurePane(PANE_A);
+    // The loser's startup bind fails at the shared door (bound FIRST in
+    // `startCallbackDoors`), so its reconcile loop never runs and no pane
+    // door can be unlinked out from under the live serve.
+    await expect(startCallbackDoors(dataDir, (r) => secondSeen.push(r))).rejects.toThrow(/live/i);
+    try {
+      const inflight = ask(paneCallbackSockPath(dataDir, PANE_A), `/api/subshells/${PANE_A}/attention`);
+      await waitUntil(() => first.length === 1); // the live door still answers its own session
+      expect(secondSeen.length, "the refused serve touched no door").toBe(0);
+      doorsA.resolve((first[0] as CallbackRequest).reqId, 200, "{}");
+      expect((await inflight).status).toBe(200);
+    } finally {
+      await doorsA.stop();
+    }
+  });
+
+  test("the shared door of a live serve is refused, not re-bound, by a second one (I5)", async () => {
+    const dataDir = freshDataDir();
+    const doorsA = await startCallbackDoors(dataDir, () => {});
+    try {
+      // The second serve's startup bind of `<dataDir>/callback.sock` must
+      // FAIL while the first listens (its session then dies at the hello,
+      // which is the honest outcome of a race the plane's refusal missed);
+      // it must not move the path onto a channel no pane was baked into.
+      await expect(startCallbackDoors(dataDir, () => {})).rejects.toThrow(/live/i);
+    } finally {
+      await doorsA.stop();
+    }
+    // With the first gone, the path is a plain stale file: the next bind
+    // takes it (the reconcile-on-reopen path the design REQUIRES).
+    const doorsC = await startCallbackDoors(dataDir, () => {});
+    await doorsC.stop();
+  });
+
   test("a stale socket file from a killed previous serve does not block the bind", async () => {
     const dataDir = freshDataDir();
     const seen: CallbackRequest[] = [];
