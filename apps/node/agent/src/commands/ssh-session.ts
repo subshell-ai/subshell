@@ -171,10 +171,13 @@ export function drainBrokeredSessions(dataDir: string): number {
   const sup = peekSshSessionSupervisor(dataDir);
   if (sup === undefined) return 0;
   let drained = 0;
-  // ONE ref's throw costs ONE close (review m-A): `close` writes a record
-  // file, and ENOSPC/EROFS/EACCES are ordinary on a real disk. This runs on
-  // the daemon's reconnect path, so aborting the loop here would strand
-  // every remaining child AND (with the caller's guard) the node's link.
+  // ONE ref's throw costs ONE close, never the loop (review m-A). Since the
+  // round-4 reorder `close()` kills first and writes the record best-effort,
+  // it has no reachable disk throw left - so this guard is belt-and-beyond:
+  // it stands because the drain runs on the daemon's reconnect path, where an
+  // unexpected throw mid-loop would strand every remaining child AND (with the
+  // caller's outer guard) the node's link. Cheap insurance against a future
+  // close() that can fail, not against a fault it can no longer have.
   for (const ref of sup.liveRefs()) {
     try {
       sup.close(ref);
