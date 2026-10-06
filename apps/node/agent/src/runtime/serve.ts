@@ -15,6 +15,7 @@ import { clientHome } from "../config.js";
 import { selfInvokePrefix } from "../self-invoke.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 import { NODE_VERSION } from "../version.js";
+import type { CallbackDoors } from "./callback-sock.js";
 import { startCallbackDoors } from "./callback-sock.js";
 import { type RuntimeReportRow, runRuntimeCommand } from "./dispatch.js";
 import { diag, RuntimeWriter, redirectConsoleToStderr, startStdinReader } from "./stdio.js";
@@ -178,7 +179,7 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
   let closing = false;
   let resolveDone: () => void = () => {};
   const done = new Promise<number>((resolve) => {
-    resolveDone = () => resolve(shutdown(callback, ctx));
+    resolveDone = () => resolve(shutdown(doors, ctx));
   });
 
   const finish = (reason: string): void => {
@@ -325,7 +326,7 @@ function mapNodeEventToRuntimeFrame(ev: NodeEvent): SshRuntimeEventFrame | null 
  * destination user); stdout bytes already in the pipe drain when the process
  * exits, which is the last write this function orders.
  */
-function shutdown(callback: Awaited<ReturnType<typeof startCallbackSocket>>, ctx: CommandContext): number {
+function shutdown(doors: CallbackDoors, ctx: CommandContext): number {
   for (const [, handle] of [...ctx.tails]) {
     try {
       handle.stop();
@@ -335,7 +336,7 @@ function shutdown(callback: Awaited<ReturnType<typeof startCallbackSocket>>, ctx
   }
   ctx.tails.clear();
   if (ctx.watchTick !== undefined) clearInterval(ctx.watchTick);
-  void callback.stop().catch(() => {});
+  void doors.stop().catch(() => {});
   return 0;
 }
 

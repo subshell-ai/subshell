@@ -99,7 +99,12 @@ describe("SubshellApi", () => {
       seen = { url: String(input), init };
       return new Response("{}", { status: 200 });
     }) as never;
-    expect(await door.req("/api/subshells/s1/attention", { method: "POST", body: { kind: "resumed" } })).toEqual({});
+    expect(
+      await door.req<Record<string, unknown>>("/api/subshells/s1/attention", {
+        method: "POST",
+        body: { kind: "resumed" },
+      }),
+    ).toEqual({});
     const headers = (seen?.init?.headers ?? {}) as Record<string, string>;
     expect((seen?.init as { unix?: string } | undefined)?.unix).toBe("/srv/runtime/callbacks/s1.sock");
     expect(headers["authorization"]).toBeUndefined();
