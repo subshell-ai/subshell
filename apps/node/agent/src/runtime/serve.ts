@@ -12,9 +12,10 @@ import {
 import type { CommandContext } from "../commands/context.js";
 import type { NodeConfig } from "../config.js";
 import { clientHome } from "../config.js";
+import { selfInvokePrefix } from "../self-invoke.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 import { NODE_VERSION } from "../version.js";
-import { startCallbackSocket } from "./callback-sock.js";
+import { startCallbackDoors } from "./callback-sock.js";
 import { type RuntimeReportRow, runRuntimeCommand } from "./dispatch.js";
 import { diag, RuntimeWriter, redirectConsoleToStderr, startStdinReader } from "./stdio.js";
 
@@ -109,6 +110,11 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
     requestRestart: () => diag("runtime: restart requested; a session runtime exits instead"),
     ws: {
       send: (ev) => {
+        // A pane's death retires its callback door: the exit watcher is the
+        // ONE truth of "this pane is gone" the runtime owns (terminate/kill
+        // results cover the plane-ordered deaths; this covers the natural
+        // ones), so the door closes here as well as there.
+        if (ev.type === "exit") void doors.dropPane(ev.subshellId);
         // The node-link event vocabulary the reused executors emit maps onto
         // the runtime's own event frames; anything unmapped (maintenance flips
         // a runtime cannot have) is a diagnostic line, never a frame.
@@ -125,15 +131,25 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
     },
   };
 
-  const callback = await startCallbackSocket(dataDir, (req) => {
+  const doors = await startCallbackDoors(dataDir, (req) => {
     writer.writeFrame({
       type: "rest_request",
       reqId: req.reqId,
       method: req.method,
       path: req.path,
       ...(req.body !== undefined ? { body: req.body } : {}),
+      ...(req.paneId !== undefined ? { paneId: req.paneId } : {}),
     } satisfies SshRuntimeEventFrame);
   });
+  // A reconciled destination (design §6): the panes that SURVIVED the last
+  // session still hold their launch-baked `SUBSHELL_RUNTIME_CALLBACK_SOCK`
+  // pointing at their own door, so this serve re-creates every door the meta
+  // store names before answering the hello. A pane whose door is missing gets
+  // connection-refused; re-creating them here is what makes its callbacks
+  // work again without any new wire fact.
+  for (const meta of await ctx.meta.list()) {
+    await doors.ensurePane(meta.subshellId);
+  }
 
   // The hello (design §2: first frame or the open fails). `paneCount` is the
   // census of the destination socket as it stands: a SECOND session on the
@@ -145,11 +161,14 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
     agentVersion: NODE_VERSION,
     os: process.platform,
     arch: process.arch,
-    capabilities: ["ssh-runtime", "callback-sock"],
+    capabilities: ["ssh-runtime", "callback-sock", "detect", "pane-callback-sock"],
     homeDir: process.env.HOME || homedir(),
     dataDir,
     tmuxSocket: input.tmuxSocket,
     paneCount: countSocketPanes(ctx.tmux, input.tmuxSocket),
+    // How to re-enter THIS binary from a pane on the destination (the agent's
+    // `ready` fact, same prefix; the plane appends `mcp`/`report`).
+    selfInvoke: selfInvokePrefix(),
   } satisfies SshRuntimeEventFrame);
 
   // Serial dispatch, the daemon's ordering contract ported: one in-flight
@@ -186,7 +205,7 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
           }
           if (closing) return; // already committed to the exit path
           if (frame.type === "rest_response") {
-            callback.resolve(frame.reqId, frame.status, frame.body ?? "");
+            doors.resolve(frame.reqId, frame.status, frame.body ?? "");
             return;
           }
           if (frame.type === "close") {
@@ -196,8 +215,14 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
             finish("close");
             return;
           }
+          // The pane door opens BEFORE the spawn (design §5's contract is that
+          // the pane's first callback can arrive as soon as its harness is
+          // up); a refused launch rolls it back with the pane.
+          const paneIdForLaunch = frame.type === "launch" ? frame.cmd.subshellId : null;
+          if (paneIdForLaunch !== null) await doors.ensurePane(paneIdForLaunch);
           const result = await runRuntimeCommand(ctx, input.tmuxSocket, frame);
           if (result.ok) {
+            if (frame.type === "terminate" || frame.type === "kill") await doors.dropPane(frame.subshellId);
             writer.writeFrame({
               type: "result",
               ref: frame.ref,
@@ -205,6 +230,7 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
               ...(result.data !== undefined ? { data: result.data } : {}),
             } satisfies SshRuntimeEventFrame);
           } else {
+            if (paneIdForLaunch !== null) await doors.dropPane(paneIdForLaunch);
             writer.writeFrame({ type: "result", ref: frame.ref, ok: false, error: result.error });
           }
         })

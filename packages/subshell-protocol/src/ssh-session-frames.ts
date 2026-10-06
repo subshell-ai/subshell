@@ -29,7 +29,7 @@
 // the arm parser from the parsers module. The launch body is the node link's
 // OWN command shape so a runtime pane and a node-link pane are launched by one
 // grammar (the design's "mirror the node command bodies, minus crypto").
-import type { NodeCommandBody } from "./node-frames.js";
+import type { DetectSpecWire, NodeCommandBody } from "./node-frames.js";
 import {
   SSH_REQ_ID_MAX_CHARS,
   SSH_SESSION_INBOUND_QUEUE_FRAMES,
@@ -43,6 +43,9 @@ export { SSH_REQ_ID_MAX_CHARS, SSH_SESSION_INBOUND_QUEUE_FRAMES, SSH_SESSION_OPE
 
 /** The node link's `launch` body, reused verbatim as the runtime launch frame's payload. */
 export type SshRuntimeLaunchBody = Extract<NodeCommandBody, { type: "launch" }>;
+
+/** The node link's `detect` specs, reused verbatim as the runtime detect frame's payload (same rule, same answer). */
+export type SshRuntimeDetectSpecs = DetectSpecWire[];
 
 /* ------------------------------------------------------------------ */
 /* constants                                                           */
@@ -177,6 +180,16 @@ export type SshRuntimeHelloWire = {
   tmuxSocket: string;
   /** Panes already living on that socket at hello time (the reconcile count; 0 for a fresh destination). */
   paneCount: number;
+  /**
+   * How the runtime re-enters its OWN binary (the `ready` frame's `selfInvoke`
+   * fact, same shape, prefix WITHOUT a subcommand). The plane appends `mcp` to
+   * compose a pane's MCP registration and `report` to compose its hooks — the
+   * agent's exact pattern; the runtime simply reports it over the session
+   * channel instead of the node link. Absent = a runtime that predates the
+   * field, and the plane falls back to the binary's name on PATH (`subshell`),
+   * which is how the agent's own `ready`-without-selfInvoke fallback reads.
+   */
+  selfInvoke?: { command: string; args: string[] };
 };
 
 /**
@@ -248,6 +261,16 @@ export type SshRuntimeCommandFrame =
   | { type: "tail_stop"; ref: string; subId: string }
   /** Directory listing for the remote picker (the design's `list_dirs`; the runtime answers it with the same executor the node link's `fs_ls` uses). */
   | { type: "list_dirs"; ref: string; path: string }
+  /**
+   * Probe binaries and answer named env values (task 25, the node link's
+   * `detect` body minus the link): the PLANE asks, the runtime answers exactly
+   * what was asked, never a scan. `specs`/`envNames` are the SAME shapes the
+   * node link's detect carries (`DetectSpecWire[]`, printable env NAMES); the
+   * envelope check is shallow like `launch`'s, and the runtime re-runs
+   * `parseNodeCommandBody`'s deep detect arm before the executor sees it.
+   * Gated by the hello's `"detect"` capability on the plane side.
+   */
+  | { type: "detect"; ref: string; specs: SshRuntimeDetectSpecs; envNames: string[] }
   | { type: "stat_dir"; ref: string; path: string }
   | { type: "remove_paths"; ref: string; paths: string[] }
   /** Ask for a fresh alive/dead census of every pane the runtime tracks (the reconcile ride; design §6). */
@@ -282,5 +305,14 @@ export type SshRuntimeEventFrame =
    * The plane answers with a `rest_response` carrying the same `reqId`; the
    * parsers bound it ({@link SSH_REQ_ID_MAX_CHARS}, printable) on both
    * directions, so the answer frame's size is finite before the body is cut.
+   *
+   * `paneId` is the per-connection ATTRIBUTION (task 25): set when the runtime
+   * accepted the connection on that pane's OWN callback door
+   * (`<dataDir>/callbacks/<paneId>.sock`, named in the pane's
+   * `SUBSHELL_RUNTIME_CALLBACK_SOCK` at launch), and the plane executes the
+   * request as exactly that pane's token — no credential ever crossed the
+   * wire to make the identification. Absent = the shared door
+   * (`<dataDir>/callback.sock`, the slice's manual-curl surface), where the
+   * plane's rule is the slice's: resolvable only for a one-pane session.
    */
-  | { type: "rest_request"; reqId: string; method: string; path: string; body?: string };
+  | { type: "rest_request"; reqId: string; method: string; path: string; body?: string; paneId?: string };

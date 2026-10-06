@@ -601,7 +601,10 @@ export function createSubshellMcpServer(deps: { api: ToolApi; own: IdentityKeyPa
  */
 export async function runSubshellMcp(): Promise<void> {
   const env = readMcpEnv();
-  const api = new SubshellApi({ baseUrl: env.baseUrl, apiKey: env.apiKey });
+  // `callbackSock` is the whole runtime-pane difference (task 25): every tool
+  // call, the identity registration, and the extend timer ride the single
+  // `api` object, so the door is wired once here and nowhere else.
+  const api = new SubshellApi({ baseUrl: env.baseUrl, apiKey: env.apiKey, callbackSock: env.callbackSock });
   const own = await loadOrCreateIdentity(env.dataDir, `sess:${env.subshellId}`);
   // Register/rotate our key so members can seal replies to us. Best-effort: a
   // 409 (identity_required handled server-side only gates create/join) must

@@ -72,20 +72,39 @@ export class RuntimeSessionLauncher implements NodeLauncher {
    * composes it (argv with the placeholder, `resolve` from the harness's
    * detect spec) - the runtime's frame carries that body VERBATIM and the
    * runtime's `execLaunch` is the same executor a node runs, which is the
-   * whole reuse story of design §2. No MCP registration: a terminal pane
-   * carries none, and a runtime pane's MCP is the callback socket (design §5),
-   * not a registration file.
+   * whole reuse story of design §2. The task-25 addition is parity for a PRESET
+   * plan: the `mcp` registration (the caller baked it with
+   * `planRemoteSubshellMcp` against the hello facts - dataDir from the runtime,
+   * spawn command from the reported self-invoke), the `harnessSession` resume
+   * pin, and the reporter half of the ARGV (baked by `buildCommand` from the
+   * plan's `reporter`, the runtime's self-invoke of `report` - the hooks run
+   * against the pane's callback door, see mcp-core's report.ts).
+   *
+   * What does NOT ride, by design and load-bearing (design §5, task 25): the
+   * plan's `subshellEnv` for a runtime pane is composed by the CALLER without
+   * `SUBSHELL_API_KEY`/plane reachability - the id, the display name, the pane
+   * door (`SUBSHELL_RUNTIME_CALLBACK_SOCK`) and the destination data dir. The
+   * pane's REAL bearer token stays in `#paneTokens` on the plane; the MCP
+   * child and every hook route through the door, where the plane executes them
+   * AS the pane. A frame or pane env that ever carries a minted token is the
+   * invariant breaking - pinned by test, scanning both.
    */
   async launch(plan: LaunchPlan): Promise<void> {
     if (!plan.harness.detectSpec) throw new Error(`harness binary missing: ${plan.harness.id}`);
+    if (plan.mcp && !plan.mcpConfigPath) {
+      // The frame grammar's own requirement (RemoteLauncher's identical local
+      // refusal): content without a write target is a caller bug, and nothing
+      // reaches the wire.
+      throw new Error(`runtime launch of "${plan.id}": LaunchPlan.mcpConfigPath is required when mcp is set`);
+    }
     const argv = plan.harness.buildCommand({
       binary: HARNESS_BINARY_PLACEHOLDER,
       cwd: plan.cwd,
       preset: plan.preset,
       subshellName: plan.subshellName,
-      mcp: undefined,
-      harnessSession: undefined,
-      reporter: undefined,
+      mcp: plan.mcp,
+      harnessSession: plan.harnessSession,
+      reporter: plan.reporter,
     });
     const cmd: NodeCommandBody = {
       type: "launch",
@@ -95,8 +114,19 @@ export class RuntimeSessionLauncher implements NodeLauncher {
       harnessId: plan.harness.id,
       preset: plan.preset,
       subshellEnv: plan.subshellEnv,
-      mcp: undefined,
-      harnessSession: undefined,
+      mcp: plan.mcp
+        ? {
+            path: plan.mcpConfigPath as string,
+            fileContent: plan.mcp.fileContent,
+            // Conditional spreads (the RemoteLauncher rule, kept verbatim):
+            // an absent half of a dialect stays ABSENT on the object, not
+            // undefined-on-it, because the frame parser refuses explicit
+            // undefined optionals.
+            ...(plan.mcp.args ? { args: plan.mcp.args } : {}),
+            ...(plan.mcp.env ? { env: plan.mcp.env } : {}),
+          }
+        : undefined,
+      harnessSession: plan.harnessSession,
       subshellName: plan.subshellName,
       ...(plan.bestEffortLog !== undefined ? { bestEffortLog: plan.bestEffortLog } : {}),
       argv,

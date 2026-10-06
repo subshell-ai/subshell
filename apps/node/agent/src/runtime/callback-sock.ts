@@ -1,26 +1,49 @@
-import { chmodSync, existsSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
+import { isSubshellId } from "../subshell-meta.js";
+import { diag } from "./stdio.js";
 
 /**
- * The callback unix socket (design 2026-10-05 §5): `<runtimeDataDir>/
- * callback.sock`, mode 0600, the ONE listener class permitted by "no inbound
- * network listener" - inside the destination OS-account boundary, never a TCP
- * bind.
+ * The callback unix doors (design 2026-10-05 §5, task 25): listeners at
+ * `<runtimeDataDir>/...`, mode 0600, the ONE listener class permitted by "no
+ * inbound network listener" - inside the destination OS-account boundary,
+ * never a TCP bind.
  *
- * It speaks the smallest HTTP any pane needs: `subshell mcp` (later) and the
- * design's acceptance call - `curl --unix-socket <sock> http://runtime/api/
- * subshells/<own-id>` - today. A request line is parsed by Bun's own HTTP
- * server, mapped to one `rest_request` frame, answered by the matching
- * `rest_response` the plane sends back over the session. The runtime never
- * interprets the path: the ALLOWLIST is the plane's decision (it executes as
- * the pane's own token), and forwarding anything else is what keeps this file
- * free of duplicated policy. A request that outlives {@link
- * CALLBACK_TIMEOUT_MS} answers 504 - the plane stopped answering, which is
- * exactly what a lost session looks like from the pane side.
+ * TWO door kinds, one mechanism (Bun's unix-socket HTTP):
+ * - the SHARED door `<dataDir>/callback.sock` (the slice's surface): whoever
+ *   connects here identifies themselves by the PATH they request, and the
+ *   plane's rule for such frames is unchanged - resolvable only for a
+ *   one-pane session. This is the door the design §9 acceptance curl uses.
+ * - the PER-PANE doors `<dataDir>/callbacks/<paneId>.sock` (task 25): the
+ *   runtime creates one when a pane is launched (and re-creates them for the
+ *   meta-store's panes when a session reconciles a live destination), and
+ *   every request accepted on a pane's own door is attributed to that pane by
+ *   the CONNECTION - the door it dialed, not anything it typed. That is what
+ *   lets a multi-pane session execute each callback as its own pane's token
+ *   while NO credential ever crosses the wire: the pane's env names its own
+ *   door (the plane bakes `SUBSHELL_RUNTIME_CALLBACK_SOCK` at launch), and the
+ *   plane maps door -> pane with facts it minted itself.
+ *
+ * The requests are relayed as `rest_request` frames (paneId on the pane doors,
+ * absent on the shared one) and answered by the matching `rest_response` the
+ * plane sends back over the session. The runtime never interprets the path:
+ * the ALLOWLIST is the plane's decision (it executes as the pane's own token),
+ * and forwarding anything else is what keeps this file free of duplicated
+ * policy. A request that outlives {@link CALLBACK_TIMEOUT_MS} answers 504 -
+ * the plane stopped answering, which is exactly what a lost session looks
+ * like from the pane side.
  */
 
 /** How long one callback waits for the plane's answer before answering 504 (a wedged session must not wedge a pane). */
 const CALLBACK_TIMEOUT_MS = 30_000;
+
+/** The pane doors' namespace beside the shared socket. */
+export const PANE_CALLBACK_DIR = "callbacks";
+
+/** One pane's door path under a runtime data dir - the SAME template the plane composes into the pane env (pinned equal by test on both sides). */
+export function paneCallbackSockPath(dataDir: string, subshellId: string): string {
+  return join(dataDir, PANE_CALLBACK_DIR, `${subshellId}.sock`);
+}
 
 /** An in-flight callback the serve loop must answer with `rest_response`. */
 export interface CallbackRequest {
@@ -28,14 +51,27 @@ export interface CallbackRequest {
   method: string;
   path: string;
   body?: string;
+  /** Set when the request arrived on this pane's own door (per-connection attribution); absent on the shared door. */
+  paneId?: string;
 }
 
-export interface CallbackSocket {
-  /** Absolute socket path (the pane's env names it; hello reports the data dir it sits in). */
-  readonly path: string;
+/**
+ * The runtime's callback doors. `ensurePane`/`dropPane` manage the per-pane
+ * namespace; the shared door is opened by the constructor call and lives as
+ * long as the serve process. `resolve` is one flat surface: reqIds are uuids
+ * (collision-free across panes), so the plane's answer needs no door naming -
+ * the owning door is found by the id it carries.
+ */
+export interface CallbackDoors {
+  /** Absolute path of the SHARED door (the slice's surface; hello reports the data dir it sits in). */
+  readonly sharedPath: string;
+  /** Open (or keep) one pane's door. Idempotent; a throwing bind logs and leaves the pane un-attributed rather than killing the session. */
+  ensurePane(subshellId: string): Promise<void>;
+  /** Close and unlink one pane's door (terminate/kill/exit; unknown ids are no-ops). */
+  dropPane(subshellId: string): Promise<void>;
   /** Deliver the plane's answer for one in-flight request (unknown reqIds are dropped: the waiter already 504'd). */
   resolve(reqId: string, status: number, body: string): void;
-  /** Close the listener and unlink the socket file (idempotent). */
+  /** Close every door and unlink every socket file (idempotent). */
   stop(): Promise<void>;
 }
 
@@ -44,20 +80,20 @@ function newReqId(): string {
   return crypto.randomUUID();
 }
 
-/**
- * Open the callback socket.
- *
- * @param dataDir - the runtime's data dir (0700); the socket lands at `<dataDir>/callback.sock`
- * @param onRequest - called for each inbound pane callback; the serve loop frames it and awaits the plane
- */
-export async function startCallbackSocket(
-  dataDir: string,
+/** One bound listener: its own pending map, its own unlink discipline. */
+interface Door {
+  server: ReturnType<typeof Bun.serve> | undefined;
+  readonly path: string;
+  readonly paneId?: string;
+  readonly pending: Map<string, { settle(status: number, body: string): void }>;
+}
+
+/** Bind one door: unlink a stale socket file, bind, then PIN the mode to 0600 before any pane can connect. */
+async function bindDoor(
+  path: string,
+  paneId: string | undefined,
   onRequest: (req: CallbackRequest) => void,
-): Promise<CallbackSocket> {
-  const path = join(dataDir, "callback.sock");
-  // A stale socket from a killed previous serve would bind-fail; unlinking a
-  // path that is not ours to own (live listener) fails with EADDRINUSE below,
-  // which is the honest refusal.
+): Promise<Door> {
   if (existsSync(path)) {
     try {
       unlinkSync(path);
@@ -65,9 +101,13 @@ export async function startCallbackSocket(
       // races with the bind error path; nothing to interpret
     }
   }
-  const pending = new Map<string, { settle(status: number, body: string): void }>();
-
-  const server = Bun.serve({
+  const door: Door = {
+    server: undefined,
+    path,
+    ...(paneId !== undefined ? { paneId } : {}),
+    pending: new Map(),
+  };
+  door.server = Bun.serve({
     unix: path,
     // No `port`: a unix socket and nothing else. The Gate A proof asserts the
     // serve process listens on no TCP socket at all; adding a port would fail
@@ -76,11 +116,12 @@ export async function startCallbackSocket(
       const url = new URL(request.url);
       const reqId = newReqId();
       const body = request.method === "GET" || request.method === "HEAD" ? undefined : await request.text();
-      const answered = new Promise<Response>((resolve) => {
-        let settled = false;
+      return await new Promise<Response>((resolve) => {
         const settle = (status: number, text: string): void => {
-          if (settled) return;
-          settled = true;
+          // A second settle (timeout raced the plane's answer) must not
+          // resolve the promise twice: resolve is idempotent, but the map
+          // delete must stay guarded or the answer arrives after eviction.
+          if (!door.pending.delete(reqId)) return;
           resolve(
             new Response(text, {
               status,
@@ -88,7 +129,7 @@ export async function startCallbackSocket(
             }),
           );
         };
-        pending.set(reqId, { settle });
+        door.pending.set(reqId, { settle });
         const timer = setTimeout(() => {
           settle(504, JSON.stringify({ error: "runtime_callback_timeout" }));
         }, CALLBACK_TIMEOUT_MS);
@@ -98,11 +139,9 @@ export async function startCallbackSocket(
           method: request.method,
           path: `${url.pathname}${url.search}`,
           ...(body !== undefined ? { body } : {}),
+          ...(door.paneId !== undefined ? { paneId: door.paneId } : {}),
         });
-      }).finally(() => {
-        pending.delete(reqId);
       });
-      return answered;
     },
   });
   // The socket IS the access control surface: mode 0600 pins it to this OS
@@ -110,28 +149,87 @@ export async function startCallbackSocket(
   try {
     chmodSync(path, 0o600);
   } catch {
-    await server.stop();
+    await door.server.stop();
     throw new Error(`callback socket mode refused: ${path}`);
   }
+  return door;
+}
 
-  let stopped = false;
+/** Close one door: answer its in-flight callbacks 503 (the door is going away under a live request), stop, unlink. */
+async function closeDoor(door: Door): Promise<void> {
+  for (const [reqId, pending] of [...door.pending]) {
+    door.pending.delete(reqId);
+    pending.settle(503, JSON.stringify({ error: "runtime_callback_door_closed" }));
+  }
+  try {
+    await door.server?.stop(true);
+  } catch {
+    // already down
+  }
+  try {
+    unlinkSync(door.path);
+  } catch {
+    // already unlinked
+  }
+}
+
+/**
+ * Open the shared door and return the manager that owns every door from here
+ * on. The pane-door directory is created on first `ensurePane` (a session
+ * that never launches a preset pane never makes it).
+ *
+ * @param dataDir - the runtime's data dir (0700); the shared socket lands at `<dataDir>/callback.sock`
+ * @param onRequest - called for each inbound pane callback; the serve loop frames it and awaits the plane
+ */
+export async function startCallbackDoors(
+  dataDir: string,
+  onRequest: (req: CallbackRequest) => void,
+): Promise<CallbackDoors> {
+  const sharedPath = join(dataDir, "callback.sock");
+  const paneDir = join(dataDir, PANE_CALLBACK_DIR);
+  const doors = new Map<string, Door>(); // key: paneId for pane doors, "" for the shared door
+  doors.set("", await bindDoor(sharedPath, undefined, onRequest));
+
   return {
-    path,
-    resolve: (reqId, status, body) => {
-      pending.get(reqId)?.settle(status, body);
-    },
-    stop: async () => {
-      if (stopped) return;
-      stopped = true;
+    sharedPath,
+    async ensurePane(subshellId: string): Promise<void> {
+      if (!isSubshellId(subshellId)) return; // the same id gate execLaunch enforces
+      if (doors.has(subshellId)) return;
+      mkdirSync(paneDir, { recursive: true, mode: 0o700 });
       try {
-        await server.stop(true);
-      } catch {
-        // already down
+        doors.set(subshellId, await bindDoor(paneCallbackSockPath(dataDir, subshellId), subshellId, onRequest));
+      } catch (err) {
+        // A pane whose door will not bind still LAUNCHES (the door is the
+        // callback surface, not the pane's); the failure is a diagnostic line,
+        // and its curl gets connection-refused - the honest local reading.
+        diag(
+          `runtime: pane callback door refused for ${subshellId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
-      try {
-        unlinkSync(path);
-      } catch {
-        // already unlinked
+    },
+    async dropPane(subshellId: string): Promise<void> {
+      const door = doors.get(subshellId);
+      if (door === undefined) return;
+      doors.delete(subshellId);
+      await closeDoor(door);
+    },
+    resolve(reqId: string, status: number, body: string): void {
+      // Scan the doors: a session holds a handful of panes, and the map's key
+      // is the reqId. No side routing table to age out is the simpler honest
+      // structure, and `settle` is self-guarding (it claims the pending entry
+      // by deleting it), so the timeout race answers once, not twice.
+      for (const door of doors.values()) {
+        const pending = door.pending.get(reqId);
+        if (pending !== undefined) {
+          pending.settle(status, body);
+          return;
+        }
+      }
+    },
+    async stop(): Promise<void> {
+      for (const [key, door] of [...doors]) {
+        doors.delete(key);
+        await closeDoor(door);
       }
     },
   };

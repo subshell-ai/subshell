@@ -9,7 +9,12 @@ import { join } from "node:path";
 
 /** Everything the MCP process needs to reach the backend as its subshell. */
 export interface McpEnv {
-  /** The per-subshell bearer token (SUBSHELL_API_KEY). */
+  /**
+   * The per-subshell bearer token (SUBSHELL_API_KEY). Empty string in runtime
+   * pane mode (`callbackSock` set): the plane authenticates every callback as
+   * this pane by the DOOR it arrived on, and the real token never crosses to
+   * the destination (design 2026-10-05 §5), so there is nothing to hold.
+   */
   apiKey: string;
   /** Backend base URL (SUBSHELL_BASE_URL), defaulting to the local server. */
   baseUrl: string;
@@ -19,6 +24,14 @@ export interface McpEnv {
   dataDir: string;
   /** Optional display name for the identity (SUBSHELL_NAME). */
   subshellName: string | null;
+  /**
+   * The pane's callback door (SUBSHELL_RUNTIME_CALLBACK_SOCK): a unix socket
+   * path, set only for panes an SSH runtime session launched. When present,
+   * every backend call rides that door (see `SubshellApi`/`runReport`) and the
+   * base URL is never contacted - the pane env carries a never-resolves
+   * sentinel there precisely so an accidental direct call dies at DNS.
+   */
+  callbackSock: string | null;
 }
 
 /**
@@ -35,13 +48,22 @@ export function resolveMcpDataDir(env: NodeJS.ProcessEnv): string {
 export function readMcpEnv(env: NodeJS.ProcessEnv = process.env): McpEnv {
   const apiKey = env.SUBSHELL_API_KEY;
   const subshellId = env.SUBSHELL_ID;
-  if (!apiKey) throw new Error("subshell mcp: SUBSHELL_API_KEY is not set");
+  // The runtime pane door (design 2026-10-05 §5, task 25): with a door, the
+  // pane has no key BY DESIGN - the plane executes every callback as the pane
+  // from the pane's own minted token, which never travels to the destination.
+  // Without a door the key is as required as it always was; the error text
+  // stays the pre-door sentence so every non-runtime pane's failure reads
+  // exactly as it did before this field existed.
+  const rawSock = env.SUBSHELL_RUNTIME_CALLBACK_SOCK;
+  const callbackSock = rawSock !== undefined && rawSock.trim() !== "" ? rawSock.trim() : null;
+  if (!apiKey && callbackSock === null) throw new Error("subshell mcp: SUBSHELL_API_KEY is not set");
   if (!subshellId) throw new Error("subshell mcp: SUBSHELL_ID is not set");
   return {
-    apiKey,
+    apiKey: apiKey ?? "",
     baseUrl: env.SUBSHELL_BASE_URL ?? "http://127.0.0.1:3080",
     subshellId,
     dataDir: resolveMcpDataDir(env),
     subshellName: env.SUBSHELL_NAME ?? null,
+    callbackSock,
   };
 }

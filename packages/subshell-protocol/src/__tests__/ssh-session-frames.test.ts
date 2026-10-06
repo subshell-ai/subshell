@@ -358,6 +358,49 @@ describe("framing codec", () => {
   });
 });
 
+describe("task 25 arms: detect command, rest_request paneId, hello selfInvoke", () => {
+  const spec = {
+    id: "claude-code",
+    binaryName: "claude",
+    envOverride: "CLAUDE_PATH",
+    knownPaths: ["/usr/local/bin/claude"],
+  };
+  test("detect round-trips the node link's specs array and env NAMES (shallow envelope, launch-arm precedent)", () => {
+    const frame = parseSshRuntimeCommandFrame({ type: "detect", ref, specs: [spec], envNames: ["CLAUDE_CONFIG_DIR"] });
+    expect(frame).toEqual({ type: "detect", ref, specs: [spec], envNames: ["CLAUDE_CONFIG_DIR"] });
+    // The EMPTY ask is a legal no-op on both halves, exactly like the node link's arm.
+    expect(parseSshRuntimeCommandFrame({ type: "detect", ref, specs: [], envNames: [] })).not.toBeNull();
+    expect(parseSshRuntimeCommandFrame({ type: "detect", ref: "!", specs: [], envNames: [] })).toBeNull();
+    expect(parseSshRuntimeCommandFrame({ type: "detect", ref, specs: {}, envNames: [] })).toBeNull();
+    expect(parseSshRuntimeCommandFrame({ type: "detect", ref, specs: [], envNames: [1] })).toBeNull();
+    expect(parseSshRuntimeCommandFrame({ type: "detect", ref, specs: [] })).toBeNull();
+  });
+  test("rest_request paneId round-trips, malformed refuses, absent passes through", () => {
+    const base = { type: "rest_request", reqId: "q", method: "GET", path: `/api/subshells/${ref}` };
+    const tagged = parseSshRuntimeEventFrame({ ...base, paneId: ref });
+    expect(tagged && tagged.type === "rest_request" ? tagged.paneId : null).toBe(ref);
+    const bare = parseSshRuntimeEventFrame(base);
+    expect(bare && bare.type === "rest_request" ? "paneId" in bare : true).toBe(false);
+    // A half-parseable attribution is the ambiguity the field exists to remove:
+    // malformed refuses the FRAME, never silently degrades to the shared door.
+    expect(parseSshRuntimeEventFrame({ ...base, paneId: "has space" })).toBeNull();
+    expect(parseSshRuntimeEventFrame({ ...base, paneId: 42 })).toBeNull();
+  });
+  test("hello selfInvoke round-trips when reported and refuses malformed spellings", () => {
+    const withInvoke = { ...validHello(), selfInvoke: { command: "/usr/local/bin/subshell", args: ["runtime-serve"] } };
+    expect(parseSshRuntimeHello(withInvoke)).toEqual(withInvoke);
+    expect(parseSshRuntimeHello(validHello())).toEqual(validHello()); // absent stays absent
+    expect(
+      parseSshRuntimeHello({ ...validHello(), selfInvoke: { command: "relative/subshell", args: [] } }),
+    ).toBeNull();
+    expect(parseSshRuntimeHello({ ...validHello(), selfInvoke: { command: "/x", args: "y" } })).toBeNull();
+    expect(parseSshRuntimeHello({ ...validHello(), selfInvoke: { args: [] } })).toBeNull();
+    // The open result carries the hello whole, additive field included.
+    const openResult = { hello: withInvoke, host: "127.0.0.1", port: 2222, user: "theo" };
+    expect(parseSshSessionOpenResult(openResult)).toEqual(openResult);
+  });
+});
+
 describe("parseSshRuntimeReportRows (the census grammar)", () => {
   test("the close RESULT payload and the subshells_report EVENT arm share one shape", () => {
     const rows = [{ subshellId: ref, alive: true, exitCode: null }];

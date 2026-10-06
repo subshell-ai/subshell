@@ -131,12 +131,25 @@ export function sessionHooks(): SessionEventHooks {
     onClosed: (s) => settler?.onClosed(s),
     onPaneExit: (s, id, code, at) => settler?.onPaneExit(s, id, code, at),
     onReport: (s, rows) => settler?.onReport(s, rows),
-    resolveCallbackPane: (s, path, method) => {
-      // A session with exactly one pane has an unambiguous owner; multiple
-      // panes make the frame's path itself the selector, and the matcher
-      // refuses any id that is not this session's pane (design §5's
-      // substitution rule). The slice's callback surface is one pane per
-      // session; multi-pane resolution is workstream C's (recorded).
+    resolveCallbackPane: (s, path, method, framePaneId) => {
+      // The door rule (task 25). A frame ATTRIBUTED by the runtime's pane door
+      // is honored only for a pane this session really issued: the id must
+      // name a live pane token (a forged or stale attribution is a 403 like
+      // any other), and the matcher still forces the PATH's id to equal the
+      // executing pane (design §5's substitution rule). The attribution came
+      // from the door the connection arrived on - no credential crossed the
+      // wire to produce it - but the plane's membership check is what makes a
+      // lying runtime no stronger than the pane whose door it used.
+      if (framePaneId !== undefined) {
+        if (s.paneToken(framePaneId) === undefined) return null;
+        const decision = matchCallbackPath(path, method, framePaneId);
+        return decision.allow ? decision.paneId : null;
+      }
+      // No attribution = the SHARED door (the slice's manual-curl surface). Its
+      // rule is unchanged: a session with exactly one pane has an unambiguous
+      // owner; a multi-pane session cannot resolve an unattributed request,
+      // because choosing among panes by the path's self-declared id is
+      // precisely the authority this rule refuses to grant a typed path.
       if (s.paneIds().length !== 1) return null;
       const paneId = s.paneIds()[0] as string;
       const decision = matchCallbackPath(path, method, paneId);

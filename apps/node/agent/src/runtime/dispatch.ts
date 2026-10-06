@@ -1,6 +1,7 @@
 import { parseNodeCommandBody, type SshRuntimeCommandFrame } from "@internal/subshell-protocol";
 import {
   execCapture,
+  execDetect,
   execInput,
   execKill,
   execPaneCursor,
@@ -115,6 +116,17 @@ export async function runRuntimeCommand(
       return await execFsLs(ctx, { type: "fs_ls", path: frame.path });
     case "stat_dir":
       return await execStatDir(ctx, { type: "stat_dir", path: frame.path });
+    case "detect": {
+      // The node link's detect arm re-validated DEEP here (the session frame
+      // parser's envelope check is shallow, the launch arm's precedent): the
+      // executor consumes `specs` as lookup rules, so the grammar that names
+      // every field of a rule must pass before `detectBinary` sees one. The
+      // executor itself is the agent's - one probe, one answer shape,
+      // plane-parses-version posture (inversion §4), not a runtime copy.
+      const body = parseNodeCommandBody({ type: "detect", specs: frame.specs, envNames: frame.envNames });
+      if (body === null || body.type !== "detect") return REFUSE_UNSUPPORTED;
+      return await execDetect(ctx, body);
+    }
     case "remove_paths":
       return await execRemovePaths(ctx, { type: "remove_paths", paths: frame.paths });
     case "subshells_report":

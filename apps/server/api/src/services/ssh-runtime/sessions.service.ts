@@ -14,6 +14,7 @@ import {
 } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID, NODE_KIND_RUNTIME } from "@/db/types/nodes.db-types.js";
 import type { SshRuntimeSessionStatus } from "@/db/types/ssh-runtime-sessions.db-types.js";
 import { audit } from "@/services/audit.js";
@@ -66,8 +67,12 @@ const nodesRepo = new NodesRepository(db);
 /** A refusal the routes map to a named API error: the transport/eligibility facts are never guessed at the handler. */
 export class SshRuntimeRefusal extends Error {
   readonly status: number;
-  /** The named code when there is one (frozen `SshErrorCode` or `session_unknown`). */
-  readonly code: SshErrorCode | "session_unknown" | null;
+  /**
+   * The named code when there is one (frozen `SshErrorCode`, `session_unknown`,
+   * or `detect_unsupported` - the task-25 capability refusal the harnesses
+   * verbs answer 409 with when the destination runtime predates `"detect"`).
+   */
+  readonly code: SshErrorCode | "session_unknown" | "detect_unsupported" | null;
   constructor(status: number, message: string, code: SshRuntimeRefusal["code"] = null) {
     super(message);
     this.name = "SshRuntimeRefusal";
@@ -307,4 +312,57 @@ function helloFromJson(json: string | null): SshRuntimeHelloWire | null {
   } catch {
     return null;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* pane identity (the terminal page's trusted line, design §7)          */
+/* ------------------------------------------------------------------ */
+
+/** What the pane page renders as the trusted identity line, from the rows only. */
+export interface SshPaneIdentityView {
+  sessionId: string;
+  status: SshRuntimeSessionStatus;
+  alias: string;
+  host: string;
+  port: number;
+  user: string | null;
+  /** The broker's machine NAME (null when that node row has since been deleted). */
+  connectingNodeName: string | null;
+}
+
+/**
+ * Resolve a pane to the SSH session that launched it, for the trusted
+ * identity line. The pane's ordinary row names its node; a runtime-session
+ * pane's `nodeId` IS the session's hidden runtime node, so one lookup joins
+ * the two, and the connecting machine's name joins the three. Every shape of
+ * "this pane did not come through a session of yours" (an ordinary pane, a
+ * foreign pane, a foreign session, a deleted row) answers the same 404, the
+ * subshells' non-enumerating convention: the caller cannot tell which, and
+ * the line simply does not render.
+ */
+export async function getPaneIdentityView(subshellId: string, userId: string): Promise<SshPaneIdentityView> {
+  // The PANE's own ownership axis first (the subshells' convention: a foreign
+  // pane is invisible, 404 - its identity line is not the session owner's to
+  // read either); then the session row's owner, which is belt-and-braces on
+  // the per-session runtime node id but states the rule where a reviewer can
+  // see it.
+  const pane = await new SubshellsRepository(db).findById(subshellId);
+  if (pane === undefined || pane.userId !== userId) throw new SshRuntimeRefusal(404, "session not found");
+  const session = await db
+    .selectFrom("sshRuntimeSessions")
+    .selectAll()
+    .where("runtimeNodeId", "=", pane.nodeId)
+    .orderBy("createdAt", "desc")
+    .executeTakeFirst();
+  if (session === undefined || session.ownerUserId !== userId) throw new SshRuntimeRefusal(404, "session not found");
+  const connecting = session.connectingNodeId ? await nodesRepo.findById(session.connectingNodeId) : undefined;
+  return {
+    sessionId: session.id,
+    status: session.status,
+    alias: session.alias,
+    host: session.host,
+    port: session.port,
+    user: session.user,
+    connectingNodeName: connecting?.name ?? null,
+  };
 }

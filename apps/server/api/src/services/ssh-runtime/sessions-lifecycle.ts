@@ -6,7 +6,7 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { audit } from "@/services/audit.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { RuntimeSessionLauncher } from "./runtime-session-launcher.js";
-import type { SshRuntimeSession } from "./session.js";
+import { RUNTIME_PANE_BASE_URL, type SshRuntimeSession } from "./session.js";
 import { getSession } from "./session-registry.js";
 import { SshRuntimeSessionsRepository } from "./sessions.repository.js";
 import { closeBestEffort, SshRuntimeRefusal, type SshRuntimeSessionView, viewOfRow } from "./sessions.service.js";
@@ -30,8 +30,12 @@ import { closeBestEffort, SshRuntimeRefusal, type SshRuntimeSessionView, viewOfR
 const sessionsRepo = new SshRuntimeSessionsRepository(db);
 const subshellsRepo = new SubshellsRepository(db);
 
-/** The live session for an owner, or the 404 reading (foreign ids never distinguish "gone" from "never was"). */
-function requireOwnedSession(sessionId: string, userId: string): SshRuntimeSession {
+/**
+ * The live session for an owner, or the 404 reading (foreign ids never
+ * distinguish "gone" from "never was"). Exported for `harness-detect.ts` (the
+ * harnesses verbs share the exact door: same owner gate, same refusal).
+ */
+export function requireOwnedSession(sessionId: string, userId: string): SshRuntimeSession {
   const session = getSession(sessionId);
   if (!session || session.ownerId !== userId) {
     throw new SshRuntimeRefusal(404, "session not found");
@@ -112,11 +116,16 @@ export async function sessionLaunchTerminal(
         configIsolation: false,
       },
       subshellName: id,
-      // The callback-socket contract (design §5): no token, no plane URL.
+      // The callback-socket contract (design §5): no token, no plane URL -
+      // this pane's OWN door (task 25: per-connection attribution on a
+      // multi-pane session), and the never-resolves sentinel base URL so any
+      // code path that bypasses the door's transport dies at DNS rather than
+      // reaching a same-address server on the destination.
       subshellEnv: {
         SUBSHELL_ID: id,
         SUBSHELL_NAME: normalizeLabel(`SSH ${session.target.alias}`, 120),
-        SUBSHELL_RUNTIME_CALLBACK_SOCK: session.callbackSockPath,
+        SUBSHELL_RUNTIME_CALLBACK_SOCK: session.paneCallbackSockPath(id),
+        SUBSHELL_BASE_URL: RUNTIME_PANE_BASE_URL,
       },
     });
     // Geometry is a request after the spawn (the node-link's own ordering:

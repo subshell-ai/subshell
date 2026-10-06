@@ -10,6 +10,7 @@ import {
   SshSessionFrameDecoder,
   type SshSessionTargetWire,
 } from "@internal/subshell-protocol";
+import { assertNodePathId } from "@/services/nodes/node-path-id.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { logger } from "@/utils/logger.js";
 
@@ -82,8 +83,19 @@ export interface SessionEventHooks {
     session: SshRuntimeSession,
     rows: { subshellId: string; alive: boolean; exitCode: number | null }[],
   ) => void;
-  /** The allowlist decision (the matcher is the pure module; null = refuse 403). */
-  resolveCallbackPane: (session: SshRuntimeSession, path: string, method: string) => string | null;
+  /**
+   * The allowlist decision (the matcher is the pure module; null = refuse 403).
+   * `framePaneId` is the frame's per-connection attribution (task 25): set when
+   * the runtime accepted the callback on that pane's OWN door, absent for the
+   * shared door. A paneId the session never issued refuses like any other
+   * forgery; the shared door keeps the slice's one-pane rule.
+   */
+  resolveCallbackPane: (
+    session: SshRuntimeSession,
+    path: string,
+    method: string,
+    framePaneId?: string,
+  ) => string | null;
   /**
    * The allowlisted execution as the pane's own token. The `reqId` rides in
    * so the executor sizes its answer against the frame that will carry it
@@ -109,6 +121,20 @@ const UNWIRED_HOOKS: SessionEventHooks = {
   executeCallback: async () => ({ status: 500, body: JSON.stringify({ error: "not wired" }) }),
 };
 
+/**
+ * The base URL a runtime pane's env carries (task 25): the RFC-6761 reserved
+ * `.invalid` TLD, which NO resolver will ever answer. The destination must not
+ * need the plane's address as a network fact (design §5), but mcp-core's env
+ * contract always carries a base URL, and `runReport` composes its URL before
+ * the door transport decides where bytes go - a dead-by-DNS host means any
+ * path that ever bypasses the door branch fails loudly instead of quietly
+ * reaching a same-address server on the destination. It is inert text for the
+ * socket-routed half (Bun's `unix` transport never resolves the host). The
+ * pane-env bakes compose it next to `paneCallbackSockPath`; it never replaces
+ * a real URL in a NON-runtime pane's env.
+ */
+export const RUNTIME_PANE_BASE_URL = "http://subshell-callback.invalid";
+
 export class SshRuntimeSession {
   readonly id: string;
   readonly ownerId: string;
@@ -117,8 +143,16 @@ export class SshRuntimeSession {
   readonly target: SshSessionTargetWire;
   /** The parsed hello (set once by the service immediately after construction). */
   hello: SshRuntimeHelloWire;
-  /** The runtime's callback socket path (composed from hello.dataDir; design §5's one listener). */
+  /** The runtime's SHARED callback door (composed from hello.dataDir; design §5's listener, the slice's manual-curl surface). */
   readonly callbackSockPath: string;
+  /**
+   * The env answers (`detect`-command round trips) this session's runtime gave
+   * for the plane's manifest-declared names (inversion §5's posture, one layer
+   * closer to the machine). In-memory by design: an ordinary node stashes them
+   * on its live WS connection facts, a session's live channel IS this object,
+   * and a lost session's answers retire with it (the next session re-asks).
+   */
+  harnessEnv: Record<string, string> = {};
   /** Registry-installed event wiring (see the interface). */
   hooks: SessionEventHooks = UNWIRED_HOOKS;
 
@@ -157,6 +191,21 @@ export class SshRuntimeSession {
   /** Pane identity + its minted token, recorded when the service creates the pane (the callback's executing identity). */
   registerPane(subshellId: string, tokenPlaintext: string): void {
     this.#paneTokens.set(subshellId, tokenPlaintext);
+  }
+
+  /**
+   * A pane's OWN callback door on the destination: `<hello.dataDir>/callbacks/
+   * <id>.sock` - the runtime-side template (`apps/node/agent/src/runtime/
+   * callback-sock.ts`'s `paneCallbackSockPath`) composed plane-side from the
+   * hello the runtime itself reported. This is NOT a secret: the id is already
+   * in the pane's env and the launch frame; the door's 0600 mode and the
+   * destination OS boundary are its access control, exactly as for the shared
+   * door. Throws for a non-conforming id before composing (the
+   * `assertNodePathId` posture every destination-path composition obeys).
+   */
+  paneCallbackSockPath(subshellId: string): string {
+    assertNodePathId(subshellId);
+    return `${this.hello.dataDir}/callbacks/${subshellId}.sock`;
   }
 
   /** Forget one pane (terminate/delete): its token leaves memory with it. */
@@ -343,7 +392,7 @@ export class SshRuntimeSession {
         this.hooks.onReport(this, frame.subshells);
         return;
       case "rest_request":
-        void this.#answerCallback(frame.reqId, frame.method, frame.path, frame.body);
+        void this.#answerCallback(frame.reqId, frame.method, frame.path, frame.body, frame.paneId);
         return;
     }
   }
@@ -355,7 +404,13 @@ export class SshRuntimeSession {
    * the honest refusal shape, and it keeps the session's RPC chain free for
    * pane work.
    */
-  async #answerCallback(reqId: string, method: string, path: string, body: string | undefined): Promise<void> {
+  async #answerCallback(
+    reqId: string,
+    method: string,
+    path: string,
+    body: string | undefined,
+    framePaneId?: string,
+  ): Promise<void> {
     // Encoding here is already bounded by construction: `reqId` arrived
     // through the frame grammar (length-capped, printable) and the executor
     // sizes its body against a response frame carrying THAT id. The try/catch
@@ -382,7 +437,7 @@ export class SshRuntimeSession {
       settle(503, JSON.stringify({ error: "too many callbacks in flight" }));
       return;
     }
-    const paneId = this.hooks.resolveCallbackPane(this, path, method);
+    const paneId = this.hooks.resolveCallbackPane(this, path, method, framePaneId);
     if (paneId === null) {
       settle(403, JSON.stringify({ error: "forbidden" }));
       return;

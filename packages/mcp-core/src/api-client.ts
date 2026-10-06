@@ -62,6 +62,17 @@ function extractErrorBody(raw: string): { message: string; code?: string; metada
 export interface SubshellApiConfig {
   baseUrl: string;
   apiKey: string;
+  /**
+   * The runtime pane's callback door (design 2026-10-05 §5, task 25): a unix
+   * socket path. Set for panes an SSH runtime session launched, and when set
+   * EVERY request connects there (`fetch`'s `unix` transport - Bun's absolute
+   * socket path; the URL's host is never resolved, so the sentinel base URL
+   * in a pane env stays the dead-by-DNS guard it is). The plane authenticates
+   * each request as this pane by the door it arrives on, so `apiKey` is unused
+   * in this mode - the runtime contract is that no bearer material crosses
+   * the wire.
+   */
+  callbackSock?: string | null;
 }
 
 export class SubshellApi {
@@ -74,13 +85,29 @@ export class SubshellApi {
   ): Promise<T> {
     const url = new URL(path, this.config.baseUrl);
     for (const [k, v] of Object.entries(init.query ?? {})) url.searchParams.set(k, String(v));
-    const headers: Record<string, string> = { authorization: `Bearer ${this.config.apiKey}` };
+    // In door mode there is no key to send; an `Authorization` header naming
+    // an empty bearer would be a misleading artifact, and the callback
+    // executor's own auth (the plane's minted token) is the real one.
+    const headers: Record<string, string> =
+      this.config.callbackSock != null ? {} : { authorization: `Bearer ${this.config.apiKey}` };
     let body: string | undefined;
     if (init.body !== undefined) {
       headers["content-type"] = "application/json";
       body = JSON.stringify(init.body);
     }
-    const res = await fetch(url, { method: init.method ?? "GET", headers, body, signal: init.signal });
+    const fetchInit: RequestInit & { unix?: string } = {
+      method: init.method ?? "GET",
+      headers,
+      body,
+      signal: init.signal,
+    };
+    // The door branch: Bun resolves the socket path and NEVER touches the URL
+    // host, so the sentinel base URL stays what it is - a dead-by-DNS guard
+    // for any code path that bypasses this one. The `unix` field rides in the
+    // init object so a test seam sees the transport decision, not just the
+    // composed URL.
+    if (this.config.callbackSock != null) fetchInit.unix = this.config.callbackSock;
+    const res = await fetch(url, fetchInit);
     if (!res.ok) {
       // Parse the FULL body before truncating: structured error bodies can
       // exceed 300 chars (validation payloads), and slicing first would tear

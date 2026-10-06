@@ -19,6 +19,7 @@ import { SSH_NAME_MAX_CHARS, SSH_PATH_MAX_CHARS, SSH_REQ_ID_MAX_CHARS } from "./
 import {
   SSH_RUNTIME_PROTOCOL,
   type SshRuntimeCommandFrame,
+  type SshRuntimeDetectSpecs,
   type SshRuntimeEventFrame,
   type SshRuntimeHelloWire,
   type SshRuntimeLaunchBody,
@@ -153,6 +154,23 @@ export function parseSshRuntimeHello(value: unknown): SshRuntimeHelloWire | null
   if (!isStr(value.tmuxSocket) || value.tmuxSocket.length === 0 || !/^[A-Za-z0-9._-]+$/.test(value.tmuxSocket))
     return null;
   if (!isInt(value.paneCount) || (value.paneCount as number) < 0) return null;
+  // Additive (task 25): the self-invoke PREFIX the plane appends verbs to.
+  // A malformed one refuses the WHOLE hello (fail-closed, like every other
+  // field) rather than dropping the fact and letting the plane silently fall
+  // back - a runtime that reports a broken self-invoke is a runtime build
+  // problem, and the named open refusal is where the operator learns it.
+  if ("selfInvoke" in value && value.selfInvoke !== undefined) {
+    const si = value.selfInvoke;
+    if (!isRecord(si) || !isStr(si.command) || si.command.length === 0 || !isStrArray(si.args)) return null;
+    if (!isAbsRef(si.command)) return null;
+  }
+  const selfInvoke =
+    "selfInvoke" in value && value.selfInvoke !== undefined
+      ? {
+          command: (value.selfInvoke as { command: string }).command,
+          args: [...((value.selfInvoke as { args: string[] }).args ?? [])],
+        }
+      : undefined;
   return {
     type: "hello",
     runtimeProtocol: value.runtimeProtocol as number,
@@ -164,6 +182,7 @@ export function parseSshRuntimeHello(value: unknown): SshRuntimeHelloWire | null
     dataDir: value.dataDir,
     tmuxSocket: value.tmuxSocket,
     paneCount: value.paneCount as number,
+    ...(selfInvoke !== undefined ? { selfInvoke } : {}),
   };
 }
 
@@ -295,6 +314,21 @@ export function parseSshRuntimeCommandFrame(value: unknown): SshRuntimeCommandFr
       return isSshSessionRef(value.ref) && isAbsRef(value.path)
         ? { type: "stat_dir", ref: value.ref, path: value.path }
         : null;
+    case "detect": {
+      // Shallow on the envelope, the launch arm's exact precedent: the specs'
+      // deep grammar is `parseNodeCommandBody`'s detect arm and the runtime
+      // re-runs it before the executor sees anything (one grammar, checked
+      // where it is executed). `envNames` is a plain string array here because
+      // the SAME rule the node link's arm applies is shape, not semantics —
+      // the executor only reads process.env at these names.
+      if (!isSshSessionRef(value.ref) || !Array.isArray(value.specs) || !isStrArray(value.envNames)) return null;
+      return {
+        type: "detect",
+        ref: value.ref,
+        specs: value.specs as unknown as SshRuntimeDetectSpecs,
+        envNames: [...value.envNames],
+      };
+    }
     case "remove_paths":
       return isSshSessionRef(value.ref) && Array.isArray(value.paths) && value.paths.every(isAbsRef)
         ? { type: "remove_paths", ref: value.ref, paths: [...(value.paths as string[])] }
@@ -366,12 +400,18 @@ export function parseSshRuntimeEventFrame(value: unknown): SshRuntimeEventFrame 
       if (!isStr(value.method) || !/^[A-Za-z]+$/.test(value.method)) return null;
       if (!isStr(value.path) || !value.path.startsWith("/") || value.path.length > SSH_PATH_MAX_CHARS) return null;
       if ("body" in value && value.body !== undefined && !isStr(value.body)) return null;
+      // The attribution id (pane doors) rides the SUBSHELL-id grammar - the
+      // same shape rule the launch body's subshellId obeys. A malformed paneId
+      // refuses the FRAME (fail-closed like every field): a half-parsed
+      // attribution is exactly the ambiguity this field exists to remove.
+      if ("paneId" in value && value.paneId !== undefined && !isSshSessionRef(value.paneId)) return null;
       return {
         type: "rest_request",
         reqId: value.reqId,
         method: value.method.toUpperCase(),
         path: value.path,
         ...("body" in value && typeof value.body === "string" ? { body: value.body } : {}),
+        ...("paneId" in value && typeof value.paneId === "string" ? { paneId: value.paneId } : {}),
       };
     }
     default:

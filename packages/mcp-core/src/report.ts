@@ -105,19 +105,30 @@ export async function runReport(argv: string[], io: ReportIo = {}): Promise<void
   try {
     // An incomplete pane env means this was not spawned as a subshell hook.
     // `readMcpEnv` throws there, which is this function's "do nothing".
-    const { apiKey, baseUrl, subshellId } = readMcpEnv(io.env ?? process.env);
+    const { apiKey, baseUrl, subshellId, callbackSock } = readMcpEnv(io.env ?? process.env);
     const body = await resolveBody(argv, io);
     if (!body) return;
 
     const doFetch = io.fetch ?? fetch;
-    await doFetch(`${baseUrl}/api/subshells/${subshellId}/${body.path}`, {
+    const init: RequestInit & { unix?: string } = {
       method: "POST",
-      headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
+      // In door mode (design 2026-10-05 §5, task 25) the pane holds NO key by
+      // design and the plane executes the report as the pane from the door it
+      // arrives on; sending `Bearer ` with an empty value would be a
+      // misleading artifact, so the header is simply absent there.
+      ...(callbackSock === null
+        ? { headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" } }
+        : { headers: { "content-type": "application/json" } }),
       body: JSON.stringify(body.json),
       // PreToolUse pays the `resumed` budget on EVERY tool call; the rare
       // event reports keep the full one (see postTimeoutMs).
       signal: AbortSignal.timeout(postTimeoutMs(argv)),
-    });
+    };
+    // The URL composition is door-independent (the host half is dead text in
+    // runtime mode: the never-resolves sentinel); the `unix` transport decides
+    // where the bytes actually go.
+    if (callbackSock !== null) init.unix = callbackSock;
+    await doFetch(`${baseUrl}/api/subshells/${subshellId}/${body.path}`, init);
   } catch {
     // Every failure is a lost report: an unreachable server, a refused POST,
     // a malformed payload, an incomplete env. None of them is the hook's

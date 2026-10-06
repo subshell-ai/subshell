@@ -83,4 +83,39 @@ describe("SubshellApi", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect((err as ApiError).status).toBe(401);
   });
+
+  it("routes through the callback door when the config names one (task 25, design §5)", async () => {
+    // The runtime-pane contract: door mode never touches the network - the
+    // `unix` transport is set from the config, the sentinel host is never
+    // resolved by Bun - and no Authorization header rides (the plane
+    // authenticates by attribution; the pane holds no key BY DESIGN).
+    const door = new SubshellApi({
+      apiKey: "",
+      baseUrl: "http://subshell-callback.invalid",
+      callbackSock: "/srv/runtime/callbacks/s1.sock",
+    });
+    let seen: { url: string; init?: RequestInit } | undefined;
+    globalThis.fetch = (async (input: URL, init?: RequestInit) => {
+      seen = { url: String(input), init };
+      return new Response("{}", { status: 200 });
+    }) as never;
+    expect(await door.req("/api/subshells/s1/attention", { method: "POST", body: { kind: "resumed" } })).toEqual({});
+    const headers = (seen?.init?.headers ?? {}) as Record<string, string>;
+    expect((seen?.init as { unix?: string } | undefined)?.unix).toBe("/srv/runtime/callbacks/s1.sock");
+    expect(headers["authorization"]).toBeUndefined();
+    expect(headers["content-type"]).toBe("application/json");
+    expect(seen?.url).toBe("http://subshell-callback.invalid/api/subshells/s1/attention");
+  });
+
+  it("without a door, the old behavior is byte-identical (header rides, no unix)", async () => {
+    let seen: { init?: RequestInit } | undefined;
+    globalThis.fetch = (async (_input: URL, init?: RequestInit) => {
+      seen = { init };
+      return new Response("[]", { status: 200 });
+    }) as never;
+    await api.req("/api/identities");
+    const headers = (seen?.init?.headers ?? {}) as Record<string, string>;
+    expect(headers["authorization"]).toBe("Bearer subshell_key123");
+    expect((seen?.init as { unix?: string } | undefined)?.unix).toBeUndefined();
+  });
 });

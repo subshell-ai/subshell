@@ -41,6 +41,33 @@ describe("runReport", () => {
     expect(await req.json()).toEqual({ kind: "turn_complete" });
   });
 
+  it("routes the report through the pane's callback DOOR when the env names one (task 25)", async () => {
+    // The runtime-pane contract (design 2026-10-05 §5): the env carries a door
+    // path and the never-resolves sentinel base URL and NO key. The report
+    // must ride the door (init.unix), must not attempt the sentinel host as a
+    // network fact, and must not invent an Authorization header. The URL
+    // composition stays baseUrl+path (seam-stable); only the transport moves.
+    const doorSeen: { url: string; unix?: string; init?: RequestInit }[] = [];
+    const doorFetch = (async (input: string | URL, init?: RequestInit) => {
+      doorSeen.push({ url: String(input), unix: (init as { unix?: string } | undefined)?.unix, init });
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    await runReport(["attention", "turn_complete"], {
+      env: {
+        SUBSHELL_ID: "sub_42",
+        SUBSHELL_RUNTIME_CALLBACK_SOCK: "/srv/subshell/callbacks/sub_42.sock",
+        SUBSHELL_BASE_URL: "http://subshell-callback.invalid",
+      } as NodeJS.ProcessEnv,
+      fetch: doorFetch,
+      readStdin: async () => "",
+    });
+    expect(doorSeen).toHaveLength(1);
+    expect(doorSeen[0]?.unix).toBe("/srv/subshell/callbacks/sub_42.sock");
+    expect(doorSeen[0]?.url).toBe("http://subshell-callback.invalid/api/subshells/sub_42/attention");
+    const headers = ((doorSeen[0]?.init?.headers ?? {}) as Record<string, string>)["authorization"];
+    expect(headers).toBeUndefined();
+  });
+
   it("gives `resumed` the short POST budget and every other report the full one", () => {
     // PreToolUse runs the resumed report before EVERY tool call: a 2 s stall
     // per call during a plane brownout is the failure this budget exists to

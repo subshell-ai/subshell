@@ -24,6 +24,15 @@ const ALLOWED_METHODS: ReadonlySet<string> = new Set(["GET", "POST"]);
 /** The self-family and shared-surface path shapes; `{id}` is substituted with the SESSION's pane id before comparison. */
 const OWN_PANE_PREFIX = "/api/subshells/";
 const IDENTITIES_PATH = "/api/identities";
+/**
+ * The channels family (design §5's allowlist line, module doc's third item):
+ * the pane's token map already gates which channel operations its routes
+ * accept - the door forwards the path, the route decides. The slice shipped
+ * identities and the self family and left this line to task 25 because the
+ * MCP surface it serves (list/read/post) is exactly what a runtime pane's
+ * cross-agent coordination needs.
+ */
+const CHANNELS_PATH = "/api/channels";
 
 /** The decision: allowed, with the pane the frame is (forced to) address; or a named refusal reason for the log line. */
 export type CallbackDecision = { allow: true; paneId: string } | { allow: false; reason: string };
@@ -38,6 +47,7 @@ export type CallbackDecision = { allow: true; paneId: string } | { allow: false;
 export function matchCallbackPath(path: string, method: string, paneId: string): CallbackDecision {
   if (!ALLOWED_METHODS.has(method)) return { allow: false, reason: `method ${method} is not a callback verb` };
   if (path === IDENTITIES_PATH || path.startsWith(`${IDENTITIES_PATH}/`)) return { allow: true, paneId };
+  if (path === CHANNELS_PATH || path.startsWith(`${CHANNELS_PATH}/`)) return { allow: true, paneId };
   if (!path.startsWith(OWN_PANE_PREFIX)) return { allow: false, reason: "not a per-subshell path" };
   const rest = path.slice(OWN_PANE_PREFIX.length);
   const slash = rest.indexOf("/");
