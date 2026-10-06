@@ -152,12 +152,15 @@ export async function execSshSessionOpen(
  * is never resumable), so a child that outlives the socket is an orphan
  * holding a quota slot AND the destination-deterministic callback door every
  * future open to that `host:port:user` needs. Each ref goes through the
- * supervisor's own `close`: `closed` recorded first (the death on the way
- * down is then never reported as a loss through a socket that could not
- * deliver it anyway - the `emitBytes` catch is the only self-heal this
- * transport had, and `commandWs.send` swallows into a log line while no
- * socket is attached, so an idle session could never fire it), then the
- * GROUP dies. The destination's tmux server and its panes are untouched (the
+ * supervisor's own `close`: the GROUP dies first (the record write is bare
+ * sync fs and a disk fault must never spare the kill - round-4 review
+ * MINOR2), and the death on the way down is then never reported as a loss
+ * through a socket that could not deliver it anyway (the `stopping` latch
+ * is what keeps it quiet, not the record; the `emitBytes` catch is the only
+ * self-heal this transport had, and `commandWs.send` swallows into a log
+ * line while no socket is attached, so an idle session could never fire
+ * it); the `closed` record is best-effort after. The destination's tmux
+ * server and its panes are untouched (the
  * runtime-serve's own shutdown stops tails and doors only, design §6); the
  * door paths free with the serve, so the next open can bind. Never BUILDS a
  * supervisor: a node that never brokered pays nothing here.

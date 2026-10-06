@@ -56,8 +56,9 @@ const HELLO_BYTES = encodeSshSessionFrame({
  * the hello bytes, and holds as `sleep` until the supervisor's group-kill.
  * Every spawn counts in the log, so "refused before spawn" is observable.
  */
-function writeFakeSsh(dir: string): { bin: string; log: string } {
+function writeFakeSsh(dir: string): { bin: string; log: string; pids: string } {
   const log = join(dir, "invocations.log");
+  const pids = join(dir, "serve-pids.log");
   const hello = join(dir, "hello.bin");
   writeFileSync(hello, HELLO_BYTES);
   const script = [
@@ -68,6 +69,7 @@ function writeFakeSsh(dir: string): { bin: string; log: string } {
     `case "$*" in`,
     `  *"runtime-serve"*)`,
     `    printf 'SERVE\\n' >> '${log}'`,
+    `    printf '%s\\n' "$$" >> '${pids}'`, // its own pid, preserved through the exec
     `    cat '${hello}'`,
     `    exec sleep 300`,
     `    ;;`,
@@ -77,7 +79,21 @@ function writeFakeSsh(dir: string): { bin: string; log: string } {
   const bin = join(dir, "ssh");
   writeFileSync(bin, `${script}\n`, { mode: 0o755 });
   chmodSync(bin, 0o755);
-  return { bin, log };
+  return { bin, log, pids };
+}
+
+/** Poll until the pid is gone (ESRCH: dead AND reaped). True once it is. */
+async function waitForPidDeath(pid: number, budgetMs: number): Promise<boolean> {
+  const t0 = Date.now();
+  for (;;) {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return true;
+    }
+    if (Date.now() - t0 > budgetMs) return false;
+    await new Promise((r) => setTimeout(r, 20));
+  }
 }
 
 function invocations(log: string): { probe: number; serve: number } {
@@ -110,7 +126,7 @@ function mkFixture(tag: string) {
   };
   const store = new SshSessionRecordStore({ dataDir, nowMs: () => clock });
   const sup = getSshSessionSupervisor({ dataDir, homeDir, sshBin: fake.bin, nowMs: () => clock });
-  return { sup, store, hooks, lost, log: fake.log, setClock: (t: number) => (clock = t) };
+  return { sup, store, hooks, lost, log: fake.log, pids: fake.pids, setClock: (t: number) => (clock = t) };
 }
 
 const openReq = (ref: string) => ({ ref, target, runtimeCommand: "subshell" });
@@ -221,6 +237,72 @@ describe("boot reconcile and exit posture", () => {
       expect(f.lost, "a close is not a loss (the stopping latch)").toEqual([]);
     } finally {
       f.sup.close(ref); // idempotent if the child already died
+      await waitLive(f.sup, true);
+    }
+  });
+
+  test("a store.write that throws cannot spare the group-kill: the child dies and close() does not throw (review round-4 MINOR2)", async () => {
+    const f = mkFixture("close-diskerr");
+    const ref = crypto.randomUUID();
+    const proto = SshSessionRecordStore.prototype;
+    const realWrite = proto.write;
+    let faults = 0;
+    try {
+      const out = await f.sup.open(openReq(ref), f.hooks);
+      expect(out.kind).toBe("open");
+      expect(f.store.read(f.store.path(ref))?.lifecycle).toBe("open");
+      const servePids = readFileSync(f.pids, "utf8")
+        .split("\n")
+        .filter((l) => l !== "")
+        .map(Number);
+      expect(servePids).toHaveLength(1);
+
+      // The fault: the disk refuses the `closed` record write. The real
+      // store is bare sync fs (mkdir/writeFileSync/chmodSync), so ENOSPC/
+      // EROFS/EACCES throws are ordinary events at this seam; every other
+      // write stays true so the pumps and the exit settle keep landing.
+      proto.write = function (this: SshSessionRecordStore, rec: SshSessionRecord): void {
+        if (rec.lifecycle === "closed") {
+          faults += 1;
+          throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+        }
+        realWrite.call(this, rec);
+      };
+
+      let threw: unknown = null;
+      let verdict: unknown = null;
+      try {
+        verdict = f.sup.close(ref);
+      } catch (e) {
+        threw = e;
+      }
+
+      // The headline, and the RED this test was written against: with the
+      // record unwritable the GROUP must still die. The old order (write,
+      // then kill) let the throw spare EVERY close() call site - the m-B
+      // reclaim, the emitBytes self-heal, the link-close drain (m-A's
+      // per-ref catch keeps the loop alive but cannot kill a child whose
+      // close threw before killGroup) - orphaning a child that holds a
+      // quota slot and the destination's door: every later open there
+      // answers session_in_use for a session the plane does not have.
+      expect(faults, "the fault actually fired on the close record").toBe(1);
+      const dead = await waitForPidDeath(servePids[0] as number, 3000);
+      expect(dead, "the group-kill must land even when the record write throws").toBe(true);
+
+      // The throw never escapes close(): the drain and the reclaim answer
+      // through this seam, and the return contract stays `"ok"`.
+      expect(threw, "a disk error in the record is a reconcile detail, not a caller-visible failure").toBeNull();
+      expect(verdict).toBe("ok");
+
+      // The death stays QUIET on the `stopping` latch, not on the record:
+      // the exit pump finds no `closed` on disk, settles the history to
+      // `lost` (history, never authority), and reports no loss.
+      await waitLive(f.sup, true);
+      expect(f.lost, "the stopping latch is what keeps the death quiet").toEqual([]);
+      expect(f.store.read(f.store.path(ref))?.lifecycle).toBe("lost");
+    } finally {
+      proto.write = realWrite;
+      f.sup.close(ref); // idempotent once dead; reaps cleanly if RED left the child alive
       await waitLive(f.sup, true);
     }
   });

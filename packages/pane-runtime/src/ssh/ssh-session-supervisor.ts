@@ -36,9 +36,12 @@ import { digestSessionRequest, type SshSessionRecord, SshSessionRecordStore } fr
  * - **One serialized chain**: concurrent opens cannot both pass the quota
  *   check and both spawn.
  * - **Kill the GROUP** on close (SIGTERM, {@link SSH_CANCEL_GRACE_MS},
- *   SIGKILL), and `closed` is recorded FIRST so the death on the way down is
- *   not additionally reported as `lost`. The destination's tmux server and
- *   its panes stay up; killing them is terminate, never a close side effect.
+ *   SIGKILL) FIRST, and record `closed` best-effort after: the `stopping`
+ *   latch (not the record) keeps the death on the way down from reporting
+ *   itself as `lost`, and no disk fault in the record may spare the kill
+ *   (round-4 review MINOR2 - an orphan holds a quota slot and the
+ *   destination's door). The destination's tmux server and its panes stay
+ *   up; killing them is terminate, never a close side effect.
  * - **Boot reconcile**: a state file claiming `accepted`/`open` with no live
  *   child under this process reads back `lost`, never a restart. The tmux
  *   server the last session spoke to SURVIVED on the destination (design §6);
@@ -161,24 +164,37 @@ export class SshSessionSupervisor {
   }
 
   /**
-   * Close one session as a USER act (design §6's Close): record `closed`
-   * first (the death on the way down is then never additionally reported as
-   * `lost`), SIGTERM the group, SIGKILL after the grace. The group-kill is
-   * NOT delegated to the runtime's own good behavior: the plane sends this
-   * command on every user close (and the protocol-mismatch unroll), and a
-   * runtime that ignored the `close` frame is exactly why it exists.
+   * Close one session as a USER act (design §6's Close): SIGTERM the group,
+   * SIGKILL after the grace, THEN record `closed` best-effort. The kill
+   * leads because the record write is bare sync fs (ENOSPC/EROFS/EACCES are
+   * ordinary) and a disk fault must never spare it: an orphan holds a quota
+   * slot and the destination's door (round-4 review MINOR2). The `stopping`
+   * latch, not the record, keeps the death on the way down from reporting
+   * itself as `lost`; a missing `closed` costs only history, which the exit
+   * pump or the boot reconcile settles. The group-kill is NOT delegated to
+   * the runtime's own good behavior: the plane sends this command on every
+   * user close (and the protocol-mismatch unroll), and a runtime that
+   * ignored the `close` frame is exactly why it exists.
    */
   close(ref: string): "ok" | typeof SSH_SESSION_UNKNOWN {
     const live = this.#live.get(ref);
     if (!live) return SSH_SESSION_UNKNOWN;
+    // The latch FIRST: it is what quiets the death handler (ssh-session-open
+    // reads it when the exit lands), so every act below is free to fail.
     live.stopping = true;
-    const rec = this.#store.read(this.#store.path(ref));
-    if (rec) this.#store.write({ ...rec, lifecycle: "closed", lostAtMs: this.#nowMs() });
     killGroup(live.pid, "SIGTERM");
     live.killEscalate = setTimeout(() => {
       killGroup(live.pid, "SIGKILL");
     }, SSH_CANCEL_GRACE_MS);
     live.killEscalate.unref?.();
+    try {
+      const rec = this.#store.read(this.#store.path(ref));
+      if (rec) this.#store.write({ ...rec, lifecycle: "closed", lostAtMs: this.#nowMs() });
+    } catch {
+      // A failed record is a reconcile detail: the child is dead (the kill
+      // went first), the live map is authority, and the exit pump (or the
+      // next boot reconcile) settles the disk to `lost` for the dead pid.
+    }
     return "ok";
   }
 
