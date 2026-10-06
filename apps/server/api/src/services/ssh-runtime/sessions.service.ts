@@ -23,6 +23,7 @@ import { getLive } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { logger } from "@/utils/logger.js";
 import { SshRuntimeSession } from "./session.js";
+import { adoptReconciledPanes } from "./session-adopt.js";
 import { registerSession, sessionHooks } from "./session-registry.js";
 import { installSessionSettlers } from "./session-settle.js";
 import { SshRuntimeSessionsRepository } from "./sessions.repository.js";
@@ -223,6 +224,15 @@ export async function openSession(
     targetId: sessionId,
     metadataJson: JSON.stringify({ connectingNodeId: node.id, host: result.host, port: result.port }),
   });
+  // Design §6's idempotent restore, on every open: a destination whose
+  // earlier sessions (lost or closed) left panes running re-adopts them onto
+  // THIS session - rows repointed, tokens rotated on the same row, census
+  // deaths settled (see `session-adopt.ts`). Best-effort by rule: the open
+  // already succeeded, and a reconcile that cannot ask the runtime leaves
+  // every row at the honest settled reading; the next open reconciles again.
+  await adoptReconciledPanes(session).catch((err: unknown) =>
+    logger.withError(err).warn(`ssh-runtime reconcile after open failed for ${sessionId.slice(0, 8)}`),
+  );
   return viewOf(sessionId);
 }
 

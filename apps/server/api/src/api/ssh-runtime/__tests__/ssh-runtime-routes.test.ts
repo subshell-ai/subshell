@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { SSH_RUNTIME_PROTOCOL } from "@internal/subshell-protocol";
+import { encodeSshSessionFrame, SSH_RUNTIME_PROTOCOL, SshSessionFrameDecoder } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
@@ -13,6 +13,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
+import { getSession } from "@/services/ssh-runtime/session-registry.js";
 import { SshRuntimeSessionsRepository } from "@/services/ssh-runtime/sessions.repository.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { attachScriptedNode, type ScriptedNode } from "@/test-helpers/scripted-node.js";
@@ -170,7 +171,34 @@ beforeAll(async () => {
       if (cmd.type !== "ssh_session_open") throw new Error("wrong cmd");
       return { hello: HELLO, host: cmd.target.host, port: cmd.target.port, user: cmd.target.user };
     },
-    ssh_session_send: () => undefined,
+    // The scripted destination speaks the RUNTIME grammar too: every framed
+    // command (the F3 `stat_dir` gate, the reopen census, `close`) is decoded
+    // and answered as `runtime/dispatch.ts` would answer it, so no test here
+    // rides a command deadline. An empty census is this fake's own hello
+    // (paneCount 0: a destination with no panes on its socket).
+    ssh_session_send: (cmd) => {
+      if (cmd.type !== "ssh_session_send") throw new Error("wrong cmd");
+      const session = getSession(cmd.ref);
+      if (session !== undefined) {
+        for (const frame of new SshSessionFrameDecoder().push(new Uint8Array(Buffer.from(cmd.data_b64, "base64")))) {
+          const inner = frame as { type?: string; ref?: string; path?: string };
+          if (inner.ref === undefined) continue;
+          session.ingestBytes(
+            encodeSshSessionFrame({
+              type: "result",
+              ref: inner.ref,
+              ok: true,
+              ...(inner.type === "stat_dir"
+                ? { data: { path: inner.path ?? "/home/x", isDirectory: true } }
+                : inner.type === "subshells_report" || inner.type === "close"
+                  ? { data: [] }
+                  : {}),
+            }),
+          );
+        }
+      }
+      return undefined;
+    },
     ssh_session_close: () => ({ state: "closed" }),
   });
 });
@@ -285,8 +313,9 @@ describe("the harnesses family (cached mirror, detect, preset launch)", () => {
     claudePresetId = preset.id;
   }, 20_000);
 
-  // The close rides the 15 s command deadline against the scripted node (the
-  // sibling tests budget the same); the hook default would time it out.
+  // The close is answered by the scripted node's runtime arm (the fake
+  // speaks the framed grammar now, so no deadline is ridden); the generous
+  // budget stays as the teardown's slack.
   afterAll(async () => {
     if (liveSessionId !== "")
       await post(`/api/ssh-runtime/sessions/${liveSessionId}/close`, {}, { cookie: memberCookie });

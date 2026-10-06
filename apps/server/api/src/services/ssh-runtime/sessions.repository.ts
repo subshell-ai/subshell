@@ -1,3 +1,4 @@
+import { type SqlBool, sql } from "kysely";
 import { BaseRepository } from "@/db/repositories/base.repository.js";
 import type {
   NewSshRuntimeSession,
@@ -66,6 +67,37 @@ export class SshRuntimeSessionsRepository extends BaseRepository {
       .where("id", "=", id)
       .where("status", "in", ["opening", "active"])
       .execute();
+  }
+
+  /**
+   * The hidden runtime node ids of the caller's SETTLED sessions (lost or
+   * closed) on one destination - the candidates the reopen reconcile
+   * (`session-adopt.ts`) sweeps pane rows off. The destination identity is
+   * the same material the deterministic tmux socket hashes from
+   * (host/port/user; the alias is display text and deliberately not part of
+   * it - the same destination reached under two aliases is one destination),
+   * and `user` matches with SQL `IS` so the "connecting account's default"
+   * (null) equals itself.
+   */
+  async settledRuntimeNodeIdsForDestination(q: {
+    ownerUserId: string;
+    host: string;
+    port: number;
+    user: string | null;
+  }): Promise<string[]> {
+    const rows = await this.db
+      .selectFrom("sshRuntimeSessions")
+      .select("runtimeNodeId")
+      .where("ownerUserId", "=", q.ownerUserId)
+      .where("host", "=", q.host)
+      .where("port", "=", q.port)
+      // `IS` (not `=`): null must equal null here - a plain `=` would drop
+      // every default-account destination out of the reconcile. Bound value,
+      // never interpolated.
+      .where(sql<SqlBool>`user IS ${q.user}`)
+      .where("status", "in", ["lost", "closed"])
+      .execute();
+    return rows.map((r) => r.runtimeNodeId);
   }
 
   /** Active sessions brokered by one connecting node (the plane-side mirror of the node's own quota count). */
