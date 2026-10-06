@@ -118,6 +118,20 @@ export enum BackendErrorCodes {
   // UNSUPPORTED, SSH_BACKEND_UNAVAILABLE) retired with the destination
   // product (design 2026-10-05 §7): no route throws them any more, and the
   // SSH-runtime surface names its refusals through the ordinary families.
+  // ONE SSH-runtime refusal needs its own member (review m3), below: the
+  // ordinary offline/unreachable codes all promise a remedy the runtime seal
+  // forbids, so an honest refusal needs an honest name.
+  /**
+   * `POST /api/subshells/:id/uploads` against a pane whose node is a `runtime`
+   * row (an SSH runtime session's hidden destination, design 2026-10-05 §4):
+   * the runtime is reached ONLY through its session's framed channel, and
+   * `write_file` is not a session frame (design §2's frame set), so no upload
+   * can reach this pane. Refused BY NAME before any RPC is composed - the
+   * offline/unreachable 409s that preceded this each promised a remedy
+   * ("start the node", "restart the subshell") that the runtime seal makes
+   * impossible.
+   */
+  RUNTIME_UPLOAD_UNSUPPORTED = "RUNTIME_UPLOAD_UNSUPPORTED",
   /**
    * `POST /api/subshells`: the row was retired between its INSERT and its
    * spawn — a maintenance window opening on that node, or a plain terminate.
@@ -418,6 +432,10 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.NETWORK_UNCONFIGURED]: {
     message: "This network needs configuring first",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.RUNTIME_UPLOAD_UNSUPPORTED]: {
+    message: "File upload is not supported for panes on an SSH runtime session",
     statusCode: 409,
   },
 };

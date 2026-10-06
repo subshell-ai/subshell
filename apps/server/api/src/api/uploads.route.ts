@@ -4,8 +4,9 @@ import { MAX_UPLOAD_BYTES } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, ForbiddenError } from "@/api/auth-guard.js";
 import { db } from "@/db/index.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
-import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { LOCAL_NODE_ID, NODE_KIND_RUNTIME } from "@/db/types/nodes.db-types.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { isNodeOffline } from "@/services/nodes/node-registry.js";
@@ -79,6 +80,28 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
       // copy of the path (or refusing because this host has no such dir)
       // would be meaningless.
       if (row.nodeId !== LOCAL_NODE_ID) {
+        // A `runtime` node is a session's hidden destination, reached ONLY
+        // through the session's framed channel (design 2026-10-05 §2's frame
+        // set): `write_file` is not a session frame, so no upload can EVER
+        // reach this pane. Refuse by kind, by name, before any RPC is
+        // composed (review m3): the offline-409 below says "start it" (a
+        // runtime node has no start) and once the blessed predicate learned
+        // to read a live session as online (I3), this branch instead
+        // composed the unreachable call and answered NODE_UNREACHABLE with
+        // restart advice the runtime seal (`subshells.service.ts`) makes
+        // impossible. Kind-first answers both eras honestly; the local and
+        // ordinary-agent paths below are untouched.
+        const node = await new NodesRepository(db).findById(row.nodeId);
+        if (node?.kind === NODE_KIND_RUNTIME) {
+          return status(
+            409,
+            apiErrorBody({
+              code: BackendErrorCodes.RUNTIME_UPLOAD_UNSUPPORTED,
+              message:
+                "File upload is not supported for Connect-over-SSH panes in this version. Put the file on the destination yourself, or launch the pane on a connected machine.",
+            }),
+          );
+        }
         // Pre-gate the live connection (§5.6 — the blessed `isNodeOffline`
         // predicate, same deferral rule as the auto-restart): a dead node is
         // 409 before a single chunk goes out. Mid-stream drops land in the

@@ -2,13 +2,19 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { NodeCommandBody } from "@internal/subshell-protocol";
+import {
+  type NodeCommandBody,
+  SSH_RUNTIME_PROTOCOL,
+  type SshRuntimeHelloWire,
+  type SshSessionTargetWire,
+} from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { uploadsRoutes } from "@/api/uploads.route.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { NODE_KIND_RUNTIME } from "@/db/types/nodes.db-types.js";
 import {
   attachConnection,
   detachConnection,
@@ -17,6 +23,13 @@ import {
   resetNodeRegistryForTests,
 } from "@/services/nodes/node-registry.js";
 import { resolveResult } from "@/services/nodes/node-rpc.js";
+import { SshRuntimeSession } from "@/services/ssh-runtime/session.js";
+import {
+  registerSession,
+  resetSessionRegistryForTests,
+  sessionHooks,
+} from "@/services/ssh-runtime/session-registry.js";
+import { SshRuntimeSessionsRepository } from "@/services/ssh-runtime/sessions.repository.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
 
 /**
@@ -484,5 +497,174 @@ describe("uploads relay to agent nodes (spec §3.4)", () => {
     } finally {
       agent.detach();
     }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* runtime-kind panes: refused BY NAME, never relayed (review m3)      */
+/* ------------------------------------------------------------------ */
+
+const target: SshSessionTargetWire = { alias: "upl", host: "127.0.0.1", port: 22, user: null, identityFile: null };
+
+function hello(): SshRuntimeHelloWire {
+  return {
+    type: "hello",
+    runtimeProtocol: SSH_RUNTIME_PROTOCOL,
+    agentVersion: "1.5.0",
+    os: "linux",
+    arch: "x64",
+    capabilities: ["ssh-runtime", "callback-sock"],
+    homeDir: "/home/dst",
+    dataDir: "/home/dst/.local/share/subshell/runtime",
+    tmuxSocket: "subshell-ssh-upl0000000",
+    paneCount: 0,
+  };
+}
+
+describe("uploads to runtime-kind panes (m3)", () => {
+  let ownerId: string;
+  let ownerEmail: string;
+  let ownerToken: string;
+  const workDirs: string[] = [];
+  const runtimeNodeIds: string[] = [];
+  const paneIds: string[] = [];
+
+  beforeAll(async () => {
+    await setupAuthTables();
+    ownerEmail = `upl-rt-${crypto.randomUUID()}@subshell.local`;
+    ownerId = await new UsersRepository(db).createUser({
+      email: ownerEmail,
+      name: ownerEmail,
+      passwordHash: await hashPassword(password),
+      role: "user",
+    });
+    ownerToken = await signIn(ownerEmail, password);
+  });
+
+  afterAll(async () => {
+    resetSessionRegistryForTests();
+    resetNodeRegistryForTests();
+    for (const id of paneIds) {
+      await db
+        .deleteFrom("subshells")
+        .where("id", "=", id)
+        .execute()
+        .catch(() => {});
+    }
+    await db
+      .deleteFrom("sshRuntimeSessions")
+      .execute()
+      .catch(() => {});
+    for (const id of runtimeNodeIds) {
+      await db
+        .deleteFrom("nodes")
+        .where("id", "=", id)
+        .execute()
+        .catch(() => {});
+    }
+    await deleteUserByEmailOrId(ownerEmail).catch(() => {});
+    for (const dir of workDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    resetNodeRegistryForTests();
+    resetSessionRegistryForTests();
+  });
+
+  /** A pane on a hidden runtime node row; `registerLive` adds the live session (the m3 premise). */
+  async function mkRuntimePane(registerLive: boolean): Promise<{ paneId: string; runtimeNodeId: string }> {
+    const runtimeNodeId = crypto.randomUUID();
+    runtimeNodeIds.push(runtimeNodeId);
+    await new NodesRepository(db).create({
+      id: runtimeNodeId,
+      ownerUserId: ownerId,
+      name: `upl-rt-${runtimeNodeId}`,
+      kind: NODE_KIND_RUNTIME,
+      status: "online",
+    });
+    if (registerLive) {
+      // The live-session registration is exactly what makes I3's blessed
+      // `isNodeOffline` read FALSE for this pane (the reported bug's premise):
+      // without it, the route's offline-409 would answer instead and the
+      // write_file branch would never be reached.
+      const connectingNodeId = crypto.randomUUID();
+      const sessionId = crypto.randomUUID();
+      await new NodesRepository(db).create({
+        id: connectingNodeId,
+        ownerUserId: ownerId,
+        name: `upl-conn-${connectingNodeId}`,
+        kind: "agent",
+      });
+      await new SshRuntimeSessionsRepository(db).create({
+        id: sessionId,
+        ownerUserId: ownerId,
+        connectingNodeId,
+        runtimeNodeId,
+        alias: target.alias,
+        host: target.host,
+        port: target.port,
+        user: target.user,
+      });
+      const session = new SshRuntimeSession({
+        id: sessionId,
+        ownerId,
+        connectingNodeId,
+        runtimeNodeId,
+        target,
+        hello: hello(),
+      });
+      session.hooks = sessionHooks();
+      registerSession(session);
+    }
+    const dir = mkdtempSync(join(tmpdir(), "subshell-upl-rt-"));
+    workDirs.push(dir);
+    const paneId = crypto.randomUUID();
+    paneIds.push(paneId);
+    await new SubshellsRepository(db).create({
+      id: paneId,
+      userId: ownerId,
+      name: "upl-rt-test",
+      workingDir: dir,
+      harnessId: "claude-code",
+      presetId: crypto.randomUUID(),
+      status: "running",
+      tmuxSocket: `subshell-upl-rt-${paneId.slice(0, 8)}`,
+      nodeId: runtimeNodeId,
+    });
+    return { paneId, runtimeNodeId };
+  }
+
+  async function refuse(paneId: string): Promise<{ status: number; body: { code: string; message: string } }> {
+    const res = await uploadsRoutes.fetch(
+      uploadRequest(paneId, ownerToken, new File([payload(4)], "rt.bin", { type: "application/octet-stream" })),
+    );
+    return { status: res.status, body: (await res.json()) as { code: string; message: string } };
+  }
+
+  it("a LIVE runtime pane is refused by name with zero write_file frames (the m3 repro)", async () => {
+    const { paneId, runtimeNodeId } = await mkRuntimePane(true);
+    // A recording socket STANDS IN for any node connection: the pre-fix route
+    // sailed past the (correctly false) offline gate and composed the
+    // non-session `write_file` RPC anyway - the frame set the session never
+    // speaks. Zero frames is the fix's load-bearing fact.
+    const agent = attachFakeNode(runtimeNodeId);
+    try {
+      const { status, body } = await refuse(paneId);
+      expect(status).toBe(409);
+      expect(body.code).toBe("RUNTIME_UPLOAD_UNSUPPORTED");
+      expect(body.message.toLowerCase()).toContain("ssh"); // names the family the pane belongs to
+      expect(body.message.toLowerCase()).not.toContain("restart"); // the runtime seal makes restart advice impossible
+      expect(agent.cmds.length).toBe(0);
+    } finally {
+      agent.detach();
+    }
+  });
+
+  it("a runtime pane WITHOUT a live session answers the same named refusal, not the offline 'start it' 409", async () => {
+    const { paneId } = await mkRuntimePane(false);
+    const { status, body } = await refuse(paneId);
+    expect(status).toBe(409);
+    expect(body.code).toBe("RUNTIME_UPLOAD_UNSUPPORTED"); // honest by KIND: a runtime node cannot be "started"
+    expect(body.message.toLowerCase()).not.toContain("offline");
   });
 });
