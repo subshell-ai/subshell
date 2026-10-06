@@ -97,9 +97,22 @@ interface Door {
  * door belonging to a session, and stealing it (the I5 collision: a second
  * live serve's reconcile loop unlinked the first session's pane doors, so
  * every callback moved onto a channel that never issued those panes' tokens
- * and 403'd them) is refused instead - by the bind, and by the plane's
- * refuse-a-second-live-session gate that should have prevented the spawn at
- * all.
+ * and 403'd them) is refused instead - HERE, at the bind, and that is the
+ * whole enforcement. The plane deliberately runs no refuse-a-second-live-
+ * session gate (review m1: `openSession` asks only the per-node quota): a
+ * pre-open refusal would misread every REOPEN after a lost or closed
+ * session, which design §6 requires to adopt the destination's surviving
+ * panes, as a collision. What the plane cannot see across sessions, the
+ * bind can: both serves share the destination's filesystem, and the live
+ * listener IS the other session's proof of life.
+ *
+ * The stated residual (review m1, accepted): probe → unlink → bind is not
+ * atomic, so two serves starting for one destination within bind distance
+ * can both pass the probe and the later unlink steals the earlier bind
+ * (path → new inode; the robbed serve keeps answering only its already-
+ * connected clients). Narrow by construction - two concurrent OPEN acts on
+ * one destination, in a single-user instance - and a lockfile dance across
+ * process starts costs the reconcile path more than the race is worth.
  */
 function hasLiveListener(path: string, budgetMs = 250): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
