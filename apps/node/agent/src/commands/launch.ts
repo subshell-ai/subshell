@@ -188,10 +188,6 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     // every read, where a bare `cat >>` would freeze the live view on a host
     // whose `cat` is uutils coreutils (buffers partial writes to a regular file).
     ctx.tmux.pipePane(cmd.socket, cmd.subshellId, logFile, selfInvocation("pane-log"));
-    // The pre-attach race backfill (pane-runtime doc): never throws; the
-    // one-line result is noise-or-note for this machine's log.
-    const seeded = await seedLogFromHistory(ctx.tmux, cmd.socket, cmd.subshellId, logFile);
-    if (seeded !== null) log(`launch ${cmd.subshellId}: ${seeded}`);
   };
   if (cmd.bestEffortLog === true) {
     // Revive parity (Task 1's wire flag, twin of LaunchPlan.bestEffortLog):
@@ -208,6 +204,13 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
   } else {
     await attachLog(); // STRICT (createSubshell parity): a throw fails the launch
   }
+
+  // The pre-attach race backfill (pane-runtime's seedLogFromHistory): AFTER
+  // the branch on purpose, mirroring LocalLauncher's twin - a best-effort
+  // attach whose dir/pipe failed still gets whatever history holds, and the
+  // never-throws property keeps the strict path strict-but-safe.
+  const seeded = await seedLogFromHistory(ctx.tmux, cmd.socket, cmd.subshellId, logFile);
+  if (seeded !== null) log(`launch ${cmd.subshellId}: ${seeded}`);
 
   // (8) Initial geometry — cosmetic: a refused resize must not fail a live pane.
   if (cmd.cols !== undefined && cmd.rows !== undefined) {

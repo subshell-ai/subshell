@@ -36,12 +36,23 @@ describe("seedLogFromHistory", () => {
     expect(readFileSync(logFile, "utf8")).toBe("live-bytes\n");
   });
 
-  it("creates nothing for a silent pane (empty or whitespace-only history)", async () => {
-    for (const [i, history] of ["", "\n \r\n"].entries()) {
+  it("creates nothing for a silent pane: mode preamble and blank rows are decoration, not content", async () => {
+    // The stub mirrors the REAL capturePane contract (measured): the result
+    // leads with all five DECSET forms - the `l` forms included - and pads
+    // with blank rows, so a raw trim is never empty for a live-but-silent
+    // pane. The guard must strip first.
+    const preamble = "\x1b[?1049l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l";
+    for (const [i, history] of ["", "\n \r\n", `${preamble}\n\n   \n \n`].entries()) {
       const logFile = join(base, `silent-${i}.log`);
       await seedLogFromHistory(tmuxWithHistory(history), "sock", "p3", logFile);
       expect(() => statSync(logFile)).toThrow();
     }
+  });
+
+  it("a failed append (log dir gone mid-flight) returns the note and throws nothing", async () => {
+    const logFile = join(base, "no-such-dir", "deep.log");
+    const note = await seedLogFromHistory(tmuxWithHistory("MARKER\n"), "sock", "p5", logFile);
+    expect(note).toStartWith("log seed failed");
   });
 
   it("a throwing capture is the best-effort it claims: no throw, no file", async () => {

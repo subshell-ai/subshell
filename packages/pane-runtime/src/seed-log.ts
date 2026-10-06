@@ -1,4 +1,5 @@
 import { appendFile, stat } from "node:fs/promises";
+import { stripAnsi } from "@internal/backend-errors";
 
 import type { TmuxRunner } from "./tmux-runner.js";
 
@@ -16,10 +17,16 @@ const SEED_SCROLLBACK_LINES = 100_000;
  * received nothing - the capture child flushes every read, so a non-empty
  * file IS the stream already flowing, and prepending a screen reconstruction
  * would duplicate what arrived. It never throws: a pane with an imperfect
- * replay beats a refused launch, and this sits inside the best-effort attach
- * wrapper on both launchers (the agent's daemon executor and the plane's
- * local twin - the race has no machine class, so neither attaches without
- * it).
+ * replay beats a refused launch, and both attach twins call it AFTER their
+ * attach branch (the agent's daemon executor and the plane's local twin -
+ * the race has no machine class, and a best-effort attach whose pipe failed
+ * still gets whatever history holds).
+ *
+ * The emptiness test STRIPS first: capture-pane output leads with the mode
+ * preamble (all five DECSET forms, `l`s included) and pads with blank rows,
+ * so a raw trim is never empty for a live pane - measured, a fully silent
+ * fresh pane answers 40 preamble bytes. Preamble and blanks are decoration,
+ * not pane content.
  *
  * @returns `null` when nothing was written, else a one-line description for
  * the caller's log (seeded, or the best-effort failure).
@@ -32,7 +39,7 @@ export async function seedLogFromHistory(
 ): Promise<string | null> {
   try {
     const history = await tmux.capturePane(socket, subshellName, SEED_SCROLLBACK_LINES);
-    if (history.trim() === "") return null;
+    if (stripAnsi(history).trim() === "") return null;
     const existing = await stat(logFile).catch(() => null);
     if (existing !== null && existing.size > 0) return null;
     await appendFile(logFile, history.endsWith("\n") ? history : `${history}\n`, { mode: 0o600 });
