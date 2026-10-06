@@ -121,8 +121,15 @@ process.on("exit", () => {
  * bytes, this function owns the daemon). Generates ed25519 host + client keys,
  * writes the account config alias `e2edest`, the pre-trusted `known_hosts`,
  * and sshd's own config (loopback-only, key-only auth, no PAM).
+ *
+ * `envPath` (spec 23) adds one `SetEnv PATH=` line. sshd resets a session's
+ * PATH to the platform login default regardless of the daemon's own
+ * environment (measured: a PATH prepended before spawn never reaches the
+ * remote command), so a destination that must find a scratch binary on PATH
+ * needs the daemon to hand it out. Absent, the fixture is exactly the
+ * default-PATH world it has always been.
  */
-export async function startSshFixture(root: string): Promise<SshFixture> {
+export async function startSshFixture(root: string, options: { envPath?: string } = {}): Promise<SshFixture> {
   const sshBin = which("ssh");
   const keygenBin = which("ssh-keygen");
   const sshdBin = which("sshd", SSHD_KNOWN_PATHS);
@@ -218,6 +225,10 @@ export async function startSshFixture(root: string): Promise<SshFixture> {
       "PermitUserEnvironment no",
       "PrintMotd no",
       "LogLevel VERBOSE",
+      // The spec-23 seam: a session PATH the daemon hands out (the default
+      // login PATH would otherwise hide any scratch binary). One token, no
+      // spaces: sshd's SetEnv value grammar.
+      ...(options.envPath !== undefined && options.envPath !== "" ? [`SetEnv PATH=${options.envPath}`] : []),
     ].join("\n"),
   );
   // sshd's privilege-separation directory is compiled in (/run/sshd; no

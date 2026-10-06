@@ -1,67 +1,55 @@
 ---
-title: "SSH connections"
-description: "Let agent panes run commands and interactive terminals on Linux and macOS machines over SSH, with human-issued grants and no credentials stored in Subshell."
+title: "Connect over SSH"
+description: "Pick one of your machines as the SSH point of departure, start the Subshell runtime on a destination you reach with it, and work there in ordinary panes. Admins can also set up destination-based SSH connections for agent panes."
 ---
 
-Operate a Linux or macOS machine over SSH from an agent pane, without installing Subshell or an agent CLI on that machine.
-
-A human configures each connection, tests it, and grants selected agent panes access to it. An agent never configures connections, never sees credentials, and cannot use a connection nobody granted it.
+Reach any Linux or macOS machine you can already reach with SSH, and work on it as if a Subshell node lived there, without enrolling one.
 
 ## How it works
 
-Every SSH connection runs through one of your enrolled [nodes](/nodes). The node's operating-system account holds the SSH keys, certificates, and host trust; Subshell stores only a normalized description of the destination and where to find the credential files. Connections appear in your account under **SSH connections** in settings, and they are private: an admin can configure connections on the server's built-in node, but nobody reaches another account's connections.
+```
+browser → control plane → one of your enrolled machines (runs ssh)
+        → SSH session → `subshell runtime-serve` on the destination → ordinary panes
+```
 
-The route always names three things: the connection label, the destination account and host, and the connecting node. A connection saved as **Staging** for `deploy@app-02` through your **Laptop** node reads `Staging · deploy@app-02 · via Laptop` everywhere it appears. Remote paths are always marked as paths on the destination, never as paths on the connecting node.
+The runtime is a session-scoped mode of the same `subshell` binary your node runs. On the destination it drives tmux, owns the pane logs, and answers commands over the SSH link itself. There is no enrollment, no node key, no service, and no network port opened on the destination: the SSH link is the whole connection, and the session ends with it.
 
-## Set up a connection
+Everything the destination needs is SSH that already works from the connecting machine's account: a key the destination accepts, and host trust that is already in place. Subshell never learns your private keys; they stay in the OS account on the connecting machine, where SSH already reads them.
 
-1. In the server dashboard's sidebar, open **Settings** → **SSH connections** and choose **New connection**.
-2. Pick the connecting node. The node must be online and owned by you (or be the server's built-in node, which needs admin rights).
-3. Choose an alias from the node's SSH configuration, or enter one manually. Subshell lists alias names only; configuration contents never leave the node.
-4. Review the resolved destination and the connecting account. Resolution is a human action, and it discloses that trusted local SSH configuration can run helper programs on the node when it resolves.
-5. Set an optional absolute remote directory. Commands run there unless they say otherwise.
-6. Test the connection, then save it. Testing runs a fixed benign probe, never a command you typed.
+## Connect
 
-Saved settings cover the destination host, user, and port; identity and certificate references; an already-unlocked authentication-agent reference; host-trust references and the host-key alias; and a bounded jump-host chain. Anything that cannot be represented safely, such as a `ProxyCommand` or port forwarding, is refused with a named limitation rather than silently dropped. Later edits create a new revision and invalidate existing grants, and an edit is refused while runs or terminals are still open on the connection.
+Open **Connect over SSH** in the sidebar. The page walks the journey:
 
-Passwords, MFA, key unlocking, and first-time host trust all happen outside Subshell, on the connecting account. Unknown, changed, and revoked host keys fail closed; there is no in-app trust-acceptance step, and a key scan is never turned into automatic trust.
+1. **Pick the connecting machine.** Only your own enrolled machines are listed, because the SSH runs as your account on that machine's terms. An admin's access to someone else's machine is not ownership, and a shared node is not yours to broker with.
+2. **Pick the host.** The machine lists the alias names from its own SSH config; config contents never leave the machine.
+3. **Review and connect.** The page shows the concrete `host:port`, the destination account it resolves to, and the connecting account. **Connect** proves reachability and the runtime's presence in the same step, and a refusal says what to fix.
+4. **Choose the folder.** The picker browses the destination's directories over the live session, showing the absolute path throughout.
+5. **Launch.** A terminal pane opens in the chosen folder and appears everywhere ordinary panes appear: the rail, the subshells list, and the detail page with its log, sharing, and workspace tiles. The pane's page names its destination and the machine it was brokered through, in a line assembled from the server's records, never from anything the terminal displays.
 
-## Grant a pane access
+Sessions you opened stay on the same page as your own history, newest first. Closing a session ends the SSH link; panes you launched keep running on the destination under the runtime's tmux socket, and a later session to the same destination finds them again.
 
-A grant binds one connection to one pane and that pane's current credential. Open the connection's **Grants** section in settings and select a running pane. Granting requires your signed-in browser session; agent tokens cannot grant anything.
+## What the panes get
 
-Grants do not spread. A pane's child panes inherit nothing, and a restarted pane gets a new credential that holds nothing until a human grants it again. Revoking a grant stops new work immediately, fences input that is already in flight at the connecting machine, and cancels the runs and terminals that were started under that grant where reachable. Revoking does not touch work you started yourself or work running under another grant.
+A pane opened this way is an ordinary subshell: a normal working directory, a normal log, and its pane's own MCP credential, so it can report on itself, extend its token, read sibling panes, and use channels exactly like a pane on an enrolled node. The credential's traffic reaches the control plane through the session itself, never through a network route the destination must have.
 
-An ungranted pane cannot reach a connection through any side door either. Generic pane surfaces (lists, previews, logs, live terminal views, attach tokens, input, exec, prompts, restart, terminate, delete, sharing) all ask the same SSH policy, and a pane without a grant sees a managed SSH terminal as if it did not exist.
+## When the link drops
 
-## What an agent can do
+If the SSH session dies, the session is marked lost and its panes read unavailable, never completed: the destination's tmux and panes are untouched, and the next session to that destination reconciles them. Nothing is replayed automatically; an uncertain result stays uncertain. While the connecting machine itself is offline, browsing, launching, and closing are refused until it is back.
 
-With a grant, a pane can:
+## Limits
 
-- List the connections granted to it.
-- Run a structured command, read its incremental output, and cancel it. See the SSH tools in the [MCP tool reference](/mcp/tools).
-- Open an interactive SSH terminal pane, then type and read through the ordinary terminal path described in [Terminal sessions](/mcp/terminals).
+- Linux and macOS destinations with POSIX shells. Windows destinations are not supported.
+- The destination needs the `subshell` binary on the connecting account's PATH. A missing runtime is reported by name at connect time with exactly that remedy; Subshell never installs anything on a destination for you.
+- The connecting machine reads your account's SSH config for alias names and the resolved destination. Configs that need a `ProxyCommand`, port forwarding, or interactive password or MFA entry are refused by name; keys-only auth through the machine's existing trust is the supported shape, with an already-unlocked authentication agent and a bounded `ProxyJump` chain carried as-is. First-time host trust happens on the connecting machine, outside Subshell.
+- Sessions are personal: they live in your account, and their panes follow the ordinary subshell sharing rules.
 
-Structured commands run as supervised processes with separate stdout and stderr, a bounded deadline, and no directory or environment carry-over between commands. A quiet pane is never treated as an idle shell: structured results come from the supervised process, not from scraping prompts.
+## SSH connections for agent panes
 
-## Honesty when things break
+Settings → **SSH** (server administrators) is a separate surface for agent-driven work on destination machines. A human configures each connection, tests it against a fixed benign probe, and grants selected agent panes access to it; an agent never configures connections, never sees credentials, and cannot use a connection nobody granted it. With a grant, a pane can run structured commands and open managed interactive terminals on the connection; the exact arguments are in the [MCP tool reference](/mcp/tools).
 
-These behaviors are deliberate, and they are the safety story of the feature:
-
-- **Nothing is replayed.** A disconnect at the wrong moment can leave the result of a command unknown rather than retrying it. A resend is a new run. The system prefers `unknown` status to a false success or a double execution.
-- **Cancellation stops the local process.** Subshell confirms that the SSH process it supervised on the node stopped. Whether the remote command itself died is never claimed: programs can outlive their connection.
-- **Human takeover controls input, not secrecy.** When you take over a terminal an agent was using, agent reads and writes stop until you return control. The pane's recorded output can still become visible to a granted pane after the return, so a terminal is not a confidential buffer and never a secret-entry form. Ordinary terminal history is transcript data.
-- **Remote output is data.** Output renders in the terminal view and is never treated as instructions, HTML, or an authoritative claim about identity or permissions. Automatic link opening and clipboard access do not exist; you choose when to copy or open something you see.
-
-## Limits of v1
-
-- No remote file browsing, transfer, or editing for SSH destinations yet; node-to-node `transfer_files` needs enrolled nodes and does not operate a plain SSH machine.
-- No connection sharing, persistent remote sessions, session handoff between people, or terminal uploads into SSH panes.
-- Linux and macOS destinations, POSIX command syntax. Windows destinations are not supported.
-- Windows and macOS agent features on the destination arrive with later designs, not through arbitrary SSH options or shell wrappers.
+Grants bind one connection to one pane's current credential. They do not spread to child panes, and a restarted pane holds nothing until a human grants it again. Revoking stops new work immediately, fences input already in flight at the connecting machine, and reaches nothing outside that grant. Human takeover of a managed terminal controls input, not secrecy: agent reads and writes stop while a human holds it, and recorded output is transcript data, not a confidential buffer. Unknown, changed, and revoked host keys fail closed, and remote output is always rendered as data.
 
 ## See also
 
-- [MCP tool reference](/mcp/tools) for the exact arguments of `list_ssh_connections`, `execute_ssh_command`, `read_ssh_command`, `cancel_ssh_command`, and `open_ssh_terminal`.
-- [Terminal sessions](/mcp/terminals) for the manual type-and-read loop that includes SSH terminals.
-- [Nodes](/nodes) to enroll the connecting machine.
+- [Nodes](/nodes) to enroll the connecting machine itself.
+- [Terminal sessions](/mcp/terminals) for the pane input and log model.
