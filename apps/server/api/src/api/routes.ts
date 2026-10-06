@@ -24,7 +24,6 @@ import { instancePublicRoutes } from "@/api/settings-public.route.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { setupAgentInstallRoute } from "@/api/setup-agent-install.route.js";
 import { setupTmuxInstallRoute } from "@/api/setup-tmux-install.route.js";
-import { sshRoutes } from "@/api/ssh/index.js";
 import { sshRuntimeRoutes } from "@/api/ssh-runtime/index.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { systemKeysRoutes } from "@/api/system-keys.route.js";
@@ -83,20 +82,14 @@ const paneRoutes = new Elysia()
   .use(workspaceRoutes);
 
 // The machine-side surfaces: node administration, the node-to-node transfer
-// relay, and the SSH surface (spec 2026-10-04 §4). SSH mounts HERE rather than
-// as its own root arm because the root already carries six `.use()` groups and
-// a seventh re-trips the TS2589 ceiling the header explains: adding
-// `.use(sshRoutes)` to the root made `App = ReturnType<typeof createApp>`
-// recursively deep and failed to compile. `nodeRoutes` has headroom (three
-// arms), and SSH is genuinely a machine-side surface - every command rides the
-// node link and connects through a node - so the grouping is honest, not just
-// a compile dodge. `sshRoutes` stays a single self-contained sub-aggregate; the
-// seventeen `/api/ssh` endpoints are unchanged, only their mount point moved.
-// The runtime-session slice (design 2026-10-05 §9) joins this basket for the
-// same reason ssh did: it is a machine-side surface (every frame rides a node
-// link), and the root chain has no depth to spare. Four arms here is still
-// shallower than the root's six.
-const nodeRoutes = new Elysia().use(nodesRoutes).use(transferRoutes).use(sshRoutes).use(sshRuntimeRoutes);
+// relay, and the SSH runtime-session surface (design 2026-10-05 §9). SSH
+// runtime sessions mount HERE rather than as their own root arm because the
+// root already carries six `.use()` groups and a seventh re-trips the TS2589
+// ceiling the header explains; `nodeRoutes` has headroom, and the runtime is
+// genuinely a machine-side surface - every frame rides the node link and
+// connects through a node - so the grouping is honest, not just a compile
+// dodge.
+const nodeRoutes = new Elysia().use(nodesRoutes).use(transferRoutes).use(sshRuntimeRoutes);
 
 const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use(channelRoutes);
 

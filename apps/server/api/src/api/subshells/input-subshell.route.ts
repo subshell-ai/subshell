@@ -2,7 +2,6 @@ import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
-import { sshCallerSeed } from "@/services/pane-ssh-gate.js";
 
 /**
  * Pane input over REST (spec 2026-09-25 MCP DX). `text` is typed verbatim,
@@ -51,17 +50,11 @@ export const inputSubshellRoute = new Elysia()
   .use(apiModels)
   .post(
     "/:id/input",
-    async ({ params, body, user, principal, apiKeyId, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, body, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
       // `submit` arrives defaulted by the schema; the `?? true` is a plain
       // reading of the documented default, not a second rule.
-      return await ctx.services.subshells.sendSubshellInput(
-        user.id,
-        params.id,
-        body.text,
-        body.submit ?? true,
-        sshCallerSeed({ user, actor, principal, apiKeyId }),
-      );
+      return await ctx.services.subshells.sendSubshellInput(user.id, params.id, body.text, body.submit ?? true, actor);
     },
     {
       body: InputBodySchema,

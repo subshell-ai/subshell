@@ -3,7 +3,6 @@ import { authGuard, requireCookieActor, requirePerm } from "@/api/auth-guard.js"
 import { SetSubshellSharesBodySchema, SubshellSharesResponseSchema } from "@/api/models.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
-import { sshCallerSeed } from "@/services/pane-ssh-gate.js";
 
 /**
  * `GET/PUT /api/subshells/:id/shares` — the owner's sharing control (spec
@@ -17,14 +16,10 @@ export const subshellSharesRoutes = new Elysia()
   .use(apiModels)
   .get(
     "/:id/shares",
-    async ({ params, user, principal, apiKeyId, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
       requireCookieActor(actor, "Subshell sharing is restricted to browser sessions");
-      return await ctx.services.subshells.getShares(
-        user.id,
-        params.id,
-        sshCallerSeed({ user, actor, principal, apiKeyId }),
-      );
+      return await ctx.services.subshells.getShares(user.id, params.id, actor);
     },
     {
       response: {
@@ -42,16 +37,11 @@ export const subshellSharesRoutes = new Elysia()
   )
   .put(
     "/:id/shares",
-    async ({ params, body, user, principal, apiKeyId, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, body, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
       requireCookieActor(actor, "Subshell sharing is restricted to browser sessions");
       const shares = body.shares.map((s) => ({ granteeUserId: s.granteeUserId ?? null, permission: s.permission }));
-      return await ctx.services.subshells.setShares(
-        user.id,
-        params.id,
-        shares,
-        sshCallerSeed({ user, actor, principal, apiKeyId }),
-      );
+      return await ctx.services.subshells.setShares(user.id, params.id, shares, actor);
     },
     {
       body: SetSubshellSharesBodySchema,

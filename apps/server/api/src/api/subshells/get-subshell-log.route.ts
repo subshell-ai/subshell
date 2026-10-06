@@ -4,7 +4,6 @@ import { SubshellLogTailSchema } from "@/api/models.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { LOG_MAX_WINDOW_BYTES, LOG_WINDOW_DEFAULT_BYTES } from "@/services/nodes/log-tail.js";
-import { sshCallerSeed } from "@/services/pane-ssh-gate.js";
 
 /**
  * Cursor window (spec 2026-10-01 §3); absent `from_byte` keeps the EOF-anchored
@@ -24,12 +23,6 @@ const LogTailQuerySchema = t.Object({
       description: `Window budget for a cursor read, clamped into [1, ${LOG_MAX_WINDOW_BYTES}] (default ${LOG_WINDOW_DEFAULT_BYTES}); a line the window ended mid-way arrives whole on the next read unless it held no newline at all (longer than the budget, or still being written), which is returned partial so the cursor always advances`,
     }),
   ),
-  log_generation: t.Optional(
-    t.Numeric({
-      description:
-        "Managed SSH panes only: the log generation the from_byte cursor was taken under (pass the previous response's logGeneration). A cursor read without a current stamp answers cursorExpired rather than reading fresh bytes at a dead offset; ordinary panes ignore it",
-    }),
-  ),
 });
 
 /** `GET /api/subshells/:id/log` — tail (or byte-cursor window) of the subshell's pane log. */
@@ -39,16 +32,15 @@ export const getSubshellLogRoute = new Elysia()
   .use(apiModels)
   .get(
     "/:id/log",
-    async ({ params, query, user, principal, apiKeyId, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, query, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
       return await ctx.services.subshells.getSubshellLogTail(
         user.id,
         params.id,
-        sshCallerSeed({ user, actor, principal, apiKeyId }),
+        actor,
         query.from_byte === undefined && query.max_bytes === undefined
           ? undefined
           : { fromByte: query.from_byte, maxBytes: query.max_bytes },
-        query.log_generation,
       );
     },
     {

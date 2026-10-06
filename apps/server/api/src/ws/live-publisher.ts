@@ -1,10 +1,9 @@
 import type { LiveServerFrame } from "@internal/subshell-protocol";
 import { getRequestlessContext } from "@/lib/context.js";
 import { type LiveEvent, subscribeLive } from "@/services/live-bus.js";
-import { gatePaneSurfaceFor, readManagedPanes, SshGateFailure } from "@/services/pane-ssh-gate.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
-import { levelChangedTopics, recipientTopics, revocationTopics, userTopic } from "@/ws/live-topics.js";
+import { levelChangedTopics, recipientTopics, revocationTopics } from "@/ws/live-topics.js";
 
 /**
  * How long changes to one subshell are collected before a frame goes out.
@@ -170,38 +169,6 @@ async function publishEvent(target: LivePublisherTarget, event: LiveEvent): Prom
     } else {
       const shares = (await repos.subshellShares.listForSubshells([event.id])).get(event.id) ?? [];
       currentTopics = recipientTopics({ ownerUserId: row.userId, shares });
-      // The SSH `live` census (payload AND audience): managed panes ask the
-      // injected policy for the `live` surface exactly like every other
-      // surface (review round 1: the publisher must not narrow STRUCTURALLY;
-      // the decision belongs to the policy). The caller a broadcast can
-      // honestly represent is the OWNER - per-viewer gating arrives with the
-      // wave-2 payload work. Allowed: the owner's topic ONLY, never
-      // `recipientTopics`, which would put admins in the room (§2: admin
-      // status does not bypass the SSH rules) - a pane whose owner is an
-      // admin therefore also subscribes via their USER topic, which they do
-      // hold, so an admin-owned managed pane now gets its frames through the
-      // same decision as everyone else's (behavior change from the
-      // pre-census structural narrowing). Refused (the deny placeholder's
-      // answer until D registers the real policy): NO frame at all, and no
-      // removal assertion either - an invisible row still exists, and the
-      // audience for a denial is not addressable by name.
-      if ((await readManagedPanes(getRequestlessContext().db, [event.id])).size > 0) {
-        try {
-          await gatePaneSurfaceFor(
-            getRequestlessContext().db,
-            { actor: "cookie", userId: row.userId, principal: `user:${row.userId}`, apiKeyId: null },
-            event.id,
-            "live",
-          );
-          currentTopics = [userTopic(row.userId)];
-        } catch (err) {
-          if (!(err instanceof SshGateFailure)) throw err;
-          // Denied (or a throwing policy - deny by default): nothing to say,
-          // and saying nothing asserts nothing away.
-          logger.debug(`live publisher: managed pane ${event.id} refused the live surface; no frame`);
-          return;
-        }
-      }
       if (event.kind === "subshell.shares-changed") {
         levelChanged = levelChangedTopics({ ownerUserId: row.userId, before: event.before.shares, after: shares });
       }

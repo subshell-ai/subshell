@@ -184,9 +184,13 @@ describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () =
     const pocketed = await attach(row.userId, row.id, "&cols=100&rows=20&hidden=1");
 
     // The hidden joiner takes no part: the pane stays at the laptop's size.
+    // The view is sliced to THIS join - the shared recorder can carry
+    // legitimate resizes from earlier cases (and earlier files), and the
+    // claim is about the join that follows the laptop's attach.
+    const joinResizes = resizeCalls.slice(resizedByLaptop);
     expect(resizeCalls.at(-1)).toEqual({ cols: 100, rows: 50 });
-    expect(resizeCalls.some((c) => c.rows === 20)).toBe(false);
-    expect(resizeCalls.length).toBe(resizedByLaptop);
+    expect(joinResizes.some((c) => c.rows === 20)).toBe(false);
+    expect(joinResizes.length).toBe(0);
     const presence = laptop.sent
       .filter((f) => f.includes('"type":"viewers"'))
       .map((f) => JSON.parse(f) as { viewers: Array<{ hidden: boolean; capacity: { rows: number } | null }> })

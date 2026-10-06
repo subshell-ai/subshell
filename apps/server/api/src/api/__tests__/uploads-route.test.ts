@@ -8,7 +8,6 @@ import { Elysia } from "elysia";
 import { uploadsRoutes } from "@/api/uploads.route.js";
 import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
-import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
@@ -141,71 +140,19 @@ describe("subshell uploads route", () => {
     expect(res.status).toBe(404);
   });
 
-  it("managed SSH pane -> 400 UPLOAD_SSH_UNSUPPORTED and nothing written; an ordinary pane is byte-identical (SSH plan §3)", async () => {
-    // The upload target's cwd is the CONNECTING node's home for a managed
-    // pane; the client gate is tab-local memory, so the server marker check is
-    // the boundary. Refusal is named, and no bytes touch the filesystem.
+  it("ordinary pane -> 200 and the bytes land under the working dir", async () => {
+    // Every pane is an ordinary pane since the SSH destination product
+    // retired (migration 0050): the server is the boundary, and the upload
+    // writes into the row's working directory.
     const ws = tempWorkDir();
     const id = await makeSubshell(ownerId, ws);
-    const nodeId = crypto.randomUUID();
-    const connId = crypto.randomUUID();
-    await new NodesRepository(db).create({
-      id: nodeId,
-      ownerUserId: ownerId,
-      name: `up-${nodeId.slice(0, 8)}`,
-      kind: "agent",
-    });
-    await db
-      .insertInto("sshConnections")
-      .values({
-        id: connId,
-        userId: ownerId,
-        nodeId,
-        displayName: "up-conn",
-        configSnapshot: "{}",
-        remoteDir: null,
-        revision: 1,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      })
-      .execute();
-    await db
-      .insertInto("sshPanes")
-      .values({
-        subshellId: id,
-        connectionId: connId,
-        connectionRevision: 1,
-        initiatedBy: "human",
-        grantId: null,
-        apiKeyId: null,
-        controlOwner: "human",
-        controlGeneration: 1,
-        logGeneration: 1,
-        createdAt: new Date().toISOString(),
-      })
-      .execute();
-
-    const managed = await uploadsRoutes.fetch(
+    const res = await uploadsRoutes.fetch(
       uploadRequest(id, ownerToken, new File(["hello"], "notes.txt", { type: "text/plain" })),
     );
-    expect(managed.status).toBe(400);
-    expect(((await managed.json()) as { code: string }).code).toBe("UPLOAD_SSH_UNSUPPORTED");
-    expect(existsSync(join(ws, ".subshell"))).toBe(false);
-
-    // The marker gone (not a managed pane) - the SAME route, the SAME file,
-    // the ordinary success path, byte-for-byte what an unmanaged upload always
-    // did. Nothing about the check altered the ordinary branch.
-    await db.deleteFrom("sshPanes").where("subshellId", "=", id).execute();
-    const ordinary = await uploadsRoutes.fetch(
-      uploadRequest(id, ownerToken, new File(["hello"], "notes.txt", { type: "text/plain" })),
-    );
-    expect(ordinary.status).toBe(200);
-    const ok = (await ordinary.json()) as { path: string; size: number };
+    expect(res.status).toBe(200);
+    const ok = (await res.json()) as { path: string; size: number };
     expect(ok.size).toBe(5);
     expect(readFileSync(ok.path, "utf8")).toBe("hello");
-
-    await db.deleteFrom("sshConnections").where("id", "=", connId).execute();
-    await db.deleteFrom("nodes").where("id", "=", nodeId).execute();
     await db.deleteFrom("subshells").where("id", "=", id).execute();
   });
 

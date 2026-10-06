@@ -49,6 +49,7 @@ import * as backupRecoveryMigration from "@/db/migrations/0046-backup-recovery.j
 import * as sshConnectionsMigration from "@/db/migrations/0047-ssh-connections.js";
 import * as sshExecutionMigration from "@/db/migrations/0048-ssh-execution.js";
 import * as sshRuntimeSessionsMigration from "@/db/migrations/0049-ssh-runtime-sessions.js";
+import * as sshRetirementMigration from "@/db/migrations/0050-ssh-retirement.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -136,14 +137,20 @@ export async function runMigrations(): Promise<void> {
           "0045-node-reregistration": nodeReregistrationMigration,
           "0046-backup-recovery": backupRecoveryMigration,
           // SSH feature (SSH-SUPPORT.md §4): config + grants, then the
-          // execution half. Gate A lands the schema; the repositories that
-          // write it arrive with workstream D.
+          // execution half. Gate A landed the schema for the destination
+          // product; Workstream C retired it (design 2026-10-05 §7), and
+          // migration 0050 drops these five tables on the same chain.
+          // 0047/0048 stay byte-identical: Kysely is forward-only and an
+          // older database must still replay them exactly.
           "0047-ssh-connections": sshConnectionsMigration,
           "0048-ssh-execution": sshExecutionMigration,
           // SSH runtime sessions (design 2026-10-05 §4): brokered destination
           // sessions + the hidden `runtime` node rows their panes carry. The
           // `runtime` kind needs no ALTER (0017's `kind` is plain text).
           "0049-ssh-runtime-sessions": sshRuntimeSessionsMigration,
+          // The retirement drop (0050): the destination product's five
+          // tables go; the runtime-session table from 0049 stays.
+          "0050-ssh-retirement": sshRetirementMigration,
         };
       },
     },

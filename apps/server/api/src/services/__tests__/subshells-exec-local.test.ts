@@ -102,13 +102,7 @@ afterAll(async () => {
 });
 
 describe("execInTerminal over the local launcher (spec 2026-10-02 §5, local path)", () => {
-  const exec = (command: string) =>
-    ctx.services.subshells.execInTerminal(ownerId, id, command, 15_000, {
-      actor: "cookie",
-      userId: ownerId,
-      principal: `user:${ownerId}`,
-      apiKeyId: null,
-    });
+  const exec = (command: string) => ctx.services.subshells.execInTerminal(ownerId, id, command, 15_000, "cookie");
 
   it("types through argv into a real pane, answers from the real log file, rc honest twice over", async () => {
     const answer = await exec("echo exec-local-marker");

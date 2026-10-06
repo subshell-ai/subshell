@@ -19,7 +19,6 @@ import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-a
 import { accountDisabled } from "@/services/account-status.js";
 import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.js";
 import { publishLive } from "@/services/live-bus.js";
-import { gatePaneSurfaceFor, SshGateFailure } from "@/services/pane-ssh-gate.js";
 import { logger } from "@/utils/logger.js";
 import { type AttachParams, parseAttachParams } from "@/ws/attach-params.js";
 import { consumeWsToken, type WsTokenIdentity } from "@/ws/ws-token.js";
@@ -174,48 +173,6 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
   // ever retried 4004 either, so no cached PWA's behavior changes by the
   // move; a current client retries exactly 4004 and nothing else.
   if (!row || !accessAtLeast(access, "view")) return { ok: false, code: 4005, reason: "subshell not found" };
-
-  // The SSH `attach_redeem` census (spec §2: machine-minted attach tokens
-  // keep their caller identity and are rechecked against SSH grants and
-  // control state WHEN REDEEMED - the mint cannot be the only gate). The
-  // identity the token records is the caller: a bound token (`subshellId`)
-  // is a machine credential for exactly that pane; an unbound one is the
-  // human cookie arm (the only unscoped mints are cookie-minted). Every
-  // refusal - invisible, revoked grant, human control - answers the SAME
-  // uniform `4001 unauthorized` the wrong-bind check above uses: a managed
-  // pane must look identical to a refused one and to a bad token, so
-  // redemption cannot enumerate which ids are SSH panes. Ordinary panes
-  // (no `ssh_panes` row) skip the branch with one PK read and no policy
-  // call. A THROWING policy read is a refusal (deny by default).
-  try {
-    await gatePaneSurfaceFor(
-      getRequestlessContext().db,
-      identity.subshellId === null
-        ? { actor: "cookie", userId: identity.userId, principal: `user:${identity.userId}`, apiKeyId: null }
-        : // The bound token's credential id: the token store's frozen shape
-          // carries only (userId, subshellId), so the honest fact redemption
-          // can name is the pane's CURRENTLY-BOUND api key (`row.apiKeyId`,
-          // written only by issueSubshellToken) - for a pane-key mint that IS
-          // the presenting credential; for a system-key mint it is the pane's
-          // own key, which D's token_stale recheck reads as "this pane's
-          // credential", exactly the seed's use. Null after revoke/rotate
-          // says so honestly. The mint's true key id on a SYSTEM-key mint is
-          // genuinely unknowable here and documented null; carrying it would
-          // need an additive `apiKeyId` on `WsTokenIdentity` (ws/ws-token.ts
-          // + the mint site, coordinator-owned - integration item).
-          {
-            actor: "subshell-key",
-            userId: identity.userId,
-            principal: `sess:${identity.subshellId}`,
-            apiKeyId: row.apiKeyId,
-          },
-      subshellId,
-      "attach_redeem",
-    );
-  } catch (err) {
-    if (!(err instanceof SshGateFailure)) throw err;
-    return { ok: false, code: 4001, reason: "unauthorized" };
-  }
 
   // The client's fitted geometry rides the URL so the pane can be resized
   // BEFORE the replay is captured: a capture taken at tmux's 80×24 birth size

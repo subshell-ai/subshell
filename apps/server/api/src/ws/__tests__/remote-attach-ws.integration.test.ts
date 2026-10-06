@@ -230,10 +230,17 @@ describe("double cleanup parity — the local path absorbs it identically (T11 p
   // The local branch reaches the real tmux CLI; stub the two pane-touching
   // members of the SHARED defaultLocalLauncher (the local-attach suite's
   // technique) and let fs.watch / the tail pump / the DB run for real.
-  const originals = { hasSubshell: defaultLocalLauncher.hasSubshell, capture: defaultLocalLauncher.capture };
+  const originals = {
+    hasSubshell: defaultLocalLauncher.hasSubshell,
+    capture: defaultLocalLauncher.capture,
+    paneSize: defaultLocalLauncher.paneSize,
+    paneCursor: defaultLocalLauncher.paneCursor,
+  };
   afterEach(() => {
     defaultLocalLauncher.hasSubshell = originals.hasSubshell;
     defaultLocalLauncher.capture = originals.capture;
+    defaultLocalLauncher.paneSize = originals.paneSize;
+    defaultLocalLauncher.paneCursor = originals.paneCursor;
   });
 
   it("two cleanupSubshellWs calls on a local attach: no throw, and the stream stays dead", async () => {
@@ -252,6 +259,15 @@ describe("double cleanup parity — the local path absorbs it identically (T11 p
     });
     defaultLocalLauncher.hasSubshell = async () => true;
     defaultLocalLauncher.capture = async () => "SCREEN";
+    // The announce-before-replay `geometry` frame is measured through
+    // `paneSize` right before the replay ships; this case pins the
+    // replay/cleanup contract, so the pane answers "no size" and the socket
+    // sees replay first. Declared HERE rather than trusted from a previous
+    // file's harness state (the serial process shares the launcher
+    // singleton, and a sibling suite's stub outliving its own file is a
+    // hazard this test used to ride by accident).
+    defaultLocalLauncher.paneSize = async () => null;
+    defaultLocalLauncher.paneCursor = async () => null;
     const logFile = subshellLogPath(id);
     await Bun.write(logFile, "old\n"); // log exists ⇒ startLogTail branch (fs.watch path)
 

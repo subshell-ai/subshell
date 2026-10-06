@@ -3,7 +3,6 @@ import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { EXEC_TIMEOUT_MAX, EXEC_TIMEOUT_MIN, EXEC_TIMEOUT_MS } from "@/services/nodes/pane-exec.js";
-import { sshCallerSeed } from "@/services/pane-ssh-gate.js";
 
 /**
  * One shell command, run in a TERMINAL pane, answered with its output and
@@ -47,10 +46,6 @@ const ExecResultSchema = t.Object({
     description:
       "Raw log offset just after the sentinel line (or where the wait stopped); pass it as read_subshell_log's from_byte to continue exactly",
   }),
-  executionId: t.String({
-    description:
-      "The exec's durable record id (SSH feature): read the record back at GET /api/subshells/:id/execs/:executionId - the get_terminal_execution door. A timed_out answer means the record is still outstanding: bounded marker observation continues, a late marker completes it, pane death or the budget ends it as unknown",
-  }),
 });
 
 /**
@@ -68,15 +63,9 @@ export const execSubshellRoute = new Elysia()
   .use(apiModels)
   .post(
     "/:id/exec",
-    async ({ params, body, user, principal, apiKeyId, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, body, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
-      return await ctx.services.subshells.execInTerminal(
-        user.id,
-        params.id,
-        body.command,
-        body.timeoutMs,
-        sshCallerSeed({ user, actor, principal, apiKeyId }),
-      );
+      return await ctx.services.subshells.execInTerminal(user.id, params.id, body.command, body.timeoutMs, actor);
     },
     {
       body: ExecBodySchema,

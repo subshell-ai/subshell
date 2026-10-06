@@ -235,3 +235,39 @@ export function execOutputTail(lines: string[], capBytes: number): { text: strin
   const kept = lines.slice(start);
   return { text: kept.join("\n"), truncated: true };
 }
+
+/* ------------------------------------------------------------------ */
+/* the pane reservation                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One reservation per pane, taken SYNCHRONOUSLY before the first await (two
+ * racing calls must never both proceed) and released when the caller's wait
+ * ends. `SubshellsService` is per request, so the map is module-scoped
+ * exactly like `restartInFlight` in the manager.
+ */
+const holds = new Map<string, Promise<void>>();
+const holdResolvers = new Map<string, () => void>();
+
+/** Claim the pane for one exec. False = already claimed (the EXEC_IN_FLIGHT answer). */
+export function tryHoldPane(subshellId: string): boolean {
+  if (holds.has(subshellId)) return false;
+  let release: () => void = () => {};
+  holds.set(
+    subshellId,
+    new Promise<void>((r) => {
+      release = r;
+    }),
+  );
+  holdResolvers.set(subshellId, release);
+  return true;
+}
+
+/** Release the reservation (idempotent; a lost claim is a no-op). */
+export function releasePane(subshellId: string): void {
+  const release = holdResolvers.get(subshellId);
+  if (!release) return;
+  holdResolvers.delete(subshellId);
+  holds.delete(subshellId);
+  release();
+}

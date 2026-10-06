@@ -61,10 +61,6 @@ import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { completeUpdate, readPending, recordFailure, revertUpdate } from "@/services/update-transaction.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { sweepExpiredPaneLogs, tightenPaneLogModes } from "@/services/pane-log-hygiene.js";
-import { registerSshPaneHooks, registerSshPolicy } from "@/services/pane-ssh-gate.js";
-import { sshPaneHooks } from "@/services/ssh/ssh-pane-hooks.js";
-import { getSshPolicy } from "@/services/ssh/ssh-policy-impl.js";
-import { sweepExpiredSshRuns } from "@/services/ssh/ssh-retention.js";
 import { reconcileSshRuntimeSessionsAtBoot } from "@/services/ssh-runtime/session-settle.js";
 import { expirePendingApprovals, remarkUnmarkedArrivals } from "@/services/pending-approvals.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
@@ -352,16 +348,6 @@ async function bootServer(): Promise<void> {
   // included. New ones are created 0600 by the pipe-pane umask, but logs
   // written before that fix are 0644 on disk and nothing else revisits them —
   // so the repair runs at every boot (idempotent, cheap).
-  // Install the SSH authorization policy at boot so every REST/WS/pane surface
-  // resolves against the SAME live policy from the first request. The
-  // pane-ssh-gate default is deny-everything until this runs; wiring D's
-  // concrete `DefaultSshPolicy` here is what turns "SSH exists" into
-  // "SSH enforces" without any surface ever seeing a success-returning stub.
-  registerSshPolicy(getSshPolicy());
-  // ...and the pane HOOKS beside it (Gate B): managed-pane input/restart now
-  // reach the connecting node; until this line runs the gate's null-hooks
-  // deny (503) still answers, so the composition root is the only registrar.
-  registerSshPaneHooks(sshPaneHooks);
   tightenPaneLogModes();
   // ...and they no longer live forever. Hourly rather than on the 60s sweep:
   // a retention window measured in days gains nothing from a fast tick, and
@@ -379,18 +365,6 @@ async function bootServer(): Promise<void> {
   await sweepPaneLogs();
   setInterval(() => {
     void sweepPaneLogs().catch((err: unknown) => getLogger().withError(err).warn("pane log sweep failed"));
-  }, 3_600_000);
-  // SSH run-history retention (spec 2026-10-04 §3): the plane stores run
-  // METADATA (the node holds the output); completed/unknown rows older than the
-  // 7-day window are pruned so the runs table does not grow without bound.
-  // Same hourly cadence as the pane-log pass (the window is measured in days);
-  // boot pass first so a restarted server converges immediately. Never fatal:
-  // a sweep that cannot run is a row lingering an hour longer, not a bad boot.
-  await sweepExpiredSshRuns().catch((err: unknown) => {
-    getLogger().withError(err).warn("ssh run sweep failed at boot");
-  });
-  setInterval(() => {
-    void sweepExpiredSshRuns().catch((err: unknown) => getLogger().withError(err).warn("ssh run sweep failed"));
   }, 3_600_000);
   // The pending-approval queue, kept honest (spec 2026-09-24 §6): unactioned
   // arrivals expire, and an arrival whose marking `account.create.after`

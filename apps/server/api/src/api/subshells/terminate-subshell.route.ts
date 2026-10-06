@@ -2,7 +2,6 @@ import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
-import { sshCallerSeed } from "@/services/pane-ssh-gate.js";
 
 /** `POST /api/subshells/:id/terminate` — terminates a subshell (kills the harness process tree). */
 export const terminateSubshellRoute = new Elysia()
@@ -11,13 +10,9 @@ export const terminateSubshellRoute = new Elysia()
   .use(apiModels)
   .post(
     "/:id/terminate",
-    async ({ params, user, principal, apiKeyId, actor, apiKeyPermissions, ctx }) => {
+    async ({ params, user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "write");
-      return await ctx.services.subshells.terminateSubshell(
-        user.id,
-        params.id,
-        sshCallerSeed({ user, actor, principal, apiKeyId }),
-      );
+      return await ctx.services.subshells.terminateSubshell(user.id, params.id, actor);
     },
     {
       response: {

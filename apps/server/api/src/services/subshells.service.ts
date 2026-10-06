@@ -16,8 +16,6 @@ import type { ShareEntry } from "@/db/repositories/subshell-shares.repository.js
 import { summarizeSubshells } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID, NODE_KIND_RUNTIME } from "@/db/types/nodes.db-types.js";
 import type { PresetTable } from "@/db/types/presets.db-types.js";
-import type { SshActorSide } from "@/db/types/ssh-actor-side.js";
-import type { SshTerminalExecTable } from "@/db/types/ssh-terminal-execs.db-types.js";
 import type { SubshellSharePermission } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
@@ -36,26 +34,13 @@ import {
   execSentinelToken,
   execTimeoutMs,
   probeQuiet,
+  releasePane,
+  tryHoldPane,
   waitSentinel,
 } from "@/services/nodes/pane-exec.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService } from "@/services/notify.service.js";
-import {
-  gateHumanActFor,
-  gatePaneSurfaceFor,
-  gateSharingFor,
-  getSshPaneHooks,
-  readManagedPane,
-  readManagedPanes,
-  type SshCallerSeed,
-  SshGateFailure,
-  type SshManagedPaneFacts,
-  transitionPaneControl,
-} from "@/services/pane-ssh-gate.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
-import type { SshControlView, SshTerminalExecView } from "@/services/ssh/ssh-api-types.js";
-import { SshPanesRepository } from "@/services/ssh/ssh-panes.repository.js";
-import type { SshPaneSurface } from "@/services/ssh/ssh-policy.js";
 import {
   PROMPT_POLL_MS,
   PROMPT_SETTLE_TIMEOUT_MS,
@@ -64,24 +49,7 @@ import {
   SubshellManagerService,
 } from "@/services/subshell-manager.service.js";
 import { extendSubshellToken, subshellTokenTtlSeconds } from "@/services/subshell-tokens.js";
-import {
-  cancelObservation,
-  completeExec,
-  hasBlockingUnknown,
-  insertExec,
-  invalidateOutstandingExecs,
-  loadExec,
-  observationActive,
-  observeExecToResolution,
-  paneHeld,
-  reconcileStaleIncarnation,
-  refuseAfterUnknown,
-  releasePane,
-  toExecView,
-  tryHoldPane,
-} from "@/services/terminal-exec-records.js";
 import { logger } from "@/utils/logger.js";
-import { closeViewersForSubshell } from "@/ws/viewers.js";
 
 /** Subshell view shape returned by the manager (single source: toSubshellView). */
 type SubshellView = NonNullable<Awaited<ReturnType<SubshellManagerService["getSubshell"]>>>;
@@ -130,18 +98,6 @@ class SubshellError extends Error {
  * that far has the node on their screen already.
  */
 const MAINTENANCE_REFUSAL = "That node is in maintenance and is accepting no new subshells";
-
-/**
- * The exec-record INCARNATION key for a row: its `startedAt` stamp, the fact
- * that changes on every respawn (migration 0048's honest restart test). A
- * running+alive pane always carries it; the empty-string fallback exists only
- * to keep the NOT-NULL column an honest poison value for the row that could
- * not legally be exec'd - no observer or reconcile can ever call a null stamp
- * "current", so such a row's records go `unknown` rather than lying.
- */
-function paneIncarnation(row: SubshellTable): string {
-  return row.startedAt ?? "";
-}
 
 /**
  * Map a node-flavored manager throw onto the structured 409 it deserves.
@@ -399,7 +355,7 @@ export function resolvePresetLaunch(
   };
 }
 
-/** What one `execInTerminal` call answers (spec 2026-10-02 §2, widened by the SSH feature's exec records). */
+/** What one `execInTerminal` call answers (spec 2026-10-02 §2). */
 export interface ExecAnswer {
   /** `completed`: the sentinel line landed before the deadline; `timed_out`: it never did (the command may still be running - ruling 2). */
   status: "completed" | "timed_out";
@@ -411,13 +367,6 @@ export interface ExecAnswer {
   truncated: boolean;
   /** Raw byte offset just past the sentinel line (or where a timed-out scan stopped): the caller's next log cursor read. */
   nextByte: number;
-  /**
-   * The `ssh_terminal_execs` recovery handle (spec §3's execution IDs): read
-   * the durable record back at `GET /:id/execs/:executionId` - the
-   * `get_terminal_execution` door. A `timed_out` answer means the record is
-   * still `outstanding`: observation continues past this caller's wait.
-   */
-  executionId: string;
 }
 
 /**
@@ -431,8 +380,6 @@ export interface ExecAnswer {
 export class SubshellsService extends BaseService {
   /** Built once per request (not once per call) from the context's repositories. */
   readonly #manager: SubshellManagerService;
-  /** The managed-pane marker table - the log-read branch persists rotation stamps through it. */
-  readonly #sshPanes: SshPanesRepository;
 
   constructor(params: CommonServiceParams) {
     super(params);
@@ -440,7 +387,6 @@ export class SubshellsService extends BaseService {
       subshells: params.repos.subshells,
       presets: params.repos.presets,
     });
-    this.#sshPanes = new SshPanesRepository(params.db);
   }
 
   /**
@@ -687,34 +633,11 @@ export class SubshellsService extends BaseService {
    * Everyone or with them by name (all for an admin) — as manager-reconciled
    * views carrying the caller's viewer-relative `access`. A private foreign
    * subshell is simply absent, never a 403.
-   *
-   * The SSH branch: managed panes absent from the ordinary visibility math
-   * (list previews is a policy surface) are FILTERED OUT for this caller - a
-   * same-owner sibling without its own grant, an admin, a stranger; every one
-   * of them sees a list without the row, exactly as they see no row for a
-   * private foreign pane. The filter asks the policy per managed row (the
-   * list is per-user small, and one PK read covers them all); an unmanaged
-   * list costs one empty-batch read and no policy calls.
    * @param viewerId - The signed-in user (resolved from cookie or subshell key)
    */
-  async listSubshells(
-    viewerId: string,
-    opts: { previews?: boolean } = {},
-    ssh?: SshCallerSeed,
-  ): Promise<SubshellView[]> {
+  async listSubshells(viewerId: string, opts: { previews?: boolean } = {}): Promise<SubshellView[]> {
     const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
-    const rows = await this.repos.subshells.listVisibleTo(viewerId, isAdmin);
-    // SSH census (list_preview): drop the rows this caller may not preview.
-    const visible =
-      rows.length > 0
-        ? await this.#dropUngrantedSsh(
-            ssh ?? { actor: "cookie", userId: viewerId, principal: `user:${viewerId}`, apiKeyId: null },
-            rows.map((r) => r.id),
-            "list_preview",
-          )
-        : [];
-    const kept = new Set(visible);
-    const rowsShown = rows.filter((r) => kept.has(r.id));
+    const rowsShown = await this.repos.subshells.listVisibleTo(viewerId, isAdmin);
     const sharesBy = await this.repos.subshellShares.listForSubshells(rowsShown.map((r) => r.id));
     // Resolve access per row (needs the owner id, which the view doesn't carry),
     // keyed by id so the view mapping stays a plain lookup. A visible row always
@@ -731,34 +654,6 @@ export class SubshellsService extends BaseService {
       access: accessBy.get(view.id) ?? ("view" as const),
       ...shareExposure(sharesBy.get(view.id) ?? []),
     }));
-  }
-
-  /**
-   * The list/preview/live filter: of the caller-visible ids, drop the managed
-   * SSH panes whose policy decision this caller does not earn (`refuse` arm:
-   * same-owner sibling without its own grant, admin, stranger). Ordinary ids
-   * pass through with no policy call; one batch PK read finds the managed
-   * subset. A THROWING policy read is a refusal (deny by default), and the
-   * filtered-out row is simply absent - never a 403, so lists cannot probe.
-   */
-  async #dropUngrantedSsh(seed: SshCallerSeed, ids: string[], surface: SshPaneSurface): Promise<string[]> {
-    const managed = await readManagedPanes(this.db, ids);
-    if (managed.size === 0) return ids;
-    const out: string[] = [];
-    for (const id of ids) {
-      if (!managed.has(id)) {
-        out.push(id);
-        continue;
-      }
-      try {
-        await gatePaneSurfaceFor(this.db, seed, id, surface);
-        out.push(id);
-      } catch {
-        // Refused (or the gate threw): absence is the answer, the same shape
-        // a private foreign row has in this list.
-      }
-    }
-    return out;
   }
 
   /**
@@ -788,24 +683,15 @@ export class SubshellsService extends BaseService {
    * @param viewerId - the signed-in viewer asking
    * @param ids - subshell ids whose screens to capture
    */
-  async previewsFor(viewerId: string, ids: string[], ssh?: SshCallerSeed): Promise<Map<string, string[]>> {
+  async previewsFor(viewerId: string, ids: string[]): Promise<Map<string, string[]>> {
     if (ids.length === 0) return new Map();
     const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
     const wanted = new Set(ids);
+    // The screen IS the pane's output: the captured lines are the most
+    // sensitive bytes this app moves, and they reach only callers whose
+    // ordinary visibility math includes the row.
     const visible = (await this.repos.subshells.listVisibleTo(viewerId, isAdmin)).filter((row) => wanted.has(row.id));
-    // The screen IS the pane's output: the dedicated captures door is its own
-    // census surface (spec §2 lists captures beside list previews - the list
-    // row rides `list_preview`, the captured lines ride `capture`, and D's
-    // policy may admit one and refuse the other; captured lines are the most
-    // sensitive bytes this app moves, and a managed pane's are additionally
-    // blocked while a human holds control).
-    const allowed = await this.#dropUngrantedSsh(
-      ssh ?? { actor: "cookie", userId: viewerId, principal: `user:${viewerId}`, apiKeyId: null },
-      visible.map((row) => row.id),
-      "capture",
-    );
-    const keep = new Set(allowed);
-    return await this.#manager.previewsFor(visible.filter((row) => keep.has(row.id)));
+    return await this.#manager.previewsFor(visible);
   }
 
   /**
@@ -851,39 +737,16 @@ export class SubshellsService extends BaseService {
    * badge numbers for the native tab and push payloads. The blessed
    * `isNodeOffline` predicate is passed so a waiting subshell behind an
    * unreachable node does not count as waiting (F1); `running`/`total` are
-   * unaffected.
-   *
-   * The SSH census (review I-1): the counts ride the SAME rows the list
-   * returns, so the `list_preview` filter runs here too - a managed pane the
-   * caller cannot preview is absent from the badge numbers exactly as it is
-   * absent from their list. An admin's counts and a same-owner sibling's
-   * bearer counts therefore never leak a managed row's existence through
-   * arithmetic.
+   * unaffected. The counts ride the SAME rows the list returns (one
+   * `listVisibleTo`), so badge numbers and list can never disagree.
    * @param viewerId - The signed-in user whose visible set to count
-   * @param seed - The caller's SSH seed (default: the viewer's own cookie arm)
    */
-  async summarySubshells(
-    viewerId: string,
-    seed?: SshCallerSeed,
-  ): Promise<{ total: number; running: number; waiting: number }> {
+  async summarySubshells(viewerId: string): Promise<{ total: number; running: number; waiting: number }> {
     const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
     const rows = await this.repos.subshells.listVisibleTo(viewerId, isAdmin);
-    // Same single source as the list: one `listVisibleTo`, then the policy
-    // filter, then the shared reduction (`summarizeSubshells` is the ONE
-    // formula, imported rather than restated).
-    const visible =
-      rows.length > 0
-        ? await this.#dropUngrantedSsh(
-            seed ?? { actor: "cookie", userId: viewerId, principal: `user:${viewerId}`, apiKeyId: null },
-            rows.map((r) => r.id),
-            "list_preview",
-          )
-        : [];
-    const keep = new Set(visible);
-    return summarizeSubshells(
-      rows.filter((r) => keep.has(r.id)),
-      isNodeOffline,
-    );
+    // Same single source as the list, and the shared reduction
+    // (`summarizeSubshells` is the ONE formula, imported rather than restated).
+    return summarizeSubshells(rows, isNodeOffline);
   }
 
   /**
@@ -919,87 +782,6 @@ export class SubshellsService extends BaseService {
   }
 
   /**
-   * The ONE SSH branch every generic pane surface runs through (task-C brief
-   * deliverable 3): consult the injected policy for `surface`, translate the
-   * decision onto this service's own error classes, and hand back the pane's
-   * managed facts (null = ordinary pane, caller continues on its untouched
-   * path).
-   *
-   * The mapping keeps the house conventions exact: `not_found`/`gone` become
-   * the same invisibility 404 an unshared row gets (a managed pane the policy
-   * cannot authorize must be indistinguishable from one that does not exist -
-   * the non-enumerating rule §2 states), every other refusal is the visible-
-   * but-insufficient 403, carrying the named `SshPolicyCode` in metadata so
-   * MCP prose and SPA copy map by equality. A refusal is never a placeholder
-   * success: the placeholder policy denies everything until D installs the
-   * real one, and managed panes themselves cannot exist until the create
-   * route does.
-   */
-  async #sshGate(seed: SshCallerSeed, id: string, surface: SshPaneSurface): Promise<SshManagedPaneFacts | null> {
-    try {
-      return await gatePaneSurfaceFor(this.db, seed, id, surface);
-    } catch (err) {
-      if (err instanceof SshGateFailure) {
-        if (err.reason === "not_found" || err.reason === "gone") {
-          throw new SubshellError("not_found", "Subshell not found");
-        }
-        if (err.reason === "backend_unavailable") {
-          throwApiError({ code: BackendErrorCodes.SSH_BACKEND_UNAVAILABLE, message: err.message, doNotLog: true });
-        }
-        throwApiError({
-          code: BackendErrorCodes.SSH_ACCESS_DENIED,
-          message: err.message,
-          ...(err.policyCode ? { metadataSafe: { sshPolicyCode: err.policyCode } } : {}),
-          doNotLog: true,
-        });
-      }
-      throw err;
-    }
-  }
-
-  /** The sharing refusal every v1 caller of a managed pane's shares routes gets. */
-  async #sshSharingRefusedIfManaged(seed: SshCallerSeed, id: string): Promise<void> {
-    // (review R4) The policy refuses sharing with an `SshGateFailure` that
-    // carries no HTTP status; uncaught it reached the error handler as a 500.
-    // Map it exactly like `#sshGate`: an invisibility refusal stays a 404 (a
-    // foreign managed pane is indistinguishable from one that does not exist),
-    // a backend-unavailable refusal is a 503, and any other refusal - which is
-    // every OWNED managed pane, since v1 denies sharing categorically - is the
-    // named sharing-unsupported 403. A stranger never reaches here (the shares
-    // route's own ownership check 404s first); the owner always does.
-    let facts: Awaited<ReturnType<typeof gateSharingFor>>;
-    try {
-      facts = await gateSharingFor(this.db, seed, id);
-    } catch (err) {
-      if (err instanceof SshGateFailure) {
-        if (err.reason === "not_found" || err.reason === "gone") {
-          throw new SubshellError("not_found", "Subshell not found");
-        }
-        if (err.reason === "backend_unavailable") {
-          throwApiError({ code: BackendErrorCodes.SSH_BACKEND_UNAVAILABLE, message: err.message, doNotLog: true });
-        }
-        throwApiError({
-          code: BackendErrorCodes.SSH_SHARING_UNSUPPORTED,
-          message: "Managed SSH panes cannot be shared",
-          ...(err.policyCode ? { metadataSafe: { sshPolicyCode: err.policyCode } } : {}),
-          doNotLog: true,
-        });
-      }
-      throw err;
-    }
-    // Belt AND braces: even if a future policy ever ALLOWED sharing, v1 refuses
-    // it at the surface (spec §2). Today the policy arm denies first; this is
-    // the second lock.
-    if (facts) {
-      throwApiError({
-        code: BackendErrorCodes.SSH_SHARING_UNSUPPORTED,
-        message: "Managed SSH panes cannot be shared",
-        doNotLog: true,
-      });
-    }
-  }
-
-  /**
    * Opening the pane as its owner answers the unseen push (spec 2026-09-23):
    * the stored urgency clears, re-arming follow-ups until the next delivered
    * push. Only a cookie session whose user IS the row's owner — a shared
@@ -1022,17 +804,12 @@ export class SubshellsService extends BaseService {
   /**
    * Gets a single subshell view for the viewer — their own or one shared to
    * them — stamped with the viewer's own `access`.
-   *
-   * The SSH `detail` census: a managed pane the policy cannot authorize 404s
-   * here exactly like an unshared foreign row, before any of the row's fields
-   * (or the unseen-push side effect) are touched.
    * @throws SubshellError 404 when absent or invisible to the caller.
    * @throws HttpError 403 is impossible at `view` (visible ⇒ at least view).
    */
-  async getSubshell(viewerId: string, id: string, seed: SshCallerSeed): Promise<SubshellView> {
-    const { row, access } = await this.#gate(viewerId, id, "view", seed.actor);
-    await this.#sshGate(seed, id, "detail");
-    await this.#rememberSeen(seed.actor, viewerId, row);
+  async getSubshell(viewerId: string, id: string, actor: GuardActor): Promise<SubshellView> {
+    const { row, access } = await this.#gate(viewerId, id, "view", actor);
+    await this.#rememberSeen(actor, viewerId, row);
     // Build the view under the OWNER's id (the manager is owner-keyed); the
     // caller never sees the owner id, only their resolved access level.
     const subshell = await this.#manager.getSubshell(row.userId, id);
@@ -1048,29 +825,11 @@ export class SubshellsService extends BaseService {
    * Tail of the subshell's pane log (ANSI-stripped) — why a harness exited, if it did.
    *
    * Gated at `view`, the same level as GET /:id, so a stranger gets a 404 and
-   * the log's contents never leak through timing or body differences. The SSH
-   * `log` census adds the generation contract (spec §3's bounded-rotation
-   * rule): a MANAGED pane's byte-cursor reads are namespaced by
-   * `logGeneration` - the rotation/reset counter - and a cursor whose stamp
-   * is missing or other than the pane's current one answers the explicit
-   * `cursorExpired` result (with the current generation) rather than reading
-   * fresh bytes at a dead offset. The pane's stamp is not a constant: the
-   * node echoes its CURRENT rotation generation in every `log_read` answer,
-   * the plane persists a higher one, and a cursor read whose echoed
-   * generation differs from what the reader stamped is the same explicit
-   * expiry (the rotation happened between reads, the bytes are not a
-   * continuation). Tail reads (no cursor) need no stamp and
-   * answer the current one; ordinary panes keep the existing contract
-   * EXACTLY - same shape, same semantics, one added optional field they
-   * never receive.
+   * the log's contents never leak through timing or body differences.
    * @param window - optional cursor (spec 2026-10-01 §3): `fromByte` resumes
    *         raw bytes from that offset instead of tailing; absent keeps the
    *         EOF-anchored tail and `nextByte` seeds the next read at EOF.
-   * @param cursorGeneration - managed-pane cursor stamp (the `log_generation`
-   *         query): must equal the pane's current generation or the read
-   *         answers `cursorExpired`.
-   * @throws SubshellError 404 when absent or invisible to the caller (the SSH
-   *         policy refusing `log` answers the same 404, invisibility-first).
+   * @throws SubshellError 404 when absent or invisible to the caller.
    * @throws ApiError 409 NODE_OFFLINE when the row's agent node has no live
    *         connection (spec §5.6, the create/restart mapping again — the UI
    *         polls this tail, so an offline node must answer 409, never a 500
@@ -1079,51 +838,15 @@ export class SubshellsService extends BaseService {
   async getSubshellLogTail(
     viewerId: string,
     id: string,
-    seed: SshCallerSeed,
+    actor: GuardActor,
     window?: LogCursorRequest,
-    cursorGeneration?: number,
-  ): Promise<{
-    lines: string[];
-    truncated: boolean;
-    nextByte: number;
-    cursorExpired?: boolean;
-    logGeneration?: number;
-  }> {
-    const { row } = await this.#gate(viewerId, id, "view", seed.actor);
-    const managed = await this.#sshGate(seed, id, "log");
-    await this.#rememberSeen(seed.actor, viewerId, row);
+  ): Promise<{ lines: string[]; truncated: boolean; nextByte: number }> {
+    const { row } = await this.#gate(viewerId, id, "view", actor);
+    await this.#rememberSeen(actor, viewerId, row);
     // Spec §6.5: the read goes to the node that owns the pane — an agent-node
     // row answers through its RemoteLauncher (`log_read` window), whose offline
     // throw maps onto §5.6 exactly like create/restart. One composition
     // (readSubshellLogWindow) now serves tail and cursor for every launcher.
-    if (managed) {
-      // The generation check is a plane-side fact and it runs BEFORE the log
-      // read: a stale cursor must never reach the disk or the node, which is
-      // what makes "never silent reuse" true even when the file survived.
-      if (window?.fromByte !== undefined && cursorGeneration !== managed.logGeneration) {
-        return { lines: [], truncated: false, nextByte: 0, cursorExpired: true, logGeneration: managed.logGeneration };
-      }
-      const res = await readSubshellLogWindow(id, row.nodeId, window ?? {}).catch(rethrowLaunchRefusal);
-      // The read's SECOND half: the node echoes its CURRENT terminal log
-      // generation (rotated on its own schedule; the plane has no other
-      // writer). A report above the persisted stamp persists first, and a
-      // CURSOR read whose echoed generation is not what the reader stamped
-      // answers the explicit expiry with the current value - the window read
-      // happened across a rotation, its bytes are NOT the reader's continuation.
-      const { logGeneration: reported, ...view } = res;
-      let current = managed.logGeneration;
-      if (reported !== undefined && reported > current) {
-        await this.#sshPanes.bumpLogGeneration(id, reported);
-        current = reported;
-      }
-      if (window?.fromByte !== undefined && reported !== undefined && reported !== cursorGeneration) {
-        return { lines: [], truncated: false, nextByte: 0, cursorExpired: true, logGeneration: current };
-      }
-      return { ...view, logGeneration: current };
-    }
-    // An ordinary pane never receives the generation fields - belt against a
-    // node echoing one for a pane with no SSH terminal (there is nothing to
-    // strip on the common path; a node CANNOT mint `cursorExpired` here).
     const { logGeneration: _reported, ...ordinary } = await readSubshellLogWindow(id, row.nodeId, window ?? {}).catch(
       rethrowLaunchRefusal,
     );
@@ -1185,43 +908,9 @@ export class SubshellsService extends BaseService {
     id: string,
     text: string,
     submit: boolean,
-    seed: SshCallerSeed,
+    actor: GuardActor,
   ): Promise<{ ok: true }> {
-    const { row } = await this.#gate(viewerId, id, "edit", seed.actor);
-    // The SSH `input` census, run BEFORE the running check: an unauthorized
-    // caller must not learn the managed pane's running state, and a
-    // AUTHORIZED write to a managed pane leaves the ordinary launcher path
-    // entirely - it goes to the SSH input seam, stamped with the pane's
-    // CURRENT control generation (the frozen additive `inputGeneration`), so
-    // the machine's mirror fences queued writes that a takeover already
-    // invalidated. While the SSH backend's hooks are not registered the act
-    // refuses outright (503): the plane never falls back to typing through a
-    // connecting-node shell, which is the same no-fallback rule restart has.
-    const managed = await this.#sshGate(seed, id, "input");
-    if (managed) {
-      // The SAME two liveness facts the ordinary path requires, checked on the
-      // managed branch too (Gate C minor 4): a pane parked at
-      // `status:running, alive:0` answers the clean 409 here instead of
-      // dispatching a doomed stamped write and mapping whatever the node
-      // answers for a dead pane. After the gate, before the effect.
-      if (row.status !== "running" || row.alive !== 1) {
-        throwApiError({
-          code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
-          message: "The subshell is not running; nothing was typed. Restart it first.",
-          doNotLog: true,
-        });
-      }
-      const hooks = getSshPaneHooks();
-      if (!hooks) {
-        throwApiError({
-          code: BackendErrorCodes.SSH_BACKEND_UNAVAILABLE,
-          message: "The SSH backend needed for this pane action is not available",
-          doNotLog: true,
-        });
-      }
-      await hooks.sendManagedInput({ subshellId: id, text, submit, inputGeneration: managed.controlGeneration });
-      return { ok: true };
-    }
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
     // The TWO facts, both required — a lesson from the live incident
     // (2026-09-25): `status` is the lifecycle INTENT and a pane that exited
     // on its own parks at `status: "running"` with `alive: 0` (parked is what
@@ -1279,36 +968,9 @@ export class SubshellsService extends BaseService {
     id: string,
     command: string,
     timeoutMs: number | undefined,
-    seed: SshCallerSeed,
+    actor: GuardActor,
   ): Promise<ExecAnswer> {
-    const { row } = await this.#gate(viewerId, id, "edit", seed.actor);
-    // The SSH census: `exec` on a managed pane is refused by the policy first
-    // (invisibility before specificity), and the spec's own rule - "Do not
-    // use this helper on managed SSH terminals" - then refuses even an
-    // authorized caller. An ordinary pane (no row) continues untouched.
-    if (await this.#sshGate(seed, id, "exec")) {
-      throwApiError({
-        code: BackendErrorCodes.EXEC_SSH_UNSUPPORTED,
-        message: "exec does not run on managed SSH terminals; read the pane directly",
-        doNotLog: true,
-      });
-    }
-    // Restart-left-behind records first: an outstanding row of an older
-    // incarnation is honest `unknown` NOW, before any new question is asked
-    // of the pane (and before the after-unknown read below, so a restart
-    // cannot read as a blocking unknown of the CURRENT incarnation).
-    await reconcileStaleIncarnation(this.db, id, paneIncarnation(row));
-    // After unknown, automated exec waits (spec §3); HUMAN-CLASS callers pass -
-    // they are the recovery the rule waits for, and their next completed
-    // record is what clears it. Human-class is cookie AND system key (M5,
-    // coordinator ruling 2026-10-05): a system key resolves through the full
-    // human gate as the `system` service user everywhere else in this tree,
-    // and an operator driving recovery over a machine credential is the same
-    // human act. Only a SUBSHELL key - the prompt-injectable automated actor
-    // the rule was written against - is refused.
-    if (seed.actor === "subshell-key" && (await hasBlockingUnknown(this.db, id, paneIncarnation(row)))) {
-      refuseAfterUnknown();
-    }
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
     if (row.status !== "running" || row.alive !== 1) {
       throwApiError({
         code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
@@ -1331,10 +993,8 @@ export class SubshellsService extends BaseService {
       });
     }
     // The reservation is taken SYNCHRONOUSLY here (nothing between the check
-    // and the claim awaits), so two racing calls never both proceed. It now
-    // outlives the caller's wait when that wait times out: `#execInner` hands
-    // it to the observation, and the pane releases when the late marker, the
-    // watcher's budget, or the pane's own end settles the record.
+    // and the claim awaits), so two racing calls never both proceed; it lives
+    // exactly as long as this call's wait.
     if (!tryHoldPane(id)) {
       throwApiError({
         code: BackendErrorCodes.EXEC_IN_FLIGHT,
@@ -1342,29 +1002,14 @@ export class SubshellsService extends BaseService {
         doNotLog: true,
       });
     }
-    let answer: ExecAnswer & { observation?: Promise<void> };
     try {
-      answer = await this.#execInner(row, id, command, execTimeoutMs(timeoutMs), seed);
-    } catch (err) {
-      releasePane(id);
-      throw err;
-    }
-    if (answer.observation) {
-      releasePane(id, answer.observation);
-    } else {
+      return await this.#execInner(row, id, command, execTimeoutMs(timeoutMs));
+    } finally {
       releasePane(id);
     }
-    const { observation: _observation, ...publicAnswer } = answer;
-    return publicAnswer;
   }
 
-  async #execInner(
-    row: SubshellTable,
-    id: string,
-    command: string,
-    timeoutMs: number,
-    seed: SshCallerSeed,
-  ): Promise<ExecAnswer & { observation?: Promise<void> }> {
+  async #execInner(row: SubshellTable, id: string, command: string, timeoutMs: number): Promise<ExecAnswer> {
     const launcher = launcherFor(row.nodeId);
     const socket = row.tmuxSocket ?? tmuxSocketFor(id);
     const read: LogWindowReader = (fromByte, maxBytes) =>
@@ -1383,31 +1028,6 @@ export class SubshellsService extends BaseService {
     // sentinel frame it actually received, so completion proves scanner and
     // frame agree without a test seam in the signature.
     const token = execSentinelToken();
-    const execId = crypto.randomUUID();
-    // The record exists BEFORE the typing: a caller that dies mid-typing or
-    // mid-wait still left a durable receipt, and the status door can ask
-    // what happened. `inputGeneration` is 1 for ordinary panes (the fence is
-    // the managed pane's counter; ordinary panes have exactly one). A
-    // subshell-key actor is the agent side of `initiated_by` (the record
-    // names WHO typed); the api-key row it typed with rides beside it. A
-    // system key is a human-class credential (it acts through the human gate,
-    // owns nothing, and is never an agent pane), so it stamps `human`.
-    const initiatedBy: SshActorSide = seed.actor === "subshell-key" ? "agent" : "human";
-    await insertExec(
-      this.db,
-      {
-        id: execId,
-        subshellId: id,
-        paneIncarnation: paneIncarnation(row),
-        initiatedBy,
-        grantId: null,
-        apiKeyId: seed.apiKeyId,
-        inputGeneration: 1,
-        markerToken: token,
-        state: "outstanding",
-      },
-      quiet.size,
-    );
     for (const text of [command, "\r", execSentinelCommand(token), "\r"]) {
       await launcher.sendInput(socket, id, text).catch(rethrowLaunchRefusal);
     }
@@ -1422,53 +1042,23 @@ export class SubshellsService extends BaseService {
     });
     const tail = execOutputTail(waited.outputLines, EXEC_MAX_OUTPUT_BYTES);
     if (waited.status === "completed") {
-      await completeExec(
-        this.db,
-        execId,
-        waited.rc ?? 0,
-        tail.text === "" ? null : tail.text,
-        tail.truncated,
-        waited.nextByte,
-      );
       return {
         status: "completed",
         exitCode: waited.rc,
         output: tail.text,
         truncated: tail.truncated,
         nextByte: waited.nextByte,
-        executionId: execId,
       };
     }
-    // timed_out: the REPORT-ONLY rule stands (no automatic Ctrl-C, ruling 2),
-    // and the record stays `outstanding` with the pane's reservation handed to
-    // a bounded watcher. A LATE marker completes it; pane death or the budget
-    // ends it as `unknown`.
-    const observation = observeExecToResolution(
-      this.db,
-      {
-        id: execId,
-        subshellId: id,
-        markerToken: token,
-        startByte: waited.nextByte,
-        priorLines: waited.outputLines,
-      },
-      { read, isPaneCurrent: () => this.#paneIncarnationCurrent(id, paneIncarnation(row)) },
-    );
+    // timed_out: the REPORT-ONLY rule stands (no automatic Ctrl-C, ruling 2);
+    // the command keeps running and this call just stops watching.
     return {
       status: "timed_out",
       exitCode: null,
       output: tail.text,
       truncated: tail.truncated,
       nextByte: waited.nextByte,
-      executionId: execId,
-      observation,
     };
-  }
-
-  /** The restart-death test the observer runs each poll: same live incarnation. */
-  async #paneIncarnationCurrent(id: string, incarnation: string): Promise<boolean> {
-    const fresh = await this.repos.subshells.findById(id);
-    return fresh?.status === "running" && fresh?.alive === 1 && fresh.startedAt === incarnation;
   }
 
   /**
@@ -1504,14 +1094,8 @@ export class SubshellsService extends BaseService {
    * @throws SubshellError 404 when absent or invisible to the caller.
    * @throws HttpError 403 when the caller is not the owner.
    */
-  async getShares(viewerId: string, id: string, seed: SshCallerSeed): Promise<{ shares: SubshellShareView[] }> {
-    await this.#gate(viewerId, id, "owner", seed.actor);
-    // v1 refuses sharing managed SSH panes to EVERYONE - the reader included.
-    // A managed pane can never carry shares (writes are refused, and it is
-    // created without any), so "an empty list" and "refused" describe the
-    // same fact; the refusal states it, per "Sharing SSH panes is refused in
-    // v1, to anyone, always".
-    await this.#sshSharingRefusedIfManaged(seed, id);
+  async getShares(viewerId: string, id: string, actor: GuardActor): Promise<{ shares: SubshellShareView[] }> {
+    await this.#gate(viewerId, id, "owner", actor);
     return { shares: await this.#shareViews(id) };
   }
 
@@ -1527,14 +1111,9 @@ export class SubshellsService extends BaseService {
     viewerId: string,
     id: string,
     entries: ShareEntry[],
-    seed: SshCallerSeed,
+    actor: GuardActor,
   ): Promise<{ shares: SubshellShareView[] }> {
-    const { row } = await this.#gate(viewerId, id, "owner", seed.actor);
-    // The sharing census, before anything is written: v1 refuses managed
-    // SSH panes unconditionally (owner, `view`, every actor - see
-    // {@link #sshSharingRefusedIfManaged} for why both the policy arm and
-    // this site enforce it).
-    await this.#sshSharingRefusedIfManaged(seed, id);
+    const { row } = await this.#gate(viewerId, id, "owner", actor);
     // Read BEFORE the replace: these are the grants that decide who currently
     // receives this row, and after the write nothing can recover them.
     const before = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
@@ -1654,28 +1233,11 @@ export class SubshellsService extends BaseService {
   async restartSubshell(
     viewerId: string,
     id: string,
-    seed: SshCallerSeed,
+    actor: GuardActor,
     swapPresetTo?: string | null,
     prompt?: string,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
-    const { row } = await this.#gate(viewerId, id, "edit", seed.actor);
-    // The SSH `restart` census: policy re-asked FIRST (a restart of a managed
-    // pane IS a fresh authorization recheck, spec §3 - the decision is not
-    // carried over from whatever opened the pane), and the managed path then
-    // goes to the SSH re-launch seam. The generic manager revive is NOT
-    // reached: a managed pane's foreground process is ssh, and reviving it
-    // through the local launcher would start a connecting-node shell where
-    // its exit was supposed to end the pane - the fallback the spec forbids.
-    // While the SSH backend's hooks are unregistered the act refuses (503);
-    // a refusal types nothing and swaps nothing, exactly like every other
-    // gate above the manager.
-    const managed = await this.#sshGate(seed, id, "restart");
-    // The instance gates are asked ONCE, for both paths: lockdown and the
-    // machine's maintenance/off-switch are not bypassed by a managed restart
-    // (a relaunch IS a launch, and a managed SSH terminal is a new SSH
-    // session onto its node), while the swap validation below stays
-    // ordinary-path-only.
-    //
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
     // Lockdown is instance-wide, so it is asked before anything machine-shaped
     // is read. It names no machine, per the restart path's own rule (the row's
     // owner is the only guaranteed viewer of this refusal). And a stopped row's
@@ -1727,56 +1289,6 @@ export class SubshellsService extends BaseService {
         "Launching subshells on this machine is switched off in the server settings. Ask an admin to turn it back on.",
         403,
       );
-    }
-    if (managed) {
-      // The restart PROMPT is its own census surface (spec §2 lists prompt
-      // injection separately from restart): a caller allowed to relaunch the
-      // pane may still be refused the injection into it, and the refusal
-      // precedes ANY effect, relaunch included (review I-4).
-      if (prompt?.trim()) {
-        await this.#sshGate(seed, id, "prompt");
-      }
-      const hooks = getSshPaneHooks();
-      if (!hooks) {
-        throwApiError({
-          code: BackendErrorCodes.SSH_BACKEND_UNAVAILABLE,
-          message: "The SSH backend needed for this pane action is not available",
-          doNotLog: true,
-        });
-      }
-      // A preset swap has no meaning on a managed pane (its argv was built
-      // from the connection snapshot; there is no preset under it).
-      if (swapPresetTo !== undefined) {
-        throwApiError({
-          code: BackendErrorCodes.BAD_REQUEST,
-          message: "A managed SSH terminal restarts as the same SSH session; there is no preset to swap",
-          doNotLog: true,
-        });
-      }
-      const relaunched = await hooks.restartManagedPane({ subshellId: id });
-      // The old incarnation's records go `unknown` NOW (the observation loop's
-      // own incarnation check would reach the same verdict on its next poll;
-      // this makes the status door honest immediately).
-      await reconcileStaleIncarnation(this.db, id, paneIncarnation(row));
-      await cancelObservation(this.db, id);
-      let promptDelivered = false;
-      const trimmed = prompt?.trim();
-      if (trimmed) {
-        // The restart prompt is an input write like any other: it rides the
-        // SSH input seam at the CURRENT generation, so a takeover between the
-        // relaunch and the typing fences it at the machine (spec §3:
-        // "Enforce input ownership across every write path, including restart
-        // prompts").
-        const after = await readManagedPane(this.db, id);
-        await hooks.sendManagedInput({
-          subshellId: id,
-          text: trimmed,
-          submit: true,
-          inputGeneration: after?.controlGeneration ?? managed.controlGeneration,
-        });
-        promptDelivered = true;
-      }
-      return { id, tmuxSocket: relaunched.tmuxSocket, promptDelivered };
     }
     // The swap is validated HERE — after the gate and the maintenance 409,
     // before the manager touches anything — so a restart refused on this
@@ -1835,16 +1347,6 @@ export class SubshellsService extends BaseService {
     if (!revived) {
       throw new SubshellError("not_found", "Subshell not found");
     }
-    // The restart ended the incarnation any outstanding exec record belonged
-    // to: reconcile the stale rows to `unknown` and stop their watcher NOW
-    // (the loop's own incarnation check would reach the same verdict within
-    // one poll; this makes the status door and the after-unknown rule honest
-    // the moment the revive lands).
-    {
-      const fresh = await this.repos.subshells.findById(id);
-      if (fresh) await reconcileStaleIncarnation(this.db, id, paneIncarnation(fresh));
-      await cancelObservation(this.db, id);
-    }
     // A prompt (when asked) rides the SUCCESSFUL revive, typed through the
     // same launcher seam and the same settle constants create uses (spec
     // 2026-09-25): `deliverPrompt` waits for the fresh pane to show output and
@@ -1873,25 +1375,9 @@ export class SubshellsService extends BaseService {
    * @throws SubshellError 404 when absent or invisible to the caller.
    * @throws HttpError 403 when the caller holds only `view`.
    */
-  async terminateSubshell(viewerId: string, id: string, seed: SshCallerSeed): Promise<{ ok: true }> {
-    const { row } = await this.#gate(viewerId, id, "edit", seed.actor);
-    // The SSH `terminate` census first (invisibility before anything else).
-    // The EFFECT stays the ordinary one for managed panes too: terminate is
-    // the tmux kill that ends the ssh foreground process - "its exit ends
-    // the pane" is a statement about the pane, and killing it is the correct
-    // act whether or not a policy allowed it beyond this point. The kill
-    // ends the incarnation, so any observed exec record goes `unknown` via
-    // the same reconcile the restart path runs (spec: terminating SSH never
-    // guarantees remote descendants died - the record says unknown, not
-    // completed).
-    await this.#sshGate(seed, id, "terminate");
+  async terminateSubshell(viewerId: string, id: string, actor: GuardActor): Promise<{ ok: true }> {
+    const { row } = await this.#gate(viewerId, id, "edit", actor);
     await this.#manager.terminateSubshell(row.userId, id);
-    // Observation is LOST the moment the pane dies: every outstanding record
-    // on this pane becomes `unknown` (no marker can arrive for a dead shell),
-    // and any running watcher's next poll finds the pane gone and releases
-    // the reservation.
-    await invalidateOutstandingExecs(this.db, id);
-    await cancelObservation(this.db, id);
     return { ok: true };
   }
 
@@ -1934,17 +1420,8 @@ export class SubshellsService extends BaseService {
    * @throws SubshellError 404 when absent or invisible to the caller.
    * @throws HttpError 403 when the caller is not the owner (view/edit included).
    */
-  async deleteSubshell(viewerId: string, id: string, seed: SshCallerSeed): Promise<{ ok: true }> {
-    const { row } = await this.#gate(viewerId, id, "owner", seed.actor);
-    // The SSH `delete` census: a managed pane is INVISIBLE (404) to any
-    // caller the policy refuses, owner included until the policy's owner arm
-    // allows it. The `ssh_panes` row cascades with the subshell (0048), so
-    // the managed marker cannot outlive the pane it describes.
-    await this.#sshGate(seed, id, "delete");
-    // Release any running watcher before the cascade takes its rows (the loop
-    // tolerates the rows vanishing under it, but the pane reservation should
-    // end with the pane, not one poll later).
-    await cancelObservation(this.db, id);
+  async deleteSubshell(viewerId: string, id: string, actor: GuardActor): Promise<{ ok: true }> {
+    const { row } = await this.#gate(viewerId, id, "owner", actor);
     // READ BEFORE THE DELETE: grants cascade with the row, and they are the
     // only way to reach the people it was shared with. Announced from HERE
     // rather than from the manager for the same reason — the manager is
@@ -1959,161 +1436,6 @@ export class SubshellsService extends BaseService {
     }
     publishLive({ kind: "subshell.deleted", id, ownerId: row.userId, shares });
     return { ok: true };
-  }
-
-  /**
-   * Read one terminal-exec record back - the read-only `get_terminal_execution`
-   * door (spec §3: "execution IDs, persistent outstanding state, and a
-   * read-only status operation"). A status read that changes NOTHING about the
-   * command, with one deliberate exception: an `outstanding` record in the
-   * pane's current incarnation with no observation running (the server
-   * restarted, or nobody re-armed it) gets its bounded watcher re-armed by
-   * this read, so a late marker still lands on the row a caller is polling.
-   *
-   * Gates: the pane's ordinary `view` access, then the SSH `exec` census (a
-   * managed pane never earns records - exec refuses there - so this is the
-   * 404-for-invisibility posture only). An id from another pane 404s: the
-   * recovery handle only ever recovers YOUR pane's records.
-   * @throws SubshellError 404 for an absent pane, an invisible pane, or an id
-   *         that is not this pane's record.
-   */
-  async getTerminalExecution(
-    viewerId: string,
-    id: string,
-    execId: string,
-    seed: SshCallerSeed,
-  ): Promise<SshTerminalExecView> {
-    const { row } = await this.#gate(viewerId, id, "view", seed.actor);
-    if (await this.#sshGate(seed, id, "exec")) {
-      // A managed pane answers not_found for records it can never own (exec
-      // never ran there) - indistinguishable from any other miss.
-      throw new SubshellError("not_found", "Execution not found");
-    }
-    await reconcileStaleIncarnation(this.db, id, paneIncarnation(row));
-    const exec = await loadExec(this.db, execId);
-    if (!exec || exec.subshellId !== id) {
-      throw new SubshellError("not_found", "Execution not found");
-    }
-    if (exec.state === "outstanding" && !observationActive(execId) && !paneHeld(id)) {
-      this.#ensureObservation(exec, row);
-    }
-    return toExecView(exec);
-  }
-
-  /**
-   * Arm (or join) the bounded observation for an outstanding record that has
-   * no watcher. Fire-and-forget: the read answers with the row's facts the
-   * instant it read them; the watcher's work lands on the row, never in this
-   * response. The pane reservation is taken here so no exec can start on a
-   * pane whose marker is being caught.
-   */
-  #ensureObservation(exec: SshTerminalExecTable, row: SubshellTable): void {
-    if (!tryHoldPane(exec.subshellId)) return; // someone else's wait/watch already owns the pane
-    const launcher = launcherFor(row.nodeId);
-    const read: LogWindowReader = (fromByte, maxBytes) =>
-      launcher.readLogWindow(exec.subshellId, fromByte, maxBytes).catch(rethrowLaunchRefusal);
-    const observation = observeExecToResolution(
-      this.db,
-      {
-        id: exec.id,
-        subshellId: exec.subshellId,
-        markerToken: exec.markerToken,
-        // Resume exactly where the lost loop stopped; null (never advanced)
-        // means nothing was consumed, so nothing to resume from.
-        startByte: exec.nextByte ?? 0,
-        priorLines: [],
-      },
-      { read, isPaneCurrent: () => this.#paneIncarnationCurrent(exec.subshellId, exec.paneIncarnation) },
-    );
-    releasePane(exec.subshellId, observation);
-  }
-
-  /**
-   * The human takeover / return act (`POST /:id/ssh-control`, the frozen
-   * `SshPaneControlRequest`/`SshControlView` pair): a cookie-session human
-   * moves a MANAGED pane's input control, the SERVER raises the generation
-   * (never the caller's to choose), and the machine is fenced FIRST - the
-   * node mirror moves with the plane's claim or the act does not land.
-   *
-   * What a takeover does, in one act: raise the generation (queued stale
-   * input is refused at the machine from that moment), move control state
-   * (`human` blocks agent reads AND writes on every API/stream until a human
-   * returns it), close the pane's live terminal subscriptions FIRST (spec §2:
-   * streams close when control changes - the attach-redeem gate is what
-   * re-admits each reconnect; closing before any further await is the race
-   * contract, since a live socket stamps its writes at the RAISED generation
-   * the node accepts), then invalidate the pane's outstanding exec records
-   * (spec §3: "An explicit human takeover invalidates the result").
-   *
-   * A pane with no `ssh_panes` row 404s: takeover is a managed-pane act, and
-   * making it answer for ordinary panes would be a second terminal-control
-   * surface the spec does not have.
-   * @throws SubshellError 404 when the pane is absent or unmanaged.
-   * @throws ApiError 403 `SSH_ACCESS_DENIED` (policy), 503
-   *         `SSH_BACKEND_UNAVAILABLE` (no SSH backend to fence the node), 403
-   *         for any non-cookie actor (`cookie_required`).
-   */
-  async takeSshControl(
-    _viewerId: string,
-    id: string,
-    mode: SshActorSide,
-    seed: SshCallerSeed,
-  ): Promise<SshControlView> {
-    // Cookie first, from the shape of the act itself (spec §2: control
-    // changes require a cookie session; the policy arm says it again and D
-    // owns the final answer - belt AND braces, never a fallback that types).
-    if (seed.actor !== "cookie") {
-      throwApiError({
-        code: BackendErrorCodes.SSH_ACCESS_DENIED,
-        message: "SSH input control changes require a cookie session",
-        metadataSafe: { sshPolicyCode: "cookie_required" },
-        doNotLog: true,
-      });
-    }
-    const facts = await readManagedPane(this.db, id);
-    if (!facts) throw new SubshellError("not_found", "Subshell not found");
-    let state: { controlOwner: SshActorSide; controlGeneration: number };
-    try {
-      await gateHumanActFor(this.db, seed, mode === "human" ? "take_control" : "return_control", facts.connectionId);
-      state = await transitionPaneControl(this.db, id, mode);
-    } catch (err) {
-      // Same mapping the pane-surface gate gives the policy's refusals: the
-      // human-config arm refusing (a `forbidden` decision) and the transition
-      // finding no SSH backend (a `backend_unavailable`) must answer with the
-      // named codes, not escape as an unmapped 500.
-      if (err instanceof SshGateFailure) {
-        if (err.reason === "not_found" || err.reason === "gone") {
-          throw new SubshellError("not_found", "Subshell not found");
-        }
-        if (err.reason === "backend_unavailable") {
-          throwApiError({ code: BackendErrorCodes.SSH_BACKEND_UNAVAILABLE, message: err.message, doNotLog: true });
-        }
-        throwApiError({
-          code: BackendErrorCodes.SSH_ACCESS_DENIED,
-          message: err.message,
-          ...(err.policyCode ? { metadataSafe: { sshPolicyCode: err.policyCode } } : {}),
-          doNotLog: true,
-        });
-      }
-      throw err;
-    }
-    // The stream-side fence FIRST, on the same beat the raise committed
-    // (re-review round 1): every attached terminal socket closes before the
-    // record-side housekeeping awaits below, because a socket still open
-    // after the commit can read the RAISED generation and be accepted
-    // node-side (the equal-or-higher fence rule) - the human must not share
-    // the terminal with a stale stream for the span of two more awaits. The
-    // reconnection is what re-runs the redeem gate against the new state.
-    closeViewersForSubshell(id, mode === "human" ? "human took control" : "control returned to agent");
-    // The record-side fence: outstanding execs on this pane go `unknown`.
-    await invalidateOutstandingExecs(this.db, id);
-    await cancelObservation(this.db, id);
-    // Announce so the dashboard re-derives the row for its audience (the
-    // feed carries no control field yet - wave 2's SPA reads it through the
-    // SSH views; the changed-event is what makes clients re-resolve visibility
-    // while control holds).
-    publishLive({ kind: "subshell.changed", id });
-    return { subshellId: id, controlOwner: state.controlOwner, controlGeneration: state.controlGeneration };
   }
 }
 

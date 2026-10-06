@@ -3,7 +3,6 @@ import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { SubshellSchema } from "@/api/models.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
-import { sshCallerSeed } from "@/services/pane-ssh-gate.js";
 
 /** `GET /api/subshells` — lists the authenticated user's subshells. */
 export const listSubshellsRoute = new Elysia()
@@ -12,17 +11,13 @@ export const listSubshellsRoute = new Elysia()
   .use(apiModels)
   .get(
     "/",
-    async ({ user, principal, apiKeyId, actor, apiKeyPermissions, ctx }) => {
+    async ({ user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
       // bearer enumeration is deliberate (MCP coordination sees owner-shared
       // siblings); boundary pinned by __tests__ (subshells-list-visibility
       // .test.ts, enumerate-ok / act-denied) — do not tighten without
       // updating docs/security.md §3.
-      return await ctx.services.subshells.listSubshells(
-        user.id,
-        {},
-        sshCallerSeed({ user, actor, principal, apiKeyId }),
-      );
+      return await ctx.services.subshells.listSubshells(user.id, {});
     },
     {
       response: {

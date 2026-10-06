@@ -91,21 +91,6 @@ export const SubshellLogTailSchema = t.Object({
     description:
       "Raw log-file offset to pass as from_byte to read only what follows (spec 2026-10-01 §3). A tail read answers EOF, so the cursor seeds where the pane is now; a cursor read answers the end of the last complete line it returned, or the end of the window when it held no newline at all (so the cursor never sticks on a long or still-unfinished line)",
   }),
-  // SSH feature (managed-SSH-terminal cursor namespacing, spec §3's bounded-
-  // rotation rule). BOTH optional and NEVER sent for ordinary panes, so the
-  // existing non-SSH byte-cursor contract is byte-identical.
-  cursorExpired: t.Optional(
-    t.Boolean({
-      description:
-        "Managed SSH panes only: true when a byte-cursor read carried no stamp or a stale one (the pane's log rotated/reset) - the read answered nothing rather than silently reusing a dead offset; restart from 0 with the current logGeneration",
-    }),
-  ),
-  logGeneration: t.Optional(
-    t.Number({
-      description:
-        "Managed SSH panes only: the current log rotation namespace; pass it as from a cursor read's stamp to keep cursors honest across rotations",
-    }),
-  ),
 });
 
 // Shared TypeBox refs for the sharing schemas: reusing one object across the

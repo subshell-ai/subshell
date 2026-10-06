@@ -6,7 +6,6 @@ import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { replayLineCap } from "@/services/nodes/log-tail.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
-import { getSshPaneHooks, readManagedPane } from "@/services/pane-ssh-gate.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import { resolveAttach } from "@/ws/attach-resolve.js";
@@ -466,12 +465,6 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
   // are dropped here; the resize branch above still applies (a view is a
   // legitimate layout action). The client emits one frame per keystroke and
   // already encodes Enter as "\r", so bytes must not be split or terminated.
-  //
-  // THE FENCE BRANCH (SSH-SUPPORT.md §2 "every input writer", Gate C): one
-  // primary-key read on `ssh_panes` decides which seam the bytes take. A
-  // managed pane rides the stamped SSH hook exactly like the REST input
-  // route; an ordinary pane takes the untouched launcher path (the read is
-  // its only new cost, and no hook is ever consulted for it).
   if (frame.data) {
     if (!data.canInput) return;
     // The owner's OWN keystroke answers the pane's unseen push (2026-09-25):
@@ -486,23 +479,7 @@ export function handleSubshellMessage(ws: WsSocket, message: string | object): v
 }
 
 /**
- * The keystroke dispatch, behind the one `ssh_panes` read that decides its
- * seam. Ordering note: the bun:sqlite read answers within microtasks, so
- * back-to-back keystrokes reach their writer in frame order on either seam.
- *
- * **Managed pane**: exactly the REST `sendSubshellInput` posture - the hook's
- * EVERY frame carries the pane's CURRENT plane generation (read fresh here),
- * the machine's mirror fences anything a takeover or revocation moved past,
- * and a failed write is dropped-and-logged, NEVER entered into the Wave D
- * hold (a hold re-fires through the ordinary `launcher.sendInput`, which is
- * precisely the unstamped seam the fence refuses - an un-acked id is
- * client-retried, and the retry takes this branch again). The policy arms
- * that decide WHETHER this socket may type (attach redeem at open, control
- * change closes it via C's `closeViewersForSubshell`) ran on the attach path;
- * this branch keeps the HOW stamped.
- *
- * **Ordinary pane**: the pre-existing path verbatim - idempotent dedupe,
- * Wave D hold, drop-and-log. No SSH machinery is consulted at all.
+ * The keystroke dispatch: idempotent dedupe, Wave D hold, drop-and-log.
  */
 async function routeKeystroke(
   ws: WsSocket,
@@ -521,45 +498,6 @@ async function routeKeystroke(
   // pane, each counting ids from 1, never collide. The dedupe runs on both
   // seams; the hold machinery belongs to the ordinary one only.
   const sessionId = sessionIdOf(data) ?? data.viewerId;
-  let managed: Awaited<ReturnType<typeof readManagedPane>>;
-  try {
-    managed = await readManagedPane(getRequestlessContext().db, data.subshellId);
-  } catch (err) {
-    // The seam is unknowable, and the unsafe default is the unstamped one -
-    // so an unanswerable read drops the keystroke (the browser's ack-timeout
-    // retry re-types it), it does NOT fall through to the ordinary path.
-    logFailure(err);
-    return;
-  }
-  if (managed) {
-    const hooks = getSshPaneHooks();
-    if (!hooks) {
-      // Deny by default: no SSH backend means no stamped seam, and typing
-      // through the unstamped one is the bypass this branch exists to close.
-      logger.warn(`ws input refused for managed pane ${data.subshellId}: the SSH backend is not registered`);
-      return;
-    }
-    if (id !== undefined && inputWindowHas(data.subshellId, sessionId, id)) {
-      sendToSocket(ws, { type: "ack", id });
-      return;
-    }
-    void hooks
-      .sendManagedInput({
-        subshellId: data.subshellId,
-        text,
-        submit: false,
-        inputGeneration: managed.controlGeneration,
-      })
-      .then(() => {
-        if (id === undefined) return;
-        inputWindowAdd(data.subshellId, sessionId, id);
-        sendToSocket(ws, { type: "ack", id });
-      })
-      .catch(logFailure);
-    return;
-  }
-  // ---- the ordinary path, unchanged (the fence branch's byte-identity
-  // guarantee: one PK read above, no hook, same seams and same acks) ----
   if (id !== undefined) {
     if (inputWindowHas(data.subshellId, sessionId, id)) {
       // Already written. Drop WITHOUT touching the pane, but still ack: the

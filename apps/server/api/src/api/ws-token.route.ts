@@ -2,7 +2,6 @@ import { Elysia, t } from "elysia";
 import { authGuard, ForbiddenError, HttpError } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
-import { gatePaneSurfaceFor, SshGateFailure, sshCallerSeed } from "@/services/pane-ssh-gate.js";
 import { issueWsToken } from "@/ws/ws-token.js";
 
 /**
@@ -68,7 +67,7 @@ export const wsTokenRoutes = new Elysia({ prefix: "/api/auth" })
   .use(apiModels)
   .post(
     "/ws-token",
-    async ({ user, actor, principal, apiKeyId, body, ctx }) => {
+    async ({ user, actor, principal, body, ctx }) => {
       if (actor === "cookie") {
         // The human path ignores subshellId: scoping only narrows, and the
         // cookie identity can already attach (with its own access) to
@@ -84,21 +83,6 @@ export const wsTokenRoutes = new Elysia({ prefix: "/api/auth" })
       }
       const row = await ctx.repos.subshells.findById(body.subshellId);
       if (!row) throw new HttpError(404, "subshell not found");
-      // SSH `attach_mint` (spec 2026-10-04 §2): a machine token bound to a
-      // managed pane the policy does not admit must not even be ISSUED. An
-      // ordinary pane passes (no `ssh_panes` row -> the gate's one pass-through,
-      // one PK read, no policy call). Redemption re-checks the SAME surface WHEN
-      // REDEEMED; refusing here means a 30s scoped bearer never exists for a pane
-      // its caller cannot attach to. The bound apiKeyId rides the seed so the
-      // policy can do its current-key (`token_stale`) recheck.
-      try {
-        await gatePaneSurfaceFor(ctx.db, sshCallerSeed({ user, actor, principal, apiKeyId }), row.id, "attach_mint");
-      } catch (err) {
-        if (!(err instanceof SshGateFailure)) throw err;
-        throw err.reason === "not_found" || err.reason === "gone"
-          ? new HttpError(404, "subshell not found")
-          : new ForbiddenError();
-      }
       // The token carries the OWNER, not the actor: a scoped token's access
       // resolves as the owner's (see ws-token.ts on why the system user
       // would resolve to `none`). The binding, not the identity, is the

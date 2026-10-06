@@ -39,10 +39,14 @@ interface ShippedPartialIndex {
  * spelling, because the whole point of refusing partials is that inspection
  * never evaluates an ARCHIVE-chosen predicate - so only predicates THIS
  * build demonstrably wrote are safe. Entries in migration order:
- * 0029 (workspace drafts), 0047/0048 (the SSH active-state grammar -
- * revoked grants, running runs, outstanding execs all read as
- * `WHERE <state>` indexes, and the quota/recovery queries the SSH policy
- * asks depend on them existing exactly as shipped).
+ * 0029 (workspace drafts), 0047/0048 (the SSH destination product's
+ * active-state grammar - revoked grants, running runs, outstanding execs
+ * all read as `WHERE <state>` indexes). That product retired (0050 drops
+ * its five tables), so these five entries now exist for one honest reason:
+ * a pre-retirement archive still carries them at inspection time, and the
+ * first migration that restored database runs is the drop. A fresh
+ * instance's schema never contains them; deleting these lines would
+ * refuse every backup taken before the retirement.
  */
 const SHIPPED_PARTIAL_INDEXES: readonly ShippedPartialIndex[] = [
   {

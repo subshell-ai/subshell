@@ -2,7 +2,6 @@ import { Elysia, t } from "elysia";
 import { authGuard, requirePerm } from "@/api/auth-guard.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
-import { sshCallerSeed } from "@/services/pane-ssh-gate.js";
 
 const SummaryResponseSchema = t.Object({
   total: t.Number({ description: "Subshells the user has ever had" }),
@@ -22,12 +21,9 @@ export const summarySubshellRoute = new Elysia()
   .use(apiModels)
   .get(
     "/summary",
-    async ({ user, actor, principal, apiKeyId, apiKeyPermissions, ctx }) => {
+    async ({ user, actor, apiKeyPermissions, ctx }) => {
       requirePerm({ actor, apiKeyPermissions }, "subshells", "read");
-      return await ctx.services.subshells.summarySubshells(
-        user.id,
-        sshCallerSeed({ user, actor, principal, apiKeyId }),
-      );
+      return await ctx.services.subshells.summarySubshells(user.id);
     },
     {
       response: {
