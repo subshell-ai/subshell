@@ -23,7 +23,7 @@ import { logger } from "@/utils/logger.js";
 /**
  * Per-node harness-state resolution, post-inversion (spec 2026-09-10).
  *
- * There is ONE plugin store — the instance's own directory — and ONE rule: a
+ * There is ONE plugin store: the instance's own directory: and ONE rule: a
  * harness exists for a node when the INSTANCE has the plugin (installed and
  * enabled, `local-plugins.ts`), and whether it RUNS there is that node's
  * detection answer. The two halves come from different places per node, and
@@ -36,10 +36,10 @@ import { logger } from "@/utils/logger.js";
  *
  * The `node.kind` branch inside the usability GATE is gone with the per-node
  * plugin set it branched on (`nodes.plugins_json`/`plugins_at`, dropped by
- * migration 0026 — this module stopped reading them first).
+ * migration 0026: this module stopped reading them first).
  *
  * Two consumers, deliberately two strictnesses: the VIEW
- * ({@link effectiveHarnessStates}) is informational — a stale snapshot still
+ * ({@link effectiveHarnessStates}) is informational: a stale snapshot still
  * reports its values, flagged per node via `stale`; the LAUNCH GATE
  * (`harnessUsable` / `usableHarnessIds` in `api/harness-utils.ts`) is strict —
  * only a fresh (≤ {@link INVENTORY_TTL_MS}) answer that says installed counts.
@@ -68,14 +68,14 @@ export interface EffectiveHarnessState {
   name: string;
   /** local: live binary probe; agent: cached inventory (false until the first detection lands) */
   installed: boolean;
-  /** Version from the detection (agent nodes only — the local view skips nothing: the probe answers it) */
+  /** Version from the detection (agent nodes only: the local view skips nothing: the probe answers it) */
   version?: string;
   /** Why the binary was not found, when it was not. Absent when installed, and when no probe has run. */
   reason?: DetectionReason;
   /** ISO 8601 stamp of when this entry was probed. Absent when no probe has run. */
   checkedAt?: string;
   /**
-   * Why the plugin cannot be used at all, when it cannot — an INSTANCE fact
+   * Why the plugin cannot be used at all, when it cannot: an INSTANCE fact
    * now: the plugin failed to load in the control-plane process, so it is
    * unusable on every node alike.
    *
@@ -102,13 +102,13 @@ export interface EffectiveHarnessReport {
   /**
    * The rows for this node: one per plugin the INSTANCE has installed and
    * enabled. Not per plugin this node's cache happens to mention (a ghost
-   * entry is inert), and not including a disabled plugin — disabling removes
+   * entry is inert), and not including a disabled plugin: disabling removes
    * the row everywhere, which is the whole point of the flag (§6.1).
    */
   harnesses: EffectiveHarnessState[];
   /**
    * Agent nodes: true when the cached detection is older than the TTL **or
-   * has never landed** — the reported `installed` values are the best
+   * has never landed**: the reported `installed` values are the best
    * available, not necessarily true. local: always false (the probe is live
    * per read).
    */
@@ -119,9 +119,9 @@ export interface EffectiveHarnessReport {
 export interface AgentInventory {
   /** `harnessId → entry`; entries without a usable harnessId and junk payloads read as empty */
   entries: Map<string, HarnessInventoryEntry>;
-  /** True only when `inventoryAt` parses and sits within the TTL — the gate's strict view */
+  /** True only when `inventoryAt` parses and sits within the TTL: the gate's strict view */
   fresh: boolean;
-  /** `!fresh` — aged OR never-reported (the view's informational flag) */
+  /** `!fresh`: aged OR never-reported (the view's informational flag) */
   stale: boolean;
 }
 
@@ -162,14 +162,14 @@ export function readAgentInventory(node: NodeTable, now: number = Date.now()): A
  *
  * Since Task 9b the registry overlay resolves installed third-party plugins
  * too, so every healthy install has a `HarnessPlugin` to probe through. What
- * still gets NO entry: a plugin the overlay does not hold — broken at the
- * last refresh, or placed on disk without one — because `getHarness` is the
+ * still gets NO entry: a plugin the overlay does not hold: broken at the
+ * last refresh, or placed on disk without one: because `getHarness` is the
  * only place binary lookup rules live. Absent reads as "not found" for
  * gating and as a quiet unknown for the view, which is the honest answer,
  * not a shrug: the launch path has the same boundary (`subshell-manager`
  * builds argv from registry code too).
  * @param installed - the instance catalog to probe (already enabled-filtered;
- * broken entries are skipped — there is no plugin object to ask)
+ * broken entries are skipped: there is no plugin object to ask)
  */
 export async function probeLocally(installed: readonly PluginReportWire[]): Promise<AgentInventory> {
   // One clock for the batch: entries probed together should not drift by
@@ -197,8 +197,8 @@ export async function probeLocally(installed: readonly PluginReportWire[]): Prom
  * The gate's shallow probe: resolve each plugin's binary, skip the
  * `<binary> --version` spawn.
  *
- * The launch gate asks exactly one question per plugin — is the program
- * there — and {@link probeLocally}'s `versionAt` call pays a full subprocess
+ * The launch gate asks exactly one question per plugin: is the program
+ * there: and {@link probeLocally}'s `versionAt` call pays a full subprocess
  * (seconds for a Node CLI) for a version the gate then throws away. This is
  * the same `detect()` resolution `isInstalled()` ran behind the old gate,
  * kept from regressing the auto-restart sweeps; the VIEW still wants the
@@ -238,7 +238,7 @@ export async function probeInstalledOnly(installed: readonly PluginReportWire[])
 }
 
 /**
- * Effective harness states for one node — the merge behind `NodeView.harnesses`.
+ * Effective harness states for one node: the merge behind `NodeView.harnesses`.
  *
  * ONE rule for every node, which is the whole shape of the inversion: rows
  * come from the instance catalog, the binary answer comes from the node.
@@ -280,13 +280,13 @@ export async function effectiveHarnessStates(
 /* ------------------------------------------------------------------ */
 
 /**
- * One `detect` spec per RESOLVABLE plugin — the merged registry, so an
+ * One `detect` spec per RESOLVABLE plugin: the merged registry, so an
  * installed third-party plugin ships its spec exactly like a built-in does
- * (Task 9b is what makes `allHarnesses()` include it) — built from the
+ * (Task 9b is what makes `allHarnesses()` include it): built from the
  * manifest data the pane-runtime adapter attached (`detectSpec`, Task 2/R5)
  * rather than re-reading manifests: the control plane ships the RULE, the
  * node runs the lookup. A plugin with no detect block travels as the empty
- * spec — the node then answers `no-binary` without searching, exactly as
+ * spec: the node then answers `no-binary` without searching, exactly as
  * `detectFor` reads a manifest with no `detect` block.
  *
  * The registry is the right source and the whole boundary: a plugin the
@@ -309,7 +309,7 @@ export function detectSpecs(harnesses: ReturnType<typeof allHarnesses> = allHarn
  *
  * The declarations are manifest DATA the control plane holds (and the node
  * no longer does, §6), so the PLANE names the variables and the node only
- * answers values. Callers pass the ENABLED set — a disabled plugin asks for
+ * answers values. Callers pass the ENABLED set: a disabled plugin asks for
  * nothing, its resume path is not a question anyone can ask.
  */
 export function detectEnvNames(harnesses: readonly HarnessPlugin[]): string[] {
@@ -336,7 +336,7 @@ export interface DetectOnNodeDeps {
  * The enabled harnesses whose `hostEnv` declarations the plane asks nodes
  * about: the instance catalog (`plugin_state`-filtered, §6.1) resolved
  * through the registry overlay. A catalog entry the registry cannot resolve
- * (broken at the last refresh) contributes nothing — it has no manifest data
+ * (broken at the last refresh) contributes nothing: it has no manifest data
  * to ask about, exactly as it has no lookup rules to ship.
  * @internal exported for the wiring pin in `inventory-detect.test.ts`;
  * production calls it only through {@link detectOnNode}.
@@ -350,7 +350,7 @@ export async function enabledEnvHarnesses(): Promise<HarnessPlugin[]> {
 }
 
 /**
- * Map one RAW answer row onto a cached inventory entry — the exact shape
+ * Map one RAW answer row onto a cached inventory entry: the exact shape
  * `applyInventory` stores from the agent's own inventory event, so
  * `INVENTORY_TTL_MS` and every reader keep working unchanged.
  *
@@ -358,11 +358,11 @@ export async function enabledEnvHarnesses(): Promise<HarnessPlugin[]> {
  * which is the behavior move of the inversion: the node answered text it could
  * not interpret (it holds no plugin code), and this process, which does,
  * interprets it. A parser-less plugin (or one this build never heard of) keeps
- * the raw text — a banner still beats dropping the only version fact.
+ * the raw text: a banner still beats dropping the only version fact.
  *
  * Exported for `ssh-runtime/harness-detect.ts` (M-3 dedup): the runtime's
  * detect answer is the SAME wire rows and gets the SAME merge, from the one
- * function — `getHarness` and `allHarnesses()` resolve identically (built-ins
+ * function: `getHarness` and `allHarnesses()` resolve identically (built-ins
  * answer first, the shadow rule), so the runtime mirror cannot drift a second
  * mapping.
  */
@@ -388,18 +388,18 @@ export function detectRowToEntry(row: DetectResultWire, stamp: string): HarnessI
  *
  * The whole flow is a request: the plane ships the rules ({@link detectSpecs})
  * AND the env names it wants values for ({@link detectEnvNames} over the
- * enabled manifests — the node holds no manifests to name them itself), the
+ * enabled manifests: the node holds no manifests to name them itself), the
  * node probes and answers RAW, the raw text is parsed HERE with the plugin's
  * `parseVersion`, and the result is merged over the cached snapshot and
  * written through the SAME `applyInventory` path the inventory event uses.
- * Rows the answer does not cover keep their cached values — a ghost id only a
+ * Rows the answer does not cover keep their cached values: a ghost id only a
  * previous scan reported must survive a detect built from this server's
  * registry until something drops it. The env answers go to the live
  * connection's facts, where `RemoteLauncher.canResume` composes resume paths
  * from them.
  *
  * **The plane asks; the node only ever answers.** That is §4's load-bearing
- * half and nothing here may weaken it — a node must never scan on its own
+ * half and nothing here may weaken it: a node must never scan on its own
  * initiative. What counts as an occasion to ask is the part that has grown:
  * the node page load (best-effort), Re-check, the launch-driven kick in
  * `RemoteLauncher.#kickDetect` (a failed launch's `binary missing` refresh),
@@ -412,7 +412,7 @@ export function detectRowToEntry(row: DetectResultWire, stamp: string): HarnessI
  * there is one request path and one merge, not a second mechanism.
  * `local` is a no-op (its view probes live on every read); an unknown id is
  * one, too.
- * @throws whatever `sendCommand` throws (offline/timeout/failed — callers
+ * @throws whatever `sendCommand` throws (offline/timeout/failed: callers
  * decide), and a plain Error when the agent answered with a malformed payload
  */
 export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}): Promise<void> {
@@ -433,7 +433,7 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
   // of real rows: the agent's `inventory` EVENT still arrives through the
   // `/ws/node` handler, but since the Task 7/8 demolition a protocol-3 agent
   // sends `harnesses: []` on every one of them, and the handler treats the
-  // empty claim as "nothing to apply" — it can never overwrite these rows.
+  // empty claim as "nothing to apply": it can never overwrite these rows.
   const merged = readAgentInventory(node).entries;
   for (const row of rows) merged.set(row.harnessId, detectRowToEntry(row, stamp));
   await nodes.applyInventory(nodeId, JSON.stringify([...merged.values()]));
@@ -452,13 +452,13 @@ export async function detectOnNode(nodeId: string, deps: DetectOnNodeDeps = {}):
  * The arm for every caller that has nothing to report a failure TO: the node
  * page load, the launch kick, the connect-time kick, and the periodic pass.
  * The page renders the cached last-known inventory either way (that is what
- * §4's cache is for), so a node that is offline for the page open — the
- * routine case the moment a machine sleeps — must not surface anything; a
+ * §4's cache is for), so a node that is offline for the page open: the
+ * routine case the moment a machine sleeps: must not surface anything; a
  * debug line is for the operator who then watches a page that never refreshes.
  * The same reasoning covers the two unattended callers a fortiori: nobody is
  * watching a timer, and a handshake must not fail over a probe.
  *
- * Re-check is the one caller that does NOT use this — it is a person pressing
+ * Re-check is the one caller that does NOT use this: it is a person pressing
  * a button and waiting, so it awaits {@link detectOnNode} and reports.
  */
 export function detectOnNodeBestEffort(nodeId: string): void {
