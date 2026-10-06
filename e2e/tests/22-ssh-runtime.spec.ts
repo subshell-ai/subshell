@@ -207,7 +207,7 @@ test.beforeAll(async () => {
   setupKey = key.key;
 
   agentHome = mkdtempSync(path.join(tmpdir(), "subshell-e2e-rt-node-"));
-  tmuxBase = shortTmuxBase(); // the CONNECTING side's tmux home (spec 21's sun_path rule)
+  tmuxBase = shortTmuxBase(); // the CONNECTING side's tmux home (the sun_path limit)
   agent = await startNode({
     home: agentHome,
     dataDir: path.join(agentHome, "data"),

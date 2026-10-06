@@ -192,7 +192,7 @@ test.beforeAll(async () => {
     tmuxBase,
     setupKey: key.key,
     name: NODE_NAME,
-    // The fixture account, pinned (spec 21's rule): the daemon's own
+    // The fixture account, pinned (the fixture's account-name rule): the daemon's own
     // USER/LOGNAME must agree with what sshd logs, across runtimes.
     extraEnv: { HOME: fixtureA.sshConfigHome, USER: fixtureA.user, LOGNAME: fixtureA.user, SSH_AUTH_SOCK: "" },
   });

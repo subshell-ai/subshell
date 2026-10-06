@@ -178,7 +178,7 @@ export async function dismissDirectoryPanel(page: Page, heading = "New subshell"
   await page.getByRole("heading", { name: heading }).click();
 }
 
-/** A wall-clock pause (shared: spec 21's polls and teardown beats use it). */
+/** A wall-clock pause (shared: the SSH specs' polls and teardown beats use it). */
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**

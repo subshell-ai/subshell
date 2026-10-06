@@ -31,7 +31,7 @@ export interface StartNodeOptions {
   name: string;
   /** Control plane base URL (default: the e2e stack's). */
   server?: string;
-  /** Extra env merged LAST over the defaults — spec 21 points `HOME` at its ssh fixture's config dir. */
+  /** Extra env merged LAST over the defaults - the SSH specs point `HOME` at their fixture's config dir. */
   extraEnv?: Record<string, string>;
 }
 
@@ -57,7 +57,7 @@ function nodeEnv(o: StartNodeOptions): NodeJS.ProcessEnv {
     SUBSHELL_CONFIG_HOME: o.home,
     PI_PATH: STUB_PI,
     TMUX_TMPDIR: o.tmuxBase,
-    // Extra env LAST so a caller can retarget HOME (spec 21's ssh fixture
+    // Extra env LAST so a caller can retarget HOME (an SSH fixture's
     // home) or blank SSH_AUTH_SOCK, overriding the inherited process.env.
     ...(o.extraEnv ?? {}),
   };

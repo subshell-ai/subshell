@@ -1,5 +1,5 @@
 /**
- * The e2e sshd fixture (spec 21): a REAL isolated sshd, the port of
+ * The e2e sshd fixture (specs 22 and 23): a REAL isolated sshd, the port of
  * `packages/pane-runtime/src/ssh/__tests__/sshd-fixture.test.ts`'s recipe
  * from Bun APIs to Node ones (the Playwright runner is Node). It owns and
  * cleans only its own pieces: generated host + client keys, one sshd on a
@@ -141,7 +141,7 @@ export async function startSshFixture(root: string, options: { envPath?: string 
   // node: in a container with no USER/LOGNAME env bun answers "unknown" while
   // sshd, matching the uid not the env, logs the real account ("root").
   // uid 0 is root on every supported OS; otherwise env, then the passwd
-  // lookup. The spec also hands the agent `USER`/`LOGNAME` (see 21-ssh) so
+  // lookup. The specs hand the agent `USER`/`LOGNAME` (see 22-ssh-runtime) so
   // the daemon's own `connectingAccount` says the same thing everywhere.
   const user = process.getuid?.() === 0 ? "root" : (process.env.USER ?? process.env.LOGNAME ?? userInfo().username);
   const home = path.join(root, "home");
