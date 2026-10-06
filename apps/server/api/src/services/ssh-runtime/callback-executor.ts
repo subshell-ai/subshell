@@ -19,6 +19,15 @@ import type { SshRuntimeSession } from "./session.js";
  * must stay irrelevant (a hostname that resolves elsewhere would silently
  * turn the callback into an outbound hop), and the port is the one this
  * process binds.
+ *
+ * Known limitation of that choice, accepted by design (review Minor): an
+ * instance bound to a NON-loopback `HOST` only (no loopback listener) makes
+ * every runtime callback answer 504, because the fixed hop has no socket to
+ * reach. The fix is NOT a bind-host fallback, whatever form it takes - any
+ * address that lets a non-loopback bind satisfy the fetch also reopens the
+ * outbound-hop hole the hardcoding exists to prevent; operators who bind
+ * elsewhere keep loopback listening too (`HOST` accepts the loopback
+ * spelling, and the default `0.0.0.0` already includes it).
  */
 
 /**

@@ -44,6 +44,16 @@
  * - **A re-fire failure re-enters the hold.** The drain stops at the first
  *   rejection, leaving that frame at the head and every later one behind it;
  *   the next trigger re-enters. No clock anywhere in this module.
+ * - **A re-adopted runtime pane's old holds stay orphaned until the socket
+ *   closes.** Review note: holds are keyed by the node id of the socket's
+ *   row, and a hidden runtime node never `ready`s again; after a session
+ *   loss + reopen the row reparents to a NEW runtime node id, so backlog
+ *   held under the OLD key has no re-fire trigger (new writes arrive under
+ *   the new one). The leak is bounded by rule three (at most one client
+ *   pending queue per socket) and dies with the socket's
+ *   {@link dropInputHolds}; the client's own retry is the delivery path
+ *   (rule one), so the orphan is wasted memory for a socket's lifetime,
+ *   never a lost keystroke beyond what the browser already re-ships.
  *
  * Ordering: holds re-fire in id order, and because an arrival while holds
  * exist JOINS the queue instead of dispatching past them, no ARRIVING frame
