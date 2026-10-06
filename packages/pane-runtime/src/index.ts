@@ -138,6 +138,7 @@ export {
   OUTPUT_CAP,
   runBounded,
 } from "./run-bounded.js";
+export { seedLogFromHistory } from "./seed-log.js";
 export { shellQuote } from "./shell.js";
 export { killGroup } from "./ssh/kill-group.js";
 export { classifySshFailure, sshTransportFailure } from "./ssh/ssh-diagnose.js";

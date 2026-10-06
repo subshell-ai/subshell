@@ -7,6 +7,7 @@ import {
   findBinary,
   type PresetDefinition,
   paneEnvFor,
+  seedLogFromHistory,
 } from "@internal/pane-runtime";
 import { HARNESS_BINARY_PLACEHOLDER, NODE_RESULT_MAINTENANCE } from "@internal/subshell-protocol";
 import { DIR_REFUSED_MESSAGE, launchDirAllowed, readAllowedDirs } from "../allowed-dirs.js";
@@ -187,6 +188,10 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     // every read, where a bare `cat >>` would freeze the live view on a host
     // whose `cat` is uutils coreutils (buffers partial writes to a regular file).
     ctx.tmux.pipePane(cmd.socket, cmd.subshellId, logFile, selfInvocation("pane-log"));
+    // The pre-attach race backfill (pane-runtime doc): never throws; the
+    // one-line result is noise-or-note for this machine's log.
+    const seeded = await seedLogFromHistory(ctx.tmux, cmd.socket, cmd.subshellId, logFile);
+    if (seeded !== null) log(`launch ${cmd.subshellId}: ${seeded}`);
   };
   if (cmd.bestEffortLog === true) {
     // Revive parity (Task 1's wire flag, twin of LaunchPlan.bestEffortLog):

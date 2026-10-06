@@ -6,6 +6,7 @@ import {
   exitHookFor,
   type HarnessPlugin,
   paneEnvFor,
+  seedLogFromHistory,
   TmuxRunner,
   validateWorkingDir,
 } from "@internal/pane-runtime";
@@ -105,6 +106,12 @@ export class LocalLauncher implements NodeLauncher {
       this.#ensureLogDir(logFile);
       this.#tmux.pipePane(plan.socket, plan.id, logFile, logChild);
     }
+    // The pre-attach race backfill (see pane-runtime's seedLogFromHistory):
+    // the race has no machine class, so neither attach twin completes the
+    // attach without it. Never throws; a bestEffort path whose pipe failed
+    // still gets whatever history holds, and the note stays debug-quiet.
+    const seeded = await seedLogFromHistory(this.#tmux, plan.socket, plan.id, logFile);
+    if (seeded !== null) logger.debug(`local launch ${plan.id}: ${seeded}`);
   }
 
   /**
