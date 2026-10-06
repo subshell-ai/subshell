@@ -106,7 +106,7 @@ export function SessionsTable({
             </div>
             {s.status === "lost" && (
               <p className="mt-1 text-detail text-muted-foreground" role="status">
-                The connection dropped. The destination is unavailable, not completed. Reopen to reconcile.
+                The connection dropped; the destination is unavailable, not completed. Reopen to reconcile.
               </p>
             )}
             {s.status === "closed" && (

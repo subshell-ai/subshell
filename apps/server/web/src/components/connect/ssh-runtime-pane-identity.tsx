@@ -9,9 +9,12 @@ import { destinationLabel } from "@/lib/ssh-runtime";
  * read answers the ordinary 404 and the component renders nothing.
  *
  * The tier mirrors the old managed-terminal chrome and the cross-agent
- * marker: `detail`, muted, the destination in monospace. When the session has
- * dropped, the line says so, because a pane whose channel is gone must not
- * read as a live destination (design §6: unavailable, not completed).
+ * marker: `detail`, muted, the destination in monospace. A session that is no
+ * longer standing is qualified, in either of its two ways: `connection lost`
+ * for a dropped link (design §6: unavailable, not completed) and `closed` for
+ * an ended one; a pane whose channel is gone must never read as a live
+ * destination. A close known client-side invalidates this read (the close
+ * action in use-ssh-runtime), so the qualification lands without a reload.
  */
 export function SshRuntimePaneIdentity({ subshellId }: { subshellId: string }) {
   const identity = useSshPaneIdentity(subshellId);
@@ -22,6 +25,7 @@ export function SshRuntimePaneIdentity({ subshellId }: { subshellId: string }) {
       SSH · <span className="font-mono">{destinationLabel(line)}</span> · via{" "}
       {line.connectingNodeName ?? "a machine since removed"}
       {line.status === "lost" && " · connection lost"}
+      {line.status === "closed" && " · closed"}
     </span>
   );
 }

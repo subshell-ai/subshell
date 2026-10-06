@@ -1,4 +1,5 @@
 import { ApiError, parseErrorBody } from "@internal/node-admin";
+import type { SshErrorCode } from "@internal/subshell-protocol";
 
 /**
  * The SPA-side mirror of the `/api/ssh-runtime` family (design 2026-10-05
@@ -6,7 +7,10 @@ import { ApiError, parseErrorBody } from "@internal/node-admin";
  * the route schemas; the named codes ride `metadataSafe.sshCode`, which the
  * shared `apiFetch` error path drops - so this file carries its own thin
  * fetch that keeps the code for the copy table. Everything else (cookies,
- * the JSON contract) matches `apiFetch` exactly.
+ * the JSON contract) matches `apiFetch` exactly. The named codes are the
+ * frozen `@internal/subshell-protocol` set (imported, never restated, the
+ * `lib/ssh.ts` precedent), so a refusal can be mapped by EQUALITY into
+ * `SSH_ERROR_DESCRIPTIONS`.
  */
 
 /** One session as the server answers it (`SshRuntimeSessionView`). */
@@ -56,7 +60,13 @@ export type SshRuntimeResolveView =
       };
       connectingAccount?: string;
     }
-  | { accepted: false; code: string; settings: string[] };
+  | {
+      accepted: false;
+      /** Named limitation; the route schema admits only the frozen set (the ssh-api-types convention). */
+      code: SshErrorCode;
+      /** Config keywords that blocked, when the code names several. */
+      settings: string[];
+    };
 
 /** `GET /api/ssh-runtime/sessions/by-pane/:id` - the pane's trusted identity line. */
 export interface SshRuntimePaneIdentity {

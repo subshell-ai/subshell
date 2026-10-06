@@ -28,6 +28,14 @@ export const SSH_SESSIONS_QUERY_KEY = ["ssh-runtime-sessions"] as const;
 /** The discovery read's key, per node. */
 export const SSH_DISCOVERY_QUERY_KEY = (nodeId: string) => ["ssh-runtime-discovery", nodeId] as const;
 
+/**
+ * The pane identity read's key prefix; one pane's row is
+ * `[...SSH_PANE_IDENTITY_QUERY_KEY, subshellId]`. The prefix alone is what a
+ * session close invalidates: every launched pane's identity line changes
+ * meaning the moment its session closes, and the pane ids are not known here.
+ */
+export const SSH_PANE_IDENTITY_QUERY_KEY = ["ssh-runtime-pane-identity"] as const;
+
 /** The caller's sessions, newest first. */
 export function useSshSessions() {
   return useQuery({
@@ -85,6 +93,10 @@ export function useSshClose() {
       sshRuntimeFetch<{ ok: true }>(`/api/ssh-runtime/sessions/${id}/close`, { method: "POST", body: "{}" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: SSH_SESSIONS_QUERY_KEY });
+      // The client now KNOWS this session is closed: every pane identity read
+      // must re-ask, or a still-mounted pane page keeps saying "connected"
+      // for a staleTime nobody can wait out from here.
+      void queryClient.invalidateQueries({ queryKey: SSH_PANE_IDENTITY_QUERY_KEY });
     },
   });
 }
@@ -179,7 +191,7 @@ export function useSshLaunchHarness() {
  */
 export function useSshPaneIdentity(subshellId: string) {
   return useQuery<SshRuntimePaneIdentity | null>({
-    queryKey: ["ssh-runtime-pane-identity", subshellId],
+    queryKey: [...SSH_PANE_IDENTITY_QUERY_KEY, subshellId],
     queryFn: async () => {
       try {
         return await sshRuntimeFetch<SshRuntimePaneIdentity>(

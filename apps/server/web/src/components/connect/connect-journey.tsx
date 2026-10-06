@@ -1,4 +1,5 @@
 import { Button, Card, errMessage } from "@internal/node-admin";
+import { SSH_ERROR_DESCRIPTIONS } from "@internal/subshell-protocol";
 import { useNavigate } from "@tanstack/react-router";
 import { Server, ServerOff } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -76,16 +77,18 @@ export function ConnectJourney({ prefill, onActive }: { prefill: Prefill | null;
   const harnessQ = useSshSessionHarnesses(sessionId);
   const detectHarnesses = useSshDetectHarnesses(sessionId ?? "");
   const detectRanFor = useRef<string | null>(null);
+  // One detect per opened session, on entering the folder step: the mirror
+  // starts empty (a fresh destination row has never been asked), and the
+  // rows below are gated on its answer. A failure leaves the terminal row
+  // and the Retry affordance; StrictMode's replay must not double-ask.
+  // The guard ref IS the dedupe, so the array lists exactly what the body
+  // reads (biome accepts the mutation's stable `mutate` member; a directive
+  // here would be an unused suppression).
   useEffect(() => {
-    // One detect per opened session, on entering the folder step: the mirror
-    // starts empty (a fresh destination row has never been asked), and the
-    // rows below are gated on its answer. A failure leaves the terminal row
-    // and the Retry affordance; StrictMode's replay must not double-ask.
     if (sessionId !== null && detectRanFor.current !== sessionId) {
       detectRanFor.current = sessionId;
       detectHarnesses.mutate(undefined);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the mutation object changes identity every render; the guard ref is the dedupe
   }, [sessionId, detectHarnesses.mutate]);
   const presetsQ = usePresets();
 
@@ -307,10 +310,16 @@ export function ConnectJourney({ prefill, onActive }: { prefill: Prefill | null;
               </p>
             )}
             {resolved !== null && !resolved.accepted && (
-              <p role="alert" className="text-destructive text-detail">
-                This host config needs more than Subshell can run safely ({resolved.code})
-                {resolved.settings.length > 0 ? `: ${resolved.settings.join(", ")}.` : "."}
-              </p>
+              <div role="alert" className="space-y-1">
+                {/* The shipped sentence for the named code, by EQUALITY - never
+                    the wire code itself (the old editor's mapping, same package). */}
+                <p className="text-destructive text-detail">{SSH_ERROR_DESCRIPTIONS[resolved.code]}</p>
+                {resolved.settings.length > 0 && (
+                  <p className="font-mono text-detail text-muted-foreground">
+                    Blocked settings: {resolved.settings.join(", ")}
+                  </p>
+                )}
+              </div>
             )}
             {resolved?.accepted && (
               <dl className="space-y-1">
