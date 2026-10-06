@@ -1,10 +1,7 @@
-import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { userInfo } from "node:os";
+import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   isSshSessionRef,
-  parseSshRuntimeHello,
   parseSshSessionOpenResult,
   SSH_CANCEL_GRACE_MS,
   SSH_PROBE_DEADLINE_MS,
@@ -12,7 +9,6 @@ import {
   SSH_SESSION_RUNTIME_MISSING,
   SSH_SESSION_UNKNOWN,
   SSH_SESSIONS_PER_NODE,
-  type SshConnectionSnapshotWire,
   type SshErrorCode,
   type SshSessionOpenResultWire,
   type SshSessionTargetWire,
@@ -21,6 +17,15 @@ import { shellQuote } from "../shell.js";
 import { classifySshFailure } from "./ssh-diagnose.js";
 import { buildSshInvocation, remoteCommandLine, renderSshConfigContents, sshChildEnv } from "./ssh-render.js";
 import { killGroup } from "./ssh-run-child.js";
+import {
+  concatBytes,
+  type HelloScan,
+  safeUsername,
+  scanForHello,
+  sessionTargetSnapshot,
+  sshSessionTmuxSocket,
+} from "./ssh-session-invocation.js";
+import { digestSessionRequest, type SshSessionRecord, SshSessionRecordStore } from "./ssh-session-store.js";
 import { runSshProcess } from "./ssh-spawn.js";
 
 /**
@@ -28,6 +33,11 @@ import { runSshProcess } from "./ssh-spawn.js";
  * session, launched under the SAME mandatory policy the structured runs use
  * (`renderSshConfigContents` unchanged, deny-by-default every hop), pumping
  * the child's stdio as an opaque byte stream to the plane.
+ *
+ * The file is the CHILD half of the supervisor; the DISK half is
+ * `ssh-session-store.ts` (records, boot reconcile scan) and the per-destination
+ * facts are `ssh-session-invocation.ts` (socket naming, snapshot, hello scan) -
+ * the run family's store/supervisor split, mirrored.
  *
  * Why the node owner running this is NOT a widening: the node's OS user can
  * already run any command on the destination through their own SSH - that is
@@ -105,20 +115,6 @@ export type SshSessionOpenOutcome =
   | { kind: "open"; result: SshSessionOpenResultWire }
   | { kind: "refused"; code: SshErrorCode };
 
-/** The lifecycle the node-side record keeps (history, never authority: the live map decides). */
-type SshSessionLifecycle = "accepted" | "open" | "lost" | "closed";
-const LIFECYCLES: readonly string[] = ["accepted", "open", "lost", "closed"];
-
-interface SshSessionRecord {
-  ref: string;
-  lifecycle: SshSessionLifecycle;
-  host: string;
-  port: number;
-  user: string | null;
-  openedAtMs: number;
-  lostAtMs?: number;
-}
-
 /** The live half of one session: child, dedup facts, and the stop latch. */
 interface LiveSession {
   pid: number;
@@ -146,120 +142,19 @@ function armExitHook(): void {
   });
 }
 
-/* ------------------------------------------------------------------ */
-/* deterministic per-destination tmux socket (design §6 reconciliation) */
-/* ------------------------------------------------------------------ */
-
-/**
- * `subshell-ssh-<hash>` for one destination: a second session opened against
- * the same `host:port:user` lands on the same tmux server, which is what makes
- * "the next session finds the first session's panes" work. Hashed (sha1, 12
- * hex, exactly the `tmuxSocketFor` naming rules) because the name rides a
- * `-L` argument and must never embed punctuation; same-input-same-name is the
- * whole reconciliation protocol and is pinned by test.
- */
-export function sshSessionTmuxSocket(host: string, port: number, user: string | null): string {
-  const hash = createHash("sha1")
-    .update(`${host}:${port}:${user ?? ""}`)
-    .digest("hex")
-    .slice(0, 12);
-  return `subshell-ssh-${hash}`;
-}
-
-/* ------------------------------------------------------------------ */
-/* the snapshot the broker renders (target facts under an unchanged policy) */
-/* ------------------------------------------------------------------ */
-
-/**
- * Build the approved snapshot for a session target. The trust refs are the
- * connecting account's OWN default files (design §8: keys and config stay on
- * the connecting node); the auth agent is deliberately excluded - a brokered
- * session is keys-only (§3). ProxyJump is out of the slice's target grammar;
- * the renderer supports it the moment a later workstream widens the target.
- * Returns null when the snapshot grammar refuses the facts (the caller names
- * `config_ambiguous` then; it cannot happen for parsed targets, and the belt
- * is here because this is the last station before a render).
- */
-export function sessionTargetSnapshot(target: SshSessionTargetWire, homeDir: string): SshConnectionSnapshotWire {
-  return {
-    alias: target.alias,
-    host: target.host,
-    user: target.user,
-    port: target.port,
-    identityFiles: target.identityFile === null ? [] : [target.identityFile],
-    certificateFiles: [],
-    authAgentSocket: null,
-    knownHostsFiles: [join(homeDir, ".ssh", "known_hosts"), "/etc/ssh/ssh_known_hosts"],
-    hostKeyAlias: null,
-    proxyJumps: [],
-    proxyCommand: null,
-    forwards: null,
-    tunnels: null,
-    localCommands: null,
-    remoteCommand: null,
-    sendEnv: null,
-    setEnv: null,
-    escapes: null,
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* hello boundary scan (the broker's ONLY frame awareness)             */
-/* ------------------------------------------------------------------ */
-
-/** The hello-boundary outcome: the hello plus the bytes after it, or a named protocol verdict. */
-type HelloScan =
-  | { kind: "hello"; hello: NonNullable<ReturnType<typeof parseSshRuntimeHello>>; rest: Uint8Array }
-  | { kind: "incomplete" }
-  /** Well-framed bytes that are NOT a hello, or a prefix too nonsense to be a frame: the stream is speaking something else. */
-  | { kind: "protocol" };
-
-/**
- * Scan buffered bytes for the length-prefixed hello frame. This is NOT the
- * codec imported at the ends: it cannot fail-closed a session on a verdict
- * the codec alone owns - but it must recognize the hello boundary, and the
- * ONE thing it treats as terminal (a complete frame that is not a hello, or a
- * lying prefix) is exactly what the codec would also kill. The duplication of
- * the 4-byte read is the price of the broker never importing the runtime
- * grammar beyond the hello, and the codec's own tests pin this same shape.
- */
-function scanForHello(buf: Uint8Array): HelloScan {
-  for (;;) {
-    if (buf.byteLength < 4) return { kind: "incomplete" };
-    const declared = new DataView(buf.buffer as ArrayBuffer, buf.byteOffset).getUint32(0, false);
-    if (declared === 0 || declared > 262_144) return { kind: "protocol" };
-    if (buf.byteLength < 4 + declared) return { kind: "incomplete" };
-    const body = buf.subarray(4, 4 + declared);
-    const rest = buf.slice(4 + declared);
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(new TextDecoder().decode(body));
-    } catch {
-      return { kind: "protocol" };
-    }
-    const hello = parseSshRuntimeHello(parsed);
-    if (hello !== null) return { kind: "hello", hello, rest };
-    return { kind: "protocol" };
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* the supervisor                                                      */
-/* ------------------------------------------------------------------ */
-
 export class SshSessionSupervisor {
-  readonly #dataDir: string;
   readonly #homeDir: string;
   readonly #sshBin: string;
+  readonly #store: SshSessionRecordStore;
   readonly #nowMs: () => number;
   readonly #live = new Map<string, LiveSession>();
   /** One pending-open chain: quota + acceptance decided together (the run supervisor's reasoning). */
   #openChain: Promise<unknown> = Promise.resolve();
 
   constructor(deps: SshSessionSupervisorDeps) {
-    this.#dataDir = deps.dataDir;
     this.#homeDir = deps.homeDir;
     this.#sshBin = deps.sshBin;
+    this.#store = new SshSessionRecordStore({ dataDir: deps.dataDir, nowMs: deps.nowMs });
     this.#nowMs = deps.nowMs;
     // Boot reconcile at BUILD time: the first open in this process is what
     // reads last daemon's stale `accepted`/`open` records back to `lost`
@@ -276,19 +171,7 @@ export class SshSessionSupervisor {
 
   /** Every `accepted`/`open` state with no live child under this process becomes `lost` (never a restart, never a claim about the destination's tmux). */
   reconcileAtBoot(): SshSessionRecord[] {
-    const out: SshSessionRecord[] = [];
-    const dir = this.#sessionDir();
-    if (!existsSync(dir)) return out;
-    for (const name of readdirSync(dir)) {
-      if (!name.endsWith(".json")) continue;
-      const rec = this.#read(join(dir, name));
-      if (rec && (rec.lifecycle === "accepted" || rec.lifecycle === "open") && !this.#live.has(rec.ref)) {
-        const lost: SshSessionRecord = { ...rec, lifecycle: "lost", lostAtMs: this.#nowMs() };
-        this.#write(lost);
-        out.push(lost);
-      }
-    }
-    return out;
+    return this.#store.reconcileAll(new Set(this.#live.keys()));
   }
 
   /**
@@ -308,11 +191,11 @@ export class SshSessionSupervisor {
       if (this.#live.size >= SSH_SESSIONS_PER_NODE) return { kind: "refused", code: "session_quota" };
 
       const snapshot = sessionTargetSnapshot(req.target, this.#homeDir);
-      const sessionDir = this.#ensureSessionDir();
+      const sessionDir = this.#store.ensureDir();
       const configPath = join(sessionDir, `${req.ref}.config`);
       writeFileSync(configPath, renderSshConfigContents(snapshot), { mode: 0o600 });
       chmodSync(configPath, 0o600);
-      this.#write({
+      this.#store.write({
         ref: req.ref,
         lifecycle: "accepted",
         host: req.target.host,
@@ -367,7 +250,7 @@ export class SshSessionSupervisor {
           stdout: "pipe",
           stderr: "pipe",
           env,
-          cwd: this.#dataDir,
+          cwd: this.#store.dir(),
           detached: true, // own group: the stop reaches ssh's helper children (killGroup)
         });
       } catch {
@@ -442,7 +325,7 @@ export class SshSessionSupervisor {
         this.#dropRecord(req.ref, configPath);
         return { kind: "refused", code: "connection_failed" };
       }
-      this.#write({
+      this.#store.write({
         ref: req.ref,
         lifecycle: "open",
         host: req.target.host,
@@ -510,8 +393,9 @@ export class SshSessionSupervisor {
         if (live.killEscalate !== undefined) clearTimeout(live.killEscalate);
         const wasStopping = live.stopping;
         this.#live.delete(req.ref);
-        const rec = this.#read(this.#sessionPath(req.ref));
-        if (rec && rec.lifecycle !== "closed") this.#write({ ...rec, lifecycle: "lost", lostAtMs: this.#nowMs() });
+        const rec = this.#store.read(this.#store.path(req.ref));
+        if (rec && rec.lifecycle !== "closed")
+          this.#store.write({ ...rec, lifecycle: "lost", lostAtMs: this.#nowMs() });
         try {
           unlinkSync(configPath);
         } catch {
@@ -552,14 +436,17 @@ export class SshSessionSupervisor {
    * Close one session as a USER act (design §6's Close): SIGTERM the group,
    * SIGKILL after the grace, record `closed` so the death on the way down is
    * not additionally reported as `lost`. The destination's tmux server and its
-   * panes stay up; killing them is terminate, never a close side effect.
+   * panes stay up; killing them is terminate, never a close side effect. The
+   * plane sends this command on every user close (and the protocol-mismatch
+   * unroll); the group-kill promise is not delegated to the runtime's own
+   * good behavior.
    */
   close(ref: string): "ok" | typeof SSH_SESSION_UNKNOWN {
     const live = this.#live.get(ref);
     if (!live) return SSH_SESSION_UNKNOWN;
     live.stopping = true;
-    const rec = this.#read(this.#sessionPath(ref));
-    if (rec) this.#write({ ...rec, lifecycle: "closed", lostAtMs: this.#nowMs() });
+    const rec = this.#store.read(this.#store.path(ref));
+    if (rec) this.#store.write({ ...rec, lifecycle: "closed", lostAtMs: this.#nowMs() });
     killGroup(live.pid, "SIGTERM");
     live.killEscalate = setTimeout(() => {
       killGroup(live.pid, "SIGKILL");
@@ -569,87 +456,17 @@ export class SshSessionSupervisor {
   }
 
   #digest(req: SshSessionOpenRequest): string {
-    return createHash("sha256")
-      .update(JSON.stringify([req.target, req.runtimeCommand]))
-      .digest("hex");
-  }
-
-  #sessionDir(): string {
-    return join(this.#dataDir, "ssh", "sessions");
-  }
-
-  #ensureSessionDir(): string {
-    const dir = this.#sessionDir();
-    mkdirSync(dir, { recursive: true });
-    try {
-      chmodSync(dir, 0o700);
-    } catch {
-      // the dir is inside the agent's own 0700 data dir; a failed tighten is not a leak
-    }
-    return dir;
-  }
-
-  #sessionPath(ref: string): string {
-    return join(this.#sessionDir(), `${ref}.json`);
-  }
-
-  #read(path: string): SshSessionRecord | null {
-    try {
-      const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-      if (typeof raw.ref !== "string" || typeof raw.lifecycle !== "string") return null;
-      if (!LIFECYCLES.includes(raw.lifecycle)) return null;
-      if (typeof raw.host !== "string" || typeof raw.port !== "number" || typeof raw.openedAtMs !== "number")
-        return null;
-      if (!("user" in raw) || !(raw.user === null || typeof raw.user === "string")) return null;
-      return {
-        ref: raw.ref,
-        lifecycle: raw.lifecycle as SshSessionLifecycle,
-        host: raw.host,
-        port: raw.port,
-        user: raw.user as string | null,
-        openedAtMs: raw.openedAtMs,
-        ...(typeof raw.lostAtMs === "number" ? { lostAtMs: raw.lostAtMs } : {}),
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  #write(rec: SshSessionRecord): void {
-    const dir = this.#ensureSessionDir();
-    const path = join(dir, `${rec.ref}.json`);
-    writeFileSync(path, `${JSON.stringify(rec)}\n`, { mode: 0o600 });
-    chmodSync(path, 0o600);
+    return digestSessionRequest(req.target, req.runtimeCommand);
   }
 
   /** Undo the acceptance for a refusal that never spawned (the crash-between window is the reconcile's, not this path's). */
   #dropRecord(ref: string, configPath: string): void {
-    try {
-      unlinkSync(this.#sessionPath(ref));
-    } catch {
-      // nothing recorded means nothing to undo
-    }
+    this.#store.drop(ref);
     try {
       unlinkSync(configPath);
     } catch {
       // as above
     }
-  }
-}
-
-function concatBytes(a: Uint8Array, b: Uint8Array): Uint8Array {
-  if (a.byteLength === 0) return b;
-  const out = new Uint8Array(a.byteLength + b.byteLength);
-  out.set(a, 0);
-  out.set(b, a.byteLength);
-  return out;
-}
-
-function safeUsername(): string | undefined {
-  try {
-    return userInfo().username;
-  } catch {
-    return undefined;
   }
 }
 

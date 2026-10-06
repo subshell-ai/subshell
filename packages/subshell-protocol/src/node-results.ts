@@ -32,7 +32,8 @@ import type {
   NodeSshTestOutcomeWire,
 } from "./ssh-results.js";
 import { readSshRunFacts, type SshRunFactsWire } from "./ssh-run-facts.js";
-import { parseSshSessionOpenResult, type SshSessionOpenResultWire } from "./ssh-session-frames.js";
+import { parseSshSessionOpenResult } from "./ssh-session-frame-parsers.js";
+import type { SshSessionOpenResultWire } from "./ssh-session-frames.js";
 
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;

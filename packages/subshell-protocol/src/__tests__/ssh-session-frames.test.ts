@@ -15,6 +15,7 @@ import {
   parseSshRuntimeCommandFrame,
   parseSshRuntimeEventFrame,
   parseSshRuntimeHello,
+  parseSshRuntimeReportRows,
   parseSshSessionNodeCommandBody,
   parseSshSessionOpenResult,
   parseSshSessionTarget,
@@ -304,5 +305,27 @@ describe("framing codec", () => {
     expect(isSshSessionRef(ref)).toBe(true);
     expect(isSshSessionRef("x".repeat(65))).toBe(false);
     expect(isSshSessionRef("nope!")).toBe(false);
+  });
+});
+
+describe("parseSshRuntimeReportRows (the census grammar)", () => {
+  test("the close RESULT payload and the subshells_report EVENT arm share one shape", () => {
+    const rows = [{ subshellId: ref, alive: true, exitCode: null }];
+    expect(parseSshRuntimeReportRows(rows)).toEqual(rows);
+    expect(parseSshRuntimeReportRows([])).toEqual([]); // an empty census is an honest "no panes"
+    // The same rows arriving inside the event frame parse identically (one
+    // grammar, checked twice by the two callers that receive it).
+    const ev = parseSshRuntimeEventFrame({ type: "subshells_report", subshells: rows });
+    expect(ev && ev.type === "subshells_report" ? ev.subshells : null).toEqual(rows);
+  });
+  test("non-array payloads and bad rows refuse", () => {
+    expect(parseSshRuntimeReportRows(null)).toBeNull();
+    expect(parseSshRuntimeReportRows({ subshells: [] })).toBeNull();
+    expect(parseSshRuntimeReportRows([{ subshellId: ref }])).toBeNull(); // no alive
+    expect(parseSshRuntimeReportRows([{ subshellId: ref, alive: 1, exitCode: null }])).toBeNull(); // alive is a bool
+    expect(parseSshRuntimeReportRows([{ subshellId: ref, alive: false, exitCode: "0" }])).toBeNull(); // code is an int
+    expect(parseSshRuntimeReportRows([{ subshellId: ref, alive: false, exitCode: 3 }])).toEqual([
+      { subshellId: ref, alive: false, exitCode: 3 },
+    ]);
   });
 });

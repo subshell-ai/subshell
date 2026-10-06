@@ -310,9 +310,13 @@ export {
   parseSshRuntimeCommandFrame,
   parseSshRuntimeEventFrame,
   parseSshRuntimeHello,
+  parseSshRuntimeReportRows,
   parseSshSessionNodeCommandBody,
   parseSshSessionOpenResult,
   parseSshSessionTarget,
+  sshRuntimeProtocolSupported,
+} from "./ssh-session-frame-parsers.js";
+export {
   SSH_RUNTIME_PROTOCOL,
   SSH_SESSION_COMMAND_TYPES,
   SSH_SESSION_INBOUND_QUEUE_FRAMES,
@@ -324,13 +328,13 @@ export {
   type SshRuntimeEventFrame,
   type SshRuntimeHelloWire,
   type SshRuntimeLaunchBody,
+  type SshRuntimeReportRow,
   type SshSessionCloseCommand,
   type SshSessionNodeCommandBody,
   type SshSessionOpenCommand,
   type SshSessionOpenResultWire,
   type SshSessionSendCommand,
   type SshSessionTargetWire,
-  sshRuntimeProtocolSupported,
 } from "./ssh-session-frames.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
 export { MIN_NODE_VERSION, nodeVersionSupported, semverLt } from "./versions.js";

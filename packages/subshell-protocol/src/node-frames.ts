@@ -1,7 +1,8 @@
 import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
 import { parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
-import { parseSshSessionNodeCommandBody, type SshSessionNodeCommandBody } from "./ssh-session-frames.js";
+import { parseSshSessionNodeCommandBody } from "./ssh-session-frame-parsers.js";
+import type { SshSessionNodeCommandBody } from "./ssh-session-frames.js";
 
 /**
  * Node ↔ control-plane wire contract (spec 2026-08-31 §3).
@@ -150,8 +151,8 @@ import { parseSshSessionNodeCommandBody, type SshSessionNodeCommandBody } from "
  *
  * **16 → 17 is the SSH session-runtime surface (design 2026-10-05 §2/§3).**
  * Three commands broker a destination runtime over a live SSH child —
- * `ssh_session_open`, `ssh_session_send`, `ssh_session_close` (grammar in
- * `ssh-session-frames.ts`) — and one new event arm carries the child's
+ * `ssh_session_open`, `ssh_session_send`, `ssh_session_close` (types in
+ * `ssh-session-frames.ts`, grammar in `ssh-session-frame-parsers.ts`) — and one new event arm carries the child's
  * protocol bytes up: `session_frame { ref, data_b64 }`. The frames pumped
  * INSIDE a session belong to the runtime's own `runtimeProtocol` namespace
  * and never ride this version; the node link changes only by adding these
@@ -1116,7 +1117,7 @@ export type NodeCommandBody =
   | SshNodeCommandBody
   // The session-runtime family (design 2026-10-05 §3): three commands broker a
   // destination runtime over one SSH child, folded in the same one-member way
-  // so the session grammar lives in `ssh-session-frames.ts`; the open
+  // so the session grammar lives in the ssh-session-frames pair; the open
   // command's answer is validated by `parseNodeSshSessionOpenResult`.
   | SshSessionNodeCommandBody;
 
@@ -1691,7 +1692,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "ssh_session_send":
     case "ssh_session_close":
       // Same delegation posture: the session grammar lives in
-      // ssh-session-frames.ts beside the commands it narrows.
+      // ssh-session-frame-parsers.ts beside the types it narrows.
       return parseSshSessionNodeCommandBody(value);
     default:
       return null;
