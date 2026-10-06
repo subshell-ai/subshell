@@ -10,13 +10,14 @@ import {
 import { hashPassword } from "better-auth/crypto";
 import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { deleteUserByEmailOrId, setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
+import { authDatabase } from "@/auth/database.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { NODE_KIND_RUNTIME } from "@/db/types/nodes.db-types.js";
 import { SshRuntimeSession } from "@/services/ssh-runtime/session.js";
-import { adoptReconciledPanes } from "@/services/ssh-runtime/session-adopt.js";
+import { type AdoptSummary, adoptReconciledPanes } from "@/services/ssh-runtime/session-adopt.js";
 import {
   registerSession,
   resetSessionRegistryForTests,
@@ -49,6 +50,12 @@ import { attachScriptedNode, ok, type ScriptedNode } from "@/test-helpers/script
  * - the old hidden runtime node: kept, offline, as history.
  * - a refused census: every row stays as the settle wrote it (skipped).
  * - a different destination's rows are never touched (host/port/user match).
+ * - a session that DIES mid-walk (MINOR-1, both re-check seams): the row the
+ *   walk had just claimed ends `alive: 0` with its token revoked and no
+ *   registration - never a live row on a settled session.
+ * - two CONCURRENT reopens of one survivor (MINOR-2): exactly one walk wins
+ *   the conditional flip; the loser touches nothing, and the winner's
+ *   rotation stays live.
  */
 
 const email = `adopt-${crypto.randomUUID()}@subshell.local`;
@@ -183,6 +190,14 @@ async function seedRowOnNode(nodeId: string, opts: { alive: 0 | 1; withToken: bo
   });
   if (opts.withToken) await issueSubshellToken(id, userId);
   return id;
+}
+
+/** Whether the apikey row behind a token is live (1) or revoked (0). */
+function keyEnabled(apiKeyId: string): number | undefined {
+  const row = authDatabase()
+    .prepare<{ enabled: number }, [string]>(`SELECT enabled FROM apikey WHERE id = ?`)
+    .get(apiKeyId);
+  return row?.enabled;
 }
 
 /** Poll a condition (settle writes are async `void`s off the hooks). */
@@ -357,5 +372,154 @@ describe("re-adopt: the reopen restores what the destination still has", () => {
     const s = await adoptReconciledPanes(c);
     expect(s.adopted, "only THIS destination's rows are candidates").toEqual([subshellId]);
     expect((await subshellsRepo.findById(foreignPane))?.nodeId).toBe(foreign.runtimeNodeId);
+  });
+});
+
+describe("re-adopt: the race seams (MINOR-1 death mid-walk, MINOR-2 concurrent reopens)", () => {
+  /**
+   * MINOR-1, seam one: the session dies WHILE the walk's conditional flip is
+   * in flight. The fixture flips `markLost` the moment the walk issues its
+   * first `updateTable("subshells")` (the flip's builder) - the acceptance
+   * review's shape, where `settleLost` takes its pane snapshot AFTER its DB
+   * awaits and here races past a row that was never registered. Without the
+   * post-flip re-check the walk would mint onto the dead session and leave
+   * `alive: 1` + a live token behind; with it, the flipped row settles down.
+   */
+  test("death during the flip: the claimed row ends alive:0, token revoked, unregistered", async () => {
+    // A destination of its OWN: the candidate set must hold exactly this
+    // scenario's rows, not the shared-destination leftovers of the tests above.
+    const host = { host: "10.77.1.1" };
+    const a = await mkSession(`m1-a-${crypto.randomUUID().slice(0, 8)}`, host);
+    // A boot-sweep-shaped leftover: alive:1, token LIVE, never registered
+    // with any session - exactly the row `settleLost` can never see.
+    const rowId = await seedRowOnNode(a.runtimeNodeId, { alive: 1, withToken: true });
+    a.markLost("child-lost");
+    await waitUntil(async () => (await sessionsRepo.findById(a.id))?.status === "lost", "A settles lost");
+
+    const b = await mkSession(`m1-b-${crypto.randomUUID().slice(0, 8)}`, host);
+    censusRows = [{ subshellId: rowId, alive: true, exitCode: null }];
+    censusRefusal = null;
+
+    const dbHandle = db as unknown as { updateTable: (table: string) => unknown };
+    const realUpdateTable = dbHandle.updateTable;
+    let armed = true;
+    dbHandle.updateTable = (table: string) => {
+      if (armed && table === "subshells") {
+        armed = false;
+        b.markLost("child-lost"); // the SSH child dies mid-reconcile
+      }
+      return realUpdateTable.call(db, table);
+    };
+    let summary: AdoptSummary;
+    try {
+      summary = await adoptReconciledPanes(b);
+    } finally {
+      delete (db as unknown as Record<string, unknown>).updateTable; // restore the prototype method
+    }
+
+    expect(summary.adopted, "a flipped-then-dead row is not an adoption").toEqual([]);
+    expect(summary.settledDead).toEqual([rowId]);
+    expect(summary.skipped).toBe("session-inactive");
+    const row = await subshellsRepo.findById(rowId);
+    expect(row?.alive).toBe(0); // never: alive:1 on a settled session
+    expect(row?.nodeId).toBe(b.runtimeNodeId); // the flip landed; the next open's candidate set sees it
+    expect(row?.apiKeyId, "the seed's live token is revoked by the walk").toBeTruthy();
+    expect(keyEnabled(row?.apiKeyId as string)).toBe(0);
+    expect(b.paneToken(rowId)).toBeUndefined();
+  });
+
+  /**
+   * MINOR-1, seam two: the session dies WHILE the token rotation is in
+   * flight (after the flip, after registration is due). The fixture flips
+   * `markLost` inside the walk's first `findById` of the row - the read
+   * `revokeSubshellToken` performs before the re-mint - so the rotation
+   * completes against a session that is already lost: the just-minted token
+   * is the one that must die, and the registration must not survive.
+   */
+  test("death during the rotation: the row ends alive:0 with the ROTATED token revoked", async () => {
+    const host = { host: "10.77.2.1" };
+    const a = await mkSession(`m2-a-${crypto.randomUUID().slice(0, 8)}`, host);
+    const rowId = await seedRowOnNode(a.runtimeNodeId, { alive: 1, withToken: true });
+    a.markLost("child-lost");
+    await waitUntil(async () => (await sessionsRepo.findById(a.id))?.status === "lost", "A settles lost");
+
+    const b = await mkSession(`m2-b-${crypto.randomUUID().slice(0, 8)}`, host);
+    censusRows = [{ subshellId: rowId, alive: true, exitCode: null }];
+    censusRefusal = null;
+
+    const realFindById = SubshellsRepository.prototype.findById;
+    let armed = true;
+    SubshellsRepository.prototype.findById = async function (this: SubshellsRepository, id: string) {
+      if (armed && id === rowId) {
+        armed = false;
+        b.markLost("child-lost"); // dies between the flip and the re-mint
+      }
+      return realFindById.call(this, id);
+    };
+    let summary: AdoptSummary;
+    try {
+      summary = await adoptReconciledPanes(b);
+    } finally {
+      SubshellsRepository.prototype.findById = realFindById;
+    }
+
+    expect(summary.adopted, "a rotated-then-dead row is not an adoption").toEqual([]);
+    expect(summary.settledDead).toEqual([rowId]);
+    expect(summary.skipped).toBe("session-inactive");
+    const row = await subshellsRepo.findById(rowId);
+    expect(row?.alive).toBe(0);
+    expect(row?.nodeId).toBe(b.runtimeNodeId);
+    // The rotation DID land on the row (a fresh key id, not the seed's) - and
+    // it is exactly that key the walk's re-check revoked, because the pane
+    // registered with a session that had just died.
+    expect(row?.apiKeyId).toBeTruthy();
+    expect(keyEnabled(row?.apiKeyId as string)).toBe(0);
+    expect(b.paneToken(rowId)).toBeUndefined();
+  });
+
+  /**
+   * MINOR-2: two reopens of one destination run their reconcile concurrently
+   * over the same survivor. The flip is conditional on the settled node the
+   * walker snapshotted from, so exactly one walk moves the row; the loser
+   * stands down BEFORE touching the token (a revoke-first loser would kill
+   * the winner's just-rotated key) and registers nothing.
+   */
+  test("concurrent reopens claim one survivor exactly once", async () => {
+    const host = { host: "10.77.3.1" };
+    const a = await mkSession(`c-a-${crypto.randomUUID().slice(0, 8)}`, host);
+    const { subshellId } = await sessionLaunchTerminal(a.id, userId, { cwd: "/home/dst/work" });
+    cleanupPanes.push(subshellId);
+    const keyBefore = (await subshellsRepo.findById(subshellId))?.apiKeyId;
+    a.markLost("child-lost");
+    await waitUntil(async () => (await subshellsRepo.findById(subshellId))?.alive === 0, "A settles");
+
+    const b = await mkSession(`c-b-${crypto.randomUUID().slice(0, 8)}`, host);
+    const c = await mkSession(`c-c-${crypto.randomUUID().slice(0, 8)}`, host);
+    censusRows = [{ subshellId, alive: true, exitCode: null }];
+    censusRefusal = null;
+
+    const [sB, sC] = await Promise.all([adoptReconciledPanes(b), adoptReconciledPanes(c)]);
+
+    const bWon = sB.adopted.includes(subshellId);
+    const cWon = sC.adopted.includes(subshellId);
+    expect(Number(bWon) + Number(cWon), "exactly one reopen adopts the survivor").toBe(1);
+    const winner = bWon ? b : c;
+    const loser = bWon ? c : b;
+    const loserSummary = bWon ? sC : sB;
+    // The loser stands down without recording or touching anything (or its
+    // candidate snapshot simply never included the row - both are silence).
+    expect(loserSummary.adopted).toEqual([]);
+    expect(loserSummary.settledDead).toEqual([]);
+
+    const row = await subshellsRepo.findById(subshellId);
+    expect(row?.nodeId, "single-parented").toBe(winner.runtimeNodeId);
+    expect(row?.alive).toBe(1);
+    expect(row?.apiKeyId).not.toBe(keyBefore); // the winner rotated on the same row
+    expect(keyEnabled(row?.apiKeyId as string), "the loser revoked nothing").toBe(1);
+    expect(winner.paneToken(subshellId)).toBeTypeOf("string");
+    expect(loser.paneToken(subshellId), "the loser registered nothing").toBeUndefined();
+    // No duplicates: one row per id across the whole owner.
+    const all = await subshellsRepo.listByUser(userId);
+    expect(all.filter((r) => r.id === subshellId).length).toBe(1);
   });
 });

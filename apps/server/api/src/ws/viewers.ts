@@ -617,20 +617,19 @@ export function dropTerminalSocketsFor(userId: string, reason = "account disable
 /**
  * Close every terminal socket ATTACHED TO ONE PANE, with one code.
  *
- * The SSH control seam's stream half (SSH-SUPPORT.md §2: active subscriptions
- * must be closed or filtered when permission/control changes). A socket
- * authenticates at connect and is never re-checked - the same §11.5 property
- * every other path has - so a takeover or a revocation that only changed the
- * POLICY would leave an already-open stream streaming: this is the thing that
- * closes it. The caller (the takeover act, or the SSH backend on a
- * revocation) calls this, then every reconnection passes the attach-redeem
- * gate fresh.
+ * Its callers are the SSH runtime session settles (`session-settle.ts`, the
+ * first real ones): when a session goes lost or closed, every pane's relay
+ * streams over a channel that no longer exists, and a socket authenticates at
+ * connect and is never re-checked - the same §11.5 property every other path
+ * has - so the settling is the only thing that can end the stream. Each
+ * reconnection afterwards passes the attach gate fresh and meets whatever the
+ * row/registry says then (a re-adopted live pane, or the 4004 of a session
+ * that stayed dead): unavailable while the channel is gone, never completed.
  *
- * Same BELOW-4000 close convention as {@link dropTerminalSocketsFor}: a human
- * whose socket this drops on their own takeover reconnects immediately and
- * passes (their arm is allowed); a stale machine socket reconnects, re-redeems,
- * and the gate is what refuses it now. Teardown bookkeeping stays in each
- * socket's close handler (`detachViewer`); the maps are not touched here.
+ * Same BELOW-4000 close convention as {@link dropTerminalSocketsFor}: 1012 is
+ * the retry convention, so a watching client reconnects rather than reads the
+ * drop as a refusal. Teardown bookkeeping stays in each socket's close handler
+ * (`detachViewer`); the maps are not touched here.
  *
  * @param subshellId - whose pane's sockets to drop
  * @param reason - the close reason the sockets carry

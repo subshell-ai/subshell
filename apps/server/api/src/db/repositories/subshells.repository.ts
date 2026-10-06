@@ -183,6 +183,28 @@ export class SubshellsRepository extends BaseRepository {
   }
 
   /**
+   * Conditional {@link update} keyed to the node the row still sits on: applies
+   * the patch only while `nodeId` equals `fromNodeId`, and answers whether this
+   * caller moved the row. The SSH reopen re-adoption's claim seam
+   * (`services/ssh-runtime/session-adopt.ts`): two concurrent reopens of one
+   * destination can both see one survivor in their candidate snapshots, and
+   * exactly ONE may reparent it — the loser must then touch neither the token
+   * nor the pane registration. Same shape as {@link updateIfRunning}, same
+   * answer contract: 1 for the mover, 0 for everyone racing after.
+   * @returns rows updated — 0 means the row already left `fromNodeId`
+   */
+  async updateIfOnNode(id: string, fromNodeId: string, update: SubshellUpdate): Promise<number> {
+    const res = await this.db
+      .updateTable("subshells")
+      .set(update)
+      .where("id", "=", id)
+      .where("nodeId", "=", fromNodeId)
+      .executeTakeFirst();
+    const counts = res as unknown as { numUpdated?: number | bigint; numUpdatedRows?: number | bigint };
+    return Number(counts.numUpdatedRows ?? counts.numUpdated ?? 0);
+  }
+
+  /**
    * Take a "waiting for you" stamp off, but ONLY while one is set, and answer
    * whether this caller did it.
    *

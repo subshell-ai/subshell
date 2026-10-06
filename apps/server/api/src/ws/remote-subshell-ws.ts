@@ -172,8 +172,13 @@ export async function attachRemoteSubshellWs(
     launcher,
     socket: row.tmuxSocket ?? "",
     subshellId: row.id,
-    // Always an agent node on this path — the local twin sets `local`. Wave D
-    // keys the plane→node input hold by it.
+    // The row's machine: an agent node's id or a hidden runtime node's id —
+    // both classes reach this handler (the local twin sets `local`). Wave D
+    // keys the plane→node input hold by it; the hold's node-`ready` re-fire
+    // trigger never refires for a runtime node (it has no `/ws/node` connection
+    // to become ready again), but the other trigger — a new write arriving and
+    // draining through this row's launcher — still applies, and that launcher
+    // speaks the session channel (ws/input-hold.ts).
     nodeId: row.nodeId,
     logFile: "",
     // Only `edit`/`owner` may type into the pane; a `view` grantee watches.

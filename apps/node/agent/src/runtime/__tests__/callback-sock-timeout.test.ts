@@ -13,10 +13,13 @@ import { type CallbackRequest, paneCallbackSockPath, startCallbackDoors } from "
  *
  * The timeout constant is module-private and not injectable, so the test
  * captures the scheduled callback through a narrow `globalThis.setTimeout`
- * shim (only a `setTimeout(fn, 30000)` is taken; everything else passes
- * through), fires it by hand, and restores the real timer before the response
- * is awaited. No source seam, no 30-second wall-clock wait. The captured ms
- * value doubles as the pin that the door's budget is still 30 s.
+ * shim (only a `setTimeout(fn, 30000)` is taken; every other timer passes
+ * through to the real one), and fires it by hand. The real timer is restored
+ * when the capture scope unwinds - the `finally` after the test body, NOT
+ * before the response await inside it; the response delivery is I/O, so no
+ * timer stands between the fired callback and the 504. No source seam, no
+ * 30-second wall-clock wait. The captured ms value doubles as the pin that
+ * the door's budget is still 30 s.
  */
 
 /** The door's own timeout budget, asserted on the captured schedule (module doc's contract). */
@@ -93,7 +96,7 @@ describe("callback door timeout", () => {
         expect(captured.length, "the door scheduled exactly one timeout for the request").toBe(1);
         expect(captured[0]?.ms).toBe(CALLBACK_TIMEOUT);
         captured[0]?.fire();
-        const res = await inflight; // real timers restored: the response delivery is I/O, not a timer
+        const res = await inflight; // the shim is still installed (restore is the scope's finally); delivery is I/O, not a timer
         expect(res.status).toBe(504);
         expect(await res.json()).toEqual({ error: "runtime_callback_timeout" });
         // The pending entry was evicted with the 504; the plane's late answer
