@@ -2327,6 +2327,293 @@ test("link close drains the brokered-session supervisor: the child goes, no loss
   }
 }, 60_000);
 
+/* ------------------------------------------------------------------ */
+/* Review m-A/m-B: the drain cannot stall the loop; a late-born        */
+/* child of a dead link is reclaimed                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The M1 test's fake ssh, parameterized: the probe branch answers
+ * `/usr/bin/subshell`; the serve branch logs its own pid, optionally waits
+ * `helloDelayMs` (so an open can sit inside its hello gate across a flap,
+ * m-B), then emits the prepared hello and sleeps. Returns the ssh path and
+ * the serve-pid log.
+ */
+function fakeServeSsh(root: string, helloFile: string, helloDelayMs = 0): { sshPath: string; pidsLog: string } {
+  const pidsLog = join(root, "serve-pids.log");
+  const sshPath = join(root, "ssh");
+  writeFileSync(
+    sshPath,
+    [
+      "#!/bin/sh",
+      `case "$*" in`,
+      `  *"command -v"*) printf '/usr/bin/subshell\\n'; exit 0 ;;`,
+      `esac`,
+      `case "$*" in`,
+      `  *"runtime-serve"*)`,
+      `    printf "%s\\n" "$$" >> '${pidsLog}'`,
+      ...(helloDelayMs > 0 ? [`    sleep ${Math.ceil(helloDelayMs / 1000)}`] : []),
+      `    cat '${helloFile}'`,
+      `    exec sleep 300`,
+      `    ;;`,
+      `esac`,
+      `exit 1`,
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  chmodSync(sshPath, 0o755);
+  return { sshPath, pidsLog };
+}
+
+/** The hello frame one of these fake serves emits (a per-test file, per-test socket name). */
+function fakeServeHello(root: string, name: string): string {
+  const helloFile = join(root, "hello.bin");
+  writeFileSync(
+    helloFile,
+    encodeSshSessionFrame({
+      type: "hello",
+      runtimeProtocol: SSH_RUNTIME_PROTOCOL,
+      agentVersion: "9.9.9-drain",
+      os: "linux",
+      arch: "x64",
+      capabilities: ["ssh-runtime", "callback-sock"],
+      homeDir: "/home/dst",
+      dataDir: "/home/dst/.local/share/subshell/runtime",
+      tmuxSocket: `subshell-ssh-${name}`,
+      paneCount: 0,
+    }),
+  );
+  return helloFile;
+}
+
+const mbPidAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const mbServePids = (pidsLog: string): number[] => {
+  try {
+    return readFileSync(pidsLog, "utf8")
+      .split("\n")
+      .filter((l) => l !== "")
+      .map(Number);
+  } catch {
+    return [];
+  }
+};
+
+/** Open one brokered session through the daemon and await its `result`. */
+async function mbOpenSession(h: Harness, ref: string, target: Record<string, unknown>, seq: number): Promise<void> {
+  const jti = `open-${ref.slice(0, 8)}`;
+  await signAndSend(h, { type: "ssh_session_open", ref, target } as never, { jti, seq });
+  const opened = await waitFor<Extract<NodeEvent, { type: "result" }>>(
+    h,
+    (e) => e.type === "result" && e.ref === jti,
+    "session open result",
+    10_000,
+  );
+  expect(opened.ok).toBe(true);
+}
+
+test("m-A: a supervisor close that throws cannot stall the reconnect loop, and the remaining refs are still drained", async () => {
+  // The daemon's own rule (a sibling of the upload sweep's "never throws by
+  // contract - a broken sweep must not cost the node its connection", and
+  // the negotiator's swallow-its-own-failures posture): the link-close drain
+  // runs ON the reconnect path, so a `sup.close` throw (the record write is
+  // a writeFileSync/chmod: ENOSPC/EROFS/EACCES are ordinary) must neither
+  // abort the remaining refs nor skip the `resolve(close)` that lets the
+  // loop dial again. Before the guard, the throw escaped `finish`, the
+  // connection promise never settled, and the node never redialed.
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-mA-"));
+  const root = mkdtempSync(join(tmpdir(), "subshell-daemon-mA-fake-"));
+  const helloFile = fakeServeHello(root, "mA0000000001");
+  const { sshPath, pidsLog } = fakeServeSsh(root, helloFile);
+  const prevSsh = process.env.SUBSHELL_SSH_PATH;
+  const prevHome = process.env.HOME;
+  process.env.SUBSHELL_SSH_PATH = sshPath;
+  process.env.HOME = join(root, "home");
+  const target = { alias: "mA", host: "127.0.0.1", port: 22, user: null, identityFile: null } as const;
+  try {
+    const h = await startDaemon({ config: { dataDir } });
+    const ref1 = crypto.randomUUID();
+    const ref2 = crypto.randomUUID();
+    await mbOpenSession(h, ref1, target, 1);
+    await mbOpenSession(h, ref2, target, 2);
+    await waitUntil(() => mbServePids(pidsLog).length === 2, "two fake serves to record their pids");
+    const [pid1, pid2] = mbServePids(pidsLog);
+    const sup = peekSshSessionSupervisor(dataDir);
+    if (!sup) throw new Error("the daemon built its supervisor on the first open");
+    const attempted: string[] = [];
+    const origClose = sup.close.bind(sup);
+    sup.close = (ref: string) => {
+      attempted.push(ref);
+      if (attempted.length === 1) throw new Error("simulated record-write throw");
+      return origClose(ref);
+    };
+
+    closeAllSockets(h.plane, 1001, "flap");
+
+    // The loop is alive: the reconnect's `ready` lands even though the
+    // FIRST drain close threw (red: no second ready, ever).
+    await waitFor(h, () => count(h, (e) => e.type === "ready") >= 2, "reconnect ready after a throwing drain", 10_000);
+    // Every remaining ref was attempted: one throw cost one close, not the
+    // drain (red: `attempted` held only the first ref).
+    expect(attempted).toEqual([ref1, ref2]);
+    // The throwing close died BEFORE its kill (so that child lives, the
+    // honest reading of a half-run close); the next ref was reclaimed.
+    expect(mbPidAlive(pid1 as number)).toBe(true);
+    await waitUntil(() => !mbPidAlive(pid2 as number), "the second child reclaimed past the throw");
+    // And no loss spam rode the reconnect (the real close's `stopping` latch).
+    expect(eventsAs(h, "error").filter((e) => e.code === "ssh_session_lost")).toEqual([]);
+  } finally {
+    for (const pid of mbServePids(pidsLog)) {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }
+    if (prevSsh === undefined) delete process.env.SUBSHELL_SSH_PATH;
+    else process.env.SUBSHELL_SSH_PATH = prevSsh;
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    rmSync(dataDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("m-A: a drain that throws before its first ref still settles the close, so the loop redials", async () => {
+  // The OUTER belt: the per-ref guard cannot see a throw from taking the
+  // snapshot itself. Whatever the drain's first line does to the disk or
+  // the map, `finish` must still resolve the connection.
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-mAb-"));
+  const root = mkdtempSync(join(tmpdir(), "subshell-daemon-mAb-fake-"));
+  const helloFile = fakeServeHello(root, "mAb000000001");
+  const { sshPath, pidsLog } = fakeServeSsh(root, helloFile);
+  const prevSsh = process.env.SUBSHELL_SSH_PATH;
+  const prevHome = process.env.HOME;
+  process.env.SUBSHELL_SSH_PATH = sshPath;
+  process.env.HOME = join(root, "home");
+  const target = { alias: "mAb", host: "127.0.0.1", port: 22, user: null, identityFile: null } as const;
+  try {
+    const h = await startDaemon({ config: { dataDir } });
+    const ref = crypto.randomUUID();
+    await mbOpenSession(h, ref, target, 1);
+    await waitUntil(() => mbServePids(pidsLog).length === 1, "the fake serve to record its pid");
+    const childPid = mbServePids(pidsLog)[0] as number;
+    const sup = peekSshSessionSupervisor(dataDir);
+    if (!sup) throw new Error("the daemon built its supervisor on the first open");
+    sup.liveRefs = (): string[] => {
+      throw new Error("simulated snapshot throw");
+    };
+
+    closeAllSockets(h.plane, 1001, "flap");
+    await waitFor(
+      h,
+      () => count(h, (e) => e.type === "ready") >= 2,
+      "reconnect ready after a first-line drain throw",
+      10_000,
+    );
+    // Nothing was reclaimed (the drain never got a ref), and that is the
+    // honest shape: the guard protects the LOOP, not a sweep it cannot run.
+    expect(mbPidAlive(childPid)).toBe(true);
+  } finally {
+    for (const pid of mbServePids(pidsLog)) {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }
+    if (prevSsh === undefined) delete process.env.SUBSHELL_SSH_PATH;
+    else process.env.SUBSHELL_SSH_PATH = prevSsh;
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    rmSync(dataDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+test("m-B: an open whose link died inside the hello gate reclaims the child its hello registers", async () => {
+  // The drain snapshots `liveRefs()` at close time; a ref only ENTERS the
+  // live map after its hello (probe up to 30 s + hello up to 30 s), so an
+  // `ssh_session_open` in flight across the flap re-appears AFTER the drain
+  // as a brand-new orphan: quota slot held, destination door bound, and
+  // (post-m2) every later open there refused `session_in_use` naming a
+  // session the plane already unrolled. The open flow stays untouched (the
+  // supervisor does not know about sockets); the executor checks AFTER the
+  // open returned `open` whether the link that CARRIED the command is still
+  // the live one, and reclaims through the supervisor's own close when it
+  // is not.
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-mB-"));
+  const root = mkdtempSync(join(tmpdir(), "subshell-daemon-mB-fake-"));
+  const helloFile = fakeServeHello(root, "mB0000000001");
+  const { sshPath, pidsLog } = fakeServeSsh(root, helloFile, 2_000); // hello lands after the flap + redial
+  const prevSsh = process.env.SUBSHELL_SSH_PATH;
+  const prevHome = process.env.HOME;
+  process.env.SUBSHELL_SSH_PATH = sshPath;
+  process.env.HOME = join(root, "home");
+  const target = { alias: "mB", host: "127.0.0.1", port: 22, user: null, identityFile: null } as const;
+  try {
+    const h = await startDaemon({ config: { dataDir } });
+    const ref = crypto.randomUUID();
+    await signAndSend(h, { type: "ssh_session_open", ref, target } as never, { jti: "mB-1", seq: 1 });
+    // The child is spawned and inside its hello gate; the result has NOT
+    // landed (the hello is two seconds out).
+    await waitUntil(() => mbServePids(pidsLog).length === 1, "the serve child to spawn before its hello");
+    const childPid = mbServePids(pidsLog)[0] as number;
+    expect(mbPidAlive(childPid)).toBe(true);
+
+    closeAllSockets(h.plane, 1001, "flap");
+    await waitFor(
+      h,
+      () => count(h, (e) => e.type === "ready") >= 2,
+      "reconnect ready while the open is mid-gate",
+      10_000,
+    );
+
+    // The late hello registers the child, the open resolves, and the
+    // executor's liveness check says: this command rode a dead link.
+    await waitUntil(() => !mbPidAlive(childPid), "the late-born child reclaimed (m-B)", 10_000);
+    expect(peekSshSessionSupervisor(dataDir)?.liveRefs()).toEqual([]);
+    // The reclaim is a close, not a loss: the new link never hears about a
+    // session it never carried.
+    expect(eventsAs(h, "error").filter((e) => e.code === "ssh_session_lost")).toEqual([]);
+
+    // A later open to the same destination lands over the reclaimed map
+    // (the quota slot the orphan held is free; the door is the destination
+    // half, and the child's group going with it is what releases it).
+    const ref2 = crypto.randomUUID();
+    await mbOpenSession(h, ref2, target, 1); // the new connection's tracker restarted at open
+    expect(peekSshSessionSupervisor(dataDir)?.liveRefs()).toEqual([ref2]);
+    peekSshSessionSupervisor(dataDir)?.close(ref2);
+    await waitUntil(
+      () => !mbPidAlive((mbServePids(pidsLog)[1] as number) ?? -1),
+      "the second child to die on close",
+      4_000,
+    );
+  } finally {
+    for (const pid of mbServePids(pidsLog)) {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }
+    if (prevSsh === undefined) delete process.env.SUBSHELL_SSH_PATH;
+    else process.env.SUBSHELL_SSH_PATH = prevSsh;
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    rmSync(dataDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 90_000);
+
 describe("4406 refusal message", () => {
   // The floor exists so an operator can ACT on the refusal, and this line is
   // the only place they read it. It used to be hardcoded to "rejected protocol

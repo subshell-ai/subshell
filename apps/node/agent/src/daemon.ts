@@ -740,7 +740,11 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       send(ws, { type: "result", ref: claims.jti, ...cached });
       return;
     }
-    const result = await dispatchCommand(ctx, claims.cmd);
+    // The gate names THIS command's socket: the executor whose effect
+    // outlives the RPC (brokered-session open, review m-B) asks whether the
+    // delivering socket is still the daemon's live one before letting its
+    // child stand.
+    const result = await dispatchCommand(ctx, claims.cmd, { isCurrent: () => currentWs === ws });
     idempotent.set(claims.jti, result);
     if (idempotent.size > IDEMPOTENCE_CAP) {
       const oldest = idempotent.keys().next().value as string | undefined;
@@ -927,8 +931,18 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // supervisor's own close (group-kill; the destination's tmux and
         // panes stay up for the next session's census - design §6). A node
         // that never brokered pays nothing: this never builds a supervisor.
-        const drained = drainBrokeredSessions(config.dataDir);
-        if (drained > 0) log(`link closed: drained ${drained} brokered SSH session(s)`);
+        // The drain can throw nothing onto this path (review m-A): every ref
+        // already carries its own guard inside `drainBrokeredSessions`, and
+        // this is the outer belt the file's own rule demands - "never throws
+        // by contract, a broken sweep must not cost the node its
+        // connection". A throw that reached here would skip `resolve(close)`
+        // and the reconnect loop would never dial again.
+        try {
+          const drained = drainBrokeredSessions(config.dataDir);
+          if (drained > 0) log(`link closed: drained ${drained} brokered SSH session(s)`);
+        } catch (err) {
+          log(`brokered-session drain failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
         resolve(close);
       };
       // The per-socket link negotiator (spec 2026-09-24). It owns the wire

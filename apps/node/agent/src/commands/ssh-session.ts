@@ -8,7 +8,7 @@ import {
   type SshSessionOpenResultWire,
 } from "@internal/subshell-protocol";
 import { log } from "../log.js";
-import type { Cmd, CommandContext, CommandResult } from "./context.js";
+import type { Cmd, CommandContext, CommandLinkGate, CommandResult } from "./context.js";
 import { connectingHomeDir, resolveSshBin } from "./ssh-shared.js";
 import { TAIL_BACKPRESSURE_BYTES, TAIL_BACKPRESSURE_POLL_MS } from "./tail.js";
 
@@ -75,7 +75,11 @@ async function supervisor(ctx: CommandContext) {
  * timeout must outlast {@link SSH_SESSION_OPEN_DEADLINE_MS} (the ssh-node
  * client's open sends 45 s for exactly that).
  */
-export async function execSshSessionOpen(ctx: CommandContext, cmd: Cmd<"ssh_session_open">): Promise<CommandResult> {
+export async function execSshSessionOpen(
+  ctx: CommandContext,
+  cmd: Cmd<"ssh_session_open">,
+  link?: CommandLinkGate,
+): Promise<CommandResult> {
   if (!isSshSessionRef(cmd.ref)) return { ok: false, error: "run_unknown" };
   const sup = await supervisor(ctx);
   if ("missing" in sup) return { ok: false, error: "ssh binary missing: ssh" };
@@ -122,6 +126,19 @@ export async function execSshSessionOpen(ctx: CommandContext, cmd: Cmd<"ssh_sess
     },
   );
   if (outcome.kind === "refused") return { ok: false, error: outcome.code };
+  // The late-open reclaim (review m-B): this command's probe + hello gate
+  // can outlast its own link. A ref enters the supervisor's live map only
+  // at hello, so the link-close drain's snapshot could not have included
+  // it - answering `open` now would hand the plane a session whose RPC died
+  // with the old socket (its row already unrolled), an orphan holding a
+  // quota slot and the destination's door for every future open there.
+  // Reclaim through the supervisor's own close (group-kill, `closed`
+  // recorded, the `stopping` latch keeps the death quiet) and refuse.
+  if (link && !link.isCurrent()) {
+    log(`ssh-session ${cmd.ref.slice(0, 8)} opened after its link died: reclaimed, refused`);
+    sup.close(cmd.ref);
+    return { ok: false, error: "connection_failed" };
+  }
   const validated = parseNodeSshSessionOpenResult(outcome.result as unknown as SshSessionOpenResultWire);
   if (validated === null) return { ok: false, error: "malformed session open result" };
   return { ok: true, data: validated as unknown as JsonValue };
@@ -150,9 +167,20 @@ export async function execSshSessionOpen(ctx: CommandContext, cmd: Cmd<"ssh_sess
 export function drainBrokeredSessions(dataDir: string): number {
   const sup = peekSshSessionSupervisor(dataDir);
   if (sup === undefined) return 0;
-  const refs = sup.liveRefs();
-  for (const ref of refs) sup.close(ref);
-  return refs.length;
+  let drained = 0;
+  // ONE ref's throw costs ONE close (review m-A): `close` writes a record
+  // file, and ENOSPC/EROFS/EACCES are ordinary on a real disk. This runs on
+  // the daemon's reconnect path, so aborting the loop here would strand
+  // every remaining child AND (with the caller's guard) the node's link.
+  for (const ref of sup.liveRefs()) {
+    try {
+      sup.close(ref);
+      drained += 1;
+    } catch (err) {
+      log(`ssh-session ${ref.slice(0, 8)} drain close failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return drained;
 }
 
 /** Execute `ssh_session_send`: one base64 write to the child's stdin. */

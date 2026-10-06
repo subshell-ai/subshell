@@ -18,7 +18,7 @@ import {
   execStatDir,
   execTerminate,
 } from "./basics.js";
-import type { CommandContext, CommandResult } from "./context.js";
+import type { CommandContext, CommandLinkGate, CommandResult } from "./context.js";
 import { execFileRead } from "./file-read.js";
 import { execFsLs } from "./fs-ls.js";
 import { execLaunch } from "./launch.js";
@@ -69,9 +69,16 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  *
  * @param ctx - the per-daemon execution context (config, tmux, meta, ws seam)
  * @param cmd - the verified `cmd` claim of a signed command
+ * @param link - liveness gate for the delivering socket (review m-B); only
+ *   the brokered-session open consults it, everything else is bounded well
+ *   inside one connection's life
  * @returns the result body for the `result{ref: jti}` frame
  */
-export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody): Promise<CommandResult> {
+export async function dispatchCommand(
+  ctx: CommandContext,
+  cmd: NodeCommandBody,
+  link?: CommandLinkGate,
+): Promise<CommandResult> {
   try {
     switch (cmd.type) {
       case "ping":
@@ -156,7 +163,7 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
       // own open deadline and matched by the plane's per-command timeout -
       // every other frame of the session streams as events after.
       case "ssh_session_open":
-        return await execSshSessionOpen(ctx, cmd);
+        return await execSshSessionOpen(ctx, cmd, link);
       case "ssh_session_send":
         return await execSshSessionSend(ctx, cmd);
       case "ssh_session_close":

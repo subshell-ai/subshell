@@ -44,6 +44,20 @@ export interface CommandWs {
 }
 
 /**
+ * Per-command liveness gate (review m-B): is the socket that DELIVERED this
+ * command still the daemon's live connection? `dispatchCommand` hands it to
+ * the one executor whose effect outlives the command's own RPC - the
+ * brokered-session open, whose probe + hello gate (up to a minute) can span
+ * a link flap - so a child registered after its link died is reclaimed
+ * instead of orphaned. Absent on transports with no socket to compare
+ * against (unit fakes, the runtime's own dispatch): the guard does not run
+ * rather than fabricate liveness.
+ */
+export interface CommandLinkGate {
+  isCurrent(): boolean;
+}
+
+/**
  * One in-flight `write_file` stream (spec §3.4), keyed in
  * {@link CommandContext.uploads} by the RESOLVED final path. The chunk
  * receiver owns this state entirely; it never touches the socket.
