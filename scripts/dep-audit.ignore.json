@@ -41,5 +41,10 @@
       "GHSA-vfj7-8cjw-p6xm"
     ],
     "reason": "Build-time transitive only: micromatch pulls braces 3.0.3 under fast-glob/jiti/vite (the bundler) and under metro/@expo/cli (mobile build tooling); nothing in the server, node, or desktop runtime depends on it. The advisory is a stack-exhaustion DoS from compiling attacker-supplied, deeply-nested glob patterns, which no build script here feeds it. 3.0.3 is the latest npm version and the only version in the advisory's affected range (<= 3.0.3), and GHSA reports no patched version, so there is no in-range fix to take; track upstream and remove this exception when a fix is published (2026-10-03)."
+  },
+  {
+    "package": "sprintf-js",
+    "advisories": ["GHSA-hp3w-g68c-fv3c"],
+    "reason": "@internal/backend-errors pins 1.1.3 and @loglayer's terminal transport pulls the same range; 1.1.3 is the latest npm version and GHSA reports no patched release, so there is no fix to take. The advisory is a DoS via unbounded precision specifiers, and the only call site formats with a code-defined template string (backend-errors lib.ts: sprintf(this.message, ...params) - user data reaches ARGS, never the format string), so no attacker controls a specifier's precision. Track upstream and remove this exception when a fix is published (2026-10-06)."
   }
 ]
