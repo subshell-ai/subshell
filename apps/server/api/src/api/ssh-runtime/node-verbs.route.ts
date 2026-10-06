@@ -1,9 +1,9 @@
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { SshErrorCodeSchema, SshSnapshotSchema } from "@/api/ssh/ssh-schemas.js";
+import { SshErrorCodeSchema, SshSnapshotSchema } from "@/api/ssh-runtime/ssh-schemas.js";
 import { apiModels } from "@/schema/index.js";
-import { assertCookieWriteOrigin, buildSshCaller } from "@/services/ssh/ssh-actor.js";
-import { sshDiscovery, sshResolve } from "@/services/ssh/ssh-connections.service.js";
+import { sshDiscovery, sshResolve } from "@/services/ssh-runtime/discovery.service.js";
+import { assertCookieWriteOrigin, buildSshCaller } from "@/services/ssh-runtime/ssh-actor.js";
 
 /**
  * `/api/ssh-runtime/discovery` and `/api/ssh-runtime/resolve` (design
