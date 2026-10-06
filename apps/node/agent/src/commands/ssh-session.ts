@@ -3,6 +3,7 @@ import {
   isSshSessionRef,
   type JsonValue,
   parseNodeSshSessionOpenResult,
+  SSH_SESSION_PUMP_CHUNK_BYTES,
   SSH_SESSION_UNKNOWN,
   type SshSessionOpenResultWire,
 } from "@internal/subshell-protocol";
@@ -36,6 +37,25 @@ import { TAIL_BACKPRESSURE_BYTES, TAIL_BACKPRESSURE_POLL_MS } from "./tail.js";
  * like every other ssh arm ("ssh binary missing: ssh").
  */
 
+/**
+ * Split one stdout read into `≤ maxBytes` raw pieces for the `session_frame`
+ * pump (the node-frames arm's own claim: "raw stdout content in ≤ 192 KiB
+ * pieces"). A read at or under the bound passes through as ONE piece, byte-
+ * identical; longer reads are cut on exact offsets, and concatenating the
+ * pieces reproduces the input (pinned by test). This is the bound the node-
+ * link's frame-size discipline and the plane's ingest accounting were sized
+ * for; before it, one 64 KiB high-water-mark read spliced with a saturated
+ * pipe could ship a larger single event than the claim promised.
+ */
+export function pumpChunks(chunk: Uint8Array, maxBytes: number): Uint8Array[] {
+  if (chunk.byteLength <= maxBytes) return [chunk];
+  const parts: Uint8Array[] = [];
+  for (let off = 0; off < chunk.byteLength; off += maxBytes) {
+    parts.push(chunk.subarray(off, Math.min(off + maxBytes, chunk.byteLength)));
+  }
+  return parts;
+}
+
 /** The supervisor for this daemon's data dir, or the named absence. */
 async function supervisor(ctx: CommandContext) {
   const sshBin = await resolveSshBin();
@@ -65,16 +85,24 @@ export async function execSshSessionOpen(ctx: CommandContext, cmd: Cmd<"ssh_sess
       emitBytes: async (chunk): Promise<void> => {
         // Backpressure mirrors the tail pump: throttle BEFORE sealing each
         // chunk, and a dead socket (send throws) stops the session the same
-        // way it stops a tail - the child's group goes with it.
-        let attempts = 0;
-        while ((ctx.ws.bufferedAmount ?? 0) > TAIL_BACKPRESSURE_BYTES && attempts < 600) {
-          await Bun.sleep(TAIL_BACKPRESSURE_POLL_MS);
-          attempts += 1;
-        }
-        try {
-          ctx.ws.send({ type: "session_frame", ref: cmd.ref, data_b64: Buffer.from(chunk).toString("base64") });
-        } catch {
-          sup.close(cmd.ref);
+        // way it stops a tail - the child's group goes with it. One stdout
+        // read can return more than the node-frames promise ("in ≤ 192 KiB
+        // pieces"), so the read is SPLIT here before sealing: the session's
+        // codec reassembles frames across pushes, so a chunk boundary costs
+        // the stream nothing but an event, and the plane's ingest never sees
+        // one fat event at a time it must buffer.
+        for (const part of pumpChunks(chunk, SSH_SESSION_PUMP_CHUNK_BYTES)) {
+          let attempts = 0;
+          while ((ctx.ws.bufferedAmount ?? 0) > TAIL_BACKPRESSURE_BYTES && attempts < 600) {
+            await Bun.sleep(TAIL_BACKPRESSURE_POLL_MS);
+            attempts += 1;
+          }
+          try {
+            ctx.ws.send({ type: "session_frame", ref: cmd.ref, data_b64: Buffer.from(part).toString("base64") });
+          } catch {
+            sup.close(cmd.ref);
+            return; // the session is over mid-read; the rest of the bytes go with it
+          }
         }
       },
       emitDiag: (line): void => {
