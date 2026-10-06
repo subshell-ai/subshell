@@ -388,25 +388,27 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   mkdirSync(backupDir, { mode: 0o700 });
   const snapshot = join(backupDir, "subshell-v1.7.0-20260101-000000.db");
   const db = new Database(instance.databasePath);
-  // The anchor is the CURRENT last migration (0048-ssh-execution as of the
-  // SSH Gate A landing). The test's premise is "one migration behind": the
-  // snapshot drops the last applied row AND its tables, the live destination
-  // keeps them, and boot must migrate the restored snapshot forward. An
-  // earlier anchor would leave the snapshot's applied set non-contiguous,
-  // which Kysely refuses as corrupted migrations rather than re-running.
-  const lastMigration = "0048-ssh-execution";
+  // The anchor is the CURRENT last migration (0049-ssh-runtime-sessions as of
+  // the SSH Gate A landing, which is exactly the commit that moved it off
+  // 0048 - a still-newer migration must move this anchor AND its table list,
+  // or the snapshot's applied set goes non-contiguous and boot refuses it as
+  // corrupted migrations before the restore is even exercised). The test's
+  // premise is "one migration behind": the snapshot drops the last applied
+  // row AND its tables, the live destination keeps them (as stubs), and boot
+  // must migrate the restored snapshot forward.
+  const lastMigration = "0049-ssh-runtime-sessions";
   const migration = db.query(`SELECT * FROM kysely_migration WHERE name='${lastMigration}'`).get() as {
     name: string;
     timestamp: string;
   };
   db.exec(
-    `DROP TABLE ssh_terminal_execs; DROP TABLE ssh_panes; DROP TABLE ssh_runs;
+    `DROP TABLE ssh_runtime_sessions;
      DELETE FROM kysely_migration WHERE name='${lastMigration}';
      CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');`,
   );
   db.query("VACUUM INTO ?").run(snapshot);
   db.exec(
-    "CREATE TABLE ssh_runs(id TEXT PRIMARY KEY); CREATE TABLE ssh_panes(subshell_id TEXT PRIMARY KEY); CREATE TABLE ssh_terminal_execs(id TEXT PRIMARY KEY); UPDATE migration_restore_probe SET value='newer destination';",
+    "CREATE TABLE ssh_runtime_sessions(id TEXT PRIMARY KEY); UPDATE migration_restore_probe SET value='newer destination';",
   );
   db.query("INSERT INTO kysely_migration(name,timestamp) VALUES (?,?)").run(migration.name, migration.timestamp);
   db.close();
@@ -424,11 +426,12 @@ test("real entry: available older upgrade snapshot restores and migrates before 
     name: lastMigration,
   });
   expect(migrated.query("SELECT value FROM migration_restore_probe").get()).toEqual({ value: "older snapshot" });
-  // The migrated table is the MIGRATION's, not the destination's stub: the
-  // full shipped schema proves `up(0048)` re-ran rather than leftovers.
+  // The migrated table is the MIGRATION's, not the destination's stub: a
+  // shipped column the stub lacks (`hello_json`) proves `up(0049)` re-ran
+  // rather than leftovers.
   expect(
-    migrated.query("SELECT name FROM pragma_table_info('ssh_terminal_execs') WHERE name='marker_token'").get(),
-  ).toEqual({ name: "marker_token" });
+    migrated.query("SELECT name FROM pragma_table_info('ssh_runtime_sessions') WHERE name='hello_json'").get(),
+  ).toEqual({ name: "hello_json" });
   migrated.close();
   expect(readFileSync(join(instance.configDir, "config.env"), "utf8")).toBe(originalConfig);
   const deadline = Date.now() + 15_000;

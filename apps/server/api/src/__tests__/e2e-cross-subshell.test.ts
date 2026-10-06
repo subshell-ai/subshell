@@ -38,13 +38,20 @@ const dbPath = join(dir, "subshell.db");
 const backendLog = join(dir, "backend.log");
 
 /** Env every child process needs: dev NODE_ENV (a test NODE_ENV would force
- * the in-memory DB and ignore DATABASE_PATH — see constants.ts) + the file DB. */
+ * the in-memory DB and ignore DATABASE_PATH — see constants.ts) + the file DB.
+ * The CONFIG DIR is pinned to the temp dir too: `index.ts` takes the
+ * instance-state lock at `<serverConfigDir>/instance-state.lock`, and the
+ * default config dir is the operator's own - on a host with the live server
+ * running, an unpinned child died on "Instance state is already in use"
+ * before it could serve, and the crash line went to STDOUT (pino), not the
+ * stderr log this file reads, so the verdict arrived as an empty log. */
 function childEnv(extra: Record<string, string> = {}): Record<string, string> {
   return {
     PATH: process.env.PATH ?? "/usr/bin:/bin",
     HOME: process.env.HOME ?? tmpdir(),
     NODE_ENV: "development",
     DATABASE_PATH: dbPath,
+    SUBSHELL_SERVER_CONFIG_DIR: join(dir, "server-config"),
     ...extra,
   };
 }
