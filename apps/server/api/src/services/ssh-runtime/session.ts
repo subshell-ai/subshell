@@ -84,9 +84,14 @@ export interface SessionEventHooks {
   ) => void;
   /** The allowlist decision (the matcher is the pure module; null = refuse 403). */
   resolveCallbackPane: (session: SshRuntimeSession, path: string, method: string) => string | null;
-  /** The allowlisted execution as the pane's own token. */
+  /**
+   * The allowlisted execution as the pane's own token. The `reqId` rides in
+   * so the executor sizes its answer against the frame that will carry it
+   * (the frame-cap fit is measured with the actual id; see callback-executor).
+   */
   executeCallback: (
     session: SshRuntimeSession,
+    reqId: string,
     paneId: string,
     method: string,
     path: string,
@@ -351,16 +356,27 @@ export class SshRuntimeSession {
    * pane work.
    */
   async #answerCallback(reqId: string, method: string, path: string, body: string | undefined): Promise<void> {
+    // Encoding here is already bounded by construction: `reqId` arrived
+    // through the frame grammar (length-capped, printable) and the executor
+    // sizes its body against a response frame carrying THAT id. The try/catch
+    // is the belt, and it is load-bearing for the call shape: this method is
+    // invoked `void`, so a throwing encode would otherwise leave the 502
+    // re-settle throwing again and surface as an unhandled rejection - the
+    // pane's callback unanswered and the fact invisible.
     const settle = (status: number, text: string): void => {
-      this.#enqueueBytes(
-        encodeSshSessionFrame({
-          type: "rest_response",
-          reqId,
-          status,
-          ...(text !== "" ? { body: text } : {}),
-        } satisfies Extract<SshRuntimeCommandFrame, { type: "rest_response" }>),
-        () => {},
-      );
+      try {
+        this.#enqueueBytes(
+          encodeSshSessionFrame({
+            type: "rest_response",
+            reqId,
+            status,
+            ...(text !== "" ? { body: text } : {}),
+          } satisfies Extract<SshRuntimeCommandFrame, { type: "rest_response" }>),
+          () => {},
+        );
+      } catch (err) {
+        logger.withError(err).warn(`ssh-runtime callback answer refused for ${path} (session ${this.id.slice(0, 8)})`);
+      }
     };
     if (this.#callbacksInFlight >= 8) {
       settle(503, JSON.stringify({ error: "too many callbacks in flight" }));
@@ -373,7 +389,7 @@ export class SshRuntimeSession {
     }
     this.#callbacksInFlight += 1;
     try {
-      const answer = await this.hooks.executeCallback(this, paneId, method, path, body);
+      const answer = await this.hooks.executeCallback(this, reqId, paneId, method, path, body);
       settle(answer.status, answer.body);
     } catch (err) {
       logger.withError(err).warn(`ssh-runtime callback execution failed for ${path}`);

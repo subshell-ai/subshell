@@ -154,5 +154,10 @@ describe("the boot sequence calls the sweep (composition, review I1)", () => {
     expect(bootStart).toBeGreaterThan(-1);
     const callAt = source.indexOf("reconcileSshRuntimeSessionsAtBoot()", bootStart);
     expect(callAt).toBeGreaterThan(bootStart);
+    // ...and BEFORE the HTTP listener (review N-E): a session opening in the
+    // window between `listen` and the sweep would have its fresh row marked
+    // lost and its runtime node left offline until the next settle.
+    const listenerAt = source.indexOf("await startServer(", bootStart);
+    expect(listenerAt).toBeGreaterThan(callAt);
   });
 });

@@ -15,7 +15,7 @@
  */
 
 import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray } from "./guards.js";
-import { SSH_NAME_MAX_CHARS, SSH_PATH_MAX_CHARS } from "./ssh-limits.js";
+import { SSH_NAME_MAX_CHARS, SSH_PATH_MAX_CHARS, SSH_REQ_ID_MAX_CHARS } from "./ssh-limits.js";
 import {
   SSH_RUNTIME_PROTOCOL,
   type SshRuntimeCommandFrame,
@@ -64,6 +64,18 @@ function isSessionUser(value: unknown): value is string {
 /** An absolute POSIX path ref (shape only; existence and ownership are the node's). */
 function isAbsRef(value: unknown): value is string {
   return isStr(value) && value.startsWith("/") && value.length <= SSH_PATH_MAX_CHARS && !/\p{Cc}/u.test(value);
+}
+
+/**
+ * The callback correlation id grammar: non-empty, printable, at most
+ * {@link SSH_REQ_ID_MAX_CHARS}. The runtime mints uuids; no more structure is
+ * claimed because the plane's only use is echoing the id back inside a
+ * size-capped `rest_response` - which is exactly why the bound belongs in the
+ * GRAMMAR: the plane sizes the answer with the real id, so an unbounded
+ * inbound id would put the frame-cap guarantee outside anyone's arithmetic.
+ */
+function isReqId(value: unknown): value is string {
+  return isStr(value) && value.length > 0 && value.length <= SSH_REQ_ID_MAX_CHARS && !/\p{Cc}/u.test(value);
 }
 
 /**
@@ -288,7 +300,7 @@ export function parseSshRuntimeCommandFrame(value: unknown): SshRuntimeCommandFr
         ? { type: "remove_paths", ref: value.ref, paths: [...(value.paths as string[])] }
         : null;
     case "rest_response": {
-      if (!isStr(value.reqId) || value.reqId.length === 0) return null;
+      if (!isReqId(value.reqId)) return null;
       if (!isInt(value.status) || (value.status as number) < 100 || (value.status as number) > 599) return null;
       if ("body" in value && value.body !== undefined && !isStr(value.body)) return null;
       return {
@@ -350,7 +362,7 @@ export function parseSshRuntimeEventFrame(value: unknown): SshRuntimeEventFrame 
       return rows === null ? null : { type: "subshells_report", subshells: rows };
     }
     case "rest_request": {
-      if (!isStr(value.reqId) || value.reqId.length === 0) return null;
+      if (!isReqId(value.reqId)) return null;
       if (!isStr(value.method) || !/^[A-Za-z]+$/.test(value.method)) return null;
       if (!isStr(value.path) || !value.path.startsWith("/") || value.path.length > SSH_PATH_MAX_CHARS) return null;
       if ("body" in value && value.body !== undefined && !isStr(value.body)) return null;

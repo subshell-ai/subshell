@@ -103,18 +103,20 @@ export function resetSessionRegistryForTests(): void {
 /* ------------------------------------------------------------------ */
 
 /**
- * Build the hook object a session is registered with. The service owns the
- * DB writes (row settle, node offline, pane `alive` flips, token revocation);
- * the callbacks here are thin adapters onto the service's exported
- * settle/pane functions, injected rather than imported to keep the cycle
- * (service -> registry -> service) out of the module graph: the service
- * installs its implementation here at boot.
+ * Build the hook object a session is registered with. The settling behavior
+ * (row settle, node offline, pane `alive` flips, token revocation) lives in
+ * `session-settle.ts`; the four settle callbacks here forward to the injected
+ * settler, which `installSessionSettlers` installs once at service-module
+ * load. The injection keeps the cycle (service -> registry -> settle ->
+ * registry) out of the module graph. The two callback-surface hooks
+ * (`resolveCallbackPane`, `executeCallback`) are wired here directly: they
+ * are read-side policy and execution, not settle writes.
  */
 type SessionSettler = Pick<SessionEventHooks, "onLost" | "onClosed" | "onPaneExit" | "onReport">;
 
 let settler: SessionSettler | undefined;
 
-/** Install the service's settle handlers (called once from the service module's load, before any session exists). */
+/** Install the settle handlers from `session-settle.ts` (called once from the service module's load, before any session exists). */
 export function setSessionSettlers(impl: SessionSettler): void {
   settler = impl;
 }
@@ -140,6 +142,7 @@ export function sessionHooks(): SessionEventHooks {
       const decision = matchCallbackPath(path, method, paneId);
       return decision.allow ? decision.paneId : null;
     },
-    executeCallback: (s, paneId, method, path, body) => executeCallbackAsPane(s, paneId, method, path, body),
+    executeCallback: (s, reqId, paneId, method, path, body) =>
+      executeCallbackAsPane(s, reqId, paneId, method, path, body),
   };
 }

@@ -549,7 +549,19 @@ test("protocol 17 reality: the node registered on the exact-match handshake", as
 });
 
 test("disconnect: losing the link marks the session LOST and the pane unavailable, not completed", async () => {
-  test.setTimeout(90_000);
+  test.setTimeout(120_000);
+  // A pane on the session THIS test kills (review M-A: the old assertion read
+  // the first session's pane, settled alive:false tests ago, so it proved
+  // nothing about the disconnect settling).
+  const launch = await api.post(`/api/ssh-runtime/sessions/${sessionId}/launch-terminal`, {
+    data: { cwd: fixtureRoot },
+  });
+  expect(launch.ok(), await launch.text()).toBe(true);
+  const disconnectPaneId = ((await launch.json()) as { subshellId: string }).subshellId;
+  const beforeRow = await api.get(`/api/subshells/${disconnectPaneId}`);
+  expect(beforeRow.ok(), await beforeRow.text()).toBe(true);
+  expect(((await beforeRow.json()) as { alive: boolean }).alive, "the pane is live before the kill").toBe(true);
+
   await agent?.stop();
   await pollUntil(
     "the session never read lost after the connecting node died",
@@ -560,9 +572,20 @@ test("disconnect: losing the link marks the session LOST and the pane unavailabl
     },
     { budgetMs: 30_000 },
   );
-  // The honest pane state: unavailable (alive false) while its status stays
-  // what it last was (design §6: lost, not completed).
-  const row = await api.get(`/api/subshells/${paneId}`);
+  // The honest pane state for THIS pane: unavailable (alive false) while its
+  // status stays what it last was (design §6: lost, not completed). Polled,
+  // not immediate: the lost settling writes the session row before it walks
+  // the pane rows.
+  await pollUntil(
+    "the disconnected session's pane never went unavailable",
+    async () => {
+      const res = await api.get(`/api/subshells/${disconnectPaneId}`);
+      if (!res.ok()) return false;
+      return ((await res.json()) as { alive: boolean }).alive === false;
+    },
+    { budgetMs: 30_000 },
+  );
+  const row = await api.get(`/api/subshells/${disconnectPaneId}`);
   expect(row.ok(), await row.text()).toBe(true);
   const pane = (await row.json()) as { status: string; alive: boolean };
   expect(pane.alive).toBe(false);

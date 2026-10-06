@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { getHarness, tmuxSocketFor } from "@internal/pane-runtime";
 import {
-  type NodeFsLsResult,
   normalizeLabel,
-  parseNodeFsLsResult,
   parseNodeSshSessionOpenResult,
   parseSshRuntimeHello,
   parseSshSessionTarget,
@@ -17,36 +14,35 @@ import {
 } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID, NODE_KIND_RUNTIME } from "@/db/types/nodes.db-types.js";
 import type { SshRuntimeSessionStatus } from "@/db/types/ssh-runtime-sessions.db-types.js";
 import { audit } from "@/services/audit.js";
 import { announceNodePresence } from "@/services/nodes/node-presence-announce.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
-import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
-import { RuntimeSessionLauncher } from "./runtime-session-launcher.js";
 import { SshRuntimeSession } from "./session.js";
-import { getSession, registerSession, sessionHooks } from "./session-registry.js";
+import { registerSession, sessionHooks } from "./session-registry.js";
 import { installSessionSettlers } from "./session-settle.js";
 import { SshRuntimeSessionsRepository } from "./sessions.repository.js";
 
 /**
  * The control-plane half of SSH runtime sessions (design 2026-10-05 §4):
- * open a brokered session through a node the caller OWNS, keep its row, and
- * launch ordinary `subshells` rows onto it so every pane surface works
- * unchanged. This is the LAUNCH PATH DECISION the slice was asked to make,
- * recorded in code: the hidden `nodes` row (kind `runtime`) plus the
- * registry branch in `launcher-registry.ts` is what the pane plumbing needs,
- * and it cost one column-value, one insert, and a three-line registry branch -
- * nothing heavier, and the alternative (session rows carrying node facts ad
- * hoc) would have forked every pane surface instead of reusing it.
+ * open a brokered session through a node the caller OWNS and keep its row.
+ * This is the LAUNCH PATH DECISION the slice was asked to make, recorded in
+ * code: the hidden `nodes` row (kind `runtime`) plus the registry branch in
+ * `launcher-registry.ts` is what the pane plumbing needs, and it cost one
+ * column-value, one insert, and a three-line registry branch - nothing
+ * heavier, and the alternative (session rows carrying node facts ad hoc)
+ * would have forked every pane surface instead of reusing it.
  *
- * The lifecycle settling (lost/closed/exit/census, and the boot sweep that
- * marks rows lost when this process restarts) lives in `session-settle.ts`;
- * this module is the SERVICE DOOR (open/launch/list/close/view) and installs
- * those handlers at load.
+ * One concern per file: this module is the OPEN door (gate, rows, broker,
+ * register) and the shared refusal/view surface the sibling modules read
+ * through it - the in-session lifecycle (launch/close/list/view/browse) lives
+ * in `sessions-lifecycle.ts`, and the settling (lost/closed/exit/census, and
+ * the boot sweep that marks rows lost when this process restarts) lives in
+ * `session-settle.ts`; this module installs those handlers at load, before
+ * any session can exist.
  *
  * Authorization is the salvaged rule, restated rather than reached around:
  * opening requires the caller to OWN the connecting node - real ownership,
@@ -66,7 +62,6 @@ installSessionSettlers();
 
 const sessionsRepo = new SshRuntimeSessionsRepository(db);
 const nodesRepo = new NodesRepository(db);
-const subshellsRepo = new SubshellsRepository(db);
 
 /** A refusal the routes map to a named API error: the transport/eligibility facts are never guessed at the handler. */
 export class SshRuntimeRefusal extends Error {
@@ -224,158 +219,9 @@ export async function openSession(
   return viewOf(sessionId);
 }
 
-/** Ask the runtime for a directory listing (design §7's picker, §2's `list_dirs`). */
-export async function sessionListDirs(sessionId: string, userId: string, path: string): Promise<NodeFsLsResult> {
-  const session = requireOwnedSession(sessionId, userId);
-  const data = await session.command({ type: "list_dirs", ref: crypto.randomUUID(), path }, 10_000);
-  const parsed = parseNodeFsLsResult(data);
-  if (parsed === null) throw new SshRuntimeRefusal(502, "the runtime answered the listing with a malformed payload");
-  void sessionsRepo.touch(sessionId).catch(() => {});
-  return parsed;
-}
-
-/**
- * Open a terminal pane on a live session (the `launch-terminal` verb):
- * the ordinary row + the runtime frame, in `sshTerminalCreate`'s order (row,
- * token, launch, settle), and a refusal deletes the row it just wrote. The
- * ORDER IS LOAD-BEARING: `issueSubshellToken` stamps the key id onto the
- * subshell row it already expects to exist (the guard's forgery check reads
- * the row's `api_key_id`), so the row must be written first or the pane's own
- * token authenticates as nothing. The token plaintext is held ONLY in the
- * session (design §5: never transmitted); the pane env carries its id and the
- * callback socket instead of the token and the plane URL.
- */
-export async function sessionLaunchTerminal(
-  sessionId: string,
-  userId: string,
-  body: { cwd: string; cols?: number; rows?: number },
-): Promise<{ subshellId: string }> {
-  const session = requireOwnedSession(sessionId, userId);
-  const id = randomUUID();
-  const socket = tmuxSocketFor(id);
-  const harness = getHarness("terminal");
-  if (harness === undefined) throw new SshRuntimeRefusal(500, "the built-in terminal harness is not available");
-  await subshellsRepo.create({
-    id,
-    userId,
-    harnessId: "terminal",
-    name: normalizeLabel(`SSH ${session.target.alias}`, 120),
-    workingDir: body.cwd,
-    presetId: null,
-    nodeId: session.runtimeNodeId,
-    tmuxSocket: socket,
-    status: "running",
-    alive: 1,
-    startedAt: new Date().toISOString(),
-    notify: 1,
-    crossAgent: 0,
-  });
-  let token: string;
-  try {
-    token = await issueSubshellToken(id, userId);
-  } catch (err) {
-    // the row must not exist without its minted key (the same posture as the
-    // failed launch below: the pane never existed)
-    await subshellsRepo.delete(id).catch(() => {});
-    throw err;
-  }
-  session.registerPane(id, token);
-  const launcher = new RuntimeSessionLauncher(session);
-  try {
-    await launcher.launch({
-      id,
-      socket,
-      harness,
-      binary: "",
-      cwd: body.cwd,
-      preset: {
-        name: "terminal",
-        description: null,
-        env: {},
-        flags: [],
-        settings: null,
-        configIsolation: false,
-      },
-      subshellName: id,
-      // The callback-socket contract (design §5): no token, no plane URL.
-      subshellEnv: {
-        SUBSHELL_ID: id,
-        SUBSHELL_NAME: normalizeLabel(`SSH ${session.target.alias}`, 120),
-        SUBSHELL_RUNTIME_CALLBACK_SOCK: session.callbackSockPath,
-      },
-    });
-    // Geometry is a request after the spawn (the node-link's own ordering:
-    // launch, then resize), and a refused fit must not fail a live pane.
-    if (body.cols !== undefined && body.rows !== undefined) {
-      await launcher.resize(socket, id, body.cols, body.rows).catch(() => {});
-    }
-  } catch (err) {
-    // The row must not outlive the failed spawn (the create path's posture):
-    // the pane never existed. The token it minted goes with it.
-    session.unregisterPane(id);
-    await revokeSubshellToken(id).catch(() => {});
-    await subshellsRepo.delete(id).catch(() => {});
-    if (err instanceof Error && /harness binary missing/.test(err.message)) {
-      throw new SshRuntimeRefusal(409, err.message, "runtime_missing");
-    }
-    throw err;
-  }
-  await audit({
-    actorUserId: userId,
-    action: "ssh_runtime_session.pane_open",
-    targetType: "subshell",
-    targetId: id,
-    metadataJson: JSON.stringify({ sessionId, runtimeNodeId: session.runtimeNodeId }),
-  });
-  return { subshellId: id };
-}
-
-/**
- * Close a session (the user's act, design §6's Close). Two frames, in order:
- * the `close` COMMAND reaches the runtime (graceful exit, final census - see
- * `SshRuntimeSession.close`), and `ssh_session_close` reaches the BROKER so
- * the supervisor group-kills the SSH child and records `closed` on disk
- * (either half may find its target already gone - a runtime that exited
- * cleanly takes the child with it; a runtime that ignored the command is why
- * the broker's kill exists). Panes on the destination keep running.
- */
-export async function closeSession(sessionId: string, userId: string): Promise<void> {
-  const session = requireOwnedSession(sessionId, userId);
-  await session.close();
-  await closeBestEffort(session.connectingNodeId, sessionId);
-  await audit({
-    actorUserId: userId,
-    action: "ssh_runtime_session.close",
-    targetType: "ssh_runtime_session",
-    targetId: sessionId,
-    metadataJson: JSON.stringify({ connectingNodeId: session.connectingNodeId }),
-  });
-}
-
-/** A session view for the routes; owner-only (foreign id reads 404 like every invisible resource). */
-export async function getSessionView(sessionId: string, userId: string): Promise<SshRuntimeSessionView> {
-  const row = await sessionsRepo.findById(sessionId);
-  if (!row || row.ownerUserId !== userId) throw new SshRuntimeRefusal(404, "session not found");
-  return viewOfRow(row);
-}
-
-/** The owner's sessions, newest first (the recent-destinations history; design §6's "rows history"). */
-export async function listSessions(userId: string): Promise<SshRuntimeSessionView[]> {
-  return (await sessionsRepo.listByOwner(userId)).map(viewOfRow);
-}
-
 /* ------------------------------------------------------------------ */
-/* helpers                                                             */
+/* open-flow helpers                                                   */
 /* ------------------------------------------------------------------ */
-
-/** The live session for an owner, or the 404 reading (foreign ids never distinguish "gone" from "never was"). */
-function requireOwnedSession(sessionId: string, userId: string): SshRuntimeSession {
-  const session = getSession(sessionId);
-  if (!session || session.ownerId !== userId) {
-    throw new SshRuntimeRefusal(404, "session not found");
-  }
-  return session;
-}
 
 /** Undo the DB rows an open attempt wrote, when the attempt itself failed (the node-side supervisor's `#dropRecord`, plane-side). */
 async function unrollOpening(sessionId: string, runtimeNodeId: string, cause: unknown): Promise<void> {
@@ -394,11 +240,12 @@ async function sessionsRepoDeleteRow(sessionId: string): Promise<void> {
 /**
  * Ask the node to forget a session - best effort, every answer swallowed.
  * Two callers, same shape: the protocol-mismatch unroll (the child must not
- * linger for a runtime that will never speak) and the user close (the
- * supervisor's group-kill; the runtime may have exited already, in which case
- * the answer is `session_unknown` and there is nothing to kill).
+ * linger for a runtime that will never speak) and the user close in
+ * `sessions-lifecycle.ts` (the supervisor's group-kill; the runtime may have
+ * exited already, in which case the answer is `session_unknown` and there is
+ * nothing to kill).
  */
-async function closeBestEffort(connectingNodeId: string, sessionId: string): Promise<void> {
+export async function closeBestEffort(connectingNodeId: string, sessionId: string): Promise<void> {
   try {
     await sendCommand(connectingNodeId, { type: "ssh_session_close", ref: sessionId }, { timeoutMs: 10_000 });
   } catch {
@@ -433,7 +280,8 @@ async function viewOf(id: string): Promise<SshRuntimeSessionView> {
   return viewOfRow(row);
 }
 
-function viewOfRow(
+/** The row -> view projection (the DB facts, the stored hello re-parsed or null). @internal shared with `sessions-lifecycle.ts` */
+export function viewOfRow(
   row: Awaited<ReturnType<SshRuntimeSessionsRepository["findById"]>> extends infer R ? NonNullable<R> : never,
 ): SshRuntimeSessionView {
   return {

@@ -2,15 +2,14 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { requireAdmin } from "@/api/auth-guard.js";
 import { apiModels } from "@/schema/index.js";
+import { openSession, SshRuntimeRefusal } from "@/services/ssh-runtime/sessions.service.js";
 import {
   closeSession,
   getSessionView,
   listSessions,
-  openSession,
-  SshRuntimeRefusal,
   sessionLaunchTerminal,
   sessionListDirs,
-} from "@/services/ssh-runtime/sessions.service.js";
+} from "@/services/ssh-runtime/sessions-lifecycle.js";
 
 /**
  * `/api/ssh-runtime/sessions` - the Gate A slice's plane endpoints (design

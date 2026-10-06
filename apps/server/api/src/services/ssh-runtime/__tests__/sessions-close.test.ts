@@ -22,7 +22,7 @@ import { RuntimeSessionLauncher } from "../runtime-session-launcher.js";
 import { SshRuntimeSession } from "../session.js";
 import { registerSession, resetSessionRegistryForTests, sessionHooks } from "../session-registry.js";
 import { SshRuntimeSessionsRepository } from "../sessions.repository.js";
-import { closeSession } from "../sessions.service.js";
+import { closeSession } from "../sessions-lifecycle.js";
 
 /**
  * The close door, end to end at the service seam (review C1b + M5):

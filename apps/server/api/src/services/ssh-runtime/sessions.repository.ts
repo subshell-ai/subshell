@@ -10,7 +10,7 @@ import type {
  * 0049): the plane's session record. The in-memory registry owns the byte
  * channel; this table owns the history and the facts a restart must recover
  * from (which runtime node rows are hidden leftovers of dead sessions the
- * boot reconcile sweeps - see `sessions.service.ts`).
+ * boot reconcile sweeps - see `session-settle.ts`).
  */
 export class SshRuntimeSessionsRepository extends BaseRepository {
   async create(session: NewSshRuntimeSession): Promise<SshRuntimeSessionTable> {

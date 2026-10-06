@@ -19,6 +19,7 @@ import {
   parseSshSessionNodeCommandBody,
   parseSshSessionOpenResult,
   parseSshSessionTarget,
+  SSH_REQ_ID_MAX_CHARS,
   SSH_RUNTIME_PROTOCOL,
   SSH_SESSION_FRAME_MAX_BYTES,
   type SshRuntimeEventFrame,
@@ -247,6 +248,55 @@ describe("runtime event frames", () => {
     expect(parseSshRuntimeEventFrame({ type: "result", ref: "!", ok: true })).toBeNull();
     expect(parseSshRuntimeEventFrame({ type: "unknown_thing" })).toBeNull();
     expect(parseSshRuntimeEventFrame({ type: "exit", subshellId: "s", exitCode: 1.5, at: "x" })).toBeNull();
+  });
+});
+
+describe("the reqId grammar (review I-A: the echoed id is inside the frame-cap arithmetic)", () => {
+  const req = "1b4e28ba-2fa1-11d2-883f-0016d3cca427";
+  test("an honest uuid round-trips both directions", () => {
+    const asked = parseSshRuntimeEventFrame({
+      type: "rest_request",
+      reqId: req,
+      method: "GET",
+      path: "/api/subshells/s",
+    });
+    expect(asked && asked.type === "rest_request" ? asked.reqId : null).toBe(req);
+    const answered = parseSshRuntimeCommandFrame({ type: "rest_response", reqId: req, status: 200, body: "{}" });
+    expect(answered && answered.type === "rest_response" ? answered.reqId : null).toBe(req);
+  });
+  test("oversize, non-printable, and empty ids refuse at the parse, both directions", () => {
+    // Null is the refusal: the caller drops the frame fail-closed (the plane
+    // marks the session lost; the runtime the same) and never sizes an answer
+    // around an id it cannot bound.
+    expect(
+      parseSshRuntimeEventFrame({
+        type: "rest_request",
+        reqId: "x".repeat(SSH_REQ_ID_MAX_CHARS + 1),
+        method: "GET",
+        path: "/api/subshells/s",
+      }),
+    ).toBeNull();
+    expect(
+      parseSshRuntimeCommandFrame({ type: "rest_response", reqId: "x".repeat(SSH_REQ_ID_MAX_CHARS + 1), status: 200 }),
+    ).toBeNull();
+    expect(
+      parseSshRuntimeEventFrame({ type: "rest_request", reqId: "a\tb", method: "GET", path: "/api/subshells/s" }),
+    ).toBeNull();
+    expect(parseSshRuntimeCommandFrame({ type: "rest_response", reqId: "a\u001b[0m", status: 200 })).toBeNull();
+    expect(
+      parseSshRuntimeEventFrame({ type: "rest_request", reqId: "", method: "GET", path: "/api/subshells/s" }),
+    ).toBeNull();
+    expect(parseSshRuntimeCommandFrame({ type: "rest_response", reqId: "", status: 200 })).toBeNull();
+  });
+  test("the cap itself passes (64 printable chars, escape-heavy included)", () => {
+    const atCap = '"'.repeat(SSH_REQ_ID_MAX_CHARS); // printable; JSON doubles each quote's byte cost
+    const asked = parseSshRuntimeEventFrame({
+      type: "rest_request",
+      reqId: atCap,
+      method: "GET",
+      path: "/api/subshells/s",
+    });
+    expect(asked && asked.type === "rest_request" ? asked.reqId : null).toBe(atCap);
   });
 });
 

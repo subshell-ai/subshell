@@ -252,6 +252,21 @@ async function bootServer(): Promise<void> {
     getLogger().withError(err).warn("could not install network request guards at boot");
   }
 
+  // The SSH runtime sessions get the same fact BEFORE the listener (design
+  // 2026-10-05 §6): the broker links died with the previous process and their
+  // SSH children went with them, so an `opening`/`active` row at this point
+  // is history - the sweep marks it `lost`, takes the hidden runtime node
+  // rows offline, and re-announces presence. Before the listener, not after
+  // (review N-E): after the port opens, a session racing the sweep would have
+  // its fresh row marked lost and its runtime node left offline until the
+  // next settle. Boot-only by construction: the registry owns liveness from
+  // here on and a settled row can never hold a channel again. Never fatal: a
+  // sweep that cannot run leaves rows reading active; it is not a reason to
+  // fail a boot that already migrated.
+  await reconcileSshRuntimeSessionsAtBoot().catch((err: unknown) => {
+    getLogger().withError(err).warn("ssh-runtime boot reconcile failed");
+  });
+
   // Children of this process, so nothing else reaps them: an exit that left
   // them running would leave a tunnel pointing at a port about to stop
   // answering. Registered before the listener for the same reason the stop
@@ -332,17 +347,6 @@ async function bootServer(): Promise<void> {
   // Restore alive/exit state at boot: a backend restart mid-subshell must not
   // leave stale alive=1 rows (tmux subshells died with the old process).
   await manager.reconcileAll();
-  // The same fact for SSH runtime sessions (design 2026-10-05 §6): the broker
-  // links died with the previous process and their SSH children went with
-  // them, so an `opening`/`active` row at this point is history - the sweep
-  // marks it `lost`, takes the hidden runtime node rows offline, and
-  // re-announces presence. Boot-only by construction: the registry owns
-  // liveness from here on and a settled row can never hold a channel again.
-  // Never fatal: a sweep that cannot run leaves rows reading active; it is not
-  // a reason to fail a boot that already migrated.
-  await reconcileSshRuntimeSessionsAtBoot().catch((err: unknown) => {
-    getLogger().withError(err).warn("ssh-runtime boot reconcile failed");
-  });
 
   // Pane logs hold the verbatim transcript of every session, typed secrets
   // included. New ones are created 0600 by the pipe-pane umask, but logs

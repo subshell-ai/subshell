@@ -30,11 +30,16 @@
 // OWN command shape so a runtime pane and a node-link pane are launched by one
 // grammar (the design's "mirror the node command bodies, minus crypto").
 import type { NodeCommandBody } from "./node-frames.js";
-import { SSH_SESSION_INBOUND_QUEUE_FRAMES, SSH_SESSION_OPEN_DEADLINE_MS, SSH_SESSIONS_PER_NODE } from "./ssh-limits.js";
+import {
+  SSH_REQ_ID_MAX_CHARS,
+  SSH_SESSION_INBOUND_QUEUE_FRAMES,
+  SSH_SESSION_OPEN_DEADLINE_MS,
+  SSH_SESSIONS_PER_NODE,
+} from "./ssh-limits.js";
 
 // Re-exported for consumers that read the session surface from this file; the
 // NUMBERS live in ssh-limits.ts beside every other row of the limits table.
-export { SSH_SESSION_INBOUND_QUEUE_FRAMES, SSH_SESSION_OPEN_DEADLINE_MS, SSH_SESSIONS_PER_NODE };
+export { SSH_REQ_ID_MAX_CHARS, SSH_SESSION_INBOUND_QUEUE_FRAMES, SSH_SESSION_OPEN_DEADLINE_MS, SSH_SESSIONS_PER_NODE };
 
 /** The node link's `launch` body, reused verbatim as the runtime launch frame's payload. */
 export type SshRuntimeLaunchBody = Extract<NodeCommandBody, { type: "launch" }>;
@@ -274,6 +279,8 @@ export type SshRuntimeEventFrame =
   | { type: "subshells_report"; subshells: SshRuntimeReportRow[] }
   /**
    * A pane's callback over `callback.sock`, forwarded bounded (design §5).
-   * The plane answers with a `rest_response` carrying the same `reqId`.
+   * The plane answers with a `rest_response` carrying the same `reqId`; the
+   * parsers bound it ({@link SSH_REQ_ID_MAX_CHARS}, printable) on both
+   * directions, so the answer frame's size is finite before the body is cut.
    */
   | { type: "rest_request"; reqId: string; method: string; path: string; body?: string };

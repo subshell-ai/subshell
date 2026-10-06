@@ -47,6 +47,8 @@ function newSession(): {
   reports: SshRuntimeReportRow[][];
   /** Mutable box: the `onClosed` hook counts into it as settles land async. */
   closeBox: { closes: number };
+  /** Every settle/report hook call in arrival order (the N-D order pin: the census must be observed strictly before the close). */
+  hookOrder: string[];
 } {
   const session = new SshRuntimeSession({
     id: SESSION_ID,
@@ -60,23 +62,28 @@ function newSession(): {
   const exits: [string, number | null][] = [];
   const reports: SshRuntimeReportRow[][] = [];
   const box = { closes: 0 };
+  const hookOrder: string[] = [];
   session.hooks = {
     ...session.hooks,
     onLost: (s, reason) => {
       losses.push(reason);
+      hookOrder.push(`lost:${reason}`);
       expect(s.id).toBe(SESSION_ID);
     },
     onPaneExit: (_s, id, code) => {
       exits.push([id, code]);
+      hookOrder.push(`exit:${id}`);
     },
     onReport: (_s, rows) => {
       reports.push(rows);
+      hookOrder.push("report");
     },
     onClosed: (_s) => {
       box.closes += 1;
+      hookOrder.push("closed");
     },
   };
-  return { session, losses, exits, reports, closeBox: box };
+  return { session, losses, exits, reports, closeBox: box, hookOrder };
 }
 
 describe("SshRuntimeSession.ingestBytes", () => {
@@ -219,7 +226,11 @@ describe("SshRuntimeSession.close (the C1 order: frame first, census, then settl
   };
 
   test("close sends the `close` frame BEFORE settling (the regression: the pre-flip status made command() refuse its own frame)", async () => {
-    const { session, reports, closeBox } = newSession();
+    const { session, reports, closeBox, hookOrder } = newSession();
+    // A registered pane (review N-D): the census rows must name a pane the
+    // session actually carries, or the report-vs-close ordering claim holds
+    // only vacuously.
+    session.registerPane(PANE_ID, "subshell_pane_token");
     const { frames, restore } = interceptSendCommand();
     try {
       const closer = session.close();
@@ -241,8 +252,11 @@ describe("SshRuntimeSession.close (the C1 order: frame first, census, then settl
       await closer;
       // The frame carried a `close` command out while the session was active.
       expect(decodeCloseFrames(frames)).toEqual(["close"]);
-      // The census rode the result and was delivered before the closed settle.
+      // The census rode the result and was delivered before the closed settle
+      // - in that OBSERVED order, asserted on the hook sequence, not just the
+      // fact that both fired (the N-D pin).
       expect(reports).toEqual([[{ subshellId: PANE_ID, alive: false, exitCode: 0 }]]);
+      expect(hookOrder).toEqual(["report", "closed"]);
       expect(session.status).toBe("closed");
       expect(closeBox.closes).toBe(1);
     } finally {
@@ -316,6 +330,107 @@ describe("SshRuntimeSession.close (the C1 order: frame first, census, then settl
       expect(frames.length).toBe(1); // one frame went out while it was still active
     } finally {
       restore();
+    }
+  });
+});
+
+/**
+ * The callback surface under adversarial ids (review I-A): the inbound
+ * grammar bounds `reqId` (length + printable), and the plane's answer path
+ * must stay honest under both halves of that fact - an unbounded id REFUSES
+ * the frame fail-closed (never a callback sized around a length nobody
+ * bounded), and an answer that cannot be encoded is a logged refusal, never
+ * an unhandled rejection escaping the void call site.
+ */
+describe("callback reqId honesty (I-A)", () => {
+  test("a rest_request with an unbounded reqId is refused at the parse: lost fail-closed, no callback started", () => {
+    const { session, losses, hookOrder } = newSession();
+    let resolverRan = false;
+    session.hooks = {
+      ...session.hooks,
+      resolveCallbackPane: () => {
+        resolverRan = true;
+        return PANE_ID;
+      },
+    };
+    session.ingestBytes(
+      encodeSshSessionFrame({
+        type: "rest_request",
+        reqId: "x".repeat(100),
+        method: "GET",
+        path: "/api/subshells/anything",
+      }),
+    );
+    expect(session.status).toBe("lost");
+    expect(losses).toEqual(["codec"]); // the grammar refusal IS the codec-verdict path
+    expect(resolverRan).toBe(false); // nothing was attempted with the refused id
+    expect(hookOrder.filter((h) => h.startsWith("report"))).toEqual([]);
+  });
+
+  test("a non-printable reqId refuses too, and an honest 64-char id (the cap) still round-trips to the hooks", () => {
+    const { session, losses } = newSession();
+    session.ingestBytes(
+      encodeSshSessionFrame({ type: "rest_request", reqId: "a\u0001b", method: "GET", path: "/api/x" }),
+    );
+    expect(losses).toEqual(["codec"]);
+
+    const seen: string[] = [];
+    const { session: live } = newSession();
+    live.hooks = {
+      ...live.hooks,
+      resolveCallbackPane: (_s, path, method) => {
+        seen.push(`${method} ${path}`);
+        return null; // refuse 403; the test is about the id arriving, not the answer
+      },
+    };
+    const capId = '"'.repeat(64); // printable, worst legal escape cost
+    live.ingestBytes(encodeSshSessionFrame({ type: "rest_request", reqId: capId, method: "get", path: "/api/x" }));
+    expect(seen).toEqual(["GET /api/x"]); // the id passed grammar; the frame reached the hooks
+    expect(live.status).toBe("active");
+    expect(losses).toEqual(["codec"]); // the first session's verdict stands; this one lost nothing
+  });
+
+  test("an answer the codec refuses (oversize body from a rogue executor) is a logged refusal, never an unhandled rejection", async () => {
+    const { session, losses } = newSession();
+    const rejections: unknown[] = [];
+    const onRejection = (err: unknown): void => {
+      rejections.push(err);
+    };
+    process.on("unhandledRejection", onRejection);
+    const sent: { data_b64: string }[] = [];
+    const original = nodeRpc.sendCommand;
+    mock.module("@/services/nodes/node-rpc.js", () => ({
+      ...nodeRpc,
+      sendCommand: async (_nodeId: string, cmd: { type: string; data_b64?: string }) => {
+        if (cmd.type === "ssh_session_send") sent.push({ data_b64: cmd.data_b64 ?? "" });
+        return { ok: true };
+      },
+    }));
+    try {
+      session.hooks = {
+        ...session.hooks,
+        resolveCallbackPane: () => PANE_ID,
+        // A deliberately unfitted answer: 300 KB cannot encode into a 256 KiB
+        // frame. The production executor caps bodies before this point; the
+        // belt in `#answerCallback` must survive one that does not.
+        executeCallback: async () => ({ status: 200, body: "x".repeat(300_000) }),
+      };
+      session.ingestBytes(
+        encodeSshSessionFrame({
+          type: "rest_request",
+          reqId: "1b4e28ba-2fa1-11d2-883f-0016d3cca427",
+          method: "GET",
+          path: "/api/subshells/own",
+        }),
+      );
+      await new Promise((r) => setTimeout(r, 20)); // let the void round trip run to completion
+      expect(rejections).toEqual([]); // the belt caught what would have escaped as an unhandled rejection
+      expect(losses).toEqual([]); // a refused ANSWER is not a lost session
+      expect(session.status).toBe("active");
+      expect(sent).toEqual([]); // the over-cap frame never reached the node link
+    } finally {
+      process.off("unhandledRejection", onRejection);
+      mock.module("@/services/nodes/node-rpc.js", () => ({ ...nodeRpc, sendCommand: original }));
     }
   });
 });

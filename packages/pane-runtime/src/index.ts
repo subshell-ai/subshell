@@ -182,14 +182,16 @@ export {
   type SshSupervisedRunRequest,
 } from "./ssh/ssh-run-supervisor.js";
 export { sessionTargetSnapshot, sshSessionTmuxSocket } from "./ssh/ssh-session-invocation.js";
+export type {
+  SshSessionHooks,
+  SshSessionOpenOutcome,
+  SshSessionOpenRequest,
+} from "./ssh/ssh-session-open.js";
 export { type SshSessionLifecycle, type SshSessionRecord, SshSessionRecordStore } from "./ssh/ssh-session-store.js";
 export {
   getSshSessionSupervisor,
   peekSshSessionSupervisor,
   resetSshSessionSupervisorsForTests,
-  type SshSessionHooks,
-  type SshSessionOpenOutcome,
-  type SshSessionOpenRequest,
   SshSessionSupervisor,
   type SshSessionSupervisorDeps,
 } from "./ssh/ssh-session-supervisor.js";

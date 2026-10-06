@@ -317,6 +317,7 @@ export {
   sshRuntimeProtocolSupported,
 } from "./ssh-session-frame-parsers.js";
 export {
+  SSH_REQ_ID_MAX_CHARS,
   SSH_RUNTIME_PROTOCOL,
   SSH_SESSION_COMMAND_TYPES,
   SSH_SESSION_INBOUND_QUEUE_FRAMES,

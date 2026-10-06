@@ -141,3 +141,14 @@ export const SSH_SESSION_OPEN_DEADLINE_MS = 30_000;
 
 /** Active brokered sessions one connecting node may hold, across all owners (sibling of the run/terminal quotas). */
 export const SSH_SESSIONS_PER_NODE = 8;
+
+/**
+ * Longest callback correlation id (`rest_request`/`rest_response` `reqId`)
+ * the wire carries, printable characters only. The bound is load-bearing
+ * beyond tidiness: the plane echoes the id back inside a size-capped
+ * `rest_response` frame, and its answer-truncation budget is measured with
+ * the ACTUAL id, so the frame-cap arithmetic needs it finite and its escape
+ * cost knowable BEFORE the answer is sized. The runtime mints uuids (36
+ * chars); 64 matches the session-ref ceiling, so no honest id is refused.
+ */
+export const SSH_REQ_ID_MAX_CHARS = 64;
