@@ -232,18 +232,6 @@ export function remoteCommandLine(command: string, remoteDir: string | null): st
 }
 
 /**
- * The remote command line for a managed terminal: start in the approved
- * directory under the destination account's login shell, and when the `cd`
- * fails, do NOT drop into a session at some other directory — the pane's
- * ssh exits and the pane ends with it (no misleading start location, no
- * connecting-node shell fallback, §3).
- */
-export function remoteTerminalLine(remoteDir: string | null): string | undefined {
-  if (remoteDir === null) return undefined;
-  return `cd ${shellQuote(remoteDir)} && exec "\${SHELL:-/bin/sh}" -l`;
-}
-
-/**
  * The COMPLETE environment of a managed ssh child (§2, "Spawn using explicit
  * argv and a minimal environment").
  *
@@ -275,49 +263,4 @@ export async function sshChildEnv(
   }
   if (snapshot.authAgentSocket !== null) env.SSH_AUTH_SOCK = snapshot.authAgentSocket;
   return env;
-}
-
-/**
- * The env for a MANAGED TERMINAL pane's pane-command string (tmux runs it
- * through `sh -c` after `env -i`). Same allowlist minus PATH discovery
- * (already resolved) and with the pane's OWN `TERM` — the literal `$TERM`
- * expands inside the pane's shell, the same trick `assembleHarnessCommand`
- * uses, because a hardcoded TERM would describe the wrong terminal.
- */
-export function sshTerminalEnvPairs(
-  snapshot: SshConnectionSnapshotWire,
-  homeDir: string,
-  path: string,
-  baseEnv: Record<string, string | undefined> = process.env,
-): Record<string, string> {
-  const env = {
-    PATH: path,
-    HOME: homeDir,
-  } as Record<string, string>;
-  for (const key of ["USER", "LOGNAME", "LANG", "TMPDIR"]) {
-    const value = baseEnv[key];
-    if (value !== undefined && value !== "") env[key] = value;
-  }
-  for (const [key, value] of Object.entries(baseEnv)) {
-    if (key.startsWith("LC_") && value !== undefined && value !== "") env[key] = value;
-  }
-  if (snapshot.authAgentSocket !== null) env.SSH_AUTH_SOCK = snapshot.authAgentSocket;
-  return env;
-}
-
-/**
- * Assemble the pane command string for an ssh-terminal: `env -i` with the
- * allowlist, `TERM="$TERM"` (pane-expanded), then the ssh argv, every token
- * shell-quoted. This is the harness-launch posture applied to ssh: the launch
- * DOES become a shell string via tmux, and `shellQuote` on every token is the
- * load-bearing defense — never reason from "there is no shell string".
- */
-export function sshTerminalPaneCommand(
-  envPairs: Record<string, string>,
-  sshArgv: string[],
-  remoteCommand: string | undefined,
-): string {
-  const argv = remoteCommand === undefined ? sshArgv : [...sshArgv, remoteCommand];
-  const envArgs = Object.entries(envPairs).map(([k, v]) => `${k}=${shellQuote(v)}`);
-  return `env -i ${envArgs.join(" ")} TERM="$TERM" ${argv.map(shellQuote).join(" ")}`;
 }

@@ -5,9 +5,8 @@ import { join } from "node:path";
 import type { SshConnectionSnapshotWire } from "@internal/subshell-protocol";
 import { classifySshFailure } from "../ssh-diagnose.js";
 import { buildSshInvocation, remoteCommandLine, renderSshConfigContents, sshChildEnv } from "../ssh-render.js";
-import { SshRunSupervisor } from "../ssh-run-supervisor.js";
 import { runSshProcess } from "../ssh-spawn.js";
-import { cleanup, makeDigest, makeRunId, tempRoot } from "./helpers.js";
+import { cleanup, tempRoot } from "./helpers.js";
 
 /**
  * The real-daemon suite (brief: "real isolated sshd fixture … gated on sshd
@@ -229,34 +228,6 @@ describe("real isolated sshd", () => {
     expect(res.stderr).toContain("REMOTE HOST IDENTIFICATION HAS CHANGED");
     expect(classifySshFailure(res.stderr)).toBe("host_key_changed");
   }, 30_000);
-
-  test("the supervisor engine runs one real command end to end (capture, status, read)", async () => {
-    const dataDir = join(root, "sup-data");
-    mkdirSync(dataDir, { recursive: true });
-    const sup = new SshRunSupervisor({ dataDir, homeDir: home, sshBin });
-    const req = {
-      runId: makeRunId(900),
-      requestDigest: makeDigest("sshd-run"),
-      snapshot: snapshotFor(port),
-      remoteDir: null,
-      command: "echo out-here && echo err-here 1>&2 && exit 3",
-      deadlineMs: 20_000,
-    };
-    const started = await sup.start(req);
-    expect(started.kind).toBe("facts");
-    for (let i = 0; i < 200; i++) {
-      const s = sup.status(req.runId);
-      if (s?.lifecycle === "completed") break;
-      await Bun.sleep(100);
-    }
-    const facts = sup.status(req.runId);
-    expect(facts?.lifecycle).toBe("completed");
-    expect(facts?.remoteStatus).toBe(3);
-    expect(facts?.remoteStatusConfirmed).toBe(true);
-    const read = await sup.read(req.runId, 0, 0, 4096, 0);
-    expect(Buffer.from(read!.stdoutB64, "base64").toString()).toContain("out-here");
-    expect(Buffer.from(read!.stderrB64, "base64").toString()).toContain("err-here");
-  }, 40_000);
 
   test("ProxyJump: the -F policy file is what the JUMP child authenticates against (no ambient HOME config exists)", async () => {
     // Destination is sshd #2; hop is sshd #1. The child ssh the jump spawns

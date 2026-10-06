@@ -1,11 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  buildSshInvocation,
-  remoteCommandLine,
-  remoteTerminalLine,
-  renderSshConfigContents,
-  sshChildEnv,
-} from "../ssh-render.js";
+import { buildSshInvocation, remoteCommandLine, renderSshConfigContents, sshChildEnv } from "../ssh-render.js";
 import { makeSnapshot } from "./helpers.js";
 
 /**
@@ -185,12 +179,6 @@ describe("remote command composition", () => {
   it("a failed cd short-circuits before the command runs", () => {
     const line = remoteCommandLine("whoami", "/gone");
     expect(line.startsWith("cd '/gone' && ")).toBe(true);
-  });
-
-  it("terminal: no dir means plain login shell; with a dir, cd gates the exec and failure ends the pane", () => {
-    expect(remoteTerminalLine(null)).toBeUndefined();
-    const line = remoteTerminalLine("/srv/app data");
-    expect(line).toBe(`cd '/srv/app data' && exec "\${SHELL:-/bin/sh}" -l`);
   });
 });
 

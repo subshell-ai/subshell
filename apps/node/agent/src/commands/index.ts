@@ -28,10 +28,7 @@ import { execSetLogLevel } from "./set-log-level.js";
 import { execSetMaintenance } from "./set-maintenance.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
-import { execSshRunCancel, execSshRunRead, execSshRunStart, execSshRunStatus } from "./ssh-runs.js";
 import { execSshSessionClose, execSshSessionOpen, execSshSessionSend } from "./ssh-session.js";
-import { execSshInputControl, execSshTerminalLaunch } from "./ssh-terminal.js";
-import { execSshTestConnection } from "./ssh-test.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
 import { execTransferWrite } from "./transfer-write.js";
 import { execTreeManifest } from "./tree-manifest.js";
@@ -52,12 +49,9 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * the one command whose wire shape is frozen, because the plane sends it to
  * agents whose protocol it does not share), and the five archive-transfer
  * commands `archive_create`, `file_read`, `transfer_write`, `archive_extract`
- * and `tree_manifest` (spec 2026-10-01 §4, protocol 15), and the nine-command
- * SSH family `ssh_discover_aliases`, `ssh_resolve_config`,
- * `ssh_test_connection`, `ssh_run_start`, `ssh_run_status`, `ssh_run_read`,
- * `ssh_run_cancel`, `ssh_terminal_launch`, `ssh_input_control` (spec
- * SSH-SUPPORT.md §4; grammar frozen in `ssh-frames.ts`, runtime in
- * `@internal/pane-runtime`). Any
+ * and `tree_manifest` (spec 2026-10-01 §4, protocol 15), and the two
+ * pre-session SSH reads `ssh_discover_aliases` and `ssh_resolve_config`
+ * (grammar frozen in `ssh-frames.ts`, runtime in `@internal/pane-runtime`) Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
  *
@@ -146,29 +140,15 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execArchiveExtract(ctx, cmd);
       case "tree_manifest":
         return await execTreeManifest(ctx, cmd);
-      // The SSH family (spec SSH-SUPPORT.md §4; frozen command grammar in the
-      // protocol's `ssh-frames.ts`, runtime in `@internal/pane-runtime`).
-      // Every arm answers a SHORT RPC: start records acceptance and returns,
-      // read holds at most the parser-capped long-poll, cancel at most the
-      // cancel grace — no long task wears an RPC deadline here.
+      // The two pre-session SSH reads (grammar frozen in the protocol's
+      // `ssh-frames.ts`, runtime in `@internal/pane-runtime`): short RPCs
+      // against the connecting account's own config. The destination
+      // product's run/terminal/test arms retired with it (design
+      // 2026-10-05 §7); their `type` strings no longer parse on the wire.
       case "ssh_discover_aliases":
         return await execSshDiscoverAliases();
       case "ssh_resolve_config":
         return await execSshResolveConfig(cmd);
-      case "ssh_test_connection":
-        return await execSshTestConnection(ctx, cmd);
-      case "ssh_run_start":
-        return await execSshRunStart(ctx, cmd);
-      case "ssh_run_status":
-        return await execSshRunStatus(ctx, cmd);
-      case "ssh_run_read":
-        return await execSshRunRead(ctx, cmd);
-      case "ssh_run_cancel":
-        return await execSshRunCancel(ctx, cmd);
-      case "ssh_terminal_launch":
-        return await execSshTerminalLaunch(ctx, cmd);
-      case "ssh_input_control":
-        return await execSshInputControl(ctx, cmd);
       // The brokered-session family (design 2026-10-05 §3; grammar frozen in
       // the protocol's `ssh-session-frames.ts`, runtime in
       // `@internal/pane-runtime`). `open` is the ONE ssh arm that holds its

@@ -10,9 +10,9 @@ import {
   type SshSessionTargetWire,
 } from "@internal/subshell-protocol";
 import { shellQuote } from "../shell.js";
+import { killGroup } from "./kill-group.js";
 import { classifySshFailure } from "./ssh-diagnose.js";
 import { buildSshInvocation, remoteCommandLine, renderSshConfigContents, sshChildEnv } from "./ssh-render.js";
-import { killGroup } from "./ssh-run-child.js";
 import {
   concatBytes,
   type HelloScan,

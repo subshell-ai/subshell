@@ -5,12 +5,12 @@ import { join } from "node:path";
 /**
  * The durable record half of the brokered-session supervisor (design
  * 2026-10-05 §3): what `<dataDir>/ssh/sessions/<ref>.json` says about a
- * session, how it is read/written atomically-enough (0600, same write
- * discipline as the run store), and the boot reconcile that reads a dead
- * daemon's `accepted`/`open` records back as `lost`.
+ * session, how it is read/written atomically-enough (0600, the same write
+ * discipline every SSH state file keeps), and the boot reconcile that reads a
+ * dead daemon's `accepted`/`open` records back as `lost`.
  *
- * The file is split from the supervisor the way `ssh-run-store.ts` is split
- * from `ssh-run-supervisor.ts`: this half knows the DISK, the supervisor half
+ * The file is the DISK half of a two-file supervisor split (the retired run
+ * family used the same shape): this half knows the DISK, the supervisor half
  * knows the CHILD. The lifecycle is history, never authority - the live map
  * in the supervisor decides what is open; a record only tells the truth about
  * a child that is not there.

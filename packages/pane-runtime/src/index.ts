@@ -139,6 +139,7 @@ export {
   runBounded,
 } from "./run-bounded.js";
 export { shellQuote } from "./shell.js";
+export { killGroup } from "./ssh/kill-group.js";
 export { classifySshFailure, sshTransportFailure } from "./ssh/ssh-diagnose.js";
 export {
   defaultSshConfigPath,
@@ -153,34 +154,15 @@ export {
 export {
   buildSshInvocation,
   remoteCommandLine,
-  remoteTerminalLine,
   renderSshConfigContents,
   type SshInvocationInput,
   sshChildEnv,
-  sshTerminalEnvPairs,
-  sshTerminalPaneCommand,
 } from "./ssh/ssh-render.js";
 export {
   parseProxyHop,
   resolveSshAliasConfig,
   type SshResolutionDeps,
 } from "./ssh/ssh-resolve.js";
-export {
-  reconcileUnsupervisedRuns,
-  sweepCompletedRuns,
-  sweepSshProbes,
-  sweepSshTerminalState,
-} from "./ssh/ssh-retention.js";
-export { killGroup } from "./ssh/ssh-run-child.js";
-export { ensureSshDirs, sshAggregateStorageBytes, sshRunsDir } from "./ssh/ssh-run-store.js";
-export {
-  getSshRunSupervisor,
-  peekSshRunSupervisor,
-  resetSshSupervisorsForTests,
-  type SshRunStartOutcome,
-  SshRunSupervisor,
-  type SshSupervisedRunRequest,
-} from "./ssh/ssh-run-supervisor.js";
 export { sessionTargetSnapshot, sshSessionTmuxSocket } from "./ssh/ssh-session-invocation.js";
 export type {
   SshSessionHooks,
@@ -196,22 +178,6 @@ export {
   type SshSessionSupervisorDeps,
 } from "./ssh/ssh-session-supervisor.js";
 export { runSshProcess, type SshProcessResult, sshChildPath } from "./ssh/ssh-spawn.js";
-export {
-  assertSshTerminalId,
-  controlStateFor,
-  ensureTerminalsDir,
-  initTerminalForLaunch,
-  readTerminalLog,
-  readTerminalState,
-  rotateTerminalLogIfNeeded,
-  SSH_TERMINAL_LOG_SEGMENT_BYTES,
-  type SshControlTransition,
-  type SshTerminalLogRead,
-  type SshTerminalState,
-  sshTerminalLogBytes,
-  terminalLogPath,
-  transitionControl,
-} from "./ssh/ssh-terminal-log.js";
 export { safeTransferPath } from "./tar-blocks.js";
 export { type ExtractResult, extractTarGz } from "./tar-extractor.js";
 export { extractTgz, type TarEntry, type TgzLimits } from "./tar-vendor.js";

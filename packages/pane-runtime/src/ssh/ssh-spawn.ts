@@ -1,9 +1,9 @@
 /**
  * One ssh child, run to completion, captured, with a deadline that holds.
  *
- * This is the short-RPC sibling of the supervised run loop
- * (`ssh-run-supervisor.ts`): `ssh -G` resolution and the fixed connection
- * probe both finish or die inside a bounded window and their stdout/stderr
+ * This is the short-RPC sibling of the brokered-session supervisor:
+ * `ssh -G` resolution and the session probe both finish or die inside a
+ * bounded window and their stdout/stderr
  * ARE the answer, so they need capture, not a streaming output store. The
  * deadline posture is `run-bounded.ts`'s (kill AND cancel the readers, then
  * escalate to SIGKILL — killing the child does not close pipes its children

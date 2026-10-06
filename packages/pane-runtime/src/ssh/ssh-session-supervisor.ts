@@ -4,7 +4,7 @@ import {
   SSH_SESSION_UNKNOWN,
   SSH_SESSIONS_PER_NODE,
 } from "@internal/subshell-protocol";
-import { killGroup } from "./ssh-run-child.js";
+import { killGroup } from "./kill-group.js";
 import {
   type LiveSession,
   runSessionOpen,
