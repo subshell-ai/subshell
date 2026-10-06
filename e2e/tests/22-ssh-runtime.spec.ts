@@ -15,11 +15,15 @@ import { type NodeRow, rmScratch, seedAdminApi } from "./ssh-support";
  * chain with no fake - plane, real enrolled agent, policy-rendered ssh child,
  * the repo's OWN `runtime-serve` running on the destination over a fixture
  * sshd, a real terminal pane on the destination's tmux, typed bytes returning
- * through the framed channel, and one REST callback executed by the plane as
- * the pane's own token. The negatives ride along: a foreign callback path is
- * refused, the runtime binds no TCP listener, an absent destination runtime
- * refuses by name, and losing the link marks the session LOST (the pane
- * unavailable, not completed).
+ * through the framed channel, one REST callback executed by the plane as the
+ * pane's own token, an ordinary REST terminate that kills the DESTINATION pane
+ * while the session survives, and a close that kills BOTH halves of the
+ * channel (the process-kill proof the review asked for: a leaked ssh child
+ * occupies the per-node quota forever). The negatives ride along: a foreign
+ * callback path is refused, the runtime binds no TCP listener, an absent
+ * destination runtime refuses by name, the ssh child dying under a live link
+ * marks the session LOST with the node still online, and losing the whole
+ * agent marks it LOST too (the pane unavailable, not completed).
  *
  * The destination IS this host (the fixture sshd dials loopback as the same
  * account), so `runtimeCommand` is a wrapper that re-enters this checkout:
@@ -70,9 +74,47 @@ const ssh = (): SshFixture => {
 };
 const agentTail = (): string => agent?.logTail() ?? "(agent never started)";
 
-/** One opened session shared by the ordered tests (the design's single chain). */
+/** The ordered chain's sessions (each test names the one it owns). */
 let sessionId = "";
 let paneId = "";
+
+/** The runtime's process liveness for one session ref. The `runtime-serve
+ * --session <ref>` argv is carried by BOTH halves of the channel - the
+ * connecting node's ssh child (the remote command line sits in its argv) and
+ * the destination's `runtime-serve` - so zero means neither survives, which
+ * is exactly the close promise. */
+function runtimePids(sessionRef: string): string[] {
+  const find = spawnSync("pgrep", ["-f", `runtime-serve --session ${sessionRef}`], { encoding: "utf8" });
+  return find.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+}
+
+/** The CONNECTING side's ssh child for one session: its argv carries the
+ * rendered config path, which is named by the ref and by nothing else. */
+function sshChildPid(sessionRef: string): string {
+  const find = spawnSync("pgrep", ["-f", `${sessionRef}.config`], { encoding: "utf8" });
+  const pids = find.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+  expect(pids.length, `the ssh child for ${sessionRef.slice(0, 8)} should be live`).toBeGreaterThanOrEqual(1);
+  return pids[0] as string;
+}
+
+/** The destination's tmux session names, read as the test host (the destination IS this machine, socket in the wrapper's TMUX_TMPDIR). */
+function destTmuxSessions(socket: string): string[] {
+  const r = spawnSync("tmux", ["-L", socket, "list-sessions", "-F", "#{session_name}"], {
+    encoding: "utf8",
+    env: { ...process.env, TMUX_TMPDIR: destTmuxBase },
+  });
+  if (r.error !== undefined) throw new Error(`tmux(1) unavailable: ${r.error.message}`);
+  return r.stdout
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+}
 
 interface SessionView {
   id: string;
@@ -324,11 +366,10 @@ test("callback: the pane's curl through callback.sock executes as its own token;
 
 test("containment: the runtime-serve on the destination holds no TCP listener", async () => {
   test.setTimeout(60_000);
-  const find = spawnSync("pgrep", ["-f", `runtime-serve --session ${sessionId}`], { encoding: "utf8" });
-  const pids = find.stdout
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l !== "");
+  // `runtimePids` names both halves that carry the session ref in argv (the
+  // connecting side's ssh child and the destination runtime); the listener
+  // question is answered against the UNION, which is the stronger check.
+  const pids = runtimePids(sessionId);
   expect(pids.length, "the runtime-serve child is live on the destination").toBeGreaterThan(0);
 
   const ss = spawnSync("ss", ["-ltnp"], { encoding: "utf8" });
@@ -355,8 +396,9 @@ test("absent runtime: the probe refuses by name before any child is kept", async
   expect(sessions.filter((s) => s.status === "opening").length).toBe(0);
 });
 
-test("close then reconcile: a second session to the same destination finds the first session's panes", async () => {
+test("close: settles, the census arrives, BOTH halves of the channel die, the pane's tmux survives", async () => {
   test.setTimeout(120_000);
+  const closedSessionRef = sessionId;
   const close = await api.post(`/api/ssh-runtime/sessions/${sessionId}/close`);
   expect(close.ok(), await close.text()).toBe(true);
   await pollUntil(
@@ -369,10 +411,25 @@ test("close then reconcile: a second session to the same destination finds the f
     { budgetMs: 30_000, tail: agentTail },
   );
 
-  // The destination pane survived its session by design (design §6): the row
-  // still reads running/alive from the last facts.
+  // The C1 proof, end to end: a graceful close must kill BOTH the destination
+  // `runtime-serve` (the close frame reached it) AND the connecting node's ssh
+  // child (the broker's group-kill reached it). Before the fix the close frame
+  // was never sent and both leaked until the agent restarted.
+  await pollUntil(
+    "the closed session's runtime/ssh processes never went away",
+    async () => runtimePids(closedSessionRef).length === 0,
+    { budgetMs: 20_000, tail: agentTail },
+  );
+
+  // The pane SURVIVED on the destination's tmux (design §6 Close: panes keep
+  // running) while the plane's row reads the unavailable truth: running, alive
+  // false - the census told the plane what was alive, and a live pane with a
+  // dead session is exactly that reading (review NIT: pinned, not commented).
   const row = await api.get(`/api/subshells/${paneId}`);
   expect(row.ok(), await row.text()).toBe(true);
+  const pane = (await row.json()) as { status: string; alive: boolean };
+  expect(pane.status).toBe("running");
+  expect(pane.alive, "the plane's row says unavailable after a graceful close").toBe(false);
 
   // Reconciliation: the deterministic per-destination socket still holds the
   // pane, so the NEW session's hello counts it.
@@ -380,7 +437,104 @@ test("close then reconcile: a second session to the same destination finds the f
   expect(res.ok(), await res.text()).toBe(true);
   const second = (await res.json()) as SessionView;
   expect(second.hello?.paneCount, "the second session finds the first session's pane").toBeGreaterThanOrEqual(1);
-  sessionId = second.id; // the disconnect test follows the surviving session
+  // Direct proof the destination's tmux kept the pane: its session name (the
+  // launch's `subshellName` = the pane id) is still listed on the socket.
+  expect(destTmuxSessions(second.hello?.tmuxSocket ?? "unset")).toContain(paneId);
+  sessionId = second.id; // the following tests drive the surviving session
+});
+
+test("terminate: an ordinary REST terminate reaches the pane through the frame and kills it on the destination", async () => {
+  test.setTimeout(120_000);
+  const launch = await api.post(`/api/ssh-runtime/sessions/${sessionId}/launch-terminal`, {
+    data: { cwd: fixtureRoot, cols: 80, rows: 24 },
+  });
+  expect(launch.ok(), await launch.text()).toBe(true);
+  const pane2 = ((await launch.json()) as { subshellId: string }).subshellId;
+  // A live pane first (the marker echo proves the pane ran): input it.
+  await api.post(`/api/subshells/${pane2}/input`, { data: { text: "true", submit: true } });
+  await pollUntil(
+    "the terminated-session pane never appeared on the destination socket",
+    async () => destTmuxSessions((await sessionSocket()).tmuxSocket).includes(pane2),
+    { budgetMs: 60_000, tail: agentTail },
+  );
+
+  const term = await api.post(`/api/subshells/${pane2}/terminate`);
+  expect(term.ok(), await term.text()).toBe(true);
+  // The row reflects it (the ordinary pane plumbing, unchanged).
+  await pollUntil(
+    "the terminated runtime pane's row never settled",
+    async () => {
+      const res = await api.get(`/api/subshells/${pane2}`);
+      if (!res.ok()) return false;
+      const row = (await res.json()) as { alive: boolean };
+      return row.alive === false;
+      // (status rides the terminate path's own word; alive is the shared truth)
+    },
+    { budgetMs: 30_000, tail: agentTail },
+  );
+  // The DESTINATION pane is gone: the terminate frame reached the runtime and
+  // killed exactly one pane - and the session survives (design §6: killing
+  // panes is terminate's job, and a terminate must not read as a session loss).
+  const socket = (await sessionSocket()).tmuxSocket;
+  expect(destTmuxSessions(socket), "the terminated pane left the destination tmux").not.toContain(pane2);
+  const still = await api.get(`/api/ssh-runtime/sessions/${sessionId}`);
+  expect(still.ok(), await still.text()).toBe(true);
+  expect(((await still.json()) as SessionView).status).toBe("active");
+});
+
+/** The live session's destination facts (socket) via the session view. */
+async function sessionSocket(): Promise<{ tmuxSocket: string }> {
+  const res = await api.get(`/api/ssh-runtime/sessions/${sessionId}`);
+  expect(res.ok(), await res.text()).toBe(true);
+  const view = (await res.json()) as SessionView;
+  if (view.hello === null) throw new Error("session has no hello (not active?)");
+  return view.hello;
+}
+
+test("child dies with the link ALIVE: the ssh child's death marks the session lost and the node stays online", async () => {
+  test.setTimeout(120_000);
+  // The arm the disconnect test cannot exercise (it kills the whole agent):
+  // one child death, reported through the live link (`ssh_session_lost` ->
+  // `deliverSessionLost`), with everything else still standing.
+  const launch = await api.post(`/api/ssh-runtime/sessions/${sessionId}/launch-terminal`, {
+    data: { cwd: fixtureRoot },
+  });
+  expect(launch.ok(), await launch.text()).toBe(true);
+  const pane3 = ((await launch.json()) as { subshellId: string }).subshellId;
+
+  const child = sshChildPid(sessionId);
+  process.kill(Number(child), "SIGTERM");
+
+  await pollUntil(
+    "the session never read lost after its ssh child died",
+    async () => {
+      const res = await api.get(`/api/ssh-runtime/sessions/${sessionId}`);
+      if (!res.ok()) return false;
+      return ((await res.json()) as SessionView).status === "lost";
+    },
+    { budgetMs: 30_000, tail: agentTail },
+  );
+
+  // The pane reads the design §6 truth for a lost channel: alive false,
+  // status intact - unavailable, not completed (the child died; nobody
+  // watched the pane end).
+  const pane3Row = await api.get(`/api/subshells/${pane3}`);
+  expect(pane3Row.ok(), await pane3Row.text()).toBe(true);
+  const p3 = (await pane3Row.json()) as { status: string; alive: boolean };
+  expect(p3.alive).toBe(false);
+  expect(p3.status).toBe("running");
+
+  // The link is untouched: the agent is still online (the child died, not the
+  // daemon) - the distinction the whole broker design rests on.
+  const nodes = await api.get("/api/nodes");
+  const row = ((await nodes.json()) as { nodes: NodeRow[] }).nodes.find((n) => n.id === nodeId);
+  expect(row?.status, "losing one session child must not take the connecting node offline").toBe("online");
+
+  // Open the session the FINAL test consumes (the disconnect test needs a
+  // live session, and this one is now history).
+  const { res } = await openRuntimeSession(wrapperPath);
+  expect(res.ok(), await res.text()).toBe(true);
+  sessionId = ((await res.json()) as SessionView).id;
 });
 
 test("protocol 17 reality: the node registered on the exact-match handshake", async () => {

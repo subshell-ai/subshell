@@ -21,21 +21,15 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID, NODE_KIND_RUNTIME } from "@/db/types/nodes.db-types.js";
 import type { SshRuntimeSessionStatus } from "@/db/types/ssh-runtime-sessions.db-types.js";
 import { audit } from "@/services/audit.js";
-import { publishLive } from "@/services/live-bus.js";
 import { announceNodePresence } from "@/services/nodes/node-presence-announce.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
 import { RuntimeSessionLauncher } from "./runtime-session-launcher.js";
-import { type SessionLossReason, SshRuntimeSession } from "./session.js";
-import {
-  getSession,
-  registerSession,
-  sessionHooks,
-  setSessionSettlers,
-  unregisterSession,
-} from "./session-registry.js";
+import { SshRuntimeSession } from "./session.js";
+import { getSession, registerSession, sessionHooks } from "./session-registry.js";
+import { installSessionSettlers } from "./session-settle.js";
 import { SshRuntimeSessionsRepository } from "./sessions.repository.js";
 
 /**
@@ -49,6 +43,11 @@ import { SshRuntimeSessionsRepository } from "./sessions.repository.js";
  * nothing heavier, and the alternative (session rows carrying node facts ad
  * hoc) would have forked every pane surface instead of reusing it.
  *
+ * The lifecycle settling (lost/closed/exit/census, and the boot sweep that
+ * marks rows lost when this process restarts) lives in `session-settle.ts`;
+ * this module is the SERVICE DOOR (open/launch/list/close/view) and installs
+ * those handlers at load.
+ *
  * Authorization is the salvaged rule, restated rather than reached around:
  * opening requires the caller to OWN the connecting node - real ownership,
  * no admin boost, no share (the `sshNodeGate` agent arm's exact posture);
@@ -61,6 +60,9 @@ import { SshRuntimeSessionsRepository } from "./sessions.repository.js";
  * names both numbers; the broker never interprets runtime frames beyond the
  * hello it was built to hand back.
  */
+
+/** The settle handlers ride the shared hook object; installed once, before any session exists. */
+installSessionSettlers();
 
 const sessionsRepo = new SshRuntimeSessionsRepository(db);
 const nodesRepo = new NodesRepository(db);
@@ -82,7 +84,12 @@ export class SshRuntimeRefusal extends Error {
 /** The session view the routes serialize: facts, never refs to key material. */
 export interface SshRuntimeSessionView {
   id: string;
-  connectingNodeId: string;
+  /**
+   * The machine that brokered the child, or null when that row has since been
+   * deleted (migration 0049's SET NULL: the session history outlives the
+   * connecting machine).
+   */
+  connectingNodeId: string | null;
   runtimeNodeId: string;
   alias: string;
   host: string;
@@ -323,10 +330,19 @@ export async function sessionLaunchTerminal(
   return { subshellId: id };
 }
 
-/** Close a session (the user's act, design §6's Close): the runtime reports + exits; panes on the destination keep running. */
+/**
+ * Close a session (the user's act, design §6's Close). Two frames, in order:
+ * the `close` COMMAND reaches the runtime (graceful exit, final census - see
+ * `SshRuntimeSession.close`), and `ssh_session_close` reaches the BROKER so
+ * the supervisor group-kills the SSH child and records `closed` on disk
+ * (either half may find its target already gone - a runtime that exited
+ * cleanly takes the child with it; a runtime that ignored the command is why
+ * the broker's kill exists). Panes on the destination keep running.
+ */
 export async function closeSession(sessionId: string, userId: string): Promise<void> {
   const session = requireOwnedSession(sessionId, userId);
   await session.close();
+  await closeBestEffort(session.connectingNodeId, sessionId);
   await audit({
     actorUserId: userId,
     action: "ssh_runtime_session.close",
@@ -346,79 +362,6 @@ export async function getSessionView(sessionId: string, userId: string): Promise
 /** The owner's sessions, newest first (the recent-destinations history; design §6's "rows history"). */
 export async function listSessions(userId: string): Promise<SshRuntimeSessionView[]> {
   return (await sessionsRepo.listByOwner(userId)).map(viewOfRow);
-}
-
-/* ------------------------------------------------------------------ */
-/* settle wiring (installed once, before any session exists)           */
-/* ------------------------------------------------------------------ */
-
-setSessionSettlers({
-  onLost: (session, reason) => {
-    void settleLost(session, reason);
-  },
-  onClosed: (session) => {
-    void settleClosed(session);
-  },
-  onPaneExit: (session, subshellId, exitCode) => {
-    // The row keeps `status` (the outcome it witnessed or never saw) and
-    // `alive` goes 0 - design §6's "unavailable, not completed" for a pane
-    // whose death the runtime itself reported (the runtime's own exit watcher
-    // is the witness here; unlike a lost channel, this one KNOWS).
-    void subshellsRepo.update(subshellId, { alive: 0, exitCode: exitCode ?? 0 }).catch(() => {});
-    session.unregisterPane(subshellId);
-    void revokeSubshellToken(subshellId).catch(() => {});
-    publishLive({ kind: "subshell.changed", id: subshellId });
-  },
-  onReport: (session, rows) => {
-    for (const row of rows) {
-      void subshellsRepo
-        .update(row.subshellId, { alive: row.alive ? 1 : 0, ...(row.alive ? {} : { exitCode: row.exitCode ?? 0 }) })
-        .catch(() => {});
-      if (!row.alive) {
-        session.unregisterPane(row.subshellId);
-        void revokeSubshellToken(row.subshellId).catch(() => {});
-      }
-      publishLive({ kind: "subshell.changed", id: row.subshellId });
-    }
-  },
-});
-
-/** The lost settling: one transition's writes, idempotent through the registry's status guard. */
-async function settleLost(session: SshRuntimeSession, reason: SessionLossReason): Promise<void> {
-  unregisterSession(session);
-  await sessionsRepo.settle(session.id, "lost", null).catch(() => {});
-  await nodesRepo.setStatus(session.runtimeNodeId, "offline").catch(() => {});
-  // Panes: unavailable, not completed (design §6). The row keeps `status`;
-  // `alive` flips 0 for every pane the session still carries (a pane the
-  // runtime had already reported exited was settled by the exit event).
-  for (const paneId of session.paneIds()) {
-    await subshellsRepo.update(paneId, { alive: 0 }).catch(() => {});
-    session.unregisterPane(paneId);
-    await revokeSubshellToken(paneId).catch(() => {});
-    publishLive({ kind: "subshell.changed", id: paneId });
-  }
-  announceNodePresence(session.runtimeNodeId);
-  logger.debug(`ssh-runtime session ${session.id.slice(0, 8)} settled lost (${reason})`);
-}
-
-/** The closed settling: same shape, different word, and the runtime row goes offline too (the channel is gone by definition). */
-async function settleClosed(session: SshRuntimeSession): Promise<void> {
-  unregisterSession(session);
-  await sessionsRepo.settle(session.id, "closed", null).catch(() => {});
-  await nodesRepo.setStatus(session.runtimeNodeId, "offline").catch(() => {});
-  // A graceful close still leaves the destination's panes RUNNING on the
-  // tmux server (design §6 Close). The plane's rows say what the last report
-  // said; the next session's reconcile (workstream R's next slice) re-adopts
-  // them. In this slice the pane stays `alive` only if it was alive at close
-  // - and "alive with a dead session" is exactly the unavailable reading, so
-  // the flip happens here too rather than waiting for a reader's probe.
-  for (const paneId of session.paneIds()) {
-    await subshellsRepo.update(paneId, { alive: 0 }).catch(() => {});
-    session.unregisterPane(paneId);
-    await revokeSubshellToken(paneId).catch(() => {});
-    publishLive({ kind: "subshell.changed", id: paneId });
-  }
-  announceNodePresence(session.runtimeNodeId);
 }
 
 /* ------------------------------------------------------------------ */
@@ -448,7 +391,13 @@ async function sessionsRepoDeleteRow(sessionId: string): Promise<void> {
   await db.deleteFrom("sshRuntimeSessions").where("id", "=", sessionId).execute();
 }
 
-/** Ask the node to forget a session that never fully opened (the close command needs no live runtime; it marks records). */
+/**
+ * Ask the node to forget a session - best effort, every answer swallowed.
+ * Two callers, same shape: the protocol-mismatch unroll (the child must not
+ * linger for a runtime that will never speak) and the user close (the
+ * supervisor's group-kill; the runtime may have exited already, in which case
+ * the answer is `session_unknown` and there is nothing to kill).
+ */
 async function closeBestEffort(connectingNodeId: string, sessionId: string): Promise<void> {
   try {
     await sendCommand(connectingNodeId, { type: "ssh_session_close", ref: sessionId }, { timeoutMs: 10_000 });

@@ -13,9 +13,15 @@ import { type Kysely, sql } from "kysely";
  *   `port`, `user`) - refs and numbers only, never identity material (§8).
  * - `runtime_node_id` names the hidden `nodes` row (kind `runtime`) that the
  *   session's PANES carry as their `nodeId`, so list/detail/log/live/ws ride
- *   the ordinary pane plumbing. `connecting_node_id` CASCADEs are avoided on
- *   purpose (SET NULL below): deleting the connecting machine loses the
- *   session's history for the audit trail, not the other way around.
+ *   the ordinary pane plumbing. Its FK CASCADEs (below): the hidden row
+ *   belongs to the session, so a delete of it must not leave a history row
+ *   naming a ghost node. `connecting_node_id` avoids CASCADE on purpose -
+ *   SET NULL below: deleting the connecting machine loses the session's
+ *   history for the audit trail, not the other way around (the same call
+ *   `ssh_runs` makes for its `node_id`, migration 0048: the run outlives the
+ *   machine it rode). A swept row's active-session quota count keys on the
+ *   node id, so a NULL only ever drops history out of a live count, which is
+ *   exactly right for a machine that is gone.
  * - `status`: `opening` (spawn asked, hello not yet in) / `active` / `lost`
  *   (child died or the link dropped - design §6's honest state, panes stay
  *   `running` with `alive: 0`) / `closed` (the user's own act).
@@ -43,12 +49,14 @@ export async function up(db: Kysely<any>): Promise<void> {
     .createTable("ssh_runtime_sessions")
     .addColumn("id", "text", (col) => col.primaryKey())
     .addColumn("owner_user_id", "text", (col) => col.notNull())
-    .addColumn("connecting_node_id", "text", (col) => col.notNull().references("nodes.id").onDelete("cascade"))
+    // History outlives the connecting machine (the module doc's argument):
+    // deleting the node NULLs this ref, it does not delete the session row.
+    .addColumn("connecting_node_id", "text", (col) => col.references("nodes.id").onDelete("set null"))
     // The hidden runtime row belongs to the SESSION (its life is the
-    // session's); deleting the session deletes it, which CASCADE-deletes the
-    // pane rows that name it - so session close must not orphan panes by
-    // accident: the service deletes/terminates panes deliberately before
-    // dropping the runtime row, same ordering as node delete today.
+    // session's): the FK points at the node, so a delete of the hidden row
+    // (only ever the failed-open unroll, which has no panes under it yet -
+    // settled sessions KEEP their runtime row, offline, as history) takes the
+    // session row with it rather than stranding a reference to a ghost.
     .addColumn("runtime_node_id", "text", (col) => col.notNull().references("nodes.id").onDelete("cascade"))
     .addColumn("alias", "text", (col) => col.notNull())
     .addColumn("host", "text", (col) => col.notNull())

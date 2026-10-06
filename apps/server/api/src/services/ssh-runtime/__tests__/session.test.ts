@@ -5,14 +5,17 @@
  * transition. None of this touches the DB or the node link: the byte channel
  * is exercised by feeding pumped chunks directly.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import {
   encodeSshSessionFrame,
   SSH_RUNTIME_PROTOCOL,
   SSH_SESSION_INBOUND_QUEUE_FRAMES,
   type SshRuntimeHelloWire,
+  type SshRuntimeReportRow,
+  SshSessionFrameDecoder,
   type SshSessionTargetWire,
 } from "@internal/subshell-protocol";
+import * as nodeRpc from "@/services/nodes/node-rpc.js";
 import { type SessionLossReason, SshRuntimeSession } from "../session.js";
 
 const SESSION_ID = "0f4c1a7e-9b62-4a11-8d3e-5c2b1a0f9e8d";
@@ -37,7 +40,14 @@ function target(): SshSessionTargetWire {
   return { alias: "e2edest", host: "127.0.0.1", port: 2222, user: "theo", identityFile: null };
 }
 
-function newSession(): { session: SshRuntimeSession; losses: SessionLossReason[]; exits: [string, number | null][] } {
+function newSession(): {
+  session: SshRuntimeSession;
+  losses: SessionLossReason[];
+  exits: [string, number | null][];
+  reports: SshRuntimeReportRow[][];
+  /** Mutable box: the `onClosed` hook counts into it as settles land async. */
+  closeBox: { closes: number };
+} {
   const session = new SshRuntimeSession({
     id: SESSION_ID,
     ownerId: "u1",
@@ -48,6 +58,8 @@ function newSession(): { session: SshRuntimeSession; losses: SessionLossReason[]
   });
   const losses: SessionLossReason[] = [];
   const exits: [string, number | null][] = [];
+  const reports: SshRuntimeReportRow[][] = [];
+  const box = { closes: 0 };
   session.hooks = {
     ...session.hooks,
     onLost: (s, reason) => {
@@ -57,8 +69,14 @@ function newSession(): { session: SshRuntimeSession; losses: SessionLossReason[]
     onPaneExit: (_s, id, code) => {
       exits.push([id, code]);
     },
+    onReport: (_s, rows) => {
+      reports.push(rows);
+    },
+    onClosed: (_s) => {
+      box.closes += 1;
+    },
   };
-  return { session, losses, exits };
+  return { session, losses, exits, reports, closeBox: box };
 }
 
 describe("SshRuntimeSession.ingestBytes", () => {
@@ -148,6 +166,157 @@ describe("SshRuntimeSession.ingestBytes", () => {
     session.markLost("node-disconnected");
     expect(losses).toEqual(["child-lost"]); // the second transition is a no-op
     expect(session.status).toBe("lost");
+  });
+});
+
+/**
+ * The graceful close (review C1): the `close` frame MUST leave the plane
+ * before the status flips (a pre-flip `close()` refused its own command, so
+ * the runtime never heard, the SSH child leaked, and the doc claimed a census
+ * that never arrived). These tests intercept `sendCommand` - the only outbound
+ * door - and pin the frame order the close promises.
+ */
+describe("SshRuntimeSession.close (the C1 order: frame first, census, then settle)", () => {
+  /** Every `ssh_session_send` payload sent to "n1" while a test ran. */
+  function interceptSendCommand(outcome: "ack" | "reject" = "ack"): {
+    frames: { ref: string; data_b64: string }[];
+    restore: () => void;
+  } {
+    const frames: { ref: string; data_b64: string }[] = [];
+    const original = nodeRpc.sendCommand;
+    mock.module("@/services/nodes/node-rpc.js", () => ({
+      ...nodeRpc,
+      sendCommand: async (nodeId: string, cmd: { type: string; ref?: string; data_b64?: string }) => {
+        if (nodeId === "n1" && cmd.type === "ssh_session_send") {
+          frames.push({ ref: cmd.ref ?? "", data_b64: cmd.data_b64 ?? "" });
+        }
+        if (outcome === "reject") throw new Error("node offline");
+        return { ok: true };
+      },
+    }));
+    return {
+      frames,
+      restore: () => mock.module("@/services/nodes/node-rpc.js", () => ({ ...nodeRpc, sendCommand: original })),
+    };
+  }
+
+  /** Run the microtask/timer queue until `cond` holds (bounded). */
+  async function tickUntil(cond: () => boolean): Promise<void> {
+    for (let i = 0; i < 50 && !cond(); i++) await new Promise((r) => setTimeout(r, 0));
+    if (!cond()) throw new Error("tickUntil: condition never held");
+  }
+
+  const decodeCloseFrames = (frames: { data_b64: string }[]): string[] => {
+    const out: string[] = [];
+    for (const f of frames) {
+      const bytes = new Uint8Array(Buffer.from(f.data_b64, "base64"));
+      const d = new SshSessionFrameDecoder();
+      for (const raw of d.push(bytes)) {
+        if (raw !== null && typeof raw === "object" && "type" in raw) out.push(String((raw as { type: string }).type));
+      }
+    }
+    return out;
+  };
+
+  test("close sends the `close` frame BEFORE settling (the regression: the pre-flip status made command() refuse its own frame)", async () => {
+    const { session, reports, closeBox } = newSession();
+    const { frames, restore } = interceptSendCommand();
+    try {
+      const closer = session.close();
+      await tickUntil(() => frames.length === 1);
+      // Find the pending command ref (the close's ref) from the encoded frame.
+      const d = new SshSessionFrameDecoder();
+      const bytes = new Uint8Array(Buffer.from(frames[0]?.data_b64 ?? "", "base64"));
+      const [frame] = d.push(bytes);
+      expect(frame).not.toBeNull();
+      const closeRef = (frame as { ref: string }).ref;
+      session.ingestBytes(
+        encodeSshSessionFrame({
+          type: "result",
+          ref: closeRef,
+          ok: true,
+          data: [{ subshellId: PANE_ID, alive: false, exitCode: 0 }],
+        }),
+      );
+      await closer;
+      // The frame carried a `close` command out while the session was active.
+      expect(decodeCloseFrames(frames)).toEqual(["close"]);
+      // The census rode the result and was delivered before the closed settle.
+      expect(reports).toEqual([[{ subshellId: PANE_ID, alive: false, exitCode: 0 }]]);
+      expect(session.status).toBe("closed");
+      expect(closeBox.closes).toBe(1);
+    } finally {
+      restore();
+    }
+  });
+
+  test("close settles closed when the runtime refuses the close instead of reporting (no census is invented)", async () => {
+    const { session, reports, closeBox } = newSession();
+    const { frames, restore } = interceptSendCommand();
+    try {
+      const closer = session.close();
+      await tickUntil(() => frames.length === 1);
+      const d = new SshSessionFrameDecoder();
+      const [frame] = d.push(new Uint8Array(Buffer.from(frames[0]?.data_b64 ?? "", "base64")));
+      const closeRef = (frame as { ref: string }).ref;
+      session.ingestBytes(encodeSshSessionFrame({ type: "result", ref: closeRef, ok: false, error: "shutting" }));
+      await closer;
+      expect(session.status).toBe("closed");
+      expect(closeBox.closes).toBe(1);
+      expect(reports).toEqual([]); // nothing was reported; nothing was invented
+    } finally {
+      restore();
+    }
+  });
+
+  test("a transport death during close keeps the `send-failed` loss as the owner (design §6 Disconnect outranks the act)", async () => {
+    const { session, losses, closeBox } = newSession();
+    const { frames, restore } = interceptSendCommand("reject");
+    try {
+      await session.close();
+      expect(frames.length).toBe(1); // the frame attempt went out WHILE active (the bug died here)
+      expect(losses).toEqual(["send-failed"]); // the link failure is the honest fact
+      expect(session.status).toBe("lost");
+      expect(closeBox.closes).toBe(0); // close deferred to the loss settling
+    } finally {
+      restore();
+    }
+  });
+
+  test("a second close is a no-op (the latch; no duplicate frame, no second onClosed)", async () => {
+    const { session, closeBox } = newSession();
+    const { frames, restore } = interceptSendCommand();
+    try {
+      const both = Promise.all([session.close(), session.close()]);
+      await tickUntil(() => frames.length === 1);
+      const d = new SshSessionFrameDecoder();
+      const [frame] = d.push(new Uint8Array(Buffer.from(frames[0]?.data_b64 ?? "", "base64")));
+      session.ingestBytes(
+        encodeSshSessionFrame({ type: "result", ref: (frame as { ref: string }).ref, ok: true, data: [] }),
+      );
+      await both;
+      expect(closeBox.closes).toBe(1);
+      expect(decodeCloseFrames(frames)).toEqual(["close"]); // exactly one close frame left
+    } finally {
+      restore();
+    }
+  });
+
+  test("a mid-close death keeps the `lost` settle as the owner (close adds no second transition)", async () => {
+    const { session, losses, closeBox } = newSession();
+    const { frames, restore } = interceptSendCommand();
+    try {
+      const closer = session.close();
+      await tickUntil(() => frames.length === 1);
+      session.markLost("child-lost"); // the channel died while the close command was in flight
+      await closer;
+      expect(losses).toEqual(["child-lost"]);
+      expect(session.status).toBe("lost");
+      expect(closeBox.closes).toBe(0); // close deferred to the lost settle
+      expect(frames.length).toBe(1); // one frame went out while it was still active
+    } finally {
+      restore();
+    }
   });
 });
 

@@ -339,6 +339,63 @@ describe("resolveLaunchNode — server switched off as a node", () => {
   });
 });
 
+/**
+ * The runtime seal (design 2026-10-05 §4, review M4): a `runtime` node row is
+ * the hidden machine a session's panes ride, never a launch target for an
+ * ordinary create. The refusal must be NAMED and it must fire HERE - the day
+ * the runtime launcher gains a real resolver, reaching `createSubshell` with
+ * such a row would push the pane's bearer token and the plane URL onto the
+ * destination (the env rides the launch plan verbatim), and the token must
+ * never leave the plane. A foreign viewer still gets the 404: the row is
+ * hidden, and naming it would make the id an existence oracle.
+ */
+describe("resolveLaunchNode — runtime rows refuse by name", () => {
+  async function mkRuntimeNode(ownerUserId: string): Promise<string> {
+    const id = crypto.randomUUID();
+    nodeIds.push(id);
+    await deps.nodes.create({ id, ownerUserId, name: `rt-${id.slice(0, 8)}`, kind: "runtime", status: "online" });
+    return id;
+  }
+
+  it("the row's OWNER naming it → 409 with the named runtime-path refusal", async () => {
+    const node = await mkRuntimeNode(ownerId);
+    const err = await grab(() =>
+      resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps),
+    );
+    expect(statusOf(err)).toBe(409);
+    expect((err as { code?: string }).code).toBe("runtime_session_only");
+    expect((err as Error).message).toMatch(/SSH runtime path only/);
+  });
+
+  it("a foreign viewer naming a hidden runtime row → 404, never the seal's message (no existence oracle)", async () => {
+    const node = await mkRuntimeNode(otherId);
+    const err = await grab(() =>
+      resolveLaunchNode({ userId: ownerId, machineActor: false, requestedNodeId: node }, deps),
+    );
+    expect(statusOf(err)).toBe(404);
+    expect((err as Error).message).toBe("Node not found");
+  });
+
+  it("auto-pick cannot land on a runtime row either (the listing filters keep it out of the candidates)", async () => {
+    // One online agent + one ONLINE runtime row owned by the same user: the
+    // step-3 candidate list is `findAccessible`/`listByOwner`, both of which
+    // exclude `kind = runtime` in the repository. The auto-pick must resolve
+    // to the AGENT, silently skipping the hidden row.
+    const agent = await mkNode(ownerId);
+    const runtime = await mkRuntimeNode(ownerId);
+    await deps.shares.replaceForNode(LOCAL_NODE_ID, [], systemId);
+    const off = online(agent);
+    try {
+      const res = await resolveLaunchNode({ userId: ownerId, machineActor: false }, deps);
+      expect(res).toEqual({ nodeId: agent });
+      expect(res.nodeId).not.toBe(runtime);
+    } finally {
+      off();
+      await deps.shares.replaceForNode(LOCAL_NODE_ID, [{ granteeUserId: null, permission: "edit" }], systemId);
+    }
+  });
+});
+
 describe("resolveLaunchNode — implicit local (step 2) and auto-pick (step 3)", () => {
   it("nothing requested + the local switch ON → local (today's behavior preserved)", async () => {
     expect(await resolveLaunchNode({ userId: ownerId, machineActor: false }, deps)).toEqual({

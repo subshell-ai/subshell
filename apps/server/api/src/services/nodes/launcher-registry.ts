@@ -16,7 +16,14 @@ import { RemoteLauncher } from "./remote-launcher.js";
  */
 
 const remoteLaunchers = new Map<string, RemoteLauncher>();
-/** Per-node cached runtime launchers, keyed with their session so a re-opened session (same runtime node id is impossible - new uuid - but a stale entry can never outlive its session by construction). */
+/**
+ * Per-node cached runtime launchers, keyed with their session. A settled
+ * session is EVICTED (the settle path calls {@link forgetRuntimeLauncher}):
+ * the entry retains the session, and the session retains the pane-token
+ * plaintext map, which must not outlive the documented "leaves with the pane"
+ * promise. The live-session check below is the belt: an entry for a dead
+ * session never resolves to a launcher even before eviction.
+ */
 const runtimeLaunchers = new Map<
   string,
   { session: import("@/services/ssh-runtime/session.js").SshRuntimeSession; launcher: RuntimeSessionLauncher }
@@ -53,6 +60,29 @@ export function launcherFor(nodeId: string): NodeLauncher {
     remoteLaunchers.set(nodeId, launcher);
   }
   return launcher;
+}
+
+/**
+ * Forget the cached runtime launcher for one settled session's runtime node
+ * (called from the ssh-runtime settle path). A closed or lost session's
+ * launcher holds the session, and the session holds the pane-token plaintext
+ * until the settle clears it - the cache entry must not be the reason that
+ * memory outlives the session. Idempotent.
+ */
+export function forgetRuntimeLauncher(nodeId: string): void {
+  runtimeLaunchers.delete(nodeId);
+}
+
+/**
+ * The cached entry for a runtime node id (peek, no construction). Test seam
+ * only - it observes the eviction the settle path promises; @internal.
+ */
+export function peekRuntimeLauncherForTests(
+  nodeId: string,
+):
+  | { session: import("@/services/ssh-runtime/session.js").SshRuntimeSession; launcher: RuntimeSessionLauncher }
+  | undefined {
+  return runtimeLaunchers.get(nodeId);
 }
 
 /**

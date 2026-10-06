@@ -20,8 +20,13 @@ export interface SshRuntimeSessionTable {
   id: string;
   /** Who opened the session; every pane through it belongs to this user (design §4) */
   ownerUserId: string;
-  /** The ENROLLED node that brokered the SSH child; opening required real ownership of it */
-  connectingNodeId: string;
+  /**
+   * The ENROLLED node that brokered the SSH child; opening required real
+   * ownership of it. NULLABLE by design (migration 0049): deleting the
+   * connecting machine SET NULLs this - the history outlives the machine
+   * (the `ssh_runs.node_id` posture, migration 0048).
+   */
+  connectingNodeId: string | null;
   /** The hidden `nodes` row (kind 'runtime') the session's panes carry as node_id */
   runtimeNodeId: string;
   /** The config token the human chose (display/review context) */
@@ -44,9 +49,12 @@ export interface SshRuntimeSessionTable {
   closedAt: string | null;
 }
 
-/** Insert payload for a fresh `opening` session. */
+/**
+ * Insert payload for a fresh `opening` session. `connectingNodeId` is
+ * required HERE (the broker row must exist to open; the column's nullability
+ * is about the node's later deletion, not about the insert).
+ */
 export type NewSshRuntimeSession = Pick<
   SshRuntimeSessionTable,
-  "id" | "ownerUserId" | "connectingNodeId" | "runtimeNodeId" | "alias" | "host" | "port" | "user"
-> &
-  Partial<Pick<SshRuntimeSessionTable, "status" | "helloJson" | "createdAt">>;
+  "id" | "ownerUserId" | "runtimeNodeId" | "alias" | "host" | "port" | "user"
+> & { connectingNodeId: string } & Partial<Pick<SshRuntimeSessionTable, "status" | "helloJson" | "createdAt">>;

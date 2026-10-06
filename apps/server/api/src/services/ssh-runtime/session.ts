@@ -1,10 +1,12 @@
 import {
   encodeSshSessionFrame,
   parseSshRuntimeEventFrame,
+  parseSshRuntimeReportRows,
   SSH_SESSION_FRAME_MAX_BYTES,
   SSH_SESSION_INBOUND_QUEUE_FRAMES,
   type SshRuntimeCommandFrame,
   type SshRuntimeHelloWire,
+  type SshRuntimeReportRow,
   SshSessionFrameDecoder,
   type SshSessionTargetWire,
 } from "@internal/subshell-protocol";
@@ -116,6 +118,8 @@ export class SshRuntimeSession {
   hooks: SessionEventHooks = UNWIRED_HOOKS;
 
   #status: "active" | "lost" | "closed" = "active";
+  /** Latch against double-close racing the in-flight `close` command (the runtime exits once; one frame per session). */
+  #closeRequested = false;
   readonly #decoder = new SshSessionFrameDecoder();
   readonly #pending = new Map<string, PendingCommand>();
   readonly #outputSubs = new Map<string, OutputSubscriber>();
@@ -194,19 +198,36 @@ export class SshRuntimeSession {
   }
 
   /**
-   * Run the graceful close (design §6): ask the runtime to report and exit,
-   * and settle regardless of the answer - an unreachable child's `closed` is
-   * still the user's act. The census rides the `close` command's result on the
-   * good path (the caller that wants panes settled reads it from `onReport`).
+   * Run the graceful close (design §6): send the `close` command WHILE the
+   * session is still active (flipping first would make `command` refuse to
+   * encode it - the frame is the whole point of the graceful path), await the
+   * runtime's answer, and settle regardless of it - an unreachable child's
+   * `closed` is still the user's act.
+   *
+   * The census is the `close` command's RESULT data (`finalReport` in
+   * `runtime/serve.ts` answers it before exiting): when it arrives it is
+   * delivered through `onReport` BEFORE `onClosed`, so the close settling sees
+   * panes as the destination reported them (dead panes carry their exit codes;
+   * the settle still flips survivors to `alive: 0` - a live pane with a dead
+   * channel is the design §6 unavailable reading, not a completed one).
+   *
+   * A mid-close death (the child dies while the result is in flight) leaves
+   * the `lost` settling as the owner of the transition: `markLost` wins and
+   * this method does nothing further.
    */
   async close(): Promise<void> {
-    if (this.#status !== "active") return;
-    this.#status = "closed";
+    if (this.#status !== "active" || this.#closeRequested) return;
+    this.#closeRequested = true;
+    let census: SshRuntimeReportRow[] | null = null;
     try {
-      await this.command({ type: "close", ref: crypto.randomUUID() }, 15_000);
+      const data = await this.command({ type: "close", ref: crypto.randomUUID() }, 15_000);
+      census = parseSshRuntimeReportRows(data);
     } catch (err) {
       logger.debug(`ssh-runtime close of ${this.id.slice(0, 8)} answered nothing: ${String(err)}`);
     }
+    if (this.#status !== "active") return; // died mid-close: the lost settle owns the transition
+    this.#status = "closed";
+    if (census !== null) this.hooks.onReport(this, census);
     this.#failPendings("session closed");
     this.hooks.onClosed(this);
   }

@@ -14,7 +14,7 @@ import { HttpError } from "@/api/auth-guard.js";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { ShareEntry } from "@/db/repositories/subshell-shares.repository.js";
 import { summarizeSubshells } from "@/db/repositories/subshells.repository.js";
-import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { LOCAL_NODE_ID, NODE_KIND_RUNTIME } from "@/db/types/nodes.db-types.js";
 import type { PresetTable } from "@/db/types/presets.db-types.js";
 import type { SshActorSide } from "@/db/types/ssh-actor-side.js";
 import type { SshTerminalExecTable } from "@/db/types/ssh-terminal-execs.db-types.js";
@@ -270,6 +270,23 @@ export async function resolveLaunchNode(
     // Any share grants launch (spec §2): access "none" ⇔ invisible ⇒ 404.
     if (!row || !nodeCanLaunch(access)) {
       throw new SubshellCreateError("node_not_found", "Node not found", 404);
+    }
+    // The runtime seal (design 2026-10-05 §4, review M4): a `runtime` row is a
+    // session's hidden destination, not a machine anyone launches an ordinary
+    // subshell onto. Without this the launch would die LATER on
+    // `resolveBinary` answering null - accident-shaped, and the day a runtime
+    // launcher gains a real resolver the accident stops: the manager bakes
+    // SUBSHELL_API_KEY/SUBSHELL_BASE_URL into the launch env, and this node's
+    // launcher forwards the plan verbatim, which would push the pane's bearer
+    // token and the plane URL onto a machine that must never see either
+    // (design §5's one sentence worth of threat model). Refuse it BY NAME,
+    // here, before anything composes.
+    if (row.kind === NODE_KIND_RUNTIME) {
+      throw new SubshellCreateError(
+        "runtime_session_only",
+        "Runtime sessions launch through the SSH runtime path only",
+        409,
+      );
     }
     // Maintenance BEFORE the share reading and before liveness, because it is
     // the only one of the three the caller can do something about and the
@@ -1678,6 +1695,19 @@ export class SubshellsService extends BaseService {
     // node's own fail-closed file would refuse it a second time; on `local`
     // there is no agent and no file, so THIS is the only gate that exists.
     const node = await this.repos.nodes.findById(row.nodeId);
+    // The runtime seal again (review M4): a restart IS a launch, so the row's
+    // node gets the same refusal `gate` gives a create - and a runtime pane
+    // dies honestly here instead of accidentally, downstream, where the
+    // runtime launcher's null resolveBinary would surface "Harness is not
+    // installed on this machine" (true of the DESTINATION from the plane's
+    // seat, and useless to whoever clicked restart).
+    if (node?.kind === NODE_KIND_RUNTIME) {
+      throw new SubshellCreateError(
+        "runtime_session_only",
+        "Runtime sessions launch through the SSH runtime path only; a runtime pane is ended with terminate, not restarted",
+        409,
+      );
+    }
     if (node?.maintenance === 1) {
       throwApiError({
         code: BackendErrorCodes.NODE_IN_MAINTENANCE,

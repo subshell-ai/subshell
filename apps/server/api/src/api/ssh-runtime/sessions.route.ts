@@ -73,7 +73,9 @@ const HelloSchema = t.Object({
 
 const SessionViewSchema = t.Object({
   id: t.String({ description: "Session id (the plane-minted broker ref)" }),
-  connectingNodeId: t.String({ description: "The node that brokered the SSH child" }),
+  connectingNodeId: t.Nullable(
+    t.String({ description: "The node that brokered the SSH child; null once that machine row has been deleted" }),
+  ),
   runtimeNodeId: t.String({ description: "The hidden runtime node row the session's panes carry" }),
   alias: t.String({ description: "The config token chosen at review time" }),
   host: t.String({ description: "Reviewed destination host" }),

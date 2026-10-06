@@ -65,6 +65,7 @@ import { registerSshPaneHooks, registerSshPolicy } from "@/services/pane-ssh-gat
 import { sshPaneHooks } from "@/services/ssh/ssh-pane-hooks.js";
 import { getSshPolicy } from "@/services/ssh/ssh-policy-impl.js";
 import { sweepExpiredSshRuns } from "@/services/ssh/ssh-retention.js";
+import { reconcileSshRuntimeSessionsAtBoot } from "@/services/ssh-runtime/session-settle.js";
 import { expirePendingApprovals, remarkUnmarkedArrivals } from "@/services/pending-approvals.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
 import { hasAnyUser } from "@/services/registration-gate.js";
@@ -331,6 +332,17 @@ async function bootServer(): Promise<void> {
   // Restore alive/exit state at boot: a backend restart mid-subshell must not
   // leave stale alive=1 rows (tmux subshells died with the old process).
   await manager.reconcileAll();
+  // The same fact for SSH runtime sessions (design 2026-10-05 §6): the broker
+  // links died with the previous process and their SSH children went with
+  // them, so an `opening`/`active` row at this point is history - the sweep
+  // marks it `lost`, takes the hidden runtime node rows offline, and
+  // re-announces presence. Boot-only by construction: the registry owns
+  // liveness from here on and a settled row can never hold a channel again.
+  // Never fatal: a sweep that cannot run leaves rows reading active; it is not
+  // a reason to fail a boot that already migrated.
+  await reconcileSshRuntimeSessionsAtBoot().catch((err: unknown) => {
+    getLogger().withError(err).warn("ssh-runtime boot reconcile failed");
+  });
 
   // Pane logs hold the verbatim transcript of every session, typed secrets
   // included. New ones are created 0600 by the pipe-pane umask, but logs
