@@ -154,6 +154,9 @@ describe("the boot sequence calls the sweep (composition, review I1)", () => {
     expect(bootStart).toBeGreaterThan(-1);
     const callAt = source.indexOf("reconcileSshRuntimeSessionsAtBoot()", bootStart);
     expect(callAt).toBeGreaterThan(bootStart);
+    // ...AFTER the migrations (the comment above promises it; a reorder above
+    // runMigrations would warn-only skip the sweep against missing tables).
+    expect(callAt).toBeGreaterThan(source.indexOf("await runMigrations()", bootStart));
     // ...and BEFORE the HTTP listener (review N-E): a session opening in the
     // window between `listen` and the sweep would have its fresh row marked
     // lost and its runtime node left offline until the next settle.
