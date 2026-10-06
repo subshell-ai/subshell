@@ -20,6 +20,12 @@ import { type NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.r
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
 import { subscribeLive } from "@/services/live-bus.js";
+import {
+  liveSessionForRuntimeNode,
+  registerSession,
+  resetSessionRegistryForTests,
+} from "@/services/ssh-runtime/session-registry.js";
+import { mkRuntimeSession } from "@/test-helpers/runtime-session.js";
 import { resetInputHoldsForTests } from "@/ws/input-hold.js";
 import { resetInputWindowsForTests } from "@/ws/input-window.js";
 import { handleSubshellMessage } from "@/ws/subshell-ws.js";
@@ -1307,6 +1313,106 @@ describe("handleNodeClose (superseded-close hygiene, spec §5.3)", () => {
     const h = makeHarness();
     await handleNodeClose(h.deps, fakeSocket("n1"));
     expect(h.statuses).toEqual([]);
+  });
+});
+
+/**
+ * Round-3 review MAJOR: a link death must lose the sessions that rode it, in
+ * EVERY ordering. The agent drains its brokered children on every link close
+ * (review M1) and the plane's close arm says so directly (`markSessionsLost-
+ * ForNode`); the gap was the SUPERSEDED arm - a black-hole flap (the plane
+ * never receives FIN for the old socket; the agent redials and the new
+ * connection's attach 4409s the old one) lands that close in the held/
+ * superseded branch, which deliberately never touches sessions. Without a
+ * second truth-teller the plane kept `active` rows over runtimes the agent
+ * had already killed.
+ *
+ * The seam under test is the `ready` moment of the REPLACEMENT connection:
+ * a new brokered session can only exist once a link carries it, so every
+ * session not brokered on THIS connection rode the prior link and died with
+ * it. Sessions tagged to the live connection - one opened in the attach-to-
+ * ready window included - must survive the sweep untouched, in both orders.
+ */
+describe("brokered-session liveness across link-close orderings (review round-3 MAJOR)", () => {
+  beforeEach(() => {
+    resetNodeRegistryForTests();
+    resetSessionRegistryForTests();
+  });
+  // The attached fakes and registered sessions are THIS suite's state; the
+  // suites below assume a clean node registry (the C14 probe reads it), so
+  // they leave with the case.
+  afterEach(() => {
+    resetNodeRegistryForTests();
+    resetSessionRegistryForTests();
+  });
+
+  /** One live session brokered on `conn`, registered with that connection tag. */
+  function sessionOn(connectingNodeId: string, conn: NodeConnection | undefined) {
+    const session = mkRuntimeSession({ connectingNodeId });
+    registerSession(session, conn);
+    return session;
+  }
+
+  it("the CURRENT socket's close still loses the session riding it (branch-1 kept)", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, ws);
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
+    const riding = sessionOn("n1", ws.data.nodeConn);
+    await handleNodeClose(h.deps, ws);
+    expect(riding.status).toBe("lost");
+    expect(liveSessionForRuntimeNode(riding.runtimeNodeId)).toBeUndefined();
+  });
+
+  it("black-hole flap: old socket closes SUPERSEDED, and the new connection's ready loses the prior-link sessions", async () => {
+    const h = makeHarness();
+    const first = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, first);
+    await handleNodeMessage(h.deps, first, JSON.stringify(readyFrame()));
+    const riding = sessionOn("n1", first.data.nodeConn);
+
+    // The redial: the NEW socket attaches (4409s the old one); the old
+    // socket's close lands in the superseded branch. Per its pinned contract
+    // that branch touches neither the registry nor the sessions, so AFTER
+    // THIS STEP the session is still `active` - the divergence the reviewer
+    // measured.
+    const second = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, second);
+    await handleNodeClose(h.deps, first);
+    expect(riding.status).toBe("active");
+    expect(h.statuses).toEqual([]); // branch 2 never touches the projection
+
+    // The convergence: the replacement link's `ready` says the prior link is
+    // gone, so the session that rode it is lost (design §6: never resumable).
+    await handleNodeMessage(h.deps, second, JSON.stringify(readyFrame()));
+    expect(riding.status).toBe("lost");
+    expect(liveSessionForRuntimeNode(riding.runtimeNodeId)).toBeUndefined();
+  });
+
+  it("sessions brokered on the NEW connection are not clobbered: neither by the old close nor by the ready sweep", async () => {
+    const h = makeHarness();
+    const first = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, first);
+    await handleNodeMessage(h.deps, first, JSON.stringify(readyFrame()));
+    const rodeOldLink = sessionOn("n1", first.data.nodeConn);
+
+    const second = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, second);
+    // The attach-to-ready window: an open whose RPC rode the NEW socket
+    // lands tagged to it. The sweep must read the tag, not the clock.
+    const freshConn = second.data.nodeConn;
+    if (!freshConn) throw new Error("open must stash the registry record on ws.data");
+    const openedHere = sessionOn("n1", freshConn);
+
+    await handleNodeClose(h.deps, first); // superseded arm: touches nothing
+    await handleNodeMessage(h.deps, second, JSON.stringify(readyFrame())); // the sweep
+    expect(rodeOldLink.status).toBe("lost");
+    expect(openedHere.status).toBe("active"); // not swept: it did not ride the dead link
+
+    // A second `ready` on the SAME connection (a misbehaving agent) must not
+    // sweep the live one either - the sweep compares tags, not timestamps.
+    await handleNodeMessage(h.deps, second, JSON.stringify(readyFrame()));
+    expect(openedHere.status).toBe("active");
   });
 });
 

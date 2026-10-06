@@ -32,6 +32,7 @@ import { announceNodePresence, projectNodeOffline } from "@/services/nodes/node-
 import {
   deliverSessionFrame,
   deliverSessionLost,
+  markSessionsLostBeforeConnection,
   markSessionsLostForNode,
 } from "@/services/ssh-runtime/session-registry.js";
 import { logger } from "@/utils/logger.js";
@@ -848,6 +849,19 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // facts are still on `conn.agent` for diagnosis (spec §6.4).
       const conn = ws.data.nodeConn ?? getLive(nodeId);
       if (conn) {
+        // A `ready` on this connection means the node's PRIOR link is gone:
+        // every session not brokered on THIS connection rode it, and the
+        // agent killed those children when the link died (the daemon's
+        // drain, review M1) - the plane must read them lost too. This is
+        // the convergence point for the close orderings the branch-1 arm
+        // cannot reach: a black-hole flap never lands a FIN, and the old
+        // socket's close arrives SUPERSEDED, whose branch deliberately
+        // touches no session (round-3 review MAJOR, design §6). The sweep
+        // compares connection IDENTITY, so a session brokered on this
+        // connection - even one opened in the attach-to-`ready` window -
+        // survives it, and a held outcome below loses the prior-link
+        // sessions all the same.
+        markSessionsLostBeforeConnection(nodeId, conn);
         conn.agent = {
           dataDir: event.dataDir,
           capabilities: event.capabilities,

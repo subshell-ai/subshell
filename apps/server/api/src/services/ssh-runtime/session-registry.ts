@@ -1,3 +1,4 @@
+import type { NodeConnection } from "@/services/nodes/node-registry.js";
 import { logger } from "@/utils/logger.js";
 import { matchCallbackPath } from "./callback-allowlist.js";
 import { executeCallbackAsPane } from "./callback-executor.js";
@@ -19,16 +20,31 @@ import type { SessionEventHooks, SshRuntimeSession } from "./session.js";
 
 const sessionsById = new Map<string, SshRuntimeSession>();
 const sessionIdsByRuntimeNode = new Map<string, string>();
+/**
+ * Which node-link CONNECTION brokered which live session (round-3 review
+ * MAJOR). The tag is the registry's own connection bookkeeping, kept here
+ * rather than on the session so the byte-channel class stays free of node-ws
+ * facts: a session without a tag never survives a sweep (only test fixtures
+ * register untagged; every production open passes the live record).
+ */
+const brokeredConnections = new Map<string, NodeConnection>();
 
-/** Register a session the service just opened (wires the event hooks in place). */
-export function registerSession(session: SshRuntimeSession): void {
+/**
+ * Register a session the service just opened (wires the event hooks in
+ * place). `brokeredOn` is the node's live connection the open RPC rode -
+ * the identity the ready-time sweep compares against to tell "rode the
+ * prior link" from "belongs to this one".
+ */
+export function registerSession(session: SshRuntimeSession, brokeredOn?: NodeConnection): void {
   sessionsById.set(session.id, session);
   sessionIdsByRuntimeNode.set(session.runtimeNodeId, session.id);
+  if (brokeredOn !== undefined) brokeredConnections.set(session.id, brokeredOn);
 }
 
 /** Drop a settled session (close/lost finalization; the row keeps the history). */
 export function unregisterSession(session: SshRuntimeSession): void {
   sessionsById.delete(session.id);
+  brokeredConnections.delete(session.id);
   if (sessionIdsByRuntimeNode.get(session.runtimeNodeId) === session.id) {
     sessionIdsByRuntimeNode.delete(session.runtimeNodeId);
   }
@@ -87,6 +103,29 @@ export function markSessionsLostForNode(connectingNodeId: string): void {
   }
 }
 
+/**
+ * The replacement link came up (`ready`): every session this node carries
+ * that was NOT brokered on `current` rode the prior link, and that link's
+ * death killed its children on the agent side (the daemon's drain, review
+ * M1) - the plane must say `lost` too, in every close ordering. The superseded
+ * close arm cannot say it (it must not touch the newer connection's business)
+ * and a black-hole flap never runs it at all, so this is its convergence
+ * point; the branch-1 close arm keeps marking all sessions directly, as the
+ * faster path when the FIN does arrive.
+ *
+ * The tag decides "before this connection" by IDENTITY, not by clock: a
+ * session brokered on `current` (an open whose RPC rode the new socket before
+ * its own `ready`) survives the sweep, and re-running it on a repeated
+ * `ready` costs an already-lost session nothing.
+ */
+export function markSessionsLostBeforeConnection(connectingNodeId: string, current: NodeConnection): void {
+  for (const session of sessionsById.values()) {
+    if (session.connectingNodeId !== connectingNodeId) continue;
+    if (brokeredConnections.get(session.id) === current) continue;
+    session.markLost("node-disconnected");
+  }
+}
+
 /** Every live session's id (the shutdown path's sweep; @internal for tests too). */
 export function allLiveSessionIds(): string[] {
   return [...sessionsById.keys()];
@@ -96,6 +135,7 @@ export function allLiveSessionIds(): string[] {
 export function resetSessionRegistryForTests(): void {
   sessionsById.clear();
   sessionIdsByRuntimeNode.clear();
+  brokeredConnections.clear();
 }
 
 /* ------------------------------------------------------------------ */

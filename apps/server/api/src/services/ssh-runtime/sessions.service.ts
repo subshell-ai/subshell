@@ -174,6 +174,14 @@ export async function openSession(
   });
 
   let openData: unknown;
+  // The connection tag (round-3 review MAJOR): captured in the SAME
+  // synchronous tick as `sendCommand` resolves its own target (it rejects
+  // outright if that changes before the frame is queued), so the tag names
+  // exactly the link the open RPC rode. When a later `ready` lands on a
+  // different connection, the sweep reads this tag and knows the session
+  // rode the link that died - and a session brokered on the live connection
+  // is never clobbered.
+  const brokeredOn = getLive(node.id);
   try {
     // The node's own open answer is bounded by its hello deadline (spawn +
     // probe + hello); the RPC must outlast it and not race it (the read
@@ -217,7 +225,7 @@ export async function openSession(
     hello: result.hello,
   });
   session.hooks = sessionHooks();
-  registerSession(session);
+  registerSession(session, brokeredOn);
   await sessionsRepo.settle(sessionId, "active", JSON.stringify(result.hello));
   await announceNodePresence(runtimeNodeId);
   await audit({
