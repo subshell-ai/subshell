@@ -1,8 +1,8 @@
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
-import { requireAdmin } from "@/api/auth-guard.js";
+import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { apiModels } from "@/schema/index.js";
-import { openSession, SshRuntimeRefusal } from "@/services/ssh-runtime/sessions.service.js";
+import { getPaneIdentityView, openSession, SshRuntimeRefusal } from "@/services/ssh-runtime/sessions.service.js";
 import {
   closeSession,
   getSessionView,
@@ -12,13 +12,17 @@ import {
 } from "@/services/ssh-runtime/sessions-lifecycle.js";
 
 /**
- * `/api/ssh-runtime/sessions` - the Gate A slice's plane endpoints (design
- * 2026-10-05 §4/§9): open, view, list, close, list dirs, launch terminal.
- * Cookie-admin only for the slice (`requireAdmin`: machine credentials are
- * refused at the guard): the UX (workstream U) will widen to "anyone may
- * open through their OWN node", which is what the service's real-ownership
- * gate already enforces underneath - the route is the slice's small door,
- * not the product's final one.
+ * `/api/ssh-runtime/sessions` - the personal Connect-over-SSH surface (design
+ * 2026-10-05 §1/§4/§7): open, view, list, close, list dirs, launch terminal,
+ * and the pane-identity read the terminal page draws its trusted line from.
+ *
+ * The auth is the product's, not the slice's: a signed-in HUMAN session, and
+ * within it only the owner's own rows and own nodes. `requireCookieActor`
+ * refuses every machine credential (bearer 403 on this family, no MCP door),
+ * and the ownership facts are the service's, stated once there: `openSession`
+ * requires the caller to really own the connecting node (foreign 404, no
+ * admin boost, no share), and every by-id verb reads through the owner's
+ * session - a foreign id and a gone id answer the same 404.
  *
  * The refusal mapping (module doc of the service states the equality rule):
  * `SshRuntimeRefusal.status` carries the HTTP code the service decided
@@ -115,54 +119,124 @@ const LaunchTerminalBodySchema = t.Object({
   rows: t.Optional(t.Number({ description: "Initial rows, when the opener knows one" })),
 });
 
+/** The 403 every machine credential gets on this family (no MCP door for this surface yet). */
+const HUMAN_ONLY = "SSH connections are managed from the browser by a signed-in person.";
+
+/**
+ * The pane page's trusted identity read (design §7): the destination facts
+ * and the connecting machine's NAME, resolved server-side from the rows.
+ * Never composed from anything the pane's output claims, and never from
+ * user text: the caller sends only the pane id they are already viewing.
+ */
+const PaneIdentityViewSchema = t.Object({
+  sessionId: t.String({ description: "The session that brokered this pane" }),
+  status: t.Union([t.Literal("opening"), t.Literal("active"), t.Literal("lost"), t.Literal("closed")], {
+    description:
+      "Session lifecycle (lost: the line still names the destination; the panes are unavailable, not completed)",
+  }),
+  alias: t.String({ description: "The config token chosen at review time" }),
+  host: t.String({ description: "Destination host as opened" }),
+  port: t.Number({ description: "Destination port as opened" }),
+  user: t.Nullable(t.String({ description: "Destination account; null = the connecting account's default" })),
+  connectingNodeName: t.Nullable(
+    t.String({ description: "The broker's machine name; null when that node row has since been deleted" }),
+  ),
+});
+
 export const sshRuntimeSessionsRoutes = new Elysia({ prefix: "/sessions" })
-  .use(requireAdmin)
+  .use(authGuard)
   .use(apiModels)
-  .post("/", async ({ body, user }) => await runtimeCall(() => openSession(user.id, body)), {
-    body: OpenBodySchema,
-    response: {
-      200: SessionViewSchema,
-      401: "ApiErrorResponse",
-      403: "ApiErrorResponse",
-      404: "ApiErrorResponse",
-      409: "ApiErrorResponse",
+  .post(
+    "/",
+    async ({ body, user, actor }) => {
+      requireCookieActor(actor, HUMAN_ONLY);
+      return await runtimeCall(() => openSession(user.id, body));
     },
-    detail: {
-      operationId: "sshRuntimeOpenSession",
-      tags: ["ssh-runtime"],
-      description:
-        "Open a brokered SSH runtime session through an owned node: probe the destination runtime, spawn the SSH child, and answer with the runtime hello (protocol mismatch and an absent runtime refuse by name)",
+    {
+      body: OpenBodySchema,
+      response: {
+        200: SessionViewSchema,
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "sshRuntimeOpenSession",
+        tags: ["ssh-runtime"],
+        description:
+          "Open a brokered SSH runtime session through an owned node: probe the destination runtime, spawn the SSH child, and answer with the runtime hello (protocol mismatch and an absent runtime refuse by name)",
+      },
     },
-  })
-  .get("/", async ({ user }) => ({ sessions: await runtimeCall(() => listSessions(user.id)) }), {
-    response: {
-      200: t.Object({ sessions: t.Array(SessionViewSchema, { description: "The caller's sessions, newest first" }) }),
-      401: "ApiErrorResponse",
-      403: "ApiErrorResponse",
+  )
+  .get(
+    "/",
+    async ({ user, actor }) => {
+      requireCookieActor(actor, HUMAN_ONLY);
+      return { sessions: await runtimeCall(() => listSessions(user.id)) };
     },
-    detail: {
-      operationId: "sshRuntimeListSessions",
-      tags: ["ssh-runtime"],
-      description: "The caller's session history",
+    {
+      response: {
+        200: t.Object({ sessions: t.Array(SessionViewSchema, { description: "The caller's sessions, newest first" }) }),
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "sshRuntimeListSessions",
+        tags: ["ssh-runtime"],
+        description: "The caller's session history",
+      },
     },
-  })
-  .get("/:id", async ({ params, user }) => await runtimeCall(() => getSessionView(params.id, user.id)), {
-    params: t.Object({ id: t.String({ description: "Session id" }) }),
-    response: {
-      200: SessionViewSchema,
-      401: "ApiErrorResponse",
-      403: "ApiErrorResponse",
-      404: "ApiErrorResponse",
+  )
+  .get(
+    "/by-pane/:subshellId",
+    async ({ params, user, actor }) => {
+      requireCookieActor(actor, HUMAN_ONLY);
+      return await runtimeCall(() => getPaneIdentityView(params.subshellId, user.id));
     },
-    detail: {
-      operationId: "sshRuntimeGetSession",
-      tags: ["ssh-runtime"],
-      description: "One session view (owner only)",
+    {
+      params: t.Object({
+        subshellId: t.String({ description: "Ordinary subshell id whose node is a runtime session" }),
+      }),
+      response: {
+        200: PaneIdentityViewSchema,
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "sshRuntimePaneIdentity",
+        tags: ["ssh-runtime"],
+        description:
+          "The trusted destination line for one pane opened through an SSH session (session owner only; an ordinary pane or a foreign row reads the same 404)",
+      },
     },
-  })
+  )
+  .get(
+    "/:id",
+    async ({ params, user, actor }) => {
+      requireCookieActor(actor, HUMAN_ONLY);
+      return await runtimeCall(() => getSessionView(params.id, user.id));
+    },
+    {
+      params: t.Object({ id: t.String({ description: "Session id" }) }),
+      response: {
+        200: SessionViewSchema,
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "sshRuntimeGetSession",
+        tags: ["ssh-runtime"],
+        description: "One session view (owner only)",
+      },
+    },
+  )
   .post(
     "/:id/close",
-    async ({ params, user }) => {
+    async ({ params, user, actor }) => {
+      requireCookieActor(actor, HUMAN_ONLY);
       await runtimeCall(() => closeSession(params.id, user.id));
       return { ok: true as const };
     },
@@ -187,7 +261,10 @@ export const sshRuntimeSessionsRoutes = new Elysia({ prefix: "/sessions" })
   )
   .post(
     "/:id/list-dirs",
-    async ({ params, body, user }) => await runtimeCall(() => sessionListDirs(params.id, user.id, body.path)),
+    async ({ params, body, user, actor }) => {
+      requireCookieActor(actor, HUMAN_ONLY);
+      return await runtimeCall(() => sessionListDirs(params.id, user.id, body.path));
+    },
     {
       params: t.Object({ id: t.String({ description: "Session id" }) }),
       body: ListDirsBodySchema,
@@ -219,7 +296,10 @@ export const sshRuntimeSessionsRoutes = new Elysia({ prefix: "/sessions" })
   )
   .post(
     "/:id/launch-terminal",
-    async ({ params, body, user }) => await runtimeCall(() => sessionLaunchTerminal(params.id, user.id, body)),
+    async ({ params, body, user, actor }) => {
+      requireCookieActor(actor, HUMAN_ONLY);
+      return await runtimeCall(() => sessionLaunchTerminal(params.id, user.id, body));
+    },
     {
       params: t.Object({ id: t.String({ description: "Session id" }) }),
       body: LaunchTerminalBodySchema,

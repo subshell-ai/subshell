@@ -7,6 +7,7 @@ import type { Terminal } from "@xterm/xterm";
 import { SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { SshRuntimePaneIdentity } from "@/components/connect/ssh-runtime-pane-identity";
 import { DetailBackHeader } from "@/components/detail-back-header";
 import { EditableText } from "@/components/editable-text";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
@@ -355,6 +356,10 @@ function SubshellPage() {
                     onControl={(mode) => void handleSshControl(mode)}
                   />
                 )}
+                {/* The trusted line for a pane launched through a Connect-over-SSH
+                    session (design §7): destination and broker, read from the
+                    server's rows by pane id. Renders nothing on an ordinary pane. */}
+                <SshRuntimePaneIdentity subshellId={id} />
                 {/* Permanent disclosure: whose machine this runs on, and who
                     else can read it. Never suppressible — see
                     components/trust-indicators.tsx. */}
