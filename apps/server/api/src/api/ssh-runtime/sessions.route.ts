@@ -405,13 +405,12 @@ export const sshRuntimeSessionsRoutes = new Elysia({ prefix: "/sessions" })
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
-        409: "ApiErrorResponse",
       },
       detail: {
         operationId: "sshRuntimeDetectHarnesses",
         tags: ["ssh-runtime"],
         description:
-          "Ask the destination runtime what harness binaries and env vars it has NOW, merge the answer into the cached mirror (a runtime predating detect refuses 409 with sshCode detect_unsupported)",
+          "Ask the destination runtime what harness binaries and env vars it has NOW, merge the answer into the cached mirror (a runtime predating detect refuses with sshCode detect_unsupported)",
       },
     },
   )
@@ -429,7 +428,6 @@ export const sshRuntimeSessionsRoutes = new Elysia({ prefix: "/sessions" })
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
-        409: "ApiErrorResponse",
       },
       detail: {
         operationId: "sshRuntimeLaunchHarness",

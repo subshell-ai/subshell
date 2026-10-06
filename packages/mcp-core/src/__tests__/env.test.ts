@@ -33,6 +33,39 @@ describe("readMcpEnv", () => {
     );
   });
 
+  it("a RELATIVE door is refused-as-unset, loudly, not resolved against the cwd (N-3)", () => {
+    const notes: string[] = [];
+    const orig = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      notes.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      // Keyless: the door cannot stand in for a key it never was.
+      expect(() =>
+        readMcpEnv({ SUBSHELL_ID: "s1", SUBSHELL_RUNTIME_CALLBACK_SOCK: "callbacks/s1.sock" } as NodeJS.ProcessEnv),
+      ).toThrow("SUBSHELL_API_KEY");
+      // With a key: the ordinary key-mode read, the door absent, and the
+      // stderr note names why the door was dropped.
+      const pane = readMcpEnv({
+        SUBSHELL_ID: "s1",
+        SUBSHELL_API_KEY: "k",
+        SUBSHELL_RUNTIME_CALLBACK_SOCK: "callbacks/s1.sock",
+      } as NodeJS.ProcessEnv);
+      expect(pane.callbackSock).toBeNull();
+      expect(pane.apiKey).toBe("k");
+      expect(notes.join("")).toContain("not an absolute path");
+    } finally {
+      process.stderr.write = orig;
+    }
+    // The absolute spelling still doors (the pair the review asked to pin).
+    const ok = readMcpEnv({
+      SUBSHELL_ID: "s1",
+      SUBSHELL_RUNTIME_CALLBACK_SOCK: "/srv/cb/s1.sock",
+    } as NodeJS.ProcessEnv);
+    expect(ok.callbackSock).toBe("/srv/cb/s1.sock");
+  });
+
   it("still requires the id in either mode", () => {
     expect(() =>
       readMcpEnv({ SUBSHELL_RUNTIME_CALLBACK_SOCK: "/s", SUBSHELL_API_KEY: "k" } as NodeJS.ProcessEnv),

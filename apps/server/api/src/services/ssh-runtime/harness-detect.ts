@@ -2,7 +2,13 @@ import { allHarnesses, type HarnessInventoryEntry } from "@internal/pane-runtime
 import { parseNodeDetectResults } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { detectEnvNames, detectSpecs, enabledEnvHarnesses, readAgentInventory } from "@/services/nodes/inventory.js";
+import {
+  detectEnvNames,
+  detectRowToEntry,
+  detectSpecs,
+  enabledEnvHarnesses,
+  readAgentInventory,
+} from "@/services/nodes/inventory.js";
 import { liveSessionForRuntimeNode } from "./session-registry.js";
 import { SshRuntimeSessionsRepository } from "./sessions.repository.js";
 import { SshRuntimeRefusal } from "./sessions.service.js";
@@ -180,21 +186,10 @@ export async function detectRuntimeSessionHarnesses(
   if (node === undefined) throw new SshRuntimeRefusal(404, "session not found");
   const stamp = new Date().toISOString();
   const merged = readAgentInventory(node).entries;
-  for (const row of answer.rows) {
-    const entry: HarnessInventoryEntry = {
-      harnessId: row.harnessId,
-      installed: row.installed,
-      checkedAt: row.checkedAt ?? stamp,
-    };
-    if (row.binaryPath) entry.binaryPath = row.binaryPath;
-    if (row.reason) entry.reason = row.reason;
-    if (row.rawVersion !== undefined) {
-      const harness = allHarnesses().find((h) => h.id === row.harnessId);
-      const version = harness?.parseVersion ? harness.parseVersion(row.rawVersion) : row.rawVersion;
-      if (version) entry.version = version;
-    }
-    merged.set(row.harnessId, entry);
-  }
+  // The node-link's OWN row->entry mapping (M-3: one function, two mirrors -
+  // the runtime's answer merges exactly like an agent's, including the
+  // plugin-parsed-version rule).
+  for (const row of answer.rows) merged.set(row.harnessId, detectRowToEntry(row, stamp));
   await nodesRepo.applyInventory(session.runtimeNodeId, JSON.stringify([...merged.values()]));
   session.harnessEnv = answer.env;
   return await buildView(sessionId, session.runtimeNodeId, harnessIds);

@@ -359,8 +359,14 @@ export async function enabledEnvHarnesses(): Promise<HarnessPlugin[]> {
  * not interpret (it holds no plugin code), and this process, which does,
  * interprets it. A parser-less plugin (or one this build never heard of) keeps
  * the raw text — a banner still beats dropping the only version fact.
+ *
+ * Exported for `ssh-runtime/harness-detect.ts` (M-3 dedup): the runtime's
+ * detect answer is the SAME wire rows and gets the SAME merge, from the one
+ * function — `getHarness` and `allHarnesses()` resolve identically (built-ins
+ * answer first, the shadow rule), so the runtime mirror cannot drift a second
+ * mapping.
  */
-function detectRowToEntry(row: DetectResultWire, stamp: string): HarnessInventoryEntry {
+export function detectRowToEntry(row: DetectResultWire, stamp: string): HarnessInventoryEntry {
   const entry: HarnessInventoryEntry = {
     harnessId: row.harnessId,
     installed: row.installed,

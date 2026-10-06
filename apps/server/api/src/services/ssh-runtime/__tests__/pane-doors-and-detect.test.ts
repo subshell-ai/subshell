@@ -14,8 +14,24 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { NODE_KIND_RUNTIME } from "@/db/types/nodes.db-types.js";
+import * as mcpLaunch from "@/services/mcp-launch.js";
 import * as nodeRpc from "@/services/nodes/node-rpc.js";
 import { revokeSubshellToken } from "@/services/subshell-tokens.js";
+
+/**
+ * The REAL node-rpc exports, spread at MODULE-EVAL time - before any
+ * `mock.module` has run. bun's `mock.module` mutates the live namespace, so
+ * spreading it back in `afterAll` re-installs the mock (the leak this pattern
+ * caused: the sibling `api/ssh-runtime` suite then answered every scripted
+ * command with this file's capture, i.e. NODE_UNREACHABLE "malformed
+ * payload"). Snapshot once, mock FROM the snapshot, restore TO the snapshot;
+ * the `afterAll` identity assertion pins the restore itself. Same posture as
+ * the `enroll-route.test.ts` constants snapshot.
+ */
+const realNodeRpc = { ...nodeRpc };
+/** The mcp-launch snapshot for the M-2 dialect-throw test's `mock.module` (same restore discipline as above). */
+const realMcpLaunch = { ...mcpLaunch };
+
 import { detectRuntimeSessionHarnesses, sessionHarnesses } from "../harness-detect.js";
 import { RuntimeSessionLauncher } from "../runtime-session-launcher.js";
 import { RUNTIME_PANE_BASE_URL, SshRuntimeSession } from "../session.js";
@@ -131,7 +147,7 @@ beforeAll(async () => {
     role: "user",
   });
   mock.module("@/services/nodes/node-rpc.js", () => ({
-    ...nodeRpc,
+    ...realNodeRpc,
     sendCommand: async (nodeId: string, cmd: Captured["cmd"]) => {
       const entry: Captured = { nodeId, cmd };
       if (cmd.type === "ssh_session_send" && pumpTarget !== undefined) {
@@ -161,7 +177,12 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  mock.module("@/services/nodes/node-rpc.js", () => ({ ...nodeRpc }));
+  mock.module("@/services/nodes/node-rpc.js", () => realNodeRpc);
+  // The isolation pin: bun's mock.module mutates the LIVE namespace, so this
+  // identity check fails exactly on the leak pattern (spreading the
+  // already-mocked namespace re-installs the mock; the sibling suite then
+  // dials the capture broker instead of the scripted node).
+  expect(nodeRpc.sendCommand).toBe(realNodeRpc.sendCommand);
   resetSessionRegistryForTests();
   // Take the session ROWS with us: an unsettled `active` row outlives the
   // file and joins the next file's boot-sweep census (the stale-row hygiene
@@ -389,6 +410,40 @@ describe("launch-harness (the real service path, credential scan)", () => {
     const wire = JSON.stringify([captured.map((c) => c.inner)]);
     expect(wire).not.toContain(token);
     expect(wire).not.toContain("SUBSHELL_API_KEY");
+  });
+
+  test("a throwing MCP dialect unrolls row + token + registration (M-2: compose is inside the guarded scope)", async () => {
+    const session = await mkSession();
+    pumpTarget = session;
+    captured.length = 0;
+    let composedId = "";
+    mock.module("@/services/mcp-launch.js", () => ({
+      ...realMcpLaunch,
+      planRemoteSubshellMcp: (_harness: unknown, subshellId: string, _facts: unknown) => {
+        composedId = subshellId; // the row and the token exist at this point (the order is the test)
+        throw new Error("mcp dialect exploded (plugin bug)");
+      },
+    }));
+    try {
+      await expect(
+        sessionLaunchHarness(session.id, userId, { harnessId: "claude-code", cwd: "/home/dst/work" }),
+      ).rejects.toThrow("mcp dialect exploded");
+      expect(composedId, "the compose runs after the row+token+registration (compose-then-send order holds)").not.toBe(
+        "",
+      );
+      // The unroll, asserted at every door the failed launch left: the pane
+      // registration is gone, and the row is gone with it. Before the fix the
+      // compose ran OUTSIDE the try and all three outlived the throw.
+      expect(session.paneIds()).not.toContain(composedId);
+      expect(session.paneToken(composedId)).toBeUndefined();
+      const row = await subshellsRepo.findById(composedId);
+      expect(row).toBeUndefined();
+      // Nothing crossed to the node: the dialect died before the frame.
+      expect(captured.length).toBe(0);
+    } finally {
+      mock.module("@/services/mcp-launch.js", () => realMcpLaunch);
+      expect(mcpLaunch.planRemoteSubshellMcp).toBe(realMcpLaunch.planRemoteSubshellMcp);
+    }
   });
 
   test("input guards refuse BEFORE any row is written (unknown harness, foreign preset, mismatch)", async () => {

@@ -235,17 +235,21 @@ export async function sessionLaunchHarness(
     throw err;
   }
   session.registerPane(id, token);
-  // The registration and the hook command compose against the HELLO facts,
-  // not the node registry: a runtime's dataDir and self-invoke come from its
-  // own hello (task 25's field), exactly as an agent's come from its ready
-  // frame. Nothing here touches disk on the plane.
-  const planned = planRemoteSubshellMcp(harness, id, {
-    dataDir: session.hello.dataDir,
-    selfInvoke: session.hello.selfInvoke,
-  });
-  const reporter = nodeSelfInvoke({ selfInvoke: session.hello.selfInvoke }, "report");
   const launcher = new RuntimeSessionLauncher(session);
   try {
+    // The registration and the hook command compose against the HELLO facts,
+    // not the node registry: a runtime's dataDir and self-invoke come from its
+    // own hello (task 25's field), exactly as an agent's come from its ready
+    // frame. Nothing here touches disk on the plane. They run INSIDE the
+    // guarded scope (M-2): `planRemoteSubshellMcp` executes the harness
+    // plugin's `mcpRegistration` dialect, and a throwing dialect must unroll
+    // the row, the token, and the registration exactly like a failed send -
+    // never orphan them as a pane that can never launch.
+    const planned = planRemoteSubshellMcp(harness, id, {
+      dataDir: session.hello.dataDir,
+      selfInvoke: session.hello.selfInvoke,
+    });
+    const reporter = nodeSelfInvoke({ selfInvoke: session.hello.selfInvoke }, "report");
     await launcher.launch({
       id,
       socket,

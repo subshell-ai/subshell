@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -17,6 +17,13 @@ import { runRuntimeCommand } from "../dispatch.js";
  */
 
 const dataDir = mkdtempSync(join(tmpdir(), "subshell-dispatch-"));
+
+// The temp dir is LIVE while the tests run: bun evaluates the whole file
+// before executing any test, so a top-level `rmSync` at the foot of the file
+// deleted it before the first test started. Cleanup belongs in `afterAll`.
+afterAll(() => {
+  rmSync(dataDir, { recursive: true, force: true });
+});
 
 function makeCtx(): CommandContext {
   const config: NodeConfig = {
@@ -87,5 +94,3 @@ describe("runtime dispatch: named refusals unchanged", () => {
     expect(result).toEqual({ ok: false, error: "unsupported" });
   });
 });
-
-rmSync(dataDir, { recursive: true, force: true });

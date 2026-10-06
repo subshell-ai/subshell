@@ -183,7 +183,7 @@ export type SshRuntimeHelloWire = {
   /**
    * How the runtime re-enters its OWN binary (the `ready` frame's `selfInvoke`
    * fact, same shape, prefix WITHOUT a subcommand). The plane appends `mcp` to
-   * compose a pane's MCP registration and `report` to compose its hooks — the
+   * compose a pane's MCP registration and `report` to compose its hooks: the
    * agent's exact pattern; the runtime simply reports it over the session
    * channel instead of the node link. Absent = a runtime that predates the
    * field, and the plane falls back to the binary's name on PATH (`subshell`),
@@ -310,7 +310,7 @@ export type SshRuntimeEventFrame =
    * accepted the connection on that pane's OWN callback door
    * (`<dataDir>/callbacks/<paneId>.sock`, named in the pane's
    * `SUBSHELL_RUNTIME_CALLBACK_SOCK` at launch), and the plane executes the
-   * request as exactly that pane's token — no credential ever crossed the
+   * request as exactly that pane's token; no credential ever crossed the
    * wire to make the identification. Absent = the shared door
    * (`<dataDir>/callback.sock`, the slice's manual-curl surface), where the
    * plane's rule is the slice's: resolvable only for a one-pane session.

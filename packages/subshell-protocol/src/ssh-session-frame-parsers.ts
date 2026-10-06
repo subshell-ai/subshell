@@ -319,7 +319,7 @@ export function parseSshRuntimeCommandFrame(value: unknown): SshRuntimeCommandFr
       // deep grammar is `parseNodeCommandBody`'s detect arm and the runtime
       // re-runs it before the executor sees anything (one grammar, checked
       // where it is executed). `envNames` is a plain string array here because
-      // the SAME rule the node link's arm applies is shape, not semantics —
+      // the SAME rule the node link's arm applies is shape, not semantics:
       // the executor only reads process.env at these names.
       if (!isSshSessionRef(value.ref) || !Array.isArray(value.specs) || !isStrArray(value.envNames)) return null;
       return {

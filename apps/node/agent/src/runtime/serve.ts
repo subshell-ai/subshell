@@ -190,6 +190,12 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
   startStdinReader(
     (raw) => {
       const refForError = extractRef(raw);
+      // Hoisted above the chain so the `.catch` sees it too: a launch whose
+      // executor THREW (not just refused) opened its door at the dispatch
+      // line below, and the throw path must roll it back exactly like the
+      // `ok:false` arm (M-1 - before, the door outlived a pane that never
+      // existed).
+      let paneIdForLaunch: string | null = null;
       chain = chain
         .then(async () => {
           const frame = parseSshRuntimeCommandFrame(raw);
@@ -219,7 +225,7 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
           // The pane door opens BEFORE the spawn (design §5's contract is that
           // the pane's first callback can arrive as soon as its harness is
           // up); a refused launch rolls it back with the pane.
-          const paneIdForLaunch = frame.type === "launch" ? frame.cmd.subshellId : null;
+          paneIdForLaunch = frame.type === "launch" ? frame.cmd.subshellId : null;
           if (paneIdForLaunch !== null) await doors.ensurePane(paneIdForLaunch);
           const result = await runRuntimeCommand(ctx, input.tmuxSocket, frame);
           if (result.ok) {
@@ -235,10 +241,14 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
             writer.writeFrame({ type: "result", ref: frame.ref, ok: false, error: result.error });
           }
         })
-        .catch((err: unknown) => {
+        .catch(async (err: unknown) => {
           // One executor throwing must not silently stall the chain; answer
           // and keep going, exactly like dispatchCommand's TOTAL wrapper.
+          // And the launch rollback the `ok:false` arm performs belongs here
+          // too: the door opened before dispatch, so the throwing arm may
+          // not leave it standing over a pane that never spawned (M-1).
           diag(`runtime: command threw: ${err instanceof Error ? err.message : String(err)}`);
+          if (paneIdForLaunch !== null) await doors.dropPane(paneIdForLaunch).catch(() => {});
           if (refForError !== null)
             writer.writeFrame({ type: "result", ref: refForError, ok: false, error: "runtime-command-failed" });
         });

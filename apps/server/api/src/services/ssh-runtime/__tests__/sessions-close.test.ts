@@ -19,6 +19,16 @@ import {
 } from "@/services/nodes/launcher-registry.js";
 import * as nodeRpc from "@/services/nodes/node-rpc.js";
 import { RuntimeSessionLauncher } from "../runtime-session-launcher.js";
+
+/**
+ * The REAL node-rpc exports, spread at MODULE-EVAL time (before any
+ * `mock.module`). bun's `mock.module` mutates the live namespace, so the
+ * old `() => ({ ...nodeRpc })` restore re-installed this file's capture mock
+ * and leaked it across files in a shared serial process - the sibling
+ * `pane-doors-and-detect.test.ts` header states the full mechanism.
+ */
+const realNodeRpc = { ...nodeRpc };
+
 import { SshRuntimeSession } from "../session.js";
 import { registerSession, resetSessionRegistryForTests, sessionHooks } from "../session-registry.js";
 import { SshRuntimeSessionsRepository } from "../sessions.repository.js";
@@ -135,7 +145,7 @@ beforeAll(async () => {
     role: "user",
   });
   mock.module("@/services/nodes/node-rpc.js", () => ({
-    ...nodeRpc,
+    ...realNodeRpc,
     sendCommand: async (nodeId: string, cmd: Captured["cmd"]) => {
       captured.push({ nodeId, cmd });
       if (cmd.type === "ssh_session_send" && pumpTarget !== undefined) {
@@ -152,7 +162,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  mock.module("@/services/nodes/node-rpc.js", () => ({ ...nodeRpc }));
+  mock.module("@/services/nodes/node-rpc.js", () => realNodeRpc);
+  // The isolation pin (identity check fails exactly on the leak pattern; the
+  // `pane-doors-and-detect.test.ts` header states the mechanism).
+  expect(nodeRpc.sendCommand).toBe(realNodeRpc.sendCommand);
   resetSessionRegistryForTests();
   resetLauncherRegistryForTests();
   for (const id of cleanupNodes) {

@@ -55,7 +55,18 @@ export function readMcpEnv(env: NodeJS.ProcessEnv = process.env): McpEnv {
   // stays the pre-door sentence so every non-runtime pane's failure reads
   // exactly as it did before this field existed.
   const rawSock = env.SUBSHELL_RUNTIME_CALLBACK_SOCK;
-  const callbackSock = rawSock !== undefined && rawSock.trim() !== "" ? rawSock.trim() : null;
+  let callbackSock = rawSock !== undefined && rawSock.trim() !== "" ? rawSock.trim() : null;
+  // A door is an absolute filesystem path (the plane composes it from the
+  // runtime's `hello.dataDir`). A relative value cannot be what was meant:
+  // it would resolve against the harness's cwd, which the pane env never
+  // composes. Treat it as NO door (the key-required path, loud on stderr)
+  // rather than dialing some other path beside the user's project.
+  if (callbackSock !== null && !callbackSock.startsWith("/")) {
+    process.stderr.write(
+      `subshell mcp: ignoring SUBSHELL_RUNTIME_CALLBACK_SOCK "${callbackSock}" (not an absolute path); requiring SUBSHELL_API_KEY\n`,
+    );
+    callbackSock = null;
+  }
   if (!apiKey && callbackSock === null) throw new Error("subshell mcp: SUBSHELL_API_KEY is not set");
   if (!subshellId) throw new Error("subshell mcp: SUBSHELL_ID is not set");
   return {
