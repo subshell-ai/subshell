@@ -1,4 +1,4 @@
-import { getSshSessionSupervisor } from "@internal/pane-runtime";
+import { getSshSessionSupervisor, peekSshSessionSupervisor } from "@internal/pane-runtime";
 import {
   isSshSessionRef,
   type JsonValue,
@@ -125,6 +125,34 @@ export async function execSshSessionOpen(ctx: CommandContext, cmd: Cmd<"ssh_sess
   const validated = parseNodeSshSessionOpenResult(outcome.result as unknown as SshSessionOpenResultWire);
   if (validated === null) return { ok: false, error: "malformed session open result" };
   return { ok: true, data: validated as unknown as JsonValue };
+}
+
+/**
+ * Drain every brokered session this process supervises for `dataDir`
+ * (review M1). The daemon's link-close path calls it, and the reason is the
+ * PLANE's semantics, not a leak cleanup: a link close is terminal for the
+ * sessions riding it (`markSessionsLostForNode` - design §6: a lost session
+ * is never resumable), so a child that outlives the socket is an orphan
+ * holding a quota slot AND the destination-deterministic callback door every
+ * future open to that `host:port:user` needs. Each ref goes through the
+ * supervisor's own `close`: `closed` recorded first (the death on the way
+ * down is then never reported as a loss through a socket that could not
+ * deliver it anyway - the `emitBytes` catch is the only self-heal this
+ * transport had, and `commandWs.send` swallows into a log line while no
+ * socket is attached, so an idle session could never fire it), then the
+ * GROUP dies. The destination's tmux server and its panes are untouched (the
+ * runtime-serve's own shutdown stops tails and doors only, design §6); the
+ * door paths free with the serve, so the next open can bind. Never BUILDS a
+ * supervisor: a node that never brokered pays nothing here.
+ *
+ * @returns how many sessions were drained (0 is the common no-SSH answer)
+ */
+export function drainBrokeredSessions(dataDir: string): number {
+  const sup = peekSshSessionSupervisor(dataDir);
+  if (sup === undefined) return 0;
+  const refs = sup.liveRefs();
+  for (const ref of refs) sup.close(ref);
+  return refs.length;
 }
 
 /** Execute `ssh_session_send`: one base64 write to the child's stdin. */

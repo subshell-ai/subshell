@@ -17,6 +17,7 @@ import { backoffDelay } from "./backoff.js";
 import type { CommandContext, CommandResult, CommandWs } from "./commands/context.js";
 import { dispatchCommand } from "./commands/index.js";
 import { buildSubshellsReport, maybeReportMaintenance, seedMaintenanceMemo } from "./commands/report.js";
+import { drainBrokeredSessions } from "./commands/ssh-session.js";
 import { stopAllTails } from "./commands/tail.js";
 import { sweepStaleTransfers } from "./commands/transfer-sweep.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
@@ -918,6 +919,16 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // the reconnect loop dials again (the control plane re-`tail_start`s
         // on the new connection with its own cursors; spec §3.4).
         stopAllTails(ctx);
+        // The same rule one layer deeper (review M1): a link close is
+        // TERMINAL for the brokered SSH sessions riding it - the plane marks
+        // them lost and never resumes them - so a child that outlives this
+        // socket is an orphan holding a quota slot and the destination's
+        // callback door for every future open there. Drain them through the
+        // supervisor's own close (group-kill; the destination's tmux and
+        // panes stay up for the next session's census - design §6). A node
+        // that never brokered pays nothing: this never builds a supervisor.
+        const drained = drainBrokeredSessions(config.dataDir);
+        if (drained > 0) log(`link closed: drained ${drained} brokered SSH session(s)`);
         resolve(close);
       };
       // The per-socket link negotiator (spec 2026-09-24). It owns the wire

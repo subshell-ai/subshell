@@ -13,9 +13,10 @@ import {
 } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { TmuxRunner } from "@internal/pane-runtime";
+import { peekSshSessionSupervisor, type TmuxRunner } from "@internal/pane-runtime";
 import {
   type ControlKeyPair,
+  encodeSshSessionFrame,
   generateControlKeys,
   HARNESS_BINARY_PLACEHOLDER,
   NODE_CLOSE_HANDSHAKE_REQUIRED,
@@ -26,6 +27,7 @@ import {
   type NodeEvent,
   type NodeRuntimeReport,
   parseNodeEvent,
+  SSH_RUNTIME_PROTOCOL,
   signCommand,
 } from "@internal/subshell-protocol";
 import {
@@ -2179,6 +2181,151 @@ test("socket close stops every live tail: no output into the dead ws, none resur
     rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+/* ------------------------------------------------------------------ */
+/* Review M1: a link flap reclaims the brokered SSH children           */
+/* ------------------------------------------------------------------ */
+
+test("link close drains the brokered-session supervisor: the child goes, no loss spam, a later open lands", async () => {
+  // The shape the e2e cannot drive: the AGENT SURVIVES and only the link
+  // drops. Plane-side that close is terminal for every session the node
+  // brokered (`markSessionsLostForNode` - design §6: a lost session is never
+  // resumable), so a brokered child that outlives it is an orphan: it holds
+  // a supervisor quota slot and the destination-deterministic callback door
+  // that every future open to that `host:port:user` needs. The daemon's
+  // link-close path therefore drains the SSH-session supervisor exactly like
+  // it stops the tails (the plane-side child-death test lives in e2e 22;
+  // the destination's tmux and panes stay up by the serve's own shutdown,
+  // which is the adoption contract §6 re-adopts from).
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-daemon-drain-"));
+  const root = mkdtempSync(join(tmpdir(), "subshell-daemon-drain-fake-"));
+  const helloFile = join(root, "hello.bin");
+  writeFileSync(
+    helloFile,
+    encodeSshSessionFrame({
+      type: "hello",
+      runtimeProtocol: SSH_RUNTIME_PROTOCOL,
+      agentVersion: "9.9.9-drain",
+      os: "linux",
+      arch: "x64",
+      capabilities: ["ssh-runtime", "callback-sock"],
+      homeDir: "/home/dst",
+      dataDir: "/home/dst/.local/share/subshell/runtime",
+      tmuxSocket: "subshell-ssh-drain00000",
+      paneCount: 0,
+    }),
+  );
+  const pidsLog = join(root, "serve-pids.log");
+  const fakeSsh = join(root, "ssh");
+  writeFileSync(
+    fakeSsh,
+    [
+      "#!/bin/sh",
+      `case "$*" in`,
+      `  *"command -v"*) printf '/usr/bin/subshell\\n'; exit 0 ;;`,
+      `esac`,
+      `case "$*" in`,
+      `  *"runtime-serve"*)`,
+      `    printf "%s\\n" "$$" >> '${pidsLog}'`,
+      `    cat '${helloFile}'`,
+      `    exec sleep 300`,
+      `    ;;`,
+      `esac`,
+      `exit 1`,
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  chmodSync(fakeSsh, 0o755);
+  const prevSsh = process.env.SUBSHELL_SSH_PATH;
+  const prevHome = process.env.HOME;
+  process.env.SUBSHELL_SSH_PATH = fakeSsh; // the operator seam the executor's ladder reads first
+  process.env.HOME = join(root, "home"); // the connecting home, away from the developer's
+  const target = { alias: "drain", host: "127.0.0.1", port: 22, user: null, identityFile: null } as const;
+  const pidAlive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const servePids = (): number[] => {
+    try {
+      return readFileSync(pidsLog, "utf8")
+        .split("\n")
+        .filter((l) => l !== "")
+        .map(Number);
+    } catch {
+      return [];
+    }
+  };
+  try {
+    const h = await startDaemon({ config: { dataDir } });
+    const ref = crypto.randomUUID();
+    await signAndSend(h, { type: "ssh_session_open", ref, target }, { jti: "drain-1", seq: 1 });
+    // The node-link `result` correlates by the command's JTI (the RPC id),
+    // not the session ref inside the body - the same posture the plane's own
+    // open RPC rides.
+    const opened = await waitFor<Extract<NodeEvent, { type: "result" }>>(
+      h,
+      (e) => e.type === "result" && e.ref === "drain-1",
+      "session open result",
+      10_000,
+    );
+    expect(opened.ok).toBe(true);
+    await waitUntil(() => servePids().length === 1, "the fake ssh child to record its pid");
+    const childPid = servePids()[0] as number;
+    expect(Number.isInteger(childPid)).toBe(true); // the recorded pid is the serve's own
+    expect(pidAlive(childPid), "the brokered child lives under the open link").toBe(true);
+    expect(peekSshSessionSupervisor(dataDir)?.liveRefs()).toEqual([ref]);
+
+    // THE FLAP: the socket dies, the agent does not (the tail test above is
+    // the same gesture; the SSH supervisor never had it).
+    closeAllSockets(h.plane, 1001, "server restart");
+
+    // The drain: the child's GROUP is gone and the supervisor's live map
+    // freed it, with the reconnect already underway.
+    await waitUntil(() => !pidAlive(childPid), "the brokered child to die with the link (review M1)");
+    await waitUntil(() => (peekSshSessionSupervisor(dataDir)?.liveRefs().length ?? 0) === 0, "live map to drain");
+
+    // ...and the reconnect's `ready` proves the loop is back:
+    await waitFor(h, () => h.plane.events.filter((e) => e.type === "ready").length >= 2, "reconnect ready");
+    // No loss spam: the drain closes (`stopping` latch), it does not report.
+    expect(eventsAs(h, "error").filter((e) => e.code === "ssh_session_lost")).toEqual([]);
+
+    // A LATER open to the same destination lands over the reclaimed
+    // supervisor - the quota slot and the destination door are free (the
+    // destination-side door release itself is e2e 22's reopen cell).
+    const ref2 = crypto.randomUUID();
+    await signAndSend(h, { type: "ssh_session_open", ref: ref2, target }, { jti: "drain-2", seq: 1 });
+    const opened2 = await waitFor<Extract<NodeEvent, { type: "result" }>>(
+      h,
+      (e) => e.type === "result" && e.ref === "drain-2",
+      "second session open result",
+      10_000,
+    );
+    expect(opened2.ok).toBe(true);
+    expect(peekSshSessionSupervisor(dataDir)?.liveRefs()).toEqual([ref2]);
+    peekSshSessionSupervisor(dataDir)?.close(ref2);
+    await waitUntil(() => !pidAlive((servePids()[1] as number) ?? -1), "the second child to die on close", 4000);
+  } finally {
+    // Leave no fake child behind regardless of how the asserts landed.
+    for (const pid of servePids()) {
+      try {
+        process.kill(-pid, "SIGKILL"); // the whole fake-serve group, if it is still up
+      } catch {
+        /* already gone */
+      }
+    }
+    if (prevSsh === undefined) delete process.env.SUBSHELL_SSH_PATH;
+    else process.env.SUBSHELL_SSH_PATH = prevSsh;
+    if (prevHome === undefined) delete process.env.HOME;
+    else process.env.HOME = prevHome;
+    rmSync(dataDir, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
 
 describe("4406 refusal message", () => {
   // The floor exists so an operator can ACT on the refusal, and this line is
