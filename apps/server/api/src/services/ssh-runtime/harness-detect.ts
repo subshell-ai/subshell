@@ -33,6 +33,8 @@ import { requireOwnedSession } from "./sessions-lifecycle.js";
 export interface RuntimeHarnessEntryView {
   /** The harness plugin id (the detect spec's `id`). */
   harnessId: string;
+  /** The harness's display name from the plane's own manifest (the id itself when the plugin is unknown to this build - the mirror can outlive a disable). */
+  harnessName: string;
   /** The destination's binary answer: found and executable there. */
   installed: boolean;
   /** Resolved binary path when installed (null otherwise or unreadable). */
@@ -62,9 +64,15 @@ export interface RuntimeSessionHarnessesView {
 const nodesRepo = new NodesRepository(db);
 const sessionsRepo = new SshRuntimeSessionsRepository(db);
 
+/** Display names resolve against the plane's own plugin set; an unknown id renders its id (the mirror can outlive a plugin disable). */
+function harnessDisplayName(harnessId: string): string {
+  return allHarnesses().find((h) => h.id === harnessId)?.name ?? harnessId;
+}
+
 function toEntryView(entry: HarnessInventoryEntry): RuntimeHarnessEntryView {
   return {
     harnessId: entry.harnessId,
+    harnessName: harnessDisplayName(entry.harnessId),
     installed: entry.installed,
     binaryPath: entry.binaryPath ?? null,
     rawVersion: entry.version ?? null,

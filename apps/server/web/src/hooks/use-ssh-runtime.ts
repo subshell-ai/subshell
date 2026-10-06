@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 import {
   type SshRuntimeDiscoveryView,
+  type SshRuntimeHarnessesView,
   type SshRuntimeListDirsResult,
   type SshRuntimePaneIdentity,
   type SshRuntimeResolveView,
@@ -110,6 +111,57 @@ export function useSshLaunchTerminal() {
           cwd: body.cwd,
           ...(body.cols !== undefined ? { cols: body.cols } : {}),
           ...(body.rows !== undefined ? { rows: body.rows } : {}),
+        }),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: SSH_SESSIONS_QUERY_KEY });
+    },
+  });
+}
+
+/** The harnesses mirror's key, per session. */
+export const SSH_HARNESS_QUERY_KEY = (sessionId: string) => ["ssh-runtime-harnesses", sessionId] as const;
+
+/**
+ * The cached harness mirror for one session (a pure row read: works offline,
+ * never a round trip - the detect mutation below is what asks the machine).
+ */
+export function useSshSessionHarnesses(sessionId: string | null) {
+  return useQuery({
+    queryKey: SSH_HARNESS_QUERY_KEY(sessionId ?? ""),
+    queryFn: () => sshRuntimeFetch<SshRuntimeHarnessesView>(`/api/ssh-runtime/sessions/${sessionId}/harnesses`),
+    enabled: sessionId !== null && sessionId !== "",
+    retry: false,
+  });
+}
+
+/** Ask the destination what is installed NOW; the answer lands in the cached query. */
+export function useSshDetectHarnesses(sessionId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (harnessIds?: string[]) =>
+      sshRuntimeFetch<SshRuntimeHarnessesView>(`/api/ssh-runtime/sessions/${sessionId}/harnesses/detect`, {
+        method: "POST",
+        body: JSON.stringify(harnessIds ? { harnessIds } : {}),
+      }),
+    onSuccess: (view) => {
+      queryClient.setQueryData(SSH_HARNESS_QUERY_KEY(sessionId), view);
+    },
+  });
+}
+
+/** Launch a harness (optionally a preset) on a live session; the rail's list learns the new row. */
+export function useSshLaunchHarness() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { sessionId: string; harnessId: string; presetId?: string | null; cwd: string }) =>
+      sshRuntimeFetch<{ subshellId: string }>(`/api/ssh-runtime/sessions/${body.sessionId}/launch-harness`, {
+        method: "POST",
+        body: JSON.stringify({
+          harnessId: body.harnessId,
+          ...(body.presetId !== undefined && body.presetId !== null ? { presetId: body.presetId } : {}),
+          cwd: body.cwd,
         }),
       }),
     onSuccess: () => {

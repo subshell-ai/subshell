@@ -7,11 +7,13 @@ import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/
 import { sshRuntimeRoutes } from "@/api/ssh-runtime/index.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
+import { SshRuntimeSessionsRepository } from "@/services/ssh-runtime/sessions.repository.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { attachScriptedNode, type ScriptedNode } from "@/test-helpers/scripted-node.js";
 
@@ -259,6 +261,126 @@ describe("the member-owner door (the widening)", () => {
   }, 20_000);
 });
 
+describe("the harnesses family (cached mirror, detect, preset launch)", () => {
+  let liveSessionId = "";
+  let claudePresetId = "";
+
+  beforeAll(async () => {
+    const opened = await post("/api/ssh-runtime/sessions", openBody(), { cookie: memberCookie });
+    expect(opened.status, JSON.stringify(opened.body)).toBe(200);
+    const view = opened.body as unknown as { id: string; runtimeNodeId: string };
+    liveSessionId = view.id;
+    cleanup.push(view.runtimeNodeId);
+    const preset = await new PresetsRepository(db).create({
+      id: crypto.randomUUID(), // the repository does not mint ids; the create route does
+      userId: memberId,
+      harnessId: "claude-code",
+      name: `rt-preset-${crypto.randomUUID().slice(0, 8)}`,
+      description: null,
+      envJson: JSON.stringify({ ANTHROPIC_MODEL: "route-test-model" }),
+      flagsJson: JSON.stringify([]),
+      settingsJson: null,
+      configIsolation: 0,
+    });
+    claudePresetId = preset.id;
+  }, 20_000);
+
+  // The close rides the 15 s command deadline against the scripted node (the
+  // sibling tests budget the same); the hook default would time it out.
+  afterAll(async () => {
+    if (liveSessionId !== "")
+      await post(`/api/ssh-runtime/sessions/${liveSessionId}/close`, {}, { cookie: memberCookie });
+    if (claudePresetId !== "")
+      await db
+        .deleteFrom("presets")
+        .where("id", "=", claudePresetId)
+        .execute()
+        .catch(() => {});
+  }, 30_000);
+
+  it("owner reads the cached mirror (empty on a fresh destination, online true)", async () => {
+    const res = await get(`/api/ssh-runtime/sessions/${liveSessionId}/harnesses`, { cookie: memberCookie });
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
+    expect(res.body.sessionId).toBe(liveSessionId);
+    expect(res.body.online).toBe(true);
+    expect(res.body.harnesses).toEqual([]);
+    expect(res.body.env).toEqual({});
+  });
+
+  it("detect names its refusal: a runtime without the capability answers 409 detect_unsupported", async () => {
+    const res = await post(`/api/ssh-runtime/sessions/${liveSessionId}/harnesses/detect`, {}, { cookie: memberCookie });
+    // The service refuses 409 (the capability fact); the house SSH-refusal
+    // convention renders destination refusals on the wire as 403 with the
+    // named sshCode (spec 23 pins the same shape for runtime_missing).
+    expect(res.status, JSON.stringify(res.body)).toBe(403);
+    expect(res.body.metadataSafe).toEqual({ sshCode: "detect_unsupported" });
+  });
+
+  it("launch-harness refuses bad input BEFORE any row is written (unknown harness 409, foreign preset 404, mismatch 409)", async () => {
+    const unknown = await post(
+      `/api/ssh-runtime/sessions/${liveSessionId}/launch-harness`,
+      { harnessId: "not-a-harness", cwd: "/home/x" },
+      { cookie: memberCookie },
+    );
+    // 403 like every named refusal on this family (the flat mapper, module doc).
+    expect(unknown.status, JSON.stringify(unknown.body)).toBe(403);
+
+    const foreignPreset = await post(
+      `/api/ssh-runtime/sessions/${liveSessionId}/launch-harness`,
+      { harnessId: "claude-code", presetId: crypto.randomUUID(), cwd: "/home/x" },
+      { cookie: memberCookie },
+    );
+    expect(foreignPreset.status, JSON.stringify(foreignPreset.body)).toBe(404);
+
+    // A claude preset on the TERMINAL harness: same shape as the manager's
+    // create door ("Preset harness mismatch"), and nothing was written.
+    const mismatch = await post(
+      `/api/ssh-runtime/sessions/${liveSessionId}/launch-harness`,
+      { harnessId: "terminal", presetId: claudePresetId, cwd: "/home/x" },
+      { cookie: memberCookie },
+    );
+    expect(mismatch.status, JSON.stringify(mismatch.body)).toBe(403);
+
+    const sessionRow = await new SshRuntimeSessionsRepository(db).findById(liveSessionId);
+    const panes = await db
+      .selectFrom("subshells")
+      .selectAll()
+      .where("userId", "=", memberId)
+      .where("nodeId", "=", sessionRow?.runtimeNodeId ?? "no-such-node")
+      .execute();
+    expect(sessionRow, "the session row exists for the node id the panes must not have").not.toBeNull();
+    expect(panes.length).toBe(0);
+  });
+
+  it("foreign member and non-owning admin answer the same 404 on all three verbs", async () => {
+    const probes: Promise<Answer>[] = [
+      get(`/api/ssh-runtime/sessions/${liveSessionId}/harnesses`, { cookie: foreignCookie }),
+      post(`/api/ssh-runtime/sessions/${liveSessionId}/harnesses/detect`, {}, { cookie: foreignCookie }),
+      post(
+        `/api/ssh-runtime/sessions/${liveSessionId}/launch-harness`,
+        { harnessId: "claude-code", cwd: "/home/x" },
+        { cookie: foreignCookie },
+      ),
+    ];
+    const byAdmin: Promise<Answer>[] = [
+      get(`/api/ssh-runtime/sessions/${liveSessionId}/harnesses`, { cookie: adminCookie }),
+      post(`/api/ssh-runtime/sessions/${liveSessionId}/harnesses/detect`, {}, { cookie: adminCookie }),
+      post(
+        `/api/ssh-runtime/sessions/${liveSessionId}/launch-harness`,
+        { harnessId: "claude-code", cwd: "/home/x" },
+        { cookie: adminCookie },
+      ),
+    ];
+    const f = await Promise.all(probes);
+    const a = await Promise.all(byAdmin);
+    for (let i = 0; i < 3; i++) {
+      expect(f[i]?.status).toBe(404);
+      expect(a[i]?.status).toBe(404);
+      expect(refusalOf(a[i] as Answer)).toBe(refusalOf(f[i] as Answer));
+    }
+  });
+});
+
 describe("no-oracle refusals (foreign 404, admin-without-ownership 404)", () => {
   it("refuses node-scoped acts identically for an admin without ownership and a foreign member", async () => {
     const byAdmin = await get(`/api/ssh-runtime/discovery?nodeId=${node}`, { cookie: adminCookie });
@@ -343,6 +465,9 @@ describe("machine credentials stay refused on the whole family", () => {
       post("/api/ssh-runtime/sessions/whatever/list-dirs", { path: "" }, { bearer }),
       post("/api/ssh-runtime/sessions/whatever/launch-terminal", { cwd: "/" }, { bearer }),
       get(`/api/ssh-runtime/sessions/by-pane/${crypto.randomUUID()}`, { bearer }),
+      get("/api/ssh-runtime/sessions/whatever/harnesses", { bearer }),
+      post("/api/ssh-runtime/sessions/whatever/harnesses/detect", {}, { bearer }),
+      post("/api/ssh-runtime/sessions/whatever/launch-harness", { harnessId: "claude-code", cwd: "/" }, { bearer }),
     ];
     for (const probe of probes) {
       const answer = await probe;

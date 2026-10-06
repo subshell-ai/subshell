@@ -23,7 +23,10 @@ import { type NodeRow, rmScratch, seedAdminApi } from "./ssh-support";
  * callback path is refused, the runtime binds no TCP listener, an absent
  * destination runtime refuses by name, the ssh child dying under a live link
  * marks the session LOST with the node still online, and losing the whole
- * agent marks it LOST too (the pane unavailable, not completed).
+ * agent marks it LOST too (the pane unavailable, not completed). The harness
+ * wave rides along: detect answers from the destination's own lookup (a fake
+ * harness binary the wrapper hands out via CLAUDE_PATH), and launch-harness
+ * really spawns a pane on it.
  *
  * The destination IS this host (the fixture sshd dials loopback as the same
  * account), so `runtimeCommand` is a wrapper that re-enters this checkout:
@@ -63,6 +66,7 @@ let destTmuxBase = "";
 let fixtureRoot = "";
 let scratch = "";
 let wrapperPath = "";
+let fakeClaudePath = "";
 let nodeId = "";
 let setupKey = "";
 let setupKeyId = "";
@@ -160,6 +164,27 @@ test.beforeAll(async () => {
   destTmuxBase = path.join(scratch, "tmux-dest");
   mkdirSync(runtimeData, { recursive: true, mode: 0o700 });
   mkdirSync(destTmuxBase, { recursive: true, mode: 0o700 });
+  // A fake harness binary on the DESTINATION's lookup path: the detect wave's
+  // launch verb resolves the binary THERE (the inversion's late binding), and
+  // the fixture account has no real claude to point at. The CLAUDE_PATH env
+  // override is the detectSpec's own first rung, handed out by the wrapper so
+  // the runtime's probe and the launch resolve see the same shim. It answers
+  // --version fast (the version probe is bounded at 4 s) and otherwise prints
+  // a marker and lives, which is all the pane proof this spec needs.
+  fakeClaudePath = path.join(scratch, "fake-claude");
+  writeFileSync(
+    fakeClaudePath,
+    [
+      "#!/bin/sh",
+      'if [ "$1" = "--version" ]; then echo "fake-claude 9.9.9"; exit 0; fi',
+      "echo FAKE-CLAUDE-START",
+      "exec sleep 3600",
+      "",
+    ].join("\n"),
+    { mode: 0o755 },
+  );
+  chmodSync(fakeClaudePath, 0o755);
+
   wrapperPath = path.join(scratch, "runtime-wrapper.sh");
   writeFileSync(
     wrapperPath,
@@ -167,6 +192,7 @@ test.beforeAll(async () => {
       "#!/bin/sh",
       `export SUBSHELL_RUNTIME_DATA_DIR=${runtimeData}`,
       `export TMUX_TMPDIR=${destTmuxBase}`,
+      `export CLAUDE_PATH=${fakeClaudePath}`,
       `exec ${resolveBun()} ${NODE_MAIN} "$@"`,
       "",
     ].join("\n"),
@@ -362,6 +388,72 @@ test("callback: the pane's curl through callback.sock executes as its own token;
     async () => read(foreignBody).includes("forbidden"),
     { budgetMs: 60_000, tail: agentTail },
   );
+});
+
+test("harness launch: detect answers from the destination, launch-harness runs a pane on its binary", async () => {
+  test.setTimeout(120_000);
+  // The mount's end-to-end proof: the detect round trip reads the fake
+  // harness off the DESTINATION's lookup (the wrapper hands out CLAUDE_PATH,
+  // the detectSpec's own env-override rung), the cached mirror reads the same
+  // answer back with no round trip, and launch-harness really spawns the pane
+  // whose argv the plane composed from the HELLO facts.
+  const detect = await api.post(`/api/ssh-runtime/sessions/${sessionId}/harnesses/detect`, {
+    data: { harnessIds: ["claude-code"] },
+  });
+  expect(detect.ok(), await detect.text()).toBe(true);
+  const view = (await detect.json()) as {
+    online: boolean;
+    harnesses: { harnessId: string; harnessName: string; installed: boolean; binaryPath: string | null }[];
+  };
+  expect(view.online).toBe(true);
+  const claude = view.harnesses.find((h) => h.harnessId === "claude-code");
+  expect(claude?.installed, "the destination's CLAUDE_PATH shim is the answer").toBe(true);
+  expect(claude?.binaryPath).toBe(fakeClaudePath);
+  expect(claude?.harnessName.length).toBeGreaterThan(0);
+
+  const cached = await api.get(`/api/ssh-runtime/sessions/${sessionId}/harnesses`);
+  expect(cached.ok(), await cached.text()).toBe(true);
+  const mirror = (await cached.json()) as {
+    harnesses: { harnessId: string; installed: boolean }[];
+  };
+  expect(mirror.harnesses.some((h) => h.harnessId === "claude-code" && h.installed)).toBe(true);
+
+  const launch = await api.post(`/api/ssh-runtime/sessions/${sessionId}/launch-harness`, {
+    data: { harnessId: "claude-code", cwd: fixtureRoot },
+  });
+  expect(launch.ok(), await launch.text()).toBe(true);
+  const harnessPaneId = ((await launch.json()) as { subshellId: string }).subshellId;
+
+  // An ordinary row, on the hidden runtime node, reporting its own harness.
+  const row = await api.get(`/api/subshells/${harnessPaneId}`);
+  expect(row.ok(), await row.text()).toBe(true);
+  const pane = (await row.json()) as { status: string; alive: boolean; harnessId: string };
+  expect(pane.status).toBe("running");
+  expect(pane.alive).toBe(true);
+  expect(pane.harnessId).toBe("claude-code");
+
+  // The fake's own output came back through the framed log read: the pane
+  // really ran on the destination (no xterm peek, REST/log truth).
+  await pollUntil(
+    "the fake harness never printed its marker into the destination pane's log",
+    async () => (await logText(harnessPaneId)).includes("FAKE-CLAUDE-START"),
+    { budgetMs: 60_000, tail: agentTail },
+  );
+
+  // Terminate is the pane's ending (design §6); the session survives it.
+  const term = await api.post(`/api/subshells/${harnessPaneId}/terminate`);
+  expect(term.ok(), await term.text()).toBe(true);
+  await pollUntil(
+    "the terminated harness pane never went unavailable",
+    async () => {
+      const r = await api.get(`/api/subshells/${harnessPaneId}`);
+      if (!r.ok()) return false;
+      return ((await r.json()) as { alive: boolean }).alive === false;
+    },
+    { budgetMs: 30_000, tail: agentTail },
+  );
+  const still = await api.get(`/api/ssh-runtime/sessions/${sessionId}`);
+  expect(((await still.json()) as SessionView).status).toBe("active");
 });
 
 test("containment: the runtime-serve on the destination holds no TCP listener", async () => {

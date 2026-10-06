@@ -1,11 +1,20 @@
 import { Button, Card, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { Server, ServerOff } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DirBrowser } from "@/components/connect/dir-browser";
-import { LaunchStep } from "@/components/connect/launch-step";
+import { type LaunchPick, LaunchStep } from "@/components/connect/launch-step";
 import { useNodes } from "@/hooks/use-nodes";
-import { useSshDiscovery, useSshLaunchTerminal, useSshOpen, useSshResolve } from "@/hooks/use-ssh-runtime";
+import { usePresets } from "@/hooks/use-presets";
+import {
+  useSshDetectHarnesses,
+  useSshDiscovery,
+  useSshLaunchHarness,
+  useSshLaunchTerminal,
+  useSshOpen,
+  useSshResolve,
+  useSshSessionHarnesses,
+} from "@/hooks/use-ssh-runtime";
 import {
   destinationLabel,
   type SshRuntimeResolveView,
@@ -59,6 +68,26 @@ export function ConnectJourney({ prefill, onActive }: { prefill: Prefill | null;
   const resolve = useSshResolve();
   const open = useSshOpen();
   const openTerminal = useSshLaunchTerminal();
+  const openHarness = useSshLaunchHarness();
+
+  // The destination's harness mirror, read on the folder step (the cache read
+  // is free; the DETECT round trip is asked once per session, below).
+  const sessionId = step === "folder" && session !== null ? session.id : null;
+  const harnessQ = useSshSessionHarnesses(sessionId);
+  const detectHarnesses = useSshDetectHarnesses(sessionId ?? "");
+  const detectRanFor = useRef<string | null>(null);
+  useEffect(() => {
+    // One detect per opened session, on entering the folder step: the mirror
+    // starts empty (a fresh destination row has never been asked), and the
+    // rows below are gated on its answer. A failure leaves the terminal row
+    // and the Retry affordance; StrictMode's replay must not double-ask.
+    if (sessionId !== null && detectRanFor.current !== sessionId) {
+      detectRanFor.current = sessionId;
+      detectHarnesses.mutate(undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the mutation object changes identity every render; the guard ref is the dedupe
+  }, [sessionId, detectHarnesses.mutate]);
+  const presetsQ = usePresets();
 
   const discovery = useSshDiscovery(step === "host" ? nodeId : null);
   const machine = (nodesQ.data?.nodes ?? []).find((n) => n.id === nodeId);
@@ -118,18 +147,36 @@ export function ConnectJourney({ prefill, onActive }: { prefill: Prefill | null;
     );
   }
 
-  async function launchTerminal() {
+  async function launch(pick: LaunchPick) {
     if (session === null) return;
+    setLaunchError(null);
     try {
-      const res = await openTerminal.mutateAsync({
+      if (pick.kind === "terminal") {
+        const res = await openTerminal.mutateAsync({
+          sessionId: session.id,
+          cwd,
+          cols: Math.max(40, Math.floor(window.innerWidth / 9)),
+          rows: Math.max(12, Math.floor(window.innerHeight / 22)),
+        });
+        void navigate({ to: "/subshells/$id", params: { id: res.subshellId } } as never);
+        return;
+      }
+      const res = await openHarness.mutateAsync({
         sessionId: session.id,
+        harnessId: pick.harnessId,
+        ...(pick.kind === "preset" ? { presetId: pick.presetId } : {}),
         cwd,
-        cols: Math.max(40, Math.floor(window.innerWidth / 9)),
-        rows: Math.max(12, Math.floor(window.innerHeight / 22)),
       });
       void navigate({ to: "/subshells/$id", params: { id: res.subshellId } } as never);
     } catch (err) {
-      setLaunchError(errMessage(err, "The terminal could not be opened on the destination."));
+      setLaunchError(
+        errMessage(
+          err,
+          pick.kind === "terminal"
+            ? "The terminal could not be opened on the destination."
+            : "The agent could not be opened on the destination.",
+        ),
+      );
     }
   }
 
@@ -313,8 +360,13 @@ export function ConnectJourney({ prefill, onActive }: { prefill: Prefill | null;
               <LaunchStep
                 session={session}
                 cwd={cwd}
-                busy={openTerminal.isPending}
-                onPick={() => void launchTerminal()}
+                busy={openTerminal.isPending || openHarness.isPending}
+                harnesses={harnessQ.data?.harnesses ?? []}
+                presets={presetsQ.data ?? []}
+                detecting={detectHarnesses.isPending}
+                detectError={detectHarnesses.isError}
+                onDetect={() => detectHarnesses.mutate(undefined)}
+                onPick={(pick) => void launch(pick)}
               />
             )}
             {launchError !== null && (

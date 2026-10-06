@@ -2,8 +2,11 @@ import { randomUUID } from "node:crypto";
 import { getHarness, tmuxSocketFor } from "@internal/pane-runtime";
 import { type NodeFsLsResult, normalizeLabel, parseNodeFsLsResult } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { audit } from "@/services/audit.js";
+import { nodeSelfInvoke, planRemoteSubshellMcp } from "@/services/mcp-launch.js";
+import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { RuntimeSessionLauncher } from "./runtime-session-launcher.js";
 import { RUNTIME_PANE_BASE_URL, type SshRuntimeSession } from "./session.js";
@@ -29,6 +32,7 @@ import { closeBestEffort, SshRuntimeRefusal, type SshRuntimeSessionView, viewOfR
 
 const sessionsRepo = new SshRuntimeSessionsRepository(db);
 const subshellsRepo = new SubshellsRepository(db);
+const presetsRepo = new PresetsRepository(db);
 
 /**
  * The live session for an owner, or the 404 reading (foreign ids never
@@ -150,6 +154,151 @@ export async function sessionLaunchTerminal(
     targetType: "subshell",
     targetId: id,
     metadataJson: JSON.stringify({ sessionId, runtimeNodeId: session.runtimeNodeId }),
+  });
+  return { subshellId: id };
+}
+
+/**
+ * Open a HARNESS pane on a live session (the `launch-harness` verb, the mount
+ * for the detect wave's seam): the same row -> token -> frame order as
+ * {@link sessionLaunchTerminal}, with the ordinary LaunchPlan composed here -
+ * harness resolution, optional preset (owner-checked, harness-matched), the
+ * MCP registration and the reporter hook command baked against the runtime's
+ * HELLO facts (`planRemoteSubshellMcp`/`nodeSelfInvoke` on `hello.dataDir` +
+ * `hello.selfInvoke`: the destination writes its own config file at its own
+ * path, and hooks re-enter the destination's own binary), and a fresh
+ * harness conversation id for resume-capable harnesses (the manager's
+ * start-mode allocation; a runtime pane is never resumed - the restart door
+ * seals runtime rows, so this id's only later reader is the census).
+ * `RuntimeSessionLauncher.launch`'s preset parity (mcp block + harnessSession
+ * + argv) carries it all to the frame.
+ *
+ * The HARD invariant stands unchanged (design §5): the pane env carries the
+ * id, the display name, the pane's OWN callback door, the destination data
+ * dir and the never-resolves sentinel - never the minted token, never the
+ * plane URL. The token lives only in `#paneTokens`; every callback executes
+ * plane-side as the pane. Pinned by the credential-scan test on this path.
+ *
+ * @throws SshRuntimeRefusal 404 (foreign/absent session or preset), 409
+ *         (unknown harness, harness/preset mismatch, harness not installed on
+ *         the destination - the terminal verb's `runtime_missing` family)
+ */
+export async function sessionLaunchHarness(
+  sessionId: string,
+  userId: string,
+  body: { harnessId: string; presetId?: string | null; cwd: string; cols?: number; rows?: number },
+): Promise<{ subshellId: string }> {
+  const session = requireOwnedSession(sessionId, userId);
+  const harness = getHarness(body.harnessId);
+  if (harness === undefined) throw new SshRuntimeRefusal(409, `unknown harness: ${body.harnessId}`);
+  const presetRow = body.presetId ? await presetsRepo.findById(body.presetId) : undefined;
+  if (body.presetId && (!presetRow || presetRow.userId !== userId)) {
+    // A foreign preset and an absent one answer the same 404 (the invisible-
+    // resource convention this whole surface obeys; the manager's create door
+    // states the same rule for ordinary rows).
+    throw new SshRuntimeRefusal(404, "preset not found");
+  }
+  if (presetRow && presetRow.harnessId !== harness.id) {
+    throw new SshRuntimeRefusal(409, "preset harness mismatch");
+  }
+  const preset = presetRow ? parsePreset(presetRow) : EMPTY_PRESET;
+  // Fresh conversation id for resume-capable harnesses, start mode (module
+  // doc: never resumed on this surface); pinned on the row at insert, the
+  // manager's own ordering, so the census and any later lineage read see it.
+  const harnessSession = harness.resume
+    ? { id: harness.resume.allocateHarnessSessionId(), mode: "start" as const }
+    : undefined;
+  const id = randomUUID();
+  const socket = tmuxSocketFor(id);
+  const paneName = normalizeLabel(`SSH ${session.target.alias}`, 120);
+  await subshellsRepo.create({
+    id,
+    userId,
+    harnessId: harness.id,
+    name: paneName,
+    workingDir: body.cwd,
+    presetId: presetRow?.id ?? null,
+    nodeId: session.runtimeNodeId,
+    tmuxSocket: socket,
+    status: "running",
+    alive: 1,
+    startedAt: new Date().toISOString(),
+    notify: 1,
+    crossAgent: 0,
+    harnessSessionId: harnessSession?.id ?? null,
+  });
+  let token: string;
+  try {
+    token = await issueSubshellToken(id, userId);
+  } catch (err) {
+    await subshellsRepo.delete(id).catch(() => {});
+    throw err;
+  }
+  session.registerPane(id, token);
+  // The registration and the hook command compose against the HELLO facts,
+  // not the node registry: a runtime's dataDir and self-invoke come from its
+  // own hello (task 25's field), exactly as an agent's come from its ready
+  // frame. Nothing here touches disk on the plane.
+  const planned = planRemoteSubshellMcp(harness, id, {
+    dataDir: session.hello.dataDir,
+    selfInvoke: session.hello.selfInvoke,
+  });
+  const reporter = nodeSelfInvoke({ selfInvoke: session.hello.selfInvoke }, "report");
+  const launcher = new RuntimeSessionLauncher(session);
+  try {
+    await launcher.launch({
+      id,
+      socket,
+      harness,
+      binary: "",
+      cwd: body.cwd,
+      preset,
+      // The destination tmux session name is the pane id (the terminal verb's
+      // rule, and the reconcile's match key: the census reports destination
+      // session names and the plane matches them to row ids).
+      subshellName: id,
+      // Door + sentinel + destination data dir, no token, no plane URL -
+      // design §5's bake, identical to the terminal verb's plus the data dir
+      // the `subshell mcp` child persists its keypairs under.
+      subshellEnv: {
+        SUBSHELL_ID: id,
+        SUBSHELL_NAME: paneName,
+        SUBSHELL_RUNTIME_CALLBACK_SOCK: session.paneCallbackSockPath(id),
+        SUBSHELL_DATA_DIR: session.hello.dataDir,
+        SUBSHELL_BASE_URL: RUNTIME_PANE_BASE_URL,
+      },
+      mcp: planned?.reg,
+      mcpConfigPath: planned?.configPath,
+      harnessSession,
+      reporter,
+    });
+    if (body.cols !== undefined && body.rows !== undefined) {
+      await launcher.resize(socket, id, body.cols, body.rows).catch(() => {});
+    }
+  } catch (err) {
+    session.unregisterPane(id);
+    await revokeSubshellToken(id).catch(() => {});
+    await subshellsRepo.delete(id).catch(() => {});
+    // The destination's own resolve ladder refused the harness binary: the
+    // honest remedy is the HARNESS on the destination (the terminal verb
+    // points at the Subshell binary; a named harness's missing binary is a
+    // different install).
+    if (err instanceof Error && /harness binary missing/.test(err.message)) {
+      throw new SshRuntimeRefusal(409, `Harness "${harness.name}" is not installed on the destination.`);
+    }
+    throw err;
+  }
+  await audit({
+    actorUserId: userId,
+    action: "ssh_runtime_session.pane_open",
+    targetType: "subshell",
+    targetId: id,
+    metadataJson: JSON.stringify({
+      sessionId,
+      runtimeNodeId: session.runtimeNodeId,
+      harnessId: harness.id,
+      ...(presetRow ? { presetId: presetRow.id } : {}),
+    }),
   });
   return { subshellId: id };
 }

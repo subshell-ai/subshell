@@ -10,15 +10,19 @@ import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { deleteUserByEmailOrId, setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
 import { db } from "@/db/index.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { NODE_KIND_RUNTIME } from "@/db/types/nodes.db-types.js";
 import * as nodeRpc from "@/services/nodes/node-rpc.js";
+import { revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { detectRuntimeSessionHarnesses, sessionHarnesses } from "../harness-detect.js";
 import { RuntimeSessionLauncher } from "../runtime-session-launcher.js";
 import { RUNTIME_PANE_BASE_URL, SshRuntimeSession } from "../session.js";
 import { registerSession, resetSessionRegistryForTests, sessionHooks } from "../session-registry.js";
 import { SshRuntimeSessionsRepository } from "../sessions.repository.js";
 import { SshRuntimeRefusal } from "../sessions.service.js";
+import { sessionLaunchHarness } from "../sessions-lifecycle.js";
 
 /**
  * The task-25 plane seam, at the three doors this wave owns:
@@ -276,6 +280,138 @@ describe("runtime pane bake", () => {
     expect(subshellEnv.SUBSHELL_RUNTIME_CALLBACK_SOCK).toBe(`${session.hello.dataDir}/callbacks/${pane}.sock`);
     expect(subshellEnv.SUBSHELL_BASE_URL).toBe("http://subshell-callback.invalid");
     expect("SUBSHELL_API_KEY" in subshellEnv).toBe(false);
+  });
+});
+
+describe("launch-harness (the real service path, credential scan)", () => {
+  const cleanupPanes: string[] = [];
+  const cleanupPresets: string[] = [];
+  const presetsRepo = new PresetsRepository(db);
+  const subshellsRepo = new SubshellsRepository(db);
+
+  async function ownPreset(env: Record<string, string>): Promise<string> {
+    const row = await presetsRepo.create({
+      id: crypto.randomUUID(),
+      userId,
+      harnessId: "claude-code",
+      name: `pd-preset-${crypto.randomUUID().slice(0, 8)}`,
+      description: null,
+      envJson: JSON.stringify(env),
+      flagsJson: JSON.stringify([]),
+      settingsJson: null,
+      configIsolation: 0,
+    });
+    cleanupPresets.push(row.id);
+    return row.id;
+  }
+
+  afterAll(async () => {
+    for (const id of cleanupPanes) {
+      await revokeSubshellToken(id).catch(() => {});
+      await subshellsRepo.delete(id).catch(() => {});
+    }
+    for (const id of cleanupPresets) {
+      await db
+        .deleteFrom("presets")
+        .where("id", "=", id)
+        .execute()
+        .catch(() => {});
+    }
+  });
+
+  test("a presetless harness launch bakes the plan from the hello facts and NO credential crosses", async () => {
+    const session = await mkSession();
+    pumpTarget = session;
+    captured.length = 0;
+    const res = await sessionLaunchHarness(session.id, userId, {
+      harnessId: "claude-code",
+      cwd: "/home/dst/work",
+    });
+    cleanupPanes.push(res.subshellId);
+    // The REAL minted token (not a planted literal this time): whatever it is,
+    // it must appear in no frame and no pane env (design §5's invariant on the
+    // new path, held by the same scan as the sibling's bake test).
+    const token = session.paneToken(res.subshellId);
+    expect(typeof token).toBe("string");
+    const launchCmd = captured.find((c) => c.inner?.type === "launch");
+    expect(launchCmd, "the launch frame must reach the broker").toBeDefined();
+    const cmd = launchCmd?.inner?.cmd as Record<string, unknown>;
+    expect(cmd.harnessId).toBe("claude-code");
+    // Baked from the HELLO facts, not the plane's paths: the destination's own
+    // data dir for the MCP registration, its own resolve rule for the binary.
+    expect((cmd.mcp as { path: string }).path).toBe(`${session.hello.dataDir}/mcp/${res.subshellId}.json`);
+    expect((cmd.resolve as { binaryName: string }).binaryName).toBe("claude");
+    expect(cmd.argv as string[]).toContain("--mcp-config");
+    // Fresh start-mode conversation for a resume-capable harness, and the
+    // same id pinned on the row (the census's later reader).
+    const hs = cmd.harnessSession as { id: string; mode: string };
+    expect(hs.mode).toBe("start");
+    const row = await subshellsRepo.findById(res.subshellId);
+    expect(row?.harnessId).toBe("claude-code");
+    expect(row?.presetId).toBeNull();
+    expect(row?.nodeId).toBe(session.runtimeNodeId);
+    expect(row?.harnessSessionId).toBe(hs.id);
+    // THE HARD INVARIANT, scanned on every surface that crosses:
+    const wire = JSON.stringify([captured.map((c) => c.inner)]);
+    expect(wire).not.toContain(token as string);
+    expect(wire).not.toContain("SUBSHELL_API_KEY");
+    expect(JSON.stringify(cmd.subshellEnv)).not.toContain(token as string);
+    // Door + sentinel + destination data dir; the plane URL is the sentinel,
+    // never the real one.
+    const paneEnv = cmd.subshellEnv as Record<string, string>;
+    expect(paneEnv.SUBSHELL_RUNTIME_CALLBACK_SOCK).toBe(`${session.hello.dataDir}/callbacks/${res.subshellId}.sock`);
+    expect(paneEnv.SUBSHELL_BASE_URL).toBe(RUNTIME_PANE_BASE_URL);
+    expect(paneEnv.SUBSHELL_DATA_DIR).toBe(session.hello.dataDir);
+    expect("SUBSHELL_API_KEY" in paneEnv).toBe(false);
+    // The reporter half baked into the argv (hooks re-enter the destination's
+    // own binary; a reporter-less plugin omits the hooks - claude has one):
+    expect(JSON.stringify(cmd.argv)).toContain("report");
+  });
+
+  test("a preset launch rides the frame (preset env is user data, never the credential layer)", async () => {
+    const session = await mkSession();
+    pumpTarget = session;
+    const presetId = await ownPreset({ PD_SCAN_MODEL: "svc-scan-model" });
+    captured.length = 0;
+    const res = await sessionLaunchHarness(session.id, userId, {
+      harnessId: "claude-code",
+      presetId,
+      cwd: "/home/dst/work",
+    });
+    cleanupPanes.push(res.subshellId);
+    const token = session.paneToken(res.subshellId) as string;
+    const launchCmd = captured.find((c) => c.inner?.type === "launch");
+    const cmd = launchCmd?.inner?.cmd as Record<string, unknown>;
+    const preset = cmd.preset as { name: string; env: Record<string, string> };
+    expect(preset.env.PD_SCAN_MODEL).toBe("svc-scan-model");
+    const row = await subshellsRepo.findById(res.subshellId);
+    expect(row?.presetId).toBe(presetId);
+    const wire = JSON.stringify([captured.map((c) => c.inner)]);
+    expect(wire).not.toContain(token);
+    expect(wire).not.toContain("SUBSHELL_API_KEY");
+  });
+
+  test("input guards refuse BEFORE any row is written (unknown harness, foreign preset, mismatch)", async () => {
+    const session = await mkSession();
+    await expect(
+      sessionLaunchHarness(session.id, userId, { harnessId: "not-a-harness", cwd: "/home/dst/work" }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      sessionLaunchHarness(session.id, userId, {
+        harnessId: "claude-code",
+        presetId: crypto.randomUUID(),
+        cwd: "/home/dst/work",
+      }),
+    ).rejects.toMatchObject({ status: 404 });
+    const presetId = await ownPreset({ ANTHROPIC_MODEL: "mismatch-check" });
+    await expect(
+      sessionLaunchHarness(session.id, userId, { harnessId: "terminal", presetId, cwd: "/home/dst/work" }),
+    ).rejects.toMatchObject({ status: 409 });
+    await expect(
+      sessionLaunchHarness(session.id, "someone-else", { harnessId: "claude-code", cwd: "/x" }),
+    ).rejects.toBeInstanceOf(SshRuntimeRefusal);
+    const rows = await subshellsRepo.listByUser(userId);
+    expect(rows.filter((r) => r.nodeId === session.runtimeNodeId).length).toBe(0);
   });
 });
 

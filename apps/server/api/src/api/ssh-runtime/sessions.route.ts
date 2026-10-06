@@ -2,11 +2,13 @@ import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { apiModels } from "@/schema/index.js";
+import { detectRuntimeSessionHarnesses, sessionHarnesses } from "@/services/ssh-runtime/harness-detect.js";
 import { getPaneIdentityView, openSession, SshRuntimeRefusal } from "@/services/ssh-runtime/sessions.service.js";
 import {
   closeSession,
   getSessionView,
   listSessions,
+  sessionLaunchHarness,
   sessionLaunchTerminal,
   sessionListDirs,
 } from "@/services/ssh-runtime/sessions-lifecycle.js";
@@ -117,6 +119,55 @@ const LaunchTerminalBodySchema = t.Object({
   cwd: t.String({ description: "Absolute destination working directory (validated by stat_dir on the destination)" }),
   cols: t.Optional(t.Number({ description: "Initial columns, when the opener knows one" })),
   rows: t.Optional(t.Number({ description: "Initial rows, when the opener knows one" })),
+});
+
+const LaunchHarnessBodySchema = t.Object({
+  harnessId: t.String({ description: "Harness plugin id to launch (resolved against this plane's manifests)" }),
+  presetId: t.Optional(
+    t.Nullable(t.String({ description: "The caller's own preset row to launch with; null/absent = presetless" })),
+  ),
+  cwd: t.String({ description: "Absolute destination working directory (the folder the browser picked)" }),
+  cols: t.Optional(t.Number({ description: "Initial columns, when the opener knows one" })),
+  rows: t.Optional(t.Number({ description: "Initial rows, when the opener knows one" })),
+});
+
+const DetectBodySchema = t.Object({
+  harnessIds: t.Optional(
+    t.Array(t.String({ description: "One harness plugin id" }), {
+      description: "Narrow the probe to these harnesses; absent asks every enabled manifest",
+    }),
+  ),
+});
+
+/** The harnesses view: the hidden runtime row's cached mirror plus the live session's env answers (service: `RuntimeSessionHarnessesView`). */
+const HarnessesViewSchema = t.Object({
+  sessionId: t.String({ description: "The session id the view is keyed by" }),
+  runtimeNodeId: t.String({ description: "The hidden runtime node row the mirror is stored on" }),
+  online: t.Boolean({ description: "Whether a live session backs this view right now" }),
+  harnesses: t.Array(
+    t.Object({
+      harnessId: t.String({ description: "Harness plugin id (the detect spec's id)" }),
+      harnessName: t.String({
+        description: "Display name from the plane's manifest (the id when the plugin is unknown)",
+      }),
+      installed: t.Boolean({ description: "The destination's binary answer: found and executable there" }),
+      binaryPath: t.Nullable(t.String({ description: "Resolved binary path when installed" })),
+      rawVersion: t.Nullable(
+        t.String({
+          description: "Best available version text (plugin-parsed when a parser ran, raw probe output otherwise)",
+        }),
+      ),
+      reason: t.Nullable(
+        t.String({ description: 'Why it was not found ("not-on-path" | "override-invalid" | "no-binary")' }),
+      ),
+      checkedAt: t.Nullable(t.String({ description: "ISO 8601 stamp of the probe" })),
+    }),
+    { description: "The cached inventory rows (the requested subset when the detect verb named one)" },
+  ),
+  env: t.Record(t.String({ description: "Manifest-declared env name" }), t.String({ description: "Its value there" }), {
+    description:
+      "The destination's answers for the plane-named env vars (empty until the first detect; retired with a lost session)",
+  }),
 });
 
 /** The 403 every machine credential gets on this family (no MCP door for this surface yet). */
@@ -315,6 +366,76 @@ export const sshRuntimeSessionsRoutes = new Elysia({ prefix: "/sessions" })
         tags: ["ssh-runtime"],
         description:
           "Open a terminal pane on the session: an ordinary subshells row on the hidden runtime node, launched through the framed byte channel",
+      },
+    },
+  )
+  .get(
+    "/:id/harnesses",
+    async ({ params, user, actor }) => {
+      requireCookieActor(actor, HUMAN_ONLY);
+      return await runtimeCall(() => sessionHarnesses(params.id, user.id));
+    },
+    {
+      params: t.Object({ id: t.String({ description: "Session id" }) }),
+      response: {
+        200: HarnessesViewSchema,
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "sshRuntimeSessionHarnesses",
+        tags: ["ssh-runtime"],
+        description:
+          "The cached harness inventory for the session's destination (a mirror read: works offline, answers from the hidden runtime node's row)",
+      },
+    },
+  )
+  .post(
+    "/:id/harnesses/detect",
+    async ({ params, body, user, actor }) => {
+      requireCookieActor(actor, HUMAN_ONLY);
+      return await runtimeCall(() => detectRuntimeSessionHarnesses(params.id, user.id, body.harnessIds));
+    },
+    {
+      params: t.Object({ id: t.String({ description: "Session id" }) }),
+      body: DetectBodySchema,
+      response: {
+        200: HarnessesViewSchema,
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "sshRuntimeDetectHarnesses",
+        tags: ["ssh-runtime"],
+        description:
+          "Ask the destination runtime what harness binaries and env vars it has NOW, merge the answer into the cached mirror (a runtime predating detect refuses 409 with sshCode detect_unsupported)",
+      },
+    },
+  )
+  .post(
+    "/:id/launch-harness",
+    async ({ params, body, user, actor }) => {
+      requireCookieActor(actor, HUMAN_ONLY);
+      return await runtimeCall(() => sessionLaunchHarness(params.id, user.id, body));
+    },
+    {
+      params: t.Object({ id: t.String({ description: "Session id" }) }),
+      body: LaunchHarnessBodySchema,
+      response: {
+        200: t.Object({ subshellId: t.String({ description: "The ordinary subshell row the runtime launched" }) }),
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "sshRuntimeLaunchHarness",
+        tags: ["ssh-runtime"],
+        description:
+          "Open a harness pane on the session (optionally under the caller's own preset): an ordinary subshells row with the MCP registration and reporter hooks baked from the runtime's hello, never a credential (design §5)",
       },
     },
   );

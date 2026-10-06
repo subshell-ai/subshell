@@ -77,6 +77,29 @@ export interface SshRuntimeListDirsResult {
   truncated: boolean;
 }
 
+/** One cached/just-detected harness on a session's destination (`GET/POST /:id/harnesses`). */
+export interface SshRuntimeHarnessEntry {
+  harnessId: string;
+  /** Display name from the plane's manifest (the id when the plugin is unknown). */
+  harnessName: string;
+  /** The destination's binary answer: found and executable there. */
+  installed: boolean;
+  binaryPath: string | null;
+  rawVersion: string | null;
+  reason: string | null;
+  checkedAt: string | null;
+}
+
+/** `GET /:id/harnesses` and `POST /:id/harnesses/detect` - the destination's harness mirror. */
+export interface SshRuntimeHarnessesView {
+  sessionId: string;
+  runtimeNodeId: string;
+  /** Whether a live session backs this view right now. */
+  online: boolean;
+  harnesses: SshRuntimeHarnessEntry[];
+  env: Record<string, string>;
+}
+
 /** An ApiError that kept the named SSH code (the copy table branches on it). */
 export class SshApiError extends ApiError {
   readonly sshCode: string | undefined;
