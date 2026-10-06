@@ -1,13 +1,13 @@
 import type { SshConnectionSnapshotWire } from "./ssh-config.js";
 import type { SshErrorCode } from "./ssh-errors.js";
-import type { SshControlMode, SshRunFactsWire } from "./ssh-run-facts.js";
 
 /**
- * The SSH result ENVELOPE types - what each `ssh_*` command's `result{data}`
- * carries (the Gate A split from `ssh-frames.ts`; exported NAMES unchanged).
- * The `parse*` validators for these live in `node-results.ts` beside every
- * other result validator (the four-site rule in the integration maps); the
- * run-facts grammar they delegate to is {@link SshRunFactsWire}'s reader.
+ * The SSH result ENVELOPE types - what the two surviving `ssh_*` discovery
+ * commands' `result{data}` carries (the Gate A split from `ssh-frames.ts`;
+ * exported NAMES unchanged). The test/run/control envelopes retired with the
+ * destination product (design 2026-10-05 §7). The `parse*` validators for
+ * these live in `node-results.ts` beside every other result validator (the
+ * four-site rule in the integration maps).
  *
  * Imports no `node:` builtin; lives in the Metro-safe barrel.
  */
@@ -58,48 +58,3 @@ export type NodeSshResolveOutcomeWire =
       /** Config keywords that blocked acceptance; empty when the code names the whole cause. */
       settings: string[];
     };
-
-/**
- * `ssh_test_connection` answer. The probe is FIXED and benign - the node runs
- * its own connect-and-exit check against the snapshot; there is no
- * caller-supplied probe text anywhere in this contract, and the boolean plus
- * a named code is the whole answer.
- */
-export type NodeSshTestOutcomeWire = { passed: true } | { passed: false; code: SshErrorCode };
-
-/**
- * `ssh_run_read` answer: the bounded incremental window plus a full copy of
- * the run facts - a read must always be able to answer "and is it done?"
- * without a second round trip, which is also what keeps a plane-driven
- * poll loop honest about a run that completed between windows.
- */
-export interface NodeSshRunReadResult extends SshRunFactsWire {
-  /** Base64 stdout bytes starting at the request's `stdoutFromByte`. */
-  stdoutB64: string;
-  /** Base64 stderr bytes starting at the request's `stderrFromByte`. */
-  stderrB64: string;
-  /** Offset to pass next for stdout (request offset + bytes returned). */
-  stdoutNext: number;
-  /** Offset to pass next for stderr. */
-  stderrNext: number;
-  /** Total bytes RETAINED for stdout (past `SSH_RUN_OUTPUT_RETENTION_BYTES` the node drained excess). */
-  stdoutTotal: number;
-  /** Total bytes RETAINED for stderr. */
-  stderrTotal: number;
-  /** Drain dropped bytes beyond the per-run retention; the window is not the whole transcript. */
-  truncated: boolean;
-}
-
-/**
- * `ssh_input_control` answer: the node's CURRENT control state after the
- * transition (echoing what took effect, which is what lets the plane detect a
- * lost race against a takeover happening at the machine).
- */
-export interface NodeSshControlResult {
-  /** The managed pane (echo). */
-  subshellId: string;
-  /** Whose input the node now accepts. */
-  mode: SshControlMode;
-  /** The node's current input generation after this transition; later writes must carry at least this. */
-  generation: number;
-}

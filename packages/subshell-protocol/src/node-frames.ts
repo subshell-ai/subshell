@@ -137,18 +137,17 @@ import type { SshSessionNodeCommandBody } from "./ssh-session-frames.js";
  * roots stay exactly as narrow as they are while `transfer_write` arrives as
  * its own policy-gated sibling.
  *
- * **15 → 16 is the SSH surface (spec 2026-10-04 §4).** Nine commands drive an
- * SSH destination through a connecting node without installing anything there:
- * `ssh_discover_aliases`, `ssh_resolve_config`, `ssh_test_connection`,
- * `ssh_run_start`, `ssh_run_status`, `ssh_run_read`, `ssh_run_cancel`,
- * `ssh_terminal_launch` and `ssh_input_control`, plus the normalized-config
- * snapshot, the run-facts envelope, and the additive `inputGeneration` fence
- * field on `input`/`prompt_deliver`. Additive, and breaking anyway, because the
- * gate is exact-match — the bump is coordinated with `MIN_NODE_VERSION` and the
- * agent's own version so `releases.ts` never offers a protocol-15 build to a
- * protocol-16 plane. No existing verb's shape changed (the additive field is
- * optional on old-frame senders).
- *
+ * **15 → 16 is the SSH surface (spec 2026-10-04 §4, reshaped by the
+ * 2026-10-05 §7 retirement before either bump shipped).** What the wire
+ * carries: the two pre-session reads `ssh_discover_aliases` and
+ * `ssh_resolve_config` over the normalized-config snapshot, plus the additive
+ * `inputGeneration` fence field on `input`/`prompt_deliver`. The destination
+ * execution arms the first draft named (`ssh_test_connection`, the run
+ * quartet, `ssh_terminal_launch`, `ssh_input_control`) were deleted with the
+ * product, legal without a version bump precisely because 16 and 17 are
+ * unreleased. Additive, and breaking anyway, because the gate is exact-match.
+ * The bump is coordinated with `MIN_NODE_VERSION` and the agent's own version
+ * so `releases.ts` never offers a protocol-15 build to a protocol-16 plane. *
  * **16 → 17 is the SSH session-runtime surface (design 2026-10-05 §2/§3).**
  * Three commands broker a destination runtime over a live SSH child —
  * `ssh_session_open`, `ssh_session_send`, `ssh_session_close` (types in
@@ -1111,9 +1110,9 @@ export type NodeCommandBody =
        */
       maxBytes: number;
     }
-  // The SSH family (Gate A contract, spec SSH-SUPPORT.md §4): nine commands
-  // folded in as one union member so the SSH grammar lives in `ssh-frames.ts`;
-  // their answers are validated by the `parseNodeSsh*` set in `node-results.ts`.
+  // The SSH reads (survivors of the Gate A contract): two commands folded in
+  // as one union member so the SSH grammar lives in `ssh-frames.ts`; their
+  // answers are validated by `parseNodeSshAliasList` / `parseNodeSshResolveOutcome`.
   | SshNodeCommandBody
   // The session-runtime family (design 2026-10-05 §3): three commands broker a
   // destination runtime over one SSH child, folded in the same one-member way
@@ -1678,14 +1677,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         : { type: "tree_manifest", root: value.root, maxBytes: value.maxBytes as number };
     case "ssh_discover_aliases":
     case "ssh_resolve_config":
-    case "ssh_test_connection":
-    case "ssh_run_start":
-    case "ssh_run_status":
-    case "ssh_run_read":
-    case "ssh_run_cancel":
-    case "ssh_terminal_launch":
-    case "ssh_input_control":
-      // Delegation, not a second parser: the SSH grammar (nine arms, one
+      // Delegation, not a second parser: the SSH grammar (both arms, one
       // file) lives in ssh-frames.ts beside the commands it narrows.
       return parseSshNodeCommandBody(value);
     case "ssh_session_open":

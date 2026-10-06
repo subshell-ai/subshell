@@ -847,10 +847,7 @@ export class SubshellsService extends BaseService {
     // row answers through its RemoteLauncher (`log_read` window), whose offline
     // throw maps onto §5.6 exactly like create/restart. One composition
     // (readSubshellLogWindow) now serves tail and cursor for every launcher.
-    const { logGeneration: _reported, ...ordinary } = await readSubshellLogWindow(id, row.nodeId, window ?? {}).catch(
-      rethrowLaunchRefusal,
-    );
-    return ordinary;
+    return await readSubshellLogWindow(id, row.nodeId, window ?? {}).catch(rethrowLaunchRefusal);
   }
 
   /**

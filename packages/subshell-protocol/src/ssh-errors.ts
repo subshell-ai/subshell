@@ -9,9 +9,15 @@
  * and test result envelopes carry the same codes in their `code` fields; and
  * the server's policy refusals and API error metadata surface them verbatim.
  *
- * The set is FROZEN after Gate A: four workstreams are writing matchers
- * against these spellings. Adding a code is a coordinated change; renaming or
- * deleting one is a wire change like any other.
+ * The set was FROZEN after Gate A; the retirement of the destination
+ * execution product (design 2026-10-05 §7) pruned the three quota/storage
+ * codes only ITS runtimes emitted (`quota_runs`, `quota_terminals`,
+ * `storage_full`), a deletion that is legal precisely because protocol 17
+ * was never released. What remains is what the SURVIVING surfaces still
+ * answer: resolution refusals for the wizard, and the bare codes the
+ * session-runtime supervisor maps by equality. Adding a code is a
+ * coordinated change; renaming or deleting one is a wire change like any
+ * other.
  *
  * Imports no `node:` builtin; this module is in the Metro-safe barrel.
  */
@@ -36,12 +42,6 @@ export const SSH_ERROR_CODES = [
   "auth_mode_unsupported",
   /** The resolved `ProxyJump` chain exceeds {@link SSH_MAX_PROXY_HOPS}. */
   "proxy_chain_too_long",
-  /** Starting a run was refused at the per-owner or per-node active-run quota. */
-  "quota_runs",
-  /** Opening a managed terminal was refused at the per-owner per-node terminal quota. */
-  "quota_terminals",
-  /** The node's aggregate SSH output store is full; completed output was already evicted (SSH-SUPPORT.md §3's pressure rule), so this is the "still full" refusal. */
-  "storage_full",
   /**
    * A signed command arrived past its freshness window after a reconnect.
    * Rejecting it is the no-automatic-replay rule; the caller re-decides, the
@@ -54,11 +54,11 @@ export const SSH_ERROR_CODES = [
    * reader from "fixing" the apparent dead code by emitting it.
    */
   "stale_command",
-  /** A start carried an ID the node already accepted for a DIFFERENT request digest. Durable dedup refused it; nothing was spawned twice. */
+  /** A start carried an ID the node already accepted for a DIFFERENT request digest. Durable dedup refused it; nothing was spawned twice. The session-open dedup kept the spelling (design §3). */
   "run_conflict",
-  /** A status/read/cancel named a run ID this node never accepted or has expired. Unknown IDs are never reusable start requests (SSH-SUPPORT.md §3, Durable dispatch). */
+  /** The node never accepted this ID (or its record expired). A surviving equality code: the session arms answer it for an unknown session ref. */
   "run_unknown",
-  /** The fixed connection-test probe failed for no more specific reason. The one code that must never be dressed up as a diagnosis. */
+  /** The pre-spawn connect probe failed for no more specific reason - the session open's reachability probe kept this spelling too. The one code that must never be dressed up as a diagnosis. */
   "connection_failed",
   /**
    * The session-runtime probe found no runtime binary on the destination
@@ -106,10 +106,6 @@ export const SSH_ERROR_DESCRIPTIONS: Record<SshErrorCode, string> = {
   auth_mode_unsupported:
     "The destination requires password or interactive authentication. Subshell supports key and certificate auth only.",
   proxy_chain_too_long: "The jump-host chain is longer than Subshell will review and run. Shorten the ProxyJump path.",
-  quota_runs: "Too many SSH commands are running for this quota right now. Wait for one to finish or cancel it.",
-  quota_terminals: "This account already has its share of open SSH terminals on that node. Close one first.",
-  storage_full:
-    "The node's SSH output store is full and cannot evict enough to accept new work. Delete old run history on the node.",
   stale_command: "The request expired before it reached the node. Nothing ran; send it again if it should.",
   run_conflict:
     "A run with this ID already exists with different contents. The earlier request stands; this one was refused.",
@@ -123,3 +119,16 @@ export const SSH_ERROR_DESCRIPTIONS: Record<SshErrorCode, string> = {
   session_protocol:
     "The destination answered the session open with something that is not the Subshell runtime's handshake. Check that the named program is the `subshell` binary.",
 };
+
+/**
+ * `result.error` from an input or prompt-delivery the node refused because its
+ * per-pane generation had moved on: a takeover or a revocation fenced it.
+ *
+ * THE single frozen wire spelling for a generation refusal. There is
+ * deliberately no matching member of `SSH_ERROR_CODES` (the Gate A review
+ * ruled one event, one name): the plane matches `NodeRpcError.detail` against
+ * THIS constant by equality, exactly like every other bare `NODE_RESULT_*`.
+ * Relocated here from the retired run-facts module (design 2026-10-05 §7);
+ * the input-generation fence on ORDINARY panes is why the spelling survives.
+ */
+export const NODE_RESULT_SSH_GENERATION_STALE = "stale input generation";

@@ -169,7 +169,7 @@ export interface NodeLauncher {
     id: string,
     fromByte: number,
     maxBytes: number,
-  ): Promise<{ bytes: Uint8Array; next: number; size: number; logGeneration?: number }>;
+  ): Promise<{ bytes: Uint8Array; next: number; size: number }>;
   /** Starts a log-tail subscription; resolves to its cancel function. */
   tailStart(
     id: string,

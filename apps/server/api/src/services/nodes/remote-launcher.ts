@@ -561,19 +561,11 @@ export class RemoteLauncher implements NodeLauncher {
     id: string,
     fromByte: number,
     maxBytes: number,
-  ): Promise<{ bytes: Uint8Array; next: number; size: number; logGeneration?: number }> {
+  ): Promise<{ bytes: Uint8Array; next: number; size: number }> {
     const data = await this.#send({ type: "log_read", subshellId: id, fromByte, maxBytes }, LOG_READ_TIMEOUT_MS);
     const r = parseNodeLogReadResult(data);
     if (!r) throw this.#malformed("log_read");
-    return {
-      bytes: Buffer.from(r.bytes_b64, "base64"),
-      next: r.next,
-      size: r.size,
-      // The node's CURRENT SSH terminal log rotation generation, when this
-      // pane is one (the answer's additive half of the §3 cursor contract;
-      // absent for ordinary panes and for an agent that predates the echo).
-      ...(r.logGeneration === undefined ? {} : { logGeneration: r.logGeneration }),
-    };
+    return { bytes: Buffer.from(r.bytes_b64, "base64"), next: r.next, size: r.size };
   }
 
   /**
@@ -599,7 +591,7 @@ export class RemoteLauncher implements NodeLauncher {
     id: string,
     fromByte: number,
     maxBytes: number,
-  ): Promise<{ bytes: Uint8Array; next: number; size: number; logGeneration?: number }> {
+  ): Promise<{ bytes: Uint8Array; next: number; size: number }> {
     return await this.readLogSized(id, fromByte, maxBytes);
   }
 
