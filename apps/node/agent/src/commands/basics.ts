@@ -154,14 +154,22 @@ export async function execCapture(ctx: CommandContext, cmd: Cmd<"capture">): Pro
  * said so, and the entry shape has no third state to say anything else with.
  */
 export async function execProbe(ctx: CommandContext, cmd: Cmd<"probe">): Promise<CommandResult> {
-  // Same id-format gate as resolveSocket (probe never touches the store, but
-  // a hostile id must not reach tmux either): one bad id fails the batch.
+  // One bad id fails the batch.
   for (const subshellId of cmd.subshellIds) {
     if (!isSubshellId(subshellId)) throw new Error("invalid subshell id");
   }
   const entries: NodeProbeEntry[] = [];
   for (const subshellId of cmd.subshellIds) {
-    const socket = tmuxSocketFor(subshellId); // same derivation the launcher uses — no stored state needed
+    // The socket the PANE is actually on, resolved by the shared rule (every
+    // other pane executor uses it): the record written at launch wins, and
+    // `tmuxSocketFor` is the orphan fallback. The bare derivation was wrong
+    // for SSH-runtime panes - the runtime launches them on its one
+    // destination-wide socket (design 2026-10-05 §6), so deriving the
+    // per-subshell name probed a socket the pane never lived on and answered
+    // `alive: false` for a running pane (the live-attach probe that surfaced
+    // it closed every runtime attach at 4004 "subshell not running"). On the
+    // node link the record EQUALS the derivation, so nothing else shifts.
+    const socket = await resolveSocket(ctx, subshellId);
     if (!(await ctx.tmux.hasSubshell(socket, subshellId))) {
       entries.push({ subshellId, alive: false, exitCode: await ctx.tmux.paneExitCode(socket, subshellId) });
       continue;
