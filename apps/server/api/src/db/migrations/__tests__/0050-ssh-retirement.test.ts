@@ -79,3 +79,62 @@ describe("migration 0050-ssh-retirement", () => {
     // retirement itself has no undo.
   });
 });
+
+/**
+ * The row sweep (review wave, design 2026-10-05 §7's deletion half): the old
+ * managed terminals were ORDINARY `subshells` rows marked by an `ssh_panes`
+ * record, and 0050 deletes exactly those before the marker table goes. On a
+ * stub pane table (the 0048-suite shape: only `id` matters to the FK) with one
+ * marked pane and two unmarked ones, this pins that the sweep removes the
+ * marked row, spares every unmarked pane, and re-runs cleanly once its own
+ * drop has removed `ssh_panes` (the restore-path idempotence the drop already
+ * has, extended to the sweep's existence guard).
+ */
+describe("migration 0050 sweeps the ssh_panes-marked pane rows", () => {
+  let sqlite: ReturnType<typeof openSqliteDatabase>;
+  let db: Kysely<Record<string, never>>;
+  const dbFile = `/tmp/subshell-0050-sweep-${process.pid}-${Date.now()}.sqlite`;
+
+  const paneIds = async (): Promise<string[]> => {
+    const rows = await sql<{ id: string }>`SELECT id FROM subshells ORDER BY id`.execute(db);
+    return rows.rows.map((r) => r.id);
+  };
+
+  beforeAll(async () => {
+    sqlite = openSqliteDatabase(dbFile);
+    db = new Kysely<Record<string, never>>({
+      dialect: new BunSqliteDialect({ database: sqlite }),
+      plugins: [new CamelCasePlugin()],
+    });
+    await up0047(db);
+    await up0048(db);
+    await up0049(db);
+    // The pane table the real chain has had since 0001/0019 (id plus whatever;
+    // only `id` participates in the FK and the sweep), plus the config rows
+    // the marker's own FKs require (the 0048-suite precedent).
+    await sql`CREATE TABLE subshells (id TEXT PRIMARY KEY)`.execute(db);
+    await sql`CREATE TABLE nodes (id TEXT PRIMARY KEY)`.execute(db);
+    await sql`INSERT INTO nodes (id) VALUES ('n1')`.execute(db);
+    await sql`INSERT INTO subshells (id) VALUES ('zombie'), ('ordinary-a'), ('ordinary-b')`.execute(db);
+    await sql`INSERT INTO ssh_connections (id, user_id, node_id, display_name, config_snapshot)
+      VALUES ('c1', 'u1', 'n1', 'S', '{"host":"h"}')`.execute(db);
+    await sql`INSERT INTO ssh_panes (subshell_id, connection_id, connection_revision, initiated_by, control_owner)
+      VALUES ('zombie', 'c1', 1, 'human', 'human')`.execute(db);
+  });
+
+  afterAll(async () => {
+    await db.destroy();
+    sqlite.close();
+    rmSync(dbFile, { force: true });
+  });
+
+  it("deletes the marked pane and spares every unmarked pane", async () => {
+    await up0050(db);
+    expect(await paneIds()).toEqual(["ordinary-a", "ordinary-b"]);
+  });
+
+  it("re-runs cleanly after its own drop removed the marker table", async () => {
+    await up0050(db); // ssh_panes is gone: the existence guard skips, nothing throws
+    expect(await paneIds()).toEqual(["ordinary-a", "ordinary-b"]);
+  });
+});

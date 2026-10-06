@@ -1,4 +1,4 @@
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 
 /**
  * SSH destination-product retirement (Workstream C, design 2026-10-05 §7,
@@ -26,8 +26,38 @@ import type { Kysely } from "kysely";
  * The data is gone by decision, not accident: single-user instances, the
  * feature never released (PR #330 explicitly must not merge the old model),
  * and the pane logs / node-side stores never belonged to these tables.
+ *
+ * The drop therefore also DELETES the pane rows the product had marked, while
+ * the marker table still exists to name them (one transaction: the migrator
+ * wraps every `up`). The old managed terminals were ORDINARY `subshells` rows,
+ * full pane rows whose only ssh-ish fact was their `ssh_panes` record, and
+ * dropping the marker alone would leave them behind as zombies: they list and
+ * attach as ordinary running panes (the old service used exactly the ordinary
+ * status/alive grammar), while the agent still holds the input-generation
+ * record it persisted per managed pane and the retired plane never sends the
+ * field. Every write to such a pane then reads stale and is refused forever,
+ * with nothing in the UI to say why. Sweeping the marked rows reproduces what
+ * an operator delete would have done: FK children ride the cascade, and the
+ * MCP token needs no extra step. Its better-auth `apikey` row is linked by
+ * metadata and the row's `apiKeyId`, not an FK, and the guard's own rule
+ * that a key whose subshell row is gone returns 401 (the row is lifecycle
+ * truth) is the designed handling for the leftover row, exactly the second
+ * layer the manager's delete path documents. The sweep is existence-guarded
+ * so the `IF EXISTS` idempotence above stays true: on a re-run after its own
+ * drop, or on a chain whose pane table never existed, there is nothing to
+ * sweep and nothing throws.
  */
 export async function up(db: Kysely<any>): Promise<void> {
+  const present = await sql<{ n: number }>`
+    SELECT COUNT(*) AS n FROM sqlite_master
+    WHERE type = 'table' AND name IN ('subshells', 'ssh_panes')
+  `.execute(db);
+  if (Number(present.rows[0]?.n ?? 0) === 2) {
+    await sql`
+      DELETE FROM subshells
+      WHERE id IN (SELECT subshell_id FROM ssh_panes)
+    `.execute(db);
+  }
   await db.schema.dropTable("ssh_terminal_execs").ifExists().execute();
   await db.schema.dropTable("ssh_panes").ifExists().execute();
   await db.schema.dropTable("ssh_runs").ifExists().execute();
