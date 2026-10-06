@@ -22,9 +22,9 @@ export interface SshRuntimeSessionTable {
   ownerUserId: string;
   /**
    * The ENROLLED node that brokered the SSH child; opening required real
-   * ownership of it. NULLABLE by design (migration 0049): deleting the
-   * connecting machine SET NULLs this - the history outlives the machine
-   * (the `ssh_runs.node_id` posture, migration 0048).
+   * ownership of it. NULLABLE by design (migration 0049): node ids are plain
+   * text refs by design here, and deleting the connecting machine SET NULLs
+   * this so the history outlives the machine.
    */
   connectingNodeId: string | null;
   /** The hidden `nodes` row (kind 'runtime') the session's panes carry as node_id */

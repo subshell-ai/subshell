@@ -147,7 +147,8 @@ import type { SshSessionNodeCommandBody } from "./ssh-session-frames.js";
  * product, legal without a version bump precisely because 16 and 17 are
  * unreleased. Additive, and breaking anyway, because the gate is exact-match.
  * The bump is coordinated with `MIN_NODE_VERSION` and the agent's own version
- * so `releases.ts` never offers a protocol-15 build to a protocol-16 plane. *
+ * so `releases.ts` never offers a protocol-15 build to a protocol-16 plane.
+ *
  * **16 → 17 is the SSH session-runtime surface (design 2026-10-05 §2/§3).**
  * Three commands broker a destination runtime over a live SSH child —
  * `ssh_session_open`, `ssh_session_send`, `ssh_session_close` (types in
@@ -157,9 +158,11 @@ import type { SshSessionNodeCommandBody } from "./ssh-session-frames.js";
  * and never ride this version; the node link changes only by adding these
  * four shapes. Additive, breaking as always (exact-match gate), and
  * coordinated with `MIN_NODE_VERSION` and the agent's own version the same
- * way every bump here has been. The 15→16 SSH family's commands stay on the
- * wire (retirement is workstream C's, and retiring a frame is a bump of its
- * own).
+ * way every bump here has been. Of the 15→16 SSH family, what rides this
+ * wire is the two pre-session reads and the `inputGeneration` fence; the
+ * destination-execution arms already left with the product, and that removal
+ * took no bump of its own because 16 and 17 never shipped (the paragraph
+ * above).
  */
 export const NODE_PROTOCOL_VERSION = 17;
 

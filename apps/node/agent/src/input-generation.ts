@@ -118,8 +118,11 @@ export class InputGenerationStore {
   }
 
   /**
-   * Drop a pane's record (pane deleted / log cleanup). Idempotent; the file
-   * rewrite is skipped when nothing was there.
+   * Drop a pane's record. Idempotent; the file rewrite is skipped when
+   * nothing was there. The handlers this was written for (managed-pane delete
+   * and log cleanup) retired with the destination product, so like `record()`
+   * it is currently unwired: both stand ready as the seam the next
+   * control-transition feature writes through.
    */
   forget(subshellId: string): void {
     if (!isSubshellId(subshellId)) return; // id gate first; a junk id never had a record

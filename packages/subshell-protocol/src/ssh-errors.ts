@@ -128,7 +128,12 @@ export const SSH_ERROR_DESCRIPTIONS: Record<SshErrorCode, string> = {
  * deliberately no matching member of `SSH_ERROR_CODES` (the Gate A review
  * ruled one event, one name): the plane matches `NodeRpcError.detail` against
  * THIS constant by equality, exactly like every other bare `NODE_RESULT_*`.
- * Relocated here from the retired run-facts module (design 2026-10-05 §7);
- * the input-generation fence on ORDINARY panes is why the spelling survives.
+ * Relocated here from the retired run-facts module (design 2026-10-05 §7).
+ * What keeps the spelling alive is the fence's SEAM, not its use: with the
+ * destination product retired, nothing records a generation, so every pane
+ * is an ordinary pane under the agent's deny-by-construction rule and this
+ * refusal cannot fire today. The wire field, the monotonic mirror, and this
+ * frozen answer are what the next control-transition feature adopts instead
+ * of reinventing (the honest header: apps/node/agent/src/input-generation.ts).
  */
 export const NODE_RESULT_SSH_GENERATION_STALE = "stale input generation";

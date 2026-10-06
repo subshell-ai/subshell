@@ -51,7 +51,7 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * commands `archive_create`, `file_read`, `transfer_write`, `archive_extract`
  * and `tree_manifest` (spec 2026-10-01 §4, protocol 15), and the two
  * pre-session SSH reads `ssh_discover_aliases` and `ssh_resolve_config`
- * (grammar frozen in `ssh-frames.ts`, runtime in `@internal/pane-runtime`) Any
+ * (grammar frozen in `ssh-frames.ts`, runtime in `@internal/pane-runtime`). Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
  *
