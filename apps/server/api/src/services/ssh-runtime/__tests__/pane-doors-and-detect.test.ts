@@ -156,8 +156,10 @@ beforeAll(async () => {
         captured.push(entry);
         // Every framed command gets an answer (launch included - an unanswered
         // command would sit on the session's 20 s deadline): detect answers
-        // with the fixture's rows/env, everything else with an empty success.
-        const inner = entry.inner as { type?: string; ref?: string } | undefined;
+        // with the fixture's rows/env, stat_dir with its F3 pre-launch
+        // realpath success (the launch verbs ask it before any write), and
+        // everything else with an empty success.
+        const inner = entry.inner as { type?: string; ref?: string; path?: string } | undefined;
         if (inner?.ref !== undefined) {
           pumpTarget.ingestBytes(
             encodeSshSessionFrame({
@@ -165,6 +167,9 @@ beforeAll(async () => {
               ref: inner.ref,
               ok: true,
               ...(inner.type === "detect" && detectAnswer !== undefined ? { data: detectAnswer } : {}),
+              ...(inner.type === "stat_dir"
+                ? { data: { path: inner.path ?? "/home/dst/work", isDirectory: true } }
+                : {}),
             }),
           );
         }
@@ -438,8 +443,10 @@ describe("launch-harness (the real service path, credential scan)", () => {
       expect(session.paneToken(composedId)).toBeUndefined();
       const row = await subshellsRepo.findById(composedId);
       expect(row).toBeUndefined();
-      // Nothing crossed to the node: the dialect died before the frame.
-      expect(captured.length).toBe(0);
+      // Nothing of the PANE crossed to the node: the dialect died before the
+      // launch frame. (The F3 pre-launch `stat_dir` is the one frame that
+      // legitimately precedes the row - the gate that passed, not the write.)
+      expect(captured.filter((c) => c.inner?.type !== "stat_dir").length).toBe(0);
     } finally {
       mock.module("@/services/mcp-launch.js", () => realMcpLaunch);
       expect(mcpLaunch.planRemoteSubshellMcp).toBe(realMcpLaunch.planRemoteSubshellMcp);

@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { getHarness, tmuxSocketFor } from "@internal/pane-runtime";
-import { type NodeFsLsResult, normalizeLabel, parseNodeFsLsResult } from "@internal/subshell-protocol";
+import {
+  type NodeFsLsResult,
+  normalizeLabel,
+  parseNodeFsLsResult,
+  parseNodeStatDirResult,
+} from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
@@ -9,7 +14,7 @@ import { nodeSelfInvoke, planRemoteSubshellMcp } from "@/services/mcp-launch.js"
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { RuntimeSessionLauncher } from "./runtime-session-launcher.js";
-import { RUNTIME_PANE_BASE_URL, type SshRuntimeSession } from "./session.js";
+import { RUNTIME_PANE_BASE_URL, SshRuntimeCommandError, type SshRuntimeSession } from "./session.js";
 import { getSession } from "./session-registry.js";
 import { SshRuntimeSessionsRepository } from "./sessions.repository.js";
 import { closeBestEffort, SshRuntimeRefusal, type SshRuntimeSessionView, viewOfRow } from "./sessions.service.js";
@@ -58,6 +63,47 @@ export async function sessionListDirs(sessionId: string, userId: string, path: s
 }
 
 /**
+ * Stat-verify a launch `cwd` ON THE DESTINATION before any plane write
+ * (design §7: an invalid directory names the remedy). The node-link's own
+ * pre-launch rule (`validateWorkingDir` -> the shared `stat_dir` executor),
+ * run through the session's framed channel: a missing path or a non-directory
+ * refuses `dir_missing` with 409 BEFORE the row exists, so no launch ever
+ * writes a row whose workingDir the shell silently fell back from (the tmux
+ * fallback to `~` was F3's lying 200). On success the REALPATH returns, and
+ * the row and the launch frame carry it - the manager's resolved-dir rule,
+ * one layer across the SSH hop.
+ *
+ * @throws SshRuntimeRefusal 409 `dir_missing` (refused value), 502 (a
+ *         malformed answer); anything else (a dead session, a timeout) rides
+ *         out as the command error it is, like every other framed verb.
+ */
+async function resolveDestinationDir(session: SshRuntimeSession, cwd: string): Promise<string> {
+  let resolved: string;
+  try {
+    const data = await session.command({ type: "stat_dir", ref: crypto.randomUUID(), path: cwd }, 10_000);
+    const parsed = parseNodeStatDirResult(data);
+    if (parsed === null) {
+      throw new SshRuntimeRefusal(502, "the runtime answered the directory check with a malformed payload");
+    }
+    resolved = parsed.path;
+  } catch (err) {
+    if (
+      err instanceof SshRuntimeCommandError &&
+      (err.detail.startsWith("ENOENT:") || err.detail.startsWith("ENOTDIR:"))
+    ) {
+      throw new SshRuntimeRefusal(
+        409,
+        `${cwd} does not exist on the destination (or is not a directory). Choose an existing folder on the destination disk.`,
+        "dir_missing",
+      );
+    }
+    throw err;
+  }
+  void sessionsRepo.touch(session.id).catch(() => {});
+  return resolved;
+}
+
+/**
  * Open a terminal pane on a live session (the `launch-terminal` verb):
  * the ordinary row + the runtime frame, in `sshTerminalCreate`'s order (row,
  * token, launch, settle), and a refusal deletes the row it just wrote. The
@@ -74,16 +120,21 @@ export async function sessionLaunchTerminal(
   body: { cwd: string; cols?: number; rows?: number },
 ): Promise<{ subshellId: string }> {
   const session = requireOwnedSession(sessionId, userId);
-  const id = randomUUID();
-  const socket = tmuxSocketFor(id);
   const harness = getHarness("terminal");
   if (harness === undefined) throw new SshRuntimeRefusal(500, "the built-in terminal harness is not available");
+  // Stat-verified BEFORE the row (F3, design §7): a missing destination
+  // directory refuses by name instead of launching into the shell's fallback.
+  // It is the last cheap check before the first write - the guard refusals
+  // stay frameless, and the stat gate precedes the row/token/frame order.
+  const cwd = await resolveDestinationDir(session, body.cwd);
+  const id = randomUUID();
+  const socket = tmuxSocketFor(id);
   await subshellsRepo.create({
     id,
     userId,
     harnessId: "terminal",
     name: normalizeLabel(`SSH ${session.target.alias}`, 120),
-    workingDir: body.cwd,
+    workingDir: cwd,
     presetId: null,
     nodeId: session.runtimeNodeId,
     tmuxSocket: socket,
@@ -110,7 +161,7 @@ export async function sessionLaunchTerminal(
       socket,
       harness,
       binary: "",
-      cwd: body.cwd,
+      cwd,
       preset: {
         name: "terminal",
         description: null,
@@ -202,6 +253,10 @@ export async function sessionLaunchHarness(
     throw new SshRuntimeRefusal(409, "preset harness mismatch");
   }
   const preset = presetRow ? parsePreset(presetRow) : EMPTY_PRESET;
+  // Stat-verified before any plane write (the terminal verb's rule, F3): the
+  // last check before the row/token/frame order begins, and no guard refusal
+  // above it ever dials the destination.
+  const cwd = await resolveDestinationDir(session, body.cwd);
   // Fresh conversation id for resume-capable harnesses, start mode (module
   // doc: never resumed on this surface); pinned on the row at insert, the
   // manager's own ordering, so the census and any later lineage read see it.
@@ -216,7 +271,7 @@ export async function sessionLaunchHarness(
     userId,
     harnessId: harness.id,
     name: paneName,
-    workingDir: body.cwd,
+    workingDir: cwd,
     presetId: presetRow?.id ?? null,
     nodeId: session.runtimeNodeId,
     tmuxSocket: socket,
@@ -255,7 +310,7 @@ export async function sessionLaunchHarness(
       socket,
       harness,
       binary: "",
-      cwd: body.cwd,
+      cwd,
       preset,
       // The destination tmux session name is the pane id (the terminal verb's
       // rule, and the reconcile's match key: the census reports destination

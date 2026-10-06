@@ -176,13 +176,22 @@ describe("input after the child died", () => {
       ssh_session_send: (cmd) => {
         if (cmd.type !== "ssh_session_send" || pumpTarget === undefined) return new Error("unexpected send");
         for (const frame of new SshSessionFrameDecoder().push(new Uint8Array(Buffer.from(cmd.data_b64, "base64")))) {
-          const inner = frame as { type?: string; ref?: string };
+          const inner = frame as { type?: string; ref?: string; path?: string };
           if (inner.ref === undefined) continue;
           const refusal = inner.type === undefined ? undefined : refuseFrames.get(inner.type);
           pumpTarget.ingestBytes(
             encodeSshSessionFrame(
               refusal === undefined
-                ? { type: "result", ref: inner.ref, ok: true }
+                ? {
+                    type: "result",
+                    ref: inner.ref,
+                    ok: true,
+                    // The F3 pre-launch `stat_dir` answers with the executor's
+                    // realpath success shape; every other ok frame needs none.
+                    ...(inner.type === "stat_dir"
+                      ? { data: { path: inner.path ?? "/home/dst/work", isDirectory: true } }
+                      : {}),
+                  }
                 : { type: "result", ref: inner.ref, ok: false, error: refusal },
             ),
           );
@@ -241,13 +250,22 @@ describe("harness binary missing at launch", () => {
       ssh_session_send: (cmd) => {
         if (cmd.type !== "ssh_session_send" || pumpTarget === undefined) return new Error("unexpected send");
         for (const frame of new SshSessionFrameDecoder().push(new Uint8Array(Buffer.from(cmd.data_b64, "base64")))) {
-          const inner = frame as { type?: string; ref?: string };
+          const inner = frame as { type?: string; ref?: string; path?: string };
           if (inner.ref === undefined) continue;
           const refusal = inner.type === undefined ? undefined : refuseFrames.get(inner.type);
           pumpTarget.ingestBytes(
             encodeSshSessionFrame(
               refusal === undefined
-                ? { type: "result", ref: inner.ref, ok: true }
+                ? {
+                    type: "result",
+                    ref: inner.ref,
+                    ok: true,
+                    // The F3 pre-launch `stat_dir` answers with the executor's
+                    // realpath success shape; every other ok frame needs none.
+                    ...(inner.type === "stat_dir"
+                      ? { data: { path: inner.path ?? "/home/dst/work", isDirectory: true } }
+                      : {}),
+                  }
                 : { type: "result", ref: inner.ref, ok: false, error: refusal },
             ),
           );
@@ -277,9 +295,10 @@ describe("harness binary missing at launch", () => {
       expect(paneIds).toEqual([]);
       const rows = await subshellsRepo.listByUser(userId);
       expect(rows.filter((r) => r.nodeId === session.runtimeNodeId)).toEqual([]);
-      // The attempt did reach the destination once (the refusal IS the
-      // destination's answer): exactly one framed command crossed.
-      expect(sim.countOf("ssh_session_send")).toBe(1);
+      // The attempt did reach the destination: the F3 `stat_dir` gate passed
+      // (the directory probe is not what refused) and the LAUNCH refusal is
+      // the destination's own answer - exactly two framed commands crossed.
+      expect(sim.countOf("ssh_session_send")).toBe(2);
     } finally {
       sim.detach();
       pumpTarget = undefined;

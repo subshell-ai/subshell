@@ -69,10 +69,12 @@ export class SshRuntimeRefusal extends Error {
   readonly status: number;
   /**
    * The named code when there is one (frozen `SshErrorCode`, `session_unknown`,
-   * or `detect_unsupported` - the task-25 capability refusal the harnesses
-   * verbs answer 409 with when the destination runtime predates `"detect"`).
+   * `detect_unsupported` - the task-25 capability refusal the harnesses verbs
+   * answer 409 with when the destination runtime predates `"detect"` - or
+   * `dir_missing` - the F3 launch refusal, the destination's own `stat_dir`
+   * saying the chosen working directory is not there).
    */
-  readonly code: SshErrorCode | "session_unknown" | "detect_unsupported" | null;
+  readonly code: SshErrorCode | "session_unknown" | "detect_unsupported" | "dir_missing" | null;
   constructor(status: number, message: string, code: SshRuntimeRefusal["code"] = null) {
     super(message);
     this.name = "SshRuntimeRefusal";
