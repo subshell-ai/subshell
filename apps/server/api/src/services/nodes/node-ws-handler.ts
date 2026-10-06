@@ -860,7 +860,10 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
         // compares connection IDENTITY, so a session brokered on this
         // connection - even one opened in the attach-to-`ready` window -
         // survives it, and a held outcome below loses the prior-link
-        // sessions all the same.
+        // sessions all the same. The `encryption-required` hold (ledger R3)
+        // returns upstream of this sweep, so a pin-less legacy connection
+        // that somehow brokered a session pre-ready is not swept here; it
+        // self-settles send-failed on its first write.
         markSessionsLostBeforeConnection(nodeId, conn);
         conn.agent = {
           dataDir: event.dataDir,

@@ -1414,6 +1414,71 @@ describe("brokered-session liveness across link-close orderings (review round-3 
     await handleNodeMessage(h.deps, second, JSON.stringify(readyFrame()));
     expect(openedHere.status).toBe("active");
   });
+
+  /**
+   * Round-4 review MINOR1: the FORCED-EVICTION ordering. `disconnectNode`
+   * (rotate-key / delete-node / owner-disable / re-register) detaches the
+   * live entry synchronously, so the socket's close event later lands in the
+   * superseded arm (which touches no sessions), and the same act refuses or
+   * replaces the redial, so no replacement `ready` sweeps either. Without a
+   * mark at the eviction itself the plane kept `active` rows over runtimes
+   * the agent drained the moment its socket died.
+   */
+  it("forced eviction (rotate/delete/disable) loses the riding session: its close lands superseded and no ready follows", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, ws);
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
+    const riding = sessionOn("n1", ws.data.nodeConn);
+
+    expect(await disconnectNode("n1")).toBe(true);
+    expect(riding.status).toBe("lost");
+    expect(liveSessionForRuntimeNode(riding.runtimeNodeId)).toBeUndefined();
+    expect(isNodeOffline(riding.runtimeNodeId)).toBe(true); // nothing keeps the runtime node live
+
+    // The (simulated) late close: getLive is empty, so it is the superseded
+    // arm exactly as on a real socket, and the session stays terminal.
+    await handleNodeClose(h.deps, ws);
+    expect(riding.status).toBe("lost");
+  });
+
+  it("the targeted disable re-ask (`only` on the live record) marks the sessions too", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, ws);
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame()));
+    const conn = ws.data.nodeConn;
+    if (!conn) throw new Error("open must stash the registry record on ws.data");
+    const riding = sessionOn("n1", conn);
+
+    expect(await disconnectNode("n1", OWNER_DISABLED_CLOSE_CODE, "the node's owner account is disabled", conn)).toBe(
+      true,
+    );
+    expect(riding.status).toBe("lost");
+  });
+
+  it("an `only` eviction that detaches nothing marks nothing: the replacement owns its sessions", async () => {
+    const h = makeHarness();
+    const first = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, first);
+    await handleNodeMessage(h.deps, first, JSON.stringify(readyFrame()));
+    const oldConn = first.data.nodeConn;
+    if (!oldConn) throw new Error("open must stash the registry record on ws.data");
+    const rodeOldLink = sessionOn("n1", oldConn);
+
+    const second = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, second); // superseded: the old record left the live map here
+    const openedHere = sessionOn("n1", second.data.nodeConn);
+
+    // The re-ask about an already-replaced socket: nothing of its own to
+    // evict, and it owns no session - the prior-link one goes by the
+    // replacement's ready sweep, not by this refused eviction.
+    expect(await disconnectNode("n1", OWNER_DISABLED_CLOSE_CODE, "the node's owner account is disabled", oldConn)).toBe(
+      false,
+    );
+    expect(rodeOldLink.status).toBe("active");
+    expect(openedHere.status).toBe("active");
+  });
 });
 
 /**

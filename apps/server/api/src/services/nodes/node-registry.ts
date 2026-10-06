@@ -1,7 +1,7 @@
 import { NODE_CLOSE_SUPERSEDED, type NodeRuntimeReport } from "@internal/subshell-protocol";
 import type { LinkSession } from "@internal/subshell-protocol/node-link-crypto";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
-import { liveSessionForRuntimeNode } from "@/services/ssh-runtime/session-registry.js";
+import { liveSessionForRuntimeNode, markSessionsLostForNode } from "@/services/ssh-runtime/session-registry.js";
 import { projectNodeOffline } from "./node-presence-announce.js";
 import type { NodeRpcError } from "./node-rpc.js";
 
@@ -567,7 +567,22 @@ export async function disconnectNode(
     }
     // Identity-guarded: a socket replaced between the two reads detaches
     // nothing and owns no projection — the current entry answers for itself.
-    if (detachConnection(nodeId, conn.ws)) evicted = true;
+    if (detachConnection(nodeId, conn.ws)) {
+      // Forced eviction OWNS the sessions' terminality too (round-4 review
+      // MINOR1). It detaches synchronously, so the socket's own close event
+      // later lands in the superseded arm (which touches no sessions) and
+      // the same act - rotate, delete, disable, re-register - refuses or
+      // replaces the redial, so the replacement `ready` sweep never runs
+      // either. The AGENT drained every brokered child the moment its
+      // socket died, and this is the one point that can say so: every
+      // session riding the node has lost its transport. Mark-all is right
+      // even for the `only` variant: `openSession` requires real ownership
+      // of the connecting node, so every session rides the evicted owner's
+      // axis, and a refused eviction (no detach) marks nothing, exactly as
+      // it projects nothing.
+      markSessionsLostForNode(nodeId);
+      evicted = true;
+    }
   }
   if (!evicted) return false;
   await projectNodeOffline(nodeId);
