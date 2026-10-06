@@ -5,7 +5,7 @@
  * {@link SshSessionOpenResultWire}, and the two runtime-link frame unions.
  *
  * The WIRE TYPES and constants live in `ssh-session-frames.ts`; the GRAMMAR
- * lives here (the `ssh-frames.ts` / `ssh-run-facts.ts` split, one concern per
+ * lives here (the `ssh-frames.ts` / `ssh-results.ts` split, one concern per
  * file). Both ends import through the package barrel; `node-frames.ts` routes
  * its three `ssh_session_*` arms here, the runtime and the plane parse every
  * stdio frame through the same functions, so the two ends cannot drift.

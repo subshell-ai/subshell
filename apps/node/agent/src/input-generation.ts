@@ -4,20 +4,24 @@ import { log } from "./log.js";
 import { isSubshellId } from "./subshell-meta.js";
 
 /**
- * The node's mirror of each managed SSH pane's INPUT GENERATION (SSH feature,
- * SSH-SUPPORT.md §3 "Interactive terminals and input control").
+ * The node's mirror of each pane's INPUT GENERATION.
  *
- * The plane owns the counter (`ssh_panes.control_generation`) and raises it on
- * every takeover/revocation transition; the transitions arrive here through
- * the `ssh_input_control` command, which is the ONLY writer besides
- * `ssh_terminal_launch` (which records the pane's starting generation). This
- * mirror is what makes the fence a MACHINE fact rather than a plane promise:
- * every input/prompt write to a managed pane carries the generation it was
- * queued under, and a write below the mirror's current value is refused here,
- * after any queueing, after a reconnect, and after an agent restart (the
- * mirror is persisted beside the pane meta for exactly that reason - an agent
- * that forgot its generations on restart would un-fence everything a takeover
- * just fenced).
+ * The plane owns the counter and raises it on every takeover/revocation
+ * transition; this mirror is what makes the fence a MACHINE fact rather than
+ * a plane promise: an input/prompt write that carries the additive
+ * `inputGeneration` field is checked here, and a write below the mirror's
+ * current value is refused, after any queueing, after a reconnect, and after
+ * an agent restart (the mirror is persisted beside the pane meta for exactly
+ * that reason - an agent that forgot its generations on restart would
+ * un-fence everything a takeover just fenced).
+ *
+ * The destination product's managed panes retired with it (design
+ * 2026-10-05 §7): the `ssh_input_control` and `ssh_terminal_launch` commands
+ * that wrote this store are gone, so nothing records a generation today, and
+ * the deny-by-construction rule below makes every pane an ordinary pane. The
+ * fence stays - the wire field, the frozen refusal, and the monotonic mirror
+ * are the seam the NEXT control-transition feature adopts instead of
+ * reinventing.
  *
  * **Deny by construction:** a pane with NO record is an ordinary pane and the
  * policy does not apply to it (every existing input path is untouched). A pane
@@ -84,8 +88,8 @@ export class InputGenerationStore {
   }
 
   /**
-   * The pane's current generation, or null when this pane is NOT a managed SSH
-   * terminal (no record - the policy does not apply).
+   * The pane's current generation, or null when this pane has NO record (the
+   * policy does not apply - an ordinary pane).
    */
   current(subshellId: string): number | null {
     this.ensureLoaded();
@@ -93,8 +97,8 @@ export class InputGenerationStore {
   }
 
   /**
-   * Establish or RAISE a pane's generation (the `ssh_input_control` /
-   * `ssh_terminal_launch` write side). Monotonic: a lower value is refused by
+   * Establish or RAISE a pane's generation (the seam a control-transition
+   * feature writes through). Monotonic: a lower value is refused by
    * returning the still-current one, so a replayed old transition cannot
    * un-fence input (the plane's counter is authoritative; the mirror only ever
    * moves forward).

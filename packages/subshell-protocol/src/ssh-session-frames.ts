@@ -18,7 +18,7 @@
  *
  * This file is the WIRE TYPES and constants; the validators that narrow
  * unknown JSON into these shapes live in `ssh-session-frame-parsers.ts`
- * (the `ssh-frames.ts` / `ssh-run-facts.ts` split - one concern per file).
+ * (the `ssh-frames.ts` / `ssh-results.ts` split - one concern per file).
  * Hand-rolled in the `ssh-frames.ts` style; imports no `node:` builtin;
  * lives in the Metro-safe barrel. Result ENVELOPE validation for the open
  * command lives in `node-results.ts` beside every other result validator

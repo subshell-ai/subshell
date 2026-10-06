@@ -7,9 +7,9 @@ import { inputWindowHas } from "@/ws/input-window.js";
 import { cleanupSubshellWs, handleSubshellMessage } from "@/ws/subshell-ws.js";
 import { registerViewer, resetLiveViewersForTests, type WsSocket } from "@/ws/viewers.js";
 
-// The keystroke handler reads `ssh_panes` (the SSH fence branch) before it
-// dispatches, so this suite touches the migrated schema even though none of
-// its panes are managed.
+// The suite's fake rows read through the migrated schema like every other
+// server test DB; the ssh fence branch this handler once consulted retired
+// with the destination product (design 2026-10-05 §7).
 beforeAll(async () => {
   await ensureMigratedTestDb();
 });
