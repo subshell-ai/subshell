@@ -113,12 +113,17 @@ interface Door {
  * every callback moved onto a channel that never issued those panes' tokens
  * and 403'd them) is refused instead - HERE, at the bind, and that is the
  * whole enforcement. The plane deliberately runs no refuse-a-second-live-
- * session gate (review m1: `openSession` asks only the per-node quota): a
- * pre-open refusal would misread every REOPEN after a lost or closed
- * session, which design §6 requires to adopt the destination's surviving
- * panes, as a collision. What the plane cannot see across sessions, the
- * bind can: both serves share the destination's filesystem, and the live
- * listener IS the other session's proof of life.
+ * session gate (review m1: `openSession` asks only the per-node quota).
+ * The precise reason (round-3 review NIT; the claim here earlier, that a
+ * pre-open refusal "would misread every reopen", overstated - an
+ * active-row-keyed gate would pass reopens after lost or closed rows):
+ * a gate that could actually catch a live-serve collision needs
+ * DESTINATION truth - who is listening behind this door RIGHT NOW - and
+ * the plane has none across sessions. Its own rows can read `lost` while
+ * a serve still holds the door, so any plane-side gate would miss exactly
+ * the collision it is for. What the plane cannot see, the bind can: both
+ * serves share the destination's filesystem, and the live listener IS the
+ * other session's proof of life.
  *
  * The stated residual (review m1, accepted): probe → unlink → bind is not
  * atomic, so two serves starting for one destination within bind distance
