@@ -5,6 +5,7 @@ import path from "node:path";
 import { NODE_PROTOCOL_VERSION, SSH_RUNTIME_PROTOCOL } from "@internal/subshell-protocol";
 import { type APIRequestContext, expect, test } from "@playwright/test";
 import { missingSshBins, type SshFixture, startSshFixture } from "../fixtures/sshd";
+import { BASE_URL } from "../ports";
 import { shortTmuxBase } from "../stack";
 import { NODE_MAIN, type RunningNode, startNode } from "../stub/client";
 import { pollUntil, sleep, sweepTmuxServers } from "./helpers";
@@ -26,7 +27,13 @@ import { type NodeRow, rmScratch, seedAdminApi } from "./ssh-support";
  * agent marks it LOST too (the pane unavailable, not completed). The harness
  * wave rides along: detect answers from the destination's own lookup (a fake
  * harness binary the wrapper hands out via CLAUDE_PATH), and launch-harness
- * really spawns a pane on it.
+ * really spawns a pane on it. The acceptance-fixes wave added its own three
+ * network-truth proofs: a raw `/ws?subshell=` live attach (replay, a typed
+ * marker echoed back off the socket, and the socket closing when the child
+ * dies - F1), the invalid-directory launch refused BY NAME before any row is
+ * written (F3), and the reopen RE-ADOPT: after the kill, the SAME pane id
+ * reads alive on the new session, types over a fresh socket, and its
+ * callback door attributes again on the rotated token (F2).
  *
  * The destination IS this host (the fixture sshd dials loopback as the same
  * account), so `runtimeCommand` is a wrapper that re-enters this checkout:
@@ -152,6 +159,56 @@ const logText = async (id: string): Promise<string> => {
   if (!res.ok()) return "";
   return ((await res.json()) as { lines: string[] }).lines.join("\n");
 };
+
+/**
+ * A browser-class live attach, driven as NETWORK truth (no xterm peek): the
+ * token comes from the same `POST /api/auth/ws-token` the SPA calls, the
+ * socket dials the same `/ws?subshell=…&token=…` URL the SPA composes, every
+ * TEXT frame the server ships is recorded, and the close code is exposed.
+ * Without the `&enc=cbor` half the SPA adds, the server answers in JSON - the
+ * same frames, readable.
+ */
+async function openLiveSocket(subshellId: string): Promise<{
+  send: (frame: Record<string, unknown>) => void;
+  frames: string[];
+  opened: () => boolean;
+  closed: Promise<{ code: number; reason: string }>;
+  close: () => void;
+}> {
+  const tok = await api.post("/api/auth/ws-token");
+  expect(tok.ok(), await tok.text()).toBe(true);
+  const token = ((await tok.json()) as { token: string }).token;
+  const socket = new WebSocket(
+    `${BASE_URL.replace(/^http/, "ws")}/ws?subshell=${encodeURIComponent(subshellId)}&token=${token}`,
+  );
+  const frames: string[] = [];
+  socket.addEventListener("message", (ev) => frames.push(String(ev.data)));
+  let isOpen = false;
+  socket.addEventListener("open", () => {
+    isOpen = true;
+  });
+  const closed = new Promise<{ code: number; reason: string }>((resolve) => {
+    socket.addEventListener("close", (ev) => {
+      const e = ev as { code: number; reason: string };
+      resolve({ code: e.code, reason: e.reason });
+    });
+  });
+  // The upgrade is the first truth: a 4004-class refusal (pre-fix F1 closed
+  // every runtime-pane attach that way) lands as an immediate CLOSE, not an
+  // OPEN - so the race below fails LOUDLY on the old behavior.
+  const settled = await Promise.race([
+    new Promise<"open">((resolve) => socket.addEventListener("open", () => resolve("open"))),
+    closed.then(() => "closed" as const),
+  ]);
+  expect(settled, `the /ws attach to ${subshellId.slice(0, 8)} must OPEN (a refused attach closes)`).toBe("open");
+  return {
+    send: (frame) => socket.send(JSON.stringify(frame)),
+    frames,
+    opened: () => isOpen,
+    closed,
+    close: () => socket.close(),
+  };
+}
 
 test.beforeAll(async () => {
   api = await seedAdminApi();
@@ -338,6 +395,27 @@ test("pane lifecycle: terminal launch, a typed marker returns through the framed
     },
     { budgetMs: 60_000, tail: agentTail },
   );
+});
+
+test("invalid directory: the launch refuses BY NAME before any row exists (F3)", async () => {
+  test.setTimeout(60_000);
+  // The measured F3 was a lying 200: the row claimed a path the destination's
+  // shell had silently fallen back from. The gate is the destination's own
+  // `stat_dir`, and it precedes the row/token/frame order.
+  const bogus = `/no/such/dir-${RUN}`;
+  const launch = await api.post(`/api/ssh-runtime/sessions/${sessionId}/launch-terminal`, { data: { cwd: bogus } });
+  expect(launch.status(), await launch.text()).toBe(409);
+  const text = await launch.text();
+  expect(text).toContain("dir_missing"); // the named sshCode the UI branches on
+  expect(text).toContain(bogus); // names the refused value
+  expect(text).toContain("Choose an existing folder"); // names the remedy
+  // Nothing was written: no row anywhere (admin sees its own list; the
+  // refusal must not have minted a pane claiming the missing path).
+  const rows = (await (await api.get("/api/subshells")).json()) as { workingDir: string }[];
+  expect(rows.some((r) => r.workingDir === bogus)).toBe(false);
+  // The session survives its refused launch (a refusal is not a loss).
+  const still = await api.get(`/api/ssh-runtime/sessions/${sessionId}`);
+  expect(((await still.json()) as SessionView).status).toBe("active");
 });
 
 test("callback: the pane's curl through callback.sock executes as its own token; a foreign path is refused", async () => {
@@ -638,6 +716,127 @@ test("protocol 17 reality: the node registered on the exact-match handshake", as
   // functional half against the real daemon.
   expect(row?.status).toBe("online");
   expect(row?.protocolVersion).toBe(NODE_PROTOCOL_VERSION);
+});
+
+test("live terminal: /ws attach, typed echo off the socket, loss closes it; reopen re-adopts (F1+F2)", async () => {
+  test.setTimeout(240_000);
+  const launch = await api.post(`/api/ssh-runtime/sessions/${sessionId}/launch-terminal`, {
+    data: { cwd: fixtureRoot, cols: 80, rows: 24 },
+  });
+  expect(launch.ok(), await launch.text()).toBe(true);
+  const livePaneId = ((await launch.json()) as { subshellId: string }).subshellId;
+
+  // F1, network truth (AGENTS.md: never xterm). Pre-fix, this attach died at
+  // 4004 "node offline" in a retry loop - the socket never opened (walkthrough
+  // finding F1, `ui-typing-telemetry.txt`). Now: open, replay, type, echo.
+  const live = await openLiveSocket(livePaneId);
+  const firstFrame = await Promise.race([
+    pollUntil("replay", async () => live.frames.some((f) => f.includes('"replay"')), {
+      budgetMs: 30_000,
+      tail: agentTail,
+    }).then(() => "replay" as const),
+    live.closed.then((c) => `closed ${c.code} ${c.reason}` as const),
+  ]);
+  expect(firstFrame, "the live attach must replay (a refusal closes; this says how)").toBe("replay");
+  live.send({ type: "input", data: `echo WS-LIVE-${RUN}\r`, id: 1 });
+  await pollUntil(
+    "the ws keystroke was never acked (the ack rides the pane write landing)",
+    async () => live.frames.some((f) => f.includes('"ack"') && f.includes('"id":1')),
+    { budgetMs: 30_000, tail: agentTail },
+  );
+  // TWO occurrences off the socket: the echoed typed line (input reached the
+  // pane) and the bare marker (the pane ran it and the output frame streamed
+  // back) - the same two-occurrence rigor the REST cell holds.
+  await pollUntil(
+    "the ws-typed marker never came back over the socket (echoed AND executed)",
+    async () => live.frames.join("|").split(`WS-LIVE-${RUN}`).length - 1 >= 2,
+    { budgetMs: 60_000, tail: agentTail },
+  );
+
+  // The socket learns the death the way every channel loss teaches a live
+  // terminal: the settle closes it (1012, the retry convention) with the pane
+  // unavailable, not completed. No silent stream pretending to still be live.
+  process.kill(Number(sshChildPid(sessionId)), "SIGKILL");
+  const shut = await Promise.race([live.closed, sleep(30_000).then(() => ({ code: -1, reason: "no close" }))]);
+  expect(shut.code, "the live socket must close when the session goes lost").toBe(1012);
+  expect(shut.reason).toContain("session lost");
+  await pollUntil(
+    "the session never read lost after the SIGKILL",
+    async () => {
+      const res = await api.get(`/api/ssh-runtime/sessions/${sessionId}`);
+      if (!res.ok()) return false;
+      return ((await res.json()) as SessionView).status === "lost";
+    },
+    { budgetMs: 30_000, tail: agentTail },
+  );
+  const deadRow = await api.get(`/api/subshells/${livePaneId}`);
+  expect(((await deadRow.json()) as { alive: boolean; status: string }).alive).toBe(false);
+
+  // F2: reopen the SAME destination. Design §6's idempotent restore: the
+  // fresh runtime's census names the surviving pane (tmux outlived the ssh
+  // child), and the plane flips the SAME row onto the new session - the row
+  // that a moment ago read alive:false.
+  const { res } = await openRuntimeSession(wrapperPath);
+  expect(res.ok(), await res.text()).toBe(true);
+  const reopened = (await res.json()) as SessionView;
+  const priorSessionId = sessionId;
+  sessionId = reopened.id;
+  await pollUntil(
+    "the reopen never re-adopted the surviving pane",
+    async () => {
+      const r = await api.get(`/api/subshells/${livePaneId}`);
+      if (!r.ok()) return false;
+      const row = (await r.json()) as { status: string; alive: boolean; nodeId: string };
+      return row.status === "running" && row.alive === true && row.nodeId === reopened.runtimeNodeId;
+    },
+    { budgetMs: 30_000, tail: agentTail },
+  );
+  // The retired node decision (kept, offline, as history - see
+  // `session-adopt.ts`) is invisible by design through REST: hidden runtime
+  // rows never list, and the old session row is still readable as `lost`
+  // with its runtimeNodeId intact (the history the retire choice preserves).
+  const oldView = (await (await api.get(`/api/ssh-runtime/sessions/${priorSessionId}`)).json()) as SessionView;
+  expect(oldView.status).toBe("lost");
+  expect(oldView.runtimeNodeId).toBeTruthy();
+
+  // Live output again over a FRESH socket, typing again: the adopted pane is
+  // not a dead row that merely reads alive - the session carries it.
+  const adopted = await openLiveSocket(livePaneId);
+  await pollUntil(
+    "the re-adopted pane never replayed",
+    async () => adopted.frames.some((f) => f.includes('"replay"')),
+    { budgetMs: 30_000, tail: agentTail },
+  );
+  adopted.send({ type: "input", data: `echo WS-ADOPT-${RUN}\r`, id: 1 });
+  await pollUntil(
+    "the re-adopted pane never echoed the ws-typed marker back",
+    async () => adopted.frames.join("|").split(`WS-ADOPT-${RUN}`).length - 1 >= 2,
+    { budgetMs: 60_000, tail: agentTail },
+  );
+
+  // The in-pane callback path works again: the runtime rebuilt the
+  // destination-stable door at startup, and the ROTATED token registered on
+  // the new session is what lets the plane attribute the request as the pane.
+  if (spawnSync("curl", ["--version"]).error === undefined) {
+    const cbBody = path.join(scratch, "adopt-callback.json");
+    adopted.send({
+      type: "input",
+      data: `curl -s --unix-socket "$SUBSHELL_RUNTIME_CALLBACK_SOCK" -o ${cbBody} http://unix/api/subshells/$SUBSHELL_ID\r`,
+      id: 2,
+    });
+    await pollUntil(
+      "the re-adopted pane's callback never answered its own row (door rebuilt + token rotated)",
+      async () => {
+        try {
+          return readFileSync(cbBody, "utf8").includes('"workingDir"');
+        } catch {
+          return false;
+        }
+      },
+      { budgetMs: 60_000, tail: agentTail },
+    );
+  }
+  adopted.close();
 });
 
 test("disconnect: losing the link marks the session LOST and the pane unavailable, not completed", async () => {

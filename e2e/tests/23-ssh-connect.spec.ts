@@ -15,10 +15,13 @@ import { rmScratch, seedAdminApi } from "./ssh-support";
  * connecting node. No direct URLs: sign in, press the rail's "Connect over
  * SSH", pick the machine, discover the host aliases on it, review the
  * resolved destination, connect (the probe IS the test), browse the
- * destination's folders, launch a terminal pane, and read the pane's trusted
- * identity line. Then the session is closed from the sessions view, and the
- * missing-runtime guidance path is proven against a second fixture sshd whose
- * PATH carries no `subshell` shim.
+ * destination's folders, launch a terminal pane, read the pane's trusted
+ * identity line, and SEE it live: an open streaming /ws with no
+ * "reconnecting…" pill and a browser-typed marker landing in the pane's log
+ * (the acceptance run's F1 was precisely this journey's attach loop). Then
+ * the session is closed from the sessions view, and the missing-runtime
+ * guidance path is proven against a second fixture sshd whose PATH carries no
+ * `subshell` shim.
  *
  * The destination IS this host (spec 22's posture): the fixture sshd accepts
  * the same account, and the happy destination's PATH carries a `subshell`
@@ -293,6 +296,23 @@ test("the sidebar journey: discover, review, connect, browse, launch, identity",
   expect(path.isAbsolute(homeShown), `the picker must show an absolute path, got "${homeShown}"`).toBe(true);
 
   // Launch: the terminal seam, and the pane it opens is an ordinary row.
+  // The F1 finding lived on this page: the pane's live-terminal socket looped
+  // `4004 node offline` and the "reconnecting…" pill stayed up, because the
+  // relay had no session-backed liveness for the hidden runtime node. The
+  // sockets the page dials are collected here and asserted as network truth
+  // below (e2e/AGENTS.md: the pill and the upgrade, never the xterm grid).
+  const terminalSockets: { url: string; frames: number; open: boolean }[] = [];
+  page.on("websocket", (w) => {
+    if (!w.url().includes("/ws?subshell=")) return;
+    const entry = { url: w.url(), frames: 0, open: true };
+    terminalSockets.push(entry);
+    w.on("framereceived", () => {
+      entry.frames += 1;
+    });
+    w.on("close", () => {
+      entry.open = false;
+    });
+  });
   const launchRespP = page.waitForResponse((r) => r.url().endsWith("/launch-terminal"));
   await page.getByRole("button", { name: /^Terminal/ }).click();
   const launchResp = await launchRespP;
@@ -338,6 +358,36 @@ test("the sidebar journey: discover, review, connect, browse, launch, identity",
   expect(line.connectingNodeName).toBe(NODE_NAME);
   const listed = (await (await memberApi.get("/api/nodes")).json()) as { nodes: { id: string }[] };
   expect(listed.nodes.some((n) => n.id === opened.runtimeNodeId)).toBe(false);
+
+  // F1 (the browser journey the acceptance run found broken): the pane page's
+  // live terminal actually ATTACHES a runtime pane. Network truth, not the
+  // grid: one /ws socket stays OPEN and keeps RECEIVING frames (pre-fix every
+  // attempt closed at 4004 and the pill stayed up), and the "reconnecting…"
+  // pill is absent on the settled page.
+  await pollUntil(
+    "the browser terminal never held an open streaming /ws for the runtime pane",
+    async () => terminalSockets.some((s) => s.open && s.frames > 0),
+    { budgetMs: 60_000, tail: agentTail },
+  );
+  await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: 10_000 });
+
+  // Browser typing reaches the destination pane (pre-fix, keystrokes died in
+  // the 4004 loop while REST input worked). The proof is the REST log tail:
+  // echoed AND executed, spec 22's two-occurrence rigor.
+  const uiMarker = `WALK-UI-${RUN}`;
+  await page.locator(".xterm-helper-textarea").click();
+  await page.keyboard.type(`echo ${uiMarker}`);
+  await page.keyboard.press("Enter");
+  await pollUntil(
+    "the browser-typed marker never appeared (echoed AND run) in the destination pane's log",
+    async () => {
+      const res = await memberApi.get(`/api/subshells/${paneId}/log`);
+      if (!res.ok()) return false;
+      const text = ((await res.json()) as { lines: string[] }).lines.join("\n");
+      return text.split(uiMarker).length - 1 >= 2 && text.includes(`echo ${uiMarker}`);
+    },
+    { budgetMs: 60_000, tail: agentTail },
+  );
 });
 
 test("sessions view: the row closes from the page, and the history says so", async ({ page }) => {
