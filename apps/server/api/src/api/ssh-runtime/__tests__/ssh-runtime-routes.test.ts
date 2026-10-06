@@ -381,6 +381,20 @@ describe("the harnesses family (cached mirror, detect, preset launch)", () => {
     expect(panes.length).toBe(0);
   });
 
+  it("a relative cwd answers 409 dir_relative, in dir_missing's 409 family (not a flat 403)", async () => {
+    // Review I6 follow-through: the service refuses 409, and the route mapper
+    // puts dir_relative with dir_missing (both directory-shape refusals) so the
+    // browser sees the same 409 it sees for a missing dir, not the flat 403 the
+    // destination-refusal convention carries elsewhere on this family.
+    const rel = await post(
+      `/api/ssh-runtime/sessions/${liveSessionId}/launch-terminal`,
+      { cwd: "relative/path" },
+      { cookie: memberCookie },
+    );
+    expect(rel.status, JSON.stringify(rel.body)).toBe(409);
+    expect(rel.body.metadataSafe).toEqual({ sshCode: "dir_relative" });
+  });
+
   it("foreign member and non-owning admin answer the same 404 on all three verbs", async () => {
     const probes: Promise<Answer>[] = [
       get(`/api/ssh-runtime/sessions/${liveSessionId}/harnesses`, { cookie: foreignCookie }),

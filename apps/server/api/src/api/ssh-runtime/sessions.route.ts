@@ -40,7 +40,10 @@ function refuseRuntime(err: SshRuntimeRefusal): never {
       ? BackendErrorCodes.NOT_FOUND_ERROR
       : err.status >= 500
         ? BackendErrorCodes.INTERNAL_SERVER_ERROR
-        : err.code === "session_quota" || err.code === "run_conflict" || err.code === "dir_missing"
+        : err.code === "session_quota" ||
+            err.code === "run_conflict" ||
+            err.code === "dir_missing" ||
+            err.code === "dir_relative"
           ? BackendErrorCodes.EXISTS_ERROR
           : BackendErrorCodes.ACCESS_DENIED;
   throwApiError({
