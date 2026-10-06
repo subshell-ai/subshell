@@ -225,6 +225,42 @@ describe("launch-terminal: the directory gate precedes every write", () => {
     expect(innerFrames).toEqual(["stat_dir", "launch"]);
   });
 
+  /**
+   * The I6 fix (review 2026-10-06): `stat_dir`'s frame grammar REQUIRES an
+   * absolute path (`isAbsRef`), so a relative cwd typed into the launch body
+   * used to ride the wire as a MALFORMED COMMAND FRAME, and the runtime's
+   * fail-closed rule on grammar violations closed the SESSION for a typo.
+   * The plane now refuses the shape BEFORE composing: a named 409 in the
+   * F3 family, no frame, and the session stays live.
+   */
+  test("a relative cwd refuses dir_relative with 409 and composes NO frame (the session lives)", async () => {
+    const session = await mkSession();
+    statAnswer = { ok: true, path: "/home/dst/work" };
+    innerFrames = [];
+    const err = await sessionLaunchTerminal(session.id, userId, { cwd: "work/scratch" }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(SshRuntimeRefusal);
+    const refusal = err as SshRuntimeRefusal;
+    expect(refusal.status).toBe(409);
+    expect(refusal.code).toBe("dir_relative"); // the named sibling of dir_missing
+    expect(refusal.message).toContain("work/scratch"); // names the refused value
+    expect(innerFrames, "the frame grammar is never violated: nothing was dialed").toEqual([]);
+    expect(session.status).toBe("active");
+    // The empty string is a relative path too (and the picker can clear).
+    const empty = await sessionLaunchTerminal(session.id, userId, { cwd: "" }).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect((empty as SshRuntimeRefusal).code).toBe("dir_relative");
+    expect(innerFrames).toEqual([]);
+    // An absolute path still reaches the destination stat (the gate's real job).
+    const okLaunch = await sessionLaunchTerminal(session.id, userId, { cwd: "/home/dst/work" });
+    cleanupPanes.push(okLaunch.subshellId);
+    expect(innerFrames[0]).toBe("stat_dir");
+  });
+
   test("a dead session is the door that closed, not a fake dir refusal", async () => {
     const session = await mkSession();
     statAnswer = { ok: false, error: "ENOENT: /no/such/dir-dc" };

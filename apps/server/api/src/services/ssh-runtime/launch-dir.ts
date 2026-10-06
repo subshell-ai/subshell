@@ -30,6 +30,19 @@ const sessionsRepo = new SshRuntimeSessionsRepository(db);
  *         out as the command error it is, like every other framed verb.
  */
 export async function resolveDestinationDir(session: SshRuntimeSession, cwd: string): Promise<string> {
+  // Absolute BEFORE the frame (review I6): `stat_dir`'s grammar requires an
+  // absolute path, so a relative one would arrive at the runtime as a
+  // MALFORMED COMMAND FRAME - and the runtime's fail-closed rule on grammar
+  // violations closes the SESSION. A typo must cost a 409, not the channel;
+  // the plane owns the frame grammar and refuses the shape it knows the
+  // destination will refuse, in the F3 family, by a sibling name.
+  if (!cwd.startsWith("/")) {
+    throw new SshRuntimeRefusal(
+      409,
+      `${cwd} is not an absolute path on the destination. Pick the folder in the browser; a relative path means nothing to a machine you have not logged into.`,
+      "dir_relative",
+    );
+  }
   let resolved: string;
   try {
     const data = await session.command({ type: "stat_dir", ref: crypto.randomUUID(), path: cwd }, 10_000);

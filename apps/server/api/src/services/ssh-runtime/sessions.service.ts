@@ -71,11 +71,14 @@ export class SshRuntimeRefusal extends Error {
   /**
    * The named code when there is one (frozen `SshErrorCode`, `session_unknown`,
    * `detect_unsupported` - the task-25 capability refusal the harnesses verbs
-   * answer 409 with when the destination runtime predates `"detect"` - or
+   * answer 409 with when the destination runtime predates `"detect"` -
    * `dir_missing` - the F3 launch refusal, the destination's own `stat_dir`
-   * saying the chosen working directory is not there).
+   * saying the chosen working directory is not there - or `dir_relative`,
+   * its plane-side sibling: a relative cwd refuses BEFORE the frame, because
+   * the frame grammar's absolute-path rule would otherwise read as a protocol
+   * violation on the destination and close the session (review I6)).
    */
-  readonly code: SshErrorCode | "session_unknown" | "detect_unsupported" | "dir_missing" | null;
+  readonly code: SshErrorCode | "session_unknown" | "detect_unsupported" | "dir_missing" | "dir_relative" | null;
   constructor(status: number, message: string, code: SshRuntimeRefusal["code"] = null) {
     super(message);
     this.name = "SshRuntimeRefusal";

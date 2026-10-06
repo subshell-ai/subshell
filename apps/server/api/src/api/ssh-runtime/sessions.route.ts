@@ -74,6 +74,19 @@ const HelloSchema = t.Object({
   dataDir: t.String({ description: "The runtime's data dir (a `runtime/` namespace, isolated by design)" }),
   tmuxSocket: t.String({ description: "The deterministic per-destination tmux socket the runtime serves" }),
   paneCount: t.Number({ description: "Panes already on that socket at hello time (the reconcile count)" }),
+  // The runtime SENDS this (task 25's hello field, the launch's re-entry
+  // prefix); the optional keeps old rows honest (a hello stored before the
+  // field existed reads back without it). Published shape says true.
+  selfInvoke: t.Optional(
+    t.Object({
+      command: t.String({
+        description: "Absolute program path (or bare name) the pane uses to re-enter the runtime binary",
+      }),
+      args: t.Array(t.String({ description: "The self-invocation's prefix arguments" }), {
+        description: "Arguments placed before the verb (empty for a plain binary)",
+      }),
+    }),
+  ),
 });
 
 const SessionViewSchema = t.Object({
