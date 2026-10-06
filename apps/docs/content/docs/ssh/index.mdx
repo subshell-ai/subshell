@@ -20,11 +20,11 @@ Everything the destination needs is SSH that already works from the connecting m
 
 Open **Connect over SSH** in the sidebar. The page walks the journey:
 
-1. **Pick the connecting machine.** Only your own enrolled machines are listed, because the SSH runs as your account on that machine's terms. An admin's access to someone else's machine is not ownership, and a shared node is not yours to broker with.
+1. **Pick the connecting machine.** Only your own enrolled machines are listed, because the SSH runs as your account on that machine's terms. An admin's access to someone else's machine is not ownership, and a shared node is not yours to broker with. The control-plane host itself cannot broker a session yet: the server refuses it, and the picker leaves it out.
 2. **Pick the host.** The machine lists the alias names from its own SSH config; config contents never leave the machine.
 3. **Review and connect.** The page shows the concrete `host:port`, the destination account it resolves to, and the connecting account. **Connect** proves reachability and the runtime's presence in the same step, and a refusal says what to fix.
 4. **Choose the folder.** The picker browses the destination's directories over the live session, showing the absolute path throughout.
-5. **Launch.** A terminal pane opens in the chosen folder and appears everywhere ordinary panes appear: the rail, the subshells list, and the detail page with its log, sharing, and workspace tiles. The pane's page names its destination and the machine it was brokered through, in a line assembled from the server's records, never from anything the terminal displays.
+5. **Launch.** The folder step lists what the destination can start, checked against the binaries installed there: a terminal pane is always offered, an agent the destination has installed is offered as its own row, and your saved presets appear when their agent was detected on that machine. A check can fail or lag the destination's state; the terminal row is never one of the things that can fail. Whatever you pick opens in the chosen folder and appears everywhere ordinary panes appear: the rail, the subshells list, and the detail page with its log, sharing, and workspace tiles. The pane's page names its destination and the machine it was brokered through, in a line assembled from the server's records, never from anything the terminal displays.
 
 Sessions you opened stay on the same page as your own history, newest first. Closing a session ends the SSH link; panes you launched keep running on the destination under the runtime's tmux socket, and a later session to the same destination finds them again.
 
@@ -45,7 +45,7 @@ If the SSH session dies, the session is marked lost and its panes read unavailab
 
 ## SSH connections for agent panes
 
-Settings → **SSH** (server administrators) is a separate surface for agent-driven work on destination machines. A human configures each connection, tests it against a fixed benign probe, and grants selected agent panes access to it; an agent never configures connections, never sees credentials, and cannot use a connection nobody granted it. With a grant, a pane can run structured commands and open managed interactive terminals on the connection; the exact arguments are in the [MCP tool reference](/mcp/tools).
+**Server Settings** → **SSH** (server administrators) is a separate surface for agent-driven work on destination machines. A human configures each connection, tests it against a fixed benign probe, and grants selected agent panes access to it; an agent never configures connections, never sees credentials, and cannot use a connection nobody granted it. With a grant, a pane can run structured commands and open managed interactive terminals on the connection; the exact arguments are in the [MCP tool reference](/mcp/tools).
 
 Grants bind one connection to one pane's current credential. They do not spread to child panes, and a restarted pane holds nothing until a human grants it again. Revoking stops new work immediately, fences input already in flight at the connecting machine, and reaches nothing outside that grant. Human takeover of a managed terminal controls input, not secrecy: agent reads and writes stop while a human holds it, and recorded output is transcript data, not a confidential buffer. Unknown, changed, and revoked host keys fail closed, and remote output is always rendered as data.
 

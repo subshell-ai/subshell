@@ -140,18 +140,26 @@ OS-account boundary.
 ## 7. Selection UX and the missing runtime
 
 One personal flow, not an admin surface: **Connect over SSH** -> pick the
-connecting node (labeled with its machine name and OS account) -> pick an alias
-(salvaged `discoverSshAliases` on that node) -> Resolve shows the concrete
-`host:port user` and Test proves reachability + runtime presence -> pick a remote
-directory via `list_dirs` browsing on the live session -> launch (preset or
-terminal) exactly as on any node. Saved destinations are personal conveniences.
-Errors name the remedy: `SSH_RUNTIME_MISSING` prints the binary install pointer
-(never `subshell setup`/enrollment), a version mismatch names the compatible
-range, a host-key refusal says who must fix it. Old admin SSH page, grants
-ceremony, run API, and the ssh MCP family retire in the same change that lands
-the replacement (inventory in §5 of the plan; migrations 0047/0048 dropped by
-0050 after inspecting dev instances; this instance base is single-user, so no
+connecting node (labeled with its machine name) -> pick an alias (salvaged
+`discoverSshAliases` on that node) -> Resolve shows the concrete `host:port
+user`, names the connecting OS account, and Test proves reachability + runtime
+presence -> pick a remote directory via `list_dirs` browsing on the live
+session -> launch (preset or terminal) exactly as on any node. Saved
+destinations are personal conveniences. Errors name the remedy:
+`SSH_RUNTIME_MISSING` prints the binary install pointer (never `subshell
+setup`/enrollment), a version mismatch names the compatible range, a host-key
+refusal says who must fix it. Old admin SSH page, grants ceremony, run API, and
+the ssh MCP family retire in the same change that lands the replacement
+(inventory in §5 of the plan; migrations 0047/0048 dropped by 0050 after
+inspecting dev instances; this instance base is single-user, so no
 data-preservation burden, but the drop ships, it is not a silent revert).
+
+Amendment (2026-10-05, wave-2 UX review): this paragraph first labeled the
+pick-time choice with "its machine name and OS account". The node view serves
+no OS-account fact (`GET /api/nodes` answers name, hostname, os, arch), so the
+picker labels machines by name alone; the connecting account is a resolve
+answer (`connectingAccount`) and surfaces at review, where the server actually
+serves it. Stating it at pick would have meant a label with no fact behind it.
 
 ## 8. Security invariants carried over
 
