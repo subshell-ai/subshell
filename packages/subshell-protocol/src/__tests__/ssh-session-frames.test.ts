@@ -22,6 +22,8 @@ import {
   SSH_REQ_ID_MAX_CHARS,
   SSH_RUNTIME_PROTOCOL,
   SSH_SESSION_FRAME_MAX_BYTES,
+  SSH_SESSION_LOG_WINDOW_BYTES,
+  SSH_SESSION_PUMP_CHUNK_BYTES,
   type SshRuntimeEventFrame,
   type SshRuntimeHelloWire,
   SshSessionFrameDecoder,
@@ -351,6 +353,69 @@ describe("framing codec", () => {
     const d = new SshSessionFrameDecoder();
     expect(d.push(bytes)).toEqual([fit]);
   });
+  /**
+   * The C1 size pin (review 2026-10-06): the runtime link answers `log_read`
+   * and live `output` frames with base64 INSIDE the JSON envelope, so a
+   * window's raw bytes inflate 4/3 before the envelope is glued on. The one
+   * runtime-safe budget must encode full; the node-link sizes that rode the
+   * session codec unclamped (256 KiB log tail, 192 KiB tail chunk) must
+   * refuse at the encode - that refusal IS the bug this pin guards against.
+   */
+  describe("runtime transfer budget (C1)", () => {
+    const uuid = "0f4c1a7e-9b62-4a11-8d3e-5c2b1a0f9e8d";
+    const b64 = (rawBytes: number): string => Buffer.alloc(rawBytes, 0xff).toString("base64");
+
+    test("a max-size log_read result frame (window = the budget) encodes under the cap", () => {
+      const bytes = encodeSshSessionFrame({
+        type: "result",
+        ref: uuid,
+        ok: true,
+        data: { bytes_b64: b64(SSH_SESSION_LOG_WINDOW_BYTES), next: 131_072, size: 9_999_999_999 },
+      });
+      expect(bytes.byteLength).toBeLessThanOrEqual(4 + SSH_SESSION_FRAME_MAX_BYTES);
+    });
+
+    test("a max-size output chunk (raw = the budget) encodes under the cap", () => {
+      const bytes = encodeSshSessionFrame({
+        type: "output",
+        subshellId: uuid,
+        subId: uuid,
+        fromByte: 131_071,
+        toByte: 262_143,
+        data_b64: b64(SSH_SESSION_LOG_WINDOW_BYTES),
+      });
+      expect(bytes.byteLength).toBeLessThanOrEqual(4 + SSH_SESSION_FRAME_MAX_BYTES);
+    });
+
+    test("the node-link sizes refuse: a 256 KiB tail window and a 192 KiB chunk overshoot the cap", () => {
+      // LOG_TAIL_BYTES (256 KiB) and TAIL_CHUNK_BYTES (192 KiB) are the node
+      // link's numbers; pinned here so they can never quietly ride the
+      // session codec again.
+      expect(() =>
+        encodeSshSessionFrame({
+          type: "result",
+          ref: uuid,
+          ok: true,
+          data: { bytes_b64: b64(256 * 1024), next: 0, size: 0 },
+        }),
+      ).toThrow();
+      expect(() =>
+        encodeSshSessionFrame({
+          type: "output",
+          subshellId: uuid,
+          subId: uuid,
+          fromByte: 0,
+          toByte: 192 * 1024,
+          data_b64: b64(192 * 1024),
+        }),
+      ).toThrow();
+    });
+
+    test("the pump chunk bound is a raw 192 KiB slice: base64 lands at 262,144 chars, inside the node link's own frame", () => {
+      expect(b64(SSH_SESSION_PUMP_CHUNK_BYTES).length).toBe(262_144);
+    });
+  });
+
   test("isSshSessionRef matches the node-path id grammar", () => {
     expect(isSshSessionRef(ref)).toBe(true);
     expect(isSshSessionRef("x".repeat(65))).toBe(false);

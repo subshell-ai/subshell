@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  encodeSshSessionFrame,
   type NodeCommandBody,
   type NodeEvent,
   type NodeLogReadResult,
@@ -132,7 +133,7 @@ const live: CommandContext[] = [];
 function makeCtx(
   dataDir: string,
   tmux: CommandContext["tmux"],
-  opts: { nowMs?: () => number; ws?: FakeWs } = {},
+  opts: { nowMs?: () => number; ws?: FakeWs; outputChunkCeilingBytes?: number } = {},
 ): { ctx: CommandContext; ws: FakeWs } {
   const ws = opts.ws ?? fakeWs();
   const config: NodeConfig = {
@@ -154,6 +155,7 @@ function makeCtx(
     uploads: new Map(),
     runtime: null,
     requestRestart: () => {},
+    ...(opts.outputChunkCeilingBytes !== undefined ? { outputChunkCeilingBytes: opts.outputChunkCeilingBytes } : {}),
   };
   live.push(ctx);
   return { ctx, ws };
@@ -444,6 +446,46 @@ describe("tail executors (spec §3.1/§3.4)", () => {
     expect(total).toBe(300 * 1024);
     expect(cursor).toBe(300 * 1024);
     expect(Buffer.concat(evs.map((e) => Buffer.from(e.data_b64, "base64"))).equals(blob)).toBe(true);
+  });
+
+  /**
+   * The C1b fix at its source: the runtime serve loop sets
+   * `ctx.outputChunkCeilingBytes` to the session transfer budget, and the
+   * PUMP chunks by min(TAIL_CHUNK_BYTES, ceiling) - a 192 KiB node-link
+   * chunk base64s to exactly the 262 KiB session cap, so every event on a
+   * runtime pane must be one the session codec can encode. The `last`/cursor
+   * bookkeeping still advances per successful send (a smaller ceiling means
+   * MORE frames in the same window, never fewer bytes).
+   */
+  it("session ceiling: ctx.outputChunkCeilingBytes shrinks the chunks; offsets stay contiguous and every event encodes", async () => {
+    const ceiling = 8 * 1024;
+    const { ctx, ws } = makeCtx(freshDataDir("tail-session-ceiling"), (() => {}) as never, {
+      outputChunkCeilingBytes: ceiling,
+    });
+    const blob = Buffer.alloc(30 * 1024, 0x42);
+    seedLog(ctx, S1, blob);
+    expect(await dispatchCommand(ctx, tailStartCmd())).toEqual({ ok: true });
+    await waitFor(() => outputs(ws.events).length >= 4, "four chunked events under the ceiling");
+    let cursor = 0;
+    for (const ev of outputs(ws.events)) {
+      const raw = Buffer.from(ev.data_b64, "base64");
+      expect(raw.byteLength).toBeLessThanOrEqual(ceiling); // the CEILING caps the slice, not TAIL_CHUNK_BYTES
+      expect(ev.fromByte).toBe(cursor);
+      expect(ev.toByte).toBe(cursor + raw.byteLength);
+      expect(() => encodeSshSessionFrame(ev)).not.toThrow(); // the runtime's own writer must fit every event
+      cursor = ev.toByte;
+    }
+    expect(cursor).toBe(30 * 1024); // `last` advanced across every sub-chunk (no window replay)
+    expect(Buffer.concat(outputs(ws.events).map((e) => Buffer.from(e.data_b64, "base64"))).equals(blob)).toBe(true);
+  });
+
+  it("no ceiling (the node daemon's ctx) keeps the 192 KiB node-link chunk (the ceiling never shrinks a plain node)", async () => {
+    const { ctx, ws } = makeCtx(freshDataDir("tail-no-ceiling"), (() => {}) as never);
+    const blob = Buffer.alloc(TAIL_CHUNK_BYTES + 1024, 0x43);
+    seedLog(ctx, S1, blob);
+    expect(await dispatchCommand(ctx, tailStartCmd())).toEqual({ ok: true });
+    await waitFor(() => outputs(ws.events).length >= 2, "two node-link-sized chunks");
+    expect(Buffer.from(outputs(ws.events)[0].data_b64, "base64").byteLength).toBe(TAIL_CHUNK_BYTES);
   });
 
   it("backpressure: a stuffed socket delays delivery; the RESULT still resolves; bytes arrive when it drains", async () => {

@@ -33,13 +33,22 @@ import type { DetectSpecWire, NodeCommandBody } from "./node-frames.js";
 import {
   SSH_REQ_ID_MAX_CHARS,
   SSH_SESSION_INBOUND_QUEUE_FRAMES,
+  SSH_SESSION_LOG_WINDOW_BYTES,
   SSH_SESSION_OPEN_DEADLINE_MS,
+  SSH_SESSION_PUMP_CHUNK_BYTES,
   SSH_SESSIONS_PER_NODE,
 } from "./ssh-limits.js";
 
 // Re-exported for consumers that read the session surface from this file; the
 // NUMBERS live in ssh-limits.ts beside every other row of the limits table.
-export { SSH_REQ_ID_MAX_CHARS, SSH_SESSION_INBOUND_QUEUE_FRAMES, SSH_SESSION_OPEN_DEADLINE_MS, SSH_SESSIONS_PER_NODE };
+export {
+  SSH_REQ_ID_MAX_CHARS,
+  SSH_SESSION_INBOUND_QUEUE_FRAMES,
+  SSH_SESSION_LOG_WINDOW_BYTES,
+  SSH_SESSION_OPEN_DEADLINE_MS,
+  SSH_SESSION_PUMP_CHUNK_BYTES,
+  SSH_SESSIONS_PER_NODE,
+};
 
 /** The node link's `launch` body, reused verbatim as the runtime launch frame's payload. */
 export type SshRuntimeLaunchBody = Extract<NodeCommandBody, { type: "launch" }>;

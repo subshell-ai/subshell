@@ -102,3 +102,32 @@ export const SSH_SESSIONS_PER_NODE = 8;
  * chars); 64 matches the session-ref ceiling, so no honest id is refused.
  */
 export const SSH_REQ_ID_MAX_CHARS = 64;
+
+/**
+ * The ONE runtime-safe transfer window, in RAW bytes, for anything whose answer
+ * rides the session link as base64: a `log_read` window and a live-tail
+ * `output` chunk alike cap at this. The node link's own windows
+ * (`LOG_TAIL_BYTES` 256 KiB, `TAIL_CHUNK_BYTES` 192 KiB) are sized for the
+ * 1 MiB node frame and BREAK the session codec: base64 inflates 4/3, so 256
+ * KiB raw is ~349,528 chars and even 192 KiB raw lands at 262,144 chars -
+ * exactly {@link SSH_SESSION_FRAME_MAX_BYTES} before the JSON envelope is
+ * glued on - and `encodeSshSessionFrame` throws past the cap. 128 KiB raw
+ * base64s to ~174,764 chars; the worst `result`/`output` envelope around it
+ * (uuid refs, numeric offsets, key quotes) costs well under 200 bytes, so a
+ * full window encodes at about 175 KiB against the 262,144-byte cap. The
+ * plane clamps its `log_read` asks to this and the runtime chunks its tail
+ * pump to this (`ctx.outputChunkCeilingBytes`); neither end splits a frame
+ * after composition, and the sizes that overflow are pinned refused by test.
+ */
+export const SSH_SESSION_LOG_WINDOW_BYTES = 128 * 1024;
+
+/**
+ * Largest raw stdout slice one brokered `session_frame` event may carry
+ * (design §3's pump, restated as a number: the node-frames `session_frame`
+ * doc always claimed "in ≤ 192 KiB pieces", and the broker's read can return
+ * more in one chunk). 192 KiB raw base64s to 262,144 chars, comfortably under
+ * the node link's own 1 MiB frame cap; the session's codec reassembles frames
+ * across pushes, so a chunk boundary is a chunk boundary and splitting costs
+ * the stream nothing but an event.
+ */
+export const SSH_SESSION_PUMP_CHUNK_BYTES = 192 * 1024;

@@ -175,6 +175,18 @@ export interface CommandContext {
    */
   requestRestart: () => void;
   /**
+   * Session-aware ceiling on the RAW bytes one `output` event may carry
+   * (review C1b). The plain node daemon leaves it UNSET and the pump chunks
+   * at `TAIL_CHUNK_BYTES` (192 KiB, sized for the 1 MiB node-link frame);
+   * `runtime/serve.ts` sets it to {@link SSH_SESSION_LOG_WINDOW_BYTES}
+   * because the runtime's `output` frames ride the 262 KiB session codec,
+   * where a 192 KiB raw chunk base64s to exactly the cap and the envelope
+   * overflows it. The pump honors `min(TAIL_CHUNK_BYTES, ceiling)` at the
+   * SOURCE - splitting inside the writer would desync the fromByte/toByte
+   * bookkeeping the retry cursor depends on.
+   */
+  outputChunkCeilingBytes?: number;
+  /**
    * The service manager seam the `service` command drives.
    *
    * Optional, and production omits it: `execService` builds the real

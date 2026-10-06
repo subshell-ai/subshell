@@ -7,6 +7,7 @@ import {
   type NodeEvent,
   parseSshRuntimeCommandFrame,
   SSH_RUNTIME_PROTOCOL,
+  SSH_SESSION_LOG_WINDOW_BYTES,
   type SshRuntimeEventFrame,
 } from "@internal/subshell-protocol";
 import type { CommandContext } from "../commands/context.js";
@@ -109,6 +110,12 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
     uploads: new Map(),
     runtime: null,
     requestRestart: () => diag("runtime: restart requested; a session runtime exits instead"),
+    // The tail pump chunks to the SESSION codec's transfer budget (review
+    // C1b): a node-link-sized 192 KiB chunk base64s to exactly the frame cap
+    // and its envelope would throw at the write, permanently stopping the
+    // pump (the same window retried forever). The plain daemon leaves this
+    // unset; here it is the one number both ends size log frames by.
+    outputChunkCeilingBytes: SSH_SESSION_LOG_WINDOW_BYTES,
     ws: {
       send: (ev) => {
         // A pane's death retires its callback door: the exit watcher is the

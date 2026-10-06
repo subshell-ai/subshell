@@ -163,10 +163,17 @@ export async function execTailStart(ctx: CommandContext, cmd: Cmd<"tail_start">)
           pumping = false;
           return; // disposed mid-read: the bytes belong to the next subscriber (fresh fromByte)
         }
+        // The transport's own ceiling (review C1b): a session runtime sets
+        // `ctx.outputChunkCeilingBytes` to the size its frame codec can carry;
+        // the plain node daemon leaves it unset and keeps TAIL_CHUNK_BYTES.
+        // Chunking HERE, at the source, is what keeps every emitted event one
+        // encodable frame without splitting inside the writer (which would
+        // desync the fromByte/toByte bookkeeping below).
+        const chunkBytes = Math.min(TAIL_CHUNK_BYTES, ctx.outputChunkCeilingBytes ?? TAIL_CHUNK_BYTES);
         // `cursor` walks the slice independently of `last`: `last` only moves on
         // a successful send (retry point), so fromByte must not be `last + off`.
-        for (let off = 0, cursor = last; off < bytes.byteLength && !stopped; off += TAIL_CHUNK_BYTES) {
-          const n = Math.min(TAIL_CHUNK_BYTES, bytes.byteLength - off);
+        for (let off = 0, cursor = last; off < bytes.byteLength && !stopped; off += chunkBytes) {
+          const n = Math.min(chunkBytes, bytes.byteLength - off);
           const fromByte = cursor;
           const toByte = cursor + n;
           // Throttle on socket backpressure before EVERY event (spec §3.1 mirror);

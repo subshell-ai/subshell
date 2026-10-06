@@ -9,8 +9,9 @@ import {
   parseNodePaneSizeResult,
   parseNodeProbeEntries,
   parseNodeStatDirResult,
+  SSH_SESSION_LOG_WINDOW_BYTES,
 } from "@internal/subshell-protocol";
-import { LOG_TAIL_BYTES, tailLinesFromWindowText } from "@/services/nodes/log-tail.js";
+import { tailLinesFromWindowText } from "@/services/nodes/log-tail.js";
 import type { LaunchPlan, NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { assertNodePathId } from "@/services/nodes/node-path-id.js";
 import { logger } from "@/utils/logger.js";
@@ -258,18 +259,31 @@ export class RuntimeSessionLauncher implements NodeLauncher {
 
   async readLogTail(id: string): Promise<{ lines: string[]; truncated: boolean }> {
     const { size } = await this.#readLogSized(id, 0, 1);
-    const start = Math.max(0, size - LOG_TAIL_BYTES);
-    const { bytes } = await this.#readLogSized(id, start, LOG_TAIL_BYTES);
+    // The tail window is the SESSION budget, not the node link's
+    // LOG_TAIL_BYTES: a 256 KiB raw answer base64s past the session frame
+    // cap and `encodeSshSessionFrame` throws (review C1a). The display cap
+    // is 200 lines either way; 128 KiB of tail text reaches it with room.
+    const start = Math.max(0, size - SSH_SESSION_LOG_WINDOW_BYTES);
+    const { bytes } = await this.#readLogSized(id, start, SSH_SESSION_LOG_WINDOW_BYTES);
     return tailLinesFromWindowText(Buffer.from(bytes).toString("utf8"), start === 0);
   }
 
+  /**
+   * The one frame-composing seam for every log read (tail, cursor, window,
+   * tail-relay backfill): `maxBytes` is CLAMPED to the runtime transfer
+   * budget before the frame is built, so no caller's node-link-sized ask can
+   * compose a frame the session codec refuses (review C1a). A smaller ask
+   * passes through untouched; the answer's `next`/`size` come back verbatim,
+   * so a clamped read just means a reader pages again.
+   */
   async #readLogSized(
     id: string,
     fromByte: number,
     maxBytes: number,
   ): Promise<{ bytes: Uint8Array; next: number; size: number }> {
+    const windowBytes = Math.min(Math.max(1, Math.trunc(maxBytes)), SSH_SESSION_LOG_WINDOW_BYTES);
     const data = await this.#session.command(
-      { type: "log_read", ref: crypto.randomUUID(), subshellId: id, fromByte, maxBytes },
+      { type: "log_read", ref: crypto.randomUUID(), subshellId: id, fromByte, maxBytes: windowBytes },
       LOG_READ_TIMEOUT_MS,
     );
     const r = parseNodeLogReadResult(data);
