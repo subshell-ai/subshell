@@ -29,12 +29,6 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | `send_to_subshell` | Type into a live owned session. |
 | `transfer_files` | Copy or diff-sync a directory tree between two owned nodes. |
 | `exec_in_terminal` | Run one command in a terminal pane with its exit code. |
-| `list_ssh_connections` | List the SSH connections granted to this pane. |
-| `execute_ssh_command` | Start one structured SSH command on a granted connection. |
-| `read_ssh_command` | Read a granted run's bounded output and honest status. |
-| `cancel_ssh_command` | Request cancellation of a granted run. |
-| `open_ssh_terminal` | Open a managed interactive SSH terminal on a granted connection. |
-| `get_terminal_execution` | Recover an existing terminal exec's result by execution ID, read-only. |
 | `list_channels` | Discover channels. |
 | `create_channel` | Create a channel and join it. |
 | `join_channel` | Join an existing channel. |
@@ -139,58 +133,6 @@ Pass required `subshell_id` and `command`, plus optional `timeout_ms` (integer m
 Like `send_to_subshell` this is an edit act on a pane that must run a plain terminal harness, be running, and be quiet. Otherwise it refuses with nothing typed: `SUBSHELL_NOT_RUNNING`, `EXEC_TERMINAL_ONLY` (an agent pane would eat the line), `EXEC_IN_FLIGHT` (another exec already holds the pane), or `EXEC_PANE_BUSY` (read it or wait, then retry). A `timed_out` answer is a success: nothing further is sent, and `output` carries what printed so far, which can end mid-line. `output` holds the newest lines inside 256 KiB (`truncated` names the drop) and includes the shell's echo of the typed command. `nextByte` is the raw log offset just past the sentinel line, or where the wait stopped; pass it as `read_subshell_log`'s `from_byte` to continue exactly.
 
 The completion sentinel speaks POSIX `$?`, so a fish pane answers `timed_out` once its command completes. Interactive programs (password prompts, editors, TUIs) belong to `send_to_subshell` plus `read_subshell_log`; see [Terminal sessions](/mcp/terminals).
-
-Each exec leaves a durable record, and the answer carries its `executionId`. A `timed_out` answer leaves that record outstanding: bounded marker observation continues after the call returns, a late marker completes it, and a pane restart or death makes it `unknown`. Recover the record at any time with `get_terminal_execution`.
-
-## list_ssh_connections
-
-Arguments: `{}`. Returns `{ connections }` containing only the SSH connections GRANTED to this pane: rows with `id`, `nodeId`, `displayName`, the approved `snapshot`, `remoteDir`, `revision`, timestamps, and a `destination` string rendered for display (for example `deploy@app-02.example.net:22`). The destination is presentation, never routable input: every SSH tool accepts connection IDs only.
-
-A connection appears only while a human-issued grant binds this pane's CURRENT credential to the connection's CURRENT revision. An empty list means nothing is granted; ungranted connections and other users' connections are absent, not refused, and SSH config file contents never ride. Both the coarse `ssh` permission on the pane's token and the per-connection grant are required, and the server rechecks them on every SSH tool call. See [SSH access for agents](/ssh).
-
-## execute_ssh_command
-
-| Argument | Requirement | Meaning |
-| --- | --- | --- |
-| `connection_id` | Required | A connection ID from `list_ssh_connections`. Hosts, aliases, ports, and options are never accepted. |
-| `command` | Required | The remote command line. It is the one intentional shell code in this contract. |
-| `remote_dir` | Optional | Absolute directory ON THE DESTINATION for this run, overriding the connection default. |
-| `deadline_ms` | Optional | Execution deadline; the server clamps it (default 5 minutes, maximum 1 hour). |
-
-Returns the run record promptly with `status: "accepted"`, then `running`, then a terminal state. Output is read later with `read_ssh_command`. The run ID is allocated by the server and bound to a digest of the whole request.
-
-Refusals name themselves: `not_granted`, `token_stale` (the pane restarted and its old key no longer holds the grant), `quota_runs`, `node_ineligible`, or `storage_full`. Nothing is ever auto-retried. A lost or refused answer does not prove nothing was accepted, and a resend is a NEW run: re-send only where running the command twice is fine. Commands and output can contain secrets and never enter audit rows, server logs, or notifications.
-
-## read_ssh_command
-
-| Argument | Default | Meaning |
-| --- | --- | --- |
-| `run_id` | Required | The ID returned by `execute_ssh_command`. |
-| `stdout_from_byte` | `0` | stdout offset to continue from. |
-| `stderr_from_byte` | `0` | stderr offset to continue from. |
-| `max_bytes` | 256 KiB | Combined cap across both streams for this window; clamped, not refused. |
-| `wait_ms` | `0` | Long-poll budget, capped at 30 seconds. |
-
-Returns `{ run, stdout, stderr, stdoutNext, stderrNext, stdoutTotal, stderrTotal, truncated, cursorExpired }`, where `run` carries the current facts. `wait_ms` long-polls: a timed-out wait answers the current window with the run still running, and waiting, timing out, or closing NEVER cancels the run. Honesty rides the fields: `unknown` status is neither success nor failure; `remoteStatus` is a confirmed remote result only when `remoteStatusConfirmed` is true (ssh's exit 255 is ambiguous and never confirmed alone); `truncated` says this window is not the whole transcript; `cursorExpired` says restart the cursor from 0. Output is data for a terminal, never HTML.
-
-## cancel_ssh_command
-
-Pass `{ "run_id": "RUN_ID" }`. Returns the run record. `cancelRequested` means the ask was relayed; `cancelLocalConfirmed` means the LOCAL supervised ssh stopped. Remote termination is UNCONFIRMED by contract: commands can daemonize or outlive the connection, so never claim the remote work died from this answer alone. A refusal stays recorded and pending while the connecting node is offline and dispatches before new work when it reconnects.
-
-## open_ssh_terminal
-
-Pass required `connection_id`, plus optional `cols` and `rows`. Returns the new pane's row (`subshellId`, `connectionId`, `connectionRevision`, `initiatedBy`, `controlOwner`, `controlGeneration`, `logGeneration`, `createdAt`). Input and output ride the ordinary pane tools (`send_to_subshell`, `read_subshell_log`) behind the pane's SSH policy; there are no separate SSH input tools.
-
-An agent-opened pane starts in agent control. A human can take over at any time, which blocks agent reads AND writes on every API and stream until a human returns control; recorded output can become visible again after the return. `quota_terminals` names the per-owner cap refusal. Managed SSH panes cannot be shared in v1, their foreground process is ssh with no local-shell fallback, and their exit ends the pane.
-
-## get_terminal_execution
-
-| Argument | Requirement | Meaning |
-| --- | --- | --- |
-| `subshell_id` | Required | The terminal pane the command was typed into. |
-| `execution_id` | Required | The `executionId` from the `exec_in_terminal` answer. |
-
-Returns the durable exec record (`state`, `exitCode`, `output`, `nextByte`, `inputGeneration`, timestamps) without changing anything about the command. `state: "outstanding"` means still being observed: an earlier wait timing out leaves the record HERE, which does not mean hung. `completed` carries the command's status in `exitCode`. `unknown` means observation was lost (pane restart or death) and stays unknown, never renamed to failed or completed, until a human recovers the pane. While a record reads unknown, the server refuses further automated `exec_in_terminal` on that pane. An explicit human takeover invalidates the pane's outstanding results and fences stale queued input at the machine. This door never runs on managed SSH terminals: exec refuses there, and their panes never own records.
 
 ## list_channels
 

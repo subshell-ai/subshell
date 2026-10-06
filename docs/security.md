@@ -59,7 +59,7 @@ Everything below assumes that perimeter holds.
 | A malicious node path escaping into host paths | Structural id/path guards on both sides of the link |
 | DNS rebinding | A static origin allowlist, never "trust the requesting host" |
 | Terminal output injecting markup into the UI | PTY bytes are rendered only by xterm, never as HTML |
-| A pane using an SSH connection nobody granted it | Coarse `ssh` permission AND a human-issued per-pane, per-connection grant, rechecked at every surface through one policy; a refused caller sees the pane or connection as absent (§4b) |
+| A person brokering an SSH session through a machine that is not theirs | Sessions open only on nodes the cookie owner OWNS (no admin boost, no shares), and every `/api/ssh-runtime` door refuses machine credentials with the origin asserted on writes (§4b) |
 
 ### Explicitly NOT defended against
 
@@ -72,7 +72,7 @@ Everything below assumes that perimeter holds.
 | **A malicious admin** | Admins hold instance-wide edit access and can mint full-access system keys. There is no separation of duties |
 | **Denial of service** | Only login is rate-limited |
 | **Supply chain of the harnesses themselves** | Subshell launches whatever `claude`/`opencode`/`codex` binary is on the host's PATH and does not verify it |
-| **What a granted SSH command can do on the destination** | The destination account's permissions ARE the remote boundary. Subshell refuses to sandbox beyond its own APIs: the ssh process runs as the connecting OS account, with whatever that account already had (§4b) |
+| **What an SSH runtime session can do on the destination** | The destination account's permissions ARE the remote boundary. Subshell refuses to sandbox beyond its own APIs: the runtime child rides the link brokered BY the connecting OS account, with whatever that account already had (§4b) |
 
 ## 2. Identity and credentials
 
@@ -731,124 +731,72 @@ so the argv posture above is its posture too (accepted, §11), and the sentinel
 lands in the pane's own log as random noise, not data; every refusal precedes
 the typing, and a `timed_out` answer signals nothing and types nothing further.
 
-## 4b. SSH destinations (spec 2026-10-04, `SSH-SUPPORT.md`)
+## 4b. SSH runtime sessions (design 2026-10-05; the destination-execution product retired per its §7)
 
-A granted agent pane can run structured commands and interactive terminals on
-Linux and macOS machines through an enrolled node, without anything installed
-on the destination. The controls below protect SUBSHELL's APIs; they do not
-sandbox a process that already runs as the connecting OS account (§1: that
-account can run `ssh` itself, read its own key files, and reach whatever the
-destination account reaches). The destination account's permissions are the
-remote boundary, and a configured remote directory is a convenience, not a
-filesystem restriction. Compromised OS accounts, malicious administrators, and
-a compromised control plane stay outside the model, exactly as everywhere else
-in this document.
+A signed-in person picks one of their own machines as the point of departure,
+a destination it can reach with its own SSH account, and a directory there.
+The plane brokers an ssh child on the connecting machine and starts the
+`subshell runtime-serve` mode of the destination's own `subshell` binary
+through that link; panes opened in a session are ordinary subshell rows, and
+the session ends when the link does. Nothing is installed as a service, no
+node key exists, no port listens on the destination - the SSH link IS the
+connection. No agent door exists: `/api/ssh-runtime/*` answers cookie sessions
+only, machine credentials are refused by name, and writes carry explicit
+origin validation.
 
-**Credentials never enter Subshell.** There is no credential storage: a saved
-connection holds a NORMALIZED approved snapshot (destination, ports, identity
-and certificate PATHS, trust-file paths, a bounded jump chain), not key
-material, and the node's SSH configuration is never uploaded. Discovery names
-aliases only. Configuration file contents, key contents, and passphrases never
-cross the link in either direction. §1's OS-user boundary still applies to the
-node: whoever owns that account owns the credentials this feature points at.
+**Credentials never enter Subshell.** Discovery answers alias NAMES only;
+resolution evaluates one alias with the connecting account's own `ssh -G` and
+returns a NORMALIZED approved snapshot (destination, ports, identity and
+certificate PATHS, trust-file paths, a bounded jump chain) - never key
+material, never config file contents, in either direction. The wizard discloses
+before resolving that trusted local configuration (`Match exec` and friends)
+can run helpers on the node. §1's OS-user boundary still applies to the node:
+whoever owns that account owns the credentials this feature points at.
 
-**Configuration is executable, so only humans configure it.** Discovery,
-resolution, save, edit, delete, grants, revocation, and every control
-transition require a COOKIE session with explicit origin validation on the
-writes; machine credentials are refused by name (`cookie_required`). Resolution
-discloses that trusted local configuration (`Match exec` and friends) can run
-helpers on the node when it resolves. The snapshot saved afterward is the
-approved answer: agent requests accept connection IDs only, never hosts,
-aliases, ports, options, environment, config paths, or proxy commands. Runtime
-config is rendered from that snapshot under a mandatory every-hop policy
-(strict host checking, no forwarding or tunnels, no local or remote commands,
-no escape characters, no control sockets, noninteractive key/certificate auth
-only) and never rereads ambient user or system configuration. Anything not
-representable safely is refused with a named limitation rather than silently
-weakened. Unknown, changed, and revoked host keys fail closed; there is no
-trust-acceptance endpoint, and no credential-upload endpoint exists.
+**The every-hop policy is compiled-in, not caller-shaped.** The ssh argv is
+rendered from the approved snapshot under a mandatory config the request cannot
+override: BatchMode, strict host checking against the snapshot's pinned trust
+files, no agent or X11 forwarding, no port forwards or tunnels, no local or
+remote commands, no escape characters, no control sockets or multiplexing,
+noninteractive key/certificate auth only, and a bounded `ProxyJump` chain as
+the one routing mechanism - the jump children read the same rendered file.
+Anything the normalization cannot represent safely is refused with a NAMED
+limitation rather than silently weakened. Unknown, changed, and revoked host
+keys fail closed; there is no trust-acceptance endpoint.
 
-**Two independent doors, both required.** A pane needs the coarse `ssh`
-permission on its token AND a human-issued grant row binding the connection
-REVISION to the pane ID and the pane's CURRENT issued api-key identity. This is
-the deliberate exception to §4's "beyond its row": raw REST normally resolves a
-pane's token as its OWNER, but every SSH surface rechecks the key row, the
-grant, the revision, the pane lifecycle, and node eligibility at decision time.
-Old tokens receive no grandfathering, children inherit nothing, and a restarted
-pane holds a new key that nothing grants until a human grants it again.
-Inaccessible resource IDs answer the non-enumerating 404 convention; visible
-but unauthorized answers carry the named policy code (`not_granted`,
-`token_stale`, `grant_revoked`, `revision_mismatch`, `pane_lifecycle`,
-`node_ineligible`, `human_control`).
+**The connecting account is the boundary.** Only nodes the caller owns broker a
+session - no admin boost, no share reaches it - and the destination account's
+permissions are what the work can do, exactly as the NOT-defended table says.
+A foreign session id reads the non-enumerating 404.
 
-**One policy, every surface.** A managed SSH pane is an ordinary pane row, so
-the generic surfaces are the bypass risk the spec names first, and they all
-consult the SAME policy seam before reading or acting: list previews, detail,
-logs, captures, the live feed, attach-token mint AND redeem, input, exec,
-prompts, restart, terminate, delete, and sharing. Everyone except the pane's
-owner (cookie) or the exact credential that opened it is answered invisibility,
-admins included; a same-owner sibling without its own grant cannot recover the
-pane through any door. Sharing a managed pane is refused to everyone in v1,
-owner included (two independent refusals: the policy arm and the sharing site,
-belt and braces). Revocation is the full sentence, not just a stamp: new
-dispatch stops, queued input is fenced (the plane's raised generation makes the
-machine refuse writes stamped below it), streams close at the next redemption
-check, and the runs and terminals started UNDER THAT GRANT are cancelled where
-reachable. Human-owned work and other grants' work are never cancelled,
-because every resource records its initiating grant and credential.
+**A remote pane acts as its own token and nothing wider.** A pane launched on
+a destination carries the ordinary subshell token; its callbacks (the MCP door,
+token self-extension) ride back to the plane as allowlisted `rest_request`
+frames through its own session and are executed by the plane's callback
+executor AS THAT PANE'S TOKEN - the same §4 altitude an ordinary pane holds,
+never a broader credential. The input-generation fence (the additive
+`inputGeneration` frame field, the node's per-pane store, the frozen stale
+refusal) stays exactly where the destination product put it: the NEXT writer's
+generation fences queued input at the machine.
 
-**Execution honesty is the contract.** Run IDs are allocated server-side and
-bound to a digest of the whole deciding payload; the connecting runtime
-durably records acceptance BEFORE spawning, a duplicate delivery returns the
-existing record, and a different payload under the same ID is refused. A lost
-answer leaves the row `accepted` (not failed, not completed) and nothing
-re-dispatches it automatically: reconciliation after reconnect ASKS about known
-IDs, settles what the node no longer knows to `unknown`, and dispatches pending
-CANCELLATIONS before new work. `completed` carries a confirmed remote status
-only when the transport corroborates it; OpenSSH's 255 stays ambiguous (kept as
-a number, never a confirmed claim); a crash between acceptance and spawn yields
-unknown, not permission to retry. `cancel` confirms the LOCAL supervised
-process stopped, never that remote descendants died. Browser closure, a timed
-out read, or a dropped attach changes nothing about a running command.
+**Limits are frozen and enforced before the wire.** Eight active brokered
+sessions per connecting node across all owners; an open must spawn the child
+AND receive its parsed hello within 30 seconds or the session fails closed -
+never half-open, never auto-retried; inbound runtime frames queue at most 128
+per session and overflow CLOSES the session; a session ref the node does not
+know answers the bare `run_unknown`, and a re-used ref with a different digest
+answers `run_conflict` with nothing spawned twice.
 
-**Input ownership, every writer.** Managed-pane writes ride the node with the
-pane's frozen input generation (the additive `inputGeneration` frame field);
-the node's store refuses missing or lower values, so a takeover, a revocation,
-or a restart fences queued input at the machine, not just on the plane. Human
-takeover blocks agent reads AND writes on every API and stream until a human
-returns control (agent-opened panes start in agent control; only humans return
-it), invalidates outstanding terminal-exec results, and closes the pane's live
-subscriptions. Recorded output can become visible again after a return:
-takeover controls INPUT, not secrecy, and ordinary terminal history is not
-confidential secret storage. The `exec_in_terminal` convenience keeps its
-heuristic posture (quiet is not idle) and refuses managed SSH panes by name;
-after an exec record becomes `unknown`, further automated exec on that pane
-waits for human recovery.
+**Audit names acts, never content.** `ssh.discover` and `ssh.resolve` record
+the node and the accepted fact (a refusal names its code);
+`ssh_runtime_session.open` records the connecting node plus host and port,
+`...pane_open` the session, runtime node, harness, and preset, `...close` the
+connecting node. No row carries command text, config contents, or pane output.
 
-**Remote output is data.** Run and pane output renders in xterm, never HTML,
-exactly as for ordinary panes: the terminal never answers a clipboard-READ
-request, a clipboard-WRITE (OSC 52) only lands when a human clicks the explicit
-copy affordance, and nothing opens a link by itself. Identity and permission
-claims in output have no authority. Command text and output can contain
-secrets, so they stay out of operational logs, audit metadata, and
-notifications, and they live only in the bounded run-retention files on the
-connecting node.
-
-**Limits are frozen and enforced before the wire.** 4 active runs per owner per
-connecting node and 16 total per node, 4 SSH terminals per owner per node,
-10 MiB retained output per run, 1 GiB aggregate SSH output storage including
-managed terminal logs (completed output is evicted first, then new work is
-refused with `storage_full`), 5-minute default execution deadline selectable to
-1 hour, 256 KiB output windows, 30-second read long-polls, and 7-day completed
-run retention. Draining continues past every cap (a child blocked on an unread
-pipe would turn a size limit into a hang), reads report `truncated`, and a
-cursor that outlived its data answers `cursorExpired` rather than silently
-resuming. Managed terminal logs rotate with a log GENERATION namespace: a stale
-generation plus an offset is an explicit reset signal, never a reused cursor.
-
-**Audit names acts, never content.** The `ssh.*` family (§10) records actors,
-ids, revisions, destinations, and outcomes. No row carries command text, config
-contents, or output; route suites scan the whole audit table for the ban.
+**The retirement.** The 2026-10-04 product - connection rows, per-pane grants,
+structured runs, managed SSH terminals, and their five `ssh_*` tables -
+retired with design §7; migration 0050 drops those tables forward-only, and
+the surviving surfaces above are all the wire and the API still answer.
 
 ## 5. Sharing
 
@@ -2304,24 +2252,14 @@ Audit events are written, grouped by family:
   up is exactly the event an operator reads the trail for. A gate refusal
   (foreign node, `local`, maintenance, offline) writes neither - the trail
   records acts, and a pre-gate 403 is not one.
-- **SSH** (spec 2026-10-04, `SSH-SUPPORT.md` §3): `ssh.discover`, `ssh.resolve`,
-  `ssh.test`, `ssh.connection.create`, `ssh.connection.update`,
-  `ssh.connection.delete`, `ssh.grant`, `ssh.revoke`, `ssh.run.start`,
-  `ssh.run.cancel`, `ssh.run.lifecycle`, `ssh.terminal.open`, and
-  `ssh.control.transition`. Per family, exactly what the rows hold (review
-  fix M-3): the config verbs name the node and the outcome (resolve/test carry
-  the accepted/passed fact and, on refusal, the named code); a connection
-  SAVE names its node, revision and destination (alias + host, the one
-  destination-bearing row); an update carries the new revision and whether it
-  was revision-bearing; a DELETE carries the revision and the alias.
-  Grant/revoke name `{ connectionId, revision, subshellId }`. Run rows carry
-  ids only: `{ connectionId, connectionRevision, nodeId, initiatedBy }` at
-  start, the node (or `reason: "grant_revoked"`) at cancel,
-  `{ outcome, reason }` at lifecycle settle; a terminal open repeats the run
-  shape; a control transition names `{ mode, generation }`. The §3 hygiene
-  rule holds for every one of them: NEVER command text, config contents, or
-  output, a sentence two route suites enforce by scanning the whole audit
-  table.
+- **SSH** (design 2026-10-05; the destination product's rows retired with
+  it): `ssh.discover` and `ssh.resolve` name the node, and resolve carries the
+  accepted fact or the refusal's named code; `ssh_runtime_session.open` names
+  `{ connectingNodeId, host, port }`, `ssh_runtime_session.pane_open`
+  `{ sessionId, runtimeNodeId, harnessId?, presetId? }`, and
+  `ssh_runtime_session.close` `{ connectingNodeId }`. The §3 hygiene rule
+  holds for every one of them: NEVER command text, config contents, or
+  output, a sentence route suites enforce by scanning the whole audit table.
 - **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`, `node.reregister_key`, `node.reregister`,
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.logging.update`, `node.update`,
@@ -2539,15 +2477,16 @@ Recorded so they are decisions rather than surprises:
 7. **No DoS protection** beyond login backoff.
 8. **The post bus is in-process**, so a multi-process deployment would silently
    lose cross-process wakeups.
-9. **SSH connections reuse the connecting account's existing trust** (spec
-   2026-10-04, §4b): the account's SSH configuration, keys, agent, and known
-   hosts decide what a saved destination really is, and a human who edits that
-   account's config outside Subshell widens or moves the ground under an
-   approved snapshot. That is the same OS-user boundary as item 1, restated
-   because the SSH feature makes the account's trust decisions load-bearing for
-   a granted pane's work. The mitigation that exists is procedural and shipped:
-   the human-only resolution/test/save loop shows the resolved destination, the
-   connecting account, and the route on every connection everywhere it renders.
+9. **SSH runtime sessions reuse the connecting account's existing trust**
+   (design 2026-10-05, §4b): the account's SSH configuration, keys, agent, and
+   known hosts decide what a destination really is, and a human who edits that
+   account's config outside Subshell widens or moves the ground under the next
+   resolution. That is the same OS-user boundary as item 1, restated because
+   the feature makes the account's trust decisions load-bearing for the
+   session's work. The mitigation is procedural and shipped: the human-only
+   discover/resolve/review loop shows the resolved destination, the connecting
+   account, and the route before a session opens, and the reviewed snapshot is
+   re-evaluated at every open - nothing saved can drift.
 
 ## 11.9 Plugins run in the control-plane process
 

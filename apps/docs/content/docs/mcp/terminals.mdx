@@ -55,11 +55,9 @@ the exit code once the command completes, refusing with nothing typed while the
 pane is busy. Keep the manual loop for multi-command sessions and for programs
 that wait for input. See the [MCP tool reference](/mcp/tools).
 
-A managed SSH terminal, opened by `open_ssh_terminal` on a granted connection
-(see [SSH connections](/ssh)), participates in this loop too: input and
-output ride `send_to_subshell` and `read_subshell_log` behind that pane's SSH
-policy, and `exec_in_terminal` refuses those panes by name. A human takeover
-blocks agent reads and writes on them until a human returns control.
+A pane launched through an SSH session (see [Connect over SSH](/ssh)) is an
+ordinary pane in this loop: the same input, log, and exec doors, with no
+separate SSH policy in the way.
 
 ## What it is not
 
@@ -69,7 +67,7 @@ blocks agent reads and writes on them until a human returns control.
   append something like `echo "exit: $?"` if the status matters.
 - Not private: the session is a normal pane of the owner's account, visible in
   the panes list and to anyone the owner shares panes with. It files under
-  "Cross-agent comms" and its notification bell starts off.
+  "Agent-created" and its notification bell starts off.
 - Not short-lived: it persists after the caller finishes, until
   `terminate_subshell` closes it or the machine dies. The pane that opened it
   owns the cleanup, as for every helper pane; see

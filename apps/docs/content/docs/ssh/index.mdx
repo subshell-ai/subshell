@@ -1,6 +1,6 @@
 ---
 title: "Connect over SSH"
-description: "Pick one of your machines as the SSH point of departure, start the Subshell runtime on a destination you reach with it, and work there in ordinary panes. Admins can also set up destination-based SSH connections for agent panes."
+description: "Pick one of your machines as the SSH point of departure, start the Subshell runtime on a destination you reach with it, and work there in ordinary panes."
 ---
 
 Reach any Linux or macOS machine you can already reach with SSH, and work on it as if a Subshell node lived there, without enrolling one.
@@ -42,12 +42,6 @@ If the SSH session dies, the session is marked lost and its panes read unavailab
 - The destination needs the `subshell` binary on the connecting account's PATH. A missing runtime is reported by name at connect time with exactly that remedy; Subshell never installs anything on a destination for you.
 - The connecting machine reads your account's SSH config for alias names and the resolved destination. Configs that need a `ProxyCommand`, port forwarding, or interactive password or MFA entry are refused by name; keys-only auth through the machine's existing trust is the supported shape, with an already-unlocked authentication agent and a bounded `ProxyJump` chain carried as-is. First-time host trust happens on the connecting machine, outside Subshell.
 - Sessions are personal: they live in your account, and their panes follow the ordinary subshell sharing rules.
-
-## SSH connections for agent panes
-
-**Server Settings** → **SSH** (server administrators) is a separate surface for agent-driven work on destination machines. A human configures each connection, tests it against a fixed benign probe, and grants selected agent panes access to it; an agent never configures connections, never sees credentials, and cannot use a connection nobody granted it. With a grant, a pane can run structured commands and open managed interactive terminals on the connection; the exact arguments are in the [MCP tool reference](/mcp/tools).
-
-Grants bind one connection to one pane's current credential. They do not spread to child panes, and a restarted pane holds nothing until a human grants it again. Revoking stops new work immediately, fences input already in flight at the connecting machine, and reaches nothing outside that grant. Human takeover of a managed terminal controls input, not secrecy: agent reads and writes stop while a human holds it, and recorded output is transcript data, not a confidential buffer. Unknown, changed, and revoked host keys fail closed, and remote output is always rendered as data.
 
 ## See also
 
