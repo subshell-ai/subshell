@@ -210,7 +210,10 @@ export async function adoptReconciledPanes(session: SshRuntimeSession): Promise<
       } else {
         // Reported dead or absent: unavailable/terminated as settled - flip
         // explicitly (the boot-sweep leftover may still say alive:1) and make
-        // sure no live token is left minted for a dead pane.
+        // sure no live token is left minted for a dead pane. Unconditional by
+        // design: racing a concurrent adoption here means the pane died
+        // between two censuses of the same destination socket, and the
+        // settle-down is the truthful outcome whoever won the reparent.
         if (row.alive === 1) await subshellsRepo.update(row.id, { alive: 0 });
         await revokeSubshellToken(row.id);
         summary.settledDead.push(row.id);

@@ -440,6 +440,7 @@ describe("re-adopt: the race seams (MINOR-1 death mid-walk, MINOR-2 concurrent r
     const host = { host: "10.77.2.1" };
     const a = await mkSession(`m2-a-${crypto.randomUUID().slice(0, 8)}`, host);
     const rowId = await seedRowOnNode(a.runtimeNodeId, { alive: 1, withToken: true });
+    const keySeed = (await subshellsRepo.findById(rowId))?.apiKeyId;
     a.markLost("child-lost");
     await waitUntil(async () => (await sessionsRepo.findById(a.id))?.status === "lost", "A settles lost");
 
@@ -469,10 +470,13 @@ describe("re-adopt: the race seams (MINOR-1 death mid-walk, MINOR-2 concurrent r
     const row = await subshellsRepo.findById(rowId);
     expect(row?.alive).toBe(0);
     expect(row?.nodeId).toBe(b.runtimeNodeId);
-    // The rotation DID land on the row (a fresh key id, not the seed's) - and
-    // it is exactly that key the walk's re-check revoked, because the pane
-    // registered with a session that had just died.
+    // The rotation DID land on the row (a fresh key id, not the seed's -
+    // asserted, so a regression that skips the mint on the death path cannot
+    // stay green on two disabled keys) - and it is exactly that key the
+    // walk's re-check revoked, because the pane registered with a session
+    // that had just died.
     expect(row?.apiKeyId).toBeTruthy();
+    expect(row?.apiKeyId).not.toBe(keySeed);
     expect(keyEnabled(row?.apiKeyId as string)).toBe(0);
     expect(b.paneToken(rowId)).toBeUndefined();
   });
