@@ -1,10 +1,18 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import { NODE_CLOSE_SUPERSEDED } from "@internal/subshell-protocol";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import {
+  registerSession,
+  resetSessionRegistryForTests,
+  unregisterSession,
+} from "@/services/ssh-runtime/session-registry.js";
+import { mkRuntimeSession } from "@/test-helpers/runtime-session.js";
 import {
   attachConnection,
   detachConnection,
   disconnectNode,
   getLive,
+  isNodeOffline,
   listOnline,
   type NodeSocket,
   REVOKED_CLOSE_CODE,
@@ -198,5 +206,47 @@ describe("node registry (spec 2026-08-31 §5.3)", () => {
       expect(sock.closed).toEqual([{ code: 4403, reason: "the node's owner account is disabled" }]);
       expect(getLive("n1")).toBeUndefined();
     });
+  });
+});
+
+/**
+ * The session-aware liveness predicate (review Important 3): a runtime node
+ * is NEVER in the live registry (it is reached through the session's framed
+ * channel), so the registry-only probe read every LIVE runtime pane as
+ * "node offline" in the grid, the manager views, the summarize counts, and
+ * notify. The blessed predicate now consults the session registry too; a
+ * lost/absent session still reads offline, exactly as before for every
+ * ordinary agent node.
+ */
+describe("isNodeOffline with runtime sessions (review I3)", () => {
+  beforeEach(() => {
+    resetSessionRegistryForTests();
+  });
+
+  it("a runtime node with a LIVE session is NOT offline; local never is", () => {
+    const session = mkRuntimeSession({ ownerId: "u-i3" });
+    registerSession(session);
+    expect(getLive(session.runtimeNodeId)).toBeUndefined(); // the premise: never in the WS registry
+    expect(isNodeOffline(session.runtimeNodeId)).toBe(false);
+    expect(isNodeOffline(LOCAL_NODE_ID)).toBe(false);
+  });
+
+  it("a settled or absent runtime node IS offline (the honest unavailable reading)", () => {
+    const session = mkRuntimeSession({ ownerId: "u-i3" });
+    registerSession(session);
+    expect(isNodeOffline(session.runtimeNodeId)).toBe(false);
+    session.markLost("child-lost"); // the settle unregisters; the predicate flips with it
+    expect(isNodeOffline(session.runtimeNodeId)).toBe(true);
+    unregisterSession(session);
+    expect(isNodeOffline(session.runtimeNodeId)).toBe(true);
+    expect(isNodeOffline("never-was")).toBe(true);
+  });
+
+  it("an ordinary agent node keeps the WS-registry answer untouched", () => {
+    const sock = fakeSocket();
+    attachConnection("agent-i3", sock);
+    expect(isNodeOffline("agent-i3")).toBe(false);
+    detachConnection("agent-i3", sock);
+    expect(isNodeOffline("agent-i3")).toBe(true);
   });
 });

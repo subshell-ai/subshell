@@ -1,6 +1,7 @@
 import { NODE_CLOSE_SUPERSEDED, type NodeRuntimeReport } from "@internal/subshell-protocol";
 import type { LinkSession } from "@internal/subshell-protocol/node-link-crypto";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { liveSessionForRuntimeNode } from "@/services/ssh-runtime/session-registry.js";
 import { projectNodeOffline } from "./node-presence-announce.js";
 import type { NodeRpcError } from "./node-rpc.js";
 
@@ -444,6 +445,14 @@ export function getLive(nodeId: string): NodeConnection | undefined {
  * cheap in a per-row view loop. True means "the pane may still be running
  * there" — the UI shows a stale-banner, not a dead subshell.
  *
+ * RUNTIME nodes (design 2026-10-05 §4) are never in the WS registry by
+ * construction - their channel is the SSH session - so the probe consults
+ * BOTH registries (review I3): a hidden runtime node with a live session is
+ * REACHABLE (list/detail/log/live all stay normal for its panes), and one
+ * whose session settled lost/closed reads offline like every other dead
+ * machine. The session-registry import is cycle-clean: the session modules
+ * reach node facts only through type imports and the RPC module.
+ *
  * The BLESSED liveness predicate — every "is this row's node reachable"
  * decision must go through it. It lives here because it is pure over the
  * registry above, which makes it importable by services and repositories'
@@ -452,7 +461,8 @@ export function getLive(nodeId: string): NodeConnection | undefined {
  * injected predicate rather than importing this module).
  */
 export function isNodeOffline(nodeId: string): boolean {
-  return nodeId !== LOCAL_NODE_ID && getLive(nodeId) === undefined;
+  if (nodeId === LOCAL_NODE_ID) return false;
+  return getLive(nodeId) === undefined && liveSessionForRuntimeNode(nodeId) === undefined;
 }
 
 /**

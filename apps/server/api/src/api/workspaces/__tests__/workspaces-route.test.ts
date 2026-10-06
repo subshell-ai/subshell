@@ -7,7 +7,9 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { registerSession, resetSessionRegistryForTests } from "@/services/ssh-runtime/session-registry.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
+import { mkRuntimeSession } from "@/test-helpers/runtime-session.js";
 import { authedRequest, deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /** Creates a preset + subshell owned by `userId`, returning the subshell id. */
@@ -713,5 +715,59 @@ describe("workspaces route", () => {
 
       if (apiKeyId) authDatabase().run(`DELETE FROM apikey WHERE id = ?`, [apiKeyId]);
     });
+  });
+  it("a pane on a LIVE runtime session is not offline in the grid view (review I3)", async () => {
+    // The grid swaps a pane's terminal for an "offline, reconnecting" panel
+    // from `subshellNodeOffline`; the hidden runtime node is never in the WS
+    // registry, so the predicate must also see the live session.
+    const token = await signIn(ownerEmail, password);
+    const session = mkRuntimeSession({ ownerId });
+    registerSession(session);
+    const preset = await new PresetsRepository(db).create({
+      id: crypto.randomUUID(),
+      userId: ownerId,
+      harnessId: "claude-code",
+      name: `p-${crypto.randomUUID().slice(0, 8)}`,
+      description: null,
+      envJson: null,
+      flagsJson: null,
+      settingsJson: null,
+      configIsolation: 0,
+    });
+    const subshellId = crypto.randomUUID();
+    await new SubshellsRepository(db).create({
+      id: subshellId,
+      userId: ownerId,
+      presetId: preset.id,
+      harnessId: "claude-code",
+      name: "runtime-pane",
+      workingDir: "/tmp",
+      tmuxSocket: null,
+      nodeId: session.runtimeNodeId,
+    });
+    const wsId = await createWorkspace(token, `i3-${crypto.randomUUID().slice(0, 8)}`);
+    const added = await workspaceRoutes.fetch(
+      authedRequest(`/api/workspaces/${wsId}/panes`, token, {
+        method: "POST",
+        body: JSON.stringify({ subshellId }),
+      }),
+    );
+    expect(added.status).toBe(200);
+
+    type PaneRow = { subshellNodeId: string; subshellNodeOffline: boolean };
+    const readPanes = async (): Promise<PaneRow[]> => {
+      const res = await workspaceRoutes.fetch(authedRequest(`/api/workspaces/${wsId}`, token));
+      return ((await res.json()) as { panes: PaneRow[] }).panes;
+    };
+    const [live] = await readPanes();
+    expect(live?.subshellNodeId).toBe(session.runtimeNodeId);
+    expect(live?.subshellNodeOffline, "the live session is the runtime node's liveness").toBe(false);
+
+    // Gone is gone: once the session settles out of the registry the row
+    // reads offline like any other unreachable machine (no fake liveness).
+    session.markLost("child-lost"); // unwired hooks here: the registry row is cleared below
+    resetSessionRegistryForTests();
+    const [offline] = await readPanes();
+    expect(offline?.subshellNodeOffline).toBe(true);
   });
 });

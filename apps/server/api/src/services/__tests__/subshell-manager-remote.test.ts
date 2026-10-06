@@ -29,7 +29,9 @@ import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-
 import { seedPreset } from "@/services/__tests__/helpers/seed-preset.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
+import { registerSession, resetSessionRegistryForTests } from "@/services/ssh-runtime/session-registry.js";
 import { SubshellManagerService, type SubshellTokenProvider } from "@/services/subshell-manager.service.js";
+import { mkRuntimeSession } from "@/test-helpers/runtime-session.js";
 
 /**
  * Per-node launcher routing in the manager (spec §6.3/§6.6): createSubshell
@@ -326,5 +328,42 @@ describe("nodeOffline on views (spec §5.6)", () => {
     }
     const singleOffline = await manager.getSubshell("u1", remoteSubshellId);
     expect(singleOffline?.nodeOffline).toBe(true);
+  });
+  it("a runtime-session pane's row is NOT offline while its session lives (review I3)", async () => {
+    const fake = new FakeNodeLauncher(testDir);
+    const manager = new SubshellManagerService({
+      subshells: subshellsRepo,
+      presets: presetsRepo,
+      launcher: fake,
+      tokens,
+      audit: async () => {},
+    });
+    const session = mkRuntimeSession({ ownerId: "u1" });
+    registerSession(session);
+    const runtimePaneId = crypto.randomUUID();
+    await subshellsRepo.create({
+      id: runtimePaneId,
+      userId: "u1",
+      presetId,
+      harnessId: "claude-code",
+      name: "v-runtime",
+      workingDir: "/tmp",
+      tmuxSocket: `sock-${runtimePaneId}`,
+      nodeId: session.runtimeNodeId,
+    });
+    try {
+      const single = await manager.getSubshell("u1", runtimePaneId);
+      expect(single?.nodeOffline, "a live session IS the node's liveness").toBe(false);
+      const views = await manager.toViews(await subshellsRepo.listByUser("u1"));
+      expect(new Map(views.map((v) => [v.id, v])).get(runtimePaneId)?.nodeOffline).toBe(false);
+    } finally {
+      // The registry is liveness authority: once the session is gone (here:
+      // lost + evicted, exactly what the settle does), the row reads offline.
+      session.markLost("child-lost");
+      resetSessionRegistryForTests();
+    }
+    const offline = await manager.getSubshell("u1", runtimePaneId);
+    expect(offline?.nodeOffline).toBe(true);
+    await subshellsRepo.delete(runtimePaneId).catch(() => {});
   });
 });
