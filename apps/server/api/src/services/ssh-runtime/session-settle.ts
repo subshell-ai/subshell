@@ -6,6 +6,7 @@ import { forgetRuntimeLauncher } from "@/services/nodes/launcher-registry.js";
 import { announceNodePresence } from "@/services/nodes/node-presence-announce.js";
 import { revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
+import { closeViewersForSubshell } from "@/ws/viewers.js";
 import type { SessionLossReason, SshRuntimeSession } from "./session.js";
 import { setSessionSettlers, unregisterSession } from "./session-registry.js";
 import { SshRuntimeSessionsRepository } from "./sessions.repository.js";
@@ -79,11 +80,16 @@ async function settleLost(session: SshRuntimeSession, reason: SessionLossReason)
   await nodesRepo.setStatus(session.runtimeNodeId, "offline").catch(() => {});
   // Panes: unavailable, not completed (design §6). The row keeps `status`;
   // `alive` flips 0 for every pane the session still carries (a pane the
-  // runtime had already reported exited was settled by the exit event).
+  // runtime had already reported exited was settled by the exit event). A
+  // browser terminal watching one learns the same truth NOW: the session's
+  // channel is gone, so the relay's stream is over - `closeViewersForSubshell`
+  // (1012, the retry convention) ends it, and the client's reconnect meets the
+  // 4004 the attach path gives a dead session. Unavailable, never completed.
   for (const paneId of session.paneIds()) {
     await subshellsRepo.update(paneId, { alive: 0 }).catch(() => {});
     session.unregisterPane(paneId);
     await revokeSubshellToken(paneId).catch(() => {});
+    closeViewersForSubshell(paneId, "session lost");
     publishLive({ kind: "subshell.changed", id: paneId });
   }
   announceNodePresence(session.runtimeNodeId);
@@ -104,11 +110,16 @@ async function settleClosed(session: SshRuntimeSession): Promise<void> {
   // BEFORE this settling) recorded each pane as the destination saw it; the
   // plane's rows then flip survivors to `alive: 0` anyway, because "alive
   // with a dead session" is exactly the unavailable reading, and a flip here
-  // beats waiting for a reader's probe. The next session's reconcile re-adopts.
+  // beats waiting for a reader's probe. The next session's reconcile
+  // re-adopts them (`session-adopt.ts`, design §6's idempotent restore).
+  // Live terminals go with the channel: `closeViewersForSubshell` (1012),
+  // the same close the lost settling gives - the destination pane may still
+  // be running, but THIS plane cannot stream it until a session carries it.
   for (const paneId of session.paneIds()) {
     await subshellsRepo.update(paneId, { alive: 0 }).catch(() => {});
     session.unregisterPane(paneId);
     await revokeSubshellToken(paneId).catch(() => {});
+    closeViewersForSubshell(paneId, "session closed");
     publishLive({ kind: "subshell.changed", id: paneId });
   }
   announceNodePresence(session.runtimeNodeId);

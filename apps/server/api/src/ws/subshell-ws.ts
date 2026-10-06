@@ -4,7 +4,6 @@ import { getRequestlessContext } from "@/lib/context.js";
 import { accessAtLeast } from "@/lib/subshell-access.js";
 import { launcherFor } from "@/services/nodes/launcher-registry.js";
 import { replayLineCap } from "@/services/nodes/log-tail.js";
-import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
@@ -107,15 +106,16 @@ export async function handleSubshellWs(ws: WsSocket, url: URL): Promise<void> {
 
   // spec §6.5: the launcher resolves PER ROW — `local` (the schema default;
   // `nodeId` is NOT NULL) keeps the untouched path below, an agent-node row
-  // relays over its node socket and returns. `launcherFor` caches a
-  // RemoteLauncher for every non-local id, so the cast restates that registry
-  // invariant rather than guessing at the instance.
+  // relays over its node socket and returns. A `runtime`-kind row (design
+  // 2026-10-05 §4) resolves to the SAME relay through its session's
+  // `RuntimeSessionLauncher` — the relay speaks the `NodeLauncher` interface,
+  // so both machine classes ride this one call with no cast.
   const launcher = launcherFor(row.nodeId);
   if (row.nodeId !== LOCAL_NODE_ID) {
     // The WHOLE params struct, not a hand-picked few: this call site is where
     // `hidden` went missing for node panes, because it took each input as its
     // own positional argument and one of them was simply never added.
-    await attachRemoteSubshellWs(ws, row, launcher as RemoteLauncher, access, params);
+    await attachRemoteSubshellWs(ws, row, launcher, access, params);
     return;
   }
   // Split out so the rest of this function sees a non-null socket, and so the

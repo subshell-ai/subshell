@@ -1,6 +1,5 @@
 import { type FSWatcher, watch } from "node:fs";
 import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
-import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
 import { captureToTerminalText } from "@/ws/capture-text.js";
 import type { PaneSource } from "@/ws/pane-stream.js";
 import { SyncStreamStripper } from "@/ws/sync-stripper.js";
@@ -187,10 +186,15 @@ export function createPanePollSource(options: PanePollSourceOptions): PaneSource
   };
 }
 
-/** What a source needs to tail a subshell running on a remote node. */
+/** What a source needs to tail a subshell running on a remote machine. */
 export interface RemoteTailSourceOptions {
-  /** The node's launcher — the relay to the agent that owns the pane. */
-  launcher: RemoteLauncher;
+  /**
+   * The pane's launcher — the relay to the machine that owns it. The source
+   * speaks only `NodeLauncher`'s `tailStart`, which the agent
+   * (`RemoteLauncher`) and the SSH-runtime session (`RuntimeSessionLauncher`)
+   * both implement with the same ordering contract.
+   */
+  launcher: NodeLauncher;
   /** Subshell id. */
   subshellId: string;
   /**

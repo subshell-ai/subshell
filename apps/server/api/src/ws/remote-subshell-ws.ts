@@ -1,8 +1,9 @@
 import { getRequestlessContext } from "@/lib/context.js";
 import { type Access, accessAtLeast } from "@/lib/subshell-access.js";
 import { replayLineCap } from "@/services/nodes/log-tail.js";
+import type { NodeLauncher } from "@/services/nodes/node-launcher.js";
 import { getLive } from "@/services/nodes/node-registry.js";
-import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
+import { liveSessionForRuntimeNode } from "@/services/ssh-runtime/session-registry.js";
 import { logger } from "@/utils/logger.js";
 import { forensicsEnabled, recordAttachPaint } from "@/ws/attach-forensics.js";
 import type { AttachParams } from "@/ws/attach-params.js";
@@ -42,7 +43,7 @@ import {
  * the agent's `tail_start` RESULT can resolve before its initial catch-up
  * bytes flow (never assume "caught up" at resolve — the launcher's relay
  * queues those bytes itself), gap backfill/dup-clamp live inside
- * {@link RemoteLauncher.tailStart}, so `onChunk` here just ships bytes
+ * `tailStart` on both launchers, so `onChunk` here just ships bytes
  * monotonically. Client input/resize/teardown ride the EXISTING
  * `handleSubshellMessage`/`cleanupSubshellWs` — attach sets `ws.data` to the
  * same {@link WsData} shape the local path builds.
@@ -94,16 +95,28 @@ const CLIENT_LAG_LIMIT_BYTES = 4 * 1024 * 1024;
  * `1011`; a browser whose send queue exceeds {@link CLIENT_LAG_LIMIT_BYTES}
  * is closed `1011 client too slow` mid-tail.
  *
+ * Design 2026-10-05 §4 widens this relay to SSH-runtime panes: a row on a
+ * hidden `runtime`-kind node relays through the session's
+ * `RuntimeSessionLauncher` (the same {@link NodeLauncher} twin every pane
+ * surface already calls), and the liveness check reads the SESSION, not a
+ * node link the runtime kind never has. Liveness authority, per row: agent
+ * node → live `/ws/node` connection; runtime node → live session. A session
+ * that goes lost closes the viewers of its panes (the settle path calls
+ * `closeViewersForSubshell`), so the socket learns unavailability the way
+ * every channel death teaches it: the stream ends and nothing completes.
+ *
  * Disposal is EXACTLY-ONCE by construction: `ws.data.cleanup` is installed
  * before the first await (so a close during any round-trip lands on it), it
  * flags `detached` and calls the late-bound disposer, and the disposer
- * itself is idempotent ({@link RemoteLauncher.tailStart}). If the browser
+ * itself is idempotent (`tailStart`). If the browser
  * vanishes before `tailStart` resolves, no zombie stream survives: the
  * pending attach disposes immediately on resolve (or returns before arming).
  *
  * @param ws - the browser socket (Elysia WS, narrowed to {@link WsSocket})
  * @param row - the subshell row (must name a non-local node)
- * @param launcher - the node's cached {@link RemoteLauncher} (registry-resolved)
+ * @param launcher - the row's registry-resolved launcher ({@link NodeLauncher}):
+ *   the agent node's cached `RemoteLauncher` or a runtime session's
+ *   `RuntimeSessionLauncher` — the relay speaks only interface members
  * @param access - the caller's effective access; only `edit`/`owner` may type
  * @param size - the client's fitted geometry; when present the pane is
  *   resized (and given {@link RESIZE_SETTLE_MS} to repaint) BEFORE the
@@ -112,7 +125,7 @@ const CLIENT_LAG_LIMIT_BYTES = 4 * 1024 * 1024;
 export async function attachRemoteSubshellWs(
   ws: WsSocket,
   row: RemoteAttachRow,
-  launcher: RemoteLauncher,
+  launcher: NodeLauncher,
   access: Access,
   /**
    * Everything the client declared on the connect URL, as ONE value.
@@ -126,7 +139,13 @@ export async function attachRemoteSubshellWs(
   params: AttachParams,
 ): Promise<void> {
   const { size, deviceLabel, hidden, wireMode } = params;
-  if (!getLive(row.nodeId)) {
+  // Liveness, per the row's machine class: an agent node answers through its
+  // `/ws/node` connection; a hidden runtime node (design 2026-10-05 §4) is
+  // deliberately never dialable, so its authority is the LIVE SESSION - the
+  // same predicate `launcherFor` resolves by. A settled (lost/closed) session
+  // is absent there, and the pane reads the same 4004 an offline node gives:
+  // unavailable, not completed.
+  if (!getLive(row.nodeId) && liveSessionForRuntimeNode(row.nodeId) === undefined) {
     ws.close(4004, "node offline");
     return;
   }
@@ -195,7 +214,11 @@ export async function attachRemoteSubshellWs(
     // desync a diff-rendering TUI can never heal; skipped-overlap it replays
     // is idempotent repaint). A missing/empty log reads size 0 and the tail
     // still arms (the agent tolerates a log pipe-pane has not created yet).
-    const logStart = (await launcher.readLogSized(row.id, 0, 1)).size;
+    // `readLogWindow` (the interface name; `RemoteLauncher`'s own
+    // `readLogSized` is that method under its class name) — the runtime twin
+    // answers the identical `log_read` frame, so the join point is the same
+    // byte on both machine classes.
+    const logStart = (await launcher.readLogWindow(row.id, 0, 1)).size;
     if (detached) return;
 
     // The local twin's rule: no readable bytes at the join, or residual bytes
@@ -247,7 +270,7 @@ export async function attachRemoteSubshellWs(
     let repainted = false;
     let nudged = false;
     if (size) {
-      const sizeOf = async (): Promise<number> => (await launcher.readLogSized(row.id, 0, 1)).size;
+      const sizeOf = async (): Promise<number> => (await launcher.readLogWindow(row.id, 0, 1)).size;
       try {
         // The pane is fitted to what EVERY viewer can display, not to the
         // joiner's own size — the local twin's rule, and the remote path was
