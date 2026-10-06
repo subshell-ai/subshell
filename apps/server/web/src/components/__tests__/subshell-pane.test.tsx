@@ -3,7 +3,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { SubshellPane } from "@/components/subshell-pane";
-import { dropSshTerminalFacts, putSshTerminalFacts } from "@/lib/ssh-terminal-facts";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /**
@@ -113,42 +112,6 @@ describe("SubshellPane touch key bar", () => {
     );
     expect(screen.queryByRole("toolbar", { name: "Terminal special keys" })).toBeNull();
     spy.mockRestore();
-  });
-});
-
-describe("SubshellPane SSH upload gate (SSH-SUPPORT.md §3, review I-1)", () => {
-  afterEach(() => {
-    dropSshTerminalFacts("s1");
-    cleanup();
-  });
-
-  it("a managed SSH pane has no upload affordance; an ordinary pane keeps it", () => {
-    const spy = stubCoarsePointer(true);
-    try {
-      // Contrast first: on a touch device the ordinary pane's bar carries
-      // the image picker (the touch half of the upload affordance).
-      renderPane(<SubshellPane pane={paneRow()} active showKeyBar onRestart={() => {}} onRemovePane={() => {}} />);
-      expect(screen.getByRole("button", { name: "Attach image" })).toBeDefined();
-      cleanup();
-
-      // The same pane, remembered as a managed SSH terminal by this tab:
-      // the picker is gone, the rest of the bar stays - uploads off, pane on.
-      putSshTerminalFacts({
-        subshellId: "s1",
-        connectionId: "c1",
-        displayName: "Staging",
-        destination: "deploy@app-02.example.net",
-        nodeId: "n1",
-        nodeLabel: "Laptop",
-        controlOwner: "human",
-        controlGeneration: 1,
-      });
-      renderPane(<SubshellPane pane={paneRow()} active showKeyBar onRestart={() => {}} onRemovePane={() => {}} />);
-      expect(screen.queryByRole("button", { name: "Attach image" })).toBeNull();
-      expect(screen.getByRole("button", { name: "Send Enter" })).toBeDefined();
-    } finally {
-      spy.mockRestore();
-    }
   });
 });
 

@@ -7,7 +7,6 @@ import {
   type LucideIcon,
   MessageSquareText,
   Network,
-  Plug,
   Power,
   Puzzle,
   ScrollText,
@@ -62,8 +61,8 @@ const NAV_ENTRIES: NavEntry[] = [
   { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
   // Beside Nodes, because it is the other way a machine joins the work: the
   // rail's row is the personal Connect-over-SSH journey (design 2026-10-05
-  // §1/§7), visible to every signed-in user. The Server Settings SSH page is
-  // a different surface (admin destination management) and keeps its own row.
+  // §1/§7), visible to every signed-in user. The admin SSH page that preceded
+  // it retired with the destination product (design 2026-10-05 §7).
   { to: "/connect", label: "Connect over SSH", icon: Waypoints, short: "Connect" },
   { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
   // Beside Presets: both are saved launch material, one is settings, one is text.
@@ -101,11 +100,6 @@ const NAV_ENTRIES: NavEntry[] = [
       // server listens (the Addresses card, here from Service since
       // 2026-09-17) and how anything not on this machine gets to it.
       { to: "/settings/networking", label: "Networking", icon: Network, short: "Net" },
-      // After Networking because the two answer the two directions of "how do
-      // machines reach each other": Networking is how anything reaches this
-      // server, SSH connections is how work on this instance reaches OTHER
-      // machines through an enrolled node (SSH-SUPPORT.md §3).
-      { to: "/settings/ssh", label: "SSH", icon: Plug, short: "SSH" },
       // Beside Service, because the two are about the same machine: Service is
       // the process as it runs now, Updates is what it could be running next.
       { to: "/settings/updates", label: "Updates", icon: ArrowUpCircle, short: "Upd" },

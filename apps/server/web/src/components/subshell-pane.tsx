@@ -13,7 +13,6 @@ import { usePaneCopyMode } from "@/hooks/use-pane-copy-mode";
 import { useSubshellLog } from "@/hooks/use-subshell-log";
 import { useSubshellRow } from "@/hooks/use-subshell-row";
 import { useTrustNotices } from "@/hooks/use-trust-notices";
-import { getSshTerminalFacts } from "@/lib/ssh-terminal-facts";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /** Props for {@link SubshellPane}. */
@@ -104,10 +103,6 @@ export function SubshellPane({
   // subscribes to all of it repaints because some OTHER subshell printed.
   const subshellRow = useSubshellRow(pane.subshellId);
   const trustNotices = useTrustNotices(subshellRow);
-  // Managed SSH panes get NO upload affordance until remote file ops exist
-  // (spec §3). The fact is this tab's memory of the SSH create (see
-  // lib/ssh-terminal-facts.ts); an unremembered pane renders ordinary.
-  const sshManaged = getSshTerminalFacts(pane.subshellId) !== null;
   const handleReady = useCallback(
     (handles: SubshellTerminalHandles) => {
       handlesRef.current = handles;
@@ -186,9 +181,6 @@ export function SubshellPane({
     <SubshellTerminal
       subshellId={pane.subshellId}
       active={active}
-      // SSH terminals have no remote file ops yet (spec §3): the drop/paste
-      // half goes off entirely for a remembered managed pane.
-      showUploads={!sshManaged}
       showStatePanels={false}
       onReady={handleReady}
       onDispose={handleDispose}
@@ -258,9 +250,7 @@ export function SubshellPane({
         suppressInput={copyOn}
         readOnly={subshellRow?.access === "view"}
         copyMode={copyMode === undefined ? paneCopyMode : undefined}
-        // The image button doubles as the touch upload gesture; SSH panes
-        // have no upload affordance at all (spec §3).
-        onPickImage={sshManaged ? undefined : () => handlesRef.current?.openImagePicker()}
+        onPickImage={() => handlesRef.current?.openImagePicker()}
         onScrollTop={() => handlesRef.current?.scrollToTop()}
         onScrollBottom={() => handlesRef.current?.scrollToBottom()}
         onScrollPageUp={() => handlesRef.current?.scrollPageUp()}
