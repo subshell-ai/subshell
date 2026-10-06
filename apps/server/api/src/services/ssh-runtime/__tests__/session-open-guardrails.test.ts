@@ -264,4 +264,40 @@ describe("open: the plane-side quota mirror", () => {
         .catch(() => {});
     }
   });
+
+  test("the occupied-destination refusal maps to the named session_in_use (m2)", async () => {
+    const node = await mkConnectingNode(`guard-busy-${crypto.randomUUID().slice(0, 8)}`);
+    // The broker classifies the second serve's bind death with this code (the
+    // pane-runtime side's own test); the plane's mapper must NAME it rather
+    // than let it fall into the generic `the destination refused the session`
+    // arm with no code, and it must not be `runtime_missing` on a machine
+    // whose binary is running the first session right now.
+    const sim = attachScriptedNode(node, {
+      ssh_session_open: () => new Error("session_in_use"),
+      ssh_session_close: ok,
+    });
+    try {
+      const err = await openSession(userId, { connectingNodeId: node, target }).then(
+        () => null,
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(SshRuntimeRefusal);
+      const refusal = err as SshRuntimeRefusal;
+      expect(refusal.status).toBe(409);
+      expect(refusal.code).toBe("session_in_use");
+      expect(refusal.message).not.toContain("runtime_missing");
+      // Same unroll as every refused open: nothing was left to settle.
+      expect(
+        await db.selectFrom("sshRuntimeSessions").selectAll().where("connectingNodeId", "=", node).execute(),
+      ).toEqual([]);
+      expect(allLiveSessionIds()).toEqual([]);
+    } finally {
+      sim.detach();
+      await db
+        .deleteFrom("nodes")
+        .where("id", "=", node)
+        .execute()
+        .catch(() => {});
+    }
+  });
 });

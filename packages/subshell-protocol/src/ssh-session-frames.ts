@@ -83,6 +83,29 @@ export const SSH_SESSION_RUNTIME_MISSING = "runtime_missing";
 /** A brokered session the node has no live child for (send/close on an unknown or dead ref). */
 export const SSH_SESSION_UNKNOWN = "session_unknown";
 
+/**
+ * The exit code `subshell runtime-serve` answers when its bootstrap died
+ * because a callback door already has a LIVE listener (review m2): the
+ * destination carries another session, and the serve says so with THIS
+ * number instead of dying as a generic error the classifier would read as
+ * "binary missing". Chosen off every code the open path can otherwise
+ * produce: 0 clean end, 2 flag refusal, 1 generic bootstrap throw, 126/127
+ * the login shell's own lookup verdicts, 255 ssh itself, null a signal kill.
+ * The broker's classifier maps it to {@link SSH_SESSION_IN_USE} ahead of the
+ * 127/255/default arms.
+ */
+export const SSH_RUNTIME_SERVE_IN_USE_EXIT = 20;
+
+/**
+ * The occupied-destination refusal: the second serve died at its door bind
+ * (the bind-site live-listener probe is the enforcement point; design
+ * 2026-10-05 §6's reopen-after-loss journey forbids a plane-side pre-open
+ * refusal, so the honest name comes from the POST-spawn death). Answers as
+ * the bare code in `result{error}`, equality-mapped like the rest of the
+ * family; the remedy names the OTHER session, never the binary.
+ */
+export const SSH_SESSION_IN_USE = "session_in_use";
+
 /* ------------------------------------------------------------------ */
 /* node-link command family (plane -> connecting node)                 */
 /* ------------------------------------------------------------------ */

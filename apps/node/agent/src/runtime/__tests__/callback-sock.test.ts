@@ -2,7 +2,13 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type CallbackRequest, PANE_CALLBACK_DIR, paneCallbackSockPath, startCallbackDoors } from "../callback-sock.js";
+import {
+  type CallbackRequest,
+  LiveCallbackDoorError,
+  PANE_CALLBACK_DIR,
+  paneCallbackSockPath,
+  startCallbackDoors,
+} from "../callback-sock.js";
 
 /**
  * The callback doors (design 2026-10-05 §5, task 25): the shared door answers
@@ -145,8 +151,15 @@ describe("callback doors", () => {
     await doorsA.ensurePane(PANE_A);
     // The loser's startup bind fails at the shared door (bound FIRST in
     // `startCallbackDoors`), so its reconcile loop never runs and no pane
-    // door can be unlinked out from under the live serve.
-    await expect(startCallbackDoors(dataDir, (r) => secondSeen.push(r))).rejects.toThrow(/live/i);
+    // door can be unlinked out from under the live serve. The failure is the
+    // NAMED kind (m2): `serve.ts` maps it to the busy exit and nothing else,
+    // so the refusal must be distinguishable from a plain throw.
+    const loser = await startCallbackDoors(dataDir, (r) => secondSeen.push(r)).then(
+      () => null,
+      (err: unknown) => err,
+    );
+    expect(loser).toBeInstanceOf(LiveCallbackDoorError);
+    expect((loser as Error).message).toMatch(/live/i);
     try {
       const inflight = ask(paneCallbackSockPath(dataDir, PANE_A), `/api/subshells/${PANE_A}/attention`);
       await waitUntil(() => first.length === 1); // the live door still answers its own session
@@ -163,9 +176,12 @@ describe("callback doors", () => {
     const doorsA = await startCallbackDoors(dataDir, () => {});
     try {
       // The second serve's startup bind of `<dataDir>/callback.sock` must
-      // FAIL while the first listens (its session then dies at the hello,
-      // which is the honest outcome of a race the plane's refusal missed);
-      // it must not move the path onto a channel no pane was baked into.
+      // FAIL while the first listens: the bind site is the ONE enforcement
+      // point (there is no plane-side second-session gate to have "missed" -
+      // a pre-open refusal would break the reopen-and-adopt journey, see the
+      // probe's header note), the death is PRE-hello, and the broker names
+      // it `session_in_use` off the serve's exit code (m2). The path must
+      // not move onto a channel no pane was baked into.
       await expect(startCallbackDoors(dataDir, () => {})).rejects.toThrow(/live/i);
     } finally {
       await doorsA.stop();

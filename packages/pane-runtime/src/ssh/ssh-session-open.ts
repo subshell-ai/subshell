@@ -3,6 +3,8 @@ import { join } from "node:path";
 import {
   parseSshSessionOpenResult,
   SSH_PROBE_DEADLINE_MS,
+  SSH_RUNTIME_SERVE_IN_USE_EXIT,
+  SSH_SESSION_IN_USE,
   SSH_SESSION_OPEN_DEADLINE_MS,
   SSH_SESSION_RUNTIME_MISSING,
   type SshErrorCode,
@@ -49,7 +51,8 @@ import { runSshProcess } from "./ssh-spawn.js";
  *   with it").
  *
  * Refusals the plane maps by EQUALITY ride the bare codes: `runtime_missing`,
- * `session_protocol`, `connection_failed` and the classified transport codes.
+ * `session_in_use`, `session_protocol`, `connection_failed` and the classified
+ * transport codes.
  * `run_unknown` (bad ref), `run_conflict` (digest mismatch) and
  * `session_quota` are decided by the supervisor BEFORE this function runs.
  */
@@ -215,8 +218,10 @@ export async function runSessionOpen(
 
   // (3) The hello gate. Read until the hello boundary, the child dying, or
   // the deadline. Death before hello maps by ssh's own exit posture:
-  // 127 ("command not found" past the probe - a login-shell PATH drift,
-  // honest either way), 255/signal = transport, anything else (or a
+  // the serve's own busy exit = the destination already carries a live
+  // session (m2 - the binary demonstrably EXISTS, it is running that
+  // session), 127 ("command not found" past the probe - a login-shell PATH
+  // drift, honest either way), 255/signal = transport, anything else (or a
   // protocol verdict) = the named refusal it is.
   const stdoutReader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
   const exitedEarly = proc.exited.then((code) => ({ code: code as number | null })).catch(() => ({ code: null }));
@@ -253,8 +258,12 @@ export async function runSessionOpen(
     dropRecord(drv.store, req.ref, configPath);
     if (scan.kind === "protocol") return { kind: "refused", code: "session_protocol" };
     if (deadlineHit) return { kind: "refused", code: "connection_failed" };
-    // The child is gone before hello: ask it how.
+    // The child is gone before hello: ask it how. The serve's busy exit goes
+    // FIRST (review m2): a destination with a live session answers it, and
+    // the default arm below would dress that up as "binary missing" - the
+    // wrong remedy on a machine whose binary is running the other session.
     const early = await exitedEarly;
+    if (early.code === SSH_RUNTIME_SERVE_IN_USE_EXIT) return { kind: "refused", code: SSH_SESSION_IN_USE };
     if (early.code === 127) return { kind: "refused", code: SSH_SESSION_RUNTIME_MISSING };
     if (early.code === 255 || early.code === null) {
       return { kind: "refused", code: classifySshFailure("") ?? "connection_failed" };

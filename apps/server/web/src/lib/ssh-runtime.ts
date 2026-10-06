@@ -167,6 +167,8 @@ export function sshRuntimeErrorCopy(err: unknown, facts: { host: string; machine
       return `The runtime on ${facts.host} speaks a protocol this server does not share. Update the Subshell binary there.`;
     case "session_quota":
       return `${facts.machine} already carries its share of open sessions. Close one of them and try again.`;
+    case "session_in_use":
+      return `${facts.host} already has a live session open. Close that session first, then connect again.`;
     case "host_key_unknown":
     case "host_key_changed":
     case "host_key_revoked":

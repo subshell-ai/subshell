@@ -278,6 +278,11 @@ function mapOpenError(err: unknown): SshRuntimeRefusal {
   if (err instanceof Error && "detail" in err && typeof err.detail === "string") {
     const detail = err.detail;
     if (detail === "runtime_missing") return new SshRuntimeRefusal(409, detail, "runtime_missing");
+    // The occupied destination (review m2): the broker read the serve's busy
+    // exit, so the refusal is the OTHER session - named here rather than
+    // left to the generic arm, whose prose would stand where the copy table
+    // branches by code.
+    if (detail === "session_in_use") return new SshRuntimeRefusal(409, detail, "session_in_use");
     if (detail === "session_quota")
       return new SshRuntimeRefusal(409, "the connecting node carries its share of open sessions", "session_quota");
     if (detail === "session_protocol") return new SshRuntimeRefusal(409, detail, "session_protocol");

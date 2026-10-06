@@ -72,6 +72,14 @@ export const SSH_ERROR_CODES = [
   "session_quota",
   /** The brokered child spoke something whose first frame is not a runtime hello (design §2: malformed leading bytes fail the open; the broker names it, the plane relays it). */
   "session_protocol",
+  /**
+   * The destination already carries a LIVE session: the second serve died at
+   * its callback-door bind (review m2 - the door refuses a live listener, and
+   * the bind site is the ONE enforcement point, since a plane-side
+   * second-session gate would break §6's reopen-and-adopt journey). The
+   * remedy is the other session - close it, do not touch the binary.
+   */
+  "session_in_use",
 ] as const;
 
 /** One named refusal from {@link SSH_ERROR_CODES}. */
@@ -118,6 +126,7 @@ export const SSH_ERROR_DESCRIPTIONS: Record<SshErrorCode, string> = {
   session_quota: "This machine already carries its share of open SSH sessions. Close one first.",
   session_protocol:
     "The destination answered the session open with something that is not the Subshell runtime's handshake. Check that the named program is the `subshell` binary.",
+  session_in_use: "This destination already has a live session. Close that session there first, then connect again.",
 };
 
 /**

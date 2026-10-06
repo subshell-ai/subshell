@@ -54,9 +54,10 @@ import { digestSessionRequest, type SshSessionRecord, SshSessionRecordStore } fr
  *
  * Refusals the plane maps by EQUALITY ride the bare codes: `run_unknown`,
  * `run_conflict`, `session_quota`, and whatever the open flow names
- * (`runtime_missing`, `session_protocol`, `connection_failed`, the classified
- * transport codes); {@link SSH_SESSION_UNKNOWN} answers send/close on a ref
- * this process has no live child for.
+ * (`runtime_missing`, `session_in_use`, `session_protocol`,
+ * `connection_failed`, the classified transport codes);
+ * {@link SSH_SESSION_UNKNOWN} answers send/close on a ref this process has no
+ * live child for.
  */
 
 /** Everything the supervisor needs from its host. */

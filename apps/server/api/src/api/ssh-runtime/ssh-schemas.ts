@@ -37,6 +37,7 @@ export const SshErrorCodeSchema = t.Union([
   t.Literal("runtime_missing"),
   t.Literal("session_quota"),
   t.Literal("session_protocol"),
+  t.Literal("session_in_use"),
 ]);
 
 /** One ProxyJump hop: a destination and nothing else (the reviewability rule). */

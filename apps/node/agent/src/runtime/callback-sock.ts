@@ -81,6 +81,20 @@ function newReqId(): string {
   return crypto.randomUUID();
 }
 
+/**
+ * The bind refused a path another session is LISTENING on (review m2). The
+ * name is a routing fact, not a nicer message: `serve.ts`'s bootstrap maps
+ * THIS kind (and no other startup failure) to the busy exit code the broker
+ * classifies as `session_in_use`, so "the destination is taken" must be
+ * tellable apart from "the serve broke on the way up".
+ */
+export class LiveCallbackDoorError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "LiveCallbackDoorError";
+  }
+}
+
 /** One bound listener: its own pending map, its own unlink discipline. */
 interface Door {
   server: ReturnType<typeof Bun.serve> | undefined;
@@ -137,7 +151,7 @@ async function bindDoor(
   onRequest: (req: CallbackRequest) => void,
 ): Promise<Door> {
   if (existsSync(path) && (await hasLiveListener(path))) {
-    throw new Error(`callback socket path has a live listener (another session serves it): ${path}`);
+    throw new LiveCallbackDoorError(`callback socket path has a live listener (another session serves it): ${path}`);
   }
   if (existsSync(path)) {
     try {

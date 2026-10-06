@@ -7,6 +7,7 @@ import {
   type NodeEvent,
   parseSshRuntimeCommandFrame,
   SSH_RUNTIME_PROTOCOL,
+  SSH_RUNTIME_SERVE_IN_USE_EXIT,
   SSH_SESSION_LOG_WINDOW_BYTES,
   type SshRuntimeEventFrame,
 } from "@internal/subshell-protocol";
@@ -17,7 +18,7 @@ import { selfInvokePrefix } from "../self-invoke.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 import { NODE_VERSION } from "../version.js";
 import type { CallbackDoors } from "./callback-sock.js";
-import { startCallbackDoors } from "./callback-sock.js";
+import { LiveCallbackDoorError, startCallbackDoors } from "./callback-sock.js";
 import { type RuntimeReportRow, runRuntimeCommand } from "./dispatch.js";
 import { diag, RuntimeWriter, redirectConsoleToStderr, startStdinReader } from "./stdio.js";
 
@@ -139,16 +140,35 @@ export async function runRuntimeServe(input: RuntimeServeInput): Promise<number>
     },
   };
 
-  const doors = await startCallbackDoors(dataDir, (req) => {
-    writer.writeFrame({
-      type: "rest_request",
-      reqId: req.reqId,
-      method: req.method,
-      path: req.path,
-      ...(req.body !== undefined ? { body: req.body } : {}),
-      ...(req.paneId !== undefined ? { paneId: req.paneId } : {}),
-    } satisfies SshRuntimeEventFrame);
-  });
+  let doors: CallbackDoors;
+  try {
+    doors = await startCallbackDoors(dataDir, (req) => {
+      writer.writeFrame({
+        type: "rest_request",
+        reqId: req.reqId,
+        method: req.method,
+        path: req.path,
+        ...(req.body !== undefined ? { body: req.body } : {}),
+        ...(req.paneId !== undefined ? { paneId: req.paneId } : {}),
+      } satisfies SshRuntimeEventFrame);
+    });
+  } catch (err) {
+    // An occupied destination names ITSELF (review m2): the shared door's
+    // live-listener probe is the one second-session enforcement point, and
+    // when it refuses, this serve exits with {@link
+    // SSH_RUNTIME_SERVE_IN_USE_EXIT} so the broker's classifier can say
+    // "close the other session" - not "install the binary", which is what a
+    // generic bootstrap throw (the path this serve takes for every OTHER
+    // start failure) reads as, on a machine whose binary is running the
+    // first session right now.
+    if (err instanceof LiveCallbackDoorError) {
+      diag(
+        `runtime-serve: destination already serves this account (a live callback door refused the bind): ${dataDir}`,
+      );
+      return SSH_RUNTIME_SERVE_IN_USE_EXIT;
+    }
+    throw err;
+  }
   // A reconciled destination (design §6): the panes that SURVIVED the last
   // session still hold their launch-baked `SUBSHELL_RUNTIME_CALLBACK_SOCK`
   // pointing at their own door, so this serve re-creates every door the meta

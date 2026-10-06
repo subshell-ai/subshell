@@ -27,6 +27,16 @@ describe("sshRuntimeErrorCopy", () => {
     expect(sshRuntimeErrorCopy(errFor("connection_failed"), facts)).toContain("app-02");
   });
 
+  it("names the OTHER session for an occupied destination, never the binary (m2)", () => {
+    const copy = sshRuntimeErrorCopy(errFor("session_in_use"), facts);
+    expect(copy.toLowerCase()).toContain("session");
+    expect(copy.toLowerCase()).toMatch(/close/); // the remedy: close the live session, then retry
+    // The whole m2 defect was reading an occupied destination as a missing
+    // binary; the copy must not repeat that lie.
+    expect(copy.toLowerCase()).not.toContain("binary");
+    expect(copy.toLowerCase()).not.toContain("install");
+  });
+
   it("keeps the server message for unnamed refusals and stays within two sentences", () => {
     const named = new SshApiError(409, "the destination refused the session: something odd", {});
     expect(sshRuntimeErrorCopy(named, facts)).toContain("something odd");

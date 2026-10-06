@@ -41,6 +41,7 @@ function refuseRuntime(err: SshRuntimeRefusal): never {
       : err.status >= 500
         ? BackendErrorCodes.INTERNAL_SERVER_ERROR
         : err.code === "session_quota" ||
+            err.code === "session_in_use" ||
             err.code === "run_conflict" ||
             err.code === "dir_missing" ||
             err.code === "dir_relative"
