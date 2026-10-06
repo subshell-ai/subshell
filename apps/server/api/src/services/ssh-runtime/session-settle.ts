@@ -31,6 +31,25 @@ const nodesRepo = new NodesRepository(db);
 const subshellsRepo = new SubshellsRepository(db);
 
 /**
+ * Membership: an id is settleable by THIS session only if the session issued
+ * its pane token (review I4). The reported census/exit ids are remote output
+ * - design §8 says remote output is untrusted data - and the runtime naming
+ * a syntactically-valid foreign id must buy it nothing: no row flip, no
+ * revoke, no publish. The settle-all paths iterate `session.paneIds()` and
+ * get the same guarantee structurally.
+ */
+function isSessionPane(session: SshRuntimeSession, subshellId: string): boolean {
+  return session.paneIds().includes(subshellId);
+}
+
+/** The one honest record of a refused id: a debug line, never a silent write. */
+function skipUnowned(session: SshRuntimeSession, what: "exit" | "report", subshellId: string): void {
+  logger.debug(
+    `ssh-runtime settle: refused ${what} for ${subshellId.slice(0, 8)} (not a pane of session ${session.id.slice(0, 8)})`,
+  );
+}
+
+/**
  * Install the settle handlers on the shared hook object (called once, from
  * the service module's load, before any session exists - the registry's
  * injection seam exists so neither module imports the other in a cycle).
@@ -44,6 +63,15 @@ export function installSessionSettlers(): void {
       void settleClosed(session);
     },
     onPaneExit: (session, subshellId, exitCode) => {
+      // Membership FIRST (review I4, design §8: remote output is untrusted).
+      // A syntactically-valid id this session never issued is another
+      // session's pane or an agent node's row; a lying or confused runtime
+      // must not be able to flip it, revoke its token, or announce it.
+      // Unknown ids are SKIPPED, the same posture `session-adopt.ts` models.
+      if (!isSessionPane(session, subshellId)) {
+        skipUnowned(session, "exit", subshellId);
+        return;
+      }
       // The row keeps `status` (the outcome it witnessed or never saw) and
       // `alive` goes 0 - design §6's "unavailable, not completed" for a pane
       // whose death the runtime itself reported (the runtime's own exit watcher
@@ -58,7 +86,14 @@ export function installSessionSettlers(): void {
       // the `close` command's result (design §6's final report - see
       // `SshRuntimeSession.close`). Dead panes get their exit codes and leave
       // the registry (their tokens die with them); live ones keep their row.
+      // The same membership rule as `onPaneExit` reads every row (review I4):
+      // the settle-all paths below iterate `session.paneIds()` and need no
+      // guard; these REPORTED ids are remote data until proven members.
       for (const row of rows) {
+        if (!isSessionPane(session, row.subshellId)) {
+          skipUnowned(session, "report", row.subshellId);
+          continue;
+        }
         void subshellsRepo
           .update(row.subshellId, { alive: row.alive ? 1 : 0, ...(row.alive ? {} : { exitCode: row.exitCode ?? 0 }) })
           .catch(() => {});
