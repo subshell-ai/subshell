@@ -6,10 +6,11 @@
  * start local helpers, forward ports and reuse ambient sockets, so nothing
  * here is a passthrough: the human-facing resolution step produces this shape
  * once, and the NODE re-validates it with {@link
- * parseSshConnectionSnapshot} on EVERY command that embeds a snapshot
- * (resolve, test, run start, terminal launch). The plane approving a snapshot
- * is not the load-bearing defense - this validator refusing a forbidden
- * member is, on the machine that will actually run ssh.
+ * parseSshConnectionSnapshot} on EVERY command that embeds a snapshot (of the
+ * destination product's four, only the resolve command survives; its node-side
+ * dispatch is not wired on this tier). The plane approving a snapshot is not
+ * the load-bearing defense - this validator refusing a forbidden member is, on
+ * the machine that will actually run ssh.
  *
  * The eight absent-forbidden members (`proxyCommand`, `forwards`, `tunnels`,
  * `localCommands`, `remoteCommand`, `sendEnv`, `setEnv`, `escapes`) are typed

@@ -1,19 +1,24 @@
 /**
- * The SSH resource limits, frozen (docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md).
+ * The SSH resource limits. The NUMBERS were frozen at the Gate A
+ * implementation and carried verbatim from the reference lineage (design
+ * 2026-10-05 §7); the governing design for this product line is
+ * docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md, which sets the
+ * policy for these budgets without restating the numerals.
  *
- * Everything here is PURE data: the frozen spec values, each named, plus
- * the derived bounds the wire parsers enforce so neither end of the link can
- * drift. These values are law after Gate A: the node runtime enforces them at the
- * connecting machine, the plane refuses dispatch past them before a command
- * is ever signed, and the surfaces render the same numbers the enforcement
- * uses. Changing one is a coordinated edit, not a local convenience -
- * which is why they live here rather than in the packages that act on them.
+ * Everything here is PURE data: named frozen values plus the derived bounds
+ * the wire parsers enforce, so neither end of the link can drift. They are
+ * law, not local convenience - changing one is a coordinated edit - which is
+ * why they live here rather than in the packages that act on them.
  *
  * The destination execution product's limits (run deadlines, active-run and
  * terminal quotas, output retention and aggregate storage, the read window
- * and long-poll caps) deleted with it (design 2026-10-05 §7). What remains:
- * the probe deadline, the snapshot/grammar bounds, the cancel grace the
- * session supervisor borrows, and the session-runtime table.
+ * and long-poll caps) deleted with it (design 2026-10-05 §7). Of what
+ * remains: the grammar bounds are enforced by this tier's parsers and the
+ * probe deadline by its engines, while the cancel grace and the
+ * session-runtime table describe the brokered-session subsystem this product
+ * line deliberately does not carry (spec section 15) - they ride along
+ * because the set is frozen as a whole, and nothing on this branch enforces
+ * them.
  *
  * Imports no `node:` builtin; this module is in the Metro-safe barrel.
  */
@@ -24,8 +29,9 @@
 
 /**
  * Connection/setup probe: a 30-second OVERALL deadline, and no automatic
- * execution retry ever (docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md; the no-retry rule is
- * the durable-dispatch contract, not a tuning knob).
+ * execution retry ever (a value frozen at the Gate A implementation and
+ * carried verbatim; the no-retry rule is the durable-dispatch contract, not a
+ * tuning knob).
  */
 export const SSH_PROBE_DEADLINE_MS = 30 * 1000;
 

@@ -38,8 +38,9 @@ import { runSshProcess, sshChildPath } from "./ssh-spawn.js";
  * such a config a saved connection, but detection happens after the eval, so
  * the refusal is about what gets stored, not about what already ran. The
  * resolve command's JSDoc on the wire names this; UI copy must render it
- * before the button (configuration is executable:
- * docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md, section 5.2).
+ * before the button. The doctrine ("configuration is executable") is this
+ * engine's own Gate A contract, carried verbatim; the governing design sits in
+ * docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md section 5.2.
  */
 
 /** Inputs {@link resolveSshAliasConfig} needs; every one is injectable so tests never touch a developer's `~/.ssh`. */

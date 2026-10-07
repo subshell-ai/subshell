@@ -282,7 +282,11 @@ describe("`local` has no mirror to push to", () => {
     await setNodeSshEnabled({ nodeId: LOCAL_NODE_ID, on: true, changedAt, actorUserId: ownerId });
     expect((await nodes.findById(LOCAL_NODE_ID))?.sshEnabled).toBe(1);
     // Restore whatever the shared test DB had, so no later suite inherits a
-    // server account with SSH open (spec §4.3: local ships OFF).
+    // server account with SSH open (spec §4.3: local ships OFF). The restore
+    // goes through the service, so this test leaves two node.ssh_enabled.update
+    // audit rows on LOCAL_NODE_ID in THIS file's DB - harmless by design: each
+    // test file gets its own database, and audit-counting tests filter by
+    // targetId.
     await setNodeSshEnabled({ nodeId: LOCAL_NODE_ID, on: false, changedAt, actorUserId: ownerId });
     expect((await nodes.findById(LOCAL_NODE_ID))?.sshEnabled).toBe(0);
   });

@@ -4,9 +4,9 @@ import { dirname, isAbsolute, join, resolve } from "node:path";
 import { SSH_MAX_DISCOVERED_ALIASES, SSH_NAME_MAX_CHARS } from "@internal/subshell-protocol";
 
 /**
- * Bounded discovery of SSH alias NAMES (docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md,
- * section 5.2): discover aliases by bounded parsing of the account's config
- * and includes; omit wildcard-only entries, detect include cycles.
+ * Bounded discovery of SSH alias NAMES (docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md):
+ * discover aliases by bounded parsing of the account's config and includes;
+ * omit wildcard-only entries, detect include cycles.
  *
  * This parser answers NAMES, never config contents, and it is deliberately a
  * NAME-HUNT and not an implementation of ssh_config semantics: the authoritative
