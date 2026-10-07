@@ -510,6 +510,7 @@ export function nodeCanSsh(opts: {
 
 Run then:
 ```bash
+cd /home/theo/projects/wt-ssh-anywhere
 git add apps/server/api/src/lib/node-access.ts apps/server/api/src/lib/__tests__/node-access.test.ts
 git commit -m "feat(nodes): nodeCanSsh predicate (owner-only, gated by ssh_enabled)"
 ```
@@ -599,9 +600,9 @@ Mount it in `api/nodes/index.ts` beside the maintenance route.
 - Test: `apps/server/api/src/services/nodes/__tests__/ssh-enabled.test.ts` (the plane half: `reconcileSshEnabled`'s decide-table, mirroring `maintenance-decide.test.ts`'s pattern: reported matches row -> no push; reported disagrees -> push the ROW value, never adopt from the node; row on + node silent -> push; `local` -> push is a no-op; and `setNodeSshEnabled` writes + audits exactly one row)
 
 **Interfaces:**
-- Produces: `sshEnabledPath(dataDir)`, `readSshEnabled(dataDir): {kind:"on"|"absent"|"unreadable", changedAt?}` (absent⇒treated off; unreadable⇒refuse), `writeSshEnabled`, `reportSshEnabled(ctx, state: NodeSshEnabledWire)`, `seedSshEnabledMemo`, `pushSetSshEnabled(nodeId, {on, changedAt})` (no-op for `local`), `reconcileSshEnabled(nodeId, reported)`, protocol `NodeSshEnabledWire`/`parseNodeSshEnabled`/`set_ssh_enabled` arm/`ready.sshEnabled`, and `NODE_PROTOCOL_VERSION` 15 -> 16.
+- Produces: `sshEnabledPath(dataDir)`, `readSshEnabled(dataDir): {kind:"on"|"absent"|"unreadable", changedAt?}` (absent⇒treated off; unreadable⇒refuse), `writeSshEnabled(dataDir, state: NodeSshEnabledWire)` (stores the whole wire, mirroring `writeMaintenance`), `reportSshEnabled(ctx, state: NodeSshEnabledWire)`, `seedSshEnabledMemo`, `pushSetSshEnabled(nodeId, {on, changedAt})` (no-op for `local`), `reconcileSshEnabled(nodeId, reported)`, protocol `NodeSshEnabledWire`/`parseNodeSshEnabled`/`set_ssh_enabled` arm/`ready.sshEnabled`, and `NODE_PROTOCOL_VERSION` 15 -> 16.
 
-- [ ] **Step 1: Failing node-side test** - `readSshEnabled` on an empty dir → `{kind:"absent"}`; after `writeSshEnabled({on:true})` → `{kind:"on"}`; a chmod-000 (or unreadable) file → `{kind:"unreadable"}`; assert the classifier maps `absent|unreadable` to "SSH refused" and only `on:true` to "allowed".
+- [ ] **Step 1: Failing node-side test** - `readSshEnabled(dataDir)` on an empty dir -> `{kind:"absent"}`; after `writeSshEnabled(dataDir, { on: true, changedAt: "2026-10-07T10:00:00.000Z" })` -> `{kind:"on", changedAt: "2026-10-07T10:00:00.000Z"}` (the mirror stores the whole wire, exactly like `writeMaintenance(dataDir, state)` keeps `{ on, changedAt }` verbatim - `ready.sshEnabled` must be buildable from what was written); a chmod-000 (or unreadable) file -> `{kind:"unreadable"}`; assert the classifier maps `absent|unreadable` to "SSH refused" and only `on:true` to "allowed".
 
 - [ ] **Step 2: Run to confirm fail.**
 
