@@ -200,14 +200,30 @@ remains the manual operation it is today.
 
 ## 11. UI
 
-Primary-first, consistent with the launch pickers already in the codebase
-(`SearchableSelect`). One SSH tab whose flow is: pick the connecting machine
-("Connect from"), pick the destination host (discovered aliases, or a typed
-target), pick the key source when it differs (a grant, defaulting to the
-connecting machine's own keys), then open a terminal. "Set up Subshell here" sits
-below as the secondary act on the resulting session. Saved destinations and recent
-hosts are one-click shortcuts, not the primary read. Shipped copy follows the
-design system: role tokens only, at most two sentences, no em dashes.
+The surface is designed fresh; #330's connect UX is intentionally not carried
+over. That flow led with "where do you connect from," offered several overlapping
+ways to pick a target at once (connect-from, connected hosts, saved locations,
+recent, a manage link), and implied a Subshell runtime on the far side (folder,
+agent, and preset pickers) even for what should be a plain shell. It read as
+confusing, so we design around its failure modes rather than patch it.
+
+The job is one question, "where do you want to work?", so the flow leads with the
+destination:
+
+1. A single searchable destination field, fed by the connecting box's
+   `~/.ssh/config` plus saved and recent hosts (the discovery idea, reused). Pick
+   or type a host.
+2. Origin and key source are asked only when they are genuinely ambiguous, as one
+   progressive follow-up ("connect via [machine]" or "sign with [machine]'s
+   keys"), never a mandatory first step. The common case just opens.
+3. Opening yields the interactive terminal pane. "Set up Subshell here" is a
+   secondary act inside the pane, not a competing mode on the landing screen.
+
+Saved hosts and the this-computer nicety survive as shortcuts, not the spine.
+Terminology is trimmed to three nouns: destination, connecting machine, and key
+source. The destination field is a `SearchableSelect` like the other launch
+pickers. Shipped copy follows the design system: role tokens only, at most two
+sentences, no em dashes.
 
 ## 12. Failure modes and UX
 
@@ -268,7 +284,9 @@ OpenSSH config discovery, `ssh -G` resolve, and the connection-snapshot grammar,
 plus the sshd test fixture, as a small first commit, and deliberately does not
 carry the session-frame codec, supervisor, or runtime-serve. `feat/ssh-support`
 stays open and unmerged as the reference for the brokered-session transport that
-Milestone 2 may revisit.
+Milestone 2 may revisit. The reuse is of code and ideas only: the user-facing UX
+is redesigned (section 11) rather than ported, and #330's connect flow is a
+cautionary example, not a base.
 
 ## 16. Deferred / open items for Milestone 2
 
