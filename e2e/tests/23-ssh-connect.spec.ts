@@ -278,6 +278,10 @@ test("the shared launch journey: discover, review, connect, browse, launch, iden
   await expect(page.getByText(`127.0.0.1:${f.port}`, { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(`as ${f.user}`)).toBeVisible();
 
+  // Connection setup has one primary act; ready hosts need no installation lecture.
+  await expect(page.getByRole("button", { name: "Start subshell", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Download the Subshell CLI" })).toHaveCount(0);
+
   // Connect = open the session (the probe is the test).
   const openRespP = page.waitForResponse(
     (r) => r.url().endsWith("/api/ssh-runtime/sessions") && r.request().method() === "POST",
@@ -323,7 +327,13 @@ test("the shared launch journey: discover, review, connect, browse, launch, iden
   const launchRespP = page.waitForResponse((r) => r.url().endsWith("/launch-harness"));
   await page.locator("#picker-agent").click();
   await page.getByRole("option", { name: "Terminal", exact: true }).click();
-  await page.getByRole("button", { name: "Start subshell", exact: true }).click();
+  const launchButton = page.getByRole("button", { name: "Start subshell", exact: true });
+  await expect(launchButton).toBeInViewport();
+  const originalViewport = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(launchButton).toBeInViewport();
+  if (originalViewport) await page.setViewportSize(originalViewport);
+  await launchButton.click();
   const launchResp = await launchRespP;
   expect(launchResp.status(), await launchResp.text()).toBe(200);
   paneId = ((await launchResp.json()) as { subshellId: string }).subshellId;
@@ -517,6 +527,8 @@ test("missing runtime: the probe's absence renders the binary-install guidance",
   // The UI remedy names the BINARY and nothing else: never enrollment, never
   // `subshell setup`.
   await expect(page.getByText(/Install the Subshell binary on 127\.0\.0\.1/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy runtime verification command" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry connection", exact: true })).toBeVisible();
   const list = (await (await memberApi.get("/api/ssh-runtime/sessions")).json()) as { sessions: SessionRow[] };
   expect(list.sessions.some((s) => s.status === "opening")).toBe(false);
 });

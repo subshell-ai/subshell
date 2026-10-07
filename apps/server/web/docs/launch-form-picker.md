@@ -181,3 +181,10 @@ The connection setup panel lives in personal Settings > Connections. First-use
 empty states must keep desktop pairing, node selection, config examples, and
 Refresh hosts reachable. Recovery uses the same journey inside a pane dialog,
 including workspace panes, and cannot navigate away or replace placement state.
+
+SSH connection setup hides the launch action until a session is selected.
+The three launch dialogs pass their footer separately to `DialogContent`, so
+forms scroll without moving Cancel and launch out of view. Connection review
+shows destination facts first; only a failed probe renders the corresponding
+host-trust or runtime-install instructions. Copied SSH commands shell-quote
+aliases and end option parsing; they never disable host-key verification.

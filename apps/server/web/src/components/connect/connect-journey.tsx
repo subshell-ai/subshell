@@ -1,13 +1,20 @@
 import { Button, errMessage } from "@internal/node-admin";
-import { SSH_ERROR_DESCRIPTIONS, SUBSHELL_REPO_SLUG } from "@internal/subshell-protocol";
+import { SSH_ERROR_DESCRIPTIONS } from "@internal/subshell-protocol";
 import { Link } from "@tanstack/react-router";
 import { Server, ServerOff } from "lucide-react";
 import { useState } from "react";
 import { useDesktopBrokers } from "@/components/connect/desktop-broker-setup";
+import { SshSetupHelp } from "@/components/connect/ssh-setup-help";
+import { CopyCommandRow } from "@/components/copy-command-row";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useSshDiscovery, useSshOpen, useSshResolve } from "@/hooks/use-ssh-runtime";
-import { type SshRuntimeResolveView, type SshRuntimeSessionView, sshRuntimeErrorCopy } from "@/lib/ssh-runtime";
+import {
+  SshApiError,
+  type SshRuntimeResolveView,
+  type SshRuntimeSessionView,
+  sshRuntimeErrorCopy,
+} from "@/lib/ssh-runtime";
 
 /** Connection selection inside the ordinary launch form. No pane is launched here. */
 type Step = "machine" | "host" | "review";
@@ -33,6 +40,7 @@ export function ConnectJourney({
   const [nodeId, setNodeId] = useState(prefill?.nodeId ?? "");
   const [alias, setAlias] = useState(prefill?.alias ?? "");
   const [resolved, setResolved] = useState<SshRuntimeResolveView | null>(null);
+  const [openCode, setOpenCode] = useState<string | null>(null);
   const [openError, setOpenError] = useState<string | null>(null);
 
   const resolve = useSshResolve();
@@ -57,6 +65,7 @@ export function ConnectJourney({
     setAlias(name);
     setResolved(null);
     setOpenError(null);
+    setOpenCode(null);
     setStep("review");
     // The answer rides onSuccess (not resolve.data): a re-pick must never
     // render the PREVIOUS alias's review facts while its own resolve is in
@@ -90,6 +99,7 @@ export function ConnectJourney({
   function connect() {
     if (resolved === null || !resolved.accepted) return;
     setOpenError(null);
+    setOpenCode(null);
     open.mutate(
       {
         connectingNodeId: nodeId,
@@ -105,8 +115,10 @@ export function ConnectJourney({
         onSuccess: (view) => {
           onConnected(view);
         },
-        onError: (err) =>
-          setOpenError(sshRuntimeErrorCopy(err, { host: resolved.snapshot.host, machine: machineLabel })),
+        onError: (err) => {
+          setOpenCode(err instanceof SshApiError ? (err.sshCode ?? null) : null);
+          setOpenError(sshRuntimeErrorCopy(err, { host: resolved.snapshot.host, machine: machineLabel }));
+        },
       },
     );
   }
@@ -115,6 +127,7 @@ export function ConnectJourney({
     setStep(to);
     setResolved(null);
     setOpenError(null);
+    setOpenCode(null);
   };
 
   return (
@@ -230,12 +243,19 @@ export function ConnectJourney({
                 No SSH host aliases were found for this account on {machineLabel}. Add one to the machine&apos;s SSH
                 config under the account running Subshell. Use a concrete Host alias, not a wildcard.
               </p>
-              <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-detail">{`Host work
+              <CopyCommandRow
+                label="SSH configuration example"
+                text={`Host work
   HostName host.example.com
   User your-remote-account
-  IdentityFile ~/.ssh/id_ed25519`}</pre>
+  Port 22
+  IdentityFile ~/.ssh/id_ed25519`}
+              />
               <p className="text-detail text-muted-foreground">
-                Confirm key-based SSH works from that account and trust the host key there before connecting.
+                Edit ~/.ssh/config in a terminal on {machineLabel}, under the account running Subshell. Replace the
+                example values; for a container, use its published SSH port and an address reachable from this machine.
+                Your browser’s localhost may be a different computer. Run ssh work there, verify its fingerprint with
+                the host administrator, then return and refresh.
               </p>
             </div>
           )}
@@ -280,24 +300,9 @@ export function ConnectJourney({
           <div>
             <p className="font-strong text-heading">{alias}</p>
             <p className="text-detail text-muted-foreground">
-              Install the Subshell CLI on this host and make its subshell binary available on the SSH account’s PATH. No
-              node enrollment is needed. Install your agent CLI and sign in to it as the remote account before launching
-              an agent.
+              Connect to check this host and choose a remote folder. If setup is needed, we’ll guide you through it.
             </p>
           </div>
-          <p className="text-detail text-muted-foreground">
-            <a
-              href={`https://github.com/${SUBSHELL_REPO_SLUG}/releases?q=cli-node`}
-              target="_blank"
-              rel="noreferrer"
-              className="underline"
-            >
-              Download the Subshell CLI
-            </a>{" "}
-            for the host’s operating system and architecture. Place the executable on the remote account’s PATH as
-            subshell, make it executable, and verify subshell --version in that account’s SSH shell. Install tmux there
-            too. Do not run subshell setup for this connection.
-          </p>
           {resolve.isPending && <p className="text-detail text-muted-foreground">Resolving…</p>}
           {resolve.isError && (
             <p role="alert" className="text-destructive text-detail">
@@ -340,12 +345,18 @@ export function ConnectJourney({
               {openError}
             </p>
           )}
+          <SshSetupHelp
+            code={openCode}
+            alias={alias}
+            machine={machineLabel}
+            account={resolved?.accepted ? resolved.connectingAccount : undefined}
+          />
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" onClick={() => back("host")} disabled={open.isPending}>
               Back
             </Button>
             <Button size="sm" onClick={connect} disabled={open.isPending || resolved === null || !resolved.accepted}>
-              {open.isPending ? "Connecting…" : "Connect"}
+              {open.isPending ? "Connecting…" : openError ? "Retry connection" : "Connect"}
             </Button>
           </div>
         </>

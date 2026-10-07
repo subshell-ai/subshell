@@ -241,10 +241,8 @@ describe("ConnectJourney review step", () => {
       fireEvent.click(await screen.findByRole("button", { name: "staging" }));
       expect(await screen.findByText("deploy@app-02:22")).toBeTruthy();
       expect(screen.getByText(/Laptop as theo/)).toBeTruthy();
-      expect(screen.getByRole("link", { name: "Download the Subshell CLI" }).getAttribute("href")).toBe(
-        "https://github.com/subshell-ai/subshell/releases?q=cli-node",
-      );
-      expect(screen.getByText(/Do not run subshell setup/)).toBeTruthy();
+      expect(screen.queryByRole("link", { name: "Download the Subshell CLI" })).toBeNull();
+      expect(screen.getByText(/Connect to check this host/)).toBeTruthy();
       expect(screen.getByRole("button", { name: "Connect" }).hasAttribute("disabled")).toBe(false);
     } finally {
       m.restore();

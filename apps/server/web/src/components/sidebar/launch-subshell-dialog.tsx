@@ -70,21 +70,27 @@ export function LaunchSubshellDialog({
         if (!next) reset();
       })}
     >
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent
+        footer={
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={create.isPending}>
+              Cancel
+            </Button>
+            {form.sshSessionId !== "" && (
+              <Button onClick={() => void submit()} disabled={create.isPending || !canSubmit(form)}>
+                {create.isPending ? "Starting…" : "Start subshell"}
+              </Button>
+            )}
+          </DialogFooter>
+        }
+        className="sm:max-w-xl"
+      >
         <DialogHeader>
           <DialogTitle>New subshell</DialogTitle>
           <DialogDescription>Launch an agent in a working directory.</DialogDescription>
         </DialogHeader>
         <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
         {error && <p className="text-destructive text-detail">{error}</p>}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={create.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={() => void submit()} disabled={create.isPending || !canSubmit(form)}>
-            {create.isPending ? "Starting…" : "Start subshell"}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

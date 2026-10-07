@@ -1,7 +1,7 @@
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { cn } from "@internal/node-admin";
 import { X } from "lucide-react";
-import type { HTMLAttributes } from "react";
+import type { HTMLAttributes, ReactNode } from "react";
 
 /**
  * Modal dialog on Base UI's `Dialog` parts (migrated from Radix; export
@@ -42,7 +42,12 @@ export function DialogOverlay({ className, ...props }: DialogPrimitive.Backdrop.
  * pushed off the edge) instead of letting the row clip. `minmax(0,…)` lets the
  * column shrink to the dialog width, which is what the ellipsis needs to bind.
  */
-export function DialogContent({ className, children, ...props }: DialogPrimitive.Popup.Props) {
+export function DialogContent({
+  className,
+  children,
+  footer,
+  ...props
+}: DialogPrimitive.Popup.Props & { footer?: ReactNode }) {
   return (
     <DialogPrimitive.Portal>
       <DialogOverlay />
@@ -54,9 +59,16 @@ export function DialogContent({ className, children, ...props }: DialogPrimitive
         )}
         {...props}
       >
-        <div className="-m-6 grid max-h-[85dvh] min-w-0 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto p-6">
-          {children}
-        </div>
+        {footer ? (
+          <div className="-m-6 flex max-h-[85dvh] min-w-0 flex-col">
+            <div className="grid min-h-0 min-w-0 gap-4 overflow-y-auto p-6">{children}</div>
+            <div className="shrink-0 border-t bg-card px-6 py-4">{footer}</div>
+          </div>
+        ) : (
+          <div className="-m-6 grid max-h-[85dvh] min-w-0 grid-cols-[minmax(0,1fr)] gap-4 overflow-y-auto p-6">
+            {children}
+          </div>
+        )}
         <DialogPrimitive.Close
           className="absolute top-4 right-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring"
           aria-label="Close"

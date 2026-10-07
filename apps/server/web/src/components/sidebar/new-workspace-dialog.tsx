@@ -152,7 +152,30 @@ export function NewWorkspaceDialog({
         if (!next) reset();
       })}
     >
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent
+        footer={
+          <DialogFooter>
+            {createdId ? (
+              <Button onClick={() => enter(createdId)}>Enter workspace</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating || launching}>
+                  Cancel
+                </Button>
+                {mode === "new" && form.sshSessionId !== "" && (
+                  <Button onClick={() => void launchAndAdd()} disabled={launching || !canSubmit(form)}>
+                    {launching ? "Launching…" : "Launch & add"}
+                  </Button>
+                )}
+                <Button onClick={() => void submit()} disabled={creating || launching}>
+                  {creating ? "Creating…" : "Create workspace"}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        }
+        className="sm:max-w-2xl"
+      >
         <DialogHeader>
           <DialogTitle>New workspace</DialogTitle>
           <DialogDescription>Start it with subshells already tiled in, or empty.</DialogDescription>
@@ -191,26 +214,6 @@ export function NewWorkspaceDialog({
             {selected.length === 1 ? "1 subshell" : `${selected.length} subshells`} to add
           </p>
         )}
-
-        <DialogFooter>
-          {createdId ? (
-            <Button onClick={() => enter(createdId)}>Enter workspace</Button>
-          ) : (
-            <>
-              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating || launching}>
-                Cancel
-              </Button>
-              {mode === "new" && (
-                <Button onClick={() => void launchAndAdd()} disabled={launching || !canSubmit(form)}>
-                  {launching ? "Launching…" : "Launch & add"}
-                </Button>
-              )}
-              <Button onClick={() => void submit()} disabled={creating || launching}>
-                {creating ? "Creating…" : "Create workspace"}
-              </Button>
-            </>
-          )}
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

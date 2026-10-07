@@ -156,7 +156,23 @@ export function AddSubshellDialog({
         if (!next) reset();
       })}
     >
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent
+        footer={
+          mode === "new" && (
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating}>
+                Cancel
+              </Button>
+              {form.sshSessionId !== "" && (
+                <Button onClick={() => void handleCreate()} disabled={creating || !canSubmit(form)}>
+                  {creating ? "Starting…" : "Start subshell"}
+                </Button>
+              )}
+            </DialogFooter>
+          )
+        }
+        className="sm:max-w-2xl"
+      >
         <DialogHeader>
           <DialogTitle>{title ?? "Add a subshell"}</DialogTitle>
           <DialogDescription>{description ?? "Pick one you already have, or launch a new one."}</DialogDescription>
@@ -196,17 +212,6 @@ export function AddSubshellDialog({
         )}
 
         {error && <p className="text-destructive text-detail">{error}</p>}
-
-        {mode === "new" && (
-          <DialogFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating}>
-              Cancel
-            </Button>
-            <Button onClick={() => void handleCreate()} disabled={creating || !canSubmit(form)}>
-              {creating ? "Starting…" : "Start subshell"}
-            </Button>
-          </DialogFooter>
-        )}
       </DialogContent>
     </Dialog>
   );
