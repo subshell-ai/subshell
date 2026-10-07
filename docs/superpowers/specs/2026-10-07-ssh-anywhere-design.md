@@ -101,7 +101,12 @@ A (which dials out and serves its key) enabled; a jump hop `J` and the destinati
 `D` are dialed-to, not gated. Only the owner (admin on `local`) of an enabled machine may route SSH
 through it (mirrors `nodeCanSsh`, which carries the same local-admin exception
 `nodeCanManageFor` applies); an `edit` grantee of someone else's enabled node
-is not thereby allowed to use that machine's egress or keys.
+is not thereby allowed to use that machine's egress or keys. The gate ships with a
+`NODE_PROTOCOL_VERSION` bump: the node-link compatibility gate is exact-match, so a
+pre-bump agent that never sees `set_ssh_enabled` and reports no `sshEnabled` would
+be wire-indistinguishable from a post-bump agent that honors both, and that
+ambiguity is exactly what a capability gate cannot have (the file's own history
+bumped even for additive frames for this reason).
 
 ## 5. Architecture components
 
@@ -133,8 +138,12 @@ Every token in the built command is passed through `shellQuote`; the connection 
 one shell string through tmux, so quoting is the load-bearing defense and is never
 relaxed. The built `ssh` runs against the rendered snapshot config via `-F` only,
 never the connecting machine's live `~/.ssh/config`: `~/.ssh/config` is
-discovery/resolve input only, so settings the session policy forbids (ForwardAgent,
-remote/local forwards, ProxyCommand) cannot reappear at connect time.
+discovery/resolve input only, and the `-F` file is rendered solely from the approved
+snapshot: settings refused by name at resolve (ProxyCommand, tunnels/forwards,
+remote/local commands, env and escape sends) never reach the render, and settings
+like `ForwardAgent` that are neither snapshotted nor named cannot reappear at
+connect time because they are absent from the rendered file and ssh's own defaults
+are off.
 
 ### 5.3 Sealed agent relay (Milestone 2)
 
@@ -147,14 +156,19 @@ requests the plane brokered for a live grant, enforces the agent method allow-li
 back. The plane routes by the recipient id in the envelope header without opening
 anything. Detail in section 8.
 
-This is not "the primitives used as is." It needs a machine-to-machine identity
-roster and a TOFU pin flow that do not fully exist today: nodes already hold a
-registration ECDH-ES keypair (`apps/node/agent/src/identity.ts`, private half never
-leaves the machine) and an identities store keyed by principal exists, but a node is
-not registered there as a readable principal and there is no client-visible read path
-or machine-to-machine TOFU pin flow. Building that (a `node:<id>` identity, a read
-path, and first-use pinning, and deciding whether the relay obeys
-`SUBSHELL_CHANNEL_PIN` or is always strict) is part of the M2 work. It must also
+This is not "the primitives used as is." The roster half already exists: a node's
+registration ECDH-ES identity (`apps/node/agent/src/identity.ts`, private half never
+leaves the machine) is registered in the identities store as a `node:<id>` principal
+at enroll time (the enroll route writes it; node deletion cascades it), and
+`GET /api/identities/:principalId` already serves any principal's public key behind
+a `channels:read` gate. What is missing is the node end: the agent holds no REST
+credential, so the peer's JWK must be delivered to it inside a signed command on the
+existing node link; the agent has no pin store (the channels `peers.json` lives in
+the server app's data dir, not the node's); and there is no operator-visible machine
+pin display or recovery flow. Building that (link key delivery, a node-side pin
+store, first-use pinning, pin recovery) is part of the M2 work, and the relay is
+always pin-strict: `SUBSHELL_CHANNEL_PIN` is the channels' recovery escape and never
+relaxes a machine-relay pin. It must also
 mint and hold a per-machine ES256 signing keypair: `identity.ts` today holds only
 the ECDH-ES encryption half, and the ES256 command keypair (`control-keys.ts`) is
 plane-held, so the signing key the relay's origin proof (section 8) needs does not
@@ -212,8 +226,9 @@ clean seam the M1 launcher exposes.
 
 - `ssh_enabled` (default `false`, including `local`): the per-node capability gate
   of section 4.3. Plane-authored row value, cached in a node-side mirror file the
-  node reads only to fail closed; owner/admin to change; audited as
-  `node.ssh_enabled`. Not a new table (a column on `nodes`).
+  node reads only to fail closed; owner to change (admin on `local`, section 4.3);
+  audited as `node.ssh_enabled.update`, the node-family verb pattern, added to the
+  `docs/security.md` section 10 event list. Not a new table (a column on `nodes`).
 - `ssh_saved_hosts` (M1): per owner, keyed by the resolved canonical destination
   `user@host:port` (display alias separate), with the connecting box used and
   last-connect; recent hosts derive from connects. Also stores the user's default
@@ -312,9 +327,10 @@ its own key. That is exactly the first-use window `pin-store.ts` documents for
 channels (a compromised server swapping a key into a roster slot, undetectable to
 the sender) and the reason that module exists. Closing it needs an out-of-band pin or
 a first-secure-contact story, which is M2 design, and `docs/security.md` section 0
-already lists control-plane compromise as not-defended. The relay inherits
-`pin-store`'s strictness and its `SUBSHELL_CHANNEL_PIN` escape unless M2 says
-otherwise.
+already lists control-plane compromise as not-defended. The relay reuses `pin-store`'s
+byte-equality rule but not its `SUBSHELL_CHANNEL_PIN` escape: a machine-relay pin is
+always strict, and recovery is an explicit re-pairing that replaces the pin
+(section 5.3).
 
 Unchanged or accepted: the OS-user boundary on A and B is still the operator; a
 machine you run the agent on is a machine you trust. A already-compromised B can
@@ -386,7 +402,7 @@ system: role tokens only, at most two sentences, no em dashes.
   it is re-ported then, not assumed here.
 - Outbound SSH is gated per node, off by default including `local`, and fails closed
   when the setting is unreadable (section 4.3); enabling is owner (admin on `local`)
-  only and audited (`node.ssh_enabled`).
+  only and audited (`node.ssh_enabled.update`).
 - `SSH_AUTH_SOCK` is exported only into the ssh invocation, never the whole pane env,
   and an agent-capable pane is view-only to sharees (section 5.4).
 - Static imports only; no dynamic import outside the one sanctioned plugin site.
@@ -398,7 +414,9 @@ system: role tokens only, at most two sentences, no em dashes.
 - Unit, M1: alias discovery budgets and wildcard exclusion; `ssh -G` snapshot
   parsing and the forbidden-settings refusal; ProxyJump argv construction and
   quoting; the `ssh_enabled` gate default-off, fail-closed-on-unreadable,
-  owner/admin gating, and `nodeCanSsh` refusal codes; the scoped `SSH_AUTH_SOCK`
+  owner/admin gating, and the `nodeCanSsh` boolean matrix (the predicate answers
+  yes/no; distinct refusal copy belongs to the launch route, section 12); the
+  scoped `SSH_AUTH_SOCK`
   export (present on the ssh process, absent from the rest of the pane env); and the
   view-only rule (a sharee typed into an SSH-terminal pane is refused input,
   section 5.4).
@@ -439,9 +457,10 @@ flow is a cautionary example, not a base.
 
 ## 16. Deferred / open items for Milestone 2
 
-- The machine-identity roster and TOFU pin flow (section 5.3), including whether the
-  relay obeys `SUBSHELL_CHANNEL_PIN` or is always strict, and how to narrow the
-  first-use window (section 10).
+- The node end of the machine-identity flow (section 5.3): link key delivery, the
+  node-side pin store, pin display and recovery, and how to narrow the first-use
+  window (section 10). The strictness question is decided: machine-relay pins are
+  always strict, no `SUBSHELL_CHANNEL_PIN` escape.
 - Whether the agent-destination upgrade reuses #330's runtime-session protocol or a
   lighter boot now that the terminal path exists.
 - Per-use approval UX on A (notification or prompt to confirm a handshake), versus a
