@@ -27,8 +27,8 @@ export function SshSetupHelp({
         <CopyCommandRow text={login} label="SSH login command" />
         <p className="text-detail text-muted-foreground">
           {code === "host_key_unknown"
-            ? "Compare the displayed SHA256 fingerprint with the host administrator or the host’s console before accepting it. Then exit the SSH shell and retry here."
-            : "The saved host identity changed or was revoked. Ask the host administrator to verify the replacement fingerprint and update this account’s known_hosts entry before retrying. Do not bypass host-key checking."}
+            ? "Before accepting the connection, check that the SHA256 fingerprint matches the one shown in the host’s console, or ask its administrator to confirm it. Then leave the SSH shell and try connecting here again."
+            : "This host’s SSH key has changed or was revoked. Ask its administrator to confirm the new fingerprint before updating this account’s known_hosts file. Keep host-key checking enabled, then try again."}
         </p>
       </div>
     );
@@ -36,16 +36,17 @@ export function SshSetupHelp({
   if (code === "runtime_missing" || code === "session_protocol") {
     return (
       <div className="flex flex-col gap-2">
-        <p className="text-detail">SSH works. Set up the destination once:</p>
+        <p className="text-detail">You can reach this host. Let’s get Subshell ready to run there:</p>
         <ol className="flex list-decimal flex-col gap-2 pl-5 text-detail">
           <li>
-            Open a terminal on {origin}, then log in to the destination:
+            Open a terminal on {origin}, then log in to the remote host:
             <CopyCommandRow text={login} label="SSH login command" />
           </li>
           <li>
-            On the destination, check its operating system and CPU:
+            Check which operating system and processor the remote host uses:
             <CopyCommandRow text="uname -s; uname -m" label="platform check" />
-            Linux or Darwin names the OS; x86_64 needs x64, and aarch64 or arm64 needs arm64.
+            Choose Linux for Linux or macOS for Darwin. For the processor, choose x64 for x86_64, or arm64 for aarch64
+            or arm64.
           </li>
           <li>
             <a
@@ -56,20 +57,20 @@ export function SshSetupHelp({
             >
               Download the Subshell CLI
             </a>{" "}
-            for that platform. Transfer the binary to the destination and rename it to <code>subshell</code>. Use a
-            release that supports SSH runtimes.
+            for that operating system and processor. Copy the downloaded program to the remote host and name it{" "}
+            <code>subshell</code>. Choose a release with SSH support.
           </li>
           <li>
-            From the download directory on the destination, install it on the SSH account’s PATH. This command may
-            require an administrator:
+            In the remote folder where you saved the download, run this command to install it. You may need an
+            administrator’s help:
             <CopyCommandRow text="install -m 755 ./subshell /usr/local/bin/subshell" label="runtime install command" />
-            Install tmux using the destination’s package manager (on Ubuntu: <code>sudo apt-get install tmux</code>).
+            You’ll also need tmux on the remote host (on Ubuntu: <code>sudo apt-get install tmux</code>).
           </li>
           <li>
-            Back on {origin}, verify the noninteractive SSH environment:
+            Back on {origin}, check that SSH can find both programs:
             <CopyCommandRow text={`${login} 'subshell --version; tmux -V'`} label="runtime verification command" />
-            Then retry here. No node enrollment or service setup is needed. Agents can be installed and signed in later;
-            Terminal works without an agent.
+            Once both version numbers appear, select Retry connection here. You can start with Terminal and install an
+            agent later. There’s no need to enroll this host as a node or set up a service.
           </li>
         </ol>
       </div>

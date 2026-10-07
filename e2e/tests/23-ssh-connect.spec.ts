@@ -526,7 +526,7 @@ test("missing runtime: the probe's absence renders the binary-install guidance",
 
   // The UI remedy names the BINARY and nothing else: never enrollment, never
   // `subshell setup`.
-  await expect(page.getByText(/Install the Subshell binary on 127\.0\.0\.1/)).toBeVisible();
+  await expect(page.getByText(/SSH connected to 127\.0\.0\.1/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Copy runtime verification command" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Retry connection", exact: true })).toBeVisible();
   const list = (await (await memberApi.get("/api/ssh-runtime/sessions")).json()) as { sessions: SessionRow[] };

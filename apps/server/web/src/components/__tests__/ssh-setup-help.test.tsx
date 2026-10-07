@@ -12,14 +12,14 @@ test("ready hosts get no installation instructions", () => {
 test("unknown host recovery identifies the connecting account and requires fingerprint verification", () => {
   render(<SshSetupHelp code="host_key_unknown" alias="dev" machine="Server" account="service-user" />);
   expect(screen.getByText(/Server as service-user/)).toBeTruthy();
-  expect(screen.getByText(/Compare the displayed SHA256 fingerprint/)).toBeTruthy();
+  expect(screen.getByText(/check that the SHA256 fingerprint matches/)).toBeTruthy();
   expect(screen.getByRole("button", { name: "Copy SSH login command" })).toBeTruthy();
   expect(screen.queryByRole("link", { name: "Download the Subshell CLI" })).toBeNull();
 });
 
 test("changed identities never get instructions to blindly accept or remove trust", () => {
   render(<SshSetupHelp code="host_key_changed" alias="dev" machine="Server" />);
-  expect(screen.getByText(/Do not bypass host-key checking/)).toBeTruthy();
+  expect(screen.getByText(/Keep host-key checking enabled/)).toBeTruthy();
   expect(screen.queryByText(/before accepting it/)).toBeNull();
 });
 

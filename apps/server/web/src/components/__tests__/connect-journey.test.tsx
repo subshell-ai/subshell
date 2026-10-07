@@ -130,10 +130,8 @@ describe("ConnectJourney machine step", () => {
     const m = mockFetch({ nodes: [{ ...BASE, id: "other", access: "edit" }] });
     try {
       await renderJourney();
-      expect(screen.getByText(/No connecting machines are available/)).toBeTruthy();
-      expect(screen.getByRole("link", { name: /Connect this computer in Settings/ }).getAttribute("href")).toBe(
-        "/settings/connections",
-      );
+      expect(screen.getByText(/You haven’t connected a computer for SSH yet/)).toBeTruthy();
+      expect(screen.getByRole("link", { name: /open Settings/ }).getAttribute("href")).toBe("/settings/connections");
       // The shared machine is NOT listed: broker rights are ownership, not access.
       expect(screen.queryByRole("button", { name: /Laptop/ })).toBeNull();
     } finally {
@@ -169,7 +167,7 @@ describe("ConnectJourney host step", () => {
     const m = mockFetch({ nodes: [BASE], aliases: [] });
     try {
       await renderJourney({ nodeId: "n1", alias: "staging" });
-      expect(await screen.findByText(/No SSH host aliases were found/)).toBeTruthy();
+      expect(await screen.findByText(/No SSH hosts found/)).toBeTruthy();
       expect(screen.queryByText(/could not be read/)).toBeNull();
       expect(screen.getByText(/HostName host.example.com/)).toBeTruthy();
       const readsBefore = m.seen.filter((url) => url.includes("/discovery")).length;
@@ -189,7 +187,7 @@ describe("ConnectJourney host step", () => {
       // Retry; the empty copy must stay silent, that is the whole distinction.
       expect(await screen.findByText(/The node refused the read\./)).toBeTruthy();
       expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
-      expect(screen.queryByText(/No SSH host aliases were found/)).toBeNull();
+      expect(screen.queryByText(/No SSH hosts found/)).toBeNull();
     } finally {
       m.restore();
     }
@@ -215,7 +213,7 @@ describe("ConnectJourney review step", () => {
       // The equality mapping, mirrored from the old editor: the package's own
       // sentence, rendered verbatim.
       expect(await screen.findByText(SSH_ERROR_DESCRIPTIONS.unsupported_setting)).toBeTruthy();
-      expect(screen.getByText(/Blocked settings: ProxyCommand, LocalForward/)).toBeTruthy();
+      expect(screen.getByText(/Unsupported SSH settings: ProxyCommand, LocalForward/)).toBeTruthy();
       // The raw wire code is not human copy (finding I1): nothing renders it.
       expect(screen.queryByText(/unsupported_setting/)).toBeNull();
       // The refusal leaves Connect inert: the review has nothing to open.
@@ -242,7 +240,7 @@ describe("ConnectJourney review step", () => {
       expect(await screen.findByText("deploy@app-02:22")).toBeTruthy();
       expect(screen.getByText(/Laptop as theo/)).toBeTruthy();
       expect(screen.queryByRole("link", { name: "Download the Subshell CLI" })).toBeNull();
-      expect(screen.getByText(/Connect to check this host/)).toBeTruthy();
+      expect(screen.getByText(/Connect to this host, then choose a folder/)).toBeTruthy();
       expect(screen.getByRole("button", { name: "Connect" }).hasAttribute("disabled")).toBe(false);
     } finally {
       m.restore();
@@ -287,10 +285,10 @@ describe("connecting computer discovery", () => {
     });
     try {
       await renderJourney();
-      expect(screen.queryByText(/No connecting machines are available/)).toBeNull();
+      expect(screen.queryByText(/You haven’t connected a computer for SSH yet/)).toBeNull();
       release();
       await settle();
-      expect(screen.getByText(/No connecting machines are available/)).toBeTruthy();
+      expect(screen.getByText(/You haven’t connected a computer for SSH yet/)).toBeTruthy();
     } finally {
       release();
       m.restore();
@@ -300,7 +298,7 @@ describe("connecting computer discovery", () => {
     const m = mockFetch({ brokersStatus: 503 });
     try {
       await renderJourney();
-      expect(screen.queryByText(/No connecting machines are available/)).toBeNull();
+      expect(screen.queryByText(/You haven’t connected a computer for SSH yet/)).toBeNull();
       expect(screen.getByRole("alert")).toBeTruthy();
       const before = m.seen.filter((url) => url.includes("desktop-brokers")).length;
       fireEvent.click(screen.getByRole("button", { name: "Retry computer connections" }));

@@ -13,12 +13,12 @@ describe("sshRuntimeErrorCopy", () => {
 
   it("names the binary install for a missing runtime", () => {
     const copy = sshRuntimeErrorCopy(errFor("runtime_missing"), facts);
-    expect(copy).toContain("Subshell binary on app-02");
+    expect(copy).toContain("SSH connected to app-02");
     expect(copy).not.toMatch(/setup|enroll/i);
   });
 
   it("names the updater for a protocol mismatch and the machine for host trust", () => {
-    expect(sshRuntimeErrorCopy(errFor("session_protocol"), facts)).toContain("Update the Subshell binary");
+    expect(sshRuntimeErrorCopy(errFor("session_protocol"), facts)).toContain("Update Subshell");
     expect(sshRuntimeErrorCopy(errFor("host_key_changed"), facts)).toContain("Laptop");
   });
 

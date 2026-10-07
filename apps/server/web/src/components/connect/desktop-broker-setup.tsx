@@ -61,9 +61,9 @@ export function DesktopBrokerSetup() {
     <section className="flex flex-col gap-3" aria-label="Connect this computer">
       <h2 className="font-strong text-heading">Connect this computer</h2>
       <p className="text-detail text-muted-foreground">
-        Subshell Client can use your computer’s SSH configuration without enrolling a node. In Subshell Client, choose
-        SSH Connections → Connect this computer. Pair once, then reconnect from Subshell Client. The browser cannot read
-        your SSH keys.
+        Use your computer’s SSH settings and keys through Subshell Client. Add your computer below, then open SSH
+        Connections → Connect this computer in the app to pair it. You only need to pair once; your SSH keys stay on
+        your computer.
       </p>
       <Field>
         <FieldLabel htmlFor="ssh-computer-name">Computer name (optional)</FieldLabel>
@@ -75,7 +75,7 @@ export function DesktopBrokerSetup() {
           maxLength={100}
         />
         <p className="text-detail text-muted-foreground">
-          Choose a name you recognize in the connecting-machine picker. Defaults to This computer.
+          Give your computer a name you’ll recognize when connecting. Leave this blank to use “This computer”.
         </p>
       </Field>
       <Button
@@ -97,7 +97,8 @@ export function DesktopBrokerSetup() {
           <code className="break-all text-detail">{window.location.origin}</code>
           <code className="break-all text-detail">{pair.data.pairingToken}</code>
           <p className="text-detail text-muted-foreground">
-            Expires {new Date(pair.data.expiresAt).toLocaleTimeString()}. Generate another if it expires.
+            This code expires at {new Date(pair.data.expiresAt).toLocaleTimeString()}. You can create a new one if
+            needed.
           </p>
           <Button
             variant="outline"
@@ -109,7 +110,7 @@ export function DesktopBrokerSetup() {
           </Button>
           {copyError && (
             <p role="alert" className="text-detail">
-              Copy the code above manually.
+              We couldn’t copy the code. You can select and copy it from above.
             </p>
           )}
         </div>

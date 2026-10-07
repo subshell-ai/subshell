@@ -162,26 +162,26 @@ export function sshRuntimeErrorCopy(err: unknown, facts: { host: string; machine
   const code = err instanceof SshApiError ? err.sshCode : undefined;
   switch (code) {
     case "runtime_missing":
-      return `Install the Subshell binary on ${facts.host}, then connect again. This machine's SSH already reaches the account.`;
+      return `SSH connected to ${facts.host}, but Subshell isn’t installed there yet. Follow the steps below, then try again.`;
     case "session_protocol":
-      return `The runtime on ${facts.host} speaks a protocol this server does not share. Update the Subshell binary there.`;
+      return `The Subshell version on ${facts.host} isn’t compatible with this server. Update Subshell on that host, then try again.`;
     case "session_quota":
-      return `${facts.machine} already carries its share of open sessions. Close one of them and try again.`;
+      return `${facts.machine} has reached its limit of open SSH connections. Close one you’re no longer using, then try again.`;
     case "session_in_use":
-      return `${facts.host} already has a live session open. Close that session first, then connect again.`;
+      return `There’s already an active session on ${facts.host}. Close that session before connecting again.`;
     case "host_key_unknown":
     case "host_key_changed":
     case "host_key_revoked":
-      return `The host key for ${facts.host} is not trusted by ${facts.machine}. Whoever manages that machine's SSH trust must fix it, then connect again.`;
+      return `${facts.machine} can’t verify the SSH identity of ${facts.host}. Follow the steps below to check it before connecting.`;
     case "auth_mode_unsupported":
-      return `The destination needs a sign-in method Subshell does not run. ${facts.host} must accept key-based SSH.`;
+      return `${facts.host} is asking for a sign-in method Subshell can’t use. Set up SSH key access from ${facts.machine}, then try again.`;
     case "key_unavailable":
-      return `The identity file this host names is not available on ${facts.machine}. Check the path and its permissions there.`;
+      return `Subshell can’t read the SSH key file on ${facts.machine}. Check that the file exists and the account running Subshell can read it.`;
     case "connection_failed":
-      return `${facts.host} could not be reached over SSH from ${facts.machine}. Check the network and the address, then try again.`;
+      return `We couldn’t reach ${facts.host} from ${facts.machine}. Check the host address and network connection, then try again.`;
     default:
       return err instanceof ApiError
         ? err.message.slice(0, 300)
-        : "The session could not be opened. Try again, and check the machine's connection if it keeps failing.";
+        : "We couldn’t connect. Please try again, and check the connecting computer’s network if the problem continues.";
   }
 }

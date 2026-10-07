@@ -137,20 +137,19 @@ export function ConnectJourney({
           <div>
             <p className="font-strong text-heading">Connect from</p>
             <p className="text-detail text-muted-foreground">
-              Choose the machine whose SSH configuration and keys can reach your host. Your agent will run on the SSH
-              host. The SSH config and keys belong to the operating-system account running Subshell on that machine, not
-              your browser or Subshell sign-in.
+              Choose a computer that can SSH into the host you want to work on. Subshell uses the SSH settings and keys
+              of the account running it on that computer. Your agent and files stay on the remote host.
             </p>
           </div>
           {nodesQ.isError && (
             <p role="alert" className="text-destructive text-detail">
-              {errMessage(nodesQ.error, "The machine list could not be loaded.")}
+              {errMessage(nodesQ.error, "We couldn’t load your computers. Please try again.")}
             </p>
           )}
           {brokersQ.isError && (
             <div className="flex flex-col gap-2">
               <p role="alert" className="text-destructive text-detail">
-                {errMessage(brokersQ.error, "Subshell Client connections could not be loaded.")}
+                {errMessage(brokersQ.error, "We couldn’t load your Subshell Client connections.")}
               </p>
               <Button variant="outline" size="sm" onClick={() => void brokersQ.refetch()}>
                 Retry computer connections
@@ -164,11 +163,11 @@ export function ConnectJourney({
             !nodesQ.isError &&
             !brokersQ.isError && (
               <p className="text-detail text-muted-foreground">
-                No connecting machines are available to your account. The browser cannot use your computer’s SSH keys.
+                You haven’t connected a computer for SSH yet. To use the SSH keys on your computer,
                 <Link to="/settings/connections" className="underline">
-                  Connect this computer in Settings → Connections
+                  open Settings → Connections
                 </Link>{" "}
-                using Subshell Client’s SSH Connections screen. You can also connect an owned machine on the Nodes page.
+                and pair it with Subshell Client. You can also add a computer you own on the Nodes page.
               </p>
             )}
           <div className="space-y-2">
@@ -223,7 +222,7 @@ export function ConnectJourney({
           <div>
             <p className="font-strong text-heading">{machineLabel}</p>
             <p className="text-detail text-muted-foreground">
-              Choose the host you want to work on. These names come from ~/.ssh/config on {machineLabel}.
+              Choose where you want to work. These hosts come from the SSH config on {machineLabel}.
             </p>
           </div>
           {discovery.isError && (
@@ -240,8 +239,8 @@ export function ConnectJourney({
           {discovery.data !== undefined && discovery.data.aliases.length === 0 && (
             <div className="flex flex-col gap-3">
               <p className="text-detail text-muted-foreground">
-                No SSH host aliases were found for this account on {machineLabel}. Add one to the machine&apos;s SSH
-                config under the account running Subshell. Use a concrete Host alias, not a wildcard.
+                No SSH hosts found on {machineLabel}. Add a host to ~/.ssh/config for the account running Subshell.
+                Here’s an example you can adapt:
               </p>
               <CopyCommandRow
                 label="SSH configuration example"
@@ -252,10 +251,10 @@ export function ConnectJourney({
   IdentityFile ~/.ssh/id_ed25519`}
               />
               <p className="text-detail text-muted-foreground">
-                Edit ~/.ssh/config in a terminal on {machineLabel}, under the account running Subshell. Replace the
-                example values; for a container, use its published SSH port and an address reachable from this machine.
-                Your browser’s localhost may be a different computer. Run ssh work there, verify its fingerprint with
-                the host administrator, then return and refresh.
+                Replace the example address, username, and key path with yours. For a container, use its published SSH
+                port. The address must be reachable from {machineLabel}; localhost refers to that computer. Give each
+                host a name rather than a wildcard like *. Then run ssh work on {machineLabel}, verify the host’s
+                fingerprint, and select Refresh hosts here.
               </p>
             </div>
           )}
@@ -273,10 +272,14 @@ export function ConnectJourney({
               ))}
               {discovery.data.includeCycle && (
                 <p className="text-detail text-muted-foreground">
-                  The config has an include cycle; the list is what parsed before it.
+                  Some SSH config files include each other in a loop, so a few hosts may be missing.
                 </p>
               )}
-              {discovery.data.truncated && <p className="text-detail text-muted-foreground">The list is capped.</p>}
+              {discovery.data.truncated && (
+                <p className="text-detail text-muted-foreground">
+                  There are too many hosts to show them all. Narrow down your SSH config to find the one you need.
+                </p>
+              )}
             </div>
           )}
           <div className="flex gap-2">
@@ -300,13 +303,16 @@ export function ConnectJourney({
           <div>
             <p className="font-strong text-heading">{alias}</p>
             <p className="text-detail text-muted-foreground">
-              Connect to check this host and choose a remote folder. If setup is needed, we’ll guide you through it.
+              Connect to this host, then choose a folder to work in. We’ll help you with any setup along the way.
             </p>
           </div>
-          {resolve.isPending && <p className="text-detail text-muted-foreground">Resolving…</p>}
+          {resolve.isPending && <p className="text-detail text-muted-foreground">Checking host settings…</p>}
           {resolve.isError && (
             <p role="alert" className="text-destructive text-detail">
-              {errMessage(resolve.error, "The host could not be resolved on the machine.")}
+              {errMessage(
+                resolve.error,
+                "We couldn’t read the settings for this host. Check its SSH config and try again.",
+              )}
             </p>
           )}
           {resolved !== null && !resolved.accepted && (
@@ -316,7 +322,7 @@ export function ConnectJourney({
               <p className="text-destructive text-detail">{SSH_ERROR_DESCRIPTIONS[resolved.code]}</p>
               {resolved.settings.length > 0 && (
                 <p className="font-mono text-detail text-muted-foreground">
-                  Blocked settings: {resolved.settings.join(", ")}
+                  Unsupported SSH settings: {resolved.settings.join(", ")}
                 </p>
               )}
             </div>
