@@ -9,8 +9,9 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ConnectJourney } from "@/components/connect/connect-journey";
+import { resetDesktopShellForTests } from "@/lib/desktop";
 
 /**
  * The wizard's refusal and empty-state branches (wave-2 review M2): machines
@@ -46,6 +47,7 @@ const BASE: Node = {
 
 interface JourneyFetchOptions {
   nodes?: Node[];
+  brokers?: { id: string; name: string; online: boolean }[];
   admin?: boolean;
   serverEnabled?: boolean;
   aliases?: string[];
@@ -68,7 +70,7 @@ function mockFetch(over: JourneyFetchOptions = {}) {
       await over.brokerRead;
       return over.brokersStatus
         ? json({ message: "Computer connections unavailable" }, over.brokersStatus)
-        : json({ brokers: [] });
+        : json({ brokers: over.brokers ?? [] });
     }
     if (url.pathname === "/api/nodes") return json({ nodes: over.nodes ?? [] });
     if (url.pathname === "/api/presets") return json([]);
@@ -125,6 +127,23 @@ async function renderJourney(prefill: { nodeId: string; alias: string } | null =
 
 afterEach(cleanup);
 
+/** Open the machine picker (a `SearchableSelect`) the way the mouse does. */
+async function openMachinePopup(): Promise<HTMLInputElement> {
+  const input = screen.getByPlaceholderText("Choose a computer") as HTMLInputElement;
+  fireEvent.mouseDown(input);
+  fireEvent.click(input);
+  await screen.findAllByRole("option");
+  return input;
+}
+
+/** Choose a connecting machine from the picker, then let the host step settle. */
+async function pickMachineByName(name: RegExp | string): Promise<void> {
+  const input = await openMachinePopup();
+  void input;
+  fireEvent.click(await screen.findByRole("option", { name }));
+  await settle();
+}
+
 describe("ConnectJourney machine step", () => {
   it("an empty owned-machine list names the need and the remedy, not a broken list", async () => {
     const m = mockFetch({ nodes: [{ ...BASE, id: "other", access: "edit" }] });
@@ -132,8 +151,9 @@ describe("ConnectJourney machine step", () => {
       await renderJourney();
       expect(screen.getByText(/You haven’t connected a computer for SSH yet/)).toBeTruthy();
       expect(screen.getByRole("link", { name: /open Settings/ }).getAttribute("href")).toBe("/settings/connections");
-      // The shared machine is NOT listed: broker rights are ownership, not access.
-      expect(screen.queryByRole("button", { name: /Laptop/ })).toBeNull();
+      // Nothing to pick, so the picker itself is absent; the shared machine is
+      // never offered because broker rights are ownership, not access.
+      expect(screen.queryByPlaceholderText("Choose a computer")).toBeNull();
     } finally {
       m.restore();
     }
@@ -149,13 +169,29 @@ describe("ConnectJourney machine step", () => {
     });
     try {
       await renderJourney();
-      expect(screen.getByRole("button", { name: /Laptop/ }).hasAttribute("disabled")).toBe(false);
-      const offline = screen.getByRole("button", { name: /Docking/ });
-      expect(offline.hasAttribute("disabled")).toBe(true);
+      await openMachinePopup();
+      // A disabled row is still listed and explains itself; greying explains,
+      // never hides. Enabled rows carry no data-disabled marker.
+      expect(screen.getByRole("option", { name: /Laptop/ }).getAttribute("data-disabled")).toBeNull();
+      const offline = screen.getByRole("option", { name: /Docking/ });
+      expect(offline.getAttribute("data-disabled")).toBe("");
       expect(offline.textContent).toContain("offline");
-      const maint = screen.getByRole("button", { name: /Workshop/ });
-      expect(maint.hasAttribute("disabled")).toBe(true);
+      const maint = screen.getByRole("option", { name: /Workshop/ });
+      expect(maint.getAttribute("data-disabled")).toBe("");
       expect(maint.textContent).toContain("in maintenance");
+    } finally {
+      m.restore();
+    }
+  });
+
+  it("a hostname a row shows is searchable even though the detail line is `reason`", async () => {
+    const m = mockFetch({ nodes: [BASE, { ...BASE, id: "n2", name: "Docking", hostname: "dock-77" }] });
+    try {
+      await renderJourney();
+      const input = await openMachinePopup();
+      fireEvent.change(input, { target: { value: "dock-77" } });
+      await waitFor(() => expect(screen.queryByRole("option", { name: /Laptop/ })).toBeNull());
+      expect(screen.getByRole("option", { name: /Docking/ })).toBeTruthy();
     } finally {
       m.restore();
     }
@@ -207,7 +243,7 @@ describe("ConnectJourney review step", () => {
     });
     try {
       await renderJourney();
-      fireEvent.click(screen.getByRole("button", { name: /Laptop/ }));
+      await pickMachineByName(/Laptop/);
       const alias = await screen.findByRole("button", { name: "staging" });
       fireEvent.click(alias);
       // The equality mapping, mirrored from the old editor: the package's own
@@ -235,7 +271,7 @@ describe("ConnectJourney review step", () => {
     });
     try {
       await renderJourney();
-      fireEvent.click(screen.getByRole("button", { name: /Laptop/ }));
+      await pickMachineByName(/Laptop/);
       fireEvent.click(await screen.findByRole("button", { name: "staging" }));
       expect(await screen.findByText("deploy@app-02:22")).toBeTruthy();
       expect(screen.getByText(/Laptop as theo/)).toBeTruthy();
@@ -257,8 +293,9 @@ describe("server connection origin", () => {
     });
     try {
       await renderJourney();
-      const server = screen.getByRole("button", { name: /Server/ });
-      expect(server.hasAttribute("disabled")).toBe(true);
+      await openMachinePopup();
+      const server = screen.getByRole("option", { name: /Server/ });
+      expect(server.getAttribute("data-disabled")).toBe("");
       expect(server.textContent).toContain("server launching disabled");
     } finally {
       m.restore();
@@ -268,7 +305,8 @@ describe("server connection origin", () => {
     const m = mockFetch({ nodes: [{ ...BASE, id: "local", kind: "local", name: "Server" }] });
     try {
       await renderJourney();
-      expect(screen.queryByRole("button", { name: /Server/ })).toBeNull();
+      expect(screen.queryByPlaceholderText("Choose a computer")).toBeNull();
+      expect(screen.queryByRole("option", { name: /Server/ })).toBeNull();
     } finally {
       m.restore();
     }
@@ -306,6 +344,66 @@ describe("connecting computer discovery", () => {
       expect(m.seen.filter((url) => url.includes("desktop-brokers")).length).toBeGreaterThan(before);
     } finally {
       m.restore();
+    }
+  });
+});
+
+describe("this computer SSH identity", () => {
+  const originalUA = navigator.userAgent;
+  afterEach(() => {
+    Object.defineProperty(navigator, "userAgent", { configurable: true, value: originalUA });
+    Reflect.deleteProperty(window, "__TAURI__");
+    resetDesktopShellForTests();
+  });
+  function desktop(ids: string[]) {
+    Object.defineProperty(navigator, "userAgent", { configurable: true, value: "SubshellClient/1.0.0 (linux; p=1)" });
+    Object.defineProperty(window, "__TAURI__", {
+      configurable: true,
+      value: {
+        core: {
+          invoke: async (command: string) => {
+            expect(command).toBe("desktop_ssh_identity");
+            return ids;
+          },
+        },
+      },
+    });
+    resetDesktopShellForTests();
+  }
+  it("identifies this computer by pairing ID rather than a matching name", async () => {
+    desktop(["mine"]);
+    const f = mockFetch({
+      brokers: [
+        { id: "other", name: "Laptop", online: true },
+        { id: "mine", name: "Laptop", online: true },
+      ],
+    });
+    try {
+      await renderJourney();
+      await pickMachineByName(/This computer/);
+      expect(screen.getByText("Work on")).toBeTruthy();
+    } finally {
+      f.restore();
+    }
+  });
+  it("offers pairing when the desktop identity is not visible to this account", async () => {
+    desktop(["another-account"]);
+    const f = mockFetch({ brokers: [{ id: "other", name: "Laptop", online: true }] });
+    try {
+      await renderJourney();
+      fireEvent.click(await screen.findByRole("button", { name: "This computer · set up SSH" }));
+      expect(await screen.findByText(/Your node registration stays unchanged/)).toBeTruthy();
+    } finally {
+      f.restore();
+    }
+  });
+  it("does not offer this computer in a browser", async () => {
+    const f = mockFetch();
+    try {
+      await renderJourney();
+      expect(screen.queryByRole("button", { name: /This computer/ })).toBeNull();
+    } finally {
+      f.restore();
     }
   });
 });

@@ -1,14 +1,17 @@
-import { Button, errMessage } from "@internal/node-admin";
+import { Button, errMessage, Label } from "@internal/node-admin";
 import { SSH_ERROR_DESCRIPTIONS } from "@internal/subshell-protocol";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Server, ServerOff } from "lucide-react";
 import { useState } from "react";
 import { useDesktopBrokers } from "@/components/connect/desktop-broker-setup";
 import { SshSetupHelp } from "@/components/connect/ssh-setup-help";
 import { CopyCommandRow } from "@/components/copy-command-row";
+import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useSshDiscovery, useSshOpen, useSshResolve } from "@/hooks/use-ssh-runtime";
+import { desktopInvokeStrict, desktopShell } from "@/lib/desktop";
 import {
   SshApiError,
   type SshRuntimeResolveView,
@@ -36,6 +39,17 @@ export function ConnectJourney({
   const settings = usePublicSettings();
   const nodesQ = useNodes();
   const brokersQ = useDesktopBrokers();
+  const isClient = desktopShell()?.app === "client";
+  const identity = useQuery({
+    queryKey: ["desktop-ssh-identity", window.location.origin],
+    queryFn: () => desktopInvokeStrict<string[]>("desktop_ssh_identity"),
+    enabled: isClient,
+    retry: false,
+    refetchInterval: 5000,
+  });
+  const localBrokers = (brokersQ.data?.brokers ?? []).filter((b) => identity.data?.includes(b.id));
+  const localOnline = localBrokers.find((b) => b.online);
+  const [showLocalHelp, setShowLocalHelp] = useState(false);
   const [step, setStep] = useState<Step>(prefill ? "host" : "machine");
   const [nodeId, setNodeId] = useState(prefill?.nodeId ?? "");
   const [alias, setAlias] = useState(prefill?.alias ?? "");
@@ -130,15 +144,71 @@ export function ConnectJourney({
     setOpenCode(null);
   };
 
+  // The connecting machine is a picker like every other launch choice (the
+  // Quick connect selects below it, the node and agent pickers). A card stack
+  // was readable at one machine and a scan at ten, with the live one buried
+  // among greyed ones; a searchable list keeps the primary step one field no
+  // matter how many computers the account owns.
+  const serverIcon = <Server className="h-4 w-4 shrink-0 text-muted-foreground" />;
+  const offlineIcon = <ServerOff className="h-4 w-4 shrink-0 text-muted-foreground" />;
+  const machineOptions: ComboboxOption[] = [];
+  if (isClient && localOnline) {
+    machineOptions.push({
+      value: localOnline.id,
+      label: "This computer",
+      reason: `${localOnline.name} · Subshell Client SSH`,
+      searchText: `${localOnline.name} this computer`,
+      icon: serverIcon,
+    });
+  }
+  const brokerOptions = (brokersQ.data?.brokers ?? [])
+    .filter((b) => !localOnline || b.id !== localOnline.id)
+    .map((b) => ({
+      value: b.id,
+      label: b.name,
+      reason: b.online ? "Subshell Client SSH" : "Subshell Client SSH · offline",
+      searchText: "Subshell Client SSH",
+      disabled: !b.online,
+      icon: b.online ? serverIcon : offlineIcon,
+    }));
+  const agentOptions = ownedAgents.map((n) => {
+    const why = n.maintenance
+      ? "in maintenance"
+      : n.kind === "local" && settings.data?.allowServerSubshells === false
+        ? "server launching disabled"
+        : n.status !== "online"
+          ? "offline"
+          : null;
+    const detail = [n.hostname, n.os, n.arch].filter(Boolean).join(" · ");
+    return {
+      value: n.id,
+      label: n.name,
+      reason: why === null ? detail : detail ? `${detail} · ${why}` : why,
+      // The detail line is `reason`, which the shared filter does NOT search,
+      // so hostnames go in `searchText` to stay findable by what the row shows.
+      searchText: [n.hostname, n.os, n.arch].filter(Boolean).join(" "),
+      disabled: why !== null,
+      icon: why === null ? serverIcon : offlineIcon,
+    };
+  });
+  machineOptions.push(
+    ...brokerOptions.filter((o) => !o.disabled),
+    ...agentOptions.filter((o) => !o.disabled),
+    ...brokerOptions.filter((o) => o.disabled),
+    ...agentOptions.filter((o) => o.disabled),
+  );
+
   return (
     <div className="flex flex-col gap-4">
       {step === "machine" && (
         <>
           <div>
-            <p className="font-strong text-heading">Connect from</p>
-            <p className="text-detail text-muted-foreground">
-              Choose a computer that can SSH into the host you want to work on. Subshell uses the SSH settings and keys
-              of the account running it on that computer. Your agent and files stay on the remote host.
+            <Label htmlFor="picker-ssh-machine" className="font-strong text-heading">
+              Connect from
+            </Label>
+            <p id="ssh-machine-help" className="text-detail text-muted-foreground">
+              Choose the computer that will make the SSH connection, using its SSH settings and keys. Your agent or
+              terminal runs on the remote host you choose next.
             </p>
           </div>
           {nodesQ.isError && (
@@ -156,8 +226,41 @@ export function ConnectJourney({
               </Button>
             </div>
           )}
-          {ownedAgents.length === 0 &&
-            !brokersQ.data?.brokers?.length &&
+          {isClient && !localOnline && (
+            <div className="flex flex-col gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="self-start"
+                disabled={identity.isLoading || brokersQ.isLoading || brokersQ.isError}
+                onClick={() => setShowLocalHelp(true)}
+              >
+                This computer · set up SSH
+              </Button>
+              {showLocalHelp && (
+                <p className="text-detail text-muted-foreground" role="status">
+                  {identity.isError
+                    ? "Update Subshell Client to identify this computer automatically. You can still choose a named connection below."
+                    : localBrokers.length > 0
+                      ? "In Subshell Client, open SSH Connections and reconnect to this server."
+                      : "Open Settings → SSH Connections on this server to get a pairing code. Then open SSH Connections in Subshell Client and pair with this server. Your node registration stays unchanged."}
+                </p>
+              )}
+            </div>
+          )}
+          {machineOptions.length > 0 ? (
+            <SearchableSelect
+              id="picker-ssh-machine"
+              value=""
+              consumed
+              placeholder="Choose a computer"
+              describedBy="ssh-machine-help"
+              options={machineOptions}
+              onValueChange={(id) => {
+                if (id) pickMachine(id);
+              }}
+            />
+          ) : (
             !nodesQ.isLoading &&
             !brokersQ.isLoading &&
             !nodesQ.isError &&
@@ -169,60 +272,17 @@ export function ConnectJourney({
                 </Link>{" "}
                 and pair it with Subshell Client. You can also add a computer you own on the Nodes page.
               </p>
-            )}
-          <div className="space-y-2">
-            {brokersQ.data?.brokers?.map((b) => (
-              <Button
-                key={b.id}
-                variant="outline"
-                className="w-full justify-start"
-                disabled={!b.online}
-                onClick={() => pickMachine(b.id)}
-              >
-                {b.name} · Subshell Client SSH{!b.online && " · offline"}
-              </Button>
-            ))}
-            {ownedAgents.map((n) => {
-              const ineligible = n.maintenance
-                ? "in maintenance"
-                : n.kind === "local" && settings.data?.allowServerSubshells === false
-                  ? "server launching disabled"
-                  : n.status !== "online"
-                    ? "offline"
-                    : null;
-              return (
-                <button
-                  key={n.id}
-                  type="button"
-                  disabled={ineligible !== null}
-                  onClick={() => pickMachine(n.id)}
-                  className="flex w-full items-center gap-3 rounded-md border px-3 py-2 text-left hover:bg-accent disabled:pointer-events-none disabled:opacity-60"
-                >
-                  {ineligible === null ? (
-                    <Server className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <ServerOff className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  )}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-strong text-label">{n.name}</span>
-                    <span className="block truncate text-detail text-muted-foreground">
-                      {[n.hostname, n.os, n.arch].filter(Boolean).join(" · ")}
-                      {ineligible !== null && ` · ${ineligible}`}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+            )
+          )}
         </>
       )}
 
       {step === "host" && (
         <>
           <div>
-            <p className="font-strong text-heading">{machineLabel}</p>
+            <p className="font-strong text-heading">Work on</p>
             <p className="text-detail text-muted-foreground">
-              Choose where you want to work. These hosts come from the SSH config on {machineLabel}.
+              Choose where you want to work. {machineLabel} SSHes into one of these hosts, listed in its SSH config.
             </p>
           </div>
           {discovery.isError && (

@@ -13,12 +13,7 @@ import {
 import { SearchableSelect } from "@/components/ui/combobox";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
-import {
-  useConnectSshLocation,
-  useDeleteSshLocation,
-  useSaveSshLocation,
-  useSshLocations,
-} from "@/hooks/use-ssh-locations";
+import { useConnectSshLocation, useSaveSshLocation, useSshLocations } from "@/hooks/use-ssh-locations";
 import { useSshDetectHarnesses, useSshSessionHarnesses, useSshSessions } from "@/hooks/use-ssh-runtime";
 import { makeForm, useSubmitDisabled } from "@/lib/form";
 import { wireToPresetBlocks } from "@/lib/prompt-stack";
@@ -40,7 +35,13 @@ export function SshLaunchForm({
   const sessions = useSshSessions(true);
   const locations = useSshLocations();
   const reconnect = useConnectSshLocation();
-  const forget = useDeleteSshLocation();
+  const choice = useRef(0);
+  useEffect(
+    () => () => {
+      choice.current += 1;
+    },
+    [],
+  );
   const nodes = useNodes();
   const desktopBrokers = useDesktopBrokers();
   const originName = (id: string | null) =>
@@ -59,6 +60,7 @@ export function SshLaunchForm({
   }, [session, value, onChange]);
 
   function choose(s: SshRuntimeSessionView, workingDir = "") {
+    choice.current += 1;
     setOpened(s);
     setConnecting(false);
     onChange({ ...value, sshSessionId: s.id, nodeId: s.runtimeNodeId, workingDir, harnessId: "", presetId: null });
@@ -84,7 +86,7 @@ export function SshLaunchForm({
           </Button>
         </div>
         <RemoteLaunchFields key={session.id} session={session} value={value} onChange={onChange} ids={ids} />
-        <Link to="/connect" onClick={onLeave} className="text-detail text-muted-foreground underline">
+        <Link to="/settings/connections" onClick={onLeave} className="text-detail text-muted-foreground underline">
           Manage SSH connections
         </Link>
       </div>
@@ -93,9 +95,13 @@ export function SshLaunchForm({
 
   const recent = sessions.data?.sessions.filter((s) => s.status !== "active" && s.connectingNodeId !== null) ?? [];
   const active = sessions.data?.sessions.filter((s) => s.status === "active") ?? [];
+  const savedCount = locations.data?.locations.length ?? 0;
+  // The shortcuts are the secondary path; the machine-and-destination journey is
+  // the primary first read. The group appears only when there is something to
+  // jump back into, so a fresh host with no history shows just the journey.
+  const showQuick = active.length > 0 || savedCount > 0 || (recent.length > 0 && !connecting);
   return (
-    <div className="flex flex-col gap-3">
-      <p className="text-detail text-muted-foreground">Open an agent or terminal in a folder on another machine.</p>
+    <div className="flex flex-col gap-4">
       {session && (
         <p role="status" className="text-detail text-muted-foreground">
           This connection has ended. Reconnect below before starting a subshell.
@@ -109,88 +115,18 @@ export function SshLaunchForm({
           </Button>
         </p>
       )}
-      {(locations.data?.locations.length ?? 0) > 0 && (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor={`${ids.node}-saved-ssh`}>Saved remote locations</Label>
-          <SearchableSelect
-            id={`${ids.node}-saved-ssh`}
-            value=""
-            consumed
-            placeholder={reconnect.isPending ? "Connecting…" : "Choose a saved host and folder"}
-            options={(locations.data?.locations ?? []).map((l) => ({
-              value: l.id,
-              label: `${l.alias} · ${l.path}`,
-              reason: `${destinationLabel(l)} · via ${originName(l.originId)}`,
-              disabled: reconnect.isPending,
-            }))}
-            onValueChange={(id) =>
-              reconnect.mutate(id, { onSuccess: ({ session, location }) => choose(session, location.path) })
-            }
-          />
-          {(locations.data?.locations ?? []).map((l) => (
-            <div key={l.id} className="flex items-center justify-between gap-2">
-              <p className="truncate text-detail text-muted-foreground">
-                {l.alias} · {l.path}
-              </p>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={forget.isPending}
-                onClick={() => forget.mutate(l.id)}
-              >
-                Forget
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-      {(locations.isError || reconnect.isError || forget.isError) && (
-        <p role="alert" className="text-destructive text-detail">
-          {errMessage(reconnect.error ?? forget.error ?? locations.error, "Could not load saved locations.")}
-        </p>
-      )}
-      {active.length > 0 && (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor={`${ids.node}-ssh`}>Connected hosts</Label>
-          <SearchableSelect
-            id={`${ids.node}-ssh`}
-            value=""
-            consumed
-            placeholder="Choose a connected host"
-            options={active.map((s) => ({
-              value: s.id,
-              label: s.alias,
-              reason: `${destinationLabel(s)} · via ${originName(s.connectingNodeId)}`,
-            }))}
-            onValueChange={(id) => {
-              const s = active.find((s) => s.id === id);
-              if (s) choose(s);
-            }}
-          />
-        </div>
-      )}
-      {recent.length > 0 && !connecting && (
-        <div className="flex flex-col gap-2">
-          <Label htmlFor={`${ids.node}-recent-ssh`}>Recent SSH hosts</Label>
-          <SearchableSelect
-            id={`${ids.node}-recent-ssh`}
-            value=""
-            consumed
-            placeholder="Reconnect to a host"
-            options={recent.map((s) => ({ value: s.id, label: s.alias, reason: destinationLabel(s) }))}
-            onValueChange={(id) => {
-              const s = recent.find((s) => s.id === id);
-              if (s?.connectingNodeId) {
-                setPrefill({ nodeId: s.connectingNodeId, alias: s.alias });
-                setConnecting(true);
-              }
-            }}
-          />
-        </div>
-      )}
+
+      {/* Primary: the machine that makes the SSH connection, then its host and folder. */}
       {active.length > 0 && !connecting ? (
-        <Button type="button" variant="outline" onClick={() => setConnecting(true)}>
+        <Button
+          type="button"
+          variant="outline"
+          className="self-start"
+          onClick={() => {
+            choice.current += 1;
+            setConnecting(true);
+          }}
+        >
           Connect another host
         </Button>
       ) : (
@@ -200,7 +136,90 @@ export function SshLaunchForm({
           onConnected={choose}
         />
       )}
-      <Link to="/connect" onClick={onLeave} className="text-detail text-muted-foreground underline">
+
+      {/* Secondary: one-click shortcuts back into something already known. */}
+      {showQuick && (
+        <div className="flex flex-col gap-3 border-t pt-3">
+          <div className="flex flex-col gap-0.5">
+            <p className="font-strong text-label">Quick connect</p>
+            <p className="text-detail text-muted-foreground">
+              Reconnect to a host or folder you have used before. Choosing one sets up the connection for you.
+            </p>
+          </div>
+          {active.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={`${ids.node}-ssh`}>Connected hosts</Label>
+              <SearchableSelect
+                id={`${ids.node}-ssh`}
+                value=""
+                consumed
+                placeholder="Choose a connected host"
+                options={active.map((s) => ({
+                  value: s.id,
+                  label: s.alias,
+                  reason: `${destinationLabel(s)} · via ${originName(s.connectingNodeId)}`,
+                }))}
+                onValueChange={(id) => {
+                  const s = active.find((s) => s.id === id);
+                  if (s) choose(s);
+                }}
+              />
+            </div>
+          )}
+          {savedCount > 0 && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={`${ids.node}-saved-ssh`}>Saved remote locations</Label>
+              <SearchableSelect
+                id={`${ids.node}-saved-ssh`}
+                value=""
+                consumed
+                placeholder={reconnect.isPending ? "Connecting…" : "Choose a saved host and folder"}
+                options={(locations.data?.locations ?? []).map((l) => ({
+                  value: l.id,
+                  label: `${l.alias} · ${l.path}`,
+                  reason: `${destinationLabel(l)} · via ${originName(l.originId)}`,
+                  disabled: reconnect.isPending,
+                }))}
+                onValueChange={(id) => {
+                  const request = ++choice.current;
+                  reconnect.mutate(id, {
+                    onSuccess: ({ session, location }) => {
+                      if (choice.current === request) choose(session, location.path);
+                    },
+                  });
+                }}
+              />
+            </div>
+          )}
+          {recent.length > 0 && !connecting && (
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={`${ids.node}-recent-ssh`}>Recent SSH hosts</Label>
+              <SearchableSelect
+                id={`${ids.node}-recent-ssh`}
+                value=""
+                consumed
+                placeholder="Reconnect to a host"
+                options={recent.map((s) => ({ value: s.id, label: s.alias, reason: destinationLabel(s) }))}
+                onValueChange={(id) => {
+                  const s = recent.find((s) => s.id === id);
+                  if (s?.connectingNodeId) {
+                    choice.current += 1;
+                    setPrefill({ nodeId: s.connectingNodeId, alias: s.alias });
+                    setConnecting(true);
+                  }
+                }}
+              />
+            </div>
+          )}
+          {(locations.isError || reconnect.isError) && (
+            <p role="alert" className="text-destructive text-detail">
+              {errMessage(reconnect.error ?? locations.error, "Could not load saved locations.")}
+            </p>
+          )}
+        </div>
+      )}
+
+      <Link to="/settings/connections" onClick={onLeave} className="text-detail text-muted-foreground underline">
         Manage SSH connections and reconnect
       </Link>
     </div>
@@ -253,7 +272,7 @@ function RemoteLaunchFields({
     <div className="flex flex-col gap-4">
       <DirBrowser
         sessionId={session.id}
-        host={session.alias}
+        id={ids.workingDir}
         value={value.workingDir}
         onChange={(workingDir) => onChange({ ...value, workingDir })}
       />

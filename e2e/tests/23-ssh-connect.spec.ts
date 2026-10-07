@@ -264,11 +264,15 @@ test("the shared launch journey: discover, review, connect, browse, launch, iden
 
   // The flow starts from the RAIL, never a URL.
   await page.locator("aside").getByRole("button", { name: "New subshell", exact: true }).click();
-  await page.getByRole("button", { name: "SSH host", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Node", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Connect another machine…", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "SSH", exact: true }).click();
 
-  // Machine: only the member's own node is offered.
-  await expect(page.getByRole("button", { name: new RegExp(NODE_NAME) })).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: new RegExp(NODE_NAME) }).click();
+  // Machine: the picker offers only the member's own node.
+  const machinePicker = page.getByPlaceholder("Choose a computer");
+  await expect(machinePicker).toBeVisible({ timeout: 30_000 });
+  await machinePicker.click();
+  await page.getByRole("option", { name: new RegExp(NODE_NAME) }).click();
 
   // Host: the real config on the node, discovered through the RPC.
   await expect(page.getByRole("button", { name: SSH_FIXTURE_ALIAS, exact: true })).toBeVisible({ timeout: 60_000 });
@@ -293,12 +297,19 @@ test("the shared launch journey: discover, review, connect, browse, launch, iden
   sessionId = opened.id;
   expect(opened.status).toBe("active");
 
-  // Browse: the home listing lands with the absolute path stated.
-  await expect(page.getByText("Choose the folder")).toBeVisible();
-  const pathLine = page.getByTestId("connect-current-path");
-  await expect(pathLine).toHaveText(/Current folder: \//, { timeout: 30_000 });
-  const homeShown = (await pathLine.textContent())?.replace("Current folder: ", "").trim() ?? "";
-  expect(path.isAbsolute(homeShown), `the picker must show an absolute path, got "${homeShown}"`).toBe(true);
+  // SSH uses the same focus-to-browse field as Node.
+  const directory = page.getByRole("textbox", { name: "Working directory", exact: true });
+  await expect(directory).toHaveValue(/^\//, { timeout: 30_000 });
+  const homeShown = await directory.inputValue();
+  expect(path.isAbsolute(homeShown)).toBe(true);
+  await directory.focus();
+  await expect(page.getByTitle("Go up one level")).toBeVisible();
+  await page.getByTitle("Go up one level").click();
+  await expect(directory).not.toHaveValue(homeShown);
+  await directory.fill(homeShown);
+  await expect(page.getByTitle("Go up one level")).toBeVisible();
+  await directory.press("Escape");
+  await expect(page.getByTitle("Go up one level")).toHaveCount(0);
 
   const savedResponse = page.waitForResponse(
     (r) => r.url().endsWith("/api/ssh-runtime/locations") && r.request().method() === "POST",
@@ -409,6 +420,7 @@ test("the shared launch journey: discover, review, connect, browse, launch, iden
     },
     { budgetMs: 60_000, tail: agentTail },
   );
+  await page.screenshot({ path: "/tmp/ssh-terminal-render.png", fullPage: true });
 });
 
 test("workspace pane uses an existing SSH connection without leaving the workspace", async ({ page }) => {
@@ -421,14 +433,14 @@ test("workspace pane uses an existing SSH connection without leaving the workspa
     await page.goto(`/workspaces/${workspace.id}`);
     await page.getByRole("button", { name: "Add a subshell to this workspace" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "New subshell", exact: true }).click();
-    await page.getByRole("button", { name: "SSH host", exact: true }).click();
+    await page.getByRole("button", { name: "SSH", exact: true }).click();
     const opens: string[] = [];
     page.on("request", (r) => {
       if (r.method() === "POST" && r.url().endsWith("/api/ssh-runtime/sessions")) opens.push(r.url());
     });
     await page.getByPlaceholder("Choose a saved host and folder").click();
     await page.getByRole("option", { name: new RegExp(SSH_FIXTURE_ALIAS) }).click();
-    await expect(page.getByTestId("connect-current-path")).toHaveText(/Current folder: \//);
+    await expect(page.getByRole("textbox", { name: "Working directory", exact: true })).toHaveValue(/^\//);
     await page.locator("#picker-agent").click();
     await page.getByRole("option", { name: "Terminal", exact: true }).click();
     await page.screenshot({ path: "/tmp/subshell-ssh-workspace-launch.png", fullPage: true });
@@ -454,7 +466,7 @@ test("sessions view: the row closes from the page, and the history says so", asy
 
   await loginMember(page);
   await page.locator("aside").getByRole("button", { name: "New subshell", exact: true }).click();
-  await page.getByRole("button", { name: "SSH host", exact: true }).click();
+  await page.getByRole("button", { name: "SSH", exact: true }).click();
   await page.getByRole("link", { name: "Manage SSH connections and reconnect" }).click();
   await expect(page).toHaveURL(/\/settings\/connections$/);
   await expect(page.getByText(new RegExp(`127\\.0\\.0\\.1:${sshA().port}`))).toBeVisible({ timeout: 30_000 });
@@ -510,8 +522,9 @@ test("missing runtime: the probe's absence renders the binary-install guidance",
 
   await loginMember(page);
   await page.locator("aside").getByRole("button", { name: "New subshell", exact: true }).click();
-  await page.getByRole("button", { name: "SSH host", exact: true }).click();
-  await page.getByRole("button", { name: new RegExp(NODE_NAME) }).click();
+  await page.getByRole("button", { name: "SSH", exact: true }).click();
+  await page.getByPlaceholder("Choose a computer").click();
+  await page.getByRole("option", { name: new RegExp(NODE_NAME) }).click();
   await expect(page.getByRole("button", { name: NOBIN_ALIAS, exact: true })).toBeVisible({ timeout: 60_000 });
   await page.getByRole("button", { name: NOBIN_ALIAS, exact: true }).click();
   await expect(page.getByText(`127.0.0.1:${fB.port}`, { exact: true })).toBeVisible({ timeout: 30_000 });
@@ -561,11 +574,12 @@ test("desktop SSH connects without enrollment and restores the same pane in plac
   try {
     await expect(page.getByText(`Laptop ${RUN} · online`, { exact: true })).toBeVisible({ timeout: 30_000 });
     await page.locator("aside").getByRole("button", { name: "New subshell", exact: true }).click();
-    await page.getByRole("button", { name: "SSH host", exact: true }).click();
-    await page.getByRole("button", { name: new RegExp(`Laptop ${RUN}`) }).click();
+    await page.getByRole("button", { name: "SSH", exact: true }).click();
+    await page.getByPlaceholder("Choose a computer").click();
+    await page.getByRole("option", { name: new RegExp(`Laptop ${RUN}`) }).click();
     await page.getByRole("button", { name: SSH_FIXTURE_ALIAS, exact: true }).click();
     await page.getByRole("button", { name: "Connect", exact: true }).click();
-    await expect(page.getByTestId("connect-current-path")).toHaveText(/Current folder: \//);
+    await expect(page.getByRole("textbox", { name: "Working directory", exact: true })).toHaveValue(/^\//);
     await page.locator("#picker-agent").click();
     await page.getByRole("option", { name: "Terminal", exact: true }).click();
     const launchResponse = page.waitForResponse((r) => r.url().endsWith("/launch-harness"));
