@@ -16,8 +16,10 @@
  * bodies, so nothing may assume a socket, a jti, or a signature - those are
  * the transport's, and they live outside the body.
  *
- * Hand-rolled in the `node-frames.ts` style; imports no `node:` builtin;
- * lives in the Metro-safe barrel.
+ * Hand-rolled in the `node-frames.ts` style; imports no `node:` builtin, so
+ * it COULD join the Metro-safe barrel, but does not yet: on this tier the
+ * grammar fixtures' type imports are its only consumer, and Plan 2 exports
+ * and dispatches it with the ssh RPC verbs.
  */
 
 import { isRecord, isStr } from "./guards.js";
@@ -66,10 +68,12 @@ function isAliasName(value: unknown): value is string {
 }
 
 /**
- * Validates and narrows any `ssh_*` command body. `parseNodeCommandBody`
- * routes its two `type` arms here so the SSH grammar lives in ONE file
- * beside the commands it narrows; the contract it upholds is the same: a
- * NON-null return is safe to switch on by `type`.
+ * Validates and narrows any `ssh_*` command body. Plan 2 routes
+ * `parseNodeCommandBody`'s two `type` arms here, so the SSH grammar lives in
+ * ONE file beside the commands it narrows; until that wiring lands no
+ * `ssh_*` frame is dispatched on this branch. The contract this upholds is
+ * the same as the node commands' today: a NON-null return is safe to switch
+ * on by `type`.
  *
  * @param value - candidate payload whose `type` starts with `ssh_`
  * @returns the narrowed command, or null when malformed

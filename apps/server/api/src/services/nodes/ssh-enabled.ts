@@ -1,6 +1,5 @@
 import type { NodeSshEnabledWire } from "@internal/subshell-protocol";
-import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { audit } from "@/services/audit.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";

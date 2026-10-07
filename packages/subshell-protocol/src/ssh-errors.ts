@@ -9,15 +9,15 @@
  * and test result envelopes carry the same codes in their `code` fields; and
  * the server's policy refusals and API error metadata surface them verbatim.
  *
- * The set was FROZEN after Gate A; the retirement of the destination
- * execution product (design 2026-10-05 §7) pruned the three quota/storage
- * codes only ITS runtimes emitted (`quota_runs`, `quota_terminals`,
- * `storage_full`), a deletion that is legal precisely because protocol 17
- * was never released. What remains is what the SURVIVING surfaces still
- * answer: resolution refusals for the wizard, and the bare codes the
- * session-runtime supervisor maps by equality. Adding a code is a
- * coordinated change; renaming or deleting one is a wire change like any
- * other.
+ * The set was FROZEN after Gate A and is carried verbatim from the reference
+ * lineage (design 2026-10-05 §7); that lineage's retirement of the destination
+ * execution product pruned the three quota/storage codes only ITS runtimes
+ * emitted (`quota_runs`, `quota_terminals`, `storage_full`), a deletion that
+ * was legal precisely because that lineage's protocol bump never released.
+ * What this product line answers with today is resolution refusals; the
+ * session-runtime sentences ride along because the set is carried frozen, not
+ * because anything on this branch maps them. Adding a code is a coordinated
+ * change; renaming or deleting one is a wire change like any other.
  *
  * Imports no `node:` builtin; this module is in the Metro-safe barrel.
  */

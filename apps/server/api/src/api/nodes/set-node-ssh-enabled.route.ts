@@ -57,8 +57,8 @@ export const setNodeSshEnabledRoute = new Elysia()
         actorUserId: user.id,
       });
       // Re-read rather than patching the gate's snapshot: the service wrote
-      // the row, and the view must render what is stored — including the stamp
-      // it chose — rather than what this handler believes it asked for.
+      // the row, and the view must render what is stored, not what this
+      // handler believes it asked for.
       const row = (await new NodesRepository(db).findById(gate.row.id)) ?? gate.row;
       return await toNodeView(row, gate.access, gate.isAdmin, gate.granted);
     },
