@@ -16,6 +16,7 @@ mod app_update;
 mod control;
 mod node_bin;
 mod reset;
+mod ssh;
 // macOS only: a GTK menu bar is per-window chrome rather than a system bar, so
 // Linux has none — and a module compiled there would be entirely dead code.
 // Gated at the MODULE, never at the call site, so `cargo clippy` on Linux sees
@@ -162,7 +163,12 @@ pub fn run() {
         .manage(windows::PlanePin::new())
         .manage(windows::PendingScreen::new())
         .manage(reset::Stash::default())
+        .manage(ssh::SshState::default())
         .invoke_handler(tauri::generate_handler![
+            ssh::node_ssh_connections,
+            ssh::node_ssh_connect,
+            ssh::node_ssh_disconnect,
+            ssh::node_ssh_forget,
             control::node_probe,
             control::node_install_cli,
             control::node_install_tmux,
@@ -265,6 +271,7 @@ pub fn run() {
             // from the Dock, only from the tray.
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => windows::focus_any(app),
+            tauri::RunEvent::Exit => ssh::shutdown(app),
             _ => {}
         });
 }

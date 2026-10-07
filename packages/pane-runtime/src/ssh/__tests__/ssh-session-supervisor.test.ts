@@ -178,6 +178,63 @@ describe("per-node quota (node side)", () => {
   });
 });
 
+describe("awaited input backpressure", () => {
+  test("a blocked pipe waits for flush, caps concurrent bytes, and cancels pending writes on close", async () => {
+    const f = mkFixture("input-cap");
+    const ref = crypto.randomUUID();
+    try {
+      expect((await f.sup.open(openReq(ref), f.hooks)).kind).toBe("open");
+      expect(await f.sup.sendAsync(ref, new Uint8Array(32))).toBe("ok");
+      let settled = false;
+      const blocked = f.sup.sendAsync(ref, new Uint8Array(768 * 1024)).then((value) => {
+        settled = true;
+        return value;
+      });
+      await Bun.sleep(50);
+      expect(settled, "the child never reads stdin; a full pipe must not acknowledge").toBe(false);
+      expect(await f.sup.sendAsync(ref, new Uint8Array(512 * 1024))).toBe("session_unknown");
+      expect(await blocked).toBe("session_unknown");
+      expect(await f.sup.sendAsync(ref, new Uint8Array(1))).toBe("session_unknown");
+      await waitLive(f.sup, true);
+    } finally {
+      f.sup.close(ref);
+      await waitLive(f.sup, true);
+    }
+  });
+
+  test("a stopped child releases a pending flush and rejects later writes", async () => {
+    const f = mkFixture("input-death");
+    const ref = crypto.randomUUID();
+    try {
+      expect((await f.sup.open(openReq(ref), f.hooks)).kind).toBe("open");
+      const blocked = f.sup.sendAsync(ref, new Uint8Array(768 * 1024));
+      await Bun.sleep(50);
+      process.kill(Number(readFileSync(f.pids, "utf8").trim()), "SIGKILL");
+      expect(await blocked).toBe("session_unknown");
+      await waitLive(f.sup, true);
+      expect(await f.sup.sendAsync(ref, new Uint8Array(1))).toBe("session_unknown");
+    } finally {
+      f.sup.close(ref);
+      await waitLive(f.sup, true);
+    }
+  });
+
+  test("a stalled reader loses its child after the flush deadline", async () => {
+    const f = mkFixture("input-timeout");
+    const ref = crypto.randomUUID();
+    try {
+      expect((await f.sup.open(openReq(ref), f.hooks)).kind).toBe("open");
+      const began = Date.now();
+      expect(await f.sup.sendAsync(ref, new Uint8Array(768 * 1024))).toBe("session_unknown");
+      expect(Date.now() - began).toBeGreaterThanOrEqual(9_000);
+      await waitLive(f.sup, true);
+    } finally {
+      f.sup.close(ref);
+      await waitLive(f.sup, true);
+    }
+  }, 15_000);
+});
+
 describe("boot reconcile and exit posture", () => {
   test("stray accepted/open records read back lost; closed and lost are history, left alone", () => {
     const f = mkFixture("reconcile");

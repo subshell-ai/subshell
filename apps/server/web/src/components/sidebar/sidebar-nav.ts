@@ -16,7 +16,9 @@ import {
   Shield,
   SlidersHorizontal,
   TerminalSquare,
+  UserRoundCog,
   Users,
+  Waypoints,
 } from "lucide-react";
 
 /** Sidebar item: route target + icon. */
@@ -61,6 +63,12 @@ const NAV_ENTRIES: NavEntry[] = [
   { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
   // Beside Presets: both are saved launch material, one is settings, one is text.
   { to: "/prompts", label: "Prompts", icon: MessageSquareText, short: "Prompts" },
+  {
+    id: "personal-settings",
+    label: "Settings",
+    icon: UserRoundCog,
+    children: [{ to: "/settings/connections", label: "Connections", icon: Waypoints, short: "Conn" }],
+  },
   // On the label (spec 2026-09-11 §2.1). The single entry here used to read
   // "Instance", not "Server", because the control-plane host's own NODE is
   // named Server by default and on /nodes an admin saw that word twice, on two

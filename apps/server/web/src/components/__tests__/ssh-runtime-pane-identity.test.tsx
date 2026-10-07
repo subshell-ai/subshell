@@ -7,7 +7,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { SshRuntimePaneIdentity } from "@/components/connect/ssh-runtime-pane-identity";
 import { SSH_PANE_IDENTITY_QUERY_KEY } from "@/hooks/use-ssh-runtime";
@@ -87,6 +87,18 @@ describe("SshRuntimePaneIdentity qualification (M4)", () => {
     await waitFor(() => expect(screen.getByText(/SSH ·/).textContent ?? "").toContain("connection lost"));
   });
 
+  it("opens recovery in the affected pane without replacing its identity", async () => {
+    await renderLine("lost");
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy());
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ sessions: [] }), { headers: { "content-type": "application/json" } })) as never;
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    expect(screen.getByText("Reconnect to SSH host")).toBeTruthy();
+    expect(screen.getByText(/SSH ·/).textContent).toContain("connection lost");
+    expect(screen.getByText(/Your pane and workspace stay open/)).toBeTruthy();
+  });
+
   it("qualifies an ended session as closed", async () => {
     await renderLine("closed");
     await waitFor(() => expect(screen.getByText(/SSH ·/).textContent ?? "").toContain(" · closed"));
@@ -114,3 +126,11 @@ describe("SshRuntimePaneIdentity qualification (M4)", () => {
     );
   });
 });
+
+it("polls known SSH identities so a lost connection exposes recovery without navigation", async () => {
+  await renderLine("active");
+  await waitFor(() => expect(screen.getByText(/SSH ·/)).toBeTruthy());
+  expect(screen.queryByRole("button", { name: "Reconnect" })).toBeNull();
+  stubIdentity(facts("lost"));
+  await waitFor(() => expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy(), { timeout: 7000 });
+}, 8000);

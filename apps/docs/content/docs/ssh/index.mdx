@@ -1,49 +1,74 @@
 ---
-title: "Connect over SSH"
-description: "Pick one of your machines as the SSH point of departure, start the Subshell runtime on a destination you reach with it, and work there in ordinary panes."
+title: Work over SSH
+description: Open agents and terminals in remote folders using SSH from Subshell Client or a machine you own.
 ---
 
-Reach any Linux or macOS machine you can already reach with SSH, and work on it as if a Subshell node lived there, without enrolling one.
+Subshell can run agents and terminals in a remote folder through an SSH connection.
 
-## How it works
+The destination runs the `subshell` runtime and tmux. It does not need node enrollment, a Subshell service, or a network connection back to your server. Your SSH keys stay on the computer that makes the connection.
 
+## Prepare the remote host
+
+On the computer that will connect, add a concrete host alias to `~/.ssh/config`:
+
+```sshconfig
+Host devbox
+  HostName devbox.example.com
+  User you
+  IdentityFile ~/.ssh/id_ed25519
 ```
-browser → control plane → one of your enrolled machines (runs ssh)
-        → SSH session → `subshell runtime-serve` on the destination → ordinary panes
-```
 
-The runtime is a session-scoped mode of the same `subshell` binary your node runs. On the destination it drives tmux, owns the pane logs, and answers commands over the SSH link itself. There is no enrollment, no node key, no service, and no network port opened on the destination: the SSH link is the whole connection, and the session ends with it.
+Verify `ssh devbox` works from that account. Complete host-key verification there and unlock your SSH key if needed. Subshell does not answer interactive SSH password or MFA prompts.
 
-Everything the destination needs is SSH that already works from the connecting machine's account: a key the destination accepts, and host trust that is already in place. Subshell never learns your private keys; they stay in the OS account on the connecting machine, where SSH already reads them.
+On the destination, install tmux and the `subshell` CLI binary for its operating system and architecture. Use the CLI node assets on the [Subshell releases page](https://github.com/subshell-ai/subshell/releases). Make the binary executable and put it on the destination account's login-shell `PATH`. You do not need to run `subshell setup` or enroll the destination.
 
-## Connect
+Install and sign in to any agent CLI you want to use on that destination. A terminal needs no agent installation.
 
-Open **Connect over SSH** in the sidebar. The page walks the journey:
+## Connect from your computer with Subshell Client
 
-1. **Pick the connecting machine.** Only your own enrolled machines are listed, because the SSH runs as your account on that machine's terms. An admin's access to someone else's machine is not ownership, and a shared node is not yours to broker with. The control-plane host itself cannot broker a session yet: the server refuses it, and the picker leaves it out.
-2. **Pick the host.** The machine lists the alias names from its own SSH config; config contents never leave the machine.
-3. **Review and connect.** The page shows the concrete `host:port`, the destination account it resolves to, and the connecting account. **Connect** proves reachability and the runtime's presence in the same step, and a refusal says what to fix.
-4. **Choose the folder.** The picker browses the destination's directories over the live session, showing the absolute path throughout.
-5. **Launch.** The folder step lists what the destination can start, checked against the binaries installed there: a terminal pane is always offered, an agent the destination has installed is offered as its own row, and your saved presets appear when their agent was detected on that machine. A check can fail or lag the destination's state; the terminal row is never one of the things that can fail. Whatever you pick opens in the chosen folder and appears everywhere ordinary panes appear: the rail, the subshells list, and the detail page with its log, sharing, and workspace tiles. The pane's page names its destination and the machine it was brokered through, in a line assembled from the server's records, never from anything the terminal displays.
+1. In your server's dashboard, open **Settings → Connections**. Any signed-in user can manage their own connections.
+2. Give your computer a recognizable name and select **Add computer**.
+3. Copy the server address and pairing code into **SSH Connections** in Subshell Client. A fresh install also offers **Work on a machine over SSH**.
+4. Check the server address and confirm that you trust the server and the account that created the code to use your computer's SSH access. Select **Connect this computer**.
+5. Open the dashboard. Choose **New subshell → SSH host**, then choose your computer under **Connect from**.
 
-Sessions you opened stay on the same page as your own history, newest first. Closing a session ends the SSH link; panes you launched keep running on the destination under the runtime's tmux socket, and a later session to the same destination finds them again.
+Pairing codes expire after five minutes and work once. After pairing, Subshell Client remembers a scoped connection credential locally, so **Reconnect** does not require another code. Keep the app open while using the connection. **Revoke access** in the server's Connections settings invalidates that credential.
 
-## What the panes get
+The computer is not enrolled as a node by this procedure.
 
-A pane opened this way is an ordinary subshell: a normal working directory, a normal log, and its pane's own MCP credential, so it can report on itself, extend its token, read sibling panes, and use channels exactly like a pane on an enrolled node. The credential's traffic reaches the control plane through the session itself, never through a network route the destination must have.
+## Connect through an existing node in the browser
 
-## When the link drops
+In **New subshell → SSH host**, choose a connecting machine you own. Subshell uses the SSH configuration, keys, and account on that machine, which may differ from the computer running your browser.
 
-If the SSH session dies, the session is marked lost and its panes read unavailable, never completed: the destination's tmux and panes are untouched, and the next session to that destination reconciles them. Nothing is replayed automatically; an uncertain result stays uncertain. While the connecting machine itself is offline, browsing, launching, and closing are refused until it is back.
+Shared nodes and other users' nodes cannot supply your SSH connection. Admins can also choose the server account when server launching is enabled and the server machine is not in maintenance.
+
+## Open a remote folder
+
+1. Choose a host alias. If none appears, follow the configuration example on the connecting machine and select **Refresh hosts**.
+2. Review the destination address, destination account, and connecting account, then connect. A failed connection explains what to fix, including a missing remote runtime.
+3. Enter or browse to the remote folder. Choose an installed agent or terminal, optionally apply a preset and prompts, then start the subshell.
+
+The same form is available when creating a workspace or adding a pane. Existing connections appear directly in the host picker.
+
+Use **Remember this host and folder** to save the host and folder in your account. A saved location reuses a matching live connection or reconnects through the same connecting machine. If its SSH alias now points to a different host, port, or account, Subshell refuses to silently switch destinations; connect to the new destination and save a new location deliberately.
+
+## Return to remote work
+
+Remote panes appear alongside your other subshells, labelled with their SSH host. They use ordinary pane permissions, logs, sharing, and MCP access.
+
+If a connection drops, the pane shows it as unavailable. **Reconnect** opens recovery in place, preserving the pane or workspace you were viewing. A new connection reconciles the destination's surviving panes. Disconnecting SSH leaves remote tmux panes running, but Subshell cannot establish their current state until it reconnects. Requests whose results were lost are not replayed automatically.
+
+Use **Settings → Connections** for connection history and disconnect controls. If Subshell Client itself disconnected, reconnect it in its **SSH Connections** screen before reconnecting the remote host.
 
 ## Limits
 
-- Linux and macOS destinations with POSIX shells. Windows destinations are not supported.
-- The destination needs the `subshell` binary on the connecting account's PATH. A missing runtime is reported by name at connect time with exactly that remedy; Subshell never installs anything on a destination for you.
-- The connecting machine reads your account's SSH config for alias names and the resolved destination. Configs that need a `ProxyCommand`, port forwarding, or interactive password or MFA entry are refused by name; keys-only auth through the machine's existing trust is the supported shape, with an already-unlocked authentication agent and a bounded `ProxyJump` chain carried as-is. First-time host trust happens on the connecting machine, outside Subshell.
-- Sessions are personal: they live in your account, and their panes follow the ordinary subshell sharing rules.
+- Destinations must run Linux or macOS with a POSIX shell.
+- SSH authentication must work without interactive prompts. Configurations requiring `ProxyCommand` or port forwarding are refused; bounded `ProxyJump` chains are supported.
+- The destination runtime is installed manually. Subshell does not install software on a destination automatically.
+- Desktop pairing requires HTTPS, except for a server reached through a loopback HTTP address.
+- Moving an existing agent conversation and Git state between different hosts is not supported.
 
 ## See also
 
-- [Nodes](/nodes) to enroll the connecting machine itself.
-- [Terminal sessions](/mcp/terminals) for the pane input and log model.
+- [Nodes](/nodes)
+- [Terminal sessions](/mcp/terminals)

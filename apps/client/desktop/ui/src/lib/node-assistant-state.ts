@@ -48,6 +48,7 @@ export type NodeScreenId =
   | "status"
   | "service"
   | "plane"
+  | "ssh"
   | "connect"
   | "about"
   | "update";
@@ -67,6 +68,7 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
   "status",
   "service",
   "plane",
+  "ssh",
   "connect",
   "about",
   "update",
@@ -92,7 +94,7 @@ export const NODE_SCREEN_IDS: readonly NodeScreenId[] = [
  * consented act with a half still outstanding, and `app.tsx` opens this screen
  * once per launch when the probe reports one (spec 2026-09-18 § 4.2).
  */
-export type NodeUserScreen = "about" | "update" | "service" | "plane" | "status";
+export type NodeUserScreen = "ssh" | "about" | "update" | "service" | "plane" | "status";
 
 /**
  * ONE word for where you are, on both platforms (operator's call, 2026-09-12).
@@ -163,6 +165,8 @@ export function screenTitle(screen: NodeScreenId): string {
       // Same: the Control Plane section's screen. One word for the thing both
       // addresses name — the server this app and this node talk to.
       return "Control Plane";
+    case "ssh":
+      return "SSH Connections";
     case "connect":
       return "Connect to a Server";
     case "about":

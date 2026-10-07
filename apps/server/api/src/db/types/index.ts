@@ -18,6 +18,7 @@ import type { PromptTable } from "@/db/types/prompts.db-types.js";
 import type { RecentPathTable } from "@/db/types/recent-paths.db-types.js";
 import type { SettingTable } from "@/db/types/settings.db-types.js";
 import type { SshRuntimeSessionTable } from "@/db/types/ssh-runtime-sessions.db-types.js";
+import type { SshSavedLocationTable } from "@/db/types/ssh-saved-locations.db-types.js";
 import type { SubshellShareTable } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import type { UserMetaTable } from "@/db/types/user-meta.db-types.js";
@@ -64,5 +65,6 @@ export interface Database {
   // runs, panes, terminal execs) were dropped by migration 0050 when the
   // product retired; 0047/0048 still CREATE them for the upgrade path, and
   // 0050 drops them on the same chain.
+  sshSavedLocations: SshSavedLocationTable;
   sshRuntimeSessions: SshRuntimeSessionTable;
 }

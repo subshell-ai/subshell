@@ -25,12 +25,18 @@ function renderChoice(busy = false) {
 }
 
 describe("the Choice screen", () => {
-  it("offers exactly the two use cases, and nothing in the bar to press after", () => {
+  it("offers all three use cases, and nothing in the bar to press after", () => {
     renderChoice();
     const buttons = screen.getAllByRole("button");
-    expect(buttons.length).toBe(2);
+    expect(buttons.length).toBe(3);
     expect(screen.getByRole("button", { name: /Run subshells on this machine/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Connect to a server/ })).toBeTruthy();
+  });
+
+  it("offers SSH without entering enrollment", () => {
+    const chosen = renderChoice();
+    fireEvent.click(screen.getByRole("button", { name: /Work on a machine over SSH/ }));
+    expect(chosen).toEqual(["ssh"]);
   });
 
   it("reports 'node' for the machine option", () => {

@@ -258,6 +258,7 @@ describe("the assistant frame", () => {
     const rail = screen.getByRole("navigation", { name: "Main" });
     expect([...rail.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
       "Control Plane",
+      "SSH Connections",
       "Status",
       "Service",
       "Update",

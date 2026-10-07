@@ -22,6 +22,7 @@ import { announceNodePresence } from "@/services/nodes/node-presence-announce.js
 import { getLive } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { logger } from "@/utils/logger.js";
+import { desktopCommand, desktopOwnerLive, getDesktopLink, isDesktopBroker } from "./desktop-broker.js";
 import { sshNodeGate } from "./discovery.service.js";
 import { closeLocalBroker, openLocalBroker, sendLocalBroker } from "./local-broker.js";
 import { SshRuntimeSession } from "./session.js";
@@ -136,14 +137,21 @@ export async function openSession(
     );
   }
   const node = await nodesRepo.findById(body.connectingNodeId);
-  if (!node || (node.id !== LOCAL_NODE_ID && (node.kind !== "agent" || node.ownerUserId !== userId))) {
+  if (
+    !node ||
+    (node.id !== LOCAL_NODE_ID &&
+      ((node.kind !== "agent" && !(isDesktopBroker(node.id) && node.kind === "runtime")) ||
+        node.ownerUserId !== userId))
+  ) {
     // One refusal for every shape of "that is not your enrolled machine":
     // 404-not-403, the non-enumerating convention the ssh gate kept.
     throw new SshRuntimeRefusal(404, "the connecting node was not found or is not yours");
   }
   if (node.id === LOCAL_NODE_ID) await assertLocalSshAccess(userId);
   if (node.maintenance === 1) throw new SshRuntimeRefusal(409, "the connecting node is in a maintenance window");
-  if (node.id !== LOCAL_NODE_ID && !getLive(node.id))
+  if (isDesktopBroker(node.id) && !(await desktopOwnerLive(node.id, userId)))
+    throw new SshRuntimeRefusal(404, "Desktop broker not found or unavailable.");
+  if (node.id !== LOCAL_NODE_ID && !isDesktopBroker(node.id) && !getLive(node.id))
     throw new SshRuntimeRefusal(409, "the connecting node is offline");
   if ((await sessionsRepo.countActiveForNode(node.id)) >= SSH_SESSIONS_PER_NODE) {
     throw new SshRuntimeRefusal(409, "the connecting node carries its share of open sessions", "session_quota");
@@ -187,6 +195,7 @@ export async function openSession(
   // rode the link that died - and a session brokered on the live connection
   // is never clobbered.
   const brokeredOn = getLive(node.id);
+  const desktopLink = getDesktopLink(node.id);
   try {
     // The node's own open answer is bounded by its hello deadline (spawn +
     // probe + hello); the RPC must outlast it and not race it (the read
@@ -202,18 +211,36 @@ export async function openSession(
               deliverSessionLost(LOCAL_NODE_ID, sessionId);
             },
           })
-        : await sendCommand(
-            node.id,
-            {
-              type: "ssh_session_open",
-              ref: sessionId,
-              target: target,
-              ...(body.runtimeCommand !== undefined && body.runtimeCommand !== ""
-                ? { runtimeCommand: body.runtimeCommand }
-                : {}),
-            },
-            { timeoutMs: SSH_SESSION_OPEN_DEADLINE_MS + 10_000 },
-          );
+        : isDesktopBroker(node.id)
+          ? await desktopCommand(
+              node.id,
+              {
+                type: "ssh_session_open",
+                ref: sessionId,
+                target,
+                ...(body.runtimeCommand ? { runtimeCommand: body.runtimeCommand } : {}),
+              },
+              SSH_SESSION_OPEN_DEADLINE_MS + 10_000,
+            )
+          : await sendCommand(
+              node.id,
+              {
+                type: "ssh_session_open",
+                ref: sessionId,
+                target: target,
+                ...(body.runtimeCommand !== undefined && body.runtimeCommand !== ""
+                  ? { runtimeCommand: body.runtimeCommand }
+                  : {}),
+              },
+              { timeoutMs: SSH_SESSION_OPEN_DEADLINE_MS + 10_000 },
+            );
+    if (
+      isDesktopBroker(node.id) &&
+      (!(await desktopOwnerLive(node.id, userId)) ||
+        getDesktopLink(node.id) !== desktopLink ||
+        !desktopLink?.refs.has(sessionId))
+    )
+      throw new Error("Desktop broker disconnected while opening.");
     if (node.id === LOCAL_NODE_ID) {
       await assertLocalSshAccess(userId);
       if (localLost) throw new Error("SSH connection ended while opening.");
@@ -245,18 +272,36 @@ export async function openSession(
     runtimeNodeId,
     target: target,
     hello: result.hello,
-    ...(node.id === LOCAL_NODE_ID
+    ...(isDesktopBroker(node.id)
       ? {
           sendBytes: async (bytes: Uint8Array) => {
-            await assertLocalSshAccess(userId);
-            await sendLocalBroker(sessionId, bytes);
+            if (!(await desktopOwnerLive(node.id, userId))) throw new Error("Desktop broker unavailable.");
+            if (!desktopLink) throw new Error("Desktop broker unavailable.");
+            await desktopLink.rpc(
+              { type: "ssh_session_send", ref: sessionId, data_b64: Buffer.from(bytes).toString("base64") },
+              60_000,
+            );
           },
         }
-      : {}),
+      : node.id === LOCAL_NODE_ID
+        ? {
+            sendBytes: async (bytes: Uint8Array) => {
+              await assertLocalSshAccess(userId);
+              await sendLocalBroker(sessionId, bytes);
+            },
+          }
+        : {}),
   });
   const hooks = sessionHooks();
-  session.hooks =
-    node.id === LOCAL_NODE_ID
+  session.hooks = isDesktopBroker(node.id)
+    ? {
+        ...hooks,
+        onLost: (s, reason) => {
+          void desktopLink?.rpc({ type: "ssh_session_close", ref: sessionId }, 10_000).catch(() => {});
+          hooks.onLost(s, reason);
+        },
+      }
+    : node.id === LOCAL_NODE_ID
       ? {
           ...hooks,
           onLost: (s, reason) => {
@@ -265,6 +310,11 @@ export async function openSession(
           },
         }
       : hooks;
+  if (isDesktopBroker(node.id) && (getDesktopLink(node.id) !== desktopLink || !desktopLink?.refs.has(sessionId))) {
+    await closeBestEffort(node.id, sessionId);
+    await unrollOpening(sessionId, runtimeNodeId, new Error("Desktop SSH session ended while opening."));
+    throw new SshRuntimeRefusal(409, "Desktop SSH session ended while opening.");
+  }
   registerSession(session, brokeredOn);
   await sessionsRepo.settle(sessionId, "active", JSON.stringify(result.hello));
   await announceNodePresence(runtimeNodeId);
@@ -317,6 +367,10 @@ export async function closeBestEffort(connectingNodeId: string, sessionId: strin
   try {
     if (connectingNodeId === LOCAL_NODE_ID) {
       closeLocalBroker(sessionId);
+      return;
+    }
+    if (isDesktopBroker(connectingNodeId)) {
+      await desktopCommand(connectingNodeId, { type: "ssh_session_close", ref: sessionId }, 10_000);
       return;
     }
     await sendCommand(connectingNodeId, { type: "ssh_session_close", ref: sessionId }, { timeoutMs: 10_000 });

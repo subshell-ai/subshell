@@ -294,7 +294,7 @@ describe("registerSteps", () => {
  * machine's journey, not about who asked.
  */
 describe("railFor", () => {
-  it("answers the six standing sections for a settled machine on a standing screen", () => {
+  it("answers the standing sections for a settled machine on a standing screen", () => {
     // Service and Control Plane joined by operator ruling 2026-09-22 (live
     // screenshots): the node's machinery and the plane address's home move
     // out of the status screen, and the rail carries them.
@@ -303,11 +303,11 @@ describe("railFor", () => {
       expect(
         sections?.map((s) => s.id),
         screen,
-      ).toEqual(["plane", "status", "service", "update", "about", "reset"]);
+      ).toEqual(["plane", "ssh", "status", "service", "update", "about", "reset"]);
       expect(
         sections?.map((s) => s.label),
         screen,
-      ).toEqual(["Control Plane", "Status", "Service", "Update", "About", "Reset"]);
+      ).toEqual(["Control Plane", "SSH Connections", "Status", "Service", "Update", "About", "Reset"]);
     }
     expect(railFor("status", true)?.find((s) => s.id === "reset")?.danger).toBe(true);
   });
@@ -327,7 +327,7 @@ describe("railFor", () => {
     // Reset is not a section (dialog ruling 2026-09-22): the rail's sixth
     // item is a door that opens the confirmation over whatever stands.
     const sections = railFor("plane", true);
-    expect(sections?.map((s) => s.id)).toEqual(["plane", "status", "service", "update", "about", "reset"]);
+    expect(sections?.map((s) => s.id)).toEqual(["plane", "ssh", "status", "service", "update", "about", "reset"]);
     expect(sections?.find((s) => s.id === "reset")?.danger).toBe(true);
   });
 

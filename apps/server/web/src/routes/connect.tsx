@@ -1,7 +1,8 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { Waypoints } from "lucide-react";
 import { useRef, useState } from "react";
 import { ConnectJourney } from "@/components/connect/connect-journey";
+import { DesktopBrokerSetup } from "@/components/connect/desktop-broker-setup";
 import { SessionsTable } from "@/components/connect/sessions-table";
 import { EmptyState } from "@/components/empty-state";
 import { PageHeader } from "@/components/page-header";
@@ -10,10 +11,12 @@ import type { SshRuntimeSessionView } from "@/lib/ssh-runtime";
 
 /** Secondary connection recovery and disconnect controls. Launch lives in the shared subshell form. */
 export const Route = createFileRoute("/connect")({
-  component: ConnectPage,
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/connections" });
+  },
 });
 
-function ConnectPage() {
+export function ConnectionsPage() {
   const sessions = useSshSessions(true);
   const [prefill, setPrefill] = useState<{ nodeId: string; alias: string } | null>(null);
   // A second Reopen while the wizard already holds this machine+alias still
@@ -36,6 +39,7 @@ function ConnectPage() {
         subtitle="Reconnect to remote work or disconnect a host. Start new work from New subshell or a workspace’s Add pane."
       />
 
+      <DesktopBrokerSetup />
       <Link to="/new" className="text-label underline">
         Open a subshell on an SSH host
       </Link>

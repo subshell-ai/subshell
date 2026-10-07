@@ -740,11 +740,32 @@ The plane brokers an ssh child on the connecting machine and starts the
 through that link; panes opened in a session are ordinary subshell rows, and
 the session ends when the link does. Nothing is installed as a service, no
 node key exists, no port listens on the destination - the SSH link IS the
-connection. No agent door exists: `/api/ssh-runtime/*` answers cookie sessions
-only, machine credentials are refused by name, and writes carry explicit
-origin validation.
+connection. Human-facing `/api/ssh-runtime/*` routes answer cookie sessions
+only, machine API credentials are refused, and writes carry explicit origin
+validation. The desktop transport has a separate WebSocket authentication path
+that accepts only scoped desktop-broker credentials, never ordinary API keys.
 
-**Credentials never enter Subshell.** Discovery answers alias NAMES only;
+**Desktop connection boundary (2026-10-06).** A user creates a five-minute,
+single-use pairing code from personal Connections settings. Subshell Client's
+bundled page explicitly confirms the server origin and account trust before
+starting its broker child; the server-loaded main window retains only
+`desktop_open_in_browser`. Codes travel to the CLI on stdin, never argv or a
+URL. The CLI exchanges the code for a broker-only credential, stored 0600 in
+an owner-only directory and keyed by canonical origin and broker id. The server
+stores only its digest. Revoke clears that digest and drops the live connection;
+normal requests recheck ownership and active account status. HTTPS is required
+except on loopback. Server redirects cannot retarget the saved connection.
+
+Desktop brokers are hidden `runtime` node records with a reserved `desktop:`
+id. They cannot receive normal node commands or launch local panes. Their
+transport permits only SSH discovery, resolution, open, send, and close, through
+the existing bounded supervisor. EOF of the native parent's stdin or a dropped
+transport drains SSH children. Reconnect is explicit and does not replay pending
+mutations. Native metadata contains no credential. Saved remote locations are
+owner-scoped snapshots of origin, destination, and canonical directory; reconnect
+rejects changed host, port, or user rather than silently trusting a moved alias.
+
+**SSH private keys never enter Subshell.** Discovery answers alias NAMES only;
 resolution evaluates one alias with the connecting account's own `ssh -G` and
 returns a NORMALIZED approved snapshot (destination, ports, identity and
 certificate PATHS, trust-file paths, a bounded jump chain) - never key

@@ -129,3 +129,24 @@ commands.allow = ["node_install_app_update"]
 identifier = "allow-desktop-open-in-browser"
 description = "Open one page of the control plane this window is already on, in the system browser. `desktop_`, not `node_`, because it is the one permission in this file that is NOT a node verb: it is granted to `main` (the plane's own page) and to nothing else, which is the opposite of every rule above it. It takes a PATH and nothing else (no scheme, no protocol-relative '//host', no backslash, no whitespace or control characters; see crates/desktop-core's browser::browser_url) and joins it onto the origin windows.rs's PlanePin holds, so the page names the route and this side names the host. The tray and menu-bar routes to the same act need no permission at all: they run in Rust."
 commands.allow = ["desktop_open_in_browser"]
+
+
+[[permission]]
+identifier = "allow-node-ssh-connections"
+description = "Bundled page only: read this computer's SSH connections."
+commands.allow = ["node_ssh_connections"]
+
+[[permission]]
+identifier = "allow-node-ssh-connect"
+description = "Bundled page only: connect this computer to a reviewed server for SSH."
+commands.allow = ["node_ssh_connect"]
+
+[[permission]]
+identifier = "allow-node-ssh-disconnect"
+description = "Bundled page only: disconnect this computer's SSH transport."
+commands.allow = ["node_ssh_disconnect"]
+
+[[permission]]
+identifier = "allow-node-ssh-forget"
+description = "Bundled page only: remove a local SSH connection credential."
+commands.allow = ["node_ssh_forget"]

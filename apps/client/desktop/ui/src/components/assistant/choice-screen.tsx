@@ -29,7 +29,7 @@ import { Frame, type FrameShell } from "@/components/assistant/frame";
 import { Button } from "@/components/ui/button";
 
 /** What the two options answer with. `watch` connects; `node` registers. */
-export type FirstRunChoice = "node" | "watch";
+export type FirstRunChoice = "ssh" | "node" | "watch";
 
 export function ChoiceScreen(props: { shell: FrameShell; onChoose: (choice: FirstRunChoice) => void; busy: boolean }) {
   const { shell, onChoose, busy } = props;
@@ -44,6 +44,13 @@ export function ChoiceScreen(props: { shell: FrameShell; onChoose: (choice: Firs
        * that can drift out of step with it.
        */}
       <div className="flex flex-col gap-3">
+        <ChoiceOption
+          icon={<Server aria-hidden />}
+          label="Work on a machine over SSH"
+          detail="Use this computer's SSH configuration to open agents and terminals on a remote host."
+          disabled={busy}
+          onSelect={() => onChoose("ssh")}
+        />
         <ChoiceOption
           icon={<Cpu aria-hidden />}
           label="Run subshells on this machine"

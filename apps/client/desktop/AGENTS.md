@@ -430,7 +430,9 @@ plan parsed from the node's own `status --json` `paths` block AT PRESS TIME
 with `config.json` deleted LAST so a half-run stays resumable
 (`deletion_order` is a tested pure function), the shared guards in
 `subshell_desktop_core::reset_guards`, and `Err` only for refusals before
-the first mutation. `planeUrl` is KEPT. **Working on reset: read
+the first mutation. Saved control planes are cleared. Desktop SSH children
+are stopped and their saved credentials and connection metadata are removed
+before deleting node config; failed cleanup remains retryable. **Working on reset: read
 `apps/client/desktop/docs/reset.md` first.**
 
 ## Things that will bite
@@ -536,3 +538,19 @@ the first mutation. `planeUrl` is KEPT. **Working on reset: read
   plum here, near-black for the server), which is also why the tray icon is
   NOT `icon_as_template(true)` on macOS: a template icon is drawn from the alpha
   channel alone and both would collapse to the same filled square.
+
+## Desktop SSH connections
+
+The bundled assistant's **SSH Connections** screen pairs this computer with a
+signed-in server account without node enrollment. A first-run SSH choice reaches
+it directly. The server-loaded main window still has exactly one command;
+`node_ssh_*` permissions belong only to `capabilities/node.json`.
+
+`src-tauri/src/ssh.rs` starts the bundled `subshell ssh-broker` child (resolved
+CLI fallback in development), passes pairing codes over stdin, and retains that
+pipe for the child's lifetime. EOF or a stop line drains the broker's SSH children.
+The CLI holds private, origin-bound credentials; native metadata stores only the
+server, broker id, and display name. Pairing also remembers the server bookmark,
+so an SSH-only client remains configured after restart. Disconnected connections
+are resumed explicitly from the bundled screen. See the public procedure at
+`apps/docs/content/docs/ssh/index.mdx`.

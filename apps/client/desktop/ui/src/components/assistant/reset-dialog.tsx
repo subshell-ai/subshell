@@ -34,6 +34,7 @@ const DISCLOSURES: readonly string[] = [
   "A Subshell Server on this same machine is not touched. Reset it from its own app.",
   "The installed subshell binary stays.",
   "This app's saved control planes are cleared too, and it starts at the beginning again.",
+  "SSH connections are disconnected and their saved credentials are removed. Remote panes keep running; your SSH keys and configuration stay.",
   "Everything above is permanent.",
 ];
 
@@ -106,6 +107,9 @@ export function ResetDialog(props: {
         <>
           <p className="text-muted-foreground text-sm leading-relaxed">
             This machine is not registered with a control plane.
+          </p>
+          <p className="mt-2 text-muted-foreground text-detail">
+            To remove saved SSH access, open SSH Connections, disconnect each computer connection, then choose Forget.
           </p>
           <div className="mt-4 flex justify-end">
             <Button variant="outline" size="sm" onClick={() => onClose(false)}>

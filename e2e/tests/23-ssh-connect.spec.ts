@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { accessSync, chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -295,6 +296,12 @@ test("the shared launch journey: discover, review, connect, browse, launch, iden
   const homeShown = (await pathLine.textContent())?.replace("Current folder: ", "").trim() ?? "";
   expect(path.isAbsolute(homeShown), `the picker must show an absolute path, got "${homeShown}"`).toBe(true);
 
+  const savedResponse = page.waitForResponse(
+    (r) => r.url().endsWith("/api/ssh-runtime/locations") && r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Remember this host and folder" }).click();
+  expect((await savedResponse).ok()).toBe(true);
+
   // Launch: the terminal seam, and the pane it opens is an ordinary row.
   // The F1 finding lived on this page: the pane's live-terminal socket looped
   // `4004 node offline` and the "reconnecting…" pill stayed up, because the
@@ -409,7 +416,7 @@ test("workspace pane uses an existing SSH connection without leaving the workspa
     page.on("request", (r) => {
       if (r.method() === "POST" && r.url().endsWith("/api/ssh-runtime/sessions")) opens.push(r.url());
     });
-    await page.getByPlaceholder("Choose a connected host").click();
+    await page.getByPlaceholder("Choose a saved host and folder").click();
     await page.getByRole("option", { name: new RegExp(SSH_FIXTURE_ALIAS) }).click();
     await expect(page.getByTestId("connect-current-path")).toHaveText(/Current folder: \//);
     await page.locator("#picker-agent").click();
@@ -439,7 +446,7 @@ test("sessions view: the row closes from the page, and the history says so", asy
   await page.locator("aside").getByRole("button", { name: "New subshell", exact: true }).click();
   await page.getByRole("button", { name: "SSH host", exact: true }).click();
   await page.getByRole("link", { name: "Manage SSH connections and reconnect" }).click();
-  await expect(page).toHaveURL(/\/connect$/);
+  await expect(page).toHaveURL(/\/settings\/connections$/);
   await expect(page.getByText(new RegExp(`127\\.0\\.0\\.1:${sshA().port}`))).toBeVisible({ timeout: 30_000 });
 
   await page.getByRole("button", { name: "Close" }).first().click();
@@ -512,4 +519,98 @@ test("missing runtime: the probe's absence renders the binary-install guidance",
   await expect(page.getByText(/Install the Subshell binary on 127\.0\.0\.1/)).toBeVisible();
   const list = (await (await memberApi.get("/api/ssh-runtime/sessions")).json()) as { sessions: SessionRow[] };
   expect(list.sessions.some((s) => s.status === "opening")).toBe(false);
+});
+
+test("desktop SSH connects without enrollment and restores the same pane in place", async ({ page }) => {
+  test.setTimeout(120_000);
+  await loginMember(page);
+  await page.goto("/settings/connections");
+  await page.getByLabel("Computer name").fill(`Laptop ${RUN}`);
+  const pairingResponse = page.waitForResponse(
+    (r) => r.url().endsWith("/api/ssh-runtime/desktop-brokers") && r.request().method() === "POST",
+  );
+  await page.getByRole("button", { name: "Add computer", exact: true }).click();
+  const pairing = (await (await pairingResponse).json()) as { id: string; pairingToken: string };
+  const brokerHome = path.join(scratch, "desktop-broker");
+  mkdirSync(brokerHome, { recursive: true });
+  const child = spawn(resolveBun(), [NODE_MAIN, "ssh-broker", "--server", BASE_URL], {
+    env: {
+      ...process.env,
+      HOME: sshA().sshConfigHome,
+      USER: sshA().user,
+      LOGNAME: sshA().user,
+      SSH_AUTH_SOCK: "",
+      SUBSHELL_CONFIG_HOME: brokerHome,
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  child.stdin.write(`${JSON.stringify({ pairingToken: pairing.pairingToken })}\n`);
+  let desktopPane = "";
+  try {
+    await expect(page.getByText(`Laptop ${RUN} · online`, { exact: true })).toBeVisible({ timeout: 30_000 });
+    await page.locator("aside").getByRole("button", { name: "New subshell", exact: true }).click();
+    await page.getByRole("button", { name: "SSH host", exact: true }).click();
+    await page.getByRole("button", { name: new RegExp(`Laptop ${RUN}`) }).click();
+    await page.getByRole("button", { name: SSH_FIXTURE_ALIAS, exact: true }).click();
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(page.getByTestId("connect-current-path")).toHaveText(/Current folder: \//);
+    await page.locator("#picker-agent").click();
+    await page.getByRole("option", { name: "Terminal", exact: true }).click();
+    const launchResponse = page.waitForResponse((r) => r.url().endsWith("/launch-harness"));
+    await page.getByRole("button", { name: "Start subshell", exact: true }).click();
+    const launched = await launchResponse;
+    expect(launched.ok(), await launched.text()).toBe(true);
+    desktopPane = ((await launched.json()) as { subshellId: string }).subshellId;
+    await expect(page).toHaveURL(new RegExp(`/subshells/${desktopPane}`));
+    await expect(page.getByText(new RegExp(`via Laptop ${RUN}`))).toBeVisible();
+    const identity = (await (await memberApi.get(`/api/ssh-runtime/sessions/by-pane/${desktopPane}`)).json()) as {
+      sessionId: string;
+    };
+    const closed = await memberApi.post(`/api/ssh-runtime/sessions/${identity.sessionId}/close`);
+    expect(closed.ok()).toBe(true);
+    await page.getByRole("button", { name: "Reconnect", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Reconnect to SSH host" })).toBeVisible();
+    await page.getByRole("button", { name: SSH_FIXTURE_ALIAS, exact: true }).click();
+    await page.getByRole("button", { name: "Connect", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Reconnect to SSH host" })).not.toBeVisible({ timeout: 30_000 });
+    await expect(page).toHaveURL(new RegExp(`/subshells/${desktopPane}`));
+    await pollUntil("the reconnected desktop pane never became available", async () => {
+      const row = (await (await memberApi.get(`/api/subshells/${desktopPane}`)).json()) as {
+        alive: boolean;
+        status: string;
+      };
+      return row.alive === true && row.status === "running";
+    });
+    await expect(page.getByText("Subshell exited", { exact: true })).not.toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText("reconnecting…")).toHaveCount(0, { timeout: 30_000 });
+    const marker = `DESKTOP-RESUMED-${RUN}`;
+    await page.locator(".xterm-helper-textarea").click();
+    await page.keyboard.type(`echo ${marker}`);
+    await page.keyboard.press("Enter");
+    await pollUntil("typing after desktop reconnect did not reach the remote terminal", async () => {
+      const response = await memberApi.get(`/api/subshells/${desktopPane}/log`);
+      if (!response.ok()) return false;
+      const text = ((await response.json()) as { lines: string[] }).lines.join("\n");
+      return text.split(marker).length >= 3;
+    });
+    await page.screenshot({ path: "/tmp/subshell-ssh-desktop-reconnected.png", fullPage: true });
+  } finally {
+    if (desktopPane) await memberApi.delete(`/api/subshells/${desktopPane}`);
+    await memberApi.delete(`/api/ssh-runtime/desktop-brokers/${encodeURIComponent(pairing.id)}`);
+    child.stdin.end();
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        resolve();
+      }, 40_000);
+      if (child.exitCode !== null) {
+        clearTimeout(timer);
+        resolve();
+      } else
+        child.once("exit", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+    });
+  }
 });

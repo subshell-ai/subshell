@@ -28,6 +28,10 @@
     "allow-node-about",
     "allow-node-open-web",
     "allow-node-check-app-update",
-    "allow-node-install-app-update"
+    "allow-node-install-app-update",
+    "allow-node-ssh-connections",
+    "allow-node-ssh-connect",
+    "allow-node-ssh-disconnect",
+    "allow-node-ssh-forget"
   ]
 }

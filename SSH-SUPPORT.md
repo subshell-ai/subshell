@@ -293,3 +293,26 @@ standalone SSH wizard is not the primary navigation for those tasks.
 - Acceptance includes a non-admin SSH launch from the regular dialog, reuse from
   a workspace without navigation or another connection, a missing-runtime remedy,
   and server-origin authorization and cleanup regressions.
+
+### Core UX completion (2026-10-06)
+
+- Personal Settings > Connections manages desktop pairing and SSH history.
+  `/connect` remains a compatibility redirect, not a primary navigation section.
+- Subshell Client's bundled SSH Connections screen pairs once with an explicitly
+  trusted server/account. It runs a scoped broker through the bundled CLI using
+  this computer's SSH account, without enrollment. The server-loaded window's
+  existing single-command ACL remains unchanged.
+- Broker credentials are revocable, confined to the broker transport, stored by
+  the CLI with owner-only permissions, and bound to the canonical server origin
+  and broker id. Pairing codes are one-use and expire after five minutes. Native
+  credentials never enter argv, the remote webview, or native metadata.
+- Saved host/folder locations belong to a user, preserve canonical destination
+  identity, and refuse silent alias drift. Shared launch forms reuse or reconnect
+  them without losing workspace placement.
+- Pane recovery is an in-place dialog. Surviving destination panes are reconciled
+  by the existing adoption path; uncertain mutations are not replayed.
+- The empty-host state provides configuration and refresh actions. Runtime setup
+  points to binary-only installation and distinguishes destination agent sign-in.
+- Cross-host conversation/Git handoff remains outside this implementation. Normal
+  SSH policy limitations remain explicit; this is core workflow alignment, not a
+  claim of every Codex remote feature.

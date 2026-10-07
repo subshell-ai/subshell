@@ -205,5 +205,8 @@ export function useSshPaneIdentity(subshellId: string) {
     },
     retry: false,
     staleTime: 60_000,
+    // SSH sessions can disappear without a pane-list event. Ordinary panes
+    // resolve to null once and never poll this owner-scoped identity endpoint.
+    refetchInterval: (query) => (query.state.data ? 5000 : false),
   });
 }

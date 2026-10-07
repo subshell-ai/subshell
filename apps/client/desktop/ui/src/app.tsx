@@ -36,6 +36,7 @@ import { ProgressScreen } from "@/components/assistant/progress-screen";
 import { RegisterScreen } from "@/components/assistant/register-screen";
 import { ResetDialog } from "@/components/assistant/reset-dialog";
 import { ServiceScreen } from "@/components/assistant/service-screen";
+import { SshScreen } from "@/components/assistant/ssh-screen";
 import { StartupScreen } from "@/components/assistant/startup-screen";
 import { StatusScreen } from "@/components/assistant/status-screen";
 import { subtitleFor } from "@/components/assistant/subtitles";
@@ -532,6 +533,15 @@ export function App() {
             // only the service act fails after enrolment has landed, and by then
             // changing the details would mean enrolling a second time.
             onEdit={failedAct === null || failedAct === "start" ? undefined : () => setStep("node")}
+          />
+        );
+      case "ssh":
+        return (
+          <SshScreen
+            shell={shell}
+            rail={rail}
+            onBack={() => (configured(settings, probe) ? setOverride("plane") : setStep("choice"))}
+            initialServer={settings?.planes[0] ?? ""}
           />
         );
       case "connect":

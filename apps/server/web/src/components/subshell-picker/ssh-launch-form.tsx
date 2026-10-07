@@ -2,6 +2,7 @@ import { Button, errMessage, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { ConnectJourney } from "@/components/connect/connect-journey";
+import { useDesktopBrokers } from "@/components/connect/desktop-broker-setup";
 import { DirBrowser } from "@/components/connect/dir-browser";
 import { PromptStackSection } from "@/components/prompts/prompt-stack-section";
 import {
@@ -12,8 +13,16 @@ import {
 import { SearchableSelect } from "@/components/ui/combobox";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePresets } from "@/hooks/use-presets";
+import {
+  useConnectSshLocation,
+  useDeleteSshLocation,
+  useSaveSshLocation,
+  useSshLocations,
+} from "@/hooks/use-ssh-locations";
 import { useSshDetectHarnesses, useSshSessionHarnesses, useSshSessions } from "@/hooks/use-ssh-runtime";
+import { makeForm, useSubmitDisabled } from "@/lib/form";
 import { wireToPresetBlocks } from "@/lib/prompt-stack";
+import { sshLocationProblems } from "@/lib/ssh-location-form";
 import { destinationLabel, type SshRuntimeSessionView } from "@/lib/ssh-runtime";
 
 /** Remote location selection inside the shared standalone/workspace launch form. */
@@ -29,7 +38,15 @@ export function SshLaunchForm({
   onLeave?: () => void;
 }) {
   const sessions = useSshSessions(true);
+  const locations = useSshLocations();
+  const reconnect = useConnectSshLocation();
+  const forget = useDeleteSshLocation();
   const nodes = useNodes();
+  const desktopBrokers = useDesktopBrokers();
+  const originName = (id: string | null) =>
+    nodes.data?.nodes.find((n) => n.id === id)?.name ??
+    desktopBrokers.data?.brokers.find((b) => b.id === id)?.name ??
+    "connecting machine";
   const [opened, setOpened] = useState<SshRuntimeSessionView | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [prefill, setPrefill] = useState<{ nodeId: string; alias: string } | null>(null);
@@ -41,10 +58,10 @@ export function SshLaunchForm({
     if (session && session.status !== "active" && value.nodeId) onChange({ ...value, nodeId: "", workingDir: "" });
   }, [session, value, onChange]);
 
-  function choose(s: SshRuntimeSessionView) {
+  function choose(s: SshRuntimeSessionView, workingDir = "") {
     setOpened(s);
     setConnecting(false);
-    onChange({ ...value, sshSessionId: s.id, nodeId: s.runtimeNodeId, workingDir: "", harnessId: "", presetId: null });
+    onChange({ ...value, sshSessionId: s.id, nodeId: s.runtimeNodeId, workingDir, harnessId: "", presetId: null });
   }
 
   if (session?.status === "active") {
@@ -54,8 +71,7 @@ export function SshLaunchForm({
           <div>
             <p className="font-strong text-label">{session.alias}</p>
             <p className="text-detail text-muted-foreground">
-              {destinationLabel(session)} · via{" "}
-              {nodes.data?.nodes.find((n) => n.id === session.connectingNodeId)?.name ?? "connecting machine"}
+              {destinationLabel(session)} · via {originName(session.connectingNodeId)}
             </p>
           </div>
           <Button
@@ -93,6 +109,47 @@ export function SshLaunchForm({
           </Button>
         </p>
       )}
+      {(locations.data?.locations.length ?? 0) > 0 && (
+        <div className="flex flex-col gap-2">
+          <Label htmlFor={`${ids.node}-saved-ssh`}>Saved remote locations</Label>
+          <SearchableSelect
+            id={`${ids.node}-saved-ssh`}
+            value=""
+            consumed
+            placeholder={reconnect.isPending ? "Connecting…" : "Choose a saved host and folder"}
+            options={(locations.data?.locations ?? []).map((l) => ({
+              value: l.id,
+              label: `${l.alias} · ${l.path}`,
+              reason: `${destinationLabel(l)} · via ${originName(l.originId)}`,
+              disabled: reconnect.isPending,
+            }))}
+            onValueChange={(id) =>
+              reconnect.mutate(id, { onSuccess: ({ session, location }) => choose(session, location.path) })
+            }
+          />
+          {(locations.data?.locations ?? []).map((l) => (
+            <div key={l.id} className="flex items-center justify-between gap-2">
+              <p className="truncate text-detail text-muted-foreground">
+                {l.alias} · {l.path}
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={forget.isPending}
+                onClick={() => forget.mutate(l.id)}
+              >
+                Forget
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+      {(locations.isError || reconnect.isError || forget.isError) && (
+        <p role="alert" className="text-destructive text-detail">
+          {errMessage(reconnect.error ?? forget.error ?? locations.error, "Could not load saved locations.")}
+        </p>
+      )}
       {active.length > 0 && (
         <div className="flex flex-col gap-2">
           <Label htmlFor={`${ids.node}-ssh`}>Connected hosts</Label>
@@ -104,7 +161,7 @@ export function SshLaunchForm({
             options={active.map((s) => ({
               value: s.id,
               label: s.alias,
-              reason: `${destinationLabel(s)} · via ${nodes.data?.nodes.find((n) => n.id === s.connectingNodeId)?.name ?? "connecting machine"}`,
+              reason: `${destinationLabel(s)} · via ${originName(s.connectingNodeId)}`,
             }))}
             onValueChange={(id) => {
               const s = active.find((s) => s.id === id);
@@ -162,6 +219,20 @@ function RemoteLaunchFields({
   onChange: (value: NewSubshellFormValue) => void;
   ids: NewSubshellFormIds;
 }) {
+  const save = useSaveSshLocation();
+  const saveForm = makeForm({
+    defaultValues: { path: value.workingDir },
+    validator: sshLocationProblems,
+    onSubmit: ({ path }) => {
+      if (save.isPending || Object.keys(sshLocationProblems({ path })).length > 0) return;
+      save.mutate({ sessionId: session.id, path });
+    },
+  });
+  useEffect(() => {
+    saveForm.setFieldValue("path", value.workingDir);
+  }, [saveForm, value.workingDir]);
+  const saveDisabled = useSubmitDisabled(saveForm, save.isPending);
+  const savePathProblem = sshLocationProblems({ path: value.workingDir }).path;
   const harnesses = useSshSessionHarnesses(session.id);
   const detect = useSshDetectHarnesses(session.id);
   const presets = usePresets();
@@ -186,6 +257,30 @@ function RemoteLaunchFields({
         value={value.workingDir}
         onChange={(workingDir) => onChange({ ...value, workingDir })}
       />
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          disabled={saveDisabled}
+          onClick={() => {
+            if (save.isPending || Object.keys(sshLocationProblems({ path: value.workingDir })).length > 0) return;
+            void saveForm.handleSubmit();
+          }}
+        >
+          Remember this host and folder
+        </Button>
+        {save.isSuccess && (
+          <p role="status" className="text-detail text-muted-foreground">
+            Location saved.
+          </p>
+        )}
+      </div>
+      {savePathProblem && <p className="text-detail text-muted-foreground">{savePathProblem}</p>}
+      {save.isError && (
+        <p role="alert" className="text-destructive text-detail">
+          {errMessage(save.error, "Could not save this location.")}
+        </p>
+      )}
       <div className="flex flex-col gap-2">
         <Label htmlFor={ids.preset}>Preset</Label>
         <SearchableSelect

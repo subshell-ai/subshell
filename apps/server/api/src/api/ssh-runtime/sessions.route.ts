@@ -56,7 +56,7 @@ function refuseRuntime(err: SshRuntimeRefusal): never {
 }
 
 /** Run a service call, translating its named refusal and letting anything else stand. */
-async function runtimeCall<T>(fn: () => Promise<T>): Promise<T> {
+export async function runtimeCall<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {

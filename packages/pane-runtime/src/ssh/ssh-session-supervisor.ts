@@ -14,6 +14,13 @@ import {
 } from "./ssh-session-open.js";
 import { digestSessionRequest, type SshSessionRecord, SshSessionRecordStore } from "./ssh-session-store.js";
 
+const MAX_PENDING_INPUT_BYTES = 1024 * 1024;
+const INPUT_FLUSH_TIMEOUT_MS = 10_000;
+interface PendingInput {
+  bytes: number;
+  cancel: Set<() => void>;
+}
+
 /**
  * The brokered-session engine's SURFACE (design 2026-10-05 §3): one SSH child
  * per session under the SAME mandatory policy the structured runs use, and
@@ -81,6 +88,7 @@ export class SshSessionSupervisor {
   readonly #store: SshSessionRecordStore;
   readonly #nowMs: () => number;
   readonly #live = new Map<string, LiveSession>();
+  readonly #pendingInput = new WeakMap<LiveSession, PendingInput>();
   /** One pending-open chain: quota + acceptance decided together (the run supervisor's reasoning). */
   #openChain: Promise<unknown> = Promise.resolve();
 
@@ -163,6 +171,52 @@ export class SshSessionSupervisor {
     }
   }
 
+  /** Acknowledge only flushed bytes, with a per-child memory and time bound.
+   * A stalled sink loses its session rather than accepting more input forever.
+   * Keep the legacy synchronous send surface for its existing callers.
+   */
+  async sendAsync(ref: string, bytes: Uint8Array): Promise<"ok" | typeof SSH_SESSION_UNKNOWN> {
+    if (!isSshSessionRef(ref)) return SSH_SESSION_UNKNOWN;
+    const live = this.#live.get(ref);
+    if (!live || live.stopping) return SSH_SESSION_UNKNOWN;
+    if (bytes.byteLength === 0) return "ok";
+    let pending = this.#pendingInput.get(live);
+    if (!pending) {
+      pending = { bytes: 0, cancel: new Set() };
+      this.#pendingInput.set(live, pending);
+    }
+    if (pending.bytes + bytes.byteLength > MAX_PENDING_INPUT_BYTES || pending.cancel.size >= 32) {
+      this.close(ref);
+      return SSH_SESSION_UNKNOWN;
+    }
+    pending.bytes += bytes.byteLength;
+    let cancel!: () => void;
+    const cancelled = new Promise<false>((resolve) => {
+      cancel = () => resolve(false);
+      pending.cancel.add(cancel);
+    });
+    const timer = setTimeout(() => {
+      if (this.#live.get(ref) === live) this.close(ref);
+      else cancel();
+    }, INPUT_FLUSH_TIMEOUT_MS);
+    try {
+      // Bun's FileSink exposes flush(), which becomes a promise when its
+      // pipe fills. flushAsync is retained only for existing injected sinks.
+      const flush = live.stdin.flush?.bind(live.stdin) ?? live.stdin.flushAsync?.bind(live.stdin);
+      if (!flush) throw new Error("SSH input cannot flush");
+      live.stdin.write(bytes);
+      const flushed = await Promise.race([Promise.resolve(flush()).then(() => true), cancelled]);
+      return flushed && this.#live.get(ref) === live && !live.stopping ? "ok" : SSH_SESSION_UNKNOWN;
+    } catch {
+      if (this.#live.get(ref) === live && !live.stopping) this.close(ref);
+      return SSH_SESSION_UNKNOWN;
+    } finally {
+      clearTimeout(timer);
+      pending.bytes -= bytes.byteLength;
+      pending.cancel.delete(cancel);
+    }
+  }
+
   /**
    * Close one session as a USER act (design §6's Close): SIGTERM the group,
    * SIGKILL after the grace, THEN record `closed` best-effort. The kill
@@ -179,9 +233,11 @@ export class SshSessionSupervisor {
   close(ref: string): "ok" | typeof SSH_SESSION_UNKNOWN {
     const live = this.#live.get(ref);
     if (!live) return SSH_SESSION_UNKNOWN;
+    if (live.stopping) return "ok";
     // The latch FIRST: it is what quiets the death handler (ssh-session-open
     // reads it when the exit lands), so every act below is free to fail.
     live.stopping = true;
+    for (const cancel of this.#pendingInput.get(live)?.cancel ?? []) cancel();
     killGroup(live.pid, "SIGTERM");
     live.killEscalate = setTimeout(() => {
       killGroup(live.pid, "SIGKILL");

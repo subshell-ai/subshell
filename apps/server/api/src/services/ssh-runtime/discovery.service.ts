@@ -22,6 +22,7 @@ import { getLive } from "@/services/nodes/node-registry.js";
 import { DEFAULT_COMMAND_TIMEOUT_MS, NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { logger } from "@/utils/logger.js";
+import { desktopCommand, desktopOwnerLive, isDesktopBroker } from "./desktop-broker.js";
 import type { SshCaller } from "./ssh-actor.js";
 
 /**
@@ -126,6 +127,8 @@ function refuseSshErrorCode(code: SshErrorCode, extra?: string): never {
  *   the session open and each local write recheck this same authority.
  */
 export async function sshNodeGate(caller: SshCaller, nodeId: string): Promise<SshDecision> {
+  if (isDesktopBroker(nodeId))
+    return (await desktopOwnerLive(nodeId, caller.userId)) ? { allow: true } : { allow: false, code: "not_found" };
   const row = await nodes.findById(nodeId);
   if (!row) return { allow: false, code: "not_found" };
   if (row.kind === "local") {
@@ -218,6 +221,7 @@ async function call(
         result.error,
       );
     }
+    if (isDesktopBroker(nodeId)) return await desktopCommand(nodeId, cmd, timeoutMs);
     return await sendCommand(nodeId, cmd, { timeoutMs });
   } catch (err) {
     if (err instanceof NodeRpcError) throw classify(err, verb);

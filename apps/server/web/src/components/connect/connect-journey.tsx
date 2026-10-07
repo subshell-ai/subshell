@@ -1,7 +1,9 @@
 import { Button, errMessage } from "@internal/node-admin";
-import { SSH_ERROR_DESCRIPTIONS } from "@internal/subshell-protocol";
+import { SSH_ERROR_DESCRIPTIONS, SUBSHELL_REPO_SLUG } from "@internal/subshell-protocol";
+import { Link } from "@tanstack/react-router";
 import { Server, ServerOff } from "lucide-react";
 import { useState } from "react";
+import { useDesktopBrokers } from "@/components/connect/desktop-broker-setup";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useSshDiscovery, useSshOpen, useSshResolve } from "@/hooks/use-ssh-runtime";
@@ -18,12 +20,15 @@ interface Prefill {
 export function ConnectJourney({
   prefill,
   onConnected,
+  requiredTarget,
 }: {
   prefill: Prefill | null;
+  requiredTarget?: { host: string; port: number; user: string | null };
   onConnected: (session: SshRuntimeSessionView) => void;
 }) {
   const settings = usePublicSettings();
   const nodesQ = useNodes();
+  const brokersQ = useDesktopBrokers();
   const [step, setStep] = useState<Step>(prefill ? "host" : "machine");
   const [nodeId, setNodeId] = useState(prefill?.nodeId ?? "");
   const [alias, setAlias] = useState(prefill?.alias ?? "");
@@ -34,7 +39,8 @@ export function ConnectJourney({
   const open = useSshOpen();
   const discovery = useSshDiscovery(step === "host" ? nodeId : null);
   const machine = (nodesQ.data?.nodes ?? []).find((n) => n.id === nodeId);
-  const machineLabel = machine?.name ?? "the connecting machine";
+  const broker = brokersQ.data?.brokers?.find((row) => row.id === nodeId);
+  const machineLabel = machine?.name ?? broker?.name ?? "the connecting machine";
 
   const ownedAgents = (nodesQ.data?.nodes ?? []).filter(
     (n) =>
@@ -61,7 +67,22 @@ export function ConnectJourney({
         // Transport failures stay on the mutation object (the step renders
         // `resolve.isError`); only an ANSWER (accepted or named refusal)
         // becomes review facts.
-        onSuccess: (view) => setResolved(view),
+        onSuccess: (view) => {
+          if (
+            view.accepted &&
+            requiredTarget &&
+            (view.snapshot.host !== requiredTarget.host ||
+              view.snapshot.port !== requiredTarget.port ||
+              view.snapshot.user !== requiredTarget.user)
+          ) {
+            setResolved(null);
+            setOpenError(
+              "This SSH alias now points to a different account or host. Open a new subshell to review that destination; this pane cannot reconnect there.",
+            );
+            return;
+          }
+          setResolved(view);
+        },
       },
     );
   }
@@ -104,7 +125,8 @@ export function ConnectJourney({
             <p className="font-strong text-heading">Connect from</p>
             <p className="text-detail text-muted-foreground">
               Choose the machine whose SSH configuration and keys can reach your host. Your agent will run on the SSH
-              host.
+              host. The SSH config and keys belong to the operating-system account running Subshell on that machine, not
+              your browser or Subshell sign-in.
             </p>
           </div>
           {nodesQ.isError && (
@@ -112,13 +134,42 @@ export function ConnectJourney({
               {errMessage(nodesQ.error, "The machine list could not be loaded.")}
             </p>
           )}
-          {ownedAgents.length === 0 && !nodesQ.isLoading && (
-            <p className="text-detail text-muted-foreground">
-              No connecting machines are available to your account. The browser cannot use your computer’s SSH keys.
-              Connect one of your machines on the Nodes page, or ask an admin to connect from the server.
-            </p>
+          {brokersQ.isError && (
+            <div className="flex flex-col gap-2">
+              <p role="alert" className="text-destructive text-detail">
+                {errMessage(brokersQ.error, "Subshell Client connections could not be loaded.")}
+              </p>
+              <Button variant="outline" size="sm" onClick={() => void brokersQ.refetch()}>
+                Retry computer connections
+              </Button>
+            </div>
           )}
+          {ownedAgents.length === 0 &&
+            !brokersQ.data?.brokers?.length &&
+            !nodesQ.isLoading &&
+            !brokersQ.isLoading &&
+            !nodesQ.isError &&
+            !brokersQ.isError && (
+              <p className="text-detail text-muted-foreground">
+                No connecting machines are available to your account. The browser cannot use your computer’s SSH keys.
+                <Link to="/settings/connections" className="underline">
+                  Connect this computer in Settings → Connections
+                </Link>{" "}
+                using Subshell Client’s SSH Connections screen. You can also connect an owned machine on the Nodes page.
+              </p>
+            )}
           <div className="space-y-2">
+            {brokersQ.data?.brokers?.map((b) => (
+              <Button
+                key={b.id}
+                variant="outline"
+                className="w-full justify-start"
+                disabled={!b.online}
+                onClick={() => pickMachine(b.id)}
+              >
+                {b.name} · Subshell Client SSH{!b.online && " · offline"}
+              </Button>
+            ))}
             {ownedAgents.map((n) => {
               const ineligible = n.maintenance
                 ? "in maintenance"
@@ -174,10 +225,19 @@ export function ConnectJourney({
           )}
           {discovery.isLoading && <p className="text-detail text-muted-foreground">Reading the config…</p>}
           {discovery.data !== undefined && discovery.data.aliases.length === 0 && (
-            <p className="text-detail text-muted-foreground">
-              No SSH host aliases were found for this account on {machineLabel}. Add one to the machine&apos;s SSH
-              config and retry.
-            </p>
+            <div className="flex flex-col gap-3">
+              <p className="text-detail text-muted-foreground">
+                No SSH host aliases were found for this account on {machineLabel}. Add one to the machine&apos;s SSH
+                config under the account running Subshell. Use a concrete Host alias, not a wildcard.
+              </p>
+              <pre className="overflow-x-auto rounded-md bg-muted p-3 font-mono text-detail">{`Host work
+  HostName host.example.com
+  User your-remote-account
+  IdentityFile ~/.ssh/id_ed25519`}</pre>
+              <p className="text-detail text-muted-foreground">
+                Confirm key-based SSH works from that account and trust the host key there before connecting.
+              </p>
+            </div>
           )}
           {discovery.data !== undefined && discovery.data.aliases.length > 0 && (
             <div className="space-y-2">
@@ -199,9 +259,19 @@ export function ConnectJourney({
               {discovery.data.truncated && <p className="text-detail text-muted-foreground">The list is capped.</p>}
             </div>
           )}
-          <Button variant="ghost" size="sm" onClick={() => back("machine")}>
-            Back
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void discovery.refetch()}
+              disabled={discovery.isFetching}
+            >
+              Refresh hosts
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => back("machine")}>
+              Back
+            </Button>
+          </div>
         </>
       )}
 
@@ -210,9 +280,24 @@ export function ConnectJourney({
           <div>
             <p className="font-strong text-heading">{alias}</p>
             <p className="text-detail text-muted-foreground">
-              Subshell and the agent you want to use must be installed on this host. No node enrollment is needed.
+              Install the Subshell CLI on this host and make its subshell binary available on the SSH account’s PATH. No
+              node enrollment is needed. Install your agent CLI and sign in to it as the remote account before launching
+              an agent.
             </p>
           </div>
+          <p className="text-detail text-muted-foreground">
+            <a
+              href={`https://github.com/${SUBSHELL_REPO_SLUG}/releases?q=cli-node`}
+              target="_blank"
+              rel="noreferrer"
+              className="underline"
+            >
+              Download the Subshell CLI
+            </a>{" "}
+            for the host’s operating system and architecture. Place the executable on the remote account’s PATH as
+            subshell, make it executable, and verify subshell --version in that account’s SSH shell. Install tmux there
+            too. Do not run subshell setup for this connection.
+          </p>
           {resolve.isPending && <p className="text-detail text-muted-foreground">Resolving…</p>}
           {resolve.isError && (
             <p role="alert" className="text-destructive text-detail">

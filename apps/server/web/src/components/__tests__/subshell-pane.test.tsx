@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { SubshellPane } from "@/components/subshell-pane";
+import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import type { SubshellView } from "@/types/subshell";
 import type { WorkspacePaneRow } from "@/types/workspace";
 
 /**
@@ -51,6 +53,56 @@ function renderPane(el: ReactNode) {
 }
 
 afterEach(cleanup);
+
+it("recreates the workspace terminal when SSH adoption changes its runtime node, without remounting on ordinary updates", async () => {
+  const row: SubshellView = {
+    id: "s1",
+    nodeId: "ssh-runtime-before",
+    nodeOffline: false,
+    presetId: null,
+    harnessId: "terminal",
+    name: "Remote work",
+    nameLocked: false,
+    workingDir: "/tmp",
+    status: "running",
+    createdAt: "2026-10-06T00:00:00Z",
+    startedAt: "2026-10-06T00:00:00Z",
+    endedAt: null,
+    lastOutputAt: null,
+    activity: "idle",
+    alive: true,
+    exitCode: null,
+    backoffCount: 0,
+    restartOnExit: false,
+    nextRestartAt: null,
+    notify: false,
+    waitingSince: null,
+    unseenPush: false,
+    access: "owner",
+  };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(SUBSHELLS_QUERY_KEY, [row]);
+  const view = render(
+    <QueryClientProvider client={client}>
+      <SubshellPane pane={paneRow()} active onRestart={() => {}} onRemovePane={() => {}} />
+    </QueryClientProvider>,
+  );
+  await waitFor(() => expect(view.container.querySelector(".xterm")).toBeTruthy());
+  const original = view.container.querySelector(".xterm");
+  await act(async () => {
+    client.setQueryData(SUBSHELLS_QUERY_KEY, [{ ...row, name: "Renamed remote work" }]);
+  });
+  expect(view.container.querySelector(".xterm")).toBe(original);
+  await act(async () => {
+    // Adoption deliberately preserves startedAt and the workspace's pane id.
+    client.setQueryData(SUBSHELLS_QUERY_KEY, [{ ...row, nodeId: "ssh-runtime-after" }]);
+  });
+  await waitFor(() => {
+    expect(view.container.querySelector(".xterm")).toBeTruthy();
+    expect(view.container.querySelector(".xterm")).not.toBe(original);
+    expect(original?.isConnected).toBe(false);
+  });
+});
 
 describe("SubshellPane touch key bar", () => {
   it("allows the key bar to scroll while the terminal's touch scroll guard is engaged", () => {
@@ -172,4 +224,41 @@ describe("SubshellPane node-offline state (spec §5.6 precedence)", () => {
     expect(screen.getByRole("button", { name: /remove pane/i })).toBeDefined();
     expect(screen.queryByRole("button", { name: /restart/i })).toBeNull();
   });
+});
+
+it("offers SSH recovery inside an offline workspace pane", async () => {
+  const original = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) =>
+    new Response(
+      JSON.stringify(
+        String(input).includes("/by-pane/")
+          ? {
+              sessionId: "ssh1",
+              status: "lost",
+              alias: "work",
+              host: "host.example.com",
+              port: 22,
+              user: "dev",
+              connectingNodeName: "Laptop",
+            }
+          : [],
+      ),
+      { headers: { "content-type": "application/json" } },
+    )) as typeof fetch;
+  try {
+    renderPane(
+      <SubshellPane
+        pane={paneRow({ subshellNodeOffline: true })}
+        active
+        onRestart={() => {}}
+        onRemovePane={() => {}}
+      />,
+    );
+    await waitFor(() => expect(screen.getByRole("button", { name: "Reconnect" })).toBeTruthy());
+    expect(screen.getByText("dev@host.example.com:22")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Remove pane/ })).toBeTruthy();
+  } finally {
+    cleanup();
+    globalThis.fetch = original;
+  }
 });

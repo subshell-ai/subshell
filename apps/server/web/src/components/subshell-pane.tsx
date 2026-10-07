@@ -2,6 +2,7 @@ import { Button } from "@internal/node-admin";
 import type { ViewersState } from "@internal/subshell-protocol";
 import { RotateCcw, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SshRuntimePaneIdentity } from "@/components/connect/ssh-runtime-pane-identity";
 import { LogTail } from "@/components/log-tail";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { SubshellDevices } from "@/components/subshell-devices";
@@ -117,6 +118,10 @@ export function SubshellPane({
     onDispose?.();
   }, [onDispose]);
 
+  // Only SSH panes render this owner-scoped line; ordinary panes resolve to
+  // null. Both phone tabs and dockview share this recovery surface.
+  const sshIdentity = <SshRuntimePaneIdentity subshellId={pane.subshellId} compact />;
+
   // Shared two-button row the exited and ended panels both offer.
   const paneActions = (
     <>
@@ -137,6 +142,7 @@ export function SubshellPane({
     return (
       <div className="flex h-full flex-col bg-background">
         <div className="flex shrink-0 flex-col items-center gap-2 py-3 text-center">
+          {sshIdentity}
           <p className="text-muted-foreground text-sm">Node offline, reconnecting</p>
           <p className="text-detail text-muted-foreground">
             This subshell may still be running on its node. Output and input resume when the node reconnects to the
@@ -156,6 +162,7 @@ export function SubshellPane({
   if (exited) {
     return (
       <LogTail lines={logTail?.lines ?? []} truncated={logTail?.truncated} exitCode={pane.subshellExitCode}>
+        {sshIdentity}
         {paneActions}
       </LogTail>
     );
@@ -166,6 +173,7 @@ export function SubshellPane({
     return (
       <div className="flex h-full flex-col bg-background">
         <div className="flex shrink-0 flex-col items-center gap-2 py-3 text-center">
+          {sshIdentity}
           <p className="text-muted-foreground text-sm">Subshell ended</p>
           <div className="flex items-center gap-2">{paneActions}</div>
         </div>
@@ -179,6 +187,8 @@ export function SubshellPane({
   }
   const terminal = (
     <SubshellTerminal
+      // SSH recovery preserves the pane id but replaces its runtime node.
+      key={subshellRow?.nodeId ?? pane.subshellId}
       subshellId={pane.subshellId}
       active={active}
       showStatePanels={false}
@@ -226,6 +236,9 @@ export function SubshellPane({
       <div className="relative h-full w-full bg-terminal-strip">
         {terminal}
         {devices}
+        <div className="pointer-events-none absolute top-1 left-1 z-10 max-w-full">
+          <div className="pointer-events-auto">{sshIdentity}</div>
+        </div>
       </div>
     );
   }
@@ -238,6 +251,9 @@ export function SubshellPane({
       <div className="relative min-h-0 flex-1">
         {terminal}
         {devices}
+        <div className="pointer-events-none absolute top-1 left-1 z-10 max-w-full">
+          <div className="pointer-events-auto">{sshIdentity}</div>
+        </div>
       </div>
       <TerminalKeyBar
         key={pane.subshellId}

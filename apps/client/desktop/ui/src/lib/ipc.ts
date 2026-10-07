@@ -684,3 +684,28 @@ export function nodeCheckAppUpdate(): Promise<AppUpdateCheck> {
 export function nodeInstallAppUpdate(installNode: boolean): Promise<void> {
   return invoke<void>("node_install_app_update", { installNode });
 }
+
+/** Only the bundled page can access this computer's SSH transport. */
+export interface DesktopSshConnection {
+  id: string;
+  server: string;
+  name: string;
+  connected: boolean;
+}
+export function nodeSshConnections(): Promise<DesktopSshConnection[]> {
+  return invoke("node_ssh_connections");
+}
+export function nodeSshConnect(
+  server: string,
+  pairingToken: string | null,
+  brokerId: string | null,
+): Promise<DesktopSshConnection> {
+  return invoke("node_ssh_connect", { server, pairingToken, brokerId, confirm: true });
+}
+export function nodeSshDisconnect(server: string, id: string): Promise<void> {
+  return invoke("node_ssh_disconnect", { server, id });
+}
+
+export function nodeSshForget(server: string, id: string): Promise<void> {
+  return invoke("node_ssh_forget", { server, id });
+}

@@ -137,6 +137,7 @@ function openBody(): Record<string, unknown> {
 }
 
 const cleanup: string[] = [];
+let resolvedHost = "10.9.8.7";
 
 beforeAll(async () => {
   await ensureMigratedTestDb();
@@ -166,7 +167,11 @@ beforeAll(async () => {
   await nodes.create({ id: node, ownerUserId: memberId, name: `rt-${node.slice(0, 8)}`, kind: "agent" });
   scripted = attachScriptedNode(node, {
     ssh_discover_aliases: () => ({ aliases: ["rtbox", "other"], includeCycle: false, truncated: false }),
-    ssh_resolve_config: () => ({ accepted: true, snapshot: SNAPSHOT, connectingAccount: "x" }),
+    ssh_resolve_config: () => ({
+      accepted: true,
+      snapshot: { ...SNAPSHOT, host: resolvedHost },
+      connectingAccount: "x",
+    }),
     ssh_session_open: (cmd) => {
       if (cmd.type !== "ssh_session_open") throw new Error("wrong cmd");
       return { hello: HELLO, host: cmd.target.host, port: cmd.target.port, user: cmd.target.user };
@@ -500,6 +505,10 @@ describe("machine credentials stay refused on the whole family", () => {
   it("403s every endpoint of the family, before any ownership read", async () => {
     const probes: Promise<Answer>[] = [
       get("/api/ssh-runtime/sessions", { bearer }),
+      get("/api/ssh-runtime/locations", { bearer }),
+      post("/api/ssh-runtime/locations", { sessionId: "whatever", path: "/" }, { bearer }),
+      post("/api/ssh-runtime/locations/whatever/connect", {}, { bearer }),
+      call("/api/ssh-runtime/locations/whatever", { method: "DELETE" }, { bearer }),
       get(`/api/ssh-runtime/discovery?nodeId=${node}`, { bearer }),
       post("/api/ssh-runtime/resolve", { nodeId: node, alias: "rtbox" }, { bearer }),
       post("/api/ssh-runtime/sessions", openBody(), { bearer }),
@@ -516,5 +525,43 @@ describe("machine credentials stay refused on the whole family", () => {
       const answer = await probe;
       expect(answer.status, JSON.stringify(answer.body)).toBe(403);
     }
+  });
+});
+
+describe("durable personal SSH locations", () => {
+  it("saves a verified folder, scopes reads, reuses exactly and refuses alias drift", async () => {
+    const opened = await post("/api/ssh-runtime/sessions", openBody(), { cookie: memberCookie });
+    expect(opened.status).toBe(200);
+    const sessionId = opened.body.id as string;
+    cleanup.push(opened.body.runtimeNodeId as string);
+    const saved = await post(
+      "/api/ssh-runtime/locations",
+      { sessionId, path: "/home/theo/project" },
+      { cookie: memberCookie },
+    );
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(saved.body.path).toBe("/home/theo/project");
+    expect(saved.body).not.toHaveProperty("identityFile");
+    const id = saved.body.id as string;
+    const foreign = await get("/api/ssh-runtime/locations", { cookie: foreignCookie });
+    expect(foreign.body.locations).toEqual([]);
+    expect((await post(`/api/ssh-runtime/locations/${id}/connect`, {}, { cookie: foreignCookie })).status).toBe(404);
+    const reused = await post(`/api/ssh-runtime/locations/${id}/connect`, {}, { cookie: memberCookie });
+    expect(reused.status).toBe(200);
+    expect((reused.body.session as { id: string }).id).toBe(sessionId);
+    await post(`/api/ssh-runtime/sessions/${sessionId}/close`, {}, { cookie: memberCookie });
+    resolvedHost = "10.9.8.99";
+    const drift = await post(`/api/ssh-runtime/locations/${id}/connect`, {}, { cookie: memberCookie });
+    expect(drift.status, JSON.stringify(drift.body)).toBe(409);
+    expect(drift.body.message).toContain("different destination");
+    resolvedHost = "10.9.8.7";
+    const reconnected = await post(`/api/ssh-runtime/locations/${id}/connect`, {}, { cookie: memberCookie });
+    expect(reconnected.status, JSON.stringify(reconnected.body)).toBe(200);
+    const next = reconnected.body.session as { id: string; runtimeNodeId: string };
+    expect(next.id).not.toBe(sessionId);
+    expect((reconnected.body.location as { path: string }).path).toBe("/home/theo/project");
+    cleanup.push(next.runtimeNodeId);
+    await post(`/api/ssh-runtime/sessions/${next.id}/close`, {}, { cookie: memberCookie });
+    await call(`/api/ssh-runtime/locations/${id}`, { method: "DELETE" }, { cookie: memberCookie });
   });
 });

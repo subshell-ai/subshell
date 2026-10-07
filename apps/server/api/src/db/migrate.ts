@@ -50,6 +50,7 @@ import * as sshConnectionsMigration from "@/db/migrations/0047-ssh-connections.j
 import * as sshExecutionMigration from "@/db/migrations/0048-ssh-execution.js";
 import * as sshRuntimeSessionsMigration from "@/db/migrations/0049-ssh-runtime-sessions.js";
 import * as sshRetirementMigration from "@/db/migrations/0050-ssh-retirement.js";
+import * as sshSavedLocationsMigration from "@/db/migrations/0051-ssh-saved-locations.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -151,6 +152,7 @@ export async function runMigrations(): Promise<void> {
           // The retirement drop (0050): the destination product's five
           // tables go; the runtime-session table from 0049 stays.
           "0050-ssh-retirement": sshRetirementMigration,
+          "0051-ssh-saved-locations": sshSavedLocationsMigration,
         };
       },
     },

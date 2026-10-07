@@ -54,6 +54,7 @@ describe("the reset dialog", () => {
     expect(screen.getByText(/pane logs/)).toBeTruthy();
     expect(screen.getByText(/Subshell Server on this same machine is not touched/)).toBeTruthy();
     expect(screen.getByText(/installed subshell binary stays/)).toBeTruthy();
+    expect(screen.getByText(/SSH connections are disconnected and their saved credentials are removed/)).toBeTruthy();
     expect(screen.getAllByText(/permanent/).length).toBeGreaterThan(0);
   });
 
@@ -141,6 +142,9 @@ describe("the reset dialog", () => {
   it("offers no reset at all on a machine that is not enrolled", async () => {
     await openReset({ handlers: { node_arm_reset: () => false } });
     await screen.findByText(/not registered with a control plane/);
+    expect(
+      screen.getByText(/open SSH Connections, disconnect each computer connection, then choose Forget/),
+    ).toBeTruthy();
     expect(screen.queryByText("Reset Everything")).toBeNull();
     // The modal's way out is its own: a Close button, and Escape works when
     // nothing is running.

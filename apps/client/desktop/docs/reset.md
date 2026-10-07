@@ -38,9 +38,16 @@ binary where its own data lived.
   manage window and a zero-window moment quits it; resetting a node here
   invalidates neither of this app's windows, and the page's own re-probe lands
   it on Enroll.
-- **`planeUrl` is KEPT.** The control plane this person watches is not what they
-  reset; making them retype its address to get their dashboard back would be
-  the reset reaching past what it promised.
+- **Saved control planes are cleared**, including the last-open memory, so a
+  successful reset returns to first run (operator ruling 2026-09-22).
+- **Desktop SSH access is removed before node config deletion.** Reset stops
+  every broker child, calls the CLI's idempotent `ssh-broker --forget` for each
+  remembered connection, and clears native connection metadata. A failure
+  keeps the metadata and node config so Retry can complete. The connection
+  lock remains held until reset returns, and concurrent pairing refuses.
+  Remote panes stay running; SSH keys and config are untouched. An SSH-only
+  client has no node delete plan: the dialog directs it to SSH Connections →
+  Disconnect → Forget instead.
 - **Channel discipline:** `Err` only for refusals BEFORE the first mutation. A
   half-run is `Ok(ActionResult { ok: false })` with the verbatim log and the
   plan still stashed, so a Retry converges.

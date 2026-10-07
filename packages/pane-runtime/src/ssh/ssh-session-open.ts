@@ -87,7 +87,7 @@ export type SshSessionOpenOutcome =
 /** The live half of one session: child, dedup facts, and the stop latch. */
 export interface LiveSession {
   pid: number;
-  stdin: { write(data: Uint8Array): unknown; flushAsync?(): Promise<unknown> };
+  stdin: { write(data: Uint8Array): unknown; flush?(): number | Promise<number>; flushAsync?(): Promise<unknown> };
   result: SshSessionOpenResultWire;
   requestDigest: string;
   stopping: boolean;

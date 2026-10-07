@@ -170,3 +170,14 @@ also the display-name source for runtime node ids: `useExecutionLabels`
 merges names only for the rail, home grouping/filter, and diagnostics, never
 for the node registry or launch authorization. A runtime row remains hidden
 from node management and cannot be passed to the ordinary create endpoint.
+
+Saved SSH locations are owner-scoped server records. The launch form saves only
+canonical remote directories and reviewed origin/destination facts, never keys.
+Selecting one reuses the exact live destination or re-resolves its alias and
+refuses changed host/port/user before opening. A desktop origin is a personal
+paired broker, not a node enrollment; its label comes from the broker list.
+
+The connection setup panel lives in personal Settings > Connections. First-use
+empty states must keep desktop pairing, node selection, config examples, and
+Refresh hosts reachable. Recovery uses the same journey inside a pane dialog,
+including workspace panes, and cannot navigate away or replace placement state.

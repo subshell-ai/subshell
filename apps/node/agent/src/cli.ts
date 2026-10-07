@@ -41,6 +41,7 @@ import {
   promptYesNo,
   runSetup,
 } from "./setup.js";
+import { forgetBrokerCredential, runSshBroker } from "./ssh-broker.js";
 import { defaultUnenrollDeps, runUnenroll, type UnenrollDeps } from "./unenroll-cli.js";
 import {
   applyUpdate,
@@ -158,6 +159,8 @@ usage:
   subshell report exit <status> (the pane died; run by tmux's own hook)
   subshell pane-log --file <path> (append stdin to a pane log, flushing each
                           read; run by tmux's own pipe-pane, not by hand)
+  subshell ssh-broker --server <origin> [--broker-id <id>] [--forget]
+                          trusted desktop SSH broker; initialization on stdin
   subshell runtime-serve --session <ref> --tmux-socket <name>
                           the session-scoped runtime mode (INTERNAL, composed
                           by a brokered SSH session's remote command line,
@@ -182,6 +185,7 @@ const COMMANDS = new Set([
   "reset",
   "run",
   "runtime-serve",
+  "ssh-broker",
   "service",
   "setup",
   "status",
@@ -332,6 +336,8 @@ const FLAGS: Record<string, boolean> = {
   // per-destination socket the broker computed. No data-dir flag: the runtime
   // namespace is `SUBSHELL_RUNTIME_DATA_DIR` or the default, never argv -
   // argv-carried roots are how a path gets chosen by the wrong party.
+  "--forget": false,
+  "--broker-id": true,
   "--session": true,
   "--tmux-socket": true,
 };
@@ -366,6 +372,7 @@ const COMMAND_FLAGS: Record<string, string[]> = {
   // REQUIRED and checked in the case block, because a runtime that serves
   // without its ref or its socket would create panes nowhere.
   "runtime-serve": ["--session", "--tmux-socket"],
+  "ssh-broker": ["--server", "--broker-id", "--forget"],
   // Derived, never hand-listed: the command-level check is the union and the
   // per-subtoken check below is what actually decides.
   service: subcommandFlagUnion("service"),
@@ -648,6 +655,16 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           return fail(1, err);
         }
         return { code: 0, out: "", err: "" };
+      }
+      case "ssh-broker": {
+        if (!parsed.flags.server) return fail(2, new Error("ssh-broker requires --server <origin>"));
+        if (parsed.flags.forget) {
+          if (!parsed.flags.brokerId) return fail(2, new Error("ssh-broker --forget requires --broker-id"));
+          forgetBrokerCredential(parsed.flags.server, parsed.flags.brokerId);
+          return { code: 0, out: "", err: "" };
+        }
+        const code = await runSshBroker(parsed.flags.server, parsed.flags.brokerId);
+        return { code, out: "", err: "" };
       }
       case "runtime-serve": {
         // The session-scoped runtime mode (design 2026-10-05 §1): a pre-boot

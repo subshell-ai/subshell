@@ -12,6 +12,7 @@ import { selectStaticPlugin } from "@/plugins/static.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { originRegistry } from "@/services/trusted-origins.js";
 import { logger } from "@/utils/logger.js";
+import { desktopBrokerWsPlugin } from "@/ws/desktop-broker.plugin.js";
 import { startLivePublisher } from "@/ws/live-publisher.js";
 import { wsPlugin } from "@/ws/ws.plugin.js";
 
@@ -65,6 +66,7 @@ export function createApp() {
     // Disk dist wins when present (dev and checkout deployments behave alike);
     // else the SPA embedded by scripts/embed-web.ts; else boot fails loudly.
     .use(selectStaticPlugin(FRONTEND_DIST, EMBEDDED))
+    .use(desktopBrokerWsPlugin)
     .use(wsPlugin)
     .use(routes);
 

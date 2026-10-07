@@ -55,7 +55,7 @@ import type { NodeScreenId, NodeUserScreen } from "@/lib/node-assistant-state";
  * walk's precedence over {@link configured} is load-bearing — see
  * {@link clientScreen}.
  */
-export type FteStep = "intro" | "choice" | "node" | "startup" | "registering" | "watch";
+export type FteStep = "ssh" | "intro" | "choice" | "node" | "startup" | "registering" | "watch";
 
 /** Everything the screen decision is made from. */
 export interface FlowInput {
@@ -140,6 +140,8 @@ function walkScreen(step: FteStep, probe: Probe | undefined): NodeScreenId {
   switch (step) {
     case "choice":
       return "choice";
+    case "ssh":
+      return "ssh";
     case "watch":
       // The watch path's one screen: an address, and nothing about this
       // machine. No node, no key, nothing installed.
@@ -327,6 +329,7 @@ export const CLIENT_RAIL_SECTIONS: RailSection[] = [
   // the plane relationship is this app's subject, and the section is also
   // the landing (see {@link clientScreen} rule 4).
   { id: "plane", label: "Control Plane" },
+  { id: "ssh", label: "SSH Connections" },
   { id: "status", label: "Status" },
   // The node's own machinery (operator ruling 2026-09-22, live screenshots):
   // when the node is not installed, the install offer lives here; when it
@@ -359,6 +362,7 @@ export const CLIENT_RAIL_SECTIONS: RailSection[] = [
 export function railFor(screen: NodeScreenId | null, settled: boolean): RailSection[] | null {
   if (!settled) return null;
   switch (screen) {
+    case "ssh":
     case "status":
     case "service":
     case "plane":
@@ -373,6 +377,8 @@ export function railFor(screen: NodeScreenId | null, settled: boolean): RailSect
 /** The rail section THIS standing screen has active, or null when there is no rail. */
 export function railActive(screen: NodeScreenId | null): string | null {
   switch (screen) {
+    case "ssh":
+      return "ssh";
     case "status":
       return "status";
     case "service":

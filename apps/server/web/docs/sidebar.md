@@ -118,3 +118,8 @@ SSH runtime ids are named from the current viewer's connection history via
 must never add runtime sessions to the enrolled-node registry or authorize
 ordinary node launches. SSH connection management is reached from launch or
 a disconnected pane, rather than its own primary rail row.
+
+Personal Settings > Connections is available to every signed-in person, separate
+from the admin-only Server Settings group. The compatibility `/connect` route
+redirects there. Desktop pairing never grants the server-loaded desktop window
+new native IPC; consent and local broker startup live in the bundled Client page.

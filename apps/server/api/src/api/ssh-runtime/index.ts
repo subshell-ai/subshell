@@ -1,6 +1,8 @@
 import { Elysia } from "elysia";
+import { sshSavedLocationsRoutes } from "@/api/ssh-runtime/locations.route.js";
 import { sshRuntimeNodeVerbRoutes } from "@/api/ssh-runtime/node-verbs.route.js";
 import { sshRuntimeSessionsRoutes } from "@/api/ssh-runtime/sessions.route.js";
+import { desktopBrokerRoutes } from "./desktop-brokers.route.js";
 
 /**
  * `/api/ssh-runtime` - the Connect-over-SSH REST family (design 2026-10-05
@@ -12,5 +14,7 @@ import { sshRuntimeSessionsRoutes } from "@/api/ssh-runtime/sessions.route.js";
  * fullest chain).
  */
 export const sshRuntimeRoutes = new Elysia({ prefix: "/api/ssh-runtime" })
+  .use(desktopBrokerRoutes)
   .use(sshRuntimeNodeVerbRoutes)
-  .use(sshRuntimeSessionsRoutes);
+  .use(sshRuntimeSessionsRoutes)
+  .use(sshSavedLocationsRoutes);

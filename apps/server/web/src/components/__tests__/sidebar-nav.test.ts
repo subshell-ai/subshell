@@ -37,7 +37,7 @@ describe("visibleNavItems", () => {
       const paths = visibleNavItems(flag).map((i) => i.to);
       for (const page of GROUP_PAGES) expect(paths).not.toContain(page);
       // SSH is a launch location. Connection management has no primary rail row.
-      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/presets", "/prompts"]);
+      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/presets", "/prompts", "/settings/connections"]);
     }
   });
 
@@ -48,16 +48,18 @@ describe("visibleNavItems", () => {
       "/nodes",
       "/presets",
       "/prompts",
+      "/settings/connections",
       ...GROUP_PAGES,
     ]);
   });
 });
 
 describe("visibleNavEntries", () => {
-  it("carries exactly one group, gated as a whole", () => {
+  it("keeps personal settings separate from the gated server group", () => {
     const groups = visibleNavEntries(true).filter(isNavGroup);
-    expect(groups.map((g) => g.label)).toEqual(["Server Settings"]);
-    expect(groups[0]?.requiresAdmin).toBe(true);
+    expect(groups.map((g) => g.label)).toEqual(["Settings", "Server Settings"]);
+    expect(groups[0]?.requiresAdmin).toBeUndefined();
+    expect(groups[1]?.requiresAdmin).toBe(true);
   });
 
   it("puts the gate on the group and nowhere else", () => {
@@ -69,7 +71,12 @@ describe("visibleNavEntries", () => {
   });
 
   it("drops the group whole while the flag is false or unknown", () => {
-    for (const flag of [false, undefined]) expect(visibleNavEntries(flag).filter(isNavGroup)).toEqual([]);
+    for (const flag of [false, undefined])
+      expect(
+        visibleNavEntries(flag)
+          .filter(isNavGroup)
+          .map((group) => group.id),
+      ).toEqual(["personal-settings"]);
   });
 });
 
@@ -97,4 +104,10 @@ describe("groupOpen", () => {
   it("lets a press open a group you are outside", () => {
     expect(groupOpen(true, false)).toBe(true);
   });
+});
+
+it("offers personal connections to members while retaining the admin settings gate", () => {
+  expect(visibleNavItems(false).some((item) => item.to === "/settings/connections")).toBe(true);
+  expect(visibleNavItems(undefined).some((item) => item.to === "/settings/connections")).toBe(true);
+  expect(visibleNavItems(false).some((item) => item.to === "/settings/users")).toBe(false);
 });

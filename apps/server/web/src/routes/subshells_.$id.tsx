@@ -377,10 +377,12 @@ function SubshellPage() {
             every birth — including a LIVE restart, where the client never sees
             `alive:false` (the POST returns after the pane is already respawned)
             and an aliveness key would leave the socket wedged on the transient
-            4004 it hits during the kill→respawn gap. */}
+            4004 it hits during the kill→respawn gap. SSH recovery also changes
+            nodeId while preserving startedAt: that new runtime needs a fresh
+            terminal and attachment even though the pane itself survives. */}
         {(subshell || isError) && (
           <SubshellTerminal
-            key={`${id}:${subshell?.startedAt ?? "missing"}`}
+            key={`${id}:${subshell?.nodeId ?? "missing"}:${subshell?.startedAt ?? "missing"}`}
             subshellId={id}
             subshell={subshell}
             onReady={handleTerminalReady}

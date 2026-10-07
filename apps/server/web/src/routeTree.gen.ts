@@ -27,6 +27,7 @@ import { Route as PresetsIdRouteImport } from './routes/presets_.$id'
 import { Route as SettingsApiKeysRouteImport } from './routes/settings_.api-keys'
 import { Route as SettingsAuthRouteImport } from './routes/settings_.auth'
 import { Route as SettingsBackupsRouteImport } from './routes/settings_.backups'
+import { Route as SettingsConnectionsRouteImport } from './routes/settings_.connections'
 import { Route as SettingsLogsRouteImport } from './routes/settings_.logs'
 import { Route as SettingsNetworkingRouteImport } from './routes/settings_.networking'
 import { Route as SettingsPluginsRouteImport } from './routes/settings_.plugins'
@@ -129,6 +130,11 @@ const SettingsBackupsRoute = SettingsBackupsRouteImport.update({
   path: '/settings/backups',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsConnectionsRoute = SettingsConnectionsRouteImport.update({
+  id: '/settings_/connections',
+  path: '/settings/connections',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsLogsRoute = SettingsLogsRouteImport.update({
   id: '/settings_/logs',
   path: '/settings/logs',
@@ -204,6 +210,7 @@ export interface FileRoutesByFullPath {
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/auth': typeof SettingsAuthRoute
   '/settings/backups': typeof SettingsBackupsRoute
+  '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/logs': typeof SettingsLogsRoute
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
@@ -235,6 +242,7 @@ export interface FileRoutesByTo {
   '/settings/api-keys': typeof SettingsApiKeysRoute
   '/settings/auth': typeof SettingsAuthRoute
   '/settings/backups': typeof SettingsBackupsRoute
+  '/settings/connections': typeof SettingsConnectionsRoute
   '/settings/logs': typeof SettingsLogsRoute
   '/settings/networking': typeof SettingsNetworkingRoute
   '/settings/plugins': typeof SettingsPluginsRoute
@@ -267,6 +275,7 @@ export interface FileRoutesById {
   '/settings_/api-keys': typeof SettingsApiKeysRoute
   '/settings_/auth': typeof SettingsAuthRoute
   '/settings_/backups': typeof SettingsBackupsRoute
+  '/settings_/connections': typeof SettingsConnectionsRoute
   '/settings_/logs': typeof SettingsLogsRoute
   '/settings_/networking': typeof SettingsNetworkingRoute
   '/settings_/plugins': typeof SettingsPluginsRoute
@@ -300,6 +309,7 @@ export interface FileRouteTypes {
     | '/settings/api-keys'
     | '/settings/auth'
     | '/settings/backups'
+    | '/settings/connections'
     | '/settings/logs'
     | '/settings/networking'
     | '/settings/plugins'
@@ -331,6 +341,7 @@ export interface FileRouteTypes {
     | '/settings/api-keys'
     | '/settings/auth'
     | '/settings/backups'
+    | '/settings/connections'
     | '/settings/logs'
     | '/settings/networking'
     | '/settings/plugins'
@@ -362,6 +373,7 @@ export interface FileRouteTypes {
     | '/settings_/api-keys'
     | '/settings_/auth'
     | '/settings_/backups'
+    | '/settings_/connections'
     | '/settings_/logs'
     | '/settings_/networking'
     | '/settings_/plugins'
@@ -394,6 +406,7 @@ export interface RootRouteChildren {
   SettingsApiKeysRoute: typeof SettingsApiKeysRoute
   SettingsAuthRoute: typeof SettingsAuthRoute
   SettingsBackupsRoute: typeof SettingsBackupsRoute
+  SettingsConnectionsRoute: typeof SettingsConnectionsRoute
   SettingsLogsRoute: typeof SettingsLogsRoute
   SettingsNetworkingRoute: typeof SettingsNetworkingRoute
   SettingsPluginsRoute: typeof SettingsPluginsRoute
@@ -535,6 +548,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsBackupsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings_/connections': {
+      id: '/settings_/connections'
+      path: '/settings/connections'
+      fullPath: '/settings/connections'
+      preLoaderRoute: typeof SettingsConnectionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings_/logs': {
       id: '/settings_/logs'
       path: '/settings/logs'
@@ -634,6 +654,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsApiKeysRoute: SettingsApiKeysRoute,
   SettingsAuthRoute: SettingsAuthRoute,
   SettingsBackupsRoute: SettingsBackupsRoute,
+  SettingsConnectionsRoute: SettingsConnectionsRoute,
   SettingsLogsRoute: SettingsLogsRoute,
   SettingsNetworkingRoute: SettingsNetworkingRoute,
   SettingsPluginsRoute: SettingsPluginsRoute,

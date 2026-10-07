@@ -52,6 +52,8 @@ interface JourneyFetchOptions {
   /** Set to make discovery answer non-OK (the failure-vs-empty branch). */
   discoveryStatus?: number;
   resolveBody?: unknown;
+  brokersStatus?: number;
+  brokerRead?: Promise<void>;
 }
 
 function mockFetch(over: JourneyFetchOptions = {}) {
@@ -62,6 +64,12 @@ function mockFetch(over: JourneyFetchOptions = {}) {
     seen.push(`${init?.method ?? "GET"} ${url.pathname}`);
     if (url.pathname === "/api/settings/public")
       return json({ viewerIsAdmin: over.admin ?? false, allowServerSubshells: over.serverEnabled ?? true });
+    if (url.pathname === "/api/ssh-runtime/desktop-brokers") {
+      await over.brokerRead;
+      return over.brokersStatus
+        ? json({ message: "Computer connections unavailable" }, over.brokersStatus)
+        : json({ brokers: [] });
+    }
     if (url.pathname === "/api/nodes") return json({ nodes: over.nodes ?? [] });
     if (url.pathname === "/api/presets") return json([]);
     if (url.pathname === "/api/ssh-runtime/discovery") {
@@ -123,6 +131,9 @@ describe("ConnectJourney machine step", () => {
     try {
       await renderJourney();
       expect(screen.getByText(/No connecting machines are available/)).toBeTruthy();
+      expect(screen.getByRole("link", { name: /Connect this computer in Settings/ }).getAttribute("href")).toBe(
+        "/settings/connections",
+      );
       // The shared machine is NOT listed: broker rights are ownership, not access.
       expect(screen.queryByRole("button", { name: /Laptop/ })).toBeNull();
     } finally {
@@ -160,6 +171,11 @@ describe("ConnectJourney host step", () => {
       await renderJourney({ nodeId: "n1", alias: "staging" });
       expect(await screen.findByText(/No SSH host aliases were found/)).toBeTruthy();
       expect(screen.queryByText(/could not be read/)).toBeNull();
+      expect(screen.getByText(/HostName host.example.com/)).toBeTruthy();
+      const readsBefore = m.seen.filter((url) => url.includes("/discovery")).length;
+      fireEvent.click(screen.getByRole("button", { name: "Refresh hosts" }));
+      await settle();
+      expect(m.seen.filter((url) => url.includes("/discovery")).length).toBeGreaterThan(readsBefore);
     } finally {
       m.restore();
     }
@@ -225,6 +241,10 @@ describe("ConnectJourney review step", () => {
       fireEvent.click(await screen.findByRole("button", { name: "staging" }));
       expect(await screen.findByText("deploy@app-02:22")).toBeTruthy();
       expect(screen.getByText(/Laptop as theo/)).toBeTruthy();
+      expect(screen.getByRole("link", { name: "Download the Subshell CLI" }).getAttribute("href")).toBe(
+        "https://github.com/subshell-ai/subshell/releases?q=cli-node",
+      );
+      expect(screen.getByText(/Do not run subshell setup/)).toBeTruthy();
       expect(screen.getByRole("button", { name: "Connect" }).hasAttribute("disabled")).toBe(false);
     } finally {
       m.restore();
@@ -253,6 +273,41 @@ describe("server connection origin", () => {
     try {
       await renderJourney();
       expect(screen.queryByRole("button", { name: /Server/ })).toBeNull();
+    } finally {
+      m.restore();
+    }
+  });
+});
+
+describe("connecting computer discovery", () => {
+  it("waits for computer connections before declaring no machines", async () => {
+    let release = () => {};
+    const m = mockFetch({
+      brokerRead: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    });
+    try {
+      await renderJourney();
+      expect(screen.queryByText(/No connecting machines are available/)).toBeNull();
+      release();
+      await settle();
+      expect(screen.getByText(/No connecting machines are available/)).toBeTruthy();
+    } finally {
+      release();
+      m.restore();
+    }
+  });
+  it("reports computer discovery failures with retry instead of an empty verdict", async () => {
+    const m = mockFetch({ brokersStatus: 503 });
+    try {
+      await renderJourney();
+      expect(screen.queryByText(/No connecting machines are available/)).toBeNull();
+      expect(screen.getByRole("alert")).toBeTruthy();
+      const before = m.seen.filter((url) => url.includes("desktop-brokers")).length;
+      fireEvent.click(screen.getByRole("button", { name: "Retry computer connections" }));
+      await settle();
+      expect(m.seen.filter((url) => url.includes("desktop-brokers")).length).toBeGreaterThan(before);
     } finally {
       m.restore();
     }

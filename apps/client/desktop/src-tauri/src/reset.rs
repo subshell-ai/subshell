@@ -235,6 +235,20 @@ pub fn node_reset(app: AppHandle, settings: State<'_, SettingsState>, typed: Str
             ),
         });
     }
+    // Desktop SSH is independent of node enrollment. Remove its authority
+    // before config.json, preserving the staged node plan for a failed retry.
+    // The guard prevents a new pairing until the entire reset has returned.
+    let _ssh_reset = match crate::ssh::reset_access(&app) {
+        Ok(guard) => guard,
+        Err(stderr) => {
+            return Ok(ActionResult {
+                ok: false,
+                stdout: log,
+                stderr,
+            })
+        }
+    };
+    log.push_str("disconnected desktop SSH and removed saved SSH credentials\n");
     // 4. Delete, absence = done, config.json last. Every deletion's failure
     // ends the chain: a surviving node key announced as a completed reset is
     // worse than a refusal, because the hostname was typed against the promise
