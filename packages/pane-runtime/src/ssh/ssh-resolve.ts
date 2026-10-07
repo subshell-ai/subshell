@@ -37,9 +37,10 @@ import { runSshProcess, sshChildPath } from "./ssh-spawn.js";
  * resolution. The walk separately detects `Match exec` and refuses to make
  * such a config a saved connection, but detection happens after the eval, so
  * the refusal is about what gets stored, not about what already ran. The
- * resolve command's JSDoc on the wire names this; UI copy must render it
- * before the button. The doctrine ("configuration is executable") is this
- * engine's own Gate A contract, carried verbatim; the governing design sits in
+ * grammar's own header names the doctrine ("Configuration here is executable,
+ * not passive data", ssh-config.ts); Plan 2's wire JSDoc and UI copy must
+ * carry the disclosure before the button. It is this engine's Gate A contract,
+ * carried verbatim; the governing design sits in
  * docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md section 5.2.
  */
 
