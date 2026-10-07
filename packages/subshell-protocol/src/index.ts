@@ -226,5 +226,27 @@ export {
   type SizingPolicy,
   type ViewerCapacity,
 } from "./shared-geometry.js";
+export {
+  parseSshConnectionSnapshot,
+  SSH_FORBIDDEN_SNAPSHOT_FIELDS,
+  type SshConnectionSnapshotWire,
+  type SshHopWire,
+} from "./ssh-config.js";
+export {
+  isSshErrorCode,
+  SSH_ERROR_CODES,
+  SSH_ERROR_DESCRIPTIONS,
+  type SshErrorCode,
+} from "./ssh-errors.js";
+export {
+  SSH_MAX_DISCOVERED_ALIASES,
+  SSH_MAX_PROXY_HOPS,
+  SSH_NAME_MAX_CHARS,
+  SSH_PROBE_DEADLINE_MS,
+} from "./ssh-limits.js";
+export type {
+  NodeSshAliasListResult,
+  NodeSshResolveOutcomeWire,
+} from "./ssh-results.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";
 export { MIN_NODE_VERSION, nodeVersionSupported, semverLt } from "./versions.js";
