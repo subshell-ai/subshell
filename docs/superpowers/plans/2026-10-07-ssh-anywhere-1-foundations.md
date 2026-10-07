@@ -1,4 +1,4 @@
-# SSH Anywhere — Plan 1: Foundations (gate + ported primitives) Implementation Plan
+# SSH Anywhere - Plan 1: Foundations (gate + ported primitives) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -84,12 +84,12 @@ git show "$B:packages/subshell-protocol/src/__tests__/ssh-config.test.ts" > pack
 grep -nE "from \"node:" packages/subshell-protocol/src/ssh-config.ts packages/subshell-protocol/src/ssh-limits.ts  # MUST print nothing
 ```
 
-Expected: the `grep` prints nothing (these two are `node:`-free, so they are barrel-safe). If it prints any line, that module is NOT grammar and belongs in `pane-runtime` instead — stop and re-scope.
+Expected: the `grep` prints nothing (these two are `node:`-free, so they are barrel-safe). If it prints any line, that module is NOT grammar and belongs in `pane-runtime` instead - stop and re-scope.
 
 - [ ] **Step 2: Run the ported grammar test to confirm the copy is complete**
 
 Run: `cd /home/theo/projects/wt-ssh-anywhere/packages/subshell-protocol && env -u SHELLOPTS -u BASHOPTS bun test src/__tests__/ssh-config.test.ts`
-Expected: the test imports from `../ssh-config.js`; it FAILS with "Cannot find module `../ssh-limits.js`" only if a symbol is missing — otherwise it may already pass because the two files are self-contained. If it references symbols that live in files NOT yet ported (e.g. `ssh-frames`), trim the test to the symbols actually in these two files for now, or port those symbols too. Record what the test needs.
+Expected: the test imports from `../ssh-config.js`; it FAILS with "Cannot find module `../ssh-limits.js`" only if a symbol is missing - otherwise it may already pass because the two files are self-contained. If it references symbols that live in files NOT yet ported (e.g. `ssh-frames`), trim the test to the symbols actually in these two files for now, or port those symbols too. Record what the test needs.
 
 - [ ] **Step 3: Barrel-export the grammar**
 
@@ -182,7 +182,7 @@ describe("discoverSshAliases", () => {
 });
 ```
 
-(Adapt the call signature to what `ssh-discover.ts` actually exports — read its top-level function before finalizing the assertion.)
+(Adapt the call signature to what `ssh-discover.ts` actually exports - read its top-level function before finalizing the assertion.)
 
 - [ ] **Step 3: Run the test to see it fail before wiring the barrel**
 
@@ -404,7 +404,7 @@ Mirror the structure of the existing `set-node-maintenance` route test: create a
 
 - [ ] **Step 2: Run to confirm it fails**, then **Step 3: implement `setSshEnabled` in the repository** (copy `setMaintenance`'s shape, only `ssh_enabled`/`ssh_enabled_at`, `ssh_enabled: on ? 1 : 0`).
 
-- [ ] **Step 4: add `sshEnabled` to the view** — in `NodeViewSchema` a `sshEnabled: t.Boolean({ description: "…" })`; in `nodeViewBase`, `sshEnabled: row.sshEnabled === 1`. Both list and detail flow through `nodeViewBase`, so one add lands both.
+- [ ] **Step 4: add `sshEnabled` to the view** - in `NodeViewSchema` a `sshEnabled: t.Boolean({ description: "…" })`; in `nodeViewBase`, `sshEnabled: row.sshEnabled === 1`. Both list and detail flow through `nodeViewBase`, so one add lands both.
 
 - [ ] **Step 5: write the route** (copy `set-node-maintenance.route.ts`):
 
@@ -441,7 +441,7 @@ Mount it in `api/nodes/index.ts` beside the maintenance route.
 **Interfaces:**
 - Produces: `sshEnabledPath(dataDir)`, `readSshEnabled(dataDir): {kind:"on"|"absent"|"unreadable", changedAt?}` (absent⇒treated off; unreadable⇒refuse), `writeSshEnabled`, `reportSshEnabled`, `seedSshEnabledMemo`, `pushSetSshEnabled(nodeId, {on, changedAt})` (no-op for `local`), `reconcileSshEnabled(nodeId, reported)`, protocol `NodeSshEnabledWire`/`parseNodeSshEnabled`/`set_ssh_enabled` arm/`ready.sshEnabled`.
 
-- [ ] **Step 1: Failing node-side test** — `readSshEnabled` on an empty dir → `{kind:"absent"}`; after `writeSshEnabled({on:true})` → `{kind:"on"}`; a chmod-000 (or unreadable) file → `{kind:"unreadable"}`; assert the classifier maps `absent|unreadable` to "SSH refused" and only `on:true` to "allowed".
+- [ ] **Step 1: Failing node-side test** - `readSshEnabled` on an empty dir → `{kind:"absent"}`; after `writeSshEnabled({on:true})` → `{kind:"on"}`; a chmod-000 (or unreadable) file → `{kind:"unreadable"}`; assert the classifier maps `absent|unreadable` to "SSH refused" and only `on:true` to "allowed".
 
 - [ ] **Step 2: Run to confirm fail.**
 
@@ -451,9 +451,9 @@ Mount it in `api/nodes/index.ts` beside the maintenance route.
 
 - [ ] **Step 5: Agent executor** `commands/set-ssh-enabled.ts` mirroring `set-maintenance.ts`: write the mirror file, set `ctx.lastReportedSshEnabled`, return `{ ok: true }`. Dispatch it in `commands/index.ts`.
 
-- [ ] **Step 6: Reporting** — in `report.ts` add `reportSshEnabled(ctx, on)`, `maybeReportSshEnabled(ctx)` (heartbeat belt vs `ctx.lastReportedSshEnabled`), `seedSshEnabledMemo(ctx)`; in `daemon.ts` include `...(sshEnabled ? { sshEnabled } : {})` in `readyEvent`.
+- [ ] **Step 6: Reporting** - in `report.ts` add `reportSshEnabled(ctx, on)`, `maybeReportSshEnabled(ctx)` (heartbeat belt vs `ctx.lastReportedSshEnabled`), `seedSshEnabledMemo(ctx)`; in `daemon.ts` include `...(sshEnabled ? { sshEnabled } : {})` in `readyEvent`.
 
-- [ ] **Step 7: Plane reconcile** — `services/nodes/ssh-enabled.ts`: `setNodeSshEnabled` (row write + audit + best-effort push), `pushSetSshEnabled` (`if (nodeId === LOCAL_NODE_ID) return;` then `sendCommand(..., { type: "set_ssh_enabled", ... })` best-effort), `reconcileSshEnabled(nodeId, reported)` (plane value is authoritative: if the reported mirror disagrees with the row, push the row value; never adopt from the node). Wire `reconcileSshEnabled` into the on-`ready` hooks (`node-events.ts` + `index.ts`), alongside the existing `onMaintenance`.
+- [ ] **Step 7: Plane reconcile** - `services/nodes/ssh-enabled.ts`: `setNodeSshEnabled` (row write + audit + best-effort push), `pushSetSshEnabled` (`if (nodeId === LOCAL_NODE_ID) return;` then `sendCommand(..., { type: "set_ssh_enabled", ... })` best-effort), `reconcileSshEnabled(nodeId, reported)` (plane value is authoritative: if the reported mirror disagrees with the row, push the row value; never adopt from the node). Wire `reconcileSshEnabled` into the on-`ready` hooks (`node-events.ts` + `index.ts`), alongside the existing `onMaintenance`.
 
 - [ ] **Step 8: Run all touched tests + build**:
 `cd /home/theo/projects/wt-ssh-anywhere && bunx turbo build --filter=@internal/subshell-protocol && cd apps/node/agent && env -u SHELLOPTS -u BASHOPTS bun test src/__tests__/ssh-enabled.test.ts && cd ../../server/api && env -u SHELLOPTS -u BASHOPTS bun test src/services/nodes`
@@ -477,9 +477,9 @@ bunx turbo build
 
 Expected: all green. `verify-types` is what proves the port engines' barrel edits and the new protocol arms typecheck across dependents.
 
-- [ ] **Step 2: Focused suite counts** — run the protocol, pane-runtime, node-agent, and server/api suites touched above and confirm the FILE COUNTs are non-zero (bun skips bad paths silently).
+- [ ] **Step 2: Focused suite counts** - run the protocol, pane-runtime, node-agent, and server/api suites touched above and confirm the FILE COUNTs are non-zero (bun skips bad paths silently).
 
-- [ ] **Step 3: Changeset** — add a minor changeset noting the new `nodes.ssh_enabled` gate (migration 0047) and the ported ssh primitives, so release tooling sees the schema change.
+- [ ] **Step 3: Changeset** - add a minor changeset noting the new `nodes.ssh_enabled` gate (migration 0047) and the ported ssh primitives, so release tooling sees the schema change.
 
 - [ ] **Step 4: Commit** and open the stacked PR:
 
@@ -492,6 +492,6 @@ gh pr create --base feat/ssh-anywhere --title "SSH anywhere 1/3: foundations (ss
 
 ## Self-Review (author, after writing)
 
-- **Spec coverage:** Plan 1 covers spec §4.3 (the gate), §7 (`ssh_enabled` column), §15 (port grammar + engines + fixture), and the `nodeCanSsh` predicate from §5/§13. It does NOT cover the destination-first UI (§11), the terminal launch, or host-key pinning — those are Plans 2 and 3, by design. No M2 (relay) items leaked in.
+- **Spec coverage:** Plan 1 covers spec §4.3 (the gate), §7 (`ssh_enabled` column), §15 (port grammar + engines + fixture), and the `nodeCanSsh` predicate from §5/§13. It does NOT cover the destination-first UI (§11), the terminal launch, or host-key pinning - those are Plans 2 and 3, by design. No M2 (relay) items leaked in.
 - **Type consistency:** the wire type name is `NodeSshEnabledWire` everywhere; the repo method is `setSshEnabled`; the predicate is `nodeCanSsh`; the audit action is `node.ssh_enabled`; the migration is `0047`. Confirm each before building on it in Plan 2.
-- **Placeholders:** every "copy from `maintenance.ts`"/`git show` step names the exact source; new code is shown in full. Where a step says "adapt to the actual export name/`test-database` helper path," that is a deliberate verify-against-source instruction, not a content gap — resolve it during the task, do not leave a stub.
+- **Placeholders:** every "copy from `maintenance.ts`"/`git show` step names the exact source; new code is shown in full. Where a step says "adapt to the actual export name/`test-database` helper path," that is a deliberate verify-against-source instruction, not a content gap - resolve it during the task, do not leave a stub.
