@@ -12,6 +12,7 @@ import {
   nodeCanLaunchOn,
   nodeCanManage,
   nodeCanManageFor,
+  nodeCanSsh,
   resolveNodeAccess,
 } from "@/lib/node-access.js";
 
@@ -295,5 +296,46 @@ describe("nodeCanLaunchOn", () => {
       expect(nodeCanLaunchOn("local", "edit", "edit", false, false)).toBe(false);
       expect(nodeCanLaunchOn("local", "edit", "edit", true, false)).toBe(false);
     });
+  });
+});
+
+describe("nodeCanSsh", () => {
+  it("refuses when the node's SSH gate is off, whoever the actor is", () => {
+    expect(
+      nodeCanSsh({ kind: "agent", access: "owner", isAdmin: false, serverAccountEnabled: true, sshEnabled: false }),
+    ).toBe(false);
+  });
+  it("refuses a non-owner even when enabled and shared edit", () => {
+    expect(
+      nodeCanSsh({ kind: "agent", access: "edit", isAdmin: false, serverAccountEnabled: true, sshEnabled: true }),
+    ).toBe(false);
+  });
+  it("refuses an admin on someone else's node: the boost confers management, never SSH use", () => {
+    expect(
+      nodeCanSsh({ kind: "agent", access: "edit", isAdmin: true, serverAccountEnabled: true, sshEnabled: true }),
+    ).toBe(false);
+  });
+  it("allows an owner of an enabled agent node", () => {
+    expect(
+      nodeCanSsh({ kind: "agent", access: "owner", isAdmin: false, serverAccountEnabled: true, sshEnabled: true }),
+    ).toBe(true);
+  });
+  it("allows an admin on the enabled local server (admins resolve to edit, never owner)", () => {
+    expect(
+      nodeCanSsh({ kind: "local", access: "edit", isAdmin: true, serverAccountEnabled: true, sshEnabled: true }),
+    ).toBe(true);
+  });
+  it("the seeded Everyone edit grant on local does not confer SSH use", () => {
+    expect(
+      nodeCanSsh({ kind: "local", access: "edit", isAdmin: false, serverAccountEnabled: true, sshEnabled: true }),
+    ).toBe(false);
+  });
+  it("local honors the server-as-node switch", () => {
+    expect(
+      nodeCanSsh({ kind: "local", access: "owner", isAdmin: false, serverAccountEnabled: true, sshEnabled: true }),
+    ).toBe(true);
+    expect(
+      nodeCanSsh({ kind: "local", access: "edit", isAdmin: true, serverAccountEnabled: false, sshEnabled: true }),
+    ).toBe(false);
   });
 });
