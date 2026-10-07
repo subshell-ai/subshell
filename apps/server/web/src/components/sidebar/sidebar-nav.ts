@@ -17,7 +17,6 @@ import {
   SlidersHorizontal,
   TerminalSquare,
   Users,
-  Waypoints,
 } from "lucide-react";
 
 /** Sidebar item: route target + icon. */
@@ -59,11 +58,6 @@ const NAV_ENTRIES: NavEntry[] = [
   { to: "/", label: "Subshells", icon: TerminalSquare },
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
   { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
-  // Beside Nodes, because it is the other way a machine joins the work: the
-  // rail's row is the personal Connect-over-SSH journey (design 2026-10-05
-  // §1/§7), visible to every signed-in user. The admin SSH page that preceded
-  // it retired with the destination product (design 2026-10-05 §7).
-  { to: "/connect", label: "Connect over SSH", icon: Waypoints, short: "Connect" },
   { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
   // Beside Presets: both are saved launch material, one is settings, one is text.
   { to: "/prompts", label: "Prompts", icon: MessageSquareText, short: "Prompts" },

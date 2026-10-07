@@ -5,8 +5,11 @@ import { db } from "@/db/index.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { audit } from "@/services/audit.js";
+import { publishLive } from "@/services/live-bus.js";
+import { lockdownEnabled } from "@/services/lockdown.js";
 import { nodeSelfInvoke, planRemoteSubshellMcp } from "@/services/mcp-launch.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
+import { PROMPT_POLL_MS, PROMPT_SETTLE_TIMEOUT_MS } from "@/services/subshell-manager.service.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { resolveDestinationDir } from "./launch-dir.js";
 import { RuntimeSessionLauncher } from "./runtime-session-launcher.js";
@@ -75,6 +78,8 @@ export async function sessionLaunchTerminal(
   body: { cwd: string; cols?: number; rows?: number },
 ): Promise<{ subshellId: string }> {
   const session = requireOwnedSession(sessionId, userId);
+  if (await lockdownEnabled(db))
+    throw new SshRuntimeRefusal(409, "This instance is in lockdown. No new subshells can be started.");
   const harness = getHarness("terminal");
   if (harness === undefined) throw new SshRuntimeRefusal(500, "the built-in terminal harness is not available");
   // Stat-verified BEFORE the row (F3, design §7): a missing destination
@@ -192,9 +197,11 @@ export async function sessionLaunchTerminal(
 export async function sessionLaunchHarness(
   sessionId: string,
   userId: string,
-  body: { harnessId: string; presetId?: string | null; cwd: string; cols?: number; rows?: number },
-): Promise<{ subshellId: string }> {
+  body: { harnessId: string; presetId?: string | null; cwd: string; cols?: number; rows?: number; prompt?: string },
+): Promise<{ subshellId: string; promptDelivered?: boolean }> {
   const session = requireOwnedSession(sessionId, userId);
+  if (await lockdownEnabled(db))
+    throw new SshRuntimeRefusal(409, "This instance is in lockdown. No new subshells can be started.");
   const harness = getHarness(body.harnessId);
   if (harness === undefined) throw new SshRuntimeRefusal(409, `unknown harness: ${body.harnessId}`);
   const presetRow = body.presetId ? await presetsRepo.findById(body.presetId) : undefined;
@@ -314,7 +321,14 @@ export async function sessionLaunchHarness(
       ...(presetRow ? { presetId: presetRow.id } : {}),
     }),
   });
-  return { subshellId: id };
+  publishLive({ kind: "subshell.changed", id });
+  let promptDelivered = false;
+  if (body.prompt?.trim()) {
+    promptDelivered = await launcher
+      .deliverPrompt(socket, id, body.prompt, PROMPT_SETTLE_TIMEOUT_MS, PROMPT_POLL_MS)
+      .catch(() => false);
+  }
+  return { subshellId: id, promptDelivered };
 }
 
 /**

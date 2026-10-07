@@ -23,6 +23,7 @@ import { TranscriptSearch } from "@/components/transcript-search";
 import { TrustIndicators } from "@/components/trust-indicators";
 import { TrustNoticeBanner } from "@/components/trust-notice-banner";
 import { useClockTick } from "@/hooks/use-clock-tick";
+import { useExecutionLabels } from "@/hooks/use-execution-labels";
 import { useIsCoarsePointer } from "@/hooks/use-is-coarse-pointer";
 import { useIsStackedHeader } from "@/hooks/use-is-stacked-header";
 import { useNodes } from "@/hooks/use-nodes";
@@ -114,11 +115,12 @@ function SubshellPage() {
   // a failed background refresh keeps the cache, and relabeling resolved
   // names on a blip is the bug that shape caused once.
   const { data: nodesData } = useNodes();
+  const nodeLabels = useExecutionLabels(nodesData?.nodes);
   const nodeLabel = useMemo(() => {
     if (!subshell) return null;
     const nodeId = subshell.nodeId || FALLBACK_NODE_ID;
-    return nodeLabelFor(nodeId, nodesData?.nodes, nodesData === undefined).label;
-  }, [subshell, nodesData]);
+    return nodeLabelFor(nodeId, nodeLabels, nodesData === undefined).label;
+  }, [subshell, nodesData, nodeLabels]);
 
   /** Renames this subshell in place (the header title edits itself). */
   async function saveName(name: string): Promise<void> {

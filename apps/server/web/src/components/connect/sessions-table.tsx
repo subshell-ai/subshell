@@ -63,7 +63,7 @@ export function SessionsTable({
   if (sessions.length === 0) {
     return (
       <p className="text-detail text-muted-foreground">
-        Your sessions land here after you connect. The list is yours alone.
+        No SSH connections yet. Choose SSH host when opening a new subshell or adding a workspace pane.
       </p>
     );
   }
@@ -93,8 +93,8 @@ export function SessionsTable({
               </span>
               <span className="flex items-center gap-1">
                 {(s.status === "lost" || s.status === "closed") && (
-                  <Button variant="ghost" size="sm" onClick={() => onReopen(s)} title="Reopen this destination">
-                    <ArrowUpCircle className="h-4 w-4" /> Reopen
+                  <Button variant="ghost" size="sm" onClick={() => onReopen(s)} title="Reconnect to this host">
+                    <ArrowUpCircle className="h-4 w-4" /> Reconnect
                   </Button>
                 )}
                 {(s.status === "active" || s.status === "opening") && (
@@ -106,7 +106,7 @@ export function SessionsTable({
             </div>
             {s.status === "lost" && (
               <p className="mt-1 text-detail text-muted-foreground" role="status">
-                The connection dropped; the destination is unavailable, not completed. Reopen to reconcile.
+                The connection dropped; the destination is unavailable, not completed. Reconnect to continue working.
               </p>
             )}
             {s.status === "closed" && (

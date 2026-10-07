@@ -266,3 +266,30 @@ authorized.
 Record a walkthrough of host selection, remote folder choice, remote agent launch,
 missing-runtime guidance, and disconnect/reconnect. Review that actual journey
 against this document before declaring implementation complete.
+
+## UX revision: remote work in the ordinary launch flow (2026-10-06)
+
+The primary tasks are starting work in a remote folder, returning to a project,
+adding remote panes to a workspace, and recovering a dropped connection. A
+standalone SSH wizard is not the primary navigation for those tasks.
+
+- New subshell and workspace pane creation offer **SSH host** as a location.
+  Pick a connected host or connect a new one, choose its folder, then choose an
+  agent or terminal installed there. The usual launch action owns creation and
+  workspace attachment. Presets change agent settings without moving the selected
+  remote host or importing a path from a different filesystem.
+- The connection origin is explicit: the browser uses an owned enrolled machine,
+  or, for admins only, the server account subject to its launch/maintenance gates.
+  The destination needs the runtime binary, not enrollment. Native desktop account
+  access remains behind the bundled window's existing privilege boundary.
+- Keep `/connect` as secondary **SSH connections** management, reachable from
+  launch and disconnected panes; remove its primary sidebar item. Reconnection
+  uses the existing adoption logic. Disconnecting keeps destination panes running
+  and the confirmation must say so.
+- Keep session creation separate from pane creation internally. Cancelling a
+  launch after connecting leaves a reusable connection in the personal list.
+  Switching locations clears machine-specific paths; no failed SSH launch may
+  fall back to the server or a previously selected machine.
+- Acceptance includes a non-admin SSH launch from the regular dialog, reuse from
+  a workspace without navigation or another connection, a missing-runtime remedy,
+  and server-origin authorization and cleanup regressions.

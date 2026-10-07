@@ -1,8 +1,10 @@
 import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { SSH_SESSIONS_QUERY_KEY } from "@/hooks/use-ssh-runtime";
 import { joinPromptBlocks, type PromptBlock, presetBlocksToWire, promptLaunchMissed } from "@/lib/prompt-stack";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
+import { sshRuntimeFetch } from "@/lib/ssh-runtime";
 import type { PresetRow } from "@/types/preset";
 
 /** The fields the shared new-subshell form collects. */
@@ -27,6 +29,8 @@ export interface CreateSubshellInput {
    * Node picked in the form; "" = no valid choice yet (blocks submit upstream).
    */
   nodeId?: string;
+  /** Selected live SSH connection; never sent to the ordinary node launch endpoint. */
+  sshSessionId?: string;
   /** The prompt stack, joined into `prompt` when non-empty (spec
    *  2026-09-28; the launch form's checkbox was retired 2026-09-30 - the
    *  blocks ARE the switch). */
@@ -99,6 +103,22 @@ export function useCreateSubshell() {
     // `promptDelivered: false` is honest "started, prompt did not land": the
     // caller can point at the inject action instead of assuming the task went in.
     mutationFn: async (input: CreateSubshellInput) => {
+      if (input.sshSessionId !== undefined) {
+        if (!input.sshSessionId) throw new Error("Choose an SSH host and connect before starting.");
+        const created = await sshRuntimeFetch<{ subshellId: string; promptDelivered?: boolean }>(
+          `/api/ssh-runtime/sessions/${encodeURIComponent(input.sshSessionId)}/launch-harness`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              harnessId: input.harnessId,
+              presetId: input.presetId ?? undefined,
+              cwd: input.workingDir,
+              prompt: joinPromptBlocks(input.promptBlocks ?? []),
+            }),
+          },
+        );
+        return { id: created.subshellId, promptDelivered: created.promptDelivered };
+      }
       // The checkbox's promise first, so a failed preset POST never launches
       // an unremembered subshell (ruling 2026-09-30). SAVE-AS always creates
       // a NEW row - presets are never written back - and it is a FAITHFUL
@@ -182,6 +202,7 @@ export function useCreateSubshell() {
         toast.warning('The prompt did not land. Use "Inject prompt" to type it in.');
       }
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
+      if (input.sshSessionId) void queryClient.invalidateQueries({ queryKey: SSH_SESSIONS_QUERY_KEY });
       // The new preset row belongs in every preset list the app has open.
       if (input.saveAsPreset === true) void queryClient.invalidateQueries({ queryKey: ["presets"] });
       // The create touched the recent-paths row for its launch node — every

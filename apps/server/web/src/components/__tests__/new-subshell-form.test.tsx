@@ -305,7 +305,7 @@ describe("NewSubshellForm agent/preset defaults", () => {
     const restore = mockFetch([LOCAL, ENROLLED_ONLINE, ENROLLED_OFFLINE], [CLAUDE]);
     try {
       const { latest } = await renderForm();
-      expect(screen.getByPlaceholderText("Choose a node")).toBeDefined();
+      expect(screen.getByPlaceholderText("Choose a machine")).toBeDefined();
       expect(screen.getByPlaceholderText("Choose an agent")).toBeDefined();
       await waitFor(() => expect(latest().nodeId).toBe("local"));
       await waitFor(() => expect(latest().harnessId).toBe("claude-code"));

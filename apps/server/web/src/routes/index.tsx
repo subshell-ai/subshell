@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useCardPreviews } from "@/hooks/use-card-previews";
 import { useClockTick } from "@/hooks/use-clock-tick";
+import { useExecutionLabels } from "@/hooks/use-execution-labels";
 import { useNodes } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useLiveSubshells } from "@/hooks/useLiveSubshells";
@@ -108,6 +109,7 @@ function SubshellsPage() {
   // No per-group cap here: the rail caps a group at 8 rows because it is a
   // rail; the page shows what it has.
   const { data: nodeData } = useNodes();
+  const nodeLabels = useExecutionLabels(nodeData?.nodes);
   // Unanswered is `nodeData === undefined`, not `isError` — the ladder's own
   // rule: a failed BACKGROUND refresh keeps the cache, and relabeling resolved
   // names on a blip is the bug that shape caused once in the sidebar.
@@ -128,7 +130,7 @@ function SubshellsPage() {
   // already mean: the table drops its bands, the tiles one heading-less grid.
   const sections =
     groupBy === "machine"
-      ? sectionsByNode(groupSubshellsByNode(sorted, nodeData?.nodes, { unanswered }))
+      ? sectionsByNode(groupSubshellsByNode(sorted, nodeLabels, { unanswered }))
       : groupBy === "status"
         ? sectionsByStatus(sorted)
         : null;
@@ -150,7 +152,7 @@ function SubshellsPage() {
   // list so the control never blanks itself out from under its own value.
   const machines = machineIds(subshells);
   const machineOptions = (machine !== "all" && !machines.includes(machine) ? [...machines, machine] : machines).map(
-    (id) => ({ id, label: nodeLabelFor(id, nodeData?.nodes, unanswered).label }),
+    (id) => ({ id, label: nodeLabelFor(id, nodeLabels, unanswered).label }),
   );
   // The combobox closed state and the list both print the OPTION LABEL, and
   // the value is a node id while the reader needs a machine name — the id→

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Waypoints } from "lucide-react";
 import { useRef, useState } from "react";
 import { ConnectJourney } from "@/components/connect/connect-journey";
@@ -8,21 +8,13 @@ import { PageHeader } from "@/components/page-header";
 import { useSshSessions } from "@/hooks/use-ssh-runtime";
 import type { SshRuntimeSessionView } from "@/lib/ssh-runtime";
 
-/**
- * Connect over SSH (design 2026-10-05 §1, §7): the personal page, open to
- * every signed-in user. The journey card on top, the caller's own session
- * history below; the route holds only the reopen hand-off (the wizard's
- * prefill) and the composition. The wizard itself keeps its step state, the
- * tables keep their reads, and nothing here derives eligibility the server
- * has not already stated.
- */
-
+/** Secondary connection recovery and disconnect controls. Launch lives in the shared subshell form. */
 export const Route = createFileRoute("/connect")({
   component: ConnectPage,
 });
 
 function ConnectPage() {
-  const sessions = useSshSessions();
+  const sessions = useSshSessions(true);
   const [prefill, setPrefill] = useState<{ nodeId: string; alias: string } | null>(null);
   // A second Reopen while the wizard already holds this machine+alias still
   // deserves a jump: the ref keys the remount below so each request re-seeds
@@ -40,14 +32,26 @@ function ConnectPage() {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       <PageHeader
-        title="Connect over SSH"
-        subtitle="Start a runtime on a machine you can reach with SSH, and open panes in a folder there."
+        title="SSH connections"
+        subtitle="Reconnect to remote work or disconnect a host. Start new work from New subshell or a workspace’s Add pane."
       />
 
-      <ConnectJourney key={prefillKey} prefill={prefill} onActive={() => void sessions.refetch()} />
+      <Link to="/new" className="text-label underline">
+        Open a subshell on an SSH host
+      </Link>
+      {prefill !== null && (
+        <ConnectJourney
+          key={prefillKey}
+          prefill={prefill}
+          onConnected={() => {
+            setPrefill(null);
+            void sessions.refetch();
+          }}
+        />
+      )}
 
-      <section className="space-y-2" aria-label="Your SSH sessions">
-        <h2 className="font-strong text-label">Sessions</h2>
+      <section className="space-y-2" aria-label="Your SSH connections">
+        <h2 className="font-strong text-label">Connections</h2>
         {sessions.isError ? (
           <EmptyState
             icon={Waypoints}

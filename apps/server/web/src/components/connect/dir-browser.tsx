@@ -1,4 +1,4 @@
-import { Button, errMessage } from "@internal/node-admin";
+import { Button, errMessage, Input } from "@internal/node-admin";
 import { ArrowUp, ChevronRight, Folder } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useSshListDirs } from "@/hooks/use-ssh-runtime";
@@ -29,6 +29,8 @@ export function DirBrowser({
   // which the server resolves and answers with its realpath - the path shown
   // is the one that came back, never a typed one.
   const [askedPath, setAskedPath] = useState("");
+  const [typedPath, setTypedPath] = useState(value);
+  const [expanded, setExpanded] = useState(false);
 
   const browse = (path: string) => {
     setAskedPath(path);
@@ -40,6 +42,7 @@ export function DirBrowser({
         // guess. Later browses leave the chosen row's value alone.
         onSuccess: (listing) => {
           if (path === "" && valueRef.current === "") onChange(listing.path);
+          setTypedPath(listing.path);
         },
       },
     );
@@ -68,6 +71,37 @@ export function DirBrowser({
           Disk on <span className="font-mono">{host}</span>
         </p>
       </div>
+      <div className="flex gap-2">
+        <Input
+          aria-label="Remote folder path"
+          value={typedPath}
+          placeholder="Absolute path on this host"
+          onChange={(event) => {
+            setTypedPath(event.target.value);
+            onChange(event.target.value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onChange(typedPath);
+              setExpanded(true);
+              browse(typedPath);
+            }
+          }}
+        />
+        <Button
+          type="button"
+          variant="outline"
+          disabled={listDirs.isPending}
+          onClick={() => {
+            onChange(typedPath);
+            setExpanded(true);
+            browse(typedPath);
+          }}
+        >
+          Browse
+        </Button>
+      </div>
       {/* The absolute path the picker stands on, stated as the fact it is. */}
       <p className="truncate font-mono text-detail text-muted-foreground" data-testid="connect-current-path">
         Current folder: {listing?.path ?? "Home"}
@@ -83,8 +117,8 @@ export function DirBrowser({
         </div>
       )}
       {!failed && listDirs.isPending && <p className="text-detail text-muted-foreground">Loading…</p>}
-      {listing !== null && (
-        <div className="rounded-md border">
+      {expanded && listing !== null && (
+        <div className="max-h-48 overflow-y-auto rounded-md border">
           {listing.parent !== null && (
             <button
               type="button"

@@ -1,5 +1,5 @@
 import type { Node } from "@internal/node-admin";
-import { Input, Label } from "@internal/node-admin";
+import { Button, Input, Label } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import type { JSX } from "react";
 import { useState } from "react";
@@ -13,6 +13,7 @@ import {
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/launch-form-rules";
 import { NoLaunchTargets } from "@/components/subshell-picker/no-launch-targets";
+import { SshLaunchForm } from "@/components/subshell-picker/ssh-launch-form";
 import { useLaunchFormDefaults } from "@/components/subshell-picker/use-launch-form-defaults";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
 import { RequiredMark } from "@/components/ui/required-mark";
@@ -74,7 +75,44 @@ import { buildAgentOptions, buildNodeOptions, launchableNodes } from "@/lib/subs
  * Renaming stays a deliberate act on the subshell itself — "Edit title" in
  * its actions menu, which is also the title pin.
  */
-export function NewSubshellForm({
+export function NewSubshellForm(props: Parameters<typeof MachineSubshellForm>[0]): JSX.Element {
+  const ssh = props.value.sshSessionId !== undefined;
+  return (
+    <div className="flex flex-col gap-4">
+      {!props.firstRun && (
+        <div className="flex flex-col gap-2">
+          <p className="font-strong text-label">Where do you want to work?</p>
+          <fieldset className="flex gap-2" aria-label="Work location">
+            <Button
+              type="button"
+              variant={ssh ? "outline" : "secondary"}
+              aria-pressed={!ssh}
+              onClick={() => {
+                if (ssh) props.onChange({ ...props.value, sshSessionId: undefined, nodeId: "local", workingDir: "" });
+              }}
+            >
+              Existing machine
+            </Button>
+            <Button
+              type="button"
+              variant={ssh ? "secondary" : "outline"}
+              aria-pressed={ssh}
+              onClick={() => {
+                if (!ssh)
+                  props.onChange({ ...props.value, sshSessionId: "", nodeId: "", workingDir: "", saveAsPreset: false });
+              }}
+            >
+              SSH host
+            </Button>
+          </fieldset>
+        </div>
+      )}
+      {ssh ? <SshLaunchForm {...props} /> : <MachineSubshellForm {...props} />}
+    </div>
+  );
+}
+
+function MachineSubshellForm({
   value,
   onChange,
   ids = DIALOG_IDS,
@@ -332,7 +370,7 @@ export function NewSubshellForm({
           <SearchableSelect
             id={ids.node}
             value={value.nodeId}
-            placeholder="Choose a node"
+            placeholder="Choose a machine"
             options={nodeOptions}
             onValueChange={(nodeId) => nodeId !== "" && onChange({ ...value, nodeId })}
           />

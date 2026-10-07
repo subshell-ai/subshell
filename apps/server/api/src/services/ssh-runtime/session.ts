@@ -166,6 +166,7 @@ export class SshRuntimeSession {
   readonly #paneTokens = new Map<string, string>();
   #sendChain: Promise<void> = Promise.resolve();
   #callbacksInFlight = 0;
+  readonly #sendBytes?: (bytes: Uint8Array) => Promise<void>;
 
   constructor(init: {
     id: string;
@@ -174,7 +175,9 @@ export class SshRuntimeSession {
     runtimeNodeId: string;
     target: SshSessionTargetWire;
     hello: SshRuntimeHelloWire;
+    sendBytes?: (bytes: Uint8Array) => Promise<void>;
   }) {
+    this.#sendBytes = init.sendBytes;
     this.id = init.id;
     this.ownerId = init.ownerId;
     this.connectingNodeId = init.connectingNodeId;
@@ -339,6 +342,10 @@ export class SshRuntimeSession {
         return;
       }
       try {
+        if (this.#sendBytes) {
+          await this.#sendBytes(bytes);
+          return;
+        }
         await sendCommand(
           this.connectingNodeId,
           { type: "ssh_session_send", ref: this.id, data_b64 },

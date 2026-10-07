@@ -139,6 +139,9 @@ const LaunchTerminalBodySchema = t.Object({
 });
 
 const LaunchHarnessBodySchema = t.Object({
+  prompt: t.Optional(
+    t.String({ maxLength: 100000, description: "Optional initial prompt, delivered after the remote agent starts" }),
+  ),
   harnessId: t.String({ description: "Harness plugin id to launch (resolved against this plane's manifests)" }),
   presetId: t.Optional(
     t.Nullable(t.String({ description: "The caller's own preset row to launch with; null/absent = presetless" })),
@@ -441,7 +444,10 @@ export const sshRuntimeSessionsRoutes = new Elysia({ prefix: "/sessions" })
       params: t.Object({ id: t.String({ description: "Session id" }) }),
       body: LaunchHarnessBodySchema,
       response: {
-        200: t.Object({ subshellId: t.String({ description: "The ordinary subshell row the runtime launched" }) }),
+        200: t.Object({
+          subshellId: t.String({ description: "The ordinary subshell row the runtime launched" }),
+          promptDelivered: t.Optional(t.Boolean({ description: "Whether the initial prompt reached the remote pane" })),
+        }),
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",

@@ -1,5 +1,6 @@
 import { stopAllProcesses } from "@/services/network/supervisor.js";
 import { disconnectAllNodes } from "@/services/nodes/node-registry.js";
+import { stopLocalSshBroker } from "@/services/ssh-runtime/local-broker.js";
 import { logger } from "@/utils/logger.js";
 import { closeAllViewers } from "@/ws/viewers.js";
 
@@ -60,7 +61,11 @@ export function performRestart(deps: RestartDeps = {}): void {
   const closeViewers = deps.closeViewers ?? closeAllViewers;
   const closeNodes = deps.closeNodes ?? disconnectAllNodes;
   const exit = deps.exit ?? ((code: number) => process.exit(code));
-  const stopProcesses = deps.stopProcesses ?? stopAllProcesses;
+  const stopProcesses =
+    deps.stopProcesses ??
+    (async () => {
+      await Promise.all([stopAllProcesses(), stopLocalSshBroker()]);
+    });
   timer(async () => {
     // The callback is async and its promise has no observer — a throw from
     // either closer would reject it, skip the rest of the shutdown, and leave

@@ -46,6 +46,8 @@ const BASE: Node = {
 
 interface JourneyFetchOptions {
   nodes?: Node[];
+  admin?: boolean;
+  serverEnabled?: boolean;
   aliases?: string[];
   /** Set to make discovery answer non-OK (the failure-vs-empty branch). */
   discoveryStatus?: number;
@@ -58,6 +60,8 @@ function mockFetch(over: JourneyFetchOptions = {}) {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     seen.push(`${init?.method ?? "GET"} ${url.pathname}`);
+    if (url.pathname === "/api/settings/public")
+      return json({ viewerIsAdmin: over.admin ?? false, allowServerSubshells: over.serverEnabled ?? true });
     if (url.pathname === "/api/nodes") return json({ nodes: over.nodes ?? [] });
     if (url.pathname === "/api/presets") return json([]);
     if (url.pathname === "/api/ssh-runtime/discovery") {
@@ -95,7 +99,7 @@ async function renderJourney(prefill: { nodeId: string; alias: string } | null =
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <ConnectJourney prefill={prefill} />,
+    component: () => <ConnectJourney prefill={prefill} onConnected={() => {}} />,
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([indexRoute]),
@@ -118,7 +122,7 @@ describe("ConnectJourney machine step", () => {
     const m = mockFetch({ nodes: [{ ...BASE, id: "other", access: "edit" }] });
     try {
       await renderJourney();
-      expect(screen.getByText(/This needs one of your own enrolled machines/)).toBeTruthy();
+      expect(screen.getByText(/No connecting machines are available/)).toBeTruthy();
       // The shared machine is NOT listed: broker rights are ownership, not access.
       expect(screen.queryByRole("button", { name: /Laptop/ })).toBeNull();
     } finally {
@@ -222,6 +226,33 @@ describe("ConnectJourney review step", () => {
       expect(await screen.findByText("deploy@app-02:22")).toBeTruthy();
       expect(screen.getByText(/Laptop as theo/)).toBeTruthy();
       expect(screen.getByRole("button", { name: "Connect" }).hasAttribute("disabled")).toBe(false);
+    } finally {
+      m.restore();
+    }
+  });
+});
+
+describe("server connection origin", () => {
+  it("offers the server account only to admins and explains a disabled server", async () => {
+    const m = mockFetch({
+      admin: true,
+      serverEnabled: false,
+      nodes: [{ ...BASE, id: "local", kind: "local", name: "Server" }],
+    });
+    try {
+      await renderJourney();
+      const server = screen.getByRole("button", { name: /Server/ });
+      expect(server.hasAttribute("disabled")).toBe(true);
+      expect(server.textContent).toContain("server launching disabled");
+    } finally {
+      m.restore();
+    }
+  });
+  it("never offers server SSH credentials to a member", async () => {
+    const m = mockFetch({ nodes: [{ ...BASE, id: "local", kind: "local", name: "Server" }] });
+    try {
+      await renderJourney();
+      expect(screen.queryByRole("button", { name: /Server/ })).toBeNull();
     } finally {
       m.restore();
     }

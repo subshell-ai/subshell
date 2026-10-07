@@ -7,6 +7,7 @@ import { SubshellRecentRow } from "@/components/sidebar/SubshellRecentRow";
 import { flatCellRows, nodeTintBucket, paneInitial, SubshellCellGrid } from "@/components/sidebar/subshell-cell-grid";
 import { TippedIconButton } from "@/components/tipped-icon-button";
 import { Segmented } from "@/components/ui/segmented";
+import { useExecutionLabels } from "@/hooks/use-execution-labels";
 import { useInstancePlugins } from "@/hooks/use-instance-plugins";
 import { useNodes } from "@/hooks/use-nodes";
 import { useOrderedSubshells } from "@/hooks/use-ordered-subshells";
@@ -110,6 +111,7 @@ export function RailSubshells({
   // Same query keys the home page and every mutation already share — these
   // reads are cache hits for a rail that lives in the same tree.
   const { data: nodeData } = useNodes();
+  const nodeLabels = useExecutionLabels(nodeData?.nodes);
   // Names only, over the catalog the launch pickers already cache. An
   // unresolvable harness degrades to its id, which is a readable slug
   // ("claude-code") — see the clone dialog, which makes the same trade.
@@ -165,7 +167,7 @@ export function RailSubshells({
   // between feed frames and undo the liveliest-member ordering the 20 s tick
   // exists to maintain. The pass is O(rows) with a Map, per tick and per
   // keystroke — the frame it costs is one the rail re-renders for anyway.
-  const nodeGroups = groupSubshellsByNode(railHuman, nodeData?.nodes, {
+  const nodeGroups = groupSubshellsByNode(railHuman, nodeLabels, {
     limit: q ? undefined : RECENT_LIMIT,
     // "Unanswered" means NO successful read has ever committed: in flight, or
     // failed with nothing cached. It cannot be `isPending || isError` — a
@@ -226,8 +228,8 @@ export function RailSubshells({
   // from the header's `label`; the comms and spotlight rows span machines).
   // Same ladder the headers use — one answer per machine per render.
   const machineLabel = useCallback(
-    (sub: SubshellView) => nodeLabelFor(sub.nodeId || FALLBACK_NODE_ID, nodeData?.nodes, nodeData === undefined).label,
-    [nodeData],
+    (sub: SubshellView) => nodeLabelFor(sub.nodeId || FALLBACK_NODE_ID, nodeLabels, nodeData === undefined).label,
+    [nodeData, nodeLabels],
   );
   // SELECTED is the SET of open panes — the viewed `/subshells/:id` plus every
   // pane the current `/workspaces/:id` holds open (the SAME cached query the

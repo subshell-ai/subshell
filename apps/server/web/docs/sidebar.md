@@ -112,3 +112,9 @@ view can see (a capped or comms-led machine may order differently between
 the two, accepted, order is a scan hint). `Segmented`
 grew `tooltip` and `dense` as opt-ins with byte-identity pinned for every
 other caller; the ONE clock tick still lives in `AppSidebar`.
+
+SSH runtime ids are named from the current viewer's connection history via
+`useExecutionLabels`. This is a display-only union with the node names; it
+must never add runtime sessions to the enrolled-node registry or authorize
+ordinary node launches. SSH connection management is reached from launch or
+a disconnected pane, rather than its own primary rail row.

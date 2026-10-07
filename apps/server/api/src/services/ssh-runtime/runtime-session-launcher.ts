@@ -1,3 +1,4 @@
+import { stripAnsi } from "@internal/backend-errors";
 import type { HarnessPlugin } from "@internal/pane-runtime";
 import {
   HARNESS_BINARY_PLACEHOLDER,
@@ -31,10 +32,8 @@ import type { SshRuntimeSession } from "./session.js";
  *   one destination socket (design §6's reconciliation), so the per-pane
  *   socket-file reclaim the node link does would unlink a live server out from
  *   under its other panes.
- * - `deliverPrompt` answers false and `canResume` false: `prompt_deliver` and
- *   the resume probe are not runtime frames in this slice (the session subset
- *   is §2's list), and the honest answer to "did the prompt land" when the
- *   capability was never sent is "it did not".
+ * - `canResume` is false: the runtime has no resume probe. Initial prompts
+ *   use the existing capture/input frames and the ordinary launch settle rule.
  * - `resolveBinary` answers null: the RUNTIME resolves the binary on the
  *   destination (the inversion's late binding, one layer closer to the
  *   machine); the plane never needs the path to compose the frame.
@@ -241,8 +240,33 @@ export class RuntimeSessionLauncher implements NodeLauncher {
     );
   }
 
-  /** Not a runtime frame in this slice (module doc); false is the honest answer, never a thrown surprise. */
-  async deliverPrompt(): Promise<boolean> {
+  /** Wait for initial output, then deliver once through the existing capture/input frames. */
+  async deliverPrompt(
+    socket: string,
+    id: string,
+    text: string,
+    settleTimeoutMs: number,
+    pollMs: number,
+  ): Promise<boolean> {
+    const deadline = Date.now() + settleTimeoutMs;
+    while (Date.now() < deadline) {
+      let ready = false;
+      try {
+        ready = Boolean(stripAnsi(await this.capture(socket, id)).trim());
+      } catch {
+        /* still starting */
+      }
+      if (ready) {
+        try {
+          await this.sendInput(socket, id, text);
+          await this.sendInput(socket, id, "\r");
+          return true;
+        } catch {
+          return false;
+        } // Never replay text after an uncertain write.
+      }
+      await Bun.sleep(pollMs);
+    }
     return false;
   }
 

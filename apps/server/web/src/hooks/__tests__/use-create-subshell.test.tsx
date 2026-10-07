@@ -44,6 +44,8 @@ function mockFetch(opts: { failLaunch?: boolean } = {}) {
       url: url.pathname,
       body: init?.body ? (JSON.parse(String(init.body)) as Call["body"]) : undefined,
     });
+    if (url.pathname.endsWith("/launch-harness"))
+      return Promise.resolve(new Response(JSON.stringify({ subshellId: "remote-pane", promptDelivered: true })));
     if (url.pathname === "/api/presets" && method === "GET") {
       return Promise.resolve(new Response(JSON.stringify([SOURCE_ROW])));
     }
@@ -161,6 +163,8 @@ describe("useCreateSubshell save-as-preset (review round 3)", () => {
         url: url.pathname,
         body: init?.body ? (JSON.parse(String(init.body)) as Call["body"]) : undefined,
       });
+      if (url.pathname.endsWith("/launch-harness"))
+        return Promise.resolve(new Response(JSON.stringify({ subshellId: "remote-pane", promptDelivered: true })));
       if (url.pathname === "/api/presets" && method === "GET") {
         return Promise.resolve(new Response(JSON.stringify([])));
       }
@@ -188,4 +192,34 @@ describe("useCreateSubshell save-as-preset (review round 3)", () => {
       m.restore();
     }
   });
+});
+
+it("launches an SSH pane through its connection and returns the ordinary caller contract", async () => {
+  const m = mockFetch();
+  try {
+    const result = await launch({
+      harnessId: "terminal",
+      workingDir: "/remote/project",
+      nodeId: "runtime-node",
+      sshSessionId: "session-1",
+    });
+    expect(result.err).toBeUndefined();
+    const writes = m.calls.filter((c) => c.method === "POST");
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.url).toBe("/api/ssh-runtime/sessions/session-1/launch-harness");
+    expect(writes[0]?.body).toMatchObject({ harnessId: "terminal", cwd: "/remote/project", prompt: "" });
+  } finally {
+    m.restore();
+  }
+});
+
+it("never falls back to a local launch while choosing an SSH host", async () => {
+  const m = mockFetch();
+  try {
+    const result = await launch({ harnessId: "terminal", workingDir: "/remote/project", sshSessionId: "" });
+    expect(result.err).toBeDefined();
+    expect(m.calls.filter((c) => c.method === "POST")).toHaveLength(0);
+  } finally {
+    m.restore();
+  }
 });

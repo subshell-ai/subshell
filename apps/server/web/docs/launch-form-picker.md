@@ -154,3 +154,19 @@ Mobile's New
 screen does NOT mirror this tier (operator scope call: web only;
 `agent-default.ts` keeps its "change one, change both" for the AGENT rule
 only).
+
+**SSH is a work location in the shared launch form** (2026-10-06).
+`NewSubshellForm` selects the ordinary machine fields or `SshLaunchForm`.
+`sshSessionId: undefined` means an ordinary machine; an empty string means
+SSH selection is in progress and cannot submit. The creation hook dispatches
+to the session launch endpoint and returns the usual `{ id }` so workspace
+attachment stays with the caller. Switching locations clears the directory.
+Remote presets copy agent settings and prompts without replacing the host or
+folder. The folder browser starts compact and expands on Browse.
+
+`/connect` is secondary connection management, reachable from launch and
+unavailable panes. It has no primary navigation row. Connection history is
+also the display-name source for runtime node ids: `useExecutionLabels`
+merges names only for the rail, home grouping/filter, and diagnostics, never
+for the node registry or launch authorization. A runtime row remains hidden
+from node management and cannot be passed to the ordinary create endpoint.

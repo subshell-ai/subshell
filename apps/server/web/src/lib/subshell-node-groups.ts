@@ -72,7 +72,7 @@ export const FALLBACK_NODE_ID = "local";
  */
 export function nodeLabelFor(
   nodeId: string,
-  nodes: readonly Node[] | undefined,
+  nodes: readonly Pick<Node, "id" | "name">[] | undefined,
   unanswered: boolean,
 ): { label: string; title: string } {
   const known = nodes?.find((n) => n.id === nodeId);
@@ -110,7 +110,7 @@ export function nodeLabelFor(
  */
 export function groupSubshellsByNode(
   subshells: readonly SubshellView[],
-  nodes: readonly Node[] | undefined,
+  nodes: readonly Pick<Node, "id" | "name">[] | undefined,
   { limit, unanswered = false }: { limit?: number; unanswered?: boolean } = {},
 ): SubshellNodeGroup[] {
   // Insertion-ordered, so the discovery order IS the input's status order and

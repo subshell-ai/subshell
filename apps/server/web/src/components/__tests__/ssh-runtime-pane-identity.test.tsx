@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
 import { SshRuntimePaneIdentity } from "@/components/connect/ssh-runtime-pane-identity";
@@ -48,9 +55,20 @@ async function renderLine(status: IdentityFacts["status"] | null) {
   // Seed nothing; the component's own read carries the state. The query key
   // is asserted once to pin the shared prefix the close mutation invalidates
   // (the R2-1 invalidation half rides exactly that key).
+  const root = createRootRoute();
+  const route = createRoute({
+    getParentRoute: () => root,
+    path: "/",
+    component: () => <SshRuntimePaneIdentity subshellId="p1" />,
+  });
+  const router = createRouter({
+    routeTree: root.addChildren([route]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  await router.load();
   render(
     <QueryClientProvider client={client}>
-      <SshRuntimePaneIdentity subshellId="p1" />
+      <RouterProvider router={router} />
     </QueryClientProvider>,
   );
   return client;

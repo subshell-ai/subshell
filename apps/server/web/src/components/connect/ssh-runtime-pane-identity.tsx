@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useSshPaneIdentity } from "@/hooks/use-ssh-runtime";
 import { destinationLabel } from "@/lib/ssh-runtime";
 
@@ -26,6 +27,11 @@ export function SshRuntimePaneIdentity({ subshellId }: { subshellId: string }) {
       {line.connectingNodeName ?? "a machine since removed"}
       {line.status === "lost" && " · connection lost"}
       {line.status === "closed" && " · closed"}
+      {line.status !== "active" && (
+        <Link to="/connect" className="ml-2 underline">
+          Reconnect
+        </Link>
+      )}
     </span>
   );
 }

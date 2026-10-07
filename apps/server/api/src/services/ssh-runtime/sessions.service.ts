@@ -22,11 +22,14 @@ import { announceNodePresence } from "@/services/nodes/node-presence-announce.js
 import { getLive } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { logger } from "@/utils/logger.js";
+import { sshNodeGate } from "./discovery.service.js";
+import { closeLocalBroker, openLocalBroker, sendLocalBroker } from "./local-broker.js";
 import { SshRuntimeSession } from "./session.js";
 import { adoptReconciledPanes } from "./session-adopt.js";
-import { registerSession, sessionHooks } from "./session-registry.js";
+import { deliverSessionFrame, deliverSessionLost, registerSession, sessionHooks } from "./session-registry.js";
 import { installSessionSettlers } from "./session-settle.js";
 import { SshRuntimeSessionsRepository } from "./sessions.repository.js";
+import { buildSshCaller } from "./ssh-actor.js";
 
 /**
  * The control-plane half of SSH runtime sessions (design 2026-10-05 §4):
@@ -49,9 +52,8 @@ import { SshRuntimeSessionsRepository } from "./sessions.repository.js";
  * Authorization is the salvaged rule, restated rather than reached around:
  * opening requires the caller to OWN the connecting node - real ownership,
  * no admin boost, no share (the `sshNodeGate` agent arm's exact posture);
- * `local` is out of the slice's scope (its admin arm is an in-process broker
- * that would need `dispatchLocalSsh` to grow session verbs - workstream B/C
- * territory, and saying so is better than faking a half-arm).
+ * the server account uses an admin-only in-process broker under the same
+ * supervisor, with authority checked on open and each outgoing frame.
  *
  * Version honesty (design §2): the runtime's `runtimeProtocol` is checked
  * against {@link SSH_RUNTIME_PROTOCOL} HERE, at the plane, and the refusal
@@ -134,13 +136,15 @@ export async function openSession(
     );
   }
   const node = await nodesRepo.findById(body.connectingNodeId);
-  if (!node || node.id === LOCAL_NODE_ID || node.kind !== "agent" || node.ownerUserId !== userId) {
+  if (!node || (node.id !== LOCAL_NODE_ID && (node.kind !== "agent" || node.ownerUserId !== userId))) {
     // One refusal for every shape of "that is not your enrolled machine":
     // 404-not-403, the non-enumerating convention the ssh gate kept.
     throw new SshRuntimeRefusal(404, "the connecting node was not found or is not yours");
   }
+  if (node.id === LOCAL_NODE_ID) await assertLocalSshAccess(userId);
   if (node.maintenance === 1) throw new SshRuntimeRefusal(409, "the connecting node is in a maintenance window");
-  if (!getLive(node.id)) throw new SshRuntimeRefusal(409, "the connecting node is offline");
+  if (node.id !== LOCAL_NODE_ID && !getLive(node.id))
+    throw new SshRuntimeRefusal(409, "the connecting node is offline");
   if ((await sessionsRepo.countActiveForNode(node.id)) >= SSH_SESSIONS_PER_NODE) {
     throw new SshRuntimeRefusal(409, "the connecting node carries its share of open sessions", "session_quota");
   }
@@ -174,6 +178,7 @@ export async function openSession(
   });
 
   let openData: unknown;
+  let localLost = false;
   // The connection tag (round-3 review MAJOR): captured in the SAME
   // synchronous tick as `sendCommand` resolves its own target (it rejects
   // outright if that changes before the frame is queued), so the tag names
@@ -186,24 +191,41 @@ export async function openSession(
     // The node's own open answer is bounded by its hello deadline (spawn +
     // probe + hello); the RPC must outlast it and not race it (the read
     // long-poll's slack pattern).
-    openData = await sendCommand(
-      node.id,
-      {
-        type: "ssh_session_open",
-        ref: sessionId,
-        target: target,
-        ...(body.runtimeCommand !== undefined && body.runtimeCommand !== ""
-          ? { runtimeCommand: body.runtimeCommand }
-          : {}),
-      },
-      { timeoutMs: SSH_SESSION_OPEN_DEADLINE_MS + 10_000 },
-    );
+    openData =
+      node.id === LOCAL_NODE_ID
+        ? await openLocalBroker(sessionId, target, body.runtimeCommand, {
+            emitBytes: async (bytes) => {
+              deliverSessionFrame(LOCAL_NODE_ID, sessionId, Buffer.from(bytes).toString("base64"));
+            },
+            onLost: () => {
+              localLost = true;
+              deliverSessionLost(LOCAL_NODE_ID, sessionId);
+            },
+          })
+        : await sendCommand(
+            node.id,
+            {
+              type: "ssh_session_open",
+              ref: sessionId,
+              target: target,
+              ...(body.runtimeCommand !== undefined && body.runtimeCommand !== ""
+                ? { runtimeCommand: body.runtimeCommand }
+                : {}),
+            },
+            { timeoutMs: SSH_SESSION_OPEN_DEADLINE_MS + 10_000 },
+          );
+    if (node.id === LOCAL_NODE_ID) {
+      await assertLocalSshAccess(userId);
+      if (localLost) throw new Error("SSH connection ended while opening.");
+    }
   } catch (err) {
+    await closeBestEffort(node.id, sessionId);
     await unrollOpening(sessionId, runtimeNodeId, err);
     throw mapOpenError(err);
   }
   const result = parseNodeSshSessionOpenResult(openData);
   if (result === null) {
+    await closeBestEffort(node.id, sessionId);
     await unrollOpening(sessionId, runtimeNodeId, new Error("malformed open answer"));
     throw new SshRuntimeRefusal(502, "the node answered the session open with a malformed payload");
   }
@@ -223,8 +245,26 @@ export async function openSession(
     runtimeNodeId,
     target: target,
     hello: result.hello,
+    ...(node.id === LOCAL_NODE_ID
+      ? {
+          sendBytes: async (bytes: Uint8Array) => {
+            await assertLocalSshAccess(userId);
+            await sendLocalBroker(sessionId, bytes);
+          },
+        }
+      : {}),
   });
-  session.hooks = sessionHooks();
+  const hooks = sessionHooks();
+  session.hooks =
+    node.id === LOCAL_NODE_ID
+      ? {
+          ...hooks,
+          onLost: (s, reason) => {
+            closeLocalBroker(sessionId);
+            hooks.onLost(s, reason);
+          },
+        }
+      : hooks;
   registerSession(session, brokeredOn);
   await sessionsRepo.settle(sessionId, "active", JSON.stringify(result.hello));
   await announceNodePresence(runtimeNodeId);
@@ -275,6 +315,10 @@ async function sessionsRepoDeleteRow(sessionId: string): Promise<void> {
  */
 export async function closeBestEffort(connectingNodeId: string, sessionId: string): Promise<void> {
   try {
+    if (connectingNodeId === LOCAL_NODE_ID) {
+      closeLocalBroker(sessionId);
+      return;
+    }
     await sendCommand(connectingNodeId, { type: "ssh_session_close", ref: sessionId }, { timeoutMs: 10_000 });
   } catch {
     // the node's own boot reconcile will read its `lost` records; this is hygiene, not correctness
@@ -393,4 +437,14 @@ export async function getPaneIdentityView(subshellId: string, userId: string): P
     user: session.user,
     connectingNodeName: connecting?.name ?? null,
   };
+}
+
+/** Recheck the server account's authority on open and every outgoing command. */
+async function assertLocalSshAccess(userId: string): Promise<void> {
+  const decision = await sshNodeGate(await buildSshCaller({ actor: "cookie", user: { id: userId } }), LOCAL_NODE_ID);
+  if (!decision.allow)
+    throw new SshRuntimeRefusal(
+      decision.code === "not_found" ? 404 : 409,
+      "The server machine is not available for SSH from this account.",
+    );
 }

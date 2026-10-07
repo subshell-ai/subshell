@@ -36,10 +36,8 @@ describe("visibleNavItems", () => {
     for (const flag of [false, undefined]) {
       const paths = visibleNavItems(flag).map((i) => i.to);
       for (const page of GROUP_PAGES) expect(paths).not.toContain(page);
-      // "/connect" (Connect over SSH) is deliberately NOT in the group: the
-      // personal journey is visible to every signed-in user, admin or not
-      // (design 2026-10-05 §7).
-      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/connect", "/presets", "/prompts"]);
+      // SSH is a launch location. Connection management has no primary rail row.
+      expect(paths).toEqual(["/", "/workspaces", "/nodes", "/presets", "/prompts"]);
     }
   });
 
@@ -48,7 +46,6 @@ describe("visibleNavItems", () => {
       "/",
       "/workspaces",
       "/nodes",
-      "/connect",
       "/presets",
       "/prompts",
       ...GROUP_PAGES,

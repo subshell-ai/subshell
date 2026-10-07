@@ -25,6 +25,8 @@ export interface NewSubshellFormValue {
    * nodes around), which blocks submit until the user picks one.
    */
   nodeId: string;
+  /** undefined = ordinary machine; empty = choosing SSH; otherwise the live connection id. */
+  sshSessionId?: string;
   workingDir: string;
   /**
    * The prompt stack, in the order it will be typed (spec 2026-09-28,
@@ -57,7 +59,13 @@ export function canSubmit(value: NewSubshellFormValue): boolean {
   // A checked "Save as preset" without a name is an unnamed promise; the
   // field is required exactly while the box is checked (ruling 2026-09-30).
   const presetNamed = value.saveAsPreset !== true || (value.presetName ?? "").trim() !== "";
-  return Boolean(value.harnessId) && Boolean(value.workingDir.trim()) && Boolean(value.nodeId) && presetNamed;
+  return (
+    (value.sshSessionId === undefined || value.sshSessionId !== "") &&
+    Boolean(value.harnessId) &&
+    Boolean(value.workingDir.trim()) &&
+    Boolean(value.nodeId) &&
+    presetNamed
+  );
 }
 
 /**

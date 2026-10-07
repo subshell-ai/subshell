@@ -122,10 +122,10 @@ function refuseSshErrorCode(code: SshErrorCode, extra?: string): never {
  * - The built-in `local` node answers to an ADMIN cookie subject to its
  *   maintenance flag and the launch-enabled rule (`allow_server_subshells`,
  *   read live like the launch path reads it), and has no link to be down
- *   (it runs in-process). The wizard's node picker only offers owned agent
- *   machines; the arm is kept verbatim so the move changes no semantics.
+ *   (it runs in-process). The launch picker offers this origin only to admins;
+ *   the session open and each local write recheck this same authority.
  */
-async function sshNodeGate(caller: SshCaller, nodeId: string): Promise<SshDecision> {
+export async function sshNodeGate(caller: SshCaller, nodeId: string): Promise<SshDecision> {
   const row = await nodes.findById(nodeId);
   if (!row) return { allow: false, code: "not_found" };
   if (row.kind === "local") {

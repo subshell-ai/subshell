@@ -37,10 +37,11 @@ export const SSH_DISCOVERY_QUERY_KEY = (nodeId: string) => ["ssh-runtime-discove
 export const SSH_PANE_IDENTITY_QUERY_KEY = ["ssh-runtime-pane-identity"] as const;
 
 /** The caller's sessions, newest first. */
-export function useSshSessions() {
+export function useSshSessions(polling = false) {
   return useQuery({
     queryKey: SSH_SESSIONS_QUERY_KEY,
     queryFn: () => sshRuntimeFetch<{ sessions: SshRuntimeSessionView[] }>("/api/ssh-runtime/sessions"),
+    refetchInterval: polling ? 5000 : false,
   });
 }
 
