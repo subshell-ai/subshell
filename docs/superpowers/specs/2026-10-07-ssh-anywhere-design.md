@@ -67,6 +67,24 @@ Relay mode requires A to be online and connected for the duration of the
 handshake. That is the accepted price of the key never moving; an offline A is a
 clear error, never a silent fallback to copying the key.
 
+### 4.3 Node SSH capability gate
+
+A machine's participation in Subshell SSH at all (dialing out over SSH, or
+serving its key/agent) is opt-in per node and **off by default, including the
+`local` server node**. The node carries one admin-controlled flag, `ssh_enabled`;
+a node with it off refuses every SSH role. Turning it on is a real widening of
+that machine's egress and key exposure, so the gate fails **closed**: a node that
+cannot read its own setting refuses, the opposite of the directory allowlist's
+deliberate fail-open, because here the risk is what enabling lets Subshell do.
+
+Enabling is an owner action (admin for `local`), audited, and mirrors the
+maintenance flag (plane and node agree, newer stamp wins). When a user needs a
+machine whose flag is off, the launch is refused with the remedy named in the
+copy: ask the owner of that machine to enable SSH on it. The gate is per role: in
+relay mode both the connecting machine (which dials out) and the key home (whose
+agent signs) must be enabled; in jump mode the origin must be enabled; the
+destination `D` needs no flag, it is merely reached.
+
 ## 5. Architecture components
 
 ### 5.1 Key grant
@@ -119,11 +137,13 @@ out of Milestone 1 scope and revisited in the Milestone 2 spec.
 ### 6.1 Milestone 1: terminal and jump (the mergeable first slice)
 
 Port the neutral primitives, then ship: SSH-terminal panes to any D regardless of
-node status, alias discovery and `ssh -G` resolve, the "connect from" and host
-pickers, host-key pinning, Jump mode end to end, and audits. No session-frame
-codec, supervisor, or runtime-serve in this milestone. Delivers the whole "SSH
-into any machine" goal for every case that does not require the session to run on
-B with a key that lives only on A.
+node status, alias discovery and `ssh -G` resolve, the destination-first launch
+flow (section 11), host-key pinning, Jump mode end to end, the per-node SSH
+capability gate (section 4.3, off by default including `local`, owner-enabled,
+fail-closed, audited), and audits. No session-frame codec, supervisor, or
+runtime-serve in this milestone. Delivers the whole "SSH into any machine" goal
+for every case that does not require the session to run on B with a key that
+lives only on A.
 
 ### 6.2 Milestone 2: the sealed agent relay (own spec, own review)
 
@@ -134,6 +154,10 @@ exposes.
 
 ## 7. Data model
 
+- `ssh_enabled` (default `false`, including `local`): the per-node capability gate
+  of section 4.3, stored in node config and mirrored to the plane like
+  maintenance (newer stamp wins), owner/admin to change, audited as
+  `node.ssh_enabled`. It is a node setting, not a new table.
 - `ssh_key_grants`: id, owner, name, key-home node id, destination selector,
   pinned D host key (public), approval flag, created/updated. No secrets.
 - Relay session state (M2, in-memory on the plane with a durable audit row): a
@@ -220,6 +244,8 @@ destination:
    secondary act inside the pane, not a competing mode on the landing screen.
 
 Saved hosts and the this-computer nicety survive as shortcuts, not the spine.
+A machine whose SSH gate is off (section 4.3) is never silently offered: when one
+is needed it is named with the remedy to ask its owner to enable SSH there.
 Terminology is trimmed to three nouns: destination, connecting machine, and key
 source. The destination field is a `SearchableSelect` like the other launch
 pickers. Shipped copy follows the design system: role tokens only, at most two
@@ -249,6 +275,9 @@ sentences, no em dashes.
   shell string, and that is never reasoned away.
 - Node and broker command transport is the existing authenticated, replay-fenced
   path (`sendCommand`, signed commands, the desktop broker's monotonic fence).
+- Outbound SSH is gated per node, off by default including `local`, and fails
+  closed when the setting is unreadable (section 4.3); enabling is owner/admin
+  only and audited (`node.ssh_enabled`).
 - Static imports only; no dynamic import outside the one sanctioned plugin site.
 - Machine-to-machine sealed payloads reuse the channel crypto and TOFU store, not
   a new bespoke cipher.
@@ -302,9 +331,9 @@ cautionary example, not a base.
 ## 17. Success criteria
 
 Milestone 1 is done when, from the web app and the Client, an operator opens an
-interactive pane against an arbitrary sshd-only host, using either the connecting
-machine's own keys or a jump through a second machine, sees it stream and accept
-input like any pane, and no private key or plaintext challenge ever appears on the
-plane or the destination. Milestone 2 is done when the same pane can run on a
+interactive pane against an arbitrary sshd-only host on a machine whose owner has
+enabled the (default-off) SSH gate, using either that machine's own keys or a jump
+through a second machine, sees it stream and accept input like any pane, and no
+private key or plaintext challenge ever appears on the plane or the destination. Milestone 2 is done when the same pane can run on a
 machine that has no key at all, authenticating through a machine that does, with a
 CI test proving the plane sees only ciphertext and the key never leaves its home.
