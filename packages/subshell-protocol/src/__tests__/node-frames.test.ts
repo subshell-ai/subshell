@@ -310,7 +310,14 @@ describe("parseNodeCommandBody", () => {
     // 15 is the archive-transfer surface (spec 2026-10-01 §2): five commands
     // (archive_create, file_read, transfer_write, archive_extract,
     // tree_manifest) plus the window/entry constants both ends must agree on.
-    expect(NODE_PROTOCOL_VERSION).toBe(15);
+    // 16 is the node SSH capability gate (spec 2026-10-07 §4.3): one
+    // owner-controlled flag per machine, off by default and fail-closed —
+    // `set_ssh_enabled` carries the plane's value, `ready.sshEnabled` states
+    // the node's mirror, the `ssh_enabled` event reports a moved file. The
+    // bump is the load-bearing part: a pre-16 agent is wire-indistinguishable
+    // from a 16 agent whose mirror says no, and a capability gate cannot live
+    // with that ambiguity.
+    expect(NODE_PROTOCOL_VERSION).toBe(16);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -841,6 +848,61 @@ describe("maintenance (arrived at protocol 8)", () => {
     // The plane compares `NodeRpcError.detail` to this exact string to map a
     // refused launch onto its 409. A prefixed or reworded message is a 500.
     expect(NODE_RESULT_MAINTENANCE).toBe("in maintenance");
+  });
+});
+
+// The maintenance frames' sibling set (spec 2026-10-07 §4.3): same three
+// carriers, one writer (the plane) instead of two, and the fail-closed
+// default inverted — an absent mirror refuses.
+describe("ssh gate (arrived at protocol 16)", () => {
+  const base = {
+    type: "ready",
+    agentVersion: MIN_NODE_VERSION,
+    protocolVersion: NODE_PROTOCOL_VERSION,
+    os: "linux",
+    arch: "x64",
+    hostname: "h",
+    dataDir: "/d",
+    capabilities: [],
+  };
+  const state = { on: true, changedAt: "2026-10-07T10:00:00.000Z" };
+
+  it("carries the mirror on ready, and drops a malformed one without refusing the ready", () => {
+    // Lenient exactly like `maintenance`: the rest of the frame brings the
+    // node online, and the plane's answer to silence is its own row — a row
+    // that says on pushes the value down, so a dropped field strands nobody.
+    expect(parseNodeEvent({ ...base, sshEnabled: state })).toMatchObject({ type: "ready", sshEnabled: state });
+    expect(parseNodeEvent(base)).toMatchObject({ type: "ready" });
+    const bad = parseNodeEvent({ ...base, sshEnabled: { on: "yes" } });
+    expect(bad?.type).toBe("ready");
+    expect(bad && "sshEnabled" in bad ? bad.sshEnabled : undefined).toBeUndefined();
+  });
+
+  it("parses the standalone event strictly — it is the mid-session carrier", () => {
+    expect(parseNodeEvent({ type: "ssh_enabled", ...state })).toEqual({ type: "ssh_enabled", ...state });
+    expect(parseNodeEvent({ type: "ssh_enabled", on: false, changedAt: state.changedAt })).toEqual({
+      type: "ssh_enabled",
+      on: false,
+      changedAt: state.changedAt,
+    });
+    expect(parseNodeEvent({ type: "ssh_enabled", on: true })).toBeNull();
+    expect(parseNodeEvent({ type: "ssh_enabled", changedAt: state.changedAt })).toBeNull();
+    expect(parseNodeEvent({ type: "ssh_enabled", on: "yes", changedAt: state.changedAt })).toBeNull();
+  });
+
+  it("parses the set_ssh_enabled command and refuses a partial one", () => {
+    expect(parseNodeCommandBody({ type: "set_ssh_enabled", ...state })).toEqual({
+      type: "set_ssh_enabled",
+      ...state,
+    });
+    expect(parseNodeCommandBody({ type: "set_ssh_enabled", on: false, changedAt: state.changedAt })).toEqual({
+      type: "set_ssh_enabled",
+      on: false,
+      changedAt: state.changedAt,
+    });
+    expect(parseNodeCommandBody({ type: "set_ssh_enabled", on: true })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_ssh_enabled", changedAt: state.changedAt })).toBeNull();
+    expect(parseNodeCommandBody({ type: "set_ssh_enabled", on: 1, changedAt: state.changedAt })).toBeNull();
   });
 });
 

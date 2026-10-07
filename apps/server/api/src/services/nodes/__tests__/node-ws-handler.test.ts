@@ -694,6 +694,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
         onMaintenance: (nodeId, reported) => {
           seen.push([nodeId, reported]);
         },
+        onSshEnabled: () => {},
       });
       try {
         const ws = fakeSocket("n1");
@@ -750,6 +751,7 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
         onMaintenance: (nodeId, reported) => {
           seen.push([nodeId, reported]);
         },
+        onSshEnabled: () => {},
       });
       return { seen, off: () => resetNodeEventsForTests() };
     }
@@ -805,6 +807,87 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
       try {
         const h = makeHarness();
         await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame({ maintenance: { on: "yes" } })));
+        expect(h.ready).toHaveLength(1);
+        expect(seen).toEqual([["n1", undefined]]);
+      } finally {
+        off();
+      }
+    });
+  });
+
+  /**
+   * The SSH mirror (spec 2026-10-07 §4.3) walks the same two frames into the
+   * same hook as maintenance — one reconciler for connect-time state and a
+   * mid-session report — and the tests below pin that the DIRECTION is not
+   * shared: what the hook does with what it hears lives in
+   * `ssh-enabled.test.ts`, where "never adopt" is asserted. Here it is only
+   * the door: both carriers, the socket's nodeId, the lenient field.
+   */
+  describe("ssh_enabled → the lifecycle hook (spec 2026-10-07 §4.3)", () => {
+    /** Install a recording SSH hook and return both the log and the uninstaller. */
+    function recordSshEnabled(): { seen: [string, unknown][]; off: () => void } {
+      const seen: [string, unknown][] = [];
+      setNodeLifecycleHooks({
+        onExit: () => {},
+        onSubshellsReport: () => {},
+        onMaintenance: () => {},
+        onSshEnabled: (nodeId, reported) => {
+          seen.push([nodeId, reported]);
+        },
+      });
+      return { seen, off: () => resetNodeEventsForTests() };
+    }
+
+    it("a ready CARRYING sshEnabled reconciles it", async () => {
+      const { seen, off } = recordSshEnabled();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(
+          h.deps,
+          fakeSocket("n1"),
+          JSON.stringify(readyFrame({ sshEnabled: { on: true, changedAt: "2026-10-07T10:00:00.000Z" } })),
+        );
+        expect(seen).toEqual([["n1", { on: true, changedAt: "2026-10-07T10:00:00.000Z" }]]);
+      } finally {
+        off();
+      }
+    });
+
+    it("a ready WITHOUT it still reconciles — silence is the fail-closed answer, not a skipped beat", async () => {
+      // A node with no mirror file reads REFUSED, which is precisely when the
+      // plane's row (say, ON from a flip during the outage) must push.
+      const { seen, off } = recordSshEnabled();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
+        expect(seen).toEqual([["n1", undefined]]);
+      } finally {
+        off();
+      }
+    });
+
+    it("the ssh_enabled EVENT reaches the same hook, under the SOCKET's nodeId", async () => {
+      const { seen, off } = recordSshEnabled();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(
+          h.deps,
+          fakeSocket("n1"),
+          JSON.stringify({ type: "ssh_enabled", on: false, changedAt: "2026-10-07T11:00:00.000Z" }),
+        );
+        expect(seen).toEqual([["n1", { on: false, changedAt: "2026-10-07T11:00:00.000Z" }]]);
+      } finally {
+        off();
+      }
+    });
+
+    it("a ready whose sshEnabled field is malformed keeps the ready and drops the field", async () => {
+      // Lenient exactly like `maintenance`: the plane learns the drop as
+      // silence, and silence reconciles toward the row.
+      const { seen, off } = recordSshEnabled();
+      try {
+        const h = makeHarness();
+        await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame({ sshEnabled: { on: "yes" } })));
         expect(h.ready).toHaveLength(1);
         expect(seen).toEqual([["n1", undefined]]);
       } finally {

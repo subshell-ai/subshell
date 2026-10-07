@@ -5,6 +5,7 @@ import type {
   NodeEvent,
   NodeMaintenanceWire,
   NodeRuntimeReport,
+  NodeSshEnabledWire,
 } from "@internal/subshell-protocol";
 import type { NodeConfig } from "../config.js";
 import type { ServiceDeps } from "../service.js";
@@ -155,6 +156,21 @@ export interface CommandContext {
    * from echoing the plane's own write back at it one tick later.
    */
   lastReportedMaintenance?: NodeMaintenanceWire;
+  /**
+   * The `{ on, changedAt }` this connection last told the plane about its SSH
+   * capability, or undefined when it has said nothing (spec 2026-10-07 §4.3).
+   *
+   * The same echo-suppression the maintenance memo exists for — but with a
+   * simpler job here, because the plane is this flag's ONLY writer: the memo
+   * exists so the heartbeat belt reports a mirror that moved by accident
+   * (corruption, mostly) and never the plane's own push come back one tick
+   * later. Seeded at every connect from the same read that built `ready`.
+   *
+   * There is deliberately no `mirrorRestoreLogged` partner: SSH has no
+   * restore-from-memo path (no node-side writer whose deletion deserves
+   * repair), so there is no failing restore to say anything about.
+   */
+  lastReportedSshEnabled?: NodeSshEnabledWire;
   /**
    * Whether this connection has already reported a mirror it could not
    * rewrite (see `restoreMirrorFromMemo`).

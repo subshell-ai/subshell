@@ -103,12 +103,14 @@ export {
   type NodeMaintenanceWire,
   type NodeRuntimeReport,
   type NodeServiceVerb,
+  type NodeSshEnabledWire,
   type PluginReportWire,
   type PresetDefinitionWire,
   parseNodeCommandBody,
   parseNodeEvent,
   parseNodeMaintenance,
   parseNodeRuntimeReport,
+  parseNodeSshEnabled,
   partPathOf,
 } from "./node-frames.js";
 export {

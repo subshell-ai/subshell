@@ -255,6 +255,7 @@ describe("exit / subshells_report → lifecycle hooks (spec §3.3)", () => {
       },
       onSubshellsReport: () => {},
       onMaintenance: () => {},
+      onSshEnabled: () => {},
     });
     const h = makeHarness();
     const ws = fakeSocket("n1");
@@ -280,6 +281,7 @@ describe("exit / subshells_report → lifecycle hooks (spec §3.3)", () => {
     setNodeLifecycleHooks({
       onExit: () => {},
       onMaintenance: () => {},
+      onSshEnabled: () => {},
       onSubshellsReport: (nodeId, report) => {
         seen.push({ nodeId, report });
       },
