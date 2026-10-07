@@ -35,7 +35,7 @@ export function ConnectionsPage() {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       <PageHeader
-        title="SSH connections"
+        title="SSH Connections"
         subtitle="Reconnect to remote work or disconnect a host. Start new work from New subshell or a workspace’s Add pane."
       />
 

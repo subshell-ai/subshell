@@ -96,7 +96,7 @@ export function SshScreen({
         <div className="flex flex-col gap-3 rounded-lg border p-4">
           <h2 className="text-label font-strong">Connect this computer</h2>
           <p className="text-detail text-muted-foreground">
-            Open your Subshell server's Settings → Connections, choose Add computer, and copy its pairing code here.
+            Open your Subshell server's Settings → SSH Connections, choose Add computer, and copy its pairing code here.
             This does not register this computer as a node.
           </p>
           <Label htmlFor="ssh-server">Server address</Label>

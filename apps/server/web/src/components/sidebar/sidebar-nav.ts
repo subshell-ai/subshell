@@ -68,7 +68,7 @@ const NAV_ENTRIES: NavEntry[] = [
       { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
       // Beside Presets: both are saved launch material, one is settings, one is text.
       { to: "/prompts", label: "Prompts", icon: MessageSquareText, short: "Prompts" },
-      { to: "/settings/connections", label: "Connections", icon: Waypoints, short: "Conn" },
+      { to: "/settings/connections", label: "SSH Connections", icon: Waypoints, short: "SSH" },
     ],
   },
   // On the label (spec 2026-09-11 §2.1). The single entry here used to read

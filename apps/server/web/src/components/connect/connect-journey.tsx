@@ -165,7 +165,7 @@ export function ConnectJourney({
               <p className="text-detail text-muted-foreground">
                 You haven’t connected a computer for SSH yet. To use the SSH keys on your computer,
                 <Link to="/settings/connections" className="underline">
-                  open Settings → Connections
+                  open Settings → SSH Connections
                 </Link>{" "}
                 and pair it with Subshell Client. You can also add a computer you own on the Nodes page.
               </p>
