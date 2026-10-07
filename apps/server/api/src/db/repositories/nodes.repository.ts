@@ -56,6 +56,10 @@ export class NodesRepository extends BaseRepository {
         maintenance: input.maintenance ?? 0,
         maintenanceAt: input.maintenanceAt ?? null,
         maintenanceSource: input.maintenanceSource ?? null,
+        // A new node has SSH off: `0` is the column default (migration 0047)
+        // and the gate is opt-in per machine (spec 4.3); mirror it the same way.
+        sshEnabled: input.sshEnabled ?? 0,
+        sshEnabledAt: input.sshEnabledAt ?? null,
         createdAt: input.createdAt ?? now,
         updatedAt: now,
       })

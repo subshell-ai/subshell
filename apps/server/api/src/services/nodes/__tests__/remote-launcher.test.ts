@@ -173,6 +173,8 @@ function nodeRow(over: Partial<NodeTable> = {}): NodeTable {
     maintenance: 0,
     maintenanceAt: null,
     maintenanceSource: null,
+    sshEnabled: 0,
+    sshEnabledAt: null,
     createdAt: "2026-09-01T00:00:00.000Z",
     updatedAt: "2026-09-01T00:00:00.000Z",
     ...over,
