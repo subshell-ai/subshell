@@ -24,7 +24,8 @@
  */
 
 /* ------------------------------------------------------------------ */
-/* frozen spec values (docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md), one export each */
+/* frozen at the Gate A implementation (design 2026-10-05 lineage); governing policy:
+   docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md - one export each */
 /* ------------------------------------------------------------------ */
 
 /**
