@@ -333,24 +333,33 @@ git commit -m "feat(nodes): add ssh_enabled capability column (default off) + mi
 - Test: `apps/server/api/src/lib/__tests__/node-access.test.ts` (add a describe)
 
 **Interfaces:**
-- Produces: `nodeCanSsh(opts: { kind: NodeKind; access: NodeAccess; granted: NodeAccess; serverAccountEnabled: boolean; sshEnabled: boolean }): boolean`.
+- Produces: `nodeCanSsh(opts: { kind: NodeKind; access: NodeAccess; isAdmin: boolean; serverAccountEnabled: boolean; sshEnabled: boolean }): boolean`. Note the shape mirrors `nodeCanManageFor`, not `nodeCanLaunchOn`: it takes `isAdmin` (the resolver ranks admins at `edit`, never `owner`, so the local-admin exception is invisible in `access` alone) and deliberately has NO `granted` parameter (on `local`, granted access is Everyone-`edit` by the seeded share, and that grant must not confer SSH use).
 
 - [ ] **Step 1: Write the failing tests**
 
 ```ts
 describe("nodeCanSsh", () => {
   it("refuses when the node's SSH gate is off, whoever the actor is", () => {
-    expect(nodeCanSsh({ kind: "agent", access: "owner", granted: "owner", serverAccountEnabled: true, sshEnabled: false })).toBe(false);
+    expect(nodeCanSsh({ kind: "agent", access: "owner", isAdmin: false, serverAccountEnabled: true, sshEnabled: false })).toBe(false);
   });
-  it("refuses a non-owner even when enabled and shared", () => {
-    expect(nodeCanSsh({ kind: "agent", access: "edit", granted: "edit", serverAccountEnabled: true, sshEnabled: true })).toBe(false);
+  it("refuses a non-owner even when enabled and shared edit", () => {
+    expect(nodeCanSsh({ kind: "agent", access: "edit", isAdmin: false, serverAccountEnabled: true, sshEnabled: true })).toBe(false);
+  });
+  it("refuses an admin on someone else's node: the boost confers management, never SSH use", () => {
+    expect(nodeCanSsh({ kind: "agent", access: "edit", isAdmin: true, serverAccountEnabled: true, sshEnabled: true })).toBe(false);
   });
   it("allows an owner of an enabled agent node", () => {
-    expect(nodeCanSsh({ kind: "agent", access: "owner", granted: "owner", serverAccountEnabled: true, sshEnabled: true })).toBe(true);
+    expect(nodeCanSsh({ kind: "agent", access: "owner", isAdmin: false, serverAccountEnabled: true, sshEnabled: true })).toBe(true);
   });
-  it("allows admin on an enabled local server only when server-as-node is on", () => {
-    expect(nodeCanSsh({ kind: "local", access: "owner", granted: "owner", serverAccountEnabled: true, sshEnabled: true })).toBe(true);
-    expect(nodeCanSsh({ kind: "local", access: "owner", granted: "owner", serverAccountEnabled: false, sshEnabled: true })).toBe(false);
+  it("allows an admin on the enabled local server (admins resolve to edit, never owner)", () => {
+    expect(nodeCanSsh({ kind: "local", access: "edit", isAdmin: true, serverAccountEnabled: true, sshEnabled: true })).toBe(true);
+  });
+  it("the seeded Everyone edit grant on local does not confer SSH use", () => {
+    expect(nodeCanSsh({ kind: "local", access: "edit", isAdmin: false, serverAccountEnabled: true, sshEnabled: true })).toBe(false);
+  });
+  it("local honors the server-as-node switch", () => {
+    expect(nodeCanSsh({ kind: "local", access: "owner", isAdmin: false, serverAccountEnabled: true, sshEnabled: true })).toBe(true);
+    expect(nodeCanSsh({ kind: "local", access: "edit", isAdmin: true, serverAccountEnabled: false, sshEnabled: true })).toBe(false);
   });
 });
 ```
@@ -364,13 +373,25 @@ Expected: FAIL (`nodeCanSsh` not exported).
 
 ```ts
 /** Whether this node may be used for Subshell SSH at all (dial out or serve keys).
- * Owner-only (matching who may broker an OS account's credentials), gated by the
- * node's own ssh_enabled flag; local is the server account and also honors
- * serverAccountEnabled. A distinct refusal from maintenance/no-launch, so the UI
- * can say why. */
-export function nodeCanSsh(opts: { kind: NodeKind; access: NodeAccess; granted: NodeAccess; serverAccountEnabled: boolean; sshEnabled: boolean }): boolean {
+ * Owner-only, matching who may broker an OS account's credentials, with the same
+ * local-node admin exception `nodeCanManageFor` applies (the resolver ranks admins
+ * at `edit`, never `owner`, so without `isAdmin` an admin could never USE the
+ * server gate they are allowed to enable). Deliberately NOT shaped like
+ * `nodeCanLaunchOn`: local's seeded Everyone grant confers launch, never SSH use,
+ * so there is no `granted` parameter here to widen it. Gated by the row's
+ * ssh_enabled (fail-closed) and, for `local`, the server-as-node switch. A
+ * distinct refusal from maintenance/no-launch, so the UI can say why. */
+export function nodeCanSsh(opts: {
+  kind: NodeKind;
+  access: NodeAccess;
+  isAdmin: boolean;
+  serverAccountEnabled: boolean;
+  sshEnabled: boolean;
+}): boolean {
   if (!opts.sshEnabled) return false;
-  if (opts.kind === "local") return opts.access === "owner" && opts.serverAccountEnabled;
+  if (opts.kind === "local") {
+    return (opts.access === "owner" || opts.isAdmin) && opts.serverAccountEnabled;
+  }
   return opts.access === "owner";
 }
 ```
