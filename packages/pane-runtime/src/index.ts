@@ -139,6 +139,22 @@ export {
   runBounded,
 } from "./run-bounded.js";
 export { shellQuote } from "./shell.js";
+export {
+  defaultSshConfigPath,
+  discoverSshAliases,
+  isDiscoverableAlias,
+  type SshAliasDiscovery,
+  type SshConfigWalk,
+  type SshHostBlock,
+  type SshWalkBudget,
+  walkSshConfig,
+} from "./ssh/ssh-discover.js";
+export {
+  parseProxyHop,
+  resolveSshAliasConfig,
+  type SshResolutionDeps,
+} from "./ssh/ssh-resolve.js";
+export { runSshProcess, type SshProcessResult, sshChildPath } from "./ssh/ssh-spawn.js";
 export { safeTransferPath } from "./tar-blocks.js";
 export { type ExtractResult, extractTarGz } from "./tar-extractor.js";
 export { extractTgz, type TarEntry, type TgzLimits } from "./tar-vendor.js";
