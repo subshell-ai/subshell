@@ -388,18 +388,24 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   mkdirSync(backupDir, { mode: 0o700 });
   const snapshot = join(backupDir, "subshell-v1.7.0-20260101-000000.db");
   const db = new Database(instance.databasePath);
-  const migration = db.query("SELECT * FROM kysely_migration WHERE name='0046-backup-recovery'").get() as {
-    name: string;
-    timestamp: string;
-  };
+  // "Older" must be a valid LEDGER PREFIX: the newest registered migrations
+  // are stripped (rows AND their DDL) so the snapshot ends where an install of
+  // that era would; removing one from the middle while a later row stands
+  // above it is exactly the non-contiguous history kysely refuses to boot.
+  const migrationRows = db
+    .query(
+      "SELECT * FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled') ORDER BY name",
+    )
+    .all() as { name: string; timestamp: string }[];
   db.exec(
-    "DROP TABLE backup_recovery; DELETE FROM kysely_migration WHERE name='0046-backup-recovery'; CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');",
+    "DROP TABLE backup_recovery; ALTER TABLE nodes DROP COLUMN ssh_enabled_at; ALTER TABLE nodes DROP COLUMN ssh_enabled; DELETE FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled'); CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');",
   );
   db.query("VACUUM INTO ?").run(snapshot);
   db.exec(
-    "CREATE TABLE backup_recovery(user_id TEXT PRIMARY KEY REFERENCES user(id)); UPDATE migration_restore_probe SET value='newer destination';",
+    "CREATE TABLE backup_recovery(user_id TEXT PRIMARY KEY REFERENCES user(id)); ALTER TABLE nodes ADD COLUMN ssh_enabled integer NOT NULL DEFAULT 0; ALTER TABLE nodes ADD COLUMN ssh_enabled_at text; UPDATE migration_restore_probe SET value='newer destination';",
   );
-  db.query("INSERT INTO kysely_migration(name,timestamp) VALUES (?,?)").run(migration.name, migration.timestamp);
+  for (const row of migrationRows)
+    db.query("INSERT INTO kysely_migration(name,timestamp) VALUES (?,?)").run(row.name, row.timestamp);
   db.close();
   const catalog = ok(await cli(["backup", "--list", "--json"], instance.configDir));
   expect(catalog.backups).toHaveLength(1);
@@ -407,17 +413,30 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   const restored = ok(await cli(["restore", snapshot, "--yes", "--no-start", "--json"], instance.configDir));
   expect(restored).toMatchObject({ status: "pending-boot", legacyDatabaseOnly: true });
   const offline = new Database(instance.databasePath, { readonly: true });
-  expect(offline.query("SELECT name FROM kysely_migration WHERE name='0046-backup-recovery'").get()).toBeNull();
+  expect(
+    offline
+      .query("SELECT name FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled')")
+      .all(),
+  ).toEqual([]);
   offline.close();
   const running = await boot(instance.configDir, port);
   const migrated = new Database(instance.databasePath, { readonly: true });
-  expect(migrated.query("SELECT name FROM kysely_migration WHERE name='0046-backup-recovery'").get()).toMatchObject({
-    name: "0046-backup-recovery",
-  });
+  expect(
+    migrated
+      .query(
+        "SELECT name FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled') ORDER BY name",
+      )
+      .all(),
+  ).toEqual([{ name: "0046-backup-recovery" }, { name: "0047-node-ssh-enabled" }]);
   expect(migrated.query("SELECT value FROM migration_restore_probe").get()).toEqual({ value: "older snapshot" });
   expect(migrated.query("SELECT name FROM sqlite_schema WHERE name='backup_recovery'").get()).toEqual({
     name: "backup_recovery",
   });
+  expect(
+    migrated
+      .query("SELECT name FROM pragma_table_info('nodes') WHERE name IN ('ssh_enabled','ssh_enabled_at') ORDER BY name")
+      .all(),
+  ).toEqual([{ name: "ssh_enabled" }, { name: "ssh_enabled_at" }]);
   migrated.close();
   expect(readFileSync(join(instance.configDir, "config.env"), "utf8")).toBe(originalConfig);
   const deadline = Date.now() + 15_000;
