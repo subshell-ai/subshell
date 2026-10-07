@@ -102,11 +102,11 @@ A (which dials out and serves its key) enabled; a jump hop `J` and the destinati
 through it (mirrors `nodeCanSsh`, which carries the same local-admin exception
 `nodeCanManageFor` applies); an `edit` grantee of someone else's enabled node
 is not thereby allowed to use that machine's egress or keys. The gate ships with a
-`NODE_PROTOCOL_VERSION` bump: the node-link compatibility gate is exact-match, so a
-pre-bump agent that never sees `set_ssh_enabled` and reports no `sshEnabled` would
-be wire-indistinguishable from a post-bump agent that honors both, and that
-ambiguity is exactly what a capability gate cannot have (the file's own history
-bumped even for additive frames for this reason).
+`NODE_PROTOCOL_VERSION` bump because the node-link compatibility gate is exact-match:
+a pre-bump agent that never sees `set_ssh_enabled` and reports no `sshEnabled` would
+otherwise be wire-indistinguishable from a post-bump agent that honors both, and a
+capability gate cannot live with that ambiguity (the file's own history bumped even
+for additive frames for this reason).
 
 ## 5. Architecture components
 
@@ -163,10 +163,13 @@ at enroll time (the enroll route writes it; node deletion cascades it), and
 `GET /api/identities/:principalId` already serves any principal's public key behind
 a `channels:read` gate. What is missing is the node end: the agent holds no REST
 credential, so the peer's JWK must be delivered to it inside a signed command on the
-existing node link; the agent has no pin store (the channels `peers.json` lives in
-the server app's data dir, not the node's); and there is no operator-visible machine
-pin display or recovery flow. Building that (link key delivery, a node-side pin
-store, first-use pinning, pin recovery) is part of the M2 work, and the relay is
+existing node link; the agent has no machine pin store (a pane's channel use already
+writes a `peers.json` into the agent's data dir, but those are `sess:<id>` channel
+pins kept by the pane-side MCP under the `SUBSHELL_CHANNEL_PIN` escape, and the
+machine-relay store must be a separate one that never inherits that laxity); and
+there is no operator-visible machine pin display or recovery flow. Building that
+(link key delivery, a node-side machine pin store, first-use pinning, pin recovery)
+is part of the M2 work, and the relay is
 always pin-strict: `SUBSHELL_CHANNEL_PIN` is the channels' recovery escape and never
 relaxes a machine-relay pin. It must also
 mint and hold a per-machine ES256 signing keypair: `identity.ts` today holds only
@@ -247,9 +250,11 @@ clean seam the M1 launcher exposes.
 
 ## 8. Relay protocol and security (M2)
 
-- Sealing and pinning reuse `packages/mcp-core/src/crypto.ts` (`seal`/`open`,
-  ECDH-ES+A256KW with A256GCM, plaintext recipient id header for blind routing) and
-  `packages/mcp-core/src/pin-store.ts` (TOFU, byte-equality, `peers.json`). The
+- Sealing reuses `packages/mcp-core/src/crypto.ts` (`seal`/`open`,
+  ECDH-ES+A256KW with A256GCM, plaintext recipient id header for blind routing);
+  pinning follows `packages/mcp-core/src/pin-store.ts`'s TOFU byte-equality rule in
+  a SEPARATE machine-pin store (section 5.3) - not the channels' `peers.json`, and
+  not the module-global `SUBSHELL_CHANNEL_PIN` settings its public entry honors. The
   envelope the plane stores and routes is the same opaque blob the encrypted
   channels already relay.
 - The plane brokers a relay pairing when a grant is used: it tells A to expect
@@ -406,7 +411,8 @@ system: role tokens only, at most two sentences, no em dashes.
 - `SSH_AUTH_SOCK` is exported only into the ssh invocation, never the whole pane env,
   and an agent-capable pane is view-only to sharees (section 5.4).
 - Static imports only; no dynamic import outside the one sanctioned plugin site.
-- Machine-to-machine sealed payloads reuse the channel crypto and TOFU store, not a
+- Machine-to-machine sealed payloads reuse the channel crypto and the TOFU
+  byte-equality rule (in their own always-strict machine store, section 5.3), not a
   new bespoke cipher.
 
 ## 14. Testing
