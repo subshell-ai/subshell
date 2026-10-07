@@ -123,3 +123,8 @@ Personal Settings > Connections is available to every signed-in person, separate
 from the admin-only Server Settings group. The compatibility `/connect` route
 redirects there. Desktop pairing never grants the server-loaded desktop window
 new native IPC; consent and local broker startup live in the bundled Client page.
+
+Nodes, Presets, and Prompts live under personal Settings alongside Connections.
+Their routes and access rules are unchanged. Settings also stays open on their
+detail pages, such as `/nodes/local`; General matches only `/settings` so it
+does not activate Server Settings for personal connection pages.

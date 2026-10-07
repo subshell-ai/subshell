@@ -59,6 +59,17 @@ describe("visibleNavEntries", () => {
     const groups = visibleNavEntries(true).filter(isNavGroup);
     expect(groups.map((g) => g.label)).toEqual(["Settings", "Server Settings"]);
     expect(groups[0]?.requiresAdmin).toBeUndefined();
+    expect(groups[0]?.children.map((item) => item.to)).toEqual([
+      "/nodes",
+      "/presets",
+      "/prompts",
+      "/settings/connections",
+    ]);
+    expect(
+      visibleNavEntries(false)
+        .filter((entry) => !isNavGroup(entry))
+        .map((entry) => entry.label),
+    ).toEqual(["Subshells", "Workspaces"]);
     expect(groups[1]?.requiresAdmin).toBe(true);
   });
 

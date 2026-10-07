@@ -59,15 +59,17 @@ const NAV_ENTRIES: NavEntry[] = [
   // not a grid (the grid icon belongs to the tiles/list view toggle).
   { to: "/", label: "Subshells", icon: TerminalSquare },
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
-  { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
-  { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
-  // Beside Presets: both are saved launch material, one is settings, one is text.
-  { to: "/prompts", label: "Prompts", icon: MessageSquareText, short: "Prompts" },
   {
     id: "personal-settings",
     label: "Settings",
     icon: UserRoundCog,
-    children: [{ to: "/settings/connections", label: "Connections", icon: Waypoints, short: "Conn" }],
+    children: [
+      { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
+      { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
+      // Beside Presets: both are saved launch material, one is settings, one is text.
+      { to: "/prompts", label: "Prompts", icon: MessageSquareText, short: "Prompts" },
+      { to: "/settings/connections", label: "Connections", icon: Waypoints, short: "Conn" },
+    ],
   },
   // On the label (spec 2026-09-11 §2.1). The single entry here used to read
   // "Instance", not "Server", because the control-plane host's own NODE is

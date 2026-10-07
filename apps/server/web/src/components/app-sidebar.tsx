@@ -336,7 +336,11 @@ export function AppSidebar({
                 </Fragment>
               );
             }
-            const childActive = entry.children.some((child) => location.pathname === child.to);
+            const childActive = entry.children.some(
+              (child) =>
+                location.pathname === child.to ||
+                (child.to !== "/settings" && location.pathname.startsWith(`${child.to}/`)),
+            );
             const open = groupOpen(overrides[entry.id], childActive);
             const listId = `nav-group-${entry.id}`;
             return (

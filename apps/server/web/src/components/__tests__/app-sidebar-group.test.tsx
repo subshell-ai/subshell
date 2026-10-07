@@ -159,6 +159,7 @@ describe("the Server Settings group's open/close wiring", () => {
       await waitFor(() => expect(expanded()).toBe("false"));
       fireEvent.click(header());
       await waitFor(() => expect(expanded()).toBe("true"));
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
       fireEvent.click(screen.getByRole("link", { name: "Nodes" }));
       await waitFor(() => expect(expanded()).toBe("false"));
     });
@@ -172,6 +173,7 @@ describe("the Server Settings group's open/close wiring", () => {
       await waitFor(() => expect(expanded()).toBe("true"));
       // Leaving again shuts it, proving the open above came from the route
       // rather than from the press that survived.
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
       fireEvent.click(screen.getByRole("link", { name: "Presets" }));
       await waitFor(() => expect(expanded()).toBe("false"));
     });
