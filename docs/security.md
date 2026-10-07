@@ -2185,7 +2185,8 @@ Audit events are written, grouped by family:
   records acts, and a pre-gate 403 is not one.
 - **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`, `node.reregister_key`, `node.reregister`,
   `node.allowed_dirs.update`, `node.config.update`,
-  `node.maintenance.update`, `node.logging.update`, `node.update`,
+  `node.maintenance.update`, `node.ssh_enabled.update`,
+  `node.logging.update`, `node.update`,
   `node.update.unknown`, `node.shares_set`, `node.local_share_changed`, and
   `node.service` (with `{ verb: "restart", forced }` metadata; the restart
   verb shares its action with the rest of the service surface).
