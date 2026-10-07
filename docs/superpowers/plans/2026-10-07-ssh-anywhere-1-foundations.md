@@ -48,6 +48,7 @@ Ports (verbatim copies off `origin/feat/ssh-support`, then export wiring; the po
 - Create: `packages/subshell-protocol/src/ssh-limits.ts` (budgets; no `node:` builtins → barrel-safe)
 - Create: `packages/subshell-protocol/src/ssh-errors.ts` (error codes + shipped descriptions; imports nothing → barrel-safe)
 - Create: `packages/subshell-protocol/src/ssh-results.ts` (resolve/discover wire outcomes; type-only imports → barrel-safe)
+- Create: `packages/subshell-protocol/src/ssh-frames.ts` (ssh RPC command grammar; needed by the fixtures' type imports - not barrel-exported in this plan)
 - Create: `packages/subshell-protocol/src/__tests__/ssh-config.test.ts`
 - Create: `packages/subshell-protocol/src/__tests__/fixtures/ssh-fixtures.ts` (imported by the grammar test)
 - Create: `packages/pane-runtime/src/ssh/ssh-spawn.ts` (`node:*` → pane-runtime barrel only)
@@ -85,9 +86,11 @@ Gate (new, mirroring the maintenance template):
 ## Task 1: Port the ssh grammar into `subshell-protocol` (barrel-safe)
 
 **Files:**
-- Create: `packages/subshell-protocol/src/ssh-limits.ts`, `.../ssh-config.ts`, `.../ssh-errors.ts`, `.../ssh-results.ts`
+- Create: `packages/subshell-protocol/src/ssh-limits.ts`, `.../ssh-config.ts`, `.../ssh-errors.ts`, `.../ssh-results.ts`, `.../ssh-frames.ts`
 - Create: `packages/subshell-protocol/src/__tests__/ssh-config.test.ts`, `.../__tests__/fixtures/ssh-fixtures.ts`
 - Modify: `packages/subshell-protocol/src/index.ts`
+
+(`ssh-frames.ts` - the `ssh_discover_aliases` / `ssh_resolve_config` command grammar, 87 lines, imports only `./guards.js` (already on main) and `./ssh-limits.js` - is ported because the fixtures file imports its two command types, and `verify-types` typechecks `src/**` including `__tests__`, so a dangling import there is a Task 8 failure. It is deliberately NOT barrel-exported: no M1 consumer, and Plan 2 wires its parser when it mounts the ssh RPC verbs.)
 
 **Interfaces:**
 - Consumes: nothing.
@@ -99,19 +102,19 @@ Gate (new, mirroring the maintenance template):
 cd /home/theo/projects/wt-ssh-anywhere
 B=origin/feat/ssh-support
 mkdir -p packages/subshell-protocol/src/__tests__/fixtures
-for f in ssh-limits ssh-config ssh-errors ssh-results; do
+for f in ssh-limits ssh-config ssh-errors ssh-results ssh-frames; do
   git show "$B:packages/subshell-protocol/src/$f.ts" > packages/subshell-protocol/src/$f.ts
 done
 git show "$B:packages/subshell-protocol/src/__tests__/ssh-config.test.ts" > packages/subshell-protocol/src/__tests__/ssh-config.test.ts
 git show "$B:packages/subshell-protocol/src/__tests__/fixtures/ssh-fixtures.ts" > packages/subshell-protocol/src/__tests__/fixtures/ssh-fixtures.ts
-grep -nE "from \"node:" packages/subshell-protocol/src/ssh-limits.ts packages/subshell-protocol/src/ssh-config.ts packages/subshell-protocol/src/ssh-errors.ts packages/subshell-protocol/src/ssh-results.ts  # MUST print nothing
+grep -nE "from \"node:" packages/subshell-protocol/src/ssh-limits.ts packages/subshell-protocol/src/ssh-config.ts packages/subshell-protocol/src/ssh-errors.ts packages/subshell-protocol/src/ssh-results.ts packages/subshell-protocol/src/ssh-frames.ts  # MUST print nothing
 ```
 
-Expected: the `grep` prints nothing (all four modules are `node:`-free, so they are barrel-safe). If it prints any line, that module is NOT grammar and belongs in `pane-runtime` instead - stop and re-scope.
+Expected: the `grep` prints nothing (all five modules are `node:`-free, so they are barrel-safe). If it prints any line, that module is NOT grammar and belongs in `pane-runtime` instead - stop and re-scope.
 
 - [ ] **Step 2: Rewrite the deleted-document pointers**
 
-The copied files' doc comments cite `SSH-SUPPORT.md`, deleted as superseded. Replace every citation with `docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md`, keeping the sentence true (drop a `§N` cross-reference when the spec has no matching section rather than pointing at a wrong one). Check: `grep -c "SSH-SUPPORT" packages/subshell-protocol/src/ssh-limits.ts packages/subshell-protocol/src/ssh-config.ts packages/subshell-protocol/src/ssh-errors.ts packages/subshell-protocol/src/ssh-results.ts` prints `0` for all four.
+The copied files' doc comments cite `SSH-SUPPORT.md`, deleted as superseded. Replace every citation with `docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md`, keeping the sentence true (drop a `§N` cross-reference when the spec has no matching section rather than pointing at a wrong one). Check: `grep -c "SSH-SUPPORT" packages/subshell-protocol/src/ssh-limits.ts packages/subshell-protocol/src/ssh-config.ts packages/subshell-protocol/src/ssh-errors.ts packages/subshell-protocol/src/ssh-results.ts packages/subshell-protocol/src/ssh-frames.ts` prints `0` for all five.
 
 - [ ] **Step 3: Run the grammar test (it imports the copied files by relative path, so it is green before any barrel wiring)**
 
@@ -163,8 +166,8 @@ Expected: nonzero - the built barrel references the grammar; because the four fi
 
 ```bash
 cd /home/theo/projects/wt-ssh-anywhere
-git add packages/subshell-protocol/src/ssh-limits.ts packages/subshell-protocol/src/ssh-config.ts packages/subshell-protocol/src/ssh-errors.ts packages/subshell-protocol/src/ssh-results.ts packages/subshell-protocol/src/index.ts packages/subshell-protocol/src/__tests__/ssh-config.test.ts packages/subshell-protocol/src/__tests__/fixtures/ssh-fixtures.ts
-git commit -m "feat(ssh): port OpenSSH grammar, budgets, and named-refusal codes into subshell-protocol"
+git add packages/subshell-protocol/src/ssh-limits.ts packages/subshell-protocol/src/ssh-config.ts packages/subshell-protocol/src/ssh-errors.ts packages/subshell-protocol/src/ssh-results.ts packages/subshell-protocol/src/ssh-frames.ts packages/subshell-protocol/src/index.ts packages/subshell-protocol/src/__tests__/ssh-config.test.ts packages/subshell-protocol/src/__tests__/fixtures/ssh-fixtures.ts
+git commit -m "feat(ssh): port OpenSSH grammar, budgets, command frames, and named-refusal codes into subshell-protocol"
 ```
 
 ---
@@ -178,7 +181,7 @@ git commit -m "feat(ssh): port OpenSSH grammar, budgets, and named-refusal codes
 
 **Interfaces:**
 - Consumes (Task 1): `type NodeSshResolveOutcomeWire`, `parseSshConnectionSnapshot`, `SSH_MAX_PROXY_HOPS`, `SSH_PROBE_DEADLINE_MS`, `type SshConnectionSnapshotWire`, `type SshErrorCode`, `type SshHopWire` (ssh-resolve.ts) plus `SSH_MAX_DISCOVERED_ALIASES`, `SSH_NAME_MAX_CHARS` (ssh-discover.ts), and `type SshConnectionSnapshotWire` in helpers.ts - all from `@internal/subshell-protocol`.
-- Produces (from `@internal/pane-runtime`): `runSshProcess`, `type SshProcessResult`, `sshChildPath` (spawn); `defaultSshConfigPath`, `discoverSshAliases`, `isDiscoverableAlias`, `expandTilde`, `walkSshConfig`, `type SshAliasDiscovery`, `type SshConfigWalk`, `type SshHostBlock`, `type SshWalkBudget` (discover); `parseProxyHop`, `resolveSshAliasConfig`, `type SshResolutionDeps` (resolve). These are the branch's real export names, verified from the files themselves on 2026-10-07.
+- Produces (from `@internal/pane-runtime`): `runSshProcess`, `type SshProcessResult`, `sshChildPath` (spawn); `defaultSshConfigPath`, `discoverSshAliases`, `isDiscoverableAlias`, `walkSshConfig`, `type SshAliasDiscovery`, `type SshConfigWalk`, `type SshHostBlock`, `type SshWalkBudget` (discover); `parseProxyHop`, `resolveSshAliasConfig`, `type SshResolutionDeps` (resolve). These are the branch's real BARREL export names, verified against the branch's own `pane-runtime/src/index.ts` on 2026-10-07 (`expandTilde` is file-exported but barrel-internal, as on the branch).
 
 - [ ] **Step 1: Copy the three engines and their three test files verbatim**
 
@@ -194,7 +197,7 @@ for f in helpers ssh-discover.test ssh-resolve.test; do
 done
 ```
 
-Then confirm each engine's imports are ONLY `node:*`, its `./` siblings inside `ssh/`, or `@internal/subshell-protocol`. The known true edges (keep them): `ssh-resolve.ts` imports `defaultSshConfigPath`, `expandTilde`, `type SshHostBlock`, `type SshWalkBudget`, `walkSshConfig` from `./ssh-discover.js` and `runSshProcess`, `sshChildPath` from `./ssh-spawn.js`; helpers.ts imports a protocol type. A `./ssh-render` / `./ssh-session-*` / `./kill-group` / codec import would be coupling to the abandoned runtime path - none exists on the branch today, so if one appears, record it and de-couple it (never by deleting a protocol import Task 1 supplies). Rewrite the `SSH-SUPPORT.md` pointers as in Task 1 Step 2 and check `grep -l "SSH-SUPPORT" packages/pane-runtime/src/ssh/*.ts packages/pane-runtime/src/ssh/__tests__/*.ts` prints nothing.
+Then confirm each engine's imports are ONLY `node:*`, its `./` siblings inside `ssh/`, `../login-path.js`, or `@internal/subshell-protocol`. The known true edges (keep them): `ssh-spawn.ts` imports `loginPathEntries` from `../login-path.js` (a main-resident module, `packages/pane-runtime/src/login-path.ts`); `ssh-resolve.ts` imports `defaultSshConfigPath`, `expandTilde`, `type SshHostBlock`, `type SshWalkBudget`, `walkSshConfig` from `./ssh-discover.js` and `runSshProcess`, `sshChildPath` from `./ssh-spawn.js`; helpers.ts imports a protocol type. A `./ssh-render` / `./ssh-session-*` / `./kill-group` / codec import would be coupling to the abandoned runtime path - none exists on the branch today, so if one appears, record it and de-couple it (never by deleting a protocol import Task 1 supplies). Rewrite the `SSH-SUPPORT.md` pointers as in Task 1 Step 2 and check `grep -l "SSH-SUPPORT" packages/pane-runtime/src/ssh/*.ts packages/pane-runtime/src/ssh/__tests__/*.ts` prints nothing.
 
 - [ ] **Step 2: Run the ported tests**
 
@@ -425,6 +428,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
+cd /home/theo/projects/wt-ssh-anywhere
 git add apps/server/api/src/db/migrations/0047-node-ssh-enabled.ts apps/server/api/src/db/migrate.ts apps/server/api/src/db/types/nodes.db-types.ts apps/server/api/src/db/migrations/__tests__/0047-node-ssh-enabled.test.ts
 git commit -m "feat(nodes): add ssh_enabled capability column (default off) + migration"
 ```
@@ -484,8 +488,9 @@ Expected: FAIL (`nodeCanSsh` not exported).
  * server gate they are allowed to enable). Deliberately NOT shaped like
  * `nodeCanLaunchOn`: local's seeded Everyone grant confers launch, never SSH use,
  * so there is no `granted` parameter here to widen it. Gated by the row's
- * ssh_enabled (fail-closed) and, for `local`, the server-as-node switch. A
- * distinct refusal from maintenance/no-launch, so the UI can say why. */
+ * ssh_enabled (fail-closed) and, for `local`, the server-as-node switch. Answers
+ * yes/no only; naming WHY (gate off vs not owner vs maintenance vs no-launch) is
+ * the caller's copy, per spec section 12. */
 export function nodeCanSsh(opts: {
   kind: NodeKind;
   access: NodeAccess;
@@ -591,6 +596,7 @@ Mount it in `api/nodes/index.ts` beside the maintenance route.
 - Modify: `apps/server/api/src/services/nodes/node-events.ts`, `apps/server/api/src/index.ts`
 - Modify: `apps/server/api/src/services/nodes/ssh-enabled.ts` (created in Task 6; this task appends the push and reconcile and enables the push line in `setNodeSshEnabled`)
 - Test: `apps/node/agent/src/__tests__/ssh-enabled.test.ts`
+- Test: `apps/server/api/src/services/nodes/__tests__/ssh-enabled.test.ts` (the plane half: `reconcileSshEnabled`'s decide-table, mirroring `maintenance-decide.test.ts`'s pattern: reported matches row -> no push; reported disagrees -> push the ROW value, never adopt from the node; row on + node silent -> push; `local` -> push is a no-op; and `setNodeSshEnabled` writes + audits exactly one row)
 
 **Interfaces:**
 - Produces: `sshEnabledPath(dataDir)`, `readSshEnabled(dataDir): {kind:"on"|"absent"|"unreadable", changedAt?}` (absent⇒treated off; unreadable⇒refuse), `writeSshEnabled`, `reportSshEnabled(ctx, state: NodeSshEnabledWire)`, `seedSshEnabledMemo`, `pushSetSshEnabled(nodeId, {on, changedAt})` (no-op for `local`), `reconcileSshEnabled(nodeId, reported)`, protocol `NodeSshEnabledWire`/`parseNodeSshEnabled`/`set_ssh_enabled` arm/`ready.sshEnabled`, and `NODE_PROTOCOL_VERSION` 15 -> 16.
