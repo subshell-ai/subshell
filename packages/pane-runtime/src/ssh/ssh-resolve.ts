@@ -34,13 +34,14 @@ import { runSshProcess, sshChildPath } from "./ssh-spawn.js";
  *
  * **Disclosure this step owes the human:** `ssh -G` EVALUATES the account's
  * config, which means a trusted `Match exec` can run a LOCAL command during
- * resolution. The walk separately detects `Match exec` and refuses to make
- * such a config a saved connection, but detection happens after the eval, so
- * the refusal is about what gets stored, not about what already ran. The
- * grammar's own header names the doctrine ("Configuration here is executable,
- * not passive data", ssh-config.ts); Plan 2's wire JSDoc and UI copy must
- * carry the disclosure before the button. It is this engine's Gate A contract,
- * carried verbatim; the governing design sits in
+ * resolution. The structural walk runs BEFORE the eval and refuses every
+ * `Match exec` it sees, so a seen one never reaches `-G` here at all. The
+ * disclosure covers what the walk could not see: its byte,
+ * file and glob-match caps mean a `Match exec` past a cap is invisible to the
+ * walk but not to OpenSSH, and `-G` runs it. Plan 2's wire JSDoc and UI copy
+ * must say so before the button. The doctrine (ssh-config.ts: "Configuration
+ * here is executable, not passive data") is this engine's Gate A contract,
+ * carried verbatim; the governing design is
  * docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md section 5.2.
  */
 
