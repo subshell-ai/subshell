@@ -50,12 +50,13 @@ caveat when that pane's ssh can drive an agent).
 
 ## 4. Connection modes
 
-One launcher, two modes, chosen by where the signing key lives. If the connecting
-machine B holds the key, ssh runs there directly. If the key lives on another
-machine A, the choice is jump mode (origin A dials out; pane on A) or relay mode
-(pane on B; signed by A's agent over a sealed shuttle; section 8; an M2
-capability). In Milestone 1 the key source is always the connecting machine itself,
-so relay and the grants that drive it (section 5.1) are out of scope.
+One launcher, three arrangements, chosen by where the signing key lives and how it
+reaches D. **Direct**: the connecting machine B holds the key and `ssh` runs there.
+**Jump** (section 4.1): the origin A holds the key and dials out through a hop, pane
+on A. **Relay** (section 4.2, M2): the pane is on B but the key is on a different
+machine A, reached over a sealed shuttle. In Milestone 1 the key source is always the
+connecting machine itself, so relay and the grants that drive it (section 5.1) are
+out of scope; direct and jump are the M1 arrangements.
 
 ### 4.1 Jump mode (A is the connecting machine)
 
@@ -97,7 +98,9 @@ refused with the remedy named in copy: ask the owner of that machine to enable S
 on it. The gate is per role: relay mode needs both the connecting machine (dials
 out) and the key home (whose agent signs) enabled; jump mode needs only the origin
 A (which dials out and serves its key) enabled; a jump hop `J` and the destination
-`D` are dialed-to, not gated.
+`D` are dialed-to, not gated. Only the owner of an enabled machine may route SSH
+through it (mirrors `nodeCanSsh`); an `edit` grantee of someone else's enabled node
+is not thereby allowed to use that machine's egress or keys.
 
 ## 5. Architecture components
 
@@ -127,7 +130,10 @@ via `sendCommand` (the signed, replay-fenced node command transport, present on
 `main`); alias resolution is a user-initiated action, never run during discovery.
 Every token in the built command is passed through `shellQuote`; the connection is
 one shell string through tmux, so quoting is the load-bearing defense and is never
-relaxed.
+relaxed. The built `ssh` runs against the rendered snapshot config via `-F` only,
+never the connecting machine's live `~/.ssh/config`: `~/.ssh/config` is
+discovery/resolve input only, so settings the session policy forbids (ForwardAgent,
+remote/local forwards, ProxyCommand) cannot reappear at connect time.
 
 ### 5.3 Sealed agent relay (Milestone 2)
 
@@ -141,12 +147,13 @@ back. The plane routes by the recipient id in the envelope header without openin
 anything. Detail in section 8.
 
 This is not "the primitives used as is." It needs a machine-to-machine identity
-roster and a TOFU pin flow that do not exist today: nodes already hold a
+roster and a TOFU pin flow that do not fully exist today: nodes already hold a
 registration ECDH-ES keypair (`apps/node/agent/src/identity.ts`, private half never
-leaves the machine), but `identities.route` serves only per-principal (`sess:` /
-`user:`) keys, so there is no way today for A to learn and pin B's machine key.
-Building that roster and first-use pinning, and deciding whether the relay obeys
-`SUBSHELL_CHANNEL_PIN` or is always strict, is part of the M2 work.
+leaves the machine) and an identities store keyed by principal exists, but a node is
+not registered there as a readable principal and there is no client-visible read path
+or machine-to-machine TOFU pin flow. Building that (a `node:<id>` identity, a read
+path, and first-use pinning, and deciding whether the relay obeys
+`SUBSHELL_CHANNEL_PIN` or is always strict) is part of the M2 work.
 
 ### 5.4 Terminal pane
 
@@ -202,6 +209,10 @@ clean seam the M1 launcher exposes.
   of section 4.3. Plane-authored row value, cached in a node-side mirror file the
   node reads only to fail closed; owner/admin to change; audited as
   `node.ssh_enabled`. Not a new table (a column on `nodes`).
+- `ssh_saved_hosts` (M1): per owner, keyed by the resolved canonical destination
+  `user@host:port` (display alias separate), with the connecting box used and
+  last-connect; recent hosts derive from connects. Also stores the user's default
+  connecting machine; with none set the UI prompts rather than silently choosing.
 - `ssh_key_grants` (M2): id, owner, name, key-home node id, destination selector.
   No secrets, no keys.
 - `ssh_host_pins` (M2): keyed by resolved destination `user@host:port`, the pinned
@@ -229,21 +240,28 @@ clean seam the M1 launcher exposes.
   sign/authenticate methods OpenSSH needs. It refuses `ADD_IDENTITY`,
   `REMOVE_IDENTITY`, `LOCK`/`UNLOCK`, and extension requests, so a granted handshake
   window cannot mutate or lock A's agent against its other panes.
-  `REQUEST_IDENTITIES` is answered with A's keys filtered to the grant's pinned
-  identity, not the whole list.
+  `REQUEST_IDENTITIES` is answered with A's keys filtered to the identity files the
+  resolved connection snapshot names for that destination (bounded by
+  `SSH_MAX_IDENTITY_REFS`), not A's whole list.
 - Replay posture: because the plane stores envelopes, a byte-identical envelope
   could be resent within the handshake window; a nonce/freshness inside the
   ciphertext, bound to the relay session, makes such replays inert.
-- Origin: to be accepted by A, a request must seal under B's machine key, which A
-  has pinned TOFU. The plane holds no machine's private ECDH key, so after that pin
-  it cannot mint a request A accepts as B; sealing supplies origin authentication,
-  not just confidentiality. This rests on the machine-identity roster and pin flow
-  named in section 5.3, and carries the pin-establishment window described in
-  section 10.
+- Origin: sealing supplies confidentiality only. The reused primitive (`crypto.ts`)
+  is ephemeral-static ECDH-ES+A256KW: the sender contributes a per-message throwaway
+  key and only the recipient's static key is used, so a seal to A authenticates no
+  one. Anyone holding A's public key, including the plane that registered it, could
+  craft an envelope A opens. Origin therefore comes from a SIGNATURE: B signs the
+  inner payload with its machine key and A verifies against B's pinned key (the ES256
+  JWS precedent from node command signing); the signature rides inside the sealed
+  envelope, which hides the payload from the plane. A's own TOFU pin of B's signing
+  key is the authorizer, not the plane that brokers the pairing. This rests on the
+  machine-identity roster and pin flow of section 5.3 and the pin-establishment
+  window of section 10.
 - Scope of signing: SSH agent sign requests carry no destination, so a grant cannot
   bind the agent to a host at the protocol layer; the residual risk (a compromised B
   using the granted key against other hosts that key can reach) is accepted under
-  the single-operator posture and bounded by key-scoping plus instant revoke.
+  the single-operator posture and bounded by serving only the snapshot-named
+  identities plus instant revoke.
 - No forwarding onward: B authenticates to D using A's agent but does not run
   `ssh -A` toward D. A's agent is used for the handshake and is never exposed on D,
   strictly safer than stock agent forwarding.
@@ -260,9 +278,10 @@ clean seam the M1 launcher exposes.
 Trust for D follows the key-holder, not the connecting box, and pins are stored per
 resolved destination `user@host:port` (never one per grant).
 
-- M1: the connecting machine is the key home, so this is plain OpenSSH. D is
-  validated against the connecting machine's own `~/.ssh/known_hosts` with
-  `StrictHostKeyChecking`.
+- M1: the connecting machine is the key home, so this is plain OpenSSH. The launcher
+  connects with `StrictHostKeyChecking=accept-new`: a first connect to D records its
+  key into the connecting machine's `~/.ssh/known_hosts`, and OpenSSH itself refuses a
+  later changed key (we run no separate byte-check in M1).
 - M2 (relay): when a grant is created, A's trust in a destination's host key is
   captured (TOFU from A's `~/.ssh/known_hosts`, or an explicit pin) and stored as
   `ssh_host_pins` against that resolved destination. B's ssh then validates D
@@ -275,8 +294,9 @@ in the threat model.
 ## 10. Trust model delta versus section 0
 
 Gained: the plane never holds or sees an SSH private key or a plaintext sign
-challenge; a plane compromised AFTER A first pinned B cannot forge a request A will
-honor (TOFU origin); D never receives a forwarded agent.
+challenge; a plane compromised AFTER A first pinned B's signing key cannot forge a
+request A will honor (origin is B's signature over the payload, verified against that
+pin, not the seal); D never receives a forwarded agent.
 
 The word "after" is load-bearing. The TOFU pin between two machines is established
 through the plane, so a plane compromised BEFORE A's first pin of B can substitute
@@ -334,14 +354,15 @@ system: role tokens only, at most two sentences, no em dashes.
   key machine online); never copy the key to B.
 - No matching key in A's agent: say so and point at loading it; never fall back to
   reading a passphrase-protected file.
-- D host key changed since it was first recorded (M1: the connecting machine's
-  `known_hosts`; M2: the `ssh_host_pins` entry): byte-equality hard block, name D.
+- D host key changed since first recorded: the connect is refused (M1: OpenSSH's own
+  changed-key refusal against the connecting machine's `known_hosts`; M2: our pin's
+  byte-equality block), naming D.
 - Grant names a connecting machine that cannot reach D: a distinct error from "no
   key," so the two causes are not confused.
 - Relay expired or A dropped mid-handshake: the connection either completed (pane
   fine) or fails cleanly with a retry that re-opens the relay.
-- Quota or policy refusal on A: a refusal carrying the reason, using the same
-  byte-equality hard-block convention (section 9).
+- Quota or policy refusal on A: a loud refusal naming the reason, never a silent
+  fallback (the convention this section follows).
 
 ## 13. Security rules honored
 
@@ -370,7 +391,9 @@ system: role tokens only, at most two sentences, no em dashes.
   parsing and the forbidden-settings refusal; ProxyJump argv construction and
   quoting; the `ssh_enabled` gate default-off, fail-closed-on-unreadable,
   owner/admin gating, and `nodeCanSsh` refusal codes; the scoped `SSH_AUTH_SOCK`
-  export (present on the ssh process, absent from the rest of the pane env).
+  export (present on the ssh process, absent from the rest of the pane env); and the
+  view-only rule (a sharee typed into an SSH-terminal pane is refused input,
+  section 5.4).
 - Unit, M2: connection-config render with the pinned `UserKnownHostsFile`; the
   agent-proxy wire framing against a stub agent, including that non-allow-listed
   agent methods are refused; grant validation; relay envelope seal/open (right
@@ -380,9 +403,11 @@ system: role tokens only, at most two sentences, no em dashes.
   relay; a sign request reaches A's stub agent, the response returns sealed, the
   relayed blob is opaque at the plane, an ungranted or wrong-origin request is
   refused, and revoke stops signing mid-session.
-- End to end: the sshd fixture reused as D. M1 jump drives a real two-hop
-  `ProxyJump` (bastion plus target) with the key on the origin only, proving the
-  pane attaches and accepts input. M2 relay is the crown-jewel test: a second
+- End to end: the sshd fixture reused as D. M1 direct drives a single-hop pane to D
+  on the connecting machine's own agent (the section 1 primary and section 11 common
+  case): it opens, streams, accepts owner input, and refuses a sharee's input. M1
+  jump drives a real two-hop `ProxyJump` (bastion plus target) with the key on the
+  origin only. M2 relay is the crown-jewel test: a second
   machine as A with the key in its agent, a B with no key, B authenticates to D
   through the plane relay while the plane-side wire capture shows only opaque
   envelopes plus plaintext routing ids, and the key never appears on B or the plane.
@@ -423,10 +448,11 @@ flow is a cautionary example, not a base.
 Milestone 1 is done when, from the web app and the enrolled laptop, an operator
 opens an interactive pane against an arbitrary sshd-only host on a machine whose
 owner has enabled the (default-off) SSH gate, using that machine's own agent (via
-the scoped `SSH_AUTH_SOCK` export) or a jump through a hop, sees it stream and
-accept input like any pane, and no private key or plaintext challenge ever crosses
-the plane: the plane carries only opaque envelopes plus a plaintext routing id that
-reveals no key material, and D sees only a normal ssh handshake. Milestone 2 is done
+the scoped `SSH_AUTH_SOCK` export) or a jump through a hop; it streams and accepts
+the owner's input (sharees view-only, section 5.4), and no private key or plaintext
+challenge ever crosses the plane. In M1 the plane carries no SSH session content at
+all: ssh runs directly between the node and D, so the plane is not in that path, and
+D sees only a normal ssh handshake. Milestone 2 is done
 when the same pane can run on a machine with no key at all, authenticating through a
 machine that does, with a CI test proving the plane sees only opaque envelopes and
 the key never leaves its home.
