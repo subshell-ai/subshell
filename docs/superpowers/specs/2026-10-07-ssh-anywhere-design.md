@@ -3,7 +3,11 @@
 Status: design, for review. Dated 2026-10-07.
 Branch: `feat/ssh-anywhere`, cut from `origin/main`. This supersedes the approach
 on `feat/ssh-support` (PR #330), which is left open and unmerged as a reference
-for the brokered-session transport, not as a base.
+for the brokered-session transport, not as a base. It also supersedes the prior
+`SSH-SUPPORT.md` contract (runtime-on-destination, keys staying only local), which
+has been removed and no longer applies: this session's direction (terminal to any
+host, runtime as an optional upgrade, cross-machine keys via a sealed relay) is the
+contract.
 
 ## 1. Problem and goal
 
