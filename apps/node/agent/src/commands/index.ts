@@ -27,6 +27,7 @@ import { execService } from "./service.js";
 import { execSetLogLevel } from "./set-log-level.js";
 import { execSetMaintenance } from "./set-maintenance.js";
 import { execSetServerUrl } from "./set-server-url.js";
+import { execSetSshEnabled } from "./set-ssh-enabled.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
 import { execTransferWrite } from "./transfer-write.js";
 import { execTreeManifest } from "./tree-manifest.js";
@@ -47,7 +48,9 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * the one command whose wire shape is frozen, because the plane sends it to
  * agents whose protocol it does not share), and the five archive-transfer
  * commands `archive_create`, `file_read`, `transfer_write`, `archive_extract`
- * and `tree_manifest` (spec 2026-10-01 §4, protocol 15). Any
+ * and `tree_manifest` (spec 2026-10-01 §4, protocol 15), and
+ * `set_ssh_enabled` (spec 2026-10-07 §4.3, protocol 16 — the SSH gate's plane-
+ * to-machine write). Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
  *
@@ -122,6 +125,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return execSetLogLevel(ctx, cmd);
       case "set_maintenance":
         return execSetMaintenance(ctx, cmd);
+      case "set_ssh_enabled":
+        return execSetSshEnabled(ctx, cmd);
       case "set_server_url":
         return await execSetServerUrl(ctx, cmd);
       case "update":

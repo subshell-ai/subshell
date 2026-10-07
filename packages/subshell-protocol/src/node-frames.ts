@@ -133,8 +133,22 @@ import type { JsonValue } from "./json.js";
  * log-confined beside the generalized `file_read`, and `write_file`'s upload
  * roots stay exactly as narrow as they are while `transfer_write` arrives as
  * its own policy-gated sibling.
+ *
+ * **15 → 16 is the node SSH capability gate (spec 2026-10-07 §4.3).** One
+ * owner-controlled flag per machine saying "this machine may take part in
+ * Subshell SSH at all", off by default and fail-closed: `set_ssh_enabled`
+ * carries the plane's value to the node's mirror file, `ready.sshEnabled`
+ * states that mirror at connect, and the `ssh_enabled` event reports a mirror
+ * that moved underneath the connection. Unlike maintenance there is no
+ * node-side writer — the plane is the sole author and every reconcile pushes
+ * the row, never the other way. Additive, and breaking anyway, because the
+ * gate is exact-match — and breaking is the POINT here rather than a formality
+ * to shrug through: a pre-16 agent never sees `set_ssh_enabled` and reports no
+ * `sshEnabled`, which on the wire is indistinguishable from a 16 agent whose
+ * mirror simply says no. A capability gate cannot live with that ambiguity
+ * (spec §4.3), so the number is what refuses the old agent, not the frame.
  */
-export const NODE_PROTOCOL_VERSION = 15;
+export const NODE_PROTOCOL_VERSION = 16;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -908,6 +922,28 @@ export type NodeCommandBody =
     }
   | {
       /**
+       * Write this node's SSH-capability mirror file (spec 2026-10-07 §4.3).
+       *
+       * The plane's ONLY writing copy of the flag — unlike maintenance there
+       * is no keyboard verb to race, so this is the only frame that ever
+       * changes the file apart from a repair of a corrupt one. It writes the
+       * file and nothing else: turning SSH off kills no panes (SSH acts are
+       * short-lived per-command work, and turning it ON widens nothing this
+       * machine was already refusing mid-flight).
+       *
+       * Carries the plane's own `changedAt` rather than letting the node stamp
+       * its own: both copies must end byte-identical, so a later `ready`
+       * report reads as agreement rather than a disagreement this process
+       * invented.
+       */
+      type: "set_ssh_enabled";
+      /** True = this machine may be used for Subshell SSH. */
+      on: boolean;
+      /** The plane's stamp for this value; stored verbatim. */
+      changedAt: string;
+    }
+  | {
+      /**
        * Replace this agent's own binary and restart into it (spec 2026-09-15 §5.2).
        *
        * **THIS SHAPE IS FROZEN ACROSS FUTURE PROTOCOL BUMPS.** Every other
@@ -1092,6 +1128,31 @@ export function parseNodeMaintenance(value: unknown): NodeMaintenanceWire | null
   return { on: value.on, changedAt: value.changedAt };
 }
 
+/**
+ * One node's SSH capability, as it travels in either direction (spec
+ * 2026-10-07 §4.3) — the same `{ on, changedAt }` shape as maintenance, with
+ * the default and the reconcile direction inverted: `on` means this machine
+ * MAY take part in Subshell SSH, and only the plane writes it.
+ *
+ * `changedAt` is the stamp of the write that produced `on`, carried verbatim
+ * in both directions so the two copies stay byte-identical and neither side
+ * can mistake a relay for a new decision. Nothing here compares stamps: the
+ * plane is authoritative and every disagreement ends with the plane's value
+ * pushed down.
+ */
+export interface NodeSshEnabledWire {
+  /** True = this machine may be used for Subshell SSH. */
+  on: boolean;
+  /** ISO 8601 stamp of the write that produced this value. */
+  changedAt: string;
+}
+
+/** A {@link NodeSshEnabledWire}, or null when the value is not one. */
+export function parseNodeSshEnabled(value: unknown): NodeSshEnabledWire | null {
+  if (!isRecord(value) || !isBool(value.on) || !isStr(value.changedAt)) return null;
+  return { on: value.on, changedAt: value.changedAt };
+}
+
 /** Agent → control events, unsigned (socket-authed; spec §3.3). */
 /**
  * One field of a plugin's preset-editor schema, as it travels.
@@ -1243,6 +1304,16 @@ export type NodeEvent =
        * own record, which is the only way that file gets repaired.
        */
       maintenance?: NodeMaintenanceWire;
+      /**
+       * This machine's SSH-capability mirror, as its file reads at connect
+       * (spec 2026-10-07 §4.3). Absent means the node has no file — which for
+       * SSH reads as REFUSED (fail-closed), not as agreeing with the row.
+       *
+       * Dropped rather than fatal when malformed, exactly like `maintenance`:
+       * the refusal is the safe direction, and the plane reconciles the
+       * disagreement from its own row on the very same `ready`.
+       */
+      sshEnabled?: NodeSshEnabledWire;
     }
   | {
       /**
@@ -1257,6 +1328,24 @@ export type NodeEvent =
       /** True = this node accepts no new subshells. */
       on: boolean;
       /** ISO 8601 stamp of the write on the machine. */
+      changedAt: string;
+    }
+  | {
+      /**
+       * This machine's SSH mirror moved underneath the connection (spec
+       * 2026-10-07 §4.3) — the heartbeat belt's carrier.
+       *
+       * With no node-side writer there is no keyboard flip to report (that is
+       * what `set_maintenance`'s sibling event exists for); what this carries
+       * is a file that changed by some other means — chiefly CORRUPTION, which
+       * flips a machine from "allowed" to "refused" silently and would
+       * otherwise stay a secret until the next reconnect. The plane's answer
+       * to any disagreement is a push of its row, which is also the repair.
+       */
+      type: "ssh_enabled";
+      /** The refusal/allowance this machine is acting on, as its mirror reads. */
+      on: boolean;
+      /** ISO 8601 stamp from the file (its own mtime when the file is unreadable). */
       changedAt: string;
     }
   | {
@@ -1507,6 +1596,10 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       const state = parseNodeMaintenance(value);
       return state ? { type: "set_maintenance", ...state } : null;
     }
+    case "set_ssh_enabled": {
+      const state = parseNodeSshEnabled(value);
+      return state ? { type: "set_ssh_enabled", ...state } : null;
+    }
     case "update": {
       // Shape only, like `set_server_url` above: WHICH url is acceptable is
       // the plane's to decide, and the digest is checked against the bytes
@@ -1644,19 +1737,26 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       ) {
         return null;
       }
-      // `runtime` and `maintenance` are additive: a malformed one is dropped
-      // so the connection still comes up without it, rather than refused.
+      // `runtime`, `maintenance` and `sshEnabled` are additive: a malformed
+      // one is dropped so the connection still comes up without it, rather
+      // than refused. For `sshEnabled` the drop is also SAFE in a way the
+      // others are not quite: the plane answers silence with its row (a row
+      // that says on pushes down), so a malformed field cannot strand a
+      // machine on the wrong side of the gate.
       const {
         runtime: rawRuntime,
         maintenance: rawMaintenance,
+        sshEnabled: rawSshEnabled,
         ...rest
-      } = value as Record<string, unknown> & { runtime?: unknown; maintenance?: unknown };
+      } = value as Record<string, unknown> & { runtime?: unknown; maintenance?: unknown; sshEnabled?: unknown };
       const runtime = rawRuntime === undefined ? null : parseNodeRuntimeReport(rawRuntime);
       const maintenance = rawMaintenance === undefined ? null : parseNodeMaintenance(rawMaintenance);
+      const sshEnabled = rawSshEnabled === undefined ? null : parseNodeSshEnabled(rawSshEnabled);
       return {
         ...(rest as unknown as Extract<NodeEvent, { type: "ready" }>),
         ...(runtime ? { runtime } : {}),
         ...(maintenance ? { maintenance } : {}),
+        ...(sshEnabled ? { sshEnabled } : {}),
       };
     }
     case "inventory": {
@@ -1674,6 +1774,12 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       // opposite of what the machine is doing.
       const state = parseNodeMaintenance(value);
       return state ? { type: "maintenance", ...state } : null;
+    }
+    case "ssh_enabled": {
+      // Strict for the same reason: this frame is the machine reporting what
+      // it is acting on; half of it is not an answer.
+      const state = parseNodeSshEnabled(value);
+      return state ? { type: "ssh_enabled", ...state } : null;
     }
     case "heartbeat":
       return isStr(value.ts) ? { type: "heartbeat", ts: value.ts } : null;

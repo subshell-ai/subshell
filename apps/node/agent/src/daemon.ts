@@ -10,13 +10,20 @@ import {
   type NodeEvent,
   type NodeMaintenanceWire,
   type NodeRuntimeReport,
+  type NodeSshEnabledWire,
   SeqTracker,
   verifyCommand,
 } from "@internal/subshell-protocol";
 import { backoffDelay } from "./backoff.js";
 import type { CommandContext, CommandResult, CommandWs } from "./commands/context.js";
 import { dispatchCommand } from "./commands/index.js";
-import { buildSubshellsReport, maybeReportMaintenance, seedMaintenanceMemo } from "./commands/report.js";
+import {
+  buildSubshellsReport,
+  maybeReportMaintenance,
+  maybeReportSshEnabled,
+  seedMaintenanceMemo,
+  seedSshEnabledMemo,
+} from "./commands/report.js";
 import { stopAllTails } from "./commands/tail.js";
 import { sweepStaleTransfers } from "./commands/transfer-sweep.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
@@ -334,6 +341,7 @@ function readyEvent(
   config: NodeConfig,
   runtime: NodeRuntimeReport | null,
   maintenance: NodeMaintenanceWire | undefined,
+  sshEnabled: NodeSshEnabledWire | undefined,
 ): Extract<NodeEvent, { type: "ready" }> {
   return {
     type: "ready",
@@ -380,6 +388,13 @@ function readyEvent(
     // every launch here, and a plane told nothing about that has no row to
     // reconcile and no reason to push the clean file that repairs it.
     ...(maintenance ? { maintenance } : {}),
+    // This machine's SSH-capability mirror (spec 2026-10-07 §4.3), carried
+    // exactly as maintenance is: OMITTED when absent (an off file or no file —
+    // silence means REFUSED here, and a row that says on answers it with the
+    // push), and an UNREADABLE file carried as the refusal it acts on under
+    // its own mtime, so the plane can repair the file instead of holding a
+    // silent disagreement until the next reconnect.
+    ...(sshEnabled ? { sshEnabled } : {}),
   };
 }
 
@@ -983,7 +998,10 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // The mirror is read SYNCHRONOUSLY too, and by the seeder itself: the
         // value `ready` carries and the memo that stops the first heartbeat
         // repeating it are one read, so they cannot disagree.
-        send(ws, readyEvent(config, runtime, seedMaintenanceMemo(ctx)));
+        // The SSH mirror rides the same synchronous read + seed as the
+        // maintenance one (spec 2026-10-07 §4.3): the value `ready` carries and
+        // the memo that stops the first heartbeat repeating it are one read.
+        send(ws, readyEvent(config, runtime, seedMaintenanceMemo(ctx), seedSshEnabledMemo(ctx)));
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
@@ -1025,6 +1043,11 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
           // when the machine had no panes running — the commonest case for
           // `subshell maintenance off`, where there is nothing to die at all.
           maybeReportMaintenance(ctx);
+          // The SSH gate's belt (spec 2026-10-07 §4.3): quieter by construction
+          // (no writer but the plane, so the steady state announces nothing),
+          // and this tick is its ONLY mid-session path — there are no deaths
+          // for it to ride ahead of, because an SSH flip kills no panes.
+          maybeReportSshEnabled(ctx);
         }, heartbeatMs);
         // Periodic `inventory` push — the "every 5 min" leg of spec §7
         // (P3-T8c). The timer's lifecycle mirrors the heartbeat's — armed

@@ -1,6 +1,7 @@
-import type { NodeEvent, NodeMaintenanceWire } from "@internal/subshell-protocol";
+import type { NodeEvent, NodeMaintenanceWire, NodeSshEnabledWire } from "@internal/subshell-protocol";
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance, writeMaintenance } from "../maintenance.js";
+import { readSshEnabled, reportableSshEnabled } from "../ssh-enabled.js";
 import type { CommandContext, WatcherRegistration } from "./context.js";
 
 /**
@@ -143,6 +144,65 @@ export function seedMaintenanceMemo(ctx: CommandContext): NodeMaintenanceWire | 
   ctx.lastReportedMaintenance = reportableMaintenance(readMaintenance(ctx.config.dataDir));
   ctx.mirrorRestoreLogged = false;
   return ctx.lastReportedMaintenance;
+}
+
+/**
+ * Announce one SSH-capability mirror state to the plane and remember having
+ * done so (spec 2026-10-07 §4.3).
+ *
+ * The memo update is not bookkeeping: it is what keeps the next heartbeat tick
+ * silent about a value the plane already holds — and what keeps a
+ * `set_ssh_enabled` the plane just pushed from coming back as an event.
+ *
+ * @param ctx - the daemon's command context (owns the socket seam and the memo)
+ * @param state - the mirror's answer, sent verbatim (never re-stamped here)
+ */
+export function reportSshEnabled(ctx: CommandContext, state: NodeSshEnabledWire): void {
+  ctx.ws.send({ type: "ssh_enabled", on: state.on, changedAt: state.changedAt });
+  ctx.lastReportedSshEnabled = state;
+}
+
+/**
+ * Report the SSH mirror IF it has moved since this connection last spoke
+ * about it — the heartbeat belt, and by far the quieter one.
+ *
+ * With no node-side writer, the common steady state says nothing: an
+ * off-or-absent mirror has nothing to announce (the plane's own row is
+ * authoritative, and silence reads as refusal on both ends), and an on mirror
+ * only speaks up once. What this loop exists to catch is the file changing
+ * UNDER the connection — corruption flipping a machine from allowed to
+ * refused mid-session — so the plane learns it now and pushes its row (the
+ * repair) rather than discovering the disagreement at the next reconnect.
+ *
+ * There is no absent-restore half (the maintenance path above has one for its
+ * keyboard writer): hand-deleting this file is not an interface, and the next
+ * `ready` reconciles it in the plane's direction.
+ *
+ * @param ctx - the daemon's command context
+ */
+export function maybeReportSshEnabled(ctx: CommandContext): void {
+  const state = reportableSshEnabled(readSshEnabled(ctx.config.dataDir));
+  if (!state) return;
+  const last = ctx.lastReportedSshEnabled;
+  if (last?.on === state.on && last.changedAt === state.changedAt) return;
+  reportSshEnabled(ctx, state);
+}
+
+/**
+ * Seed this connection's SSH memo from the mirror on disk.
+ *
+ * Called once per connect, immediately before `ready` — which carries the same
+ * value, so the first heartbeat must not repeat it — and again on every
+ * reconnect, because a new socket has told the plane nothing. The one read of
+ * the file builds both, so the frame and the memo cannot disagree.
+ *
+ * @param ctx - the daemon's command context
+ * @returns the value `ready` should carry, or undefined when there is nothing
+ * truthful to report
+ */
+export function seedSshEnabledMemo(ctx: CommandContext): NodeSshEnabledWire | undefined {
+  ctx.lastReportedSshEnabled = reportableSshEnabled(readSshEnabled(ctx.config.dataDir));
+  return ctx.lastReportedSshEnabled;
 }
 
 /** Stop the shared tick if one is running (idempotent). */
