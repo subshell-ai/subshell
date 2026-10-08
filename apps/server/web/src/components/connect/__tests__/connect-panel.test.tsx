@@ -181,7 +181,7 @@ async function clickConnect(): Promise<void> {
 afterEach(cleanup);
 
 describe("machine disclosure (contract 1)", () => {
-  it("keeps a gated-off machine visible, greyed, with the reason naming what is in the way", async () => {
+  it("keeps a gated-off machine visible, greyed, with the reason naming the remedy", async () => {
     const { pathname, restore } = await renderPanel({ nodes: [HOST_A, HOST_B] });
     try {
       // HOST_A is the sole SSH-enabled machine, so it pre-selects honestly -
@@ -190,8 +190,26 @@ describe("machine disclosure (contract 1)", () => {
       await settle();
       const studio = await screen.findByRole("option", { name: /studio/ });
       expect(studio.getAttribute("data-disabled")).toBe("");
-      expect(studio.textContent).toContain("SSH is off on this machine");
+      // The row carries the remedy, not just the cause (the changeset's
+      // promise; the server's gateCause sentences are the pattern).
+      expect(studio.textContent).toContain(
+        "SSH is off on this machine. Its owner can switch it on from this machine's settings.",
+      );
       expect(pathname()).toBe("/");
+    } finally {
+      restore();
+    }
+  });
+
+  it("names the admin remedy on a gated-off local row, kind-aware like the server's gate", async () => {
+    const localOff = node({ id: "loc", name: "this host", kind: "local", sshEnabled: false });
+    const { restore } = await renderPanel({ nodes: [HOST_A, localOff] });
+    try {
+      openMachinePopup();
+      await settle();
+      const row = await screen.findByRole("option", { name: /this host/ });
+      expect(row.getAttribute("data-disabled")).toBe("");
+      expect(row.textContent).toContain("SSH is off here. An admin can switch it on in Server Settings.");
     } finally {
       restore();
     }
@@ -209,16 +227,60 @@ describe("machine disclosure (contract 1)", () => {
     }
   });
 
-  it("pre-selects the single SSH-enabled machine with the preference unset", async () => {
+  it("pre-selects the single SSH-enabled machine with the preference unset, and asks nothing extra", async () => {
     const { restore } = await renderPanel({ nodes: [HOST_A, HOST_B] });
     try {
       await waitFor(() => expect(machineInput().value).toBe("mac mini"));
+      // The one usable machine is pre-selected honestly: no gold question
+      // mark, no requirement caption (Connect is live once a destination stands).
+      const label = document.querySelector('label[for="connect-machine"]');
+      expect(label?.querySelector('[class*="after:content"]')).toBeNull();
+      expect(screen.queryByText("Choose a connecting machine first.")).toBeNull();
     } finally {
       restore();
     }
   });
 
-  it("several enabled machines and no preference is a required question: gold *, gold caption on the submit, no POST", async () => {
+  it("a stale default with one enabled machine still pre-selects it, unmarked", async () => {
+    // The ledger points at a vanished node; the only usable machine wins.
+    const { restore } = await renderPanel({
+      nodes: [HOST_A, HOST_B],
+      ledger: { saved: [], recent: [], defaultNodeId: "vanished-node" },
+    });
+    try {
+      await waitFor(() => expect(machineInput().value).toBe("mac mini"));
+      const label = document.querySelector('label[for="connect-machine"]');
+      expect(label?.querySelector('[class*="after:content"]')).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("a stale default with NO enabled machine: the caption names the missing machine and Connect cannot fire", async () => {
+    // The honest dead end: the preference points at a row that is gone and
+    // nothing is SSH-enabled. The sentence names the ENVIRONMENT (gold, one
+    // line), and the disabled button means Connect can never be a silent
+    // no-op: a typed destination alone must not POST.
+    const { calls, restore } = await renderPanel({
+      nodes: [],
+      ledger: { saved: [], recent: [], defaultNodeId: "vanished-node" },
+    });
+    try {
+      expect(machineInput().value).toBe("");
+      const caption = screen.getByText("No SSH-enabled machine is available. Enable SSH on a machine first.");
+      expect(caption.className).toContain("text-amber-600"); // gold: nothing chosen, not a refused value
+      await commitTyped("box.example");
+      const button = screen.getByRole("button", { name: /^Connect$/ }) as HTMLButtonElement;
+      expect(button.disabled).toBe(true); // the machine is in the disabled condition
+      await clickConnect();
+      expect(calls.filter((c) => c.url === "/api/ssh/launch")).toEqual([]);
+      expect(screen.getByText("No SSH-enabled machine is available. Enable SSH on a machine first.")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("several enabled machines and no preference is a required question: gold *, gold caption, no POST", async () => {
     const { calls, restore } = await renderPanel({ nodes: [HOST_A, HOST_C] });
     try {
       expect(machineInput().value).toBe(""); // never silently chosen
@@ -471,6 +533,19 @@ describe("refusals and disclosure (contracts 4, 5)", () => {
       expect(SSH_DISCLOSURE_COPY).toBe(
         "Resolving asks the connecting machine to read its SSH config. A hidden Match exec in that config can run a local command while it resolves.",
       );
+    } finally {
+      restore();
+    }
+  });
+
+  it("wires the machine requirement caption as the picker's description", async () => {
+    // The same aria posture the destination field pins above: whatever the
+    // machine picker is explaining about itself is its accessible
+    // description, named by id only while it is on screen.
+    const { restore } = await renderPanel({ nodes: [HOST_A, HOST_C] });
+    try {
+      await waitFor(() => expect(document.getElementById("connect-machine-requirement")).not.toBeNull());
+      expect(machineInput().getAttribute("aria-describedby")).toContain("connect-machine-requirement");
     } finally {
       restore();
     }

@@ -22,11 +22,13 @@ import { launchableNodes } from "@/lib/subshell-compat";
  * display, never a pre-resolve step. Three nouns only (the §11 vocabulary):
  * destination, connecting machine. No key-source affordance (that is M2).
  *
- * A machine whose SSH is off stays VISIBLE and disabled with its reason -
- * greying explains, hiding does not (decision 3). With no default machine and
- * several SSH-enabled ones the disclosure is required with the gold `*` and
- * never silently chosen; with a preference or exactly one usable machine it
- * pre-selects honestly and stays on screen. The disclosure sentence (the
+ * A machine whose SSH is off stays VISIBLE and disabled with its reason and
+ * remedy - greying explains, hiding does not (decision 3). Once both feeds
+ * have answered, an empty picker IS the open question: the gold `*` and the
+ * gold sentence stand under it and Connect stays disabled, never a silent
+ * no-op (a stored default or the only usable machine pre-selects honestly and
+ * clears them; when no machine is enabled the sentence names that). The
+ * disclosure sentence (the
  * `Match exec` note, decision 6) ships verbatim under the destination field,
  * before the button, because approving a destination approves running its
  * resolution.
@@ -71,7 +73,7 @@ export function ConnectPanel(): JSX.Element {
   const navigate = useNavigate();
   const { data: nodeData } = useNodes();
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
-  const { data: ledger } = useSshSavedHosts();
+  const { data: ledger, isPending: ledgerPending } = useSshSavedHosts();
   const launch = useLaunchSsh();
   const save = useSaveSshHost();
   const setDefault = useSetDefaultNode();
@@ -79,25 +81,32 @@ export function ConnectPanel(): JSX.Element {
   const [nodeId, setNodeId] = useState("");
   const [dest, setDest] = useState<DestinationState>({ pick: null, pickId: null, typed: "" });
   const [remember, setRemember] = useState(false);
-  // The gold caption waits for a submit that found the machine untouched:
-  // "nothing typed yet", never before the first attempt (ruling 2026-09-30).
-  const [submitAttempted, setSubmitAttempted] = useState(false);
   const [refusal, setRefusal] = useState<SshRefusalCopy | null>(null);
 
   const targets = launchableNodes(nodes ?? []);
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === nodeId) ?? null;
   const defaultNodeId = ledger?.defaultNodeId ?? null;
   const enabledCount = targets.filter((n) => n.sshEnabled).length;
-  // No preference, several doors: the choice is the human's (spec §7).
-  const machineRequired = nodeId === "" && defaultNodeId === null && enabledCount > 1;
+  // "Settled" means both feeds have answered, so the pre-fill effect has had
+  // its say: a stored default or the only usable machine has landed, or there
+  // was nothing to land. From then on an empty machine IS the open question -
+  // several doors with no preference, or no door at all (spec §7, decision 2).
+  const machineRequired = nodes !== null && !ledgerPending && nodeId === "";
 
   // The machine disclosure keeps gated-off rows visible (decision 3): grey,
-  // with the reason naming what is in the way.
+  // with the reason carrying the remedy, not just the cause - the sentence
+  // pair mirrors the server's own gate (ssh-launch.service.ts's `gateCause`):
+  // the control-plane host's switch is an admin's, every other machine's is
+  // its owner's.
   const machineOptions: ComboboxOption[] = targets.map((n) => ({
     value: n.id,
     label: nodeOptionLabel(n),
     disabled: !n.sshEnabled,
-    reason: n.sshEnabled ? undefined : "SSH is off on this machine",
+    reason: n.sshEnabled
+      ? undefined
+      : n.kind === "local"
+        ? "SSH is off here. An admin can switch it on in Server Settings."
+        : "SSH is off on this machine. Its owner can switch it on from this machine's settings.",
   }));
 
   // Aliases are the MACHINE's config, asked only while a gate-ON machine is
@@ -151,7 +160,8 @@ export function ConnectPanel(): JSX.Element {
   }
 
   async function submit(): Promise<void> {
-    setSubmitAttempted(true);
+    // Belt over gate: the button's own disabled condition already holds both
+    // fields, so this can only fire on a render race, never as a silent no-op.
     if (nodeId === "" || destination === "") return;
     setRefusal(null);
     try {
@@ -171,10 +181,22 @@ export function ConnectPanel(): JSX.Element {
     }
   }
 
-  const machineGap =
-    submitAttempted && machineRequired
-      ? fieldErrorToned([{ message: "Choose a connecting machine first.", gap: true }])
-      : null;
+  // An open machine question speaks the moment it stands: Connect is disabled
+  // while the picker is empty, and a dim button with no sentence is the
+  // silent no-op this round refused. Gold, never red - "nothing chosen yet"
+  // (ruling 2026-09-30) - and when no enabled machine exists the sentence
+  // names the environment, not the person.
+  const machineGap = machineRequired
+    ? fieldErrorToned([
+        {
+          message:
+            enabledCount > 0
+              ? "Choose a connecting machine first."
+              : "No SSH-enabled machine is available. Enable SSH on a machine first.",
+          gap: true,
+        },
+      ])
+    : null;
   // aria-describedby may name nothing that is not rendered, so the
   // association is exactly the explanation lines currently on screen.
   const machineRefusal = refusal?.field === "machine" ? refusal.text : null;
@@ -253,7 +275,7 @@ export function ConnectPanel(): JSX.Element {
           <Label htmlFor="connect-remember">Remember this destination</Label>
         </div>
 
-        <Button onClick={() => void submit()} disabled={launch.isPending || destination === ""}>
+        <Button onClick={() => void submit()} disabled={launch.isPending || destination === "" || nodeId === ""}>
           {launch.isPending ? "Connecting…" : "Connect"}
         </Button>
       </div>

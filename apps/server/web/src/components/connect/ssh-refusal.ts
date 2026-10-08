@@ -56,7 +56,7 @@ export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null):
     switch (err.status) {
       case 400:
         // ALIAS_UNSAFE: the token was refused before the machine was asked.
-        return { text: "That destination is not a valid host name.", field: "destination" };
+        return { text: "That destination is not a valid name to connect to.", field: "destination" };
       case 403: {
         if (err.code === "SSH_GATE_OFF" && machine !== null && !machine.sshEnabled) {
           // The gate's off-door. Naming WHO flips it follows the row's kind:
@@ -94,6 +94,15 @@ export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null):
               text: `${name} did not answer the SSH request in time. Check its connection and retry.`,
               field: "machine",
             };
+          case "NODE_IN_MAINTENANCE":
+            // The create under the launch refuses in a window (`rethrow-
+            // LaunchRefusal`, subshells.service.ts): the link is LIVE, it
+            // just takes no new panes - saying "no live connection" here
+            // would name the wrong fact and the wrong wait.
+            return {
+              text: `${name} is in maintenance and takes no new panes. Wait for it to come out of maintenance.`,
+              field: "machine",
+            };
           default:
             // NODE_OFFLINE and any other 409: no live link to carry the ask.
             return {
@@ -112,8 +121,13 @@ export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null):
       }
       case 502:
         // The machine answered its own refusal (no ssh binary, the mirror
-        // says no); its verbatim text never rides the wire to here.
-        return { text: "The connecting machine did not answer.", field: "machine" };
+        // says no); its verbatim text never rides the wire to here. This is
+        // the server's own sentence (`rpcRefusal`): the two checks that
+        // answer the machine's no.
+        return {
+          text: "The connecting machine refused the SSH request. Check that SSH is switched on there and that ssh is installed.",
+          field: "machine",
+        };
       default:
         break;
     }
