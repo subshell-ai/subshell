@@ -35,6 +35,11 @@
  * carry for the other specs. Its own temp DB, its own data dir (whose
  * `ssh/<id>` dir the spec asserts on through the filesystem), and its own
  * tmux base.
+ *
+ * `connect` belongs to spec 23, the browser twin of `ssh`: the same HOME-
+ * override reason, and a FRESH slot rather than a reuse because spec 22 keeps
+ * its instance alive across its own retries — two ssh backends boot in one
+ * run and must never collide on the same port.
  */
 const envPort = (name: string, fallback: number): number => {
   const raw = process.env[name];
@@ -52,6 +57,7 @@ export const PORTS = {
   fakeIdp: envPort("E2E_PORT_FAKE_IDP", 3197),
   onboarding: envPort("E2E_PORT_ONBOARDING", 3200),
   ssh: envPort("E2E_PORT_SSH", 3201),
+  connect: envPort("E2E_PORT_CONNECT", 3202),
 } as const;
 
 export const BASE_URL = `http://127.0.0.1:${PORTS.backend}`;
