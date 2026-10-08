@@ -42,6 +42,25 @@ export class IdentitiesRepository extends BaseRepository {
     return this.findByPrincipal(input.principalId) as Promise<IdentityTable>;
   }
 
+  /**
+   * Fill the principal's EMPTY signing slot (spec 2026-10-08 §4.3): a
+   * compare-and-write that refuses to land once the slot holds ANY value, so
+   * the anti-silent-rotation guard is structural in SQL rather than a
+   * read-then-write the caller could race. The encryption `publicKey` and
+   * `registeredAt` do not move - filling the signing half is not a rotation.
+   * @returns true when THIS call wrote the bytes (false: the slot was, or
+   *   concurrently became, non-empty, or the row does not exist)
+   */
+  async fillSigningPublicKey(principalId: string, signingPublicKey: string): Promise<boolean> {
+    const res = await this.db
+      .updateTable("identities")
+      .set({ signingPublicKey })
+      .where("principalId", "=", principalId)
+      .where("signingPublicKey", "is", null)
+      .executeTakeFirst();
+    return Number(res.numUpdatedRows) > 0;
+  }
+
   /** The principal's current identity, if registered. */
   async findByPrincipal(principalId: string): Promise<IdentityTable | undefined> {
     return this.db.selectFrom("identities").selectAll().where("principalId", "=", principalId).executeTakeFirst();

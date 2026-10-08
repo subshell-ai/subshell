@@ -1124,10 +1124,9 @@ export type NodeCommandBody =
        */
       maxBytes: number;
     }
-  // The SSH discovery/resolve reads: two commands folded in as one union
-  // member so the SSH grammar lives in `ssh-frames.ts` beside the commands it
-  // narrows; their answers are validated by the two ssh result parsers
-  // appended to `node-results.ts` in the same tier.
+  // The SSH commands: three members folded in as one union member so the SSH
+  // grammar lives in `ssh-frames.ts` beside the commands it narrows; their
+  // answers are validated by the ssh result parsers in `node-results.ts`.
   | SshNodeCommandBody;
 
 /**
@@ -1739,7 +1738,8 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         : { type: "tree_manifest", root: value.root, maxBytes: value.maxBytes as number };
     case "ssh_discover_aliases":
     case "ssh_resolve_config":
-      // Delegation, not a second parser: the SSH grammar (both arms, one
+    case "ssh_register_identity":
+      // Delegation, not a second parser: the SSH grammar (all arms, one
       // file) lives in ssh-frames.ts beside the commands it narrows.
       return parseSshNodeCommandBody(value);
     default:

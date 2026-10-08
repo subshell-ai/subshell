@@ -24,7 +24,7 @@ import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 import { parseSshConnectionSnapshot } from "./ssh-config.js";
 import { isSshErrorCode } from "./ssh-errors.js";
 import { SSH_MAX_DISCOVERED_ALIASES } from "./ssh-limits.js";
-import type { NodeSshAliasListResult, NodeSshResolveOutcomeWire } from "./ssh-results.js";
+import type { NodeSshAliasListResult, NodeSshIdentityResult, NodeSshResolveOutcomeWire } from "./ssh-results.js";
 
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;
@@ -583,4 +583,24 @@ export function parseNodeSshResolveOutcome(data: unknown): NodeSshResolveOutcome
   }
   if (!isSshErrorCode(data.code) || !isStrArray(data.settings)) return null;
   return { accepted: false, code: data.code, settings: [...(data.settings as string[])] };
+}
+
+/**
+ * Validates and narrows an `ssh_register_identity` command's `result{data}`
+ * (spec 2026-10-08 §4.3). Deliberately shallow: the grammar proves the field
+ * is a non-empty string carrying JSON that parses to an object. ES256
+ * importability (and the no-private-component rule) is the server's gate at
+ * the store, not the wire's; a machine answering its OWN key has nothing to
+ * inject beyond its own identity.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed answer, or null when malformed
+ */
+export function parseNodeSshIdentity(data: unknown): NodeSshIdentityResult | null {
+  if (!isRecord(data) || !isNonEmptyStr(data.signingPublicKey)) return null;
+  try {
+    if (!isRecord(JSON.parse(data.signingPublicKey) as unknown)) return null;
+  } catch {
+    return null;
+  }
+  return { signingPublicKey: data.signingPublicKey };
 }

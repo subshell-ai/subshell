@@ -2186,6 +2186,11 @@ Audit events are written, grouped by family:
 - **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`, `node.reregister_key`, `node.reregister`,
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.ssh_enabled.update`,
+  `node.ssh_identity.register` (spec 2026-10-08 §4.3: the signing-key
+  bootstrap lands when the link's answer fills the EMPTY slot, `via: "link"`
+  and nothing else in the metadata - never the key value; the idempotent
+  re-report of the same bytes and the refused different-bytes report write
+  no row),
   `node.logging.update`, `node.update`,
   `node.update.unknown`, `node.shares_set`, `node.local_share_changed`, and
   `node.service` (with `{ verb: "restart", forced }` metadata; the restart

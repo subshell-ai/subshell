@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parseNodeSshAliasList, parseNodeSshResolveOutcome } from "../node-results.js";
+import { parseNodeSshAliasList, parseNodeSshIdentity, parseNodeSshResolveOutcome } from "../node-results.js";
 import { makeAliasList, makeResolveOk, makeResolveRefused } from "./fixtures/ssh-fixtures.js";
+
+/** A well-formed public-JWK STRING: the validator's whole job is that it is JSON and an object. */
+const SIGNING_JWK =
+  '{"kty":"EC","crv":"P-256","x":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","y":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}';
 
 describe("parseNodeSshAliasList", () => {
   test("narrows a well-formed answer", () => {
@@ -42,5 +46,26 @@ describe("parseNodeSshResolveOutcome", () => {
       settings: ["ProxyCommand"],
     });
     expect(parseNodeSshResolveOutcome({ accepted: false, code: "not_a_code", settings: [] })).toBeNull();
+  });
+});
+
+describe("parseNodeSshIdentity", () => {
+  test("narrows a well-formed signing-public-key answer", () => {
+    expect(parseNodeSshIdentity({ signingPublicKey: SIGNING_JWK })).toEqual({ signingPublicKey: SIGNING_JWK });
+  });
+  test("refuses a non-string or empty field", () => {
+    expect(parseNodeSshIdentity({ signingPublicKey: 7 })).toBeNull();
+    expect(parseNodeSshIdentity({ signingPublicKey: "" })).toBeNull();
+    expect(parseNodeSshIdentity({})).toBeNull();
+    expect(parseNodeSshIdentity(null)).toBeNull();
+    expect(parseNodeSshIdentity(SIGNING_JWK)).toBeNull(); // the answer is an OBJECT, not a bare string
+  });
+  test("refuses a value that is not well-formed JSON of object shape", () => {
+    // The grammar stops at "JSON that parses to an object"; ES256 importability
+    // is the server's gate (assertImportableSigningJwk), never this one's.
+    expect(parseNodeSshIdentity({ signingPublicKey: "not json at all" })).toBeNull();
+    expect(parseNodeSshIdentity({ signingPublicKey: '"a string that parses"' })).toBeNull();
+    expect(parseNodeSshIdentity({ signingPublicKey: "[1,2]" })).toBeNull();
+    expect(parseNodeSshIdentity({ signingPublicKey: "null" })).toBeNull();
   });
 });

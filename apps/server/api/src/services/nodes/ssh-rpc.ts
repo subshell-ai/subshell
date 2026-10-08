@@ -2,13 +2,15 @@ import {
   type NodeSshAliasListResult,
   type NodeSshResolveOutcomeWire,
   parseNodeSshAliasList,
+  parseNodeSshIdentity,
   parseNodeSshResolveOutcome,
 } from "@internal/subshell-protocol";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
 /**
- * The two ssh discovery/resolve commands as plane-side RPC wrappers
- * (spec 2026-10-07 §5). Each is `sendCommand` plus ITS frozen result parser:
+ * The ssh commands as plane-side RPC wrappers (spec 2026-10-07 §5 for the
+ * discovery/resolve pair; spec 2026-10-08 §4.3 for the identity bootstrap).
+ * Each is `sendCommand` plus ITS frozen result parser:
  * the value these return is a validated plain object (or the function throws),
  * so no caller can branch on a machine answer it has not parsed.
  *
@@ -95,4 +97,28 @@ export async function sshResolve(nodeId: string, alias: string): Promise<NodeSsh
     throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed resolve outcome`, nodeId);
   }
   return parsed;
+}
+
+/**
+ * Ask one machine to report its OWN relay signing public key (spec
+ * 2026-10-08 §4.3). The command carries no input: the machine answers about
+ * itself, and the plane-side guard (deliverSigningKey) owns what a report
+ * may do - this wrapper only moves validated bytes across the link.
+ * @returns the answer's `signingPublicKey` string (importability is checked
+ *   by the STORE, not here; this layer's job is the wire grammar)
+ * @throws {SshRpcError} on any transport/wire failure, per the kinds above
+ */
+export async function sshRegisterIdentity(nodeId: string): Promise<string> {
+  let data: unknown;
+  try {
+    data = await sendCommand(nodeId, { type: "ssh_register_identity" });
+  } catch (err) {
+    if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
+    throw err;
+  }
+  const parsed = parseNodeSshIdentity(data);
+  if (!parsed) {
+    throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed signing identity`, nodeId);
+  }
+  return parsed.signingPublicKey;
 }
