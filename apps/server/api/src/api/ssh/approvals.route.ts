@@ -3,13 +3,19 @@ import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { SshGrantRequestViewSchema, SshGrantViewSchema, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
 import { apiModels } from "@/schema/index.js";
-import { approveGrant, denyGrant, listGrantRequests } from "@/services/ssh-grants.service.js";
+import {
+  approveGrant,
+  denyGrant,
+  listGrantRequests,
+  listRequestAgentIdentities,
+} from "@/services/ssh-grants.service.js";
 
 /**
  * `/api/ssh/grant-requests` - the first-use approval queue (spec 2026-10-08
  * §6.2, modeled on the signup pending-approvals queue): GET the owner's
- * pending questions, POST `/:id/approve` (selects the fingerprints and writes
- * the standing grant), POST `/:id/deny` (an answer, no grant).
+ * pending questions, GET `/:id/identities` (the key home's public agent
+ * roster to choose FROM, §5.4), POST `/:id/approve` (selects the fingerprints
+ * and writes the standing grant), POST `/:id/deny` (an answer, no grant).
  *
  * The actor model is decision 5 stated concretely: rows are owned by the key
  * home's owner, the asking launch could only have gated A through
@@ -45,6 +51,46 @@ export const sshGrantRequestsRoutes = new Elysia()
         tags: ["ssh"],
         description:
           "Lists the caller's outstanding first-use key-grant approvals, each naming the asking pane, the connecting machine, and the resolved destination",
+      },
+    },
+  )
+  .get(
+    "/grant-requests/:id/identities",
+    async ({ params, user, actor }) => {
+      requireCookieActor(actor, "SSH grant approvals are restricted to browser sessions");
+      const answer = await listRequestAgentIdentities({ ownerUserId: user.id, requestId: params.id });
+      if (!answer.ok) return throwCodedRefusal(answer.refusal);
+      return { identities: answer.value.identities };
+    },
+    {
+      params: t.Object({ id: t.String({ description: "Request row id" }) }),
+      response: {
+        200: t.Object({
+          identities: t.Array(
+            t.Object({
+              fingerprint: t.String({
+                description:
+                  "Public agent identity in the canonical SHA256: notation (the approval body sends these back verbatim)",
+              }),
+              comment: t.String({ description: "OpenSSH's label for the key, as the agent reports it (display only)" }),
+            }),
+            {
+              description:
+                "The key home's WHOLE public roster with the key blobs withheld; the operator selects the grant's subset (cap enforced at approval, never by truncating this list)",
+            },
+          ),
+        }),
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+        502: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "listSshGrantRequestAgentIdentities",
+        tags: ["ssh"],
+        description:
+          "Enumerates the key home's live agent identities for the approval screen (fingerprints plus comments, blobs withheld); an offline or refusing key home answers a named error and the request stays pending, never a fabricated empty roster",
       },
     },
   )

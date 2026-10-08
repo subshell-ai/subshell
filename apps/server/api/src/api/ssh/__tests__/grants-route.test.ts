@@ -1,8 +1,8 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { SSH_MAX_GRANT_FINGERPRINTS } from "@internal/subshell-protocol";
+import { type NodeSshAgentIdentitiesResult, SSH_MAX_GRANT_FINGERPRINTS } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
@@ -16,6 +16,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
+import { SshRpcError } from "@/services/nodes/ssh-rpc.js";
 import { createGrant, requestFirstUse, setSshGrantsDepsForTests } from "@/services/ssh-grants.service.js";
 import { type RelayBroker, SshRelayRefusal } from "@/services/ssh-relay.service.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
@@ -72,6 +73,11 @@ let openCalls: { grantId: string; fingerprints: string[]; paneId: string; aNode:
 let closeGrantCalls: { grantId: string; reason: string }[] = [];
 let notifyCalls: string[] = [];
 let openRelayThrows: ((input: unknown) => never) | null = null;
+/** Scripted roster RPC (Task 11): a canned answer or a canned failure, plus the call log. */
+let rosterAnswer: () => NodeSshAgentIdentitiesResult = () => ({
+  identities: [{ fingerprint: `SHA256:${"D".repeat(43)}`, comment: "work laptop" }],
+});
+let rosterCalls: string[] = [];
 
 function installFakeDeps() {
   const broker = {
@@ -89,6 +95,10 @@ function installFakeDeps() {
     nowIso: () => new Date().toISOString(),
     broker: () => broker,
     notifyGrantApproval: (_owner, requestId) => notifyCalls.push(requestId),
+    fetchAgentIdentities: async (nodeId: string) => {
+      rosterCalls.push(nodeId);
+      return rosterAnswer();
+    },
   });
 }
 
@@ -566,5 +576,124 @@ describe("POST /api/ssh/launch in relay mode (the grant-gated relay leg)", () =>
     } finally {
       scripted.detach();
     }
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* GET /api/ssh/grant-requests/:id/identities (Task 11 roster fetch)   */
+/* ------------------------------------------------------------------ */
+
+describe("GET /api/ssh/grant-requests/:id/identities (the roster behind the approval screen)", () => {
+  async function mkAsk(paneId: string): Promise<string> {
+    const asked = await requestFirstUse({
+      ownerUserId: ownerId,
+      aNodeId: NODE_A,
+      bNodeId: NODE_B,
+      resolvedSelector: "git.example.test",
+      paneId,
+    });
+    if (!asked.ok) throw new Error("fixture ask refused");
+    return asked.value.requestId;
+  }
+  async function queueStatus(id: string): Promise<string | undefined> {
+    const body = (await (await sshFetch("/api/ssh/grant-requests", { cookie: ownerCookie })).json()) as {
+      requests: { id: string; status: string }[];
+    };
+    return body.requests.find((r) => r.id === id)?.status;
+  }
+
+  beforeEach(() => {
+    installFakeDeps(); // reset the scripted roster RPC and its call log between cases
+    rosterCalls = [];
+  });
+
+  it("answers the key home's public roster, blobs withheld, and the queue row is untouched", async () => {
+    const requestId = await mkAsk("pane-roster-1");
+    rosterAnswer = () => ({
+      identities: [
+        { fingerprint: `SHA256:${"D".repeat(43)}`, comment: "work laptop" },
+        { fingerprint: `SHA256:${"E".repeat(43)}`, comment: "" },
+      ],
+    });
+    const res = await sshFetch(`/api/ssh/grant-requests/${requestId}/identities`, { cookie: ownerCookie });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { identities: Record<string, string>[] };
+    expect(body.identities.map((e) => e.fingerprint)).toEqual([`SHA256:${"D".repeat(43)}`, `SHA256:${"E".repeat(43)}`]);
+    expect(body.identities[0]?.comment).toBe("work laptop");
+    expect(body.identities[1]?.comment).toBe(""); // the agent's empty comment is data, not a gap
+    // The entry shape is exactly the two public fields: nowhere for a blob to ride.
+    for (const entry of body.identities) expect(Object.keys(entry).sort()).toEqual(["comment", "fingerprint"]);
+    expect(JSON.stringify(body)).not.toContain("blob");
+    expect(rosterCalls).toEqual([NODE_A]); // asked the KEY HOME, exactly once
+    expect(await queueStatus(requestId)).toBe("pending"); // the read changed nothing
+  });
+
+  it("the roster rides the REAL signed RPC: scripted A answers over the link and the command that left was its type alone", async () => {
+    // Deps WITHOUT the roster seam: production wiring is under test, so the
+    // command passes through signing, the RPC correlator, and the frozen
+    // result parser exactly as it does between the shipped processes.
+    const scripted = attachScriptedNode(NODE_A, {
+      ssh_agent_identities: () => ({
+        identities: [{ fingerprint: `SHA256:${"F".repeat(43)}`, comment: "real path key" }],
+      }),
+    });
+    setSshGrantsDepsForTests({
+      nowIso: () => new Date().toISOString(),
+      broker: () =>
+        ({
+          openRelay: async () => {
+            throw new Error("the roster fetch opens no relay");
+          },
+          closeForGrant: async () => 0,
+        }) as unknown as RelayBroker,
+      notifyGrantApproval: () => {},
+    });
+    const requestId = await mkAsk("pane-roster-e2e");
+    try {
+      const res = await sshFetch(`/api/ssh/grant-requests/${requestId}/identities`, { cookie: ownerCookie });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { identities: { fingerprint: string; comment: string }[] };
+      expect(body.identities).toEqual([{ fingerprint: `SHA256:${"F".repeat(43)}`, comment: "real path key" }]);
+      // Its type ALONE travelled the link: the roster command asks the whole
+      // roster, and no plane-side selection field reached the machine.
+      expect(scripted.cmdsOf("ssh_agent_identities")).toEqual([{ type: "ssh_agent_identities" }]);
+    } finally {
+      scripted.detach();
+      installFakeDeps();
+    }
+  });
+
+  it("an unreachable key home answers the named refusal with the request PENDING; an answered one is never re-asked", async () => {
+    const requestId = await mkAsk("pane-roster-offline");
+    rosterAnswer = () => {
+      throw new SshRpcError("offline", "node has no live connection", NODE_A);
+    };
+    const offline = await sshFetch(`/api/ssh/grant-requests/${requestId}/identities`, { cookie: ownerCookie });
+    expect(offline.status).toBe(409);
+    expect(((await offline.json()) as { code: string }).code).toBe(BackendErrorCodes.NODE_OFFLINE);
+    expect(await queueStatus(requestId)).toBe("pending"); // §5.4: stays pending until A is reachable
+    const approved = await sshFetch(`/api/ssh/grant-requests/${requestId}/approve`, {
+      method: "POST",
+      cookie: ownerCookie,
+      body: { fingerprints: [`SHA256:${"D".repeat(43)}`] },
+    });
+    expect(approved.status).toBe(200);
+    rosterCalls = [];
+    rosterAnswer = () => {
+      throw new Error("the machine must not be asked after the answer");
+    };
+    const after = await sshFetch(`/api/ssh/grant-requests/${requestId}/identities`, { cookie: ownerCookie });
+    expect(after.status).toBe(409);
+    expect(((await after.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_GRANT_ALREADY_ANSWERED);
+    expect(rosterCalls).toEqual([]);
+  });
+
+  it("cookie doctrine and ownership: an empty cookie is a 401, a stranger's cookie sees the absent-row 404, and no machine is asked", async () => {
+    const requestId = await mkAsk("pane-roster-stranger");
+    rosterCalls = [];
+    expect((await sshFetch(`/api/ssh/grant-requests/${requestId}/identities`, { cookie: "" })).status).toBe(401);
+    const foreign = await sshFetch(`/api/ssh/grant-requests/${requestId}/identities`, { cookie: otherCookie });
+    expect(foreign.status).toBe(404);
+    expect(rosterCalls).toEqual([]);
   });
 });
