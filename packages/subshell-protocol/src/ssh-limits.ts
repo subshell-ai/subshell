@@ -68,6 +68,9 @@ export const SSH_NAME_MAX_CHARS = 253;
 /** Longest absolute POSIX path the wire carries (Linux's PATH_MAX is 4096; a path needing more is not ours to route). */
 export const SSH_PATH_MAX_CHARS = 4094;
 
+/** Largest ssh_config the wire carries in one `launch.ssh.fileContent` member (a rendered snapshot config is hundreds of bytes; this bounds a hostile plane). */
+export const SSH_CONFIG_FILE_MAX_BYTES = 65_536;
+
 /**
  * Grace period a SIGTERM gets before the group is SIGKILLed. Born with the
  * structured runs, kept because the session supervisor kills the brokered
