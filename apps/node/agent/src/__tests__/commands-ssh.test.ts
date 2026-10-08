@@ -124,6 +124,12 @@ describe("ssh gate: discovery and resolve refuse before anything runs", () => {
       type: "ssh_discover_aliases",
     } satisfies NodeCommandBody);
     expect(res).toEqual({ ok: false, error: GATE_REFUSAL });
+    // The same classifier gates the resolve arm; pin the pairing, not just one side.
+    const res2 = await dispatchCommand(makeCtx(dataDir("gate-unreadable", "unreadable")), {
+      type: "ssh_resolve_config",
+      alias: "app02",
+    } satisfies NodeCommandBody);
+    expect(res2).toEqual({ ok: false, error: GATE_REFUSAL });
   });
 });
 
