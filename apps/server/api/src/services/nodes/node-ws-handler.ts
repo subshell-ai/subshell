@@ -973,6 +973,13 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       const hooks = getNodeLifecycleHooks();
       if (hooks) await hooks.onMaintenance(nodeId, event.maintenance);
       else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile maintenance`);
+      // The SSH mirror travels the same door (spec 2026-10-07 §4.3) with the
+      // simpler decision behind it: the row is the record and never adopts,
+      // so the hook's whole cost is one read and at most one fire-and-forget
+      // push of the row's own value. Awaited only because it is trivially
+      // cheap; everything slow lives in the push's own best-effort swallow.
+      if (hooks) await hooks.onSshEnabled(nodeId, event.sshEnabled);
+      else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile ssh_enabled`);
       return;
     }
     case "heartbeat":
@@ -1029,6 +1036,19 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // is what keeps them from answering differently.
       if (hooks) await hooks.onMaintenance(nodeId, { on: event.on, changedAt: event.changedAt });
       else logger.warn(`node ws: maintenance from ${nodeId} with no lifecycle hook`);
+      return;
+    }
+    case "ssh_enabled": {
+      const hooks = getNodeLifecycleHooks();
+      // The machine's SSH mirror moved mid-session. With no node-side writer
+      // there is no keyboard flip to carry — what arrives here is a file that
+      // changed by other means (corruption, chiefly: it flips the node to
+      // REFUSED silently, and this frame is how the plane learns to push the
+      // repair now rather than at the next reconnect). Same hook as `ready`:
+      // a mid-session report and a connect-time state are the same
+      // disagreement, and one reconciler keeps them answering alike.
+      if (hooks) await hooks.onSshEnabled(nodeId, { on: event.on, changedAt: event.changedAt });
+      else logger.warn(`node ws: ssh_enabled from ${nodeId} with no lifecycle hook`);
       return;
     }
     case "result": {

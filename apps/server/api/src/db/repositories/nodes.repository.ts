@@ -56,6 +56,10 @@ export class NodesRepository extends BaseRepository {
         maintenance: input.maintenance ?? 0,
         maintenanceAt: input.maintenanceAt ?? null,
         maintenanceSource: input.maintenanceSource ?? null,
+        // A new node has SSH off: `0` is the column default (migration 0047)
+        // and the gate is opt-in per machine (spec 4.3); mirror it the same way.
+        sshEnabled: input.sshEnabled ?? 0,
+        sshEnabledAt: input.sshEnabledAt ?? null,
         createdAt: input.createdAt ?? now,
         updatedAt: now,
       })
@@ -192,6 +196,35 @@ export class NodesRepository extends BaseRepository {
         maintenance: state.on ? 1 : 0,
         maintenanceAt: state.changedAt,
         maintenanceSource: state.source,
+        updatedAt: new Date().toISOString(),
+      })
+      .where("id", "=", id)
+      .returningAll()
+      .executeTakeFirst();
+  }
+
+  /**
+   * Write the SSH capability flag and its stamp (spec 4.3).
+   *
+   * Same shape as {@link setMaintenance} minus the `source` column: both
+   * fields move together, and the CALLER supplies `changedAt` — the stamp is
+   * the reconciliation protocol between the plane's row and the node's mirror
+   * file (Task 7), so a relay must not re-stamp the fact it is carrying.
+   */
+  async setSshEnabled(
+    id: string,
+    state: {
+      /** True = this machine may be used for Subshell SSH. */
+      on: boolean;
+      /** ISO 8601 of the write that produced `on` — never re-stamped on relay. */
+      changedAt: string;
+    },
+  ): Promise<NodeTable | undefined> {
+    return await this.db
+      .updateTable("nodes")
+      .set({
+        sshEnabled: state.on ? 1 : 0,
+        sshEnabledAt: state.changedAt,
         updatedAt: new Date().toISOString(),
       })
       .where("id", "=", id)

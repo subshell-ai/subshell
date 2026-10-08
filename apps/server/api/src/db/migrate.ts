@@ -46,6 +46,7 @@ import * as presetCrossCommOptInMigration from "@/db/migrations/0043-preset-cros
 import * as oauthCallbackBaseMigration from "@/db/migrations/0044-oauth-callback-base.js";
 import * as nodeReregistrationMigration from "@/db/migrations/0045-node-reregistration.js";
 import * as backupRecoveryMigration from "@/db/migrations/0046-backup-recovery.js";
+import * as sshEnabledMigration from "@/db/migrations/0047-node-ssh-enabled.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -132,6 +133,9 @@ export async function runMigrations(): Promise<void> {
           "0044-oauth-callback-base": oauthCallbackBaseMigration,
           "0045-node-reregistration": nodeReregistrationMigration,
           "0046-backup-recovery": backupRecoveryMigration,
+          // The per-node SSH capability gate: a flag plus its changedAt stamp,
+          // default OFF so an upgrade never turns SSH egress on anywhere (spec 4.3).
+          "0047-node-ssh-enabled": sshEnabledMigration,
         };
       },
     },

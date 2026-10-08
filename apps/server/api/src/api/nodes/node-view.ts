@@ -145,6 +145,10 @@ export const NodeViewSchema = t.Object({
         "Which end declared the current value (a browser or the machine's own `subshell maintenance` verb), so a person reading the page learns whether someone at the keyboard did this; null when it was never set",
     },
   ),
+  sshEnabled: t.Boolean({
+    description:
+      "Whether this machine may be used for Subshell SSH (outbound ssh and serving its keys). Opt-in per node, off by default on every row including the control-plane host; the launch gate refuses SSH here while false, whoever asks",
+  }),
   held: t.Nullable(
     t.Object({
       reason: t.Union([t.Literal("below-floor"), t.Literal("protocol-mismatch"), t.Literal("encryption-required")], {
@@ -352,6 +356,7 @@ function nodeViewBase(
     maintenance: row.maintenance === 1,
     maintenanceAt: row.maintenanceAt,
     maintenanceSource: row.maintenanceSource,
+    sshEnabled: row.sshEnabled === 1,
     // Read from the LIVE registry rather than the row, for the same reason
     // `runtime` is: being held is a fact about a socket that exists right now,
     // and a column would go stale the moment the process ends. It is NOT

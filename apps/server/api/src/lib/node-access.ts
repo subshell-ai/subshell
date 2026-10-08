@@ -95,6 +95,30 @@ export function nodeCanLaunchOn(
   return kind === "local" ? nodeCanLaunch(granted) : nodeCanLaunch(access);
 }
 
+/** Whether this node may be used for Subshell SSH at all (dial out or serve keys).
+ * Owner-only, matching who may broker an OS account's credentials, with the same
+ * local-node admin exception `nodeCanManageFor` applies (the resolver ranks admins
+ * at `edit`, never `owner`, so without `isAdmin` an admin could never USE the
+ * server gate they are allowed to enable). Deliberately NOT shaped like
+ * `nodeCanLaunchOn`: local's seeded Everyone grant confers launch, never SSH use,
+ * so there is no `granted` parameter here to widen it. Gated by the row's
+ * ssh_enabled (fail-closed) and, for `local`, the server-as-node switch. Answers
+ * yes/no only; naming WHY (gate off vs not owner vs maintenance vs no-launch) is
+ * the caller's copy, per spec section 12. */
+export function nodeCanSsh(opts: {
+  kind: NodeKind;
+  access: NodeAccess;
+  isAdmin: boolean;
+  serverAccountEnabled: boolean;
+  sshEnabled: boolean;
+}): boolean {
+  if (!opts.sshEnabled) return false;
+  if (opts.kind === "local") {
+    return (opts.access === "owner" || opts.isAdmin) && opts.serverAccountEnabled;
+  }
+  return opts.access === "owner";
+}
+
 /**
  * TRUE when ANY share level grants launch — deliberately NOT the subshell rule,
  * where launch sits at edit. Product decision (spec 2026-08-31 §2): a `view`

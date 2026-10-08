@@ -50,6 +50,7 @@ import { startServer } from "@/server.js";
 import { loadAndApplyDebugLogging } from "@/services/logging-preference.js";
 import { startInventoryRefresh } from "@/services/nodes/inventory-refresh.js";
 import { reconcileMaintenance } from "@/services/nodes/maintenance.js";
+import { reconcileSshEnabled } from "@/services/nodes/ssh-enabled.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
 import { prepareNetworkGuards, prepareNetworkProcesses } from "@/services/network/prepare.js";
@@ -323,6 +324,9 @@ async function bootServer(): Promise<void> {
     // not route through the manager: the hook hands the machine's own copy to
     // the one module that reconciles the two (spec 2026-09-14 §5.2).
     onMaintenance: (nodeId, reported) => reconcileMaintenance(nodeId, reported),
+    // The SSH mirror's sibling (spec 2026-10-07 §4.3): same door, opposite
+    // direction — the row is the record, so this reconcile only pushes.
+    onSshEnabled: (nodeId, reported) => reconcileSshEnabled(nodeId, reported),
   });
   // Restore alive/exit state at boot: a backend restart mid-subshell must not
   // leave stale alive=1 rows (tmux subshells died with the old process).
