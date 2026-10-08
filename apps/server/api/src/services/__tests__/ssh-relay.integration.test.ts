@@ -1,16 +1,24 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { buildAgentSocketPath } from "@internal/pane-runtime";
 import {
   base64UrlNoPad,
   newNonce,
+  parseNodeSshAgentIdentities,
   parseRelayFrame,
   type RelayFrame,
   SSH_RELAY_LIFETIME_MS,
   type SshRelayOpenCommand,
 } from "@internal/subshell-protocol";
 import { exportJWK, generateKeyPair } from "jose";
+import type { CommandContext } from "../../../../../node/agent/src/commands/context.js";
+import { execSshAgentIdentities } from "../../../../../node/agent/src/commands/ssh-identity.js";
 import { openARelaySession, openBRelaySession } from "../../../../../node/agent/src/commands/ssh-relay.js";
+import { OPENSSH_10X_SCHEME } from "../../../../../node/agent/src/relay-agent-scheme.js";
+import { writeSshEnabled } from "../../../../../node/agent/src/ssh-enabled.js";
 import {
   buildSignRequestTenX,
   decodeA2B,
@@ -23,11 +31,13 @@ import {
   openStack,
   PANE_ID,
   parseAnswer,
+  ROSTER,
   type Stack,
   sealA2B,
   sealB2A,
   sleep,
   sshStr,
+  startStubAgent,
   waitUntil,
 } from "./helpers/ssh-relay-stack.js";
 
@@ -50,8 +60,9 @@ import {
  * A's agent, roster answer first or not.
  *
  * Matrix case 10 (the `ssh_agent_identities` roster command accepted with no
- * grant) is DEFERRED to Task 11, which builds that command; the todo at the
- * bottom names it.
+ * grant) shipped with Task 11, which built the command; it is the one case
+ * that runs WITHOUT the stack, because the roster read consults nothing but
+ * A's live agent and A's own gate mirror.
  */
 
 /** An ES256 pair pinned by nobody: signatures from it are forgeries. */
@@ -601,18 +612,52 @@ test("9. a forged A2B signature fails the pane's connection without a byte writt
 });
 
 /* ------------------------------------------------------------------ */
-/* 10. the roster command (DEFERRED to Task 11)                        */
+/* 10. the roster command: answered with no grant, no relay session    */
 /* ------------------------------------------------------------------ */
 
-// Matrix case 10 - `ssh_agent_identities` accepted with no grant - belongs to
-// Task 11: the roster command does not exist yet and this task must not
-// build it. The responder-side surface (fingerprintAgentBlob,
-// parseIdentitiesAnswer) is already exported for that task to reuse.
-const TODO_PLACEHOLDER = (): void => {
-  /* Task 11 will drive the roster command here. */
-};
-
-test.todo(
-  "10. (Task 11) ssh_agent_identities is accepted with no grant and answers the filtered roster",
-  TODO_PLACEHOLDER,
-);
+// Matrix case 10, flipped from the Task 9 todo now that the command exists
+// (spec 2026-10-08 §5.4, Task 11). The whole matrix stack is deliberately
+// ABSENT: there is no broker, no grant, no pairing, and no B. The point of
+// the case is that the roster read needs none of that - A's live agent and
+// A's own gate mirror are its entire world.
+test("10. ssh_agent_identities is accepted with no grant and no relay session: the WHOLE roster answers, blobs withheld", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "subshell-relay-roster-"));
+  const stub = await startStubAgent(ROSTER, OPENSSH_10X_SCHEME);
+  writeSshEnabled(dir, { on: true, changedAt: "2026-10-08T10:00:00.000Z" });
+  const savedSock = process.env.SSH_AUTH_SOCK;
+  process.env.SSH_AUTH_SOCK = stub.path; // the handler's production socket lookup, over a real round trip
+  try {
+    // The arm dispatch would run, on the same data-dir-only context the node
+    // suite builds; routing of the type is the node suite's own pin.
+    const result = await execSshAgentIdentities({ config: { dataDir: dir } } as unknown as CommandContext);
+    expect(result.ok).toBe(true);
+    const roster = parseNodeSshAgentIdentities(result.ok ? result.data : null);
+    expect(roster).not.toBeNull();
+    // The WHOLE roster, not a grant-filtered one: with nothing granted there
+    // is no set to scope by, and the approval screen must show both keys.
+    expect(roster?.identities).toEqual([
+      { fingerprint: fp(KEY_IN), comment: "granted key" },
+      { fingerprint: fp(KEY_OUT), comment: "ungranted key" },
+    ]);
+    // The blobs are withheld: neither wire encoding of either blob appears
+    // anywhere in the serialized result frame.
+    const wire = JSON.stringify(result);
+    for (const blob of [KEY_IN, KEY_OUT]) {
+      expect(wire).not.toContain(blob.toString("base64"));
+      expect(wire).not.toContain(blob.toString("base64url"));
+    }
+    // Only one-byte requests ever reached the agent: the classic candidate
+    // (13) confirmed FAILURE, the 10.x candidate (11) resolved the scheme
+    // positively, and the roster was asked in the RESOLVED numbering. No
+    // sign body, no session byte: nothing the responder's rules exclude.
+    expect(stub.received).toEqual([Buffer.from([13]), Buffer.from([11]), Buffer.from([11])]);
+    // Nothing was written anywhere the read could not already see: the data
+    // dir holds exactly the gate mirror, no session state, no audit artifact.
+    expect(readdirSync(dir)).toEqual(["ssh-enabled.json"]);
+  } finally {
+    if (savedSock === undefined) delete process.env.SSH_AUTH_SOCK;
+    else process.env.SSH_AUTH_SOCK = savedSock;
+    await stub.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
