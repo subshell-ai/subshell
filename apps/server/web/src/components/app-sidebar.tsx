@@ -336,7 +336,13 @@ export function AppSidebar({
                 </Fragment>
               );
             }
-            const childActive = entry.children.some((child) => location.pathname === child.to);
+            // Detail pages count: /nodes/local is inside the Nodes page, so
+            // the group that holds Nodes is open there (spec 2026-10-07 §A).
+            // Segment-aware on purpose: a bare startsWith would also match a
+            // sibling route that merely begins with the same letters.
+            const childActive = entry.children.some(
+              (child) => location.pathname === child.to || location.pathname.startsWith(`${child.to}/`),
+            );
             const open = groupOpen(overrides[entry.id], childActive);
             const listId = `nav-group-${entry.id}`;
             return (
