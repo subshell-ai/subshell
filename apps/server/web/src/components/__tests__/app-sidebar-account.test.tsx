@@ -131,7 +131,7 @@ describe("the header account card", () => {
       expect(accountTrigger()).toBeTruthy();
       // The bordered footer div was a direct child of the aside with
       // `border-t`; nothing supplies footerEnd on the web, so none exists.
-      expect(document.querySelector("aside > div.border-t")).toBeNull();
+      expect(document.querySelectorAll("aside > div.border-t").length).toBe(0);
       // Sign out still reaches anyone, everywhere.
       fireEvent.click(accountTrigger());
       fireEvent.click(await screen.findByRole("menuitem", { name: "Sign out" }));

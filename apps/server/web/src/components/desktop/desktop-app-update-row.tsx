@@ -36,8 +36,10 @@ import { appUpdateNotice } from "@/lib/desktop-app-update";
  * gets the table with the Server row folded in beside it.
  *
  * This is the one place the two version rows differ on that question.
- * `ServerVersionRow` really is inert for a member, and correctly: a SERVER
- * update is admin-only wherever you stand, while replacing THIS app is not.
+ * The header account card (which carries the server version since the retired
+ * footer row, spec 2026-10-07) really is inert for a member, and correctly: a
+ * SERVER update is admin-only wherever you stand, while replacing THIS app is
+ * not.
  *
  * **Absence still means the shell did not answer**, not "up to date": a
  * browser, or a build predating `desktop_app_update`, renders nothing at all,
@@ -60,9 +62,9 @@ export function DesktopAppUpdateRow({ collapsed }: { collapsed: boolean }) {
     <VersionRow
       // **"app"**, because this is the BUNDLE's version and not the server's
       // (review, 2026-09-19). It comes from `package_info()` in Rust, while
-      // `ServerVersionRow` renders `serverVersion` from public settings — and
-      // on a machine whose managed server was updated separately the two are
-      // different numbers. Two rows saying `Subshell Server <x>` for two
+      // the header account card renders `serverVersion` from public settings,
+      // and on a machine whose managed server was updated separately the two
+      // are different numbers. Two rows saying `Subshell Server <x>` for two
       // different facts is precisely what the "a version nobody can see is a
       // version nobody quotes in a bug report" argument was against.
       label={`Subshell Server App ${data.currentVersion}`}

@@ -95,7 +95,7 @@ export function AppSidebar({
   const location = useLocation();
   const navigate = useNavigate();
   const quickAdd = useQuickAdd();
-  // Identity for the user menu (header). "" fields while in flight — the
+  // Identity for the user menu (header). "" fields while in flight - the
   // menu renders its own "Signed in" placeholder (UserMenu owns that string).
   const { data: user } = useCurrentUser();
   // Admin-nav gate for the Server Settings group (spec 2026-09-02
@@ -105,8 +105,8 @@ export function AppSidebar({
   // Admin-gated server-update read (spec 2026-10-07 §B): the one the deleted
   // ServerVersionRow held. `=== true`, never truthiness: `undefined` is the
   // read in flight, and counting it as admin fires a doomed 403. The header
-  // card is this query's only consumer, so the one-request-per-page-load
-  // property survives the row's deletion.
+  // card is this rail's only consumer of the query; the Updates page runs its
+  // own use, which share-caches by key, so a page load still costs one request.
   const isAdmin = publicSettings?.viewerIsAdmin === true;
   const { data: updates } = useUpdates(isAdmin);
   const serverUpdate = updates?.server;
@@ -363,8 +363,14 @@ export function AppSidebar({
             // the group that holds Nodes is open there (spec 2026-10-07 §A).
             // Segment-aware on purpose: a bare startsWith would also match a
             // sibling route that merely begins with the same letters.
+            // `/settings` is exact-only because General IS `/settings`
+            // itself, not a folder over its siblings; a personal page may one
+            // day live under `/settings/...`, and it should light itself, not
+            // General.
             const childActive = entry.children.some(
-              (child) => location.pathname === child.to || location.pathname.startsWith(`${child.to}/`),
+              (child) =>
+                location.pathname === child.to ||
+                (child.to !== "/settings" && location.pathname.startsWith(`${child.to}/`)),
             );
             const open = groupOpen(overrides[entry.id], childActive);
             const listId = `nav-group-${entry.id}`;

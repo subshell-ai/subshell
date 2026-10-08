@@ -106,9 +106,10 @@ describe("updatesPollMs", () => {
   });
 
   it("treats a payload whose server half lacks the job field as nothing moving, never as a crash", () => {
-    // The sidebar's ServerVersionRow stubs a view whose server half never
-    // carried `job`; the gate must be as loose as isUpdateLive or it throws
-    // inside the query scheduler. Same defense the serverUpdate case above pins.
+    // The retired sidebar footer row (spec 2026-10-07) stubbed a view whose
+    // server half never carried `job`; the gate must be as loose as
+    // isUpdateLive or it throws inside the query scheduler. Same defense the
+    // serverUpdate case above pins.
     const legacy = updatesView() as unknown as Record<string, unknown>;
     legacy.server = Object.fromEntries(
       Object.entries(legacy.server as Record<string, unknown>).filter(([k]) => k !== "job"),
