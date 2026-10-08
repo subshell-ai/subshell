@@ -184,6 +184,67 @@ describe("createSubshell ssh plumbing", () => {
   });
 });
 
+describe("a death transition sweeps the LOCAL ssh config dir (#applyDeath)", () => {
+  // The exit REPORT path (service.reportExit) sweeps on its own; this covers the
+  // gap it cannot: a `pane-died` hook LOST entirely, so no report ever fires and
+  // only the 60 s reconcile learns the process is gone. The reconcile drives the
+  // SAME shared `#applyDeath` that `applySelfReportedExit` flows into, so calling
+  // the manager directly (bypassing the service's sweep) proves the transition
+  // itself removes the dir. CI e2e spec 22 flaked when this was the only missing
+  // sweep: natural death whose hook was lost left <dataDir>/ssh/<id> on disk.
+  function localDir(id: string): string {
+    return join(SUBSHELL_SERVER_DATA_DIR, "ssh", id);
+  }
+
+  it("a running LOCAL ssh pane going dead removes its config dir", async () => {
+    const id = crypto.randomUUID();
+    created.push(id);
+    await subshellsRepo.create({
+      id,
+      userId: OWNER,
+      harnessId: "ssh",
+      name: "lost-hook row",
+      workingDir: tmpdir(),
+      tmuxSocket: `subshell-${id.slice(0, 8)}`,
+      status: "running",
+      alive: 1,
+      nodeId: LOCAL_NODE_ID,
+      ssh: JSON.stringify(SNAPSHOT),
+    });
+    mkdirSync(localDir(id), { recursive: true });
+    writeFileSync(subshellSshConfigPath(id), "Host *\n");
+    const { manager } = mkManager();
+    await manager.applySelfReportedExit(id, 0, new Date().toISOString());
+    expect(existsSync(localDir(id))).toBe(false); // #applyDeath, not the service, removed it
+    const row = await subshellsRepo.findById(id);
+    expect(row?.alive).toBe(0);
+  });
+
+  it("an AGENT ssh pane going dead sweeps NOTHING on this host (the node cleans its own disk)", async () => {
+    const id = crypto.randomUUID();
+    created.push(id);
+    await subshellsRepo.create({
+      id,
+      userId: OWNER,
+      harnessId: "ssh",
+      name: "remote lost-hook row",
+      workingDir: tmpdir(),
+      tmuxSocket: `subshell-${id.slice(0, 8)}`,
+      status: "running",
+      alive: 1,
+      nodeId: "node-remote-death",
+      ssh: JSON.stringify(SNAPSHOT),
+    });
+    // A dir carrying the pane's id on THIS host's disk must survive: it is not
+    // this plane's to remove. #applyDeath's sweep guard is what declines it.
+    mkdirSync(localDir(id), { recursive: true });
+    const { manager } = mkManager();
+    await manager.applySelfReportedExit(id, 1, new Date().toISOString());
+    expect(existsSync(localDir(id))).toBe(true);
+    rmSync(localDir(id), { recursive: true, force: true });
+  });
+});
+
 describe("deleteSubshell reads the row's ssh COLUMN as the kind fact", () => {
   it("a LOCAL row with a snapshot gets its config DIR swept — whatever its harness id claims", async () => {
     const id = crypto.randomUUID();
