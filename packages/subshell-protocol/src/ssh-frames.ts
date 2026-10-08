@@ -7,9 +7,11 @@
  *
  * The rest of the family the earlier command table named (`ssh_test_
  * connection`, the run start/status/read/cancel quartet, `ssh_terminal_
- * launch`, `ssh_input_control`) retired with the destination execution
- * product; protocol 17 never shipped, so their `type` arms are deleted, not
- * refused. The brokered-session commands live in `ssh-session-frames.ts`.
+ * launch`, `ssh_input_control`) retired with that destination-execution
+ * product, which never shipped; their `type` arms are therefore deleted, not
+ * refused. The brokered-session commands are NOT defined on this branch — they
+ * arrive with the sealed agent-relay milestone (M2); no file names them here yet
+ * (`ssh-limits.ts` carries their limits ahead of the frames, as it declares).
  *
  * The commands are TRANSPORT-AGNOSTIC plain objects: the server-hosted
  * `local` node executes the same runtime in-process against these exact
