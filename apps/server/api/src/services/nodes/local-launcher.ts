@@ -412,13 +412,15 @@ export class LocalLauncher implements NodeLauncher {
    * and remote rows alike.
    *
    * `sshPane` is the ROW's kind fact: only the caller that holds the row can
-   * say whether this pane owns a config to sweep. Every non-ssh caller gets
-   * the pre-ssh list unchanged. A natural death removes the whole per-pane
-   * ssh dir on a NODE (the agent's exit sweep); locally the death paths the
-   * control plane runs do not, so the delete sweep unlinks the config here
-   * and the empty dir is the residue `subshellArtifacts` deliberately does
-   * not name (removeArtifacts unlinks FILES; deleting a directory would be a
-   * new power on a path list that can also carry caller-supplied entries).
+   * say whether this pane owns a config. Every non-ssh caller gets the
+   * pre-ssh list unchanged. The ssh arm serves the launcher seam: on an
+   * AGENT row the node launcher's twin arm adds the config FILE path to the
+   * machine's `remove_paths` list, and the dir itself is the machine's to
+   * take (the agent's exit sweep, then the orphan sweep in
+   * `ssh-dir-retention.ts`). A LOCAL ssh row never reaches this list: the
+   * manager's local branch names `logPath` directly and lets
+   * `sweepLocalSshDir` rm-rf the whole per-pane dir on every control-plane
+   * teardown path (unlinking the file and leaving the dir is not a removal).
    */
   subshellArtifacts(id: string, sshPane = false): string[] {
     return sshPane ? [this.logPath(id), subshellSshConfigPath(id)] : [this.logPath(id)];

@@ -111,8 +111,8 @@ function hopToken(hop: SshHopWire): string {
  * backslash escapes are the quoting OpenSSH's strdelim honors for
  * file-valued keywords; the escape is applied before the wrap so the value
  * is byte-exact after the parser's unquote. Plain paths stay unquoted: the
- * rendered file is byte-stable in the snapshot (a dedup record's config is
- * re-read by digest), and quoting every path would churn bytes for no gain.
+ * rendering is byte-stable for a given snapshot, and quoting every path
+ * would churn bytes for no gain.
  */
 function configPathValue(path: string): string {
   if (!/[\s"\\]/.test(path)) return path;

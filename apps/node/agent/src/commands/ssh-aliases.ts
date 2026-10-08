@@ -9,12 +9,13 @@ import { connectingHomeDir, resolveSshBin, SSH_GATE_REFUSAL } from "./ssh-shared
  * 2026-10-07 §5/§7):
  *
  * - `ssh_discover_aliases` — bounded config parse answering NAMES only
- *   (§2: "Discovery returns names, not config file contents"). The answer is
+ *   (discovery answers names, never config file contents). The answer is
  *   run through the frozen wire validator on the way out.
  * - `ssh_resolve_config` — `ssh -G` evaluation of one alias through
  *   pane-runtime's `resolveSshAliasConfig`, plus this machine's connecting
- *   account name for the review card ("review resolved destination AND
- *   connecting OS account"). A refusal is a SUCCESSFUL answer (the outcome
+ *   account name on the outcome's `connectingAccount`: the review step
+ *   needs the connecting OS account named alongside the resolved
+ *   destination. A refusal is a SUCCESSFUL answer (the outcome
  *   rides `accepted:false` in the data) so the human reads WHICH setting
  *   blocked; only a missing ssh binary is a command failure.
  *
@@ -24,11 +25,12 @@ import { connectingHomeDir, resolveSshBin, SSH_GATE_REFUSAL } from "./ssh-shared
  * spawn — regardless of what the plane believes about it. The mirror is
  * fail-closed, so absent and unreadable refuse exactly like off.
  *
- * The disclosure §2 demands before resolution runs — that a trusted
- * `Match exec` can execute locally during `ssh -G` — belongs to the
- * human-facing surface that dispatches it: in this tier, the plane's launch
- * route (`/api/ssh/launch`, the SSH-launch API task) is where the disclosure
- * rides, never the node.
+ * The disclosure the resolve step owes the human (the engine's note in
+ * pane-runtime `ssh-resolve.ts`: a `Match exec` the bounded config walk
+ * cannot see still executes locally under `ssh -G`) belongs to the
+ * human-facing surface, never the node: in this tier it rides the plane's
+ * resolve and launch route descriptions (`/api/ssh/resolve`,
+ * `/api/ssh/launch`), and the launcher UI copy ships with Plan 3.
  */
 
 /** Does this machine permit SSH right now? (the one question every arm asks first) */

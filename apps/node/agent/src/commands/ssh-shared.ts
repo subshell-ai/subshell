@@ -6,9 +6,10 @@ import { findBinary } from "@internal/pane-runtime";
  *
  * The one question every SSH executor asks first is WHERE the ssh binary is,
  * and every answer must come from the node's own lookup ladder at this
- * instant — never a path shipped over the wire (§2's inversion posture: the
- * plane approves the destination, the machine owns the argv construction
- * including which binary executes it). `SUBSHELL_SSH_PATH` is the operator
+ * instant — never a path shipped over the wire (inversion spec §5: the argv
+ * is built on the control plane, the binary is resolved here; the plane
+ * approves the destination and composes the command, this machine answers
+ * which ssh(1) executes it). `SUBSHELL_SSH_PATH` is the operator
  * override seam (the `CLAUDE_PATH` posture), and the knownPaths list is the
  * union of OpenSSH install locations on the supported platforms (Linux/macOS)
  * — PATH first through the ladder, these as the fallbacks it names.

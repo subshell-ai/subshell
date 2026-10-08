@@ -51,8 +51,8 @@ const HOUR_MS = 3_600_000;
 /** Younger than this, the dir is kept: the launch write→meta-record grace. */
 export const ORPHAN_SSH_DIR_MIN_AGE_MS = HOUR_MS;
 
-/** The dir the sweep walks; exported so the daemon, tests and the plane-side twin name it from one place. */
-export function sshDirsDir(dataDir: string): string {
+/** The dir the sweep walks. File-private: every consumer goes through {@link sweepOrphanSshDirs}, which names it itself. */
+function sshDirsDir(dataDir: string): string {
   return join(dataDir, "ssh");
 }
 
