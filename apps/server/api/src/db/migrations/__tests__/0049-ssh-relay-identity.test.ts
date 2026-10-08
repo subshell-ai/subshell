@@ -97,6 +97,20 @@ describe("migration 0049-ssh-relay-identity", () => {
   });
 
   it("neither column is NOT NULL: a fresh insert without them succeeds", async () => {
+    // The identities side of the claim: a post-migration registration that
+    // OMITS the signing slot must land, with the column NULL, not fail NOT NULL.
+    await db
+      .insertInto("identities")
+      .values({
+        principal_id: "node:fresh-null",
+        public_key: '{"kty":"EC","crv":"P-256","x":"EEE","y":"FFF"}',
+        display_name: "fresh box",
+      })
+      .execute();
+    const ri = await sql<{ signing_public_key: string | null }>`
+      SELECT signing_public_key FROM identities WHERE principal_id = 'node:fresh-null'
+    `.execute(db);
+    expect(ri.rows[0].signing_public_key).toBeNull();
     await db
       .insertInto("nodes")
       .values({
