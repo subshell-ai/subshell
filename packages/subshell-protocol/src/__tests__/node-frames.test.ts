@@ -24,7 +24,7 @@ import {
   parseNodeRuntimeReport,
   partPathOf,
 } from "../node-frames.js";
-import { SSH_COMMAND_TYPES, type SshRelayOpenCommand } from "../ssh-frames.js";
+import { SSH_COMMAND_TYPES, SSH_RELAY_CLOSE_REASONS, type SshRelayOpenCommand } from "../ssh-frames.js";
 import { SSH_CONFIG_FILE_MAX_BYTES, SSH_MAX_GRANT_FINGERPRINTS } from "../ssh-limits.js";
 import { MIN_NODE_VERSION } from "../versions.js";
 
@@ -974,7 +974,7 @@ describe("ssh command arms and the launch ssh block", () => {
           : t === "ssh_relay_open"
             ? relayOpenCmd
             : t === "ssh_relay_close"
-              ? { type: t, ref: "r-1", reason: "lifetime_expired" }
+              ? { type: t, ref: "r-1", reason: "lifetime-expiry" }
               : { type: t };
       expect(parseNodeCommandBody(body)).not.toBeNull();
     }
@@ -1063,17 +1063,82 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
     expect(parseNodeCommandBody({ ...relayOpenCmd, peerEncryptPublicKey: "" })).toBeNull();
   });
 
-  it("narrows the close: routing ref and named reason, nothing else", () => {
-    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason: "grant_revoked" })).toEqual({
+  it("refuses a peer signing key whose JSON is not a plain public-JWK record (Task 4 review)", () => {
+    // The shape gate mirrors parseNodeSshIdentity: a non-empty string is not
+    // enough; it must PARSE to a plain record. A bare word and a serialized
+    // PRIVATE JWK are the two shapes the old isIdStr-only check let through,
+    // so both are named here. Deep private-material refusal (importability,
+    // curve, coordinates) stays `bytesOfJwk` on the node - Task 6.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerSigningPublicKey: "not json" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerSigningPublicKey: "hello" })).toBeNull();
+    // A real private-JWK spelling: plain record, carries the `d` member.
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB","d":"pr1v4t3"}',
+      }),
+    ).toBeNull();
+    // JSON scalars and arrays are not records.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerSigningPublicKey: "null" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerSigningPublicKey: "[1,2]" })).toBeNull();
+    // The public shape (the fixture) still parses, and a public JWK with
+    // EXTRA public members is still a record.
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB","use":"sig"}',
+      }),
+    ).not.toBeNull();
+  });
+
+  it("rebuilds the open from validated fields; stray wire members do not ride", () => {
+    const parsed = parseNodeCommandBody({ ...relayOpenCmd, sneaky: { should: "not pass" } });
+    expect(parsed).not.toBeNull();
+    expect(parsed).not.toHaveProperty("sneaky");
+    expect(parsed).toEqual(relayOpenCmd);
+  });
+
+  it("refuses fingerprint entries outside the SHA256 display form", () => {
+    // The tight form is what stops control chars (and plain junk) reaching a
+    // future audit row through a field that promises to be a fingerprint.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["ok"] })).toBeNull(); // no prefix
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["SHA256:"] })).toBeNull(); // empty digest
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["SHA256:AAA\tBBB"] })).toBeNull(); // control char
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [`SHA256:${"A".repeat(129)}`] })).toBeNull(); // over the bound
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [`SHA256:${"a-_0".repeat(32)}`] })).not.toBeNull(); // alphabet, at bound
+  });
+
+  it("narrows the close: routing ref and a NAMED reason from the typed union, nothing else", () => {
+    // The census members are the ONLY accepted spellings; each round-trips.
+    for (const reason of SSH_RELAY_CLOSE_REASONS) {
+      expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason })).toEqual({
+        type: "ssh_relay_close",
+        ref: "r-4f2a",
+        reason,
+      });
+    }
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason: "grant-revoked" })).toEqual({
       type: "ssh_relay_close",
       ref: "r-4f2a",
-      reason: "grant_revoked",
+      reason: "grant-revoked",
     });
+    // An unknown reason is a malformed close: §5.1's "closed with a named
+    // reason" cannot hold if the grammar accepts any string.
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason: "because-i-said-so" })).toBeNull();
+    // The old underscore spellings are not the names either.
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason: "grant_revoked" })).toBeNull();
     expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a" })).toBeNull(); // reason required
-    expect(parseNodeCommandBody({ type: "ssh_relay_close", reason: "lifetime_expired" })).toBeNull(); // ref required
-    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "", reason: "child_exit" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", reason: "lifetime-expiry" })).toBeNull(); // ref required
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "", reason: "child-exit" })).toBeNull();
     expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r", reason: "" })).toBeNull();
     expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r", reason: 3 })).toBeNull();
+    // A stray member on a valid close does not ride (the open arm's rebuild
+    // style; the close always rebuilt, and it still drops the extra).
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-1", reason: "a-dropped", extra: 1 })).toEqual({
+      type: "ssh_relay_close",
+      ref: "r-1",
+      reason: "a-dropped",
+    });
   });
 });
 

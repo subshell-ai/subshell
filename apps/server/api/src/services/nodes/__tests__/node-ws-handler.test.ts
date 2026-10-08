@@ -50,7 +50,7 @@ import {
   type NodeWsDeps,
   type NodeWsSocket,
 } from "../node-ws-handler.js";
-import { relayFramesSeenFor, resetRelayFramesForTests } from "../relay-frames.js";
+import { relayFramesSeenFor, relayOverCapsSeenFor, resetRelayFramesForTests } from "../relay-frames.js";
 import { beginUpdate, readView, resetForTests, updateSwapped } from "../update-tracker.js";
 
 /* ---------------------------- fakes ----------------------------- */
@@ -1780,7 +1780,7 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
     expect(relayFramesSeenFor("n1")).toBeUndefined(); // refused at the version match, never routed
   });
 
-  it("(g3) an established tier-18 link routes a sealed relay frame verbatim to the seam; over-cap is dropped", async () => {
+  it("(g3) an established tier-18 link routes a sealed relay frame verbatim to the seam; over-cap is refused by name", async () => {
     resetRelayFramesForTests();
     const f = await handshakeFixture();
     const { h, ws, client } = f;
@@ -1791,12 +1791,45 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
     // The seam saw EXACTLY the frame, blob included - and nothing else did:
     // the plane is a blind router (§5.5), the stub only records.
     expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, last: relayFrame });
-    // The over-cap blob is refused by the grammar upstream of the seam
-    // (§5.1: cap is law); the socket survives, the frame does not arrive.
+    // The over-cap blob is refused by the grammar upstream of the ROUTER seam
+    // (§5.1: cap is law); the socket survives, the frame is not forwarded.
+    // But §5.1's named-reason close needs the refusal to be OBSERVABLE, and
+    // the handler's over-cap probe is what routes it - ref only, no blob.
     const over = "A".repeat(Math.ceil(SSH_RELAY_FRAME_MAX_BYTES / 3) * 4 + 4);
     await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify({ ...relayFrame, blob: over })));
-    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, last: relayFrame }); // unchanged
-    expect(ws.closed).toHaveLength(0); // a dropped frame is not fatal (spec §3.1 posture)
+    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, last: relayFrame }); // router seam: NOT the normal route
+    expect(relayOverCapsSeenFor("n1")).toEqual({ overCaps: 1, lastRef: "r-1" }); // over-cap seam, ref carried
+    // The blob never crossed: the record has no byte slot, and the only
+    // bytes the seam could know are the ref (§5.5 blindness end to end).
+    expect(JSON.stringify(relayOverCapsSeenFor("n1"))).not.toContain("AAAA");
+    expect(ws.closed).toHaveLength(0); // a refused frame is not fatal (spec §3.1 posture)
+  });
+
+  it("(g3b) an over-cap relay frame lands on the over-cap seam, NOT the router seam; junk lands on neither (Task 4 review)", async () => {
+    // The plain-path twin of g3's encrypted route (the fake socket skips the
+    // link machine), pinning the branch the handler added to its
+    // parseNodeEvent-null path: shape probe first, then the drop.
+    resetRelayFramesForTests();
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    const over = "A".repeat(Math.ceil(SSH_RELAY_FRAME_MAX_BYTES / 3) * 4 + 4);
+    const overFrame = { type: "relay", ref: "r-9", seq: 1, direction: "B2A", blob: over };
+    await handleNodeMessage(h.deps, ws, JSON.stringify(overFrame));
+    expect(relayOverCapsSeenFor("n1")).toEqual({ overCaps: 1, lastRef: "r-9" });
+    expect(relayFramesSeenFor("n1")).toBeUndefined(); // never routed, blob never forwarded
+    // A second refusal increments the same node's count with the newer ref.
+    await handleNodeMessage(h.deps, ws, JSON.stringify({ ...overFrame, ref: "r-10" }));
+    expect(relayOverCapsSeenFor("n1")).toEqual({ overCaps: 2, lastRef: "r-10" });
+    // A MALFORMED over-cap frame is junk, not an over-cap: it stays on the
+    // silent-drop path the probe deliberately does not widen.
+    await handleNodeMessage(h.deps, ws, JSON.stringify({ ...overFrame, seq: -5 }));
+    expect(relayOverCapsSeenFor("n1")).toMatchObject({ overCaps: 2 });
+    // And a well-formed UNDER-cap frame goes the other way: routed, not refused.
+    const goodFrame: RelayFrame = { type: "relay", ref: "r-11", seq: 0, direction: "A2B", blob: "QUJD" };
+    await handleNodeMessage(h.deps, ws, JSON.stringify(goodFrame));
+    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, last: goodFrame });
+    expect(relayOverCapsSeenFor("n1")).toMatchObject({ overCaps: 2 }); // still just the two
+    expect(ws.closed).toHaveLength(0);
   });
 
   it("(g4) a HELD socket's relay frame is dropped by the held-gate, not routed", async () => {

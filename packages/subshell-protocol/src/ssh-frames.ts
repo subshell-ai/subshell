@@ -10,9 +10,9 @@
  * launch`, `ssh_input_control`) retired with that destination-execution
  * product, which never shipped; their `type` arms are therefore deleted, not
  * refused. The sealed agent-relay milestone (M2) adds three commands here:
- * `ssh_register_identity` (§4.3 bootstrap: a pre-M2 node’s signing key reaches
+ * `ssh_register_identity` (§4.3 bootstrap: a pre-M2 node's signing key reaches
  * the plane inside a signed command on the existing node link), and the
- * brokered pair `ssh_relay_open` / `ssh_relay_close` (§5.1: the plane’s OPEN
+ * brokered pair `ssh_relay_open` / `ssh_relay_close` (§5.1: the plane's OPEN
  * hands one machine the whole pairing, the CLOSE names why it ends). What
  * rides the link AFTER an open - the sealed blobs themselves - is not a
  * command at all: it is the `relay` link frame in `node-frames.ts`, which
@@ -111,18 +111,42 @@ export interface SshRelayOpenCommand {
 }
 
 /**
+ * Every reason a relay session may be closed with (spec 2026-10-08 §5.1/§5.6):
+ * §5.1's "closed with a named reason" is only kept if the grammar knows every
+ * name, so a close carrying anything else is malformed, not a fresh idea.
+ * - `handshake-grace`: the pairing's handshake window elapsed unanswered.
+ * - `child-exit`: the A-side agent child died; the session ends with it.
+ * - `lifetime-expiry`: SSH_RELAY_LIFETIME_MS ran out.
+ * - `a-dropped`: A's link dropped and no re-pair restored it.
+ * - `grant-revoked`: the grant underneath the session was revoked (§6.3).
+ * - `over-cap`: a frame over SSH_RELAY_FRAME_MAX_BYTES arrived (§5.1: cap
+ *   is law; the refusal closes the session by name rather than silently).
+ */
+export const SSH_RELAY_CLOSE_REASONS = [
+  "handshake-grace",
+  "child-exit",
+  "lifetime-expiry",
+  "a-dropped",
+  "grant-revoked",
+  "over-cap",
+] as const;
+
+/** One named close reason; the runtime census is {@link SSH_RELAY_CLOSE_REASONS}. */
+export type SshRelayCloseReason = (typeof SSH_RELAY_CLOSE_REASONS)[number];
+
+/**
  * The brokered TEARDOWN (spec §5.1/§5.6): stop the session named by the
- * routing ref and say why, in the open. The reason is a named cause
- * (lifetime expiry, grant revoke, A drop, child exit, over-cap frame...)
- * because §5.1's "closed with a named reason" is the whole failure-mode
- * posture; an unnamed close is the silence this family refuses.
+ * routing ref and say why, in the open. The reason is a NAMED cause drawn
+ * from {@link SSH_RELAY_CLOSE_REASONS} because §5.1's "closed with a named
+ * reason" is the whole failure-mode posture; an unnamed close is the silence
+ * this family refuses.
  */
 export interface SshRelayCloseCommand {
   type: "ssh_relay_close";
   /** The routing ref of the session to tear down. */
   ref: string;
   /** The named reason this session ends; relayed to the endpoint's log. */
-  reason: string;
+  reason: SshRelayCloseReason;
 }
 
 /** Every SSH-family command body, as one union the {@link NodeCommandBody} union folds in. */
@@ -163,15 +187,28 @@ function isIdStr(value: unknown): value is string {
 }
 
 /**
- * The grant's selected fingerprint set: strings, every one non-empty (an
- * empty entry matches no key yet would ride a grant as a silent never-serve
- * line), and at most {@link SSH_MAX_GRANT_FINGERPRINTS} - over-cap is a
- * refusal at the grammar so the truncation nobody may silently perform is
- * impossible by construction (§5.4). An EMPTY set parses: §5.4's
- * "names no fingerprint, serves nothing" is a decision, not a defect.
+ * The OpenSSH display notation the grant stores: the `SHA256:` prefix over
+ * base64url digest text (43 chars in practice; bounded generously at 128).
+ * Shape, not truth - whether the digest matches a key is the responder's
+ * §5.4 enforcement. The alphabet rule is also what stops control characters
+ * reaching a future audit row through a field that promises to be a
+ * fingerprint.
+ */
+const GRANT_FINGERPRINT_RE = /^SHA256:[A-Za-z0-9_-]{1,128}$/;
+
+/**
+ * The grant's selected fingerprint set: strings, every one in the `SHA256:`
+ * display form (an empty or free-text entry matches no key yet would ride a
+ * grant as a silent never-serve line), and at most
+ * {@link SSH_MAX_GRANT_FINGERPRINTS} - over-cap is a refusal at the grammar
+ * so the truncation nobody may silently perform is impossible by construction
+ * (§5.4). An EMPTY set parses: §5.4's "names no fingerprint, serves nothing"
+ * is a decision, not a defect.
  */
 function isGrantFingerprints(value: unknown): value is string[] {
-  return isStrArray(value) && value.every((f) => f.length > 0) && value.length <= SSH_MAX_GRANT_FINGERPRINTS;
+  return (
+    isStrArray(value) && value.every((f) => GRANT_FINGERPRINT_RE.test(f)) && value.length <= SSH_MAX_GRANT_FINGERPRINTS
+  );
 }
 
 /**
@@ -210,10 +247,23 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       ) {
         return null;
       }
-      // The signing half is a JSON public JWK - the grammar proves it is a
-      // non-empty string; importability and the private-part refusal are the
-      // server's gate, beside the one enroll and `ssh_register_identity` run.
+      // The signing half is a JSON public JWK. The shape gate mirrors
+      // `parseNodeSshIdentity` (node-results.ts) for the enroll answer: a
+      // non-empty string AND `JSON.parse` yielding a plain record - and it
+      // also refuses the shallow private-material tell (a top-level `d`
+      // member), so "hello", a JSON scalar/array, and a serialized PRIVATE
+      // JWK all read as malformed here. Deep private-material and key-validity
+      // refusal stays at `bytesOfJwk` on the node (Task 6), which is beside
+      // the one import; this gate keeps obvious nonsense out of the signed
+      // command's narrowed body.
       if (!isIdStr(value.peerSigningPublicKey)) return null;
+      let peerSigningJwk: unknown;
+      try {
+        peerSigningJwk = JSON.parse(value.peerSigningPublicKey);
+      } catch {
+        return null;
+      }
+      if (!isRecord(peerSigningJwk) || "d" in peerSigningJwk) return null;
       // The encryption half is a base64 key (the link pin's own spelling); a
       // present-but-undecodable one is malformed, not "the pin sorts it out".
       if (!isIdStr(value.peerEncryptPublicKey) || !BASE64_RE.test(value.peerEncryptPublicKey)) return null;
@@ -221,14 +271,32 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       // Positive whole milliseconds; the VALUE's lawfulness (SSH_RELAY_LIFETIME_MS
       // as the ceiling the broker sends) is the broker's, this is the shape.
       if (!isInt(value.lifetimeMs) || (value.lifetimeMs as number) <= 0) return null;
-      return value as unknown as SshRelayOpenCommand;
+      // Rebuilt from the validated fields, never a cast of the candidate: a
+      // stray member on the wire drops here, exactly as the close arm drops.
+      return {
+        type: "ssh_relay_open",
+        relayId: value.relayId,
+        ref: value.ref,
+        role: value.role,
+        aNodeId: value.aNodeId,
+        bNodeId: value.bNodeId,
+        peerSigningPublicKey: value.peerSigningPublicKey,
+        peerEncryptPublicKey: value.peerEncryptPublicKey,
+        grantId: value.grantId,
+        fingerprints: [...value.fingerprints],
+        lifetimeMs: value.lifetimeMs as number,
+      };
     }
-    case "ssh_relay_close":
-      // Ref + named reason, and nothing else may ride it: the close selects
-      // a session, it does not amend one (§5.1/§5.6).
-      return isIdStr(value.ref) && isIdStr(value.reason)
-        ? { type: "ssh_relay_close", ref: value.ref, reason: value.reason }
-        : null;
+    case "ssh_relay_close": {
+      // Ref + a reason from the NAMED set, and nothing else may ride it: the
+      // close selects a session, it does not amend one (§5.1/§5.6). Membership
+      // in SSH_RELAY_CLOSE_REASONS is the check - §5.1's "closed with a named
+      // reason" is worthless as a free string, so an unknown reason is a
+      // malformed close refused at the grammar.
+      if (!isIdStr(value.ref) || !isStr(value.reason)) return null;
+      if (!(SSH_RELAY_CLOSE_REASONS as readonly string[]).includes(value.reason)) return null;
+      return { type: "ssh_relay_close", ref: value.ref, reason: value.reason as SshRelayCloseReason };
+    }
     default:
       return null;
   }

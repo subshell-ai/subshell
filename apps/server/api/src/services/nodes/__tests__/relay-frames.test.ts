@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import type { RelayFrame } from "@internal/subshell-protocol";
-import { onRelayFrame, relayFramesSeenFor, resetRelayFramesForTests } from "../relay-frames.js";
+import {
+  onRelayFrame,
+  onRelayFrameOverCap,
+  relayFramesSeenFor,
+  relayOverCapsSeenFor,
+  resetRelayFramesForTests,
+} from "../relay-frames.js";
 
 /**
  * The Task-4 seam (spec 2026-10-08 §5.1): validation happened upstream
@@ -42,5 +48,31 @@ describe("onRelayFrame (the pre-broker stub)", () => {
     onRelayFrame("n-c", frame);
     resetRelayFramesForTests();
     expect(relayFramesSeenFor("n-c")).toBeUndefined();
+  });
+});
+
+describe("onRelayFrameOverCap (the pre-broker over-cap stub, Task 4 review)", () => {
+  it("counts refusals per node and keeps ONLY the ref; the blob never comes", () => {
+    resetRelayFramesForTests();
+    onRelayFrameOverCap("n-d", "r-1");
+    expect(relayOverCapsSeenFor("n-d")).toEqual({ overCaps: 1, lastRef: "r-1" });
+    onRelayFrameOverCap("n-d", "r-2");
+    expect(relayOverCapsSeenFor("n-d")).toEqual({ overCaps: 2, lastRef: "r-2" });
+    // Per-node isolation, same posture as the routed stub.
+    expect(relayOverCapsSeenFor("n-e")).toBeUndefined();
+    // The record has no blob slot at all: an over-cap frame is refused
+    // unread, and the stub could not store the bytes even if it wanted to.
+    expect(Object.keys(relayOverCapsSeenFor("n-d") ?? {})).toEqual(["overCaps", "lastRef"]);
+  });
+
+  it("the two seams are independent, and reset clears both", () => {
+    resetRelayFramesForTests();
+    onRelayFrameOverCap("n-f", "r-9");
+    expect(relayFramesSeenFor("n-f")).toBeUndefined(); // a refusal is not a routed frame
+    onRelayFrame("n-f", frame);
+    expect(relayOverCapsSeenFor("n-f")).toEqual({ overCaps: 1, lastRef: "r-9" }); // a route is not a refusal
+    resetRelayFramesForTests();
+    expect(relayOverCapsSeenFor("n-f")).toBeUndefined();
+    expect(relayFramesSeenFor("n-f")).toBeUndefined();
   });
 });

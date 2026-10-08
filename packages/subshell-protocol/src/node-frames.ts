@@ -1365,6 +1365,44 @@ export function parseRelayFrame(raw: string | object): RelayFrame | null {
   return { type: "relay", ref: value.ref, seq: value.seq as number, direction: value.direction, blob: value.blob };
 }
 
+/**
+ * The routing ref of a WELL-FORMED `relay` candidate (the same shape checks
+ * {@link parseRelayFrame} runs, in the same order) whose decoded blob
+ * EXCEEDS SSH_RELAY_FRAME_MAX_BYTES - i.e. exactly the one refusal reason
+ * `parseRelayFrame` answers with a plain null, which §5.1 says must end the
+ * session with a NAMED reason instead. The strict parse stays strict (the
+ * `NodeEvent` union must not carry an over-cap frame); this probe exists so
+ * the caller that just got a null back can tell "junk, drop quietly" from
+ * "over-cap, name the refusal". Only shape + the raw length of the blob are
+ * examined; the bytes themselves are never decoded or copied (§5.5's
+ * blindness). Junk of any kind answers null, never an error.
+ *
+ * @param value - candidate frame, raw JSON text or the already-parsed object
+ * @returns the routing ref when the candidate is relay-shaped AND over-cap,
+ *   null for anything else (junk, malformed relay, under-cap)
+ */
+export function relayFrameRefIfOverCap(value: unknown): string | null {
+  let parsed: unknown = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(parsed) || parsed.type !== "relay") return null;
+  if (!isStr(parsed.ref) || parsed.ref.length === 0) return null;
+  if (!isInt(parsed.seq) || (parsed.seq as number) < 0) return null;
+  if (parsed.direction !== "B2A" && parsed.direction !== "A2B") return null;
+  if (!isStr(parsed.blob) || parsed.blob.length === 0 || !BASE64_RE.test(parsed.blob)) return null;
+  return base64RawLength(parsed.blob) > SSH_RELAY_FRAME_MAX_BYTES ? parsed.ref : null;
+}
+
+/** Whether `value` is a well-formed `relay` candidate carrying an over-cap blob. */
+export function relayFrameOverCap(value: unknown): boolean {
+  return relayFrameRefIfOverCap(value) !== null;
+}
+
 export type NodeEvent =
   | {
       type: "ready";
