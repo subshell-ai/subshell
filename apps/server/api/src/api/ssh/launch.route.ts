@@ -37,6 +37,11 @@ export const sshLaunchRoute = new Elysia()
         // The same label rule every human-chosen name takes (idempotent
         // through the manager's choke-point re-normalization).
         name: body.name === undefined ? undefined : normalizeLabel(body.name, 120),
+        // RELAY MODE (spec 2026-10-08 §6): the key home whose agent signs,
+        // gated and grant-matched inside the service. Absent = the M1 direct
+        // launch. A first-use refusal answers 409 SSH_GRANT_APPROVAL_REQUIRED
+        // and launches nothing (a durable approval row now stands).
+        keyHomeNodeId: body.keyHome,
         subshells: ctx.services.subshells,
       });
       if (!answer.ok) {
@@ -55,6 +60,13 @@ export const sshLaunchRoute = new Elysia()
         node: t.String({ minLength: 1, description: "Connecting machine ('local' = the control-plane host)" }),
         destination: SshDestinationField,
         name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Pane display name" })),
+        keyHome: t.Optional(
+          t.String({
+            minLength: 1,
+            description:
+              "RELAY MODE: the key home machine whose agent signs for this connection; absent uses the connecting machine's own keys",
+          }),
+        ),
       }),
       response: {
         201: t.Object({ subshell: SubshellSchema }),

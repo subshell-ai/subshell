@@ -181,8 +181,14 @@ function grantView(row: SshKeyGrantTable): SshGrantView {
 /* fingerprint selection: cap and grammar, law first                   */
 /* ------------------------------------------------------------------ */
 
-/** The refusal union the grant surface returns (a subset of the ssh-launch one; same render path). */
-type SshRefusalNarrow = { status: 400 | 404 | 409; code: BackendErrorCodes; message: string };
+/**
+ * The refusal union the grant surface returns. The status set matches the
+ * ssh-launch one's coded arms (no 422 - the outcome-in-data grammar is the
+ * resolve surface's), so the SAME `throwCodedRefusal` renders both. The gate
+ * arms (403 gate-off, 502 machine-refused) reach it through the launcher's
+ * `gateSshNode` when a create names a machine the caller may not use.
+ */
+type SshRefusalNarrow = { status: 400 | 403 | 404 | 409 | 502; code: BackendErrorCodes; message: string };
 
 /** The grant surface's answer union: a value, or the refusal the route returns as-is. */
 export type SshGrantAnswer<T> = { ok: true; value: T } | { ok: false; refusal: SshRefusalNarrow };

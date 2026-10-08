@@ -1,5 +1,7 @@
 import { Elysia } from "elysia";
 import { sshAliasesRoute } from "@/api/ssh/aliases.route.js";
+import { sshGrantRequestsRoutes } from "@/api/ssh/approvals.route.js";
+import { sshGrantsRoutes } from "@/api/ssh/grants.route.js";
 import { sshLaunchRoute } from "@/api/ssh/launch.route.js";
 import { sshResolveRoute } from "@/api/ssh/resolve.route.js";
 import { sshSavedHostsRoutes } from "@/api/ssh/saved-hosts.route.js";
@@ -17,4 +19,10 @@ export const sshRoutes = new Elysia({ prefix: "/api/ssh" })
   .use(sshAliasesRoute)
   .use(sshResolveRoute)
   .use(sshLaunchRoute)
-  .use(sshSavedHostsRoutes);
+  .use(sshSavedHostsRoutes)
+  // The grant tier (spec 2026-10-08 §6-§8, Task 10): the standing grants and
+  // the first-use approval queue. Mounted INSIDE this group on purpose: a new
+  // top-level `.route()` tier is the Elysia App-type-depth trap, and these
+  // are the launcher's own authorization surface.
+  .use(sshGrantsRoutes)
+  .use(sshGrantRequestsRoutes);
