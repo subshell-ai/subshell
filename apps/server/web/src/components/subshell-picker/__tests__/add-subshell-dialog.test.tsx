@@ -28,6 +28,7 @@ function makeSubshell(overrides: Partial<SubshellView> & { id: string }): Subshe
     waitingSince: null,
     unseenPush: false,
     access: "owner",
+    ssh: false,
     nodeOffline: false,
     ...overrides,
   };

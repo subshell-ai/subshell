@@ -37,6 +37,7 @@ function makeSource(overrides: Partial<SubshellView> = {}): SubshellView {
     waitingSince: null,
     unseenPush: false,
     access: "owner",
+    ssh: false,
     ...overrides,
   };
 }
