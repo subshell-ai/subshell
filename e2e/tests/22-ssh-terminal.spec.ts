@@ -36,7 +36,9 @@ import { shortTmuxBase } from "../stack";
  * Binaries: ssh / ssh-keygen / sshd must run unprivileged here. The fixture's
  * own gate (`missingSshBins`) decides; a host without them SKIPS LOUDLY (the
  * skip names the missing binaries), it never fails and never fakes a pass.
- * CI's builder image has openssh-server installed for exactly this spec.
+ * The CI e2e job installs openssh-client + openssh-server at runtime (the
+ * "Ensure tmux, jq, and OpenSSH" step of test.yml); hosts without the
+ * binaries still skip loudly rather than fake a pass.
  */
 
 const ROOT = path.join(import.meta.dirname, "..", "..");

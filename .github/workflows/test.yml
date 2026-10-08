@@ -927,16 +927,49 @@ jobs:
       - name: Trust the bind-mounted workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      # The session-lifecycle spec spawns real tmux sessions (stub harness).
-      - name: Ensure tmux and jq
+      # Spec 12 (session lifecycle) spawns real tmux sessions (stub harness);
+      # spec 22 (ssh terminal) drives a REAL sshd plus an ssh client. Neither
+      # OpenSSH binary is in the builder image; installing here rather than
+      # in the image keeps the shared image lean. The container job runs as
+      # root, so apt-get needs no sudo. Tools map to PACKAGES, not names:
+      # "ssh" is not an apt package (openssh-client ships ssh + ssh-keygen;
+      # openssh-server ships sshd), so the missing binaries are translated
+      # before the deduped set is installed.
+      - name: Ensure tmux, jq, and OpenSSH
         run: |
           set -euo pipefail
-          missing=()
-          for tool in tmux jq; do command -v "$tool" >/dev/null || missing+=("$tool"); done
-          if [ ${#missing[@]} -gt 0 ]; then
-            apt-get update && apt-get install -y --no-install-recommends "${missing[@]}"
+          pkg_for() {
+            case "$1" in
+              tmux) echo tmux ;;
+              jq) echo jq ;;
+              ssh|ssh-keygen) echo openssh-client ;;
+              sshd) echo openssh-server ;;
+            esac
+          }
+          missing_pkgs=()
+          for tool in tmux jq ssh ssh-keygen sshd; do
+            command -v "$tool" >/dev/null && continue
+            pkg="$(pkg_for "$tool")"
+            for p in "${missing_pkgs[@]+"${missing_pkgs[@]}"}"; do
+              [ "$p" = "$pkg" ] && continue 2
+            done
+            missing_pkgs+=("$pkg")
+          done
+          if [ ${#missing_pkgs[@]} -gt 0 ]; then
+            apt-get update && apt-get install -y --no-install-recommends "${missing_pkgs[@]}"
           fi
-          tmux -V && jq --version
+          tmux -V && jq --version && ssh -V
+          # sshd -V prints usage and exits nonzero on some builds, so the
+          # presence proof is the binary: on PATH, else the package's
+          # documented location (the fixture probes /usr/sbin too).
+          command -v sshd || ls -l /usr/sbin/sshd
+          # Loud post-install assertion: an apt package rename would
+          # otherwise surface only as spec 22 skipping, i.e. the proof
+          # silently not running.
+          if ! command -v sshd >/dev/null && [ ! -x /usr/sbin/sshd ]; then
+            echo "::error::openssh-server present in no sshd location (PATH or /usr/sbin/sshd)"
+            exit 1
+          fi
 
       # tsdown/rolldown run under NODE, not bun — their bin shebang is
       # `#!/usr/bin/env node` — so the repo has always had a Node requirement
