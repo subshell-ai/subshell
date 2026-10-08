@@ -24,6 +24,7 @@ import {
   parseNodeRuntimeReport,
   partPathOf,
 } from "../node-frames.js";
+import { SSH_CONFIG_FILE_MAX_BYTES } from "../ssh-limits.js";
 import { MIN_NODE_VERSION } from "../versions.js";
 
 const launchCmd = {
@@ -317,7 +318,11 @@ describe("parseNodeCommandBody", () => {
     // bump is the load-bearing part: a pre-16 agent is wire-indistinguishable
     // from a 16 agent whose mirror says no, and a capability gate cannot live
     // with that ambiguity.
-    expect(NODE_PROTOCOL_VERSION).toBe(16);
+    // 17 is the ssh launcher tier (spec 2026-10-07 §4.3/§5): the launch frame's
+    // `ssh` block and the `ssh_discover_aliases` / `ssh_resolve_config` arms.
+    // A lagging agent ignores the launch block and spawns a bare `ssh` with no
+    // `-F` config, so it is HELD (update-only) until crossed, not approximated.
+    expect(NODE_PROTOCOL_VERSION).toBe(17);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -903,6 +908,41 @@ describe("ssh gate (arrived at protocol 16)", () => {
     expect(parseNodeCommandBody({ type: "set_ssh_enabled", on: true })).toBeNull();
     expect(parseNodeCommandBody({ type: "set_ssh_enabled", changedAt: state.changedAt })).toBeNull();
     expect(parseNodeCommandBody({ type: "set_ssh_enabled", on: 1, changedAt: state.changedAt })).toBeNull();
+  });
+});
+
+describe("ssh command arms and the launch ssh block", () => {
+  it("ssh discovery/resolve arms delegate to the ssh grammar", () => {
+    expect(parseNodeCommandBody({ type: "ssh_discover_aliases" })).toEqual({ type: "ssh_discover_aliases" });
+    expect(parseNodeCommandBody({ type: "ssh_resolve_config", alias: "box-a" })).toEqual({
+      type: "ssh_resolve_config",
+      alias: "box-a",
+    });
+    // alias hygiene lives in ssh-frames' parser (port-verified): option-like and whitespace are refused there
+    expect(parseNodeCommandBody({ type: "ssh_resolve_config", alias: "-x" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_resolve_config", alias: "a b" })).toBeNull();
+  });
+
+  it("launch accepts an ssh block and refuses malformed ones", () => {
+    const good = { ...launchCmd, ssh: { configPath: "/d/ssh/s1/config", fileContent: "Host *\n" } };
+    expect(parseNodeCommandBody(good)).toMatchObject({
+      type: "launch",
+      ssh: { configPath: "/d/ssh/s1/config", fileContent: "Host *\n" },
+    });
+    expect(parseNodeCommandBody({ ...launchCmd, ssh: { configPath: "relative", fileContent: "Host *\n" } })).toBeNull();
+    expect(
+      parseNodeCommandBody({
+        ...launchCmd,
+        ssh: { configPath: "/d/ssh/s1/config", fileContent: "x".repeat(SSH_CONFIG_FILE_MAX_BYTES + 1) },
+      }),
+    ).toBeNull();
+    expect(
+      parseNodeCommandBody({
+        ...launchCmd,
+        ssh: { configPath: "/d/ssh/s1/config", fileContent: "x".repeat(SSH_CONFIG_FILE_MAX_BYTES) },
+      }),
+    ).not.toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, ssh: "x" })).toBeNull();
   });
 });
 

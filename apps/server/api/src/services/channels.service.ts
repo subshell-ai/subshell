@@ -219,12 +219,15 @@ export class ChannelsService extends BaseService {
       // waiting at its prompt is WOKEN — the line names the tool and is
       // submitted, so the agent reads the post without being told to poll.
       // A mid-turn pane gets the old Enter-less cue (submitting into a busy
-      // harness corrupts the turn). Never peer content in either line.
+      // harness corrupts the turn). Never peer content in either line. An
+      // SSH pane is NEVER nudged: it is a raw shell under the owner's ssh
+      // identity that takes input from the owner alone (spec §5.4), and no
+      // agent sits behind it to read the cue.
       const subshells = this.repos.subshells;
       for (const recipientId of new Set(recipientIds)) {
         if (!recipientId.startsWith("sess:") || recipientId === principal) continue;
         const row = await subshells.findById(recipientId.slice("sess:".length));
-        if (row?.alive !== 1 || !row.tmuxSocket) continue;
+        if (row?.alive !== 1 || !row.tmuxSocket || row.ssh !== null) continue;
         const waiting = row.waitingSince != null;
         const line = waiting
           ? `[#${channel.name}] subshell peer post, read it: call read_channel("${channel.name}")`

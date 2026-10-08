@@ -19,8 +19,12 @@
  * validators stand on live in `guards.ts` (shared with `node-frames.ts`).
  */
 
-import { BASE64_RE, isBool, isInt, isRecord, isStr, isStringMap } from "./guards.js";
+import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
+import { parseSshConnectionSnapshot } from "./ssh-config.js";
+import { isSshErrorCode } from "./ssh-errors.js";
+import { SSH_MAX_DISCOVERED_ALIASES } from "./ssh-limits.js";
+import type { NodeSshAliasListResult, NodeSshResolveOutcomeWire } from "./ssh-results.js";
 
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;
@@ -536,4 +540,47 @@ export function parseNodeAgentLogSlice(data: unknown): NodeAgentLogSlice | null 
   if (!isStr(text) || !isInt(nextByte) || !isInt(size) || !isBool(truncated)) return null;
   if (nextByte < 0 || size < 0) return null;
   return { text, nextByte, size, truncated };
+}
+
+/* ------------------------------------------------------------------ */
+/* ssh discovery/resolution (the tier-1 wire types, dispatched from    */
+/* here on)                                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Validates and narrows an `ssh_discover_aliases` command's `result{data}`.
+ * The list cap is part of the shape (same reasoning as the transfer page
+ * cap): an answer past {@link SSH_MAX_DISCOVERED_ALIASES} is malformed here,
+ * because the `truncated` flag is what the cap's existence depends on.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed list, or null when malformed
+ */
+export function parseNodeSshAliasList(data: unknown): NodeSshAliasListResult | null {
+  if (!isRecord(data) || !isBool(data.includeCycle) || !isBool(data.truncated)) return null;
+  if (!isStrArray(data.aliases) || (data.aliases as string[]).length > SSH_MAX_DISCOVERED_ALIASES) return null;
+  return { aliases: [...(data.aliases as string[])], includeCycle: data.includeCycle, truncated: data.truncated };
+}
+
+/**
+ * Validates and narrows an `ssh_resolve_config` command's `result{data}`.
+ * The accepted arm runs the FULL snapshot validator: a resolve answer is the
+ * one moment an unvalidated snapshot could enter the system, so this is where
+ * the plane's copy gets its grammar checked before it is stored.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed outcome, or null when malformed
+ */
+export function parseNodeSshResolveOutcome(data: unknown): NodeSshResolveOutcomeWire | null {
+  if (!isRecord(data) || !isBool(data.accepted)) return null;
+  if (data.accepted) {
+    const snapshot = parseSshConnectionSnapshot(data.snapshot);
+    if (!snapshot) return null;
+    if ("connectingAccount" in data && !isStr(data.connectingAccount)) return null;
+    return {
+      accepted: true,
+      snapshot,
+      ...("connectingAccount" in data ? { connectingAccount: data.connectingAccount as string } : {}),
+    };
+  }
+  if (!isSshErrorCode(data.code) || !isStrArray(data.settings)) return null;
+  return { accepted: false, code: data.code, settings: [...(data.settings as string[])] };
 }

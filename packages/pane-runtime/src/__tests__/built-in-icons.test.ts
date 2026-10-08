@@ -89,9 +89,9 @@ describe("iconsLeftOutOfTarball", () => {
 
 describe("built-in plugin icon manifests", () => {
   it("pins the number of plugins declaring an icon, so a silent disappearance is loud", () => {
-    // Eight of the ten built-ins ship a mark (headscale and cloudflare-tunnel
+    // Nine of the eleven built-ins ship a mark (headscale and cloudflare-tunnel
     // declare none). A new icon-bearing built-in updates this number on purpose.
-    expect(readBuiltInManifests().filter((m) => m.icon).length).toBe(8);
+    expect(readBuiltInManifests().filter((m) => m.icon).length).toBe(9);
   });
 
   it("declares no icon that is absent from the npm `files` list", () => {

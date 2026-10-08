@@ -2189,7 +2189,14 @@ Audit events are written, grouped by family:
   `node.logging.update`, `node.update`,
   `node.update.unknown`, `node.shares_set`, `node.local_share_changed`, and
   `node.service` (with `{ verb: "restart", forced }` metadata; the restart
-  verb shares its action with the rest of the service surface).
+  verb shares its action with the rest of the service surface). The SSH
+  launcher's act lands in this family too as `ssh.launch` (spec 2026-10-07
+  §12): metadata `{ nodeId, destination, subshellId }`, naming which machine
+  dialed out to which canonical `host:port` and the pane that came of it, and
+  never a config value, path list, or key material (§13). It is written AFTER
+  the pane spawned, success only, the same posture as `subshell.create`, and
+  saved-host CRUD audits nothing (the prompts precedent: a preference row is
+  not an event).
 - **The server process**: `server.config.update`, `server.restart`,
   `server.logging.update`, `server.autostart.update`, `server.update`, and
   `server.supervision.request`, the last one best-effort and written by the

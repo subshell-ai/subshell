@@ -221,6 +221,25 @@ describe("defaultAgentId", () => {
     const plugins = [plugin({ id: "claude-code", name: "Claude Code", installed: false }), TERM];
     expect(defaultAgentId(buildAgentOptions(plugins, null), plugins, null)).toBe("terminal");
   });
+  it("a second terminal-type plugin does not steal the shell default", () => {
+    // The clean-machine regression (CI e2e 2026-10-08): the ssh plugin is
+    // type `terminal`, its binary exists on nearly every host, and the
+    // catalog arrives id-sorted, so `ssh` stands BEFORE `terminal` and the
+    // old last-resort `usable[0]` defaulted a first launch to a bare `ssh`
+    // that exits without a destination. The plain shell stays the fallback.
+    const SSH = plugin({ id: "ssh", name: "SSH", type: "terminal" });
+    const plugins = [SSH, TERM];
+    expect(defaultAgentId(buildAgentOptions(plugins, null), plugins, null)).toBe("terminal");
+    // And it stays so under an agent catalog too: the agent tier still wins.
+    const withAgent = [SSH, TERM, CLAUDE];
+    expect(defaultAgentId(buildAgentOptions(withAgent, null), withAgent, null)).toBe("claude-code");
+  });
+  it("an ssh-only catalog still defaults to ssh", () => {
+    // The shell tier is a preference, not a filter: when the plain shell is
+    // not usable, the only pickable plugin must still fill the field.
+    const SSH = plugin({ id: "ssh", name: "SSH", type: "terminal" });
+    expect(defaultAgentId(buildAgentOptions([SSH], null), [SSH], null)).toBe("ssh");
+  });
   it("null when nothing is usable — and on an empty catalog", () => {
     const plugins = [plugin({ id: "x", name: "X", installed: false })];
     expect(defaultAgentId(buildAgentOptions(plugins, HERE), plugins, null)).toBeNull();

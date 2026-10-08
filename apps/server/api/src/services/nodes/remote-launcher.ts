@@ -1,4 +1,4 @@
-import type { HarnessPlugin } from "@internal/pane-runtime";
+import { buildSshConfigPath, type HarnessPlugin } from "@internal/pane-runtime";
 import {
   HARNESS_BINARY_PLACEHOLDER,
   type NodeCommandBody,
@@ -300,6 +300,14 @@ export class RemoteLauncher implements NodeLauncher {
       // Narrowed by the gate above: required since protocol 3, and always
       // present here.
       resolve: plan.harness.detectSpec,
+      // The ssh pane's rendered config (spec 2026-10-07 decision 4): carried
+      // VERBATIM — `configPath` was composed by the launch service from this
+      // node's `ready.dataDir` with the same `buildSshConfigPath` the agent
+      // runs, and the AGENT re-derives and refuses a byte-mismatch, so this
+      // launcher neither recomputes nor rewrites. Conditional spread, never
+      // `ssh: undefined` on a plain plan (the frame's parser refuses an
+      // explicit-undefined optional; the mcp comment above is the precedent).
+      ...(plan.ssh ? { ssh: { configPath: plan.ssh.configPath, fileContent: plan.ssh.fileContent } } : {}),
     };
     try {
       await this.#send(cmd, LAUNCH_TIMEOUT_MS);
@@ -537,17 +545,41 @@ export class RemoteLauncher implements NodeLauncher {
   }
 
   /**
+   * The ssh pane's rendered config ON THE NODE: `<nodeDataDir>/ssh/<id>/config`
+   * — the delete-side twin of the `launch.ssh.configPath` the launcher ships
+   * and the agent's byte-derived write target. Composed from the same
+   * `ready.dataDir` as the MCP/meta paths; it is the SAME pane-runtime
+   * {@link buildSshConfigPath} the node runs at write time, so the unlink
+   * lands exactly where the write landed (spec 2026-10-07 decision 4). The
+   * delete-time `remove_paths` unlinks the config FILE; the whole per-pane ssh
+   * DIR is swept by the agent's exit watcher on natural death (report.ts).
+   * Class-local (not on {@link NodeLauncher}) like {@link metaArtifactPath} —
+   * the concept is agent-side layout. Throws {@link NoLiveConnectionError}
+   * offline (sync member, same shape as {@link logPath}).
+   */
+  sshArtifactPath(id: string): string {
+    assertNodePathId(id);
+    return buildSshConfigPath(this.#requireFacts().dataDir, id);
+  }
+
+  /**
    * The three files a subshell leaves on the node — log + MCP config + the
    * agent's own meta record, in the order the pre-seam `deleteSubshell` block
    * pushed them (spec §6.4). Empty when the node has no live `ready` facts:
    * no facts, no layout to name paths from, and the artifacts age out with
    * the node — the same offline skip every pre-seam path made individually.
-   * The id guard rides through the three composed paths, so there is no
-   * fourth interpolation to forget.
+   * The id guard rides through the composed paths, so there is no extra
+   * interpolation to forget.
+   *
+   * `sshPane` (the row's kind fact, spec 2026-10-07 decision 4) adds the
+   * rendered config as a fourth path; every non-ssh caller gets the triple
+   * unchanged.
    */
-  subshellArtifacts(id: string): string[] {
+  subshellArtifacts(id: string, sshPane = false): string[] {
     if (!this.#facts()) return [];
-    return [this.logPath(id), this.mcpArtifactPath(id), this.metaArtifactPath(id)];
+    const artifacts = [this.logPath(id), this.mcpArtifactPath(id), this.metaArtifactPath(id)];
+    if (sshPane) artifacts.push(this.sshArtifactPath(id));
+    return artifacts;
   }
 
   /**

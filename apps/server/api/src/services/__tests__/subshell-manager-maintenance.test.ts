@@ -24,6 +24,7 @@ import * as pushUrgencyMigration from "@/db/migrations/0035-subshell-push-urgenc
 import * as crossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.js";
 import * as presetLaunchFieldsMigration from "@/db/migrations/0042-preset-launch-fields.js";
 import * as presetCrossCommOptInMigration from "@/db/migrations/0043-preset-cross-comm-opt-in.js";
+import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-hosts.js";
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -185,6 +186,7 @@ beforeAll(async () => {
   await crossAgentMigration.up(dbHandle); // subshells.cross_agent — SubshellsRepository.create writes it (2026-09-25)
   await presetLaunchFieldsMigration.up(dbHandle); // presets launch trio (0042) - repository create enumerates it
   await presetCrossCommOptInMigration.up(dbHandle); // presets.cross_comm_enabled (0043) - same reason
+  await sshLaunchMigration.up(dbHandle); // 0048 subshells.ssh - SubshellsRepository.create writes it on every create now; the delete sweep reads it as the kind fact (plan-2 Task 7)
   presetsRepo = new PresetsRepository(dbHandle);
   subshellsRepo = new SubshellsRepository(dbHandle);
   presetId = await seedPreset(presetsRepo);

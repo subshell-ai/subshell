@@ -144,6 +144,8 @@ export {
   parseNodePathExistsResult,
   parseNodeProbeEntries,
   parseNodePromptDeliver,
+  parseNodeSshAliasList,
+  parseNodeSshResolveOutcome,
   parseNodeStatDirResult,
   parseNodeTreeManifestPage,
   parseNodeWriteFileResult,
@@ -241,9 +243,18 @@ export {
   type SshErrorCode,
 } from "./ssh-errors.js";
 export {
+  parseSshNodeCommandBody,
+  SSH_COMMAND_TYPES,
+  type SshDiscoverAliasesCommand,
+  type SshNodeCommandBody,
+  type SshResolveConfigCommand,
+} from "./ssh-frames.js";
+export {
+  SSH_CONFIG_FILE_MAX_BYTES,
   SSH_MAX_DISCOVERED_ALIASES,
   SSH_MAX_PROXY_HOPS,
   SSH_NAME_MAX_CHARS,
+  SSH_PATH_MAX_CHARS,
   SSH_PROBE_DEADLINE_MS,
 } from "./ssh-limits.js";
 export type {

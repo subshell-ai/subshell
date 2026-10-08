@@ -1,5 +1,7 @@
 import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
+import { parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
+import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS } from "./ssh-limits.js";
 
 /**
  * Node ↔ control-plane wire contract (spec 2026-08-31 §3).
@@ -147,8 +149,16 @@ import type { JsonValue } from "./json.js";
  * `sshEnabled`, which on the wire is indistinguishable from a 16 agent whose
  * mirror simply says no. A capability gate cannot live with that ambiguity
  * (spec §4.3), so the number is what refuses the old agent, not the frame.
+ *
+ * **16 -> 17 (this tier):** the ssh launch block and the two discovery/resolve
+ * commands. A lagging agent is HELD (update-only) until crossed, per the
+ * capability-gate doctrine in docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md
+ * §4.3; the desktop update path is the crossing. The ambiguity the bump
+ * refuses: a tier-1 agent that ignores the launch frame's `ssh` member would
+ * spawn a bare `ssh` pane with no `-F` config (§4.3's gate doctrine refuses to
+ * live with that).
  */
-export const NODE_PROTOCOL_VERSION = 16;
+export const NODE_PROTOCOL_VERSION = 17;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -672,6 +682,16 @@ export type NodeCommandBody =
        * node-supplied: it is self-knowledge, not plugin knowledge.
        */
       mcp?: { path: string; fileContent: string; args?: string[]; env?: Record<string, string> };
+      /**
+       * The ssh pane's rendered config: the content the plane composed from
+       * the approved snapshot, plus the absolute node-side path the agent
+       * writes it to. The file-placement contract is the `mcp` block's: 0600
+       * in a 0700 dir, derived from the node's own `dataDir`, written before
+       * spawn, and the exit watch deletes the derived path beside the pane's
+       * other artifacts. The pane's argv names `-F` at this path; present
+       * only for ssh launches, absent for every harness pane.
+       */
+      ssh?: { configPath: string; fileContent: string };
       /** Resume pin for harnesses that support it */
       harnessSession?: HarnessSessionWire;
       /** tmux subshell name (the subshell id) */
@@ -1103,7 +1123,12 @@ export type NodeCommandBody =
        * sizing round trips is the caller that knows the frame cap.
        */
       maxBytes: number;
-    };
+    }
+  // The SSH discovery/resolve reads: two commands folded in as one union
+  // member so the SSH grammar lives in `ssh-frames.ts` beside the commands it
+  // narrows; their answers are validated by the two ssh result parsers
+  // appended to `node-results.ts` in the same tier.
+  | SshNodeCommandBody;
 
 /**
  * One node's maintenance state, as it travels in either direction.
@@ -1447,6 +1472,20 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
         if ("args" in m && !isStrArray(m.args)) return null;
         if ("env" in m && !isStringMap(m.env)) return null;
       }
+      if ("ssh" in value) {
+        const ssh = value.ssh as unknown;
+        if (
+          typeof ssh !== "object" ||
+          ssh === null ||
+          typeof (ssh as { configPath?: unknown }).configPath !== "string" ||
+          !(ssh as { configPath: string }).configPath.startsWith("/") ||
+          (ssh as { configPath: string }).configPath.length > SSH_PATH_MAX_CHARS ||
+          typeof (ssh as { fileContent?: unknown }).fileContent !== "string" ||
+          (ssh as { fileContent: string }).fileContent.length > SSH_CONFIG_FILE_MAX_BYTES
+        ) {
+          return null;
+        }
+      }
       if ("harnessSession" in value) {
         const h = value.harnessSession;
         if (!isRecord(h) || !isStr(h.id) || (h.mode !== "start" && h.mode !== "resume")) return null;
@@ -1698,6 +1737,11 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
       return "cursor" in value
         ? { type: "tree_manifest", root: value.root, cursor: value.cursor as string, maxBytes: value.maxBytes }
         : { type: "tree_manifest", root: value.root, maxBytes: value.maxBytes as number };
+    case "ssh_discover_aliases":
+    case "ssh_resolve_config":
+      // Delegation, not a second parser: the SSH grammar (both arms, one
+      // file) lives in ssh-frames.ts beside the commands it narrows.
+      return parseSshNodeCommandBody(value);
     default:
       return null;
   }

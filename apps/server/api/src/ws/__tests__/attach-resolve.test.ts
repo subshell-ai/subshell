@@ -403,6 +403,78 @@ describe("resolveAttach", () => {
   });
 });
 
+describe("resolveAttach canInput: the ssh owner-only keystroke rule (spec §5.4)", () => {
+  // The WS door is `handleSubshellMessage`'s `data.canInput`, and BOTH attach
+  // paths now carry the value `resolveAttach` computes here. So this is where
+  // the ssh carve-out is decided for keystrokes; the socket just obeys. A
+  // keystroke is DROPPED (no error frame) when it refuses, exactly as a `view`
+  // grantee's is — that is the WS posture, so `canInput` is the whole surface.
+
+  /** A row whose `ssh` column is set (the kind fact, migration 0048). */
+  async function seedSshRow(): Promise<{ id: string; userId: string }> {
+    const { repos } = getRequestlessContext();
+    seq += 1;
+    const row = await repos.subshells.create({
+      id: crypto.randomUUID(),
+      userId: `u-attach-resolve-${seq}`,
+      presetId: "p-test",
+      harnessId: "ssh",
+      name: "attach-ssh-input",
+      workingDir: "/tmp",
+      tmuxSocket: "subshell-attach-ssh",
+      ssh: JSON.stringify({ destination: "host.example", user: "theo", port: 22 }),
+    });
+    return { id: row.id, userId: row.userId };
+  }
+
+  const canInput = async (query: string): Promise<boolean> => {
+    const out = await resolveAttach(request(query));
+    if (!out.ok) throw new Error(`attach refused: ${JSON.stringify(out)}`);
+    return out.canInput;
+  };
+
+  it("an ordinary pane + an edit grantee types (canInput unchanged from the grant)", async () => {
+    const row = await seedRow();
+    const { repos } = getRequestlessContext();
+    const guest = `u-attach-ssh-editor-${seq}`;
+    await repos.subshellShares.replaceForSubshell(row.id, [{ granteeUserId: guest, permission: "edit" }], row.userId);
+    expect(await canInput(`subshell=${row.id}&token=${issueWsToken(guest)}`)).toBe(true);
+  });
+
+  it("an ssh pane + the OWNER (unbound token) types", async () => {
+    const row = await seedSshRow();
+    // `issueWsToken(userId)` with no subshell is a cookie-minted unbound
+    // identity: the human's own keystrokes, so bearerActor is false.
+    expect(await canInput(`subshell=${row.id}&token=${issueWsToken(row.userId)}`)).toBe(true);
+  });
+
+  it("an ssh pane + an EDIT grantee is refused (access says edit, canInput says no)", async () => {
+    const row = await seedSshRow();
+    const { repos } = getRequestlessContext();
+    const guest = `u-attach-ssh-blocked-${seq}`;
+    await repos.subshellShares.replaceForSubshell(row.id, [{ granteeUserId: guest, permission: "edit" }], row.userId);
+    const out = await resolveAttach(request(`subshell=${row.id}&token=${issueWsToken(guest)}`));
+    expect(out.ok).toBe(true);
+    // The grant is genuinely `edit` — the refusal is the ssh kind, not access.
+    if (out.ok) {
+      expect(out.access).toBe("edit");
+      expect(out.canInput).toBe(false);
+    }
+  });
+
+  it("an ssh pane + its OWN scoped key is refused (decision 5: no self-typing)", async () => {
+    const row = await seedSshRow();
+    // A scoped token records the OWNER as its identity, so `access` resolves to
+    // owner; only `bearerActor` closes the self-typing door.
+    const out = await resolveAttach(request(`subshell=${row.id}&token=${issueWsToken(row.userId, row.id)}`));
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      expect(out.access).toBe("owner");
+      expect(out.canInput).toBe(false);
+    }
+  });
+});
+
 describe("resolveAttach clears the unseen push (spec 2026-09-23)", () => {
   const email = `attach-unseen-${crypto.randomUUID()}@subshell.local`;
   const pw = "attach-unseen-pass-1";

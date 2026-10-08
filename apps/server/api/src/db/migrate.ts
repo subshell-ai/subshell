@@ -47,6 +47,7 @@ import * as oauthCallbackBaseMigration from "@/db/migrations/0044-oauth-callback
 import * as nodeReregistrationMigration from "@/db/migrations/0045-node-reregistration.js";
 import * as backupRecoveryMigration from "@/db/migrations/0046-backup-recovery.js";
 import * as sshEnabledMigration from "@/db/migrations/0047-node-ssh-enabled.js";
+import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-hosts.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -136,6 +137,9 @@ export async function runMigrations(): Promise<void> {
           // The per-node SSH capability gate: a flag plus its changedAt stamp,
           // default OFF so an upgrade never turns SSH egress on anywhere (spec 4.3).
           "0047-node-ssh-enabled": sshEnabledMigration,
+          // The SSH launcher tier: the per-owner destination ledger and the
+          // pane's approved snapshot in `subshells.ssh` (spec 2026-10-07 §7).
+          "0048-ssh-launch-and-saved-hosts": sshLaunchMigration,
         };
       },
     },

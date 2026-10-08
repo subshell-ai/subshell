@@ -50,7 +50,7 @@ export interface SshConfigWalk {
   hostBlocks: SshHostBlock[];
   /** Directives seen before any `Host` line (the implicit-global context). */
   globalDirectives: { keyword: string; value: string }[];
-  /** A `Match exec` line was seen anywhere in the walk (a local-execution signal §2 refuses on). */
+  /** A `Match exec` line was seen anywhere in the walk (the local-execution signal that resolution refuses on). */
   matchExecSeen: boolean;
   /** The config files that were actually read, walk order (cycle detection is done by the walk itself). */
   files: string[];
@@ -281,7 +281,7 @@ export function walkSshConfig(rootFile: string, homeDir: string, budget: SshWalk
       return;
     }
     if (active.has(real)) {
-      walk.includeCycle = true; // a file under its own includer: the §2 fact
+      walk.includeCycle = true; // a file under its own includer: the disclosure fact the discovery answer carries
       return;
     }
     if (seen.has(real)) return; // a second ordinary include: dedupe, not a cycle
@@ -319,7 +319,7 @@ export function walkSshConfig(rootFile: string, homeDir: string, budget: SshWalk
           }
         }
       } else if (keyword === "match") {
-        // `Match exec …` runs a command locally (the §2 execution fact); the
+        // `Match exec …` runs a command locally (the execution fact resolution refuses on); the
         // criteria keyword pair is what matters, not the command.
         const criteria = arg.toLowerCase();
         if (/(^|\s)exec(\s|$)/.test(criteria)) walk.matchExecSeen = true;

@@ -24,6 +24,7 @@ import { instancePublicRoutes } from "@/api/settings-public.route.js";
 import { setupRoutes } from "@/api/setup.route.js";
 import { setupAgentInstallRoute } from "@/api/setup-agent-install.route.js";
 import { setupTmuxInstallRoute } from "@/api/setup-tmux-install.route.js";
+import { sshRoutes } from "@/api/ssh/index.js";
 import { subshellRoutes } from "@/api/subshells/index.js";
 import { systemKeysRoutes } from "@/api/system-keys.route.js";
 import { transferRoutes } from "@/api/transfers/index.js";
@@ -80,10 +81,12 @@ const paneRoutes = new Elysia()
   .use(filesRoutes)
   .use(workspaceRoutes);
 
-// The machine-side surfaces: node administration and the node-to-node transfer
-// relay. Its own group (not an eighth `.use()` on the pane basket) keeps the
-// composed type shallow enough to compile.
-const nodeRoutes = new Elysia().use(nodesRoutes).use(transferRoutes);
+// The machine-side surfaces: node administration, the node-to-node transfer
+// relay, and the SSH launcher (every `/api/ssh` act is gated on a NODE row,
+// so it belongs with the machine basket it asks about). Its own group (not an
+// eighth `.use()` on the pane basket) keeps the composed type shallow enough
+// to compile — the depth budget the grouping header exists to protect.
+const nodeRoutes = new Elysia().use(nodesRoutes).use(transferRoutes).use(sshRoutes);
 
 const commsRoutes = new Elysia().use(notificationsRoutes).use(devicesRoutes).use(channelRoutes);
 

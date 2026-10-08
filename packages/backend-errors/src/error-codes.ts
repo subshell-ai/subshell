@@ -182,6 +182,51 @@ export enum BackendErrorCodes {
    * this act cannot invent, so it is refused before anything runs.
    */
   NETWORK_UNCONFIGURED = "NETWORK_UNCONFIGURED",
+  /**
+   * A `/api/ssh` act on a machine SSH is not open for, or not open for THIS
+   * caller: the node row's flag is off, or the acting viewer is not the
+   * machine's owner (`nodeCanSsh`, spec 2026-10-07 §4.3). One code for both
+   * causes; the message names the true one, because naming WHY is the
+   * surface's job (spec §12) and the code is the machine-readable half.
+   */
+  SSH_GATE_OFF = "SSH_GATE_OFF",
+  /**
+   * A `/api/ssh` act against a HELD agent: the plane refuses to speak that
+   * machine's protocol, so no ssh command can be sent and none is. The
+   * message names the remedy — update the node (spec 2026-10-07 decision 6).
+   */
+  NODE_PROTOCOL_HELD = "NODE_PROTOCOL_HELD",
+  /**
+   * A `/api/ssh` destination (or alias) that the wire grammar cannot carry:
+   * blank, over the 253-char cap, leading `-` (option-like), or carrying
+   * whitespace/control characters. Refused before the machine is asked, so
+   * the token never reaches `ssh -G` or a config parse.
+   */
+  ALIAS_UNSAFE = "ALIAS_UNSAFE",
+  /**
+   * The connecting machine answered an ssh command with its own `ok:false`
+   * (its ssh-enabled mirror says no, no ssh binary, a malformed answer): the
+   * plane's row cannot overrule the machine. The agent's own text is never
+   * echoed; the message names the human's remedy.
+   */
+  SSH_NODE_REFUSED = "SSH_NODE_REFUSED",
+  /**
+   * `POST /api/subshells/:id/restart` on an ssh pane (spec 2026-10-07
+   * decision 7): the pane's session lives on the far end of a socket, so a
+   * restart would spawn a new ssh process nobody asked to reconnect. Launch
+   * again from the launcher instead. Keyed to the `subshells.ssh` column.
+   */
+  SSH_NO_RESTART = "SSH_NO_RESTART",
+  /**
+   * A pane-input act (REST input, exec, MCP-via-REST, WS keystroke) on an
+   * ssh pane by a caller who is not the row's OWNER account, or by ANY
+   * machine credential (spec 2026-10-07 §5.4, decision 5: the far side of an
+   * ssh pane runs under the owner's own trust; the pane's key must not type
+   * into itself either). Keyed to the `subshells.ssh` column like the
+   * restart refusal; the WS door drops the frame rather than answering this
+   * code, exactly as it drops a `view` grantee's keystrokes.
+   */
+  SSH_OWNER_INPUT_ONLY = "SSH_OWNER_INPUT_ONLY",
 }
 
 export const BackendErrorCodeDefs = {
@@ -414,5 +459,32 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.NETWORK_UNCONFIGURED]: {
     message: "This network needs configuring first",
     statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_GATE_OFF]: {
+    message: "Subshell SSH is off on this machine",
+    statusCode: 403,
+  },
+  [BackendErrorCodes.NODE_PROTOCOL_HELD]: {
+    message: "This node is held for speaking a protocol this server does not",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.ALIAS_UNSAFE]: {
+    message: "That SSH destination is not a safe token",
+    statusCode: 400,
+  },
+  // The machine's own refusal is not a client error and not a server fault:
+  // the request was valid, the connecting host answered no. 502 says the
+  // upstream (the node) refused, which is exactly the shape.
+  [BackendErrorCodes.SSH_NODE_REFUSED]: {
+    message: "The connecting machine refused the SSH request",
+    statusCode: 502,
+  },
+  [BackendErrorCodes.SSH_NO_RESTART]: {
+    message: "SSH panes are not restarted; launch again to reconnect",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_OWNER_INPUT_ONLY]: {
+    message: "SSH panes accept input from their owner only",
+    statusCode: 403,
   },
 };

@@ -28,6 +28,7 @@ import { execSetLogLevel } from "./set-log-level.js";
 import { execSetMaintenance } from "./set-maintenance.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execSetSshEnabled } from "./set-ssh-enabled.js";
+import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
 import { execTransferWrite } from "./transfer-write.js";
 import { execTreeManifest } from "./tree-manifest.js";
@@ -50,7 +51,9 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * commands `archive_create`, `file_read`, `transfer_write`, `archive_extract`
  * and `tree_manifest` (spec 2026-10-01 §4, protocol 15), and
  * `set_ssh_enabled` (spec 2026-10-07 §4.3, protocol 16 — the SSH gate's plane-
- * to-machine write). Any
+ * to-machine write), and the two SSH read arms `ssh_discover_aliases` and
+ * `ssh_resolve_config` (spec 2026-10-07 §5, protocol 17 — both refuse on the
+ * local gate mirror before any lookup or spawn). Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
  *
@@ -127,6 +130,10 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return execSetMaintenance(ctx, cmd);
       case "set_ssh_enabled":
         return execSetSshEnabled(ctx, cmd);
+      case "ssh_discover_aliases":
+        return await execSshDiscoverAliases(ctx);
+      case "ssh_resolve_config":
+        return await execSshResolveConfig(ctx, cmd);
       case "set_server_url":
         return await execSetServerUrl(ctx, cmd);
       case "update":

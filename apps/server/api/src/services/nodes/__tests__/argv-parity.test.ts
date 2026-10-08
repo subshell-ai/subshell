@@ -73,11 +73,15 @@ const SETTINGS_FIXTURES: Record<string, Record<string, unknown>> = {
   // that the matrix holds for inputs the plugin ignores, and a shell ignores
   // all of them.
   terminal: {},
+  // SSH is the terminal launch pointed at ssh; like a shell it stores no
+  // settings keys, and the ssh option tokens ride `preset.flags`. Its
+  // "settings set" row is the empty object for the same reason terminal's is.
+  ssh: {},
 };
 
 /**
  * Derived, never hand-listed: a hand-synced list is itself a bypass, because
- * a sixth built-in added to pane-runtime would simply not appear and the
+ * a new built-in added to pane-runtime would simply not appear and the
  * gate would silently shrink. What the registry ANSWERS is what the matrix
  * runs; the completeness test below fails loudly if a built-in failed to
  * CONSTRUCT (that case removes it from this list), and the per-id fixture
@@ -257,11 +261,13 @@ for (const id of BUILTIN_IDS) {
 }
 
 /**
- * Sanity: every built-in under test really is one of the six, and the
+ * Sanity: every built-in under test really is one of the seven, and the
  * registry is what production reads (`getHarness`, the same accessor
  * `subshell-manager` resolves launches through) — no copies.
  */
-test("argv parity: the matrix covers all six built-ins through the production registry", () => {
+test("argv parity: the matrix covers all seven built-ins through the production registry", () => {
   const registryIds = BUILTIN_IDS.map((id) => getHarness(id)?.id);
-  expect(new Set(registryIds)).toEqual(new Set(["claude-code", "codex", "opencode", "hermes", "pi", "terminal"]));
+  expect(new Set(registryIds)).toEqual(
+    new Set(["claude-code", "codex", "opencode", "hermes", "pi", "ssh", "terminal"]),
+  );
 });

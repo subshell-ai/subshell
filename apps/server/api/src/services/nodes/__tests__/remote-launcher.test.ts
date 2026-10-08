@@ -352,6 +352,28 @@ describe("launch", () => {
     expect(cmd.bestEffortLog).toBe(true);
   });
 
+  it("an ssh plan ships the frame's ssh member verbatim; a plain plan carries no ssh key at all", async () => {
+    // spec 2026-10-07 decision 4: the launcher is a CARRIER. The path inside
+    // the member was composed by the launch service from this node's
+    // `ready.dataDir`; the agent re-derives it and refuses a byte-mismatch,
+    // so nothing here recomputes or rewrites it.
+    const h = makeHarness();
+    const ssh = { configPath: `/home/u/.subshell/ssh/${SUB}/config`, fileContent: "Host *\n" };
+    await h.launcher.launch({ ...planBase(), id: SUB, ssh });
+    const cmd = h.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
+    expect(cmd.ssh).toEqual(ssh);
+    // The member is protocol-17 wire shape: it must survive the JSON round
+    // trip through the frame parser the node runs before dispatch.
+    expect(parseNodeCommandBody(JSON.parse(JSON.stringify(cmd)))).not.toBeNull();
+
+    // The mcp lesson, applied to ssh: an absent block stays ABSENT on the
+    // object (a conditional spread), never an explicit-undefined key.
+    const h2 = makeHarness();
+    await h2.launcher.launch(planBase());
+    const plain = h2.calls[0]?.cmd as Extract<NodeCommandBody, { type: "launch" }>;
+    expect("ssh" in plain).toBe(false);
+  });
+
   it("a remote launch carries an argv whose binary slot is the placeholder", async () => {
     // The REAL pi plugin, not the stub: argv is the plugin's dialect, and the
     // resolve rule must be the pi manifest's detect block passed straight
@@ -983,6 +1005,31 @@ describe("removeArtifacts", () => {
     const h = makeHarness();
     await h.launcher.removeArtifacts([]);
     expect(h.calls).toEqual([]);
+  });
+});
+
+describe("subshellArtifacts sshPane (spec 2026-10-07 decision 4)", () => {
+  const NODE_SUB = "11111111-2222-4333-8444-555555555555";
+  const triple = [
+    `/home/u/.subshell/subshells/${NODE_SUB}.log`,
+    `/home/u/.subshell/mcp/${NODE_SUB}.json`,
+    `/home/u/.subshell/subshells/${NODE_SUB}.meta.json`,
+  ];
+
+  it("names the derived ssh config path only when the caller says the pane was an ssh pane", () => {
+    const h = makeHarness();
+    expect(h.launcher.subshellArtifacts(NODE_SUB)).toEqual(triple);
+    // The path template is the SAME pane-runtime composition the launch-side
+    // configPath used; on the node it is composed from `ready.dataDir`.
+    expect(h.launcher.subshellArtifacts(NODE_SUB, true)).toEqual([
+      ...triple,
+      `/home/u/.subshell/ssh/${NODE_SUB}/config`,
+    ]);
+  });
+
+  it("offline stays [] even for an ssh pane (no facts, no layout to name paths from)", () => {
+    const h = makeHarness(null);
+    expect(h.launcher.subshellArtifacts(NODE_SUB, true)).toEqual([]);
   });
 });
 

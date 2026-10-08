@@ -15,6 +15,7 @@ describe("publishedPackages", () => {
       "@subshell-ai/plugin-netbird",
       "@subshell-ai/plugin-opencode",
       "@subshell-ai/plugin-pi",
+      "@subshell-ai/plugin-ssh",
       "@subshell-ai/plugin-tailscale",
       "@subshell-ai/plugin-terminal",
     ]);
