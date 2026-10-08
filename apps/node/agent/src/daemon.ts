@@ -40,6 +40,7 @@ import { binaryPayload, createLinkNegotiator, type LinkNegotiator, type LinkNego
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
 import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } from "./pane-log-retention.js";
+import { createDaemonRelaySend } from "./relay-send.js";
 import { noteSweepScheduled } from "./retention-settings.js";
 import { collectRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
@@ -503,6 +504,16 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     tails: new Map(),
     uploads: new Map(),
     runtime,
+    // The relay plumbing (spec 2026-10-08 §5.1, Task 8): the per-daemon
+    // registry (sessions survive reconnects - the plane re-pumps on the fresh
+    // socket) plus the DELIVER-OR-THROW pump. The pump reads the CURRENT
+    // socket and link through a getter, exactly like the stale-socket guard in
+    // `send` above: a frame sent after this socket died targets the new link
+    // if one exists, and throws if none does (acceptance (c)).
+    relay: {
+      sessions: relaySessions,
+      sendRelayFrame: createDaemonRelaySend(() => ({ ws: currentWs, link })),
+    },
     requestRestart: () => {
       // Deferred, because the daemon is the only sender of `result`: the
       // executor returns `{ ok: true }`, the frame leaves on this turn, and

@@ -6,11 +6,13 @@ import type {
   NodeMaintenanceWire,
   NodeRuntimeReport,
   NodeSshEnabledWire,
+  RelayFrame,
 } from "@internal/subshell-protocol";
 import type { NodeConfig } from "../config.js";
 import type { ServiceDeps } from "../service.js";
 import type { SubshellMetaStore } from "../subshell-meta.js";
 import type { NodeBinaryDeps } from "../update.js";
+import type { RelaySessions } from "./ssh-relay.js";
 
 /**
  * The command-executor seam (spec 2026-08-31 §7): everything an executor may
@@ -109,6 +111,25 @@ export interface CommandContext {
   binaryDeps?: NodeBinaryDeps;
   /** Outbound event seam (inventory events now; tail output/exit events later). */
   ws: CommandWs;
+  /**
+   * The sealed-agent-relay plumbing (spec 2026-10-08 §5.1, Task 8): the
+   * daemon's routing-ref registry plus the per-socket relay pump, handed to
+   * the `ssh_relay_open` branches and their sessions. OPTIONAL by type so
+   * every pre-relay context fake keeps compiling; the real daemon always
+   * provides it, and the relay arms refuse loudly when a context does not.
+   */
+  relay?: {
+    /** The per-daemon ref registry; sessions outlive the socket they opened on. */
+    sessions: RelaySessions;
+    /**
+     * Hand one relay frame to the CURRENT established link. DELIVER-OR-THROW
+     * (acceptance (c), mirroring the endpoints' T6/T7 contract): a frame that
+     * cannot leave RAISES - the proxy fails its request and the responder
+     * consumes no seq, because a silent return parks a phantom reply whose
+     * answer never comes.
+     */
+    sendRelayFrame(frame: RelayFrame): void;
+  };
   /**
    * The panes supervised for natural death, keyed by subshellId →
    * {@link WatcherRegistration} (socket + registration token + unreachable
