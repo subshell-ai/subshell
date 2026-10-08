@@ -257,6 +257,9 @@ export {
   SSH_PATH_MAX_CHARS,
   SSH_PROBE_DEADLINE_MS,
 } from "./ssh-limits.js";
+// PURE module (WebCrypto globals only, no node: builtins): safe in the
+// Metro-consumed barrel; pinned by __tests__/ssh-pin-store.test.ts.
+export { base64UrlNoPad, bytesOfJwk, fingerprintJwk, type PublicJwkInput } from "./ssh-pin-store.js";
 export type {
   NodeSshAliasListResult,
   NodeSshResolveOutcomeWire,
