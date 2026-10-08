@@ -1,9 +1,11 @@
 import {
   type NodeSshAgentIdentitiesResult,
   type NodeSshAliasListResult,
+  type NodeSshHostKeyResult,
   type NodeSshResolveOutcomeWire,
   parseNodeSshAgentIdentities,
   parseNodeSshAliasList,
+  parseNodeSshHostKey,
   parseNodeSshIdentity,
   parseNodeSshResolveOutcome,
 } from "@internal/subshell-protocol";
@@ -124,6 +126,34 @@ export async function sshRegisterIdentity(nodeId: string): Promise<string> {
     throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed signing identity`, nodeId);
   }
   return parsed.signingPublicKey;
+}
+
+/**
+ * Ask one machine for the `known_hosts` entries it has recorded for one
+ * resolved destination (spec 2026-10-08 §9, Task 12): the host-key capture
+ * whose answer becomes the pin the relay-open delivers to B. The destination
+ * is the whole input because OpenSSH's host-key lookup is per destination;
+ * the triple is sent RESOLVED so a later config edit cannot retarget the ask.
+ * An empty answer is a SUCCESS (`{ lines: [] }`, the honest "recorded
+ * nothing"); only a transport/wire failure throws.
+ * @throws {SshRpcError} on any transport/wire failure, per the kinds above
+ */
+export async function sshHostKey(
+  nodeId: string,
+  destination: { host: string; port: number; user: string | null },
+): Promise<NodeSshHostKeyResult> {
+  let data: unknown;
+  try {
+    data = await sendCommand(nodeId, { type: "ssh_host_key", ...destination });
+  } catch (err) {
+    if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
+    throw err;
+  }
+  const parsed = parseNodeSshHostKey(data);
+  if (!parsed) {
+    throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed host-key list`, nodeId);
+  }
+  return parsed;
 }
 
 /**

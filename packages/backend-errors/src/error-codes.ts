@@ -278,6 +278,30 @@ export enum BackendErrorCodes {
    * history).
    */
   SSH_GRANT_ALREADY_ANSWERED = "SSH_GRANT_ALREADY_ANSWERED",
+  /**
+   * A relay grant creation the host-key capture refused because the key home
+   * has no `known_hosts` entry for the destination (spec 2026-10-08 §9,
+   * Task 12). A relay grant must carry a pin - B verifies D against A's
+   * recorded key, never its own ambient TOFU - so the grant is NOT created
+   * and the approval stays pending. The remedy the message names: connect to
+   * the destination once from the key home, or supply the key on the trust
+   * screen.
+   */
+  SSH_HOST_PIN_MISSING = "SSH_HOST_PIN_MISSING",
+  /**
+   * The host-key capture found the destination pinned to a DIFFERENT key
+   * (spec 2026-10-08 §9): the TOFU hard block at the plane's edge, the mirror
+   * of the block OpenSSH itself raises on B. Nothing is overwritten; recovery
+   * is delete the pin (trust screen) plus a fresh grant-creation TOFU, no
+   * separate rotate act.
+   */
+  SSH_HOST_PIN_CHANGED = "SSH_HOST_PIN_CHANGED",
+  /**
+   * A host-key line (an explicit pin, or a canonical destination) the wire
+   * grammar refuses: not one bounded printable line, a comment or blank, a
+   * smuggled newline. Refused before any write (spec 2026-10-08 §9).
+   */
+  SSH_HOST_PIN_INVALID = "SSH_HOST_PIN_INVALID",
 }
 
 export const BackendErrorCodeDefs = {
@@ -565,5 +589,17 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.SSH_GRANT_ALREADY_ANSWERED]: {
     message: "That grant request has already been answered",
     statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_HOST_PIN_MISSING]: {
+    message: "The key home has no recorded host key for that destination",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_HOST_PIN_CHANGED]: {
+    message: "The host key for that destination does not match the stored pin",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_HOST_PIN_INVALID]: {
+    message: "That host-key entry is not a valid known_hosts line",
+    statusCode: 400,
   },
 };
