@@ -2,6 +2,7 @@ import { open as mcpOpen, seal as mcpSeal } from "@internal/mcp-core";
 import {
   bytesOfJwk,
   type RelayFrame,
+  SSH_RELAY_LIFETIME_MS,
   SSH_RELAY_MAX_PER_NODE,
   type SshRelayOpenCommand,
 } from "@internal/subshell-protocol";
@@ -50,6 +51,18 @@ export interface RelaySessionHandler {
 }
 
 /**
+ * How long a close of a ref this machine never owned is remembered. The race
+ * it bounds (fix round T8 MAJOR 2): the A branch acks `pending: true` and its
+ * detached open probes worst-case ~20 s (two 10 s agent round trips), so the
+ * plane's `ssh_relay_close` can land while the open is still in flight - and
+ * the open would then REGISTER a responder nothing will ever close, because
+ * the plane already dropped the ref. A few multiples of the session lifetime
+ * covers command delivery plus the probe with room; the entry is a marker,
+ * not a resource, and it EXPIRES (nothing here grows unbounded).
+ */
+export const RELAY_CLOSE_TOMBSTONE_MS = 2 * SSH_RELAY_LIFETIME_MS;
+
+/**
  * The per-daemon map from routing ref to its local owner. ONE instance lives
  * for the daemon's life (relay sessions outlive a link reconnect - the plane
  * re-pumps frames on the fresh socket), and {@link
@@ -57,13 +70,29 @@ export interface RelaySessionHandler {
  * shares (Task 7). Frames for an unknown ref are dropped with a log line: a
  * stale ref (session already closed around the plane's own cut) is routine,
  * and the refusal the plane deserves is Task 8's broker's, not this map's.
+ *
+ * Two refusals beyond ownership, both for the openers' cleanup paths (the
+ * executors' try/catch around {@link register} releases whatever they just
+ * bound on EITHER refusal shape):
+ * - the {@link SSH_RELAY_MAX_PER_NODE} cap THROWS a named refusal (the
+ *   machine saying no to a miscounting broker);
+ * - a ref closed while unowned is TOMBSTONED for {@link
+ *   RELAY_CLOSE_TOMBSTONE_MS}, and {@link register} answers the dup-path
+ *   false for it (the plane's cut beat a late open; the late open must not
+ *   own a dead ref).
  */
 export class RelaySessions {
   #byRef = new Map<string, RelaySessionHandler>();
+  /** Ref closed while unowned -> expiry in ms. TTL-bounded, swept at every touch. */
+  #closedRefs = new Map<string, number>();
   #say: (line: string) => void;
+  #now: () => number;
+  #tombstoneMs: number;
 
-  constructor(logLine?: (line: string) => void) {
+  constructor(logLine?: (line: string) => void, opts: { nowMs?: () => number; tombstoneMs?: number } = {}) {
     this.#say = logLine ?? ((line: string): void => log(line));
+    this.#now = opts.nowMs ?? Date.now;
+    this.#tombstoneMs = opts.tombstoneMs ?? RELAY_CLOSE_TOMBSTONE_MS;
   }
 
   /** Sessions currently owned (census/test surface). */
@@ -72,8 +101,10 @@ export class RelaySessions {
   }
 
   /**
-   * Take ownership of a ref. False when the ref is ALREADY owned - two live
-   * sessions on one routing ref is a broker bug, and the second opener's
+   * Take ownership of a ref. False when the ref is ALREADY owned, or when it
+   * carries a close tombstone (the plane closed this ref before the open
+   * landed; {@link isTombstoned} lets the refused opener name which) - two
+   * live sessions on one routing ref is a broker bug, and the second opener's
    * resources belong to ITSELF to release (its caller sees the false).
    * Throws a named refusal when this machine is already holding
    * {@link SSH_RELAY_MAX_PER_NODE} sessions and `ref` is NEW: the plane's
@@ -81,10 +112,14 @@ export class RelaySessions {
    * node refusing to hold a 9th proxy socket off a miscounting broker
    * (defense-in-depth, Task 8 (g)). The throw path and the dup-ref false
    * path are deliberately different: an owned ref is a routing collision
-   * the CALLER unwinds, a full registry is the machine saying no.
+   * the CALLER unwinds, a full registry is the machine saying no. EITHER
+   * way, an opener that already bound a resource must release it on both
+   * shapes (fix round T8 MAJOR 1: the throw path once bypassed that).
    */
   register(ref: string, handler: RelaySessionHandler): boolean {
+    this.#sweepTombstones();
     if (this.#byRef.has(ref)) return false;
+    if (this.#closedRefs.has(ref)) return false;
     if (this.#byRef.size >= SSH_RELAY_MAX_PER_NODE) {
       throw new Error(
         `relay registry full: ${this.#byRef.size} live sessions on this machine (max ${SSH_RELAY_MAX_PER_NODE})`,
@@ -102,6 +137,16 @@ export class RelaySessions {
   /** Whether this machine currently owns `ref`. */
   has(ref: string): boolean {
     return this.#byRef.has(ref);
+  }
+
+  /**
+   * Whether a close of this ref is currently remembered while the ref is
+   * unowned: the refused opener's discriminator between "already owned" and
+   * "the plane already closed it" (fix round T8 MAJOR 2).
+   */
+  isTombstoned(ref: string): boolean {
+    this.#sweepTombstones();
+    return this.#closedRefs.has(ref);
   }
 
   /**
@@ -127,11 +172,20 @@ export class RelaySessions {
   /**
    * Close the session named by `ref` (what Task 8's `ssh_relay_close`
    * executor will call). True when a session was owned and closed, false for
-   * an unknown ref.
+   * an unknown ref - and an unknown ref is not merely ignored: the close is
+   * TOMBSTONED for {@link RELAY_CLOSE_TOMBSTONE_MS}, so a detached open that
+   * succeeds after the plane already cut can no longer own the ref (fix
+   * round T8 MAJOR 2). A close of an OWNED ref takes the normal path and
+   * tombstones nothing.
    */
   close(ref: string, reason: string): boolean {
+    this.#sweepTombstones();
     const handler = this.#byRef.get(ref);
-    if (!handler) return false;
+    if (!handler) {
+      this.#closedRefs.set(ref, this.#now() + this.#tombstoneMs);
+      this.#say(`relay close for ${ref} (${reason}): no local session; remembering the close against late opens`);
+      return false;
+    }
     this.#byRef.delete(ref);
     try {
       handler.close(reason);
@@ -144,6 +198,19 @@ export class RelaySessions {
   /** Close everything (daemon shutdown / a link that will never return). */
   closeAll(reason: string): void {
     for (const ref of [...this.#byRef.keys()]) this.close(ref, reason);
+  }
+
+  /**
+   * Drop every expired tombstone. Called at BOTH mutating touches (register
+   * and close), so the set is TTL-window-bounded rather than a ledger: a
+   * burst of closes for unknown refs ages out on the next touch and nothing
+   * is ever remembered past {@link RELAY_CLOSE_TOMBSTONE_MS}.
+   */
+  #sweepTombstones(): void {
+    const now = this.#now();
+    for (const [ref, expiresAt] of this.#closedRefs) {
+      if (expiresAt <= now) this.#closedRefs.delete(ref);
+    }
   }
 }
 
@@ -190,9 +257,12 @@ function decodePeerEncryptionJwk(b64: string): string {
  * A (first pairing pins both halves, a moved pin is a hard block), then bind
  * the pane's agent proxy socket and register its ref. Throws a named refusal
  * (the dispatch wrapper turns it into `ok:false`) on: role other than B, an
- * unusable peer key, a MOVED pin (naming the peer and §4.5's re-pair), or a
- * ref already owned. Resolves with the composed socket path - the value the
- * launch's scoped `SSH_AUTH_SOCK` must match byte for byte (§5.2).
+ * unusable peer key, a MOVED pin (naming the peer and §4.5's re-pair), a ref
+ * already owned, a ref the plane already closed (tombstoned), or the
+ * node-side registry cap - and EVERY refusal releases the proxy this call
+ * just bound (fix round T8 MAJOR 1: a thrown cap refusal once bypassed that
+ * release). Resolves with the composed socket path - the value the launch's
+ * scoped `SSH_AUTH_SOCK` must match byte for byte (§5.2).
  *
  * The gate (ssh-enabled mirror) is the CALLER's first check, like every SSH
  * arm's: this function is the pairing's mechanics, not the policy.
@@ -252,14 +322,26 @@ export async function openBRelaySession(args: BRelaySessionArgs): Promise<{ sock
     ...(args.log === undefined ? {} : { log: args.log }),
   });
 
-  if (
-    !args.relay.register(cmd.ref, {
-      onRelayFrame: (f) => proxy.deliverInboundRelayFrame(f),
-      close: () => proxy.close(),
-    })
-  ) {
+  try {
+    if (
+      !args.relay.register(cmd.ref, {
+        onRelayFrame: (f) => proxy.deliverInboundRelayFrame(f),
+        close: () => proxy.close(),
+      })
+    ) {
+      throw new Error(
+        args.relay.isTombstoned(cmd.ref)
+          ? "relay open refused: routing ref already closed by the plane (late open dropped)"
+          : "relay open refused: routing ref already owned by a live session",
+      );
+    }
+  } catch (err) {
+    // EVERY refused register releases the just-bound proxy: the dup/tombstone
+    // false path as before, and the THROWN cap refusal too - a refused open
+    // must never leave a listening fd and a socket name behind (fix round T8
+    // MAJOR 1; proxy.close() is idempotent).
     proxy.close();
-    throw new Error("relay open refused: routing ref already owned by a live session");
+    throw err;
   }
   return { socketPath: proxy.socketPath };
 }
@@ -305,7 +387,10 @@ export interface ARelaySessionArgs {
  * enforces it without a REST call it cannot make) and register the ref.
  * Throws a named refusal (the dispatch wrapper turns it into `ok:false`) on:
  * role other than A, a pairing that names a different machine as A, an
- * unusable peer key, a MOVED pin, or a ref already owned. A probe failure is
+ * unusable peer key, a MOVED pin, a ref already owned, a ref the plane
+ * already closed (tombstoned - the race this branch's detached open makes
+ * real, fix round T8 MAJOR 2), or the node-side registry cap - and EVERY
+ * refusal closes the responder it just started. A probe failure is
  * NOT a throw: the session opens refuse-closed. Resolves with the session id
  * - nothing about the machine is in the answer, and no path exists to leak.
  *
@@ -388,14 +473,26 @@ export async function openARelaySession(args: ARelaySessionArgs): Promise<{ rela
     ...(args.log === undefined ? {} : { log: args.log }),
   });
 
-  if (
-    !args.relay.register(cmd.ref, {
-      onRelayFrame: (f) => responder.deliverInboundRelayFrame(f),
-      close: (reason) => responder.close(reason),
-    })
-  ) {
+  try {
+    if (
+      !args.relay.register(cmd.ref, {
+        onRelayFrame: (f) => responder.deliverInboundRelayFrame(f),
+        close: (reason) => responder.close(reason),
+      })
+    ) {
+      throw new Error(
+        args.relay.isTombstoned(cmd.ref)
+          ? "relay open refused: routing ref already closed by the plane (late open dropped)"
+          : "relay open refused: routing ref already owned by a live session",
+      );
+    }
+  } catch (err) {
+    // Symmetric with the B branch (fix round T8 MAJOR 1): the dup false path
+    // closed the responder before, and the THROWN cap refusal closes it too.
+    // The A responder holds no fd, but a refused open must never leave one
+    // alive and unregistered to classify bytes forever.
     responder.close();
-    throw new Error("relay open refused: routing ref already owned by a live session");
+    throw err;
   }
   return { relayId: cmd.relayId };
 }
