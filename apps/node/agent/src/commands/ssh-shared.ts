@@ -15,8 +15,8 @@ import { findBinary } from "@internal/pane-runtime";
  *
  * The gate comes BEFORE any of this: every SSH arm consults the local
  * ssh-enabled mirror first (spec §4.3), so nothing here runs on a machine
- * that has not been switched on. {@link sshGateRefusal} states the one
- * refusal every arm shares.
+ * that has not been switched on. `SSH_GATE_REFUSAL` (ssh-aliases.ts) states
+ * the one refusal every arm shares.
  */
 
 /** env-override seam for the ssh binary, spelled like the harness overrides. */
