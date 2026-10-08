@@ -63,6 +63,23 @@ test("get returns the raw pinned strings verbatim; an unknown peer has no pin", 
   expect(store.get("node-1")).toEqual(keyA);
 });
 
+test("inherited Object members are never pins: get is null for __proto__/constructor/toString on an empty store", () => {
+  // The maps are Object.create(null)-built: a plain `{}` would hand back
+  // Object.prototype or a method for these ids, breaking the "null when
+  // never pinned" contract Tasks 6/8 branch on.
+  const store = new MachinePinStore(freshDir());
+  expect(store.get("__proto__")).toBe(null);
+  expect(store.get("constructor")).toBe(null);
+  expect(store.get("toString")).toBe(null);
+  expect(store.check("toString", keyA)).toBe("changed");
+  // A peer id that shadows an Object member is still ordinary data: pinning
+  // and reading it round-trips through the JSON file.
+  store.pin("toString", keyA);
+  expect(store.get("toString")).toEqual(keyA);
+  expect(store.check("toString", keyA)).toBe("ok");
+  expect(new MachinePinStore(store.dataDir).get("toString")).toEqual(keyA);
+});
+
 test("check is byte equality on both halves: ok for the same bytes, changed for either half moving", () => {
   const dir = freshDir();
   const store = new MachinePinStore(dir);

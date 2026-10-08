@@ -115,9 +115,12 @@ export function base64UrlToBytes(text: string): Uint8Array<ArrayBuffer> {
       bits -= 8;
     }
   }
-  if (bits >= 4) {
-    // 4 or 5 leftover bits mean an encoding whose last character carried data
-    // beyond the byte stream - not canonical, so not accepted.
+  // The leftover `bits` (always even: 0, 2, or 4 for canonical widths) are the
+  // trailing partial group, and they live in `value`'s low bits. A canonical
+  // encoding pads them with zeros, so any set bit is a non-canonical spelling.
+  // Six leftover bits mean a text one character past a full group: no byte
+  // string encodes to that length, an impossible spelling either way.
+  if (bits === 6 || (value & ((1 << bits) - 1)) !== 0) {
     throw new TypeError("ssh-pin-store: base64url text has non-canonical trailing bits");
   }
   return out;
@@ -165,9 +168,11 @@ export function bytesOfJwk(publicJwk: PublicJwkInput): Uint8Array<ArrayBuffer> {
 
 /**
  * The `SHA256:`-prefixed fingerprint of a public EC P-256 JWK (string or
- * object): SHA-256 over {@link bytesOfJwk}, base64url without padding - the
- * same notation OpenSSH prints for host keys, so an operator comparing the
- * trust card (§8) against `ssh-keygen -lf` output reads one alphabet.
+ * object): SHA-256 over {@link bytesOfJwk}, base64url without padding. Only
+ * the scheme is OpenSSH's notation (SHA-256, the `SHA256:` prefix); the
+ * encoding follows this spec's base64url rule. OpenSSH prints standard
+ * base64 (`+` and `/`) over a different preimage, so this string never
+ * matches `ssh-keygen -lf` output character for character.
  */
 export async function fingerprintJwk(publicJwk: PublicJwkInput): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", bytesOfJwk(publicJwk));
