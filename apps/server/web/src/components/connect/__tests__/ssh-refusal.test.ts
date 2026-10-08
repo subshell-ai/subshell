@@ -44,7 +44,7 @@ describe("sshLaunchRefusal", () => {
 
   it("400 names the destination as invalid, not the machine", () => {
     expect(sshLaunchRefusal(new ApiError(400, "x", { code: "ALIAS_UNSAFE" }), machine({}))).toEqual({
-      text: "That destination is not a valid host name.",
+      text: "That destination is not a valid name to connect to.",
       field: "destination",
     });
   });
@@ -97,9 +97,24 @@ describe("sshLaunchRefusal", () => {
     );
   });
 
-  it("502 is the machine's own refusal, in one sentence", () => {
+  it("409 NODE_IN_MAINTENANCE names maintenance, not the missing connection", () => {
+    // The create under the ssh launch throws this code when the machine is in
+    // a window (`rethrowLaunchRefusal`, subshells.service.ts) - a live link
+    // exists, it just takes no new panes, so the offline sentence would lie.
+    const copy = sshLaunchRefusal(new ApiError(409, "x", { code: "NODE_IN_MAINTENANCE" }), machine({}));
+    expect(copy?.text).toBe(
+      "mac mini is in maintenance and takes no new panes. Wait for it to come out of maintenance.",
+    );
+    expect(copy?.text).not.toContain("no live connection");
+    // The vanish-the-row fallback stays grammatical too.
+    expect(sshLaunchRefusal(new ApiError(409, "x", { code: "NODE_IN_MAINTENANCE" }), null)?.text).toBe(
+      "That machine is in maintenance and takes no new panes. Wait for it to come out of maintenance.",
+    );
+  });
+
+  it("502 is the machine's own refusal, with the checks that answer it", () => {
     expect(sshLaunchRefusal(new ApiError(502, "x", { code: "SSH_NODE_REFUSED" }), machine({}))).toEqual({
-      text: "The connecting machine did not answer.",
+      text: "The connecting machine refused the SSH request. Check that SSH is switched on there and that ssh is installed.",
       field: "machine",
     });
   });
@@ -116,8 +131,23 @@ describe("sshLaunchRefusal", () => {
   });
 
   it("every shipped sentence is at most two sentences and dash-free", () => {
-    const texts = [422, 400, 403, 404, 409, 502].flatMap((status) => {
-      const copy = sshLaunchRefusal(new ApiError(status, "x", { code: "ANY" }), machine({ sshEnabled: false }));
+    // Named codes too, so the per-branch arms are all in the sweep, not just
+    // the default ones.
+    const cases: [number, string][] = [
+      [422, "ANY"],
+      [400, "ALIAS_UNSAFE"],
+      [403, "SSH_GATE_OFF"],
+      [404, "NOT_FOUND_ERROR"],
+      [409, "NODE_IN_MAINTENANCE"],
+      [409, "NODE_PROTOCOL_HELD"],
+      [409, "NODE_OUTDATED"],
+      [409, "NODE_UNREACHABLE"],
+      [409, "NODE_OFFLINE"],
+      [409, "ANY"],
+      [502, "SSH_NODE_REFUSED"],
+    ];
+    const texts = cases.flatMap(([status, code]) => {
+      const copy = sshLaunchRefusal(new ApiError(status, "x", { code }), machine({ sshEnabled: false }));
       return copy === null ? [] : [copy.text];
     });
     for (const text of texts) {
