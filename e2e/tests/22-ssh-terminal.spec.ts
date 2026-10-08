@@ -378,11 +378,16 @@ test("ssh pane: gated launch to the fixture sshd, owner input echoes from the re
       data: { email: memberEmail, password: MEMBER_PASSWORD },
     });
     expect(memberSignIn.ok(), await memberSignIn.text()).toBe(true);
-    // The grant is real: the member sees the pane at `edit` (the refusal below
-    // must be the SSH rule, not an invisibility or a missing grant).
+    // The grant is real: the member can read the pane (a stranger gets a 404,
+    // never the 403 below). And the VIEW says what the doors say: on an ssh
+    // pane every non-owner reads `view` + `ssh: true` (spec 2026-10-07 §5.4,
+    // plan 3 decision 1); enforcement itself is the refusal below, keyed to
+    // the SSH rule, not to invisibility or a missing grant.
     const memberView = await member.get(`/api/subshells/${subshellId}`);
     expect(memberView.ok(), await memberView.text()).toBe(true);
-    expect(((await memberView.json()) as { access: string }).access).toBe("edit");
+    const memberSubshell = (await memberView.json()) as { access: string; ssh: boolean };
+    expect(memberSubshell.access).toBe("view");
+    expect(memberSubshell.ssh).toBe(true);
 
     const refused = await member.post(`/api/subshells/${subshellId}/input`, {
       data: { text: `echo NOT-YOUR-PANE-${nonce}` },
