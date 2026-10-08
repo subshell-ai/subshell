@@ -14,8 +14,8 @@ export interface SshSavedHostTable {
    * The canonical key: `user@host:port` for a resolved snapshot that carries
    * a user, `host:port` (no user prefix) when the snapshot's user is null,
    * the latter meaning the connecting account's own default. The spelling
-   * rule is {@link sshCanonicalDestination}; both writer and reader list
-   * import it, and it has no other home. Unique per owner
+   * rule is {@link sshCanonicalDestination}; both writers import it; the list reads back
+   * the stored strings. It has no other home. Unique per owner
    * (idx_ssh_saved_hosts_owner_destination).
    */
   destination: string;
