@@ -81,6 +81,9 @@ function openCmd(over: Partial<SshRelayOpenCommand> = {}): SshRelayOpenCommand {
     fingerprints: ["SHA256:AAAA"],
     lifetimeMs: 30_000,
     paneId: PANE,
+    // Task 12: the relay-open's required destination pin; the B branch writes
+    // it to the pane's 0600 known_hosts file before binding the socket.
+    hostPin: "git.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000",
     ...over,
   };
 }

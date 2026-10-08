@@ -1,6 +1,10 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 import { open as mcpOpen, seal as mcpSeal } from "@internal/mcp-core";
+import { buildSshKnownHostsPath, enforceMode } from "@internal/pane-runtime";
 import {
   bytesOfJwk,
+  isSshKnownHostsPinLine,
   type RelayFrame,
   SSH_RELAY_LIFETIME_MS,
   SSH_RELAY_MAX_PER_NODE,
@@ -254,15 +258,18 @@ function decodePeerEncryptionJwk(b64: string): string {
 
 /**
  * Open the B side of a brokered relay pairing: enforce §4.4's machine pin on
- * A (first pairing pins both halves, a moved pin is a hard block), then bind
+ * A (first pairing pins both halves, a moved pin is a hard block), write the
+ * destination's pinned host-key line to the pane's 0600 known_hosts file
+ * (Task 12, §9 - the trust source the relay-mode config names), then bind
  * the pane's agent proxy socket and register its ref. Throws a named refusal
  * (the dispatch wrapper turns it into `ok:false`) on: role other than B, an
- * unusable peer key, a MOVED pin (naming the peer and §4.5's re-pair), a ref
- * already owned, a ref the plane already closed (tombstoned), or the
- * node-side registry cap - and EVERY refusal releases the proxy this call
- * just bound (fix round T8 MAJOR 1: a thrown cap refusal once bypassed that
- * release). Resolves with the composed socket path - the value the launch's
- * scoped `SSH_AUTH_SOCK` must match byte for byte (§5.2).
+ * unusable peer key, a MOVED pin (naming the peer and §4.5's re-pair), a
+ * malformed host pin (never a second trust entry), a ref already owned, a
+ * ref the plane already closed (tombstoned), or the node-side registry cap -
+ * and EVERY refusal releases the proxy this call just bound (fix round T8
+ * MAJOR 1: a thrown cap refusal once bypassed that release). Resolves with
+ * the composed socket path - the value the launch's scoped `SSH_AUTH_SOCK`
+ * must match byte for byte (§5.2).
  *
  * The gate (ssh-enabled mirror) is the CALLER's first check, like every SSH
  * arm's: this function is the pairing's mechanics, not the policy.
@@ -301,6 +308,31 @@ export async function openBRelaySession(args: BRelaySessionArgs): Promise<{ sock
     throw new Error(
       `relay open refused: machine pin for ${cmd.aNodeId} has MOVED (re-pair per §4.5 after out-of-band verification)`,
     );
+  }
+
+  // The destination's pinned host-key line, written to the pane's 0600
+  // known_hosts file BEFORE the proxy binds (Task 12, spec 2026-10-08 §9):
+  // the pane's `ssh -F` reads the relay-mode config, whose one
+  // UserKnownHostsFile names this exact path. The line is verbatim from the
+  // signed command; the shape is re-checked HERE because this is the last
+  // station before a trust file a live ssh consults - a smuggled newline
+  // would be a second, plane-authored entry, and `yes` would then block on
+  // the wrong key. The path is this machine's OWN derivation
+  // ({@link buildSshKnownHostsPath}(dataDir, paneId)), never a name taken
+  // from the wire, so a hostile plane cannot point the write outside the
+  // per-session dir that leaves with the pane. Refusal throws (dispatch
+  // answers ok:false); nothing was bound yet, so there is no resource to
+  // release on this path.
+  if (!isSshKnownHostsPinLine(cmd.hostPin)) {
+    throw new Error("relay open refused: the delivered host pin is not one known_hosts line");
+  }
+  const hostPinPath = buildSshKnownHostsPath(args.dataDir, args.paneId);
+  {
+    const dir = dirname(hostPinPath);
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await enforceMode(dir, 0o700);
+    await writeFile(hostPinPath, `${cmd.hostPin}\n`, { mode: 0o600 });
+    await enforceMode(hostPinPath, 0o600); // umask cannot leak bits past this
   }
 
   const identity = await loadOrCreateIdentity(args.dataDir);
