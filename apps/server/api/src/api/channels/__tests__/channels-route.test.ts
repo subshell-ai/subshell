@@ -442,4 +442,108 @@ describe("channels route", () => {
       setNudgeTransportForTests(null);
     }
   });
+
+  it("nudge NEVER types into an ssh pane (raw remote shell, owner-only input, spec §5.4)", async () => {
+    nudges.length = 0;
+    class FakeTmux extends TmuxRunner {
+      override async sendInput(socket: string, subshellName: string, input: string): Promise<void> {
+        nudges.push({ socket, name: subshellName, text: input });
+      }
+    }
+    setNudgeTransportForTests(new FakeTmux());
+    try {
+      await registerIdentity(aliceToken);
+      await call(channelRoutes, "/api/channels", aliceToken, postJson({ name: "sshwake" }));
+
+      // A RUNNING ssh-pane row: alive, with a tmux socket, snapshot column
+      // set — every fact the plain nudge guard reads passes; only `ssh`
+      // distinguishes it. (A tmux-less or dead row would be skipped for the
+      // ordinary reasons and prove nothing about the §5.4 carve-out.)
+      async function sshPane(id: string): Promise<void> {
+        createdSubshells.push(id);
+        await new SubshellsRepository(db).create({
+          id,
+          userId: bob,
+          presetId: null,
+          harnessId: "ssh",
+          name: "s",
+          workingDir: "/tmp",
+          tmuxSocket: `sock-${id}`,
+          alive: 1,
+          ssh: JSON.stringify({ destination: "host.example", user: "theo", port: 22 }),
+        });
+        const key = await issueSubshellToken(id, bob);
+        const { publicJwk } = await generateKeypair();
+        await identityRoutes.fetch(
+          new Request("http://localhost:3080/api/identities", {
+            method: "POST",
+            headers: { authorization: `Bearer ${key}`, "content-type": "application/json" },
+            body: JSON.stringify({ publicKey: publicJwk }),
+          }),
+        );
+        await channelRoutes.fetch(
+          new Request("http://localhost:3080/api/channels/sshwake/members", {
+            method: "POST",
+            headers: { authorization: `Bearer ${key}` },
+          }),
+        );
+      }
+
+      const sshId = crypto.randomUUID();
+      const plainId = crypto.randomUUID();
+      await sshPane(sshId);
+      // A plain running recipient pane posted to in the SAME breath: it must
+      // still be nudged (the ssh skip is targeted, not a blanket stop).
+      createdSubshells.push(plainId);
+      await new SubshellsRepository(db).create({
+        id: plainId,
+        userId: bob,
+        presetId: null,
+        harnessId: "claude-code",
+        name: "p",
+        workingDir: "/tmp",
+        tmuxSocket: `sock-${plainId}`,
+        alive: 1,
+      });
+      const plainKey = await issueSubshellToken(plainId, bob);
+      const { publicJwk: plainJwk } = await generateKeypair();
+      await identityRoutes.fetch(
+        new Request("http://localhost:3080/api/identities", {
+          method: "POST",
+          headers: { authorization: `Bearer ${plainKey}`, "content-type": "application/json" },
+          body: JSON.stringify({ publicKey: plainJwk }),
+        }),
+      );
+      await channelRoutes.fetch(
+        new Request("http://localhost:3080/api/channels/sshwake/members", {
+          method: "POST",
+          headers: { authorization: `Bearer ${plainKey}` },
+        }),
+      );
+
+      await call(
+        channelRoutes,
+        "/api/channels/sshwake/posts",
+        aliceToken,
+        postJson({
+          envelope: envelope("go", [`sess:${sshId}`, `sess:${plainId}`]),
+          recipientIds: [`sess:${sshId}`, `sess:${plainId}`],
+          nudge: true,
+        }),
+      );
+
+      // The ssh pane receives NOTHING (typing the cue into a raw shell under
+      // the owner's ssh identity is input, and input there is owner-only);
+      // the plain pane receives its usual inert line.
+      expect(nudges.map((n) => n.name)).toEqual([plainId]);
+      expect(nudges[0].text).toContain("#sshwake");
+
+      for (const n of [sshId, plainId]) {
+        const row = await new SubshellsRepository(db).findById(n);
+        if (row?.apiKeyId) authDatabase().run("DELETE FROM apikey WHERE id = ?", [row.apiKeyId]);
+      }
+    } finally {
+      setNudgeTransportForTests(null);
+    }
+  });
 });

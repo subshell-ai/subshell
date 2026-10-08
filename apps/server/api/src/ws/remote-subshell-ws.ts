@@ -1,5 +1,5 @@
 import { getRequestlessContext } from "@/lib/context.js";
-import { type Access, accessAtLeast } from "@/lib/subshell-access.js";
+import type { Access } from "@/lib/subshell-access.js";
 import { replayLineCap } from "@/services/nodes/log-tail.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import type { RemoteLauncher } from "@/services/nodes/remote-launcher.js";
@@ -104,21 +104,27 @@ const CLIENT_LAG_LIMIT_BYTES = 4 * 1024 * 1024;
  * @param ws - the browser socket (Elysia WS, narrowed to {@link WsSocket})
  * @param row - the subshell row (must name a non-local node)
  * @param launcher - the node's cached {@link RemoteLauncher} (registry-resolved)
- * @param access - the caller's effective access; only `edit`/`owner` may type
+ * @param _access - the caller's effective access, from {@link resolveAttach}.
+ *   The relay decides nothing input from it any more (§5.4 made that
+ *   `canInput`'s alone), so it is deliberately unread - underscore-prefixed for
+ *   the same reason the local twin's fixtures name their unused contexts; it
+ *   stays in the signature because the attach's one authority is handed back
+ *   beside it and this is the relay's positional contract with the caller.
  * @param size - the client's fitted geometry; when present the pane is
  *   resized (and given {@link RESIZE_SETTLE_MS} to repaint) BEFORE the
  *   capture, so the replay matches the geometry the client renders into
  * @param canInput - the relay's keystroke authority, computed ONCE by
  *   {@link resolveAttach} (the `edit`/`owner` grant AND the ssh owner-only
- *   carve-out, spec §5.4). Production always passes it; the `access`-only
- *   fallback exists for the relay's own test fixtures (which attach a plain
- *   row and expect the grant to decide), and is exactly the pre-§5.4 rule.
+ *   carve-out, spec §5.4). REQUIRED, with no fallback: an omission must be a
+ *   type error, not a grant-only default — the same doctrine the `params`
+ *   struct below records for `hidden`, and the reason a caller that forgot
+ *   the argument cannot silently reopen the ssh relay door to `edit` grantees.
  */
 export async function attachRemoteSubshellWs(
   ws: WsSocket,
   row: RemoteAttachRow,
   launcher: RemoteLauncher,
-  access: Access,
+  _access: Access,
   /**
    * Everything the client declared on the connect URL, as ONE value.
    *
@@ -129,7 +135,7 @@ export async function attachRemoteSubshellWs(
    * struct makes the next omission a type error instead.
    */
   params: AttachParams,
-  canInput?: boolean,
+  canInput: boolean,
 ): Promise<void> {
   const { size, deviceLabel, hidden, wireMode } = params;
   if (!getLive(row.nodeId)) {
@@ -164,9 +170,11 @@ export async function attachRemoteSubshellWs(
     nodeId: row.nodeId,
     logFile: "",
     // Whether THIS socket may type: `resolveAttach`'s one authority (edit/owner
-    // grant AND the ssh owner-only carve-out); the `access`-only fallback is the
-    // grant rule the relay's own fixtures attach a plain row with.
-    canInput: canInput ?? accessAtLeast(access, "edit"),
+    // grant AND the ssh owner-only carve-out, spec §5.4), taken verbatim. No
+    // `access`-derived fallback: that pre-§5.4 rule would silently reopen the
+    // ssh relay door to a caller that omitted the argument, so the argument is
+    // required and an omission is a type error.
+    canInput,
     capacity: size ?? undefined,
     hidden,
     // Presence identity: who this viewer is in the `viewers` frame. The id

@@ -231,7 +231,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     scriptHappy(sim);
     const { ws, sent } = fakeBrowser();
 
-    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
     await until(() => sim.cmdTypes().includes("tail_start"), "tail_start on the wire");
 
     // Command ORDER through the real sendCommand: liveness, the tail's JOIN
@@ -284,7 +284,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     sim.answer("log_read", { bytes_b64: "", next: 0, size: 0 });
     const { ws, sent, closed } = fakeBrowser();
 
-    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
     await until(() => sim.cmdTypes().includes("tail_start"), "tail armed at offset 0");
 
     // Terminal frames only: the socket also carries `viewers` presence now.
@@ -310,7 +310,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     // still starts at EOF (12) — history ships inside the capture, never as
     // re-played log bytes.
     await setOwnerCap(2);
-    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
     await until(() => sim.cmdTypes().includes("tail_start"), "tail at EOF");
     expect(sim.cmdsOf("capture")).toEqual([{ type: "capture", subshellId: SID, lines: 2 }]);
     expect((sim.cmdsOf("tail_start")[0] as { fromByte: number }).fromByte).toBe(12);
@@ -324,7 +324,14 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     sim.answer("capture", "SCREEN");
     scriptLogRead(sim, { bytes: "l1\nl2\nl3\n", size: 12 });
     await setOwnerCap(9999);
-    await attachRemoteSubshellWs(fakeBrowser().ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(
+      fakeBrowser().ws,
+      attachRow(),
+      new RemoteLauncher(NODE_ID),
+      "owner",
+      attachParams(),
+      true,
+    );
     await until(() => sim.cmdsOf("capture").length === 1, "capture (cap 200)");
     expect((sim.cmdsOf("capture")[0] as { lines?: number }).lines).toBe(200);
 
@@ -334,7 +341,14 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     sim2.answer("capture", "SCREEN");
     scriptLogRead(sim2, { bytes: "l1\nl2\nl3\n", size: 12 });
     await setOwnerCap(0);
-    await attachRemoteSubshellWs(fakeBrowser().ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(
+      fakeBrowser().ws,
+      attachRow(),
+      new RemoteLauncher(NODE_ID),
+      "owner",
+      attachParams(),
+      true,
+    );
     await until(() => sim2.cmdsOf("capture").length === 1, "capture (cap 1)");
     expect((sim2.cmdsOf("capture")[0] as { lines?: number }).lines).toBe(1);
   });
@@ -357,6 +371,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
       new RemoteLauncher(NODE_ID),
       "owner",
       attachParams({ size: { cols: 132, rows: 43 } }),
+      true,
     );
     await until(() => sim.cmdTypes().includes("tail_start"), "tail armed");
     // Resize lands ahead of the capture so the replay matches the client
@@ -405,6 +420,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
       new RemoteLauncher(NODE_ID),
       "owner",
       attachParams({ size: { cols: 132, rows: 43 } }),
+      true,
     );
     await until(() => sim.cmdTypes().includes("capture"), "capture");
     // Exactly ONE resize — the fit. The nudge would add 133-then-back.
@@ -426,6 +442,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
       new RemoteLauncher(NODE_ID),
       "owner",
       attachParams({ size: { cols: 132, rows: 43 } }),
+      true,
     );
     await until(() => sim.cmdTypes().includes("capture"), "capture");
     expect(sim.cmdsOf("resize")).toEqual([{ type: "resize", subshellId: SID, cols: 132, rows: 43 }]);
@@ -446,7 +463,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     sim.answer("pane_cursor", { x: 4, y: 2 });
     const { ws, sent } = fakeBrowser();
 
-    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
     await until(() => sent.length > 0, "replay");
     // tmux's 0-based (4,2) becomes the 1-based CUP ESC[3;5H, and the replay
     // frame — the browser's first paint — must end with it.
@@ -457,7 +474,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
   it("refuses 4004 'node offline' when the node has no live connection (nothing hits the wire)", async () => {
     const { ws, sent, closed } = fakeBrowser();
     // No attachConnection for NODE_ID — the registry says offline.
-    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
     expect(closed).toEqual([{ code: 4004, reason: "node offline" }]);
     expect(sent).toEqual([]);
   });
@@ -467,7 +484,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     sim.answer("probe", [{ subshellId: SID, alive: false, exitCode: 1 }]);
     const { ws, sent, closed } = fakeBrowser();
 
-    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
     expect(closed).toEqual([{ code: 4004, reason: "subshell not running" }]);
     expect(sent).toEqual([]);
     expect(sim.cmdTypes()).toEqual(["probe"]); // no capture, no reads, no tail
@@ -480,7 +497,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     sim.answer("capture", fail("can't find session: pane gone")); // tmux stderr, verbatim
     const { ws, sent, closed } = fakeBrowser();
 
-    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
     expect(closed).toEqual([{ code: 4004, reason: "subshell not running" }]);
     expect(sent).toEqual([]);
     // The pump is armed before the capture (join-point rule), so a refusal
@@ -497,7 +514,7 @@ describe("attachRemoteSubshellWs — the §6.5 flow on the wire", () => {
     scriptHappy(sim);
     const { ws, sent, closed } = fakeBrowser(() => 4 * 1024 * 1024 + 1);
 
-    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
     await until(() => sim.cmdTypes().includes("tail_start"), "tail armed");
     // Terminal frames only: the socket also carries `viewers` presence now.
     expect(sent.filter((f) => !f.includes('"type":"viewers"'))).toEqual([
@@ -522,7 +539,7 @@ describe("attachRemoteSubshellWs — input/resize/cleanup ride the shared handle
     scriptHappy(sim);
     const { ws } = fakeBrowser();
 
-    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "edit", attachParams());
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "edit", attachParams(), true);
     await until(() => sim.cmdTypes().includes("tail_start"), "attached");
 
     handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "ls\r" }));
@@ -539,7 +556,29 @@ describe("attachRemoteSubshellWs — input/resize/cleanup ride the shared handle
     scriptHappy(sim);
     const { ws } = fakeBrowser();
 
-    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "view", attachParams());
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "view", attachParams(), false);
+    await until(() => sim.cmdTypes().includes("tail_start"), "attached");
+
+    handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "rm -rf /\r" }));
+    handleSubshellMessage(ws, JSON.stringify({ type: "resize", cols: 80, rows: 24 }));
+    await until(() => sim.cmdsOf("resize").length === 1, "resize through");
+    expect(sim.cmdsOf("input")).toEqual([]);
+  });
+
+  it("canInput:false at edit access types NOTHING (the ssh carve-out arrives as the required argument, not a grant re-derivation)", async () => {
+    // The §5.4 posture split: `access` still says `edit` for an ssh pane's
+    // grantee (they may WATCH, and would type on an ordinary pane); the ONE
+    // fact that stops them is `canInput:false`, computed by `resolveAttach`
+    // and passed here. The relay must not read the grant to decide input —
+    // a fallback that did would reopen the ssh relay door to exactly this
+    // caller. Task 8's `attach-resolve.test.ts` ("an ssh pane + an EDIT
+    // grantee is refused (access says edit, canInput says no)") pins the
+    // COMPUTATION; this pins the CONSUMPTION.
+    const sim = makeNodeSim();
+    scriptHappy(sim);
+    const { ws } = fakeBrowser();
+
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "edit", attachParams(), false);
     await until(() => sim.cmdTypes().includes("tail_start"), "attached");
 
     handleSubshellMessage(ws, JSON.stringify({ type: "input", data: "rm -rf /\r" }));
@@ -553,7 +592,7 @@ describe("attachRemoteSubshellWs — input/resize/cleanup ride the shared handle
     scriptHappy(sim);
     const { ws } = fakeBrowser();
 
-    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
     await until(() => sim.cmdTypes().includes("tail_start"), "attached");
 
     cleanupSubshellWs(ws);
@@ -595,7 +634,14 @@ describe("attachRemoteSubshellWs — input/resize/cleanup ride the shared handle
     );
     const { ws } = fakeBrowser();
 
-    const attaching = attachRemoteSubshellWs(ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    const attaching = attachRemoteSubshellWs(
+      ws,
+      attachRow(),
+      new RemoteLauncher(NODE_ID),
+      "owner",
+      attachParams(),
+      true,
+    );
     await until(() => sim.cmdTypes().includes("capture"), "parked in the capture");
     cleanupSubshellWs(ws); // browser vanished mid-attach
     release?.("SCREEN");
@@ -637,6 +683,7 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
       new RemoteLauncher(NODE_ID),
       "owner",
       attachParams({ size: { cols: 120, rows: 40 } }),
+      true,
     );
     // The laptop alone: the pane holds ITS size.
     expect(sim.cmdsOf("resize").at(-1)).toEqual({ type: "resize", subshellId: SID, cols: 120, rows: 40 });
@@ -648,6 +695,7 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
       new RemoteLauncher(NODE_ID),
       "owner",
       attachParams({ size: { cols: 60, rows: 20 } }),
+      true,
     );
 
     // The joiner's attach really did drive the pane...
@@ -683,6 +731,7 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
       new RemoteLauncher(NODE_ID),
       "owner",
       attachParams({ size: { cols: 132, rows: 43 } }),
+      true,
     );
 
     const geometry = sent
@@ -716,6 +765,7 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
       new RemoteLauncher(NODE_ID),
       "owner",
       attachParams({ size: { cols: 120, rows: 40 } }),
+      true,
     );
     await attachRemoteSubshellWs(
       pocketed.ws,
@@ -723,6 +773,7 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
       new RemoteLauncher(NODE_ID),
       "owner",
       attachParams({ size: { cols: 40, rows: 12 }, deviceLabel: "Phone", hidden: true }),
+      true,
     );
 
     // The hidden joiner takes no part: the pane stays at the laptop's size.
@@ -754,6 +805,7 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
       new RemoteLauncher(NODE_ID),
       "owner",
       attachParams({ size: { cols: 40, rows: 12 } }),
+      true,
     );
     cleanupSubshellWs(ws); // browser gone before the attach assigned anything
     await attaching;
@@ -779,9 +831,9 @@ describe("attachRemoteSubshellWs — several viewers share one node pane", () =>
     const first = fakeBrowser();
     const second = fakeBrowser();
 
-    await attachRemoteSubshellWs(first.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(first.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
     await until(() => sim.cmdTypes().includes("tail_start"), "first tail");
-    await attachRemoteSubshellWs(second.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams());
+    await attachRemoteSubshellWs(second.ws, attachRow(), new RemoteLauncher(NODE_ID), "owner", attachParams(), true);
 
     expect(sim.cmdTypes().filter((t) => t === "tail_start")).toHaveLength(1);
 
