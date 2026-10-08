@@ -277,6 +277,31 @@ export {
 // PURE module (WebCrypto globals only, no node: builtins): safe in the
 // Metro-consumed barrel; pinned by __tests__/ssh-pin-store.test.ts.
 export { base64UrlNoPad, bytesOfJwk, fingerprintJwk, type PublicJwkInput } from "./ssh-pin-store.js";
+// PURE module (jose + WebCrypto globals, no node: builtins; seal/open are
+// injected, never imported - see the file header): safe in the Metro barrel;
+// pinned by __tests__/ssh-relay.test.ts.
+export {
+  bindNonces,
+  canonicalizeRelayMessage,
+  newNonce,
+  type OpenRelayEnvelopeInput,
+  openRelayEnvelope,
+  RELAY_SIG_ISSUER,
+  type RelayBinding,
+  type RelayEnvelopeOpen,
+  type RelayInnerMessage,
+  type RelayOpenFn,
+  type RelayOwnIdentity,
+  type RelaySealFn,
+  type RelaySealRecipient,
+  type SealRelayEnvelopeInput,
+  SeqGate,
+  type SignRelayEnvelopeInput,
+  sealRelayEnvelope,
+  signRelayEnvelope,
+  type VerifyRelayEnvelopeInput,
+  verifyRelayEnvelope,
+} from "./ssh-relay.js";
 export type {
   NodeSshAliasListResult,
   NodeSshIdentityResult,
