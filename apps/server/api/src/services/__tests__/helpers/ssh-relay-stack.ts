@@ -7,6 +7,7 @@ import {
   base64UrlNoPad,
   type NodeCommandBody,
   openRelayEnvelope,
+  type RelayEnvelopeOpen,
   type RelayFrame,
   sealRelayEnvelope,
   verifyRelayEnvelope,
@@ -320,6 +321,13 @@ export async function openStack(opts: StackOptions = {}): Promise<Stack> {
   const brokerLines: string[] = [];
   const commands: { nodeId: string; cmd: NodeCommandBody }[] = [];
   let swallowedB2A: RelayFrame[] = [];
+  // The outage flag lives in a plain closure variable, NOT on `stack`:
+  // routeFromNode already serves the open handshake (sendCommand's
+  // sendRelayFrame seam) while `const stack` is still in its TDZ, and a
+  // handshake-time B2A reading `stack.swallowB2A` would have thrown a
+  // ReferenceError. The open's frame silence is protocol behavior the
+  // fixture must not lean on to stay evaluable.
+  let swallowArmed = false;
 
   /** Plane-to-node: serialize like a socket would, re-parse, hand to the node. */
   const deliverToNode = (nodeId: "a-node" | "b-node", frame: RelayFrame): void => {
@@ -333,7 +341,7 @@ export async function openStack(opts: StackOptions = {}): Promise<Stack> {
   const routeFromNode = (nodeId: "a-node" | "b-node", frame: RelayFrame): void => {
     const raw = JSON.stringify(frame);
     wire.push({ outbound: false, nodeId, raw });
-    if (nodeId === "b-node" && frame.direction === "B2A" && stack.swallowB2A) {
+    if (nodeId === "b-node" && frame.direction === "B2A" && swallowArmed) {
       swallowedB2A.push(JSON.parse(raw) as RelayFrame);
       return;
     }
@@ -427,7 +435,15 @@ export async function openStack(opts: StackOptions = {}): Promise<Stack> {
       ...brokerLines,
       JSON.stringify(broker.sessionInfo(result.ref)),
     ],
-    swallowB2A: false,
+    // Accessor over the closure flag (see swallowArmed above): the property
+    // stays a plain boolean on the Stack interface while routeFromNode reads
+    // only the closure, never the not-yet-initialized stack.
+    get swallowB2A() {
+      return swallowArmed;
+    },
+    set swallowB2A(value: boolean) {
+      swallowArmed = value;
+    },
     releaseB2A() {
       const pending = swallowedB2A;
       swallowedB2A = [];
@@ -468,17 +484,31 @@ export interface DecodedFrame {
 }
 
 /**
- * Open + verify a B2A frame AS A did: B's signing key is the pinned origin,
- * A's real encryption private half opens the envelope. Throws exactly where
- * A's responder threw.
+ * OPEN a B2A frame at A WITHOUT verifying anything (the confidentiality half
+ * only): resolves iff the envelope is sealed to A's real encryption key and
+ * its wrapper agrees with the frame. This is the openability witness the
+ * refusal cases need: a downstream refusal (verification, the endpoint's gate)
+ * is then provably a judgment about origin or replay, not a decryption failure
+ * of a fixture-mis-sealed envelope - that one rejects HERE instead.
  */
-export async function decodeB2A(s: Stack, frame: RelayFrame): Promise<DecodedFrame> {
-  const opened = await openRelayEnvelope({
+export async function openB2A(s: Stack, frame: RelayFrame): Promise<RelayEnvelopeOpen> {
+  return openRelayEnvelope({
     blob: frame.blob,
     own: { principalId: "node:a-node", publicJwk: s.aId.publicJwk, privateJwk: s.aId.privateJwk },
     open: mcpOpen,
     expect: { ref: frame.ref, direction: frame.direction },
   });
+}
+
+/**
+ * Open + verify a B2A frame AS A did: B's signing key is the pinned origin,
+ * A's real encryption private half opens the envelope. Throws exactly where
+ * A's responder threw. The seq gate is the responder's own check, deliberately
+ * absent here: an honestly-sealed low-seq envelope DECODES fine, which is what
+ * makes the responder's refusal nameable as the gate's.
+ */
+export async function decodeB2A(s: Stack, frame: RelayFrame): Promise<DecodedFrame> {
+  const opened = await openB2A(s, frame);
   const message = await verifyRelayEnvelope({
     jws: opened.jws,
     publicJwk: JSON.parse(s.bId.signingPublicJwk) as JsonWebKey,

@@ -19,6 +19,7 @@ import {
   framed,
   KEY_IN,
   KEY_OUT,
+  openB2A,
   openStack,
   PANE_ID,
   parseAnswer,
@@ -170,6 +171,7 @@ test("2. a non-allow-listed agent method (EXTENSION) is refused at A and never f
     expect([...p.payloads()[0]]).toEqual([5]); // SSH2_AGENT_FAILURE, never a hang
     await sleep(30);
     expect(s.forwarded()).toEqual([]); // A's agent was never asked
+    expect(producedByA(s)).toBe(1); // the [5] is A's own synthesized refusal: one A2B left A's socket
   } finally {
     await s.cleanup();
   }
@@ -192,6 +194,14 @@ test("3. a B2A envelope signed by a machine key that is not B's pin opens at A b
       nB: newNonce(),
       signerPrivateJwk: evil.privateJwk,
     });
+    // Openability witness: the SAME envelope decrypts at A (openB2A resolves),
+    // so the refusal below is the SIGNATURE stage, not a decryption failure.
+    // Had sealB2A mis-sealed this to the wrong recipient, openB2A would reject
+    // here and the case would fail loudly instead of passing vacuously.
+    await openB2A(s, forged);
+    // ...and decodeB2A (open THEN verify against B's pin) rejects naming the
+    // signature, which a wrong-recipient seal would instead die a DecryptError.
+    await expect(decodeB2A(s, forged)).rejects.toThrow(/signature is invalid/);
     s.routeFromNode("b-node", forged);
     await sleep(60);
     expect(s.forwarded()).toEqual([]); // the key home never saw the request
@@ -340,6 +350,12 @@ test("6. a captured envelope is INERT replayed inside the lifetime and inert rep
       ...(decRep.nA === undefined ? {} : { nA: decRep.nA }),
       signerPrivateJwk: s.bId.signingPrivateJwk,
     });
+    // Openability witness: the refused envelope opens AND verifies end to end
+    // (decodeB2A runs A's open+verify checklist with NO gate - the gate is the
+    // responder's own next step), so the live refusal below can only be the
+    // SeqGate's. A sealB2A that sealed to the wrong recipient would throw
+    // right here, failing this case instead of refusing for the wrong reason.
+    expect((await decodeB2A(s, rewind)).agentBytes).toEqual(request);
     s.routeFromNode("b-node", rewind);
     await sleep(60);
     expect(s.forwarded().length).toBe(1);
@@ -398,9 +414,12 @@ test("6. a captured envelope is INERT replayed inside the lifetime and inert rep
 
     // (b1) the old relayId, old-nonce, old-seq B2A envelope, replayed into
     // the session that shares its ref: A's session-2 responder opens it (the
-    // key home never moved) and the signature bindings refuse it - fresh
-    // gate and reused ref notwithstanding, the relay id and endpoint nonces
-    // are what it dies on.
+    // key home never moved) and EXACTLY one binding refuses it: the signed
+    // relaySessionId claim (the bytes carry session 1's id, this responder was
+    // opened under relay-second). The endpoint nonces refuse nothing at this
+    // point: session 2 has recorded no nB and has not flipped bindNA, so its
+    // checklist omits both nonce members; and the fresh gate would have
+    // ACCEPTED seq 0, had the verification ever passed.
     s.routeFromNode("b-node", JSON.parse(JSON.stringify(b2a)) as RelayFrame);
     await sleep(60);
     expect(s.forwarded().length).toBe(fwdBase);
@@ -488,6 +507,10 @@ test("8. a resent envelope and a non-increasing signed seq are refused in BOTH d
       ...(decRep.nA === undefined ? {} : { nA: decRep.nA }),
       signerPrivateJwk: s.bId.signingPrivateJwk,
     });
+    // Openability witness (case 6(a2)'s same guard): every check before the
+    // gate passes for this exact envelope, so the refusal below is the gate's
+    // alone. A mis-sealed fixture would throw here, not pass vacuously.
+    expect((await decodeB2A(s, sameSeq)).agentBytes).toEqual(request);
     s.routeFromNode("b-node", sameSeq);
     await sleep(50);
     expect(s.forwarded().length).toBe(1);
