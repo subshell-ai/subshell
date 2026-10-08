@@ -239,7 +239,7 @@ describe("openRelay (spec §5.1/§5.3, Task 8 (a)(b)(d)(g)(h))", () => {
       ack: (_nodeId, cmd) =>
         cmd.type === "ssh_relay_open" && cmd.role === "B"
           ? { role: "B", relayId: cmd.relayId, socketPath: "/attacker/agent.sock" }
-          : { role: "A", relayId: cmd.relayId },
+          : { role: "A" },
     });
     await expect(h.open()).rejects.toMatchObject({ code: "bad-socket-path" });
     // The session was torn down and BOTH sides were told, under a named cut.
@@ -441,7 +441,7 @@ describe("teardown (spec §5.6, Task 8 (f))", () => {
     const h = makeHarness({
       ack: (_nodeId, cmd) => {
         if (cmd.type === "ssh_relay_open" && cmd.role === "B") throw new Error("machine pin for a has MOVED");
-        return { role: "A", relayId: cmd.relayId };
+        return { role: "A", relayId: cmd.type === "ssh_relay_open" ? cmd.relayId : "" };
       },
     });
     await expect(h.open()).rejects.toMatchObject({ code: "handshake" });

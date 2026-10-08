@@ -1,5 +1,10 @@
 import { open as mcpOpen, seal as mcpSeal } from "@internal/mcp-core";
-import { bytesOfJwk, type RelayFrame, type SshRelayOpenCommand } from "@internal/subshell-protocol";
+import {
+  bytesOfJwk,
+  type RelayFrame,
+  SSH_RELAY_MAX_PER_NODE,
+  type SshRelayOpenCommand,
+} from "@internal/subshell-protocol";
 import { loadOrCreateIdentity } from "../identity.js";
 import { log } from "../log.js";
 import { MachinePinStore } from "../machine-pin-store.js";
@@ -70,9 +75,21 @@ export class RelaySessions {
    * Take ownership of a ref. False when the ref is ALREADY owned - two live
    * sessions on one routing ref is a broker bug, and the second opener's
    * resources belong to ITSELF to release (its caller sees the false).
+   * Throws a named refusal when this machine is already holding
+   * {@link SSH_RELAY_MAX_PER_NODE} sessions and `ref` is NEW: the plane's
+   * broker enforces the same cap authoritatively at open, and this is the
+   * node refusing to hold a 9th proxy socket off a miscounting broker
+   * (defense-in-depth, Task 8 (g)). The throw path and the dup-ref false
+   * path are deliberately different: an owned ref is a routing collision
+   * the CALLER unwinds, a full registry is the machine saying no.
    */
   register(ref: string, handler: RelaySessionHandler): boolean {
     if (this.#byRef.has(ref)) return false;
+    if (this.#byRef.size >= SSH_RELAY_MAX_PER_NODE) {
+      throw new Error(
+        `relay registry full: ${this.#byRef.size} live sessions on this machine (max ${SSH_RELAY_MAX_PER_NODE})`,
+      );
+    }
     this.#byRef.set(ref, handler);
     return true;
   }
