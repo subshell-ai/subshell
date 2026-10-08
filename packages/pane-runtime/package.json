@@ -35,6 +35,7 @@
     "@subshell-ai/plugin-netbird": "workspace:*",
     "@subshell-ai/plugin-opencode": "workspace:*",
     "@subshell-ai/plugin-pi": "workspace:*",
+    "@subshell-ai/plugin-ssh": "workspace:*",
     "@subshell-ai/plugin-tailscale": "workspace:*",
     "@subshell-ai/plugin-terminal": "workspace:*"
   },

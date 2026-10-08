@@ -21,7 +21,7 @@ describe("the built-in registry", () => {
       allHarnesses()
         .map((h) => h.id)
         .sort(),
-    ).toEqual(["claude-code", "codex", "hermes", "opencode", "pi", "terminal"]);
+    ).toEqual(["claude-code", "codex", "hermes", "opencode", "pi", "ssh", "terminal"]);
   });
 
   it("ships with nothing broken", () => {
@@ -53,6 +53,20 @@ describe("the built-in registry", () => {
     expect(claude?.binaryName).toBe("claude");
     expect(claude?.installHint.docsUrl).toContain("claude.com");
     expect(getHarness("hermes")?.name).toBe("Hermes Agent");
+  });
+
+  it("ships ssh as a terminal-type harness carrying the ssh detect rule", () => {
+    // The ssh pane is the terminal launch pointed at ssh (plan 2 decision 1):
+    // TYPE is what keeps it out of every agent-only path, and the detect rule
+    // travels to nodes as DATA (the `launch.ssh` rung resolves the node's own
+    // binary through exactly this spec).
+    const ssh = getHarness("ssh");
+    expect(ssh?.type).toBe("terminal");
+    expect(ssh?.detectSpec).toEqual({
+      binaryName: "ssh",
+      envOverride: "SUBSHELL_SSH_PATH",
+      knownPaths: ["/usr/bin/ssh", "/bin/ssh", "/usr/local/bin/ssh", "/opt/homebrew/bin/ssh"],
+    });
   });
 
   it("every built-in's declared capabilities match what it implements", () => {
