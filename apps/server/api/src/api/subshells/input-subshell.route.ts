@@ -39,10 +39,14 @@ const InputOkSchema = t.Object({
  * MCP `send_to_subshell` tool rides). An `edit` act, like terminal input
  * on the live attach socket: a `view` grantee 403s, a foreign row 404s, and a
  * bearer pane key acts as its OWNER with boost and shares off (its own and its
- * owner's other subshells), the same per-subshell rule restart follows. A
- * non-running row is 409 SUBSHELL_NOT_RUNNING and an offline agent node 409
- * NODE_OFFLINE, both before anything is typed. `{ ok: true }` means the bytes
- * were accepted by the pane's machine, not that the pane acted on them.
+ * owner's other subshells), the same per-subshell rule restart follows. An SSH
+ * pane is the exception to that bearer-as-owner resolution: its input is the
+ * owner's account ALONE (an `edit` grantee or the pane's own key 403s
+ * SSH_OWNER_INPUT_ONLY), because the far side runs under the owner's ssh
+ * identity (spec 2026-10-07 §5.4). A non-running row is 409
+ * SUBSHELL_NOT_RUNNING and an offline agent node 409 NODE_OFFLINE, both before
+ * anything is typed. `{ ok: true }` means the bytes were accepted by the pane's
+ * machine, not that the pane acted on them.
  */
 export const inputSubshellRoute = new Elysia()
   .use(contextPlugin)

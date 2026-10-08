@@ -108,6 +108,11 @@ const CLIENT_LAG_LIMIT_BYTES = 4 * 1024 * 1024;
  * @param size - the client's fitted geometry; when present the pane is
  *   resized (and given {@link RESIZE_SETTLE_MS} to repaint) BEFORE the
  *   capture, so the replay matches the geometry the client renders into
+ * @param canInput - the relay's keystroke authority, computed ONCE by
+ *   {@link resolveAttach} (the `edit`/`owner` grant AND the ssh owner-only
+ *   carve-out, spec §5.4). Production always passes it; the `access`-only
+ *   fallback exists for the relay's own test fixtures (which attach a plain
+ *   row and expect the grant to decide), and is exactly the pre-§5.4 rule.
  */
 export async function attachRemoteSubshellWs(
   ws: WsSocket,
@@ -124,6 +129,7 @@ export async function attachRemoteSubshellWs(
    * struct makes the next omission a type error instead.
    */
   params: AttachParams,
+  canInput?: boolean,
 ): Promise<void> {
   const { size, deviceLabel, hidden, wireMode } = params;
   if (!getLive(row.nodeId)) {
@@ -157,8 +163,10 @@ export async function attachRemoteSubshellWs(
     // keys the plane→node input hold by it.
     nodeId: row.nodeId,
     logFile: "",
-    // Only `edit`/`owner` may type into the pane; a `view` grantee watches.
-    canInput: accessAtLeast(access, "edit"),
+    // Whether THIS socket may type: `resolveAttach`'s one authority (edit/owner
+    // grant AND the ssh owner-only carve-out); the `access`-only fallback is the
+    // grant rule the relay's own fixtures attach a plain row with.
+    canInput: canInput ?? accessAtLeast(access, "edit"),
     capacity: size ?? undefined,
     hidden,
     // Presence identity: who this viewer is in the `viewers` frame. The id

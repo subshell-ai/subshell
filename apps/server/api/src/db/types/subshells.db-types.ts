@@ -152,6 +152,10 @@ export type NewSubshell = Omit<
 /**
  * The patch shape for row updates. `crossAgent` is excluded beside `id` and
  * `userId` because provenance is written exactly once, by the create path:
- * "no later act un-stamps it" is a type fact, not a convention.
+ * "no later act un-stamps it" is a type fact, not a convention. `ssh` is
+ * excluded for the same reason (spec 2026-10-07 decision 5): the approved
+ * snapshot is written once at create, and it IS the input rule's kind fact,
+ * the restart refusal's trigger, and the delete sweep's pointer. No later
+ * act may rewrite or clear it, so no update can name it.
  */
-export type SubshellUpdate = Partial<Omit<SubshellTable, "id" | "userId" | "crossAgent">>;
+export type SubshellUpdate = Partial<Omit<SubshellTable, "id" | "userId" | "crossAgent" | "ssh">>;

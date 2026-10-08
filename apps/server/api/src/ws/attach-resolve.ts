@@ -15,6 +15,7 @@
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { resolveCookieSession } from "@/lib/session-cookie.js";
+import { paneInputAllowed } from "@/lib/ssh-pane-access.js";
 import { type Access, accessAtLeast, loadSubshellAccess } from "@/lib/subshell-access.js";
 import { accountDisabled } from "@/services/account-status.js";
 import { backupPasswordChangeRequired } from "@/services/backup-admin-recovery.js";
@@ -47,6 +48,16 @@ export interface AttachResolved {
   row: SubshellTable;
   /** The caller's access to it — `view` watches, `edit`/`owner` may type. */
   access: Access;
+  /**
+   * Whether this socket may TYPE — the ONE WS keystroke authority, decided
+   * here and carried to both attach paths (local + remote) so they stop each
+   * deriving it from `access` alone. `edit`/`owner` grant AND the ssh
+   * owner-only carve-out ({@link paneInputAllowed}): an ssh pane drops a
+   * non-owner's or a scoped (bearer-minted) token's keystrokes exactly as it
+   * drops a `view` grantee's (spec 2026-10-07 §5.4). For an ordinary pane
+   * this is exactly `accessAtLeast(access, "edit")`.
+   */
+  canInput: boolean;
   /** What the client declared on its URL. */
   params: AttachParams;
   /**
@@ -179,6 +190,16 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
   // (or any stale size) re-wraps history rows against the wrong column count,
   // which is exactly the mis-positioned garbage that used to scroll up and
   // stay garbled. Both attach branches consume it.
+  // The ONE WS keystroke-authority decision, made where the row, the identity
+  // and the access all exist (see {@link AttachResolved.canInput}). A scoped
+  // token (Bearer-minted, its own pane) is a machine credential: `bearerActor`
+  // carries that so a scoped key on an ssh pane is refused typing even though
+  // the access resolver already resolved it as the pane's owner — the exact
+  // slip decision 5 closes. Ordinary panes: `paneInputAllowed` is true, so
+  // this reads exactly `accessAtLeast(access, "edit")`, byte-identical to the
+  // behavior both attach paths had before it was folded here.
+  const canInput =
+    accessAtLeast(access, "edit") && paneInputAllowed(row, identity.userId, identity.subshellId !== null);
   // Every attach input, read off the URL once — see `attach-params.ts`.
   const params = parseAttachParams(input.url);
   // One line per attach makes "still jumbled" reports diagnosable from the
@@ -214,7 +235,7 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
       logger.warn(`unseen-push clear/announce failed for ${row.id} (escalation may double)`);
     }
   }
-  return { ok: true, userId: identity.userId, row, access, params, attendsPush };
+  return { ok: true, userId: identity.userId, row, access, canInput, params, attendsPush };
 }
 
 /** Longest User-Agent the attach line will print (unchanged from the raw slice). */
