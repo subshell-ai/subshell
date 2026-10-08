@@ -105,8 +105,13 @@ export function isWireSafeSshDestination(value: string): boolean {
 /**
  * Everything the ssh launch needs, composed from an APPROVED snapshot, the
  * target machine's dataDir, and the new pane's id (spec 2026-10-07 decision
- * 4: the path is DERIVED from the two facts each end already holds; it never
- * travels the wire). Handoff 4's exact tail: every option token, then `--`,
+ * 4: the path is DERIVED from the two facts each end already holds). The
+ * derived path rides the launch frame's ssh member, but only as a CLAIM the
+ * other end never trusts: `apps/node/agent/src/commands/launch.ts` re-derives
+ * it from its own dataDir and the pane id and refuses unless the frame's
+ * `configPath` is byte-equal (the LocalLauncher byte-checks in-process), so
+ * naming the path on the wire grants no write the machine did not choose.
+ * Handoff 4's exact tail: every option token, then `--`,
  * then the bare host; `SSH_AUTH_SOCK` joins the pane env only when the
  * snapshot names a socket (decision 3's scoped exception).
  *
@@ -143,7 +148,7 @@ export function composeSshLaunch(args: {
  * Best-effort `rm -rf` of the per-pane ssh config dir a LOCAL ssh pane wrote
  * on this disk: `<SUBSHELL_SERVER_DATA_DIR>/ssh/<id>` — the dirname of the
  * byte-derived config path the LocalLauncher wrote into. ONE function, called
- * by all three teardown points, so no copy can drift:
+ * by all four teardown points, so no copy can drift:
  *
  * - the pane's own death report (the service's `reportExit`), which fires even
  *   when the row is already retired: a terminate kills the pane, the tmux
@@ -153,6 +158,10 @@ export function composeSshLaunch(args: {
  *   synchronously with the kill, so the dying hook's report can arrive 401
  *   and run no sweep at all (e2e spec 22) — the hand that kills must also
  *   remove the dir;
+ * - the maintenance kill (the manager's `terminateForMaintenance`), which
+ *   reaches the manager's own kill directly, never passing through the
+ *   service verb above: without its own sweep a maintenance window left
+ *   every local ssh config dir behind;
  * - the delete path: the row is gone before the sweep could ever ride the
  *   exit hook, and the artifacts list must not carry the config path either,
  *   because removing the file and leaving the DIR behind is not a removal.

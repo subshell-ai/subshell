@@ -47,6 +47,17 @@ const createPlugin: HarnessPluginFactory = (_host: PluginHost): SubshellPlugin =
   // feature.
   capabilities: (): PluginCapability[] => [],
 
+  // Terminal-equivalence ruling (whole-branch review, accepted): a
+  // preset-composed ssh launch WITHOUT the ssh column (plain create route +
+  // crafted preset flags) is reachable on a gate-off node deliberately,
+  // because it is exactly terminal-equivalent: `nodeCanLaunchOn` already
+  // grants arbitrary argv via preset flags to anyone who may launch there,
+  // so the gate-off machine offers nothing this path can reach that an
+  // ordinary terminal pane does not. What the SSH gate reserves is the
+  // SUBSYSTEM's privileges: the rendered `-F` config, the exported
+  // `SSH_AUTH_SOCK`, resolve/discovery, and the owner-only-input kind, none
+  // of which a preset-flag launch carries. Do not "fix" this: closing it
+  // would mean taking preset flags off the terminal path too.
   buildCommand(input: BuildCommandInput): string[] {
     const { binary, preset, extraFlags } = input;
     // No name flag: ssh has no session-title notion, so the pane title is

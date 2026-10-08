@@ -11,9 +11,9 @@ export interface SshSavedHostTable {
   /** Owning user id (FK to users, ON DELETE CASCADE) */
   ownerUserId: string;
   /**
-   * canonical `user@host:port` (user part = the resolved snapshot's effective
-   * user, or "" default spelled as the connecting account? NO: `host:port`
-   * with an empty user prefix when the snapshot's user is null). The spelling
+   * The canonical key: `user@host:port` for a resolved snapshot that carries
+   * a user, `host:port` (no user prefix) when the snapshot's user is null,
+   * the latter meaning the connecting account's own default. The spelling
    * rule is {@link sshCanonicalDestination}; both writer and reader list
    * import it, and it has no other home. Unique per owner
    * (idx_ssh_saved_hosts_owner_destination).

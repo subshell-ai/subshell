@@ -199,8 +199,13 @@ export function sshDestinationToken(snapshot: SshConnectionSnapshotWire): string
 
 /**
  * The derived per-pane config path is composed here so plane and node agree
- * byte-for-byte from the two facts each already holds (dataDir, subshellId) -
- * no path ever travels the wire. The refusals are impossible-state guards at
+ * byte-for-byte from the two facts each already holds (dataDir, subshellId).
+ * The path DOES ride the launch frame (the ssh member's `configPath`), but
+ * as a CLAIM the receiving end never trusts: the agent's `commands/launch.ts`
+ * re-derives it from its own dataDir and the pane id and refuses a
+ * byte-mismatch (the LocalLauncher runs the same check in-process), so a
+ * hostile plane naming any path still cannot point the config write outside
+ * this machine's derivation. The refusals are impossible-state guards at
  * composition sites (matching the codebase's path-composition doctrine): a
  * relative dataDir or an id outside `/^[a-zA-Z0-9_-]{1,64}$/` THROWS rather
  * than composing a path that escapes the directory.
