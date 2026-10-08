@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import {
   buildAgentSocketPath,
   buildSshConfigPath,
+  buildSshKnownHostsPath,
   renderSshConfigContents,
   sshDestinationToken,
   sshOptionTokens,
@@ -216,6 +217,88 @@ describe("sshDestinationToken", () => {
     expect(() => sshDestinationToken({ ...baseSnapshot(), host: "-oProxyCommand=x" } as never)).toThrow(
       /not renderable/,
     );
+  });
+});
+
+describe("buildSshKnownHostsPath", () => {
+  // Spec 2026-10-08 §9 (Task 12): the B side writes the delivered pin to a
+  // 0600 known_hosts file in the SAME per-pane ssh dir, so `ssh -F` reads a
+  // config whose UserKnownHostsFile points at it. One derivation, both ends.
+  it("composes the pinned file beside the config and socket, one dir", () => {
+    expect(buildSshKnownHostsPath("/data", "s1")).toBe("/data/ssh/s1/known_hosts");
+    expect(dirname(buildSshKnownHostsPath("/data", "s1"))).toBe(dirname(buildSshConfigPath("/data", "s1")));
+    expect(dirname(buildSshKnownHostsPath("/data", "s1"))).toBe(dirname(buildAgentSocketPath("/data", "s1")));
+  });
+
+  it("runs the same guards as the config path", () => {
+    expect(() => buildSshKnownHostsPath("data", "s1")).toThrow(/absolute/);
+    expect(() => buildSshKnownHostsPath("/d", "")).toThrow(/paneId/);
+    expect(() => buildSshKnownHostsPath("/d", "../escape")).toThrow(/paneId/);
+    expect(() => buildSshKnownHostsPath("/d", "a".repeat(65))).toThrow(/paneId/);
+    expect(buildSshKnownHostsPath("/d", "a".repeat(64))).toBe(`/d/ssh/${"a".repeat(64)}/known_hosts`);
+  });
+});
+
+describe("renderSshConfigContents relay mode (spec 2026-10-08 §9)", () => {
+  const PIN = "/data/ssh/s1/known_hosts";
+  const relay = { hostPinPath: PIN };
+
+  it("emits the pinned UserKnownHostsFile and forces yes, not accept-new", () => {
+    const out = renderSshConfigContents(baseSnapshot({ knownHostsFiles: ["/home/deploy/.ssh/known_hosts"] }), relay);
+    expect(out).toContain("    StrictHostKeyChecking yes");
+    expect(out).not.toContain("accept-new");
+    // The pinned file is the ONLY trust source: B's own ambient known_hosts
+    // is NOT the authority (spec §9), so the snapshot's own trust refs are
+    // replaced, never appended.
+    expect(out).toContain(`    UserKnownHostsFile ${PIN}`);
+    expect(out).not.toContain("/home/deploy/.ssh/known_hosts");
+  });
+
+  it("forces yes even when the snapshot named no trust refs (relay replaces, never defers)", () => {
+    const out = renderSshConfigContents(baseSnapshot({ knownHostsFiles: [] }), relay);
+    expect(out).toContain("    StrictHostKeyChecking yes");
+    expect(out).not.toContain("accept-new");
+    expect(out).toContain(`    UserKnownHostsFile ${PIN}`);
+  });
+
+  it("quotes the pinned path only when it needs it (the same tokenizer rule as other file values)", () => {
+    const spaced = renderSshConfigContents(baseSnapshot(), { hostPinPath: "/data/ssh dir/s1/known_hosts" });
+    expect(spaced).toContain('    UserKnownHostsFile "/data/ssh dir/s1/known_hosts"');
+  });
+
+  it("keeps every other mandatory policy line unchanged (relay mode is ONLY the trust source + yes)", () => {
+    const out = renderSshConfigContents(baseSnapshot(), relay);
+    for (const [key, value] of [
+      ["ForwardAgent", "no"],
+      ["ForwardX11", "no"],
+      ["ClearAllForwardings", "yes"],
+      ["EscapeChar", "none"],
+      ["RemoteCommand", "none"],
+      ["VerifyHostKeyDNS", "no"],
+      ["CanonicalizeHostname", "no"],
+    ] as [string, string][]) {
+      expect(out).toContain(`    ${key} ${value}`);
+    }
+  });
+
+  it("a non-relay render is byte-for-byte the M1 accept-new posture (the branch is untouched)", () => {
+    const snap = baseSnapshot();
+    expect(renderSshConfigContents(snap)).toContain("    StrictHostKeyChecking accept-new");
+    // No second argument is the M1 call; it must equal an explicit-undefined.
+    expect(renderSshConfigContents(snap, undefined)).toBe(renderSshConfigContents(snap));
+  });
+
+  it("refuses a non-absolute or oversized hostPinPath (never composes a stray trust file)", () => {
+    expect(() => renderSshConfigContents(baseSnapshot(), { hostPinPath: "relative/known_hosts" })).toThrow(/absolute/);
+    expect(() => renderSshConfigContents(baseSnapshot(), { hostPinPath: "" })).toThrow(/absolute/);
+    expect(() => renderSshConfigContents(baseSnapshot(), { hostPinPath: `/${"x".repeat(5000)}` })).toThrow(/path/i);
+  });
+
+  it("refuses a hand-built snapshot carrying a forbidden member, same as non-relay", () => {
+    const smuggled = { ...baseSnapshot(), proxyCommand: "nc attacker 4444" } as unknown as ReturnType<
+      typeof baseSnapshot
+    >;
+    expect(() => renderSshConfigContents(smuggled, relay)).toThrow("not renderable");
   });
 });
 

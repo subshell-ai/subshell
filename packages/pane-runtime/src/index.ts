@@ -152,7 +152,9 @@ export {
 export {
   buildAgentSocketPath,
   buildSshConfigPath,
+  buildSshKnownHostsPath,
   renderSshConfigContents,
+  type SshRelayRenderOption,
   sshDestinationToken,
   sshOptionTokens,
 } from "./ssh/ssh-render.js";
