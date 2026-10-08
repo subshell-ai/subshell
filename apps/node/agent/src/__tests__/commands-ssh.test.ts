@@ -163,7 +163,7 @@ describe("ssh_discover_aliases / ssh_resolve_config arms (gate ON)", () => {
   });
 });
 
-/** The bump this tier owns: literal-16 pins everywhere must now read 17. */
-it("NODE_PROTOCOL_VERSION is 17 (the ssh launch block + the two read arms)", () => {
-  expect(NODE_PROTOCOL_VERSION).toBe(17);
+/** The bump M2's relay tier owns: the relay link frame + the open/close commands (spec 2026-10-08 §5.1). */
+it("NODE_PROTOCOL_VERSION is 18 (relay frames + ssh_relay_open/close on the wire)", () => {
+  expect(NODE_PROTOCOL_VERSION).toBe(18);
 });
