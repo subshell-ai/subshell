@@ -9,9 +9,11 @@
  * connection`, the run start/status/read/cancel quartet, `ssh_terminal_
  * launch`, `ssh_input_control`) retired with that destination-execution
  * product, which never shipped; their `type` arms are therefore deleted, not
- * refused. The sealed agent-relay milestone (M2) adds three commands here:
+ * refused. The sealed agent-relay milestone (M2) adds four commands here:
  * `ssh_register_identity` (§4.3 bootstrap: a pre-M2 node's signing key reaches
- * the plane inside a signed command on the existing node link), and the
+ * the plane inside a signed command on the existing node link), the roster
+ * read `ssh_agent_identities` (§5.4: the approval screen asks A's agent for
+ * its public identities, fingerprints plus comments, blobs withheld), and the
  * brokered pair `ssh_relay_open` / `ssh_relay_close` (§5.1: the plane's OPEN
  * hands one machine the whole pairing, the CLOSE names why it ends). What
  * rides the link AFTER an open - the sealed blobs themselves - is not a
@@ -62,6 +64,20 @@ export interface SshResolveConfigCommand {
  */
 export interface SshRegisterIdentityCommand {
   type: "ssh_register_identity";
+}
+
+/**
+ * Enumerate the key home's LIVE agent identities for the first-use approval
+ * screen (spec 2026-10-08 §5.4, Task 11): the plane asks A's agent for its
+ * WHOLE public roster, and the answer is fingerprints plus comments with the
+ * blobs withheld. No input beyond the type: the command asks the roster, so a
+ * plane-sent selection field could only be a narrowing or widening attempt at
+ * what A's own agent reports. It is answered with no grant outstanding and no
+ * relay session, like `detect` and `ssh_register_identity`, and it writes no
+ * audit row on either side.
+ */
+export interface SshAgentIdentitiesCommand {
+  type: "ssh_agent_identities";
 }
 
 /**
@@ -170,6 +186,7 @@ export type SshNodeCommandBody =
   | SshDiscoverAliasesCommand
   | SshResolveConfigCommand
   | SshRegisterIdentityCommand
+  | SshAgentIdentitiesCommand
   | SshRelayOpenCommand
   | SshRelayCloseCommand;
 
@@ -178,6 +195,7 @@ export const SSH_COMMAND_TYPES = [
   "ssh_discover_aliases",
   "ssh_resolve_config",
   "ssh_register_identity",
+  "ssh_agent_identities",
   "ssh_relay_open",
   "ssh_relay_close",
 ] as const;
@@ -213,6 +231,18 @@ function isIdStr(value: unknown): value is string {
 const GRANT_FINGERPRINT_RE = /^SHA256:[A-Za-z0-9_-]{1,128}$/;
 
 /**
+ * Whether `value` is ONE fingerprint in the canonical display grammar. This is
+ * the roster answer's grammar too, deliberately the SAME predicate: the
+ * approve surface promises selections "exactly as the roster reports them",
+ * so a fingerprint the roster may carry and a grant may not select would be
+ * one broken round trip invented by drift. Exported for `node-results.ts`'s
+ * roster validator.
+ */
+export function isSshGrantFingerprint(value: unknown): value is string {
+  return isStr(value) && GRANT_FINGERPRINT_RE.test(value);
+}
+
+/**
  * The pane id the relay-open command names: exactly the shape pane-runtime's
  * socket-path composition accepts (`buildSshConfigPath`'s own guard - the
  * grammar and the path guard cannot drift apart, because the plane's
@@ -242,9 +272,7 @@ export function isSshPaneId(value: unknown): value is string {
  * (one definition of the grant-selection law, both directions).
  */
 export function isSshGrantFingerprints(value: unknown): value is string[] {
-  return (
-    isStrArray(value) && value.every((f) => GRANT_FINGERPRINT_RE.test(f)) && value.length <= SSH_MAX_GRANT_FINGERPRINTS
-  );
+  return isStrArray(value) && value.every(isSshGrantFingerprint) && value.length <= SSH_MAX_GRANT_FINGERPRINTS;
 }
 
 /**
@@ -268,6 +296,11 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       // The whole command is its type: the machine answers about ITSELF, and
       // the answer's shape is `node-results.ts`'s business, not this grammar's.
       return { type: "ssh_register_identity" };
+    case "ssh_agent_identities":
+      // The roster read is its type alone, for the same reason: the command
+      // asks the WHOLE roster, so a plane-sent field could only aim at
+      // narrowing or widening what A's agent actually reports.
+      return { type: "ssh_agent_identities" };
     case "ssh_relay_open": {
       // EVERY pairing field is required (§5.1): this command IS the pairing,
       // and an executor guessing a missing half would be guessing trust

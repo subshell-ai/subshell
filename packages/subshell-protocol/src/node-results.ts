@@ -23,8 +23,15 @@ import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray, isStringMap } fr
 import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 import { parseSshConnectionSnapshot } from "./ssh-config.js";
 import { isSshErrorCode } from "./ssh-errors.js";
-import { SSH_MAX_DISCOVERED_ALIASES } from "./ssh-limits.js";
-import type { NodeSshAliasListResult, NodeSshIdentityResult, NodeSshResolveOutcomeWire } from "./ssh-results.js";
+import { isSshGrantFingerprint } from "./ssh-frames.js";
+import { SSH_MAX_DISCOVERED_ALIASES, SSH_NAME_MAX_CHARS } from "./ssh-limits.js";
+import type {
+  NodeSshAgentIdentitiesResult,
+  NodeSshAgentIdentity,
+  NodeSshAliasListResult,
+  NodeSshIdentityResult,
+  NodeSshResolveOutcomeWire,
+} from "./ssh-results.js";
 
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;
@@ -583,6 +590,29 @@ export function parseNodeSshResolveOutcome(data: unknown): NodeSshResolveOutcome
   }
   if (!isSshErrorCode(data.code) || !isStrArray(data.settings)) return null;
   return { accepted: false, code: data.code, settings: [...(data.settings as string[])] };
+}
+
+/**
+ * Validates and narrows an `ssh_agent_identities` command's `result{data}`
+ * (spec 2026-10-08 §5.4, Task 11). The BLOBS are unrepresentable by
+ * construction: each entry is REBUILT from its two checked fields, so a
+ * `blob` member a buggy or hostile node tried to ship drops here and the
+ * narrowed answer has nowhere to hold key material. Fingerprints must be in
+ * the grant grammar's own spelling (one predicate, both directions: the
+ * approve surface takes roster values verbatim); comments are OpenSSH's
+ * labels, passed through as bounded text, never parsed.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed roster, or null when malformed
+ */
+export function parseNodeSshAgentIdentities(data: unknown): NodeSshAgentIdentitiesResult | null {
+  if (!isRecord(data) || !Array.isArray(data.identities)) return null;
+  const identities: NodeSshAgentIdentity[] = [];
+  for (const entry of data.identities as unknown[]) {
+    if (!isRecord(entry) || !isSshGrantFingerprint(entry.fingerprint)) return null;
+    if (!isStr(entry.comment) || entry.comment.length > SSH_NAME_MAX_CHARS) return null;
+    identities.push({ fingerprint: entry.fingerprint, comment: entry.comment });
+  }
+  return { identities };
 }
 
 /**

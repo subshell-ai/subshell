@@ -1889,6 +1889,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "ssh_discover_aliases":
     case "ssh_resolve_config":
     case "ssh_register_identity":
+    case "ssh_agent_identities":
     case "ssh_relay_open":
     case "ssh_relay_close":
       // Delegation, not a second parser: the SSH grammar (all arms, one
