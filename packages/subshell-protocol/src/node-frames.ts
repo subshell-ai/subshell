@@ -1,7 +1,7 @@
 import { BASE64_RE, isBool, isInt, isNum, isRecord, isStr, isStrArray, isStringMap } from "./guards.js";
 import type { JsonValue } from "./json.js";
 import { parseSshNodeCommandBody, type SshNodeCommandBody } from "./ssh-frames.js";
-import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS } from "./ssh-limits.js";
+import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTES } from "./ssh-limits.js";
 
 /**
  * Node ↔ control-plane wire contract (spec 2026-08-31 §3).
@@ -150,15 +150,25 @@ import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS } from "./ssh-limits.js";
  * mirror simply says no. A capability gate cannot live with that ambiguity
  * (spec §4.3), so the number is what refuses the old agent, not the frame.
  *
- * **16 -> 17 (this tier):** the ssh launch block and the two discovery/resolve
- * commands. A lagging agent is HELD (update-only) until crossed, per the
+ * **16 -> 17:** the ssh launch block and the two discovery/resolve commands.
+ * A lagging agent is HELD (update-only) until crossed, per the
  * capability-gate doctrine in docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md
  * §4.3; the desktop update path is the crossing. The ambiguity the bump
  * refuses: a tier-1 agent that ignores the launch frame's `ssh` member would
  * spawn a bare `ssh` pane with no `-F` config (§4.3's gate doctrine refuses to
  * live with that).
+ *
+ * **17 -> 18 (this tier):** the sealed agent relay
+ * (docs/superpowers/specs/2026-10-08-ssh-agent-relay-design.md §5.1). The
+ * `relay` link frame - a NEW frame kind on the established link, carrying one
+ * sealed envelope keyed by the opaque routing ref, with no per-message
+ * command signing - plus the `ssh_relay_open` / `ssh_relay_close` signed
+ * commands that broker a session. This one cannot ride a silent tier: a
+ * tier-17 agent understands no `relay` frame at all, and the exact-match
+ * gate is what refuses pairing BEFORE any relay command is sent (§5.1's own
+ * bump argument, §11's never-half-relay rule). Server first, as always.
  */
-export const NODE_PROTOCOL_VERSION = 17;
+export const NODE_PROTOCOL_VERSION = 18;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
@@ -1274,6 +1284,87 @@ export type PluginReportWire = {
   restartRequired?: boolean;
 };
 
+/* ------------------------------------------------------------------ */
+/* sealed agent relay link frame (spec 2026-10-08 §5.1)                */
+/* ------------------------------------------------------------------ */
+
+/** Which way one relay envelope travels inside its session (spec §5.1). */
+export type RelayDirection = "B2A" | "A2B";
+
+/**
+ * The `relay` link frame: ONE sealed envelope per frame, on the established
+ * (protocol-18) link, keyed by the opaque routing ref (§5.1). It is NOT a
+ * command and NOT signed per message: the link already authenticates the
+ * machine, and origin rides the inner ES256 signature the endpoints exchange
+ * (§5.6), which the plane never sees. The plane's only roles are open,
+ * route, close - so `blob` is opaque BY CONTRACT: this grammar validates the
+ * SHAPE and the size and decodes nothing in between. `seq` is the frame's
+ * transport slot (the anti-replay `seq` lives SIGNED inside the envelope,
+ * §5.6); here it only needs to be a non-negative integer both ends can log.
+ *
+ * The frame travels BOTH directions of the link. On the plane's inbound path
+ * it arrives like every other agent frame (it joins {@link NodeEvent} for
+ * that); the plane-to-node leg serializes the same object down the
+ * established link and the node parses it with {@link parseRelayFrame}
+ * directly. The routing ref pairs the two legs; the broker (Task 8) owns
+ * that pairing, never this grammar.
+ */
+export interface RelayFrame {
+  type: "relay";
+  /** The opaque routing ref the relay-open command established. */
+  ref: string;
+  /** Per-frame counter on THIS leg; monotonic, non-negative. */
+  seq: number;
+  /** The envelope's logical direction inside the session, both spellings. */
+  direction: RelayDirection;
+  /** The sealed envelope, strict base64, raw payload at most SSH_RELAY_FRAME_MAX_BYTES. */
+  blob: string;
+}
+
+/**
+ * Exact raw length a strict-base64 string carries: 3 bytes per whole group
+ * minus the pad. BASE64_RE already forces the length to a multiple of 4, so
+ * the trailing-`=` count alone closes the last group. Measuring the cap on
+ * the RAW payload (not the inflated string) is what makes the bound honest:
+ * a char-length cap would let a padded group carry one byte past
+ * {@link SSH_RELAY_FRAME_MAX_BYTES} while reading exactly as long.
+ */
+function base64RawLength(b64: string): number {
+  let pad = 0;
+  for (let i = b64.length - 1; i >= 0 && b64[i] === "="; i -= 1) pad += 1;
+  return (b64.length / 4) * 3 - pad;
+}
+
+/**
+ * Validates and narrows a relay link frame (raw JSON text or the
+ * already-parsed object, same intake as {@link parseNodeEvent}). A present-
+ * but-undecodable blob is malformed, not deferred; an over-cap blob is
+ * REFUSED here because the cap is law (§5.1: over-cap frame refused, session
+ * closed with a named reason - the close is the broker's, the refusal is
+ * this function's). The blob's CONTENTS are never inspected: blindness is
+ * the point (§5.5).
+ *
+ * @param raw - candidate frame as received
+ * @returns the narrowed frame, or null when malformed / not a relay frame
+ */
+export function parseRelayFrame(raw: string | object): RelayFrame | null {
+  let value: unknown = raw;
+  if (typeof raw === "string") {
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(value) || value.type !== "relay") return null;
+  if (!isStr(value.ref) || value.ref.length === 0) return null;
+  if (!isInt(value.seq) || (value.seq as number) < 0) return null;
+  if (value.direction !== "B2A" && value.direction !== "A2B") return null;
+  if (!isStr(value.blob) || value.blob.length === 0 || !BASE64_RE.test(value.blob)) return null;
+  if (base64RawLength(value.blob) > SSH_RELAY_FRAME_MAX_BYTES) return null;
+  return { type: "relay", ref: value.ref, seq: value.seq as number, direction: value.direction, blob: value.blob };
+}
+
 export type NodeEvent =
   | {
       type: "ready";
@@ -1407,7 +1498,17 @@ export type NodeEvent =
   | { type: "output"; subshellId: string; subId: string; fromByte: number; toByte: number; data_b64: string }
   | { type: "exit"; subshellId: string; exitCode: number | null; at: string }
   | { type: "subshells_report"; subshells: { subshellId: string; alive: boolean; exitCode: number | null }[] }
-  | { type: "error"; code: string; message: string };
+  | { type: "error"; code: string; message: string }
+  /**
+   * The sealed agent-relay leg (spec 2026-10-08 §5.1). Folded in for the
+   * PLANE's inbound path: every relay frame the plane reads arrives on an
+   * agent socket, where `parseNodeEvent` is the one kind dispatcher and the
+   * held-gate/supersede-probe that follow are exactly the guards a shuttle
+   * frame should pass through. On the plane-to-node leg the node parses the
+   * same shape with {@link parseRelayFrame} directly; "event" here names the
+   * inbound-to-plane position, not a claim that the node volunteered it.
+   */
+  | RelayFrame;
 
 /* ------------------------------------------------------------------ */
 /* validators (hand-rolled, parseClientFrame style — spec §3)          */
@@ -1739,6 +1840,8 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "ssh_discover_aliases":
     case "ssh_resolve_config":
     case "ssh_register_identity":
+    case "ssh_relay_open":
+    case "ssh_relay_close":
       // Delegation, not a second parser: the SSH grammar (all arms, one
       // file) lives in ssh-frames.ts beside the commands it narrows.
       return parseSshNodeCommandBody(value);
@@ -1862,6 +1965,11 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       return isStr(value.code) && isStr(value.message)
         ? { type: "error", code: value.code, message: value.message }
         : null;
+    case "relay":
+      // Delegation, like the SSH commands: the relay frame's whole contract
+      // (ref, seq, direction, capped opaque blob) lives in parseRelayFrame
+      // beside the type it narrows.
+      return parseRelayFrame(value);
     default:
       return null;
   }

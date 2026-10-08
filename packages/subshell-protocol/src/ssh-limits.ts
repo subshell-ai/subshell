@@ -131,6 +131,52 @@ export const SSH_REQ_ID_MAX_CHARS = 64;
  */
 export const SSH_SESSION_LOG_WINDOW_BYTES = 128 * 1024;
 
+/* ------------------------------------------------------------------ */
+/* sealed agent relay (spec 2026-10-08 §5.1/§5.3/§5.4/§5.6)            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Largest RAW payload one sealed relay frame may carry (spec 2026-10-08
+ * §5.1). 128 KiB is the channel-envelope scale the spec names the cap
+ * bounded to: base64 inflates 4/3, so a full blob spells about 174,764
+ * characters inside the frame, well under the node link's own
+ * NODE_MAX_FRAME_BYTES ceiling - the same arithmetic that sized
+ * {@link SSH_SESSION_LOG_WINDOW_BYTES}. An over-cap frame is refused and
+ * the session closed with a named reason; the cap is law, not a hint.
+ */
+export const SSH_RELAY_FRAME_MAX_BYTES = 131_072;
+
+/**
+ * Concurrent relay sessions one node may hold on the plane's broker
+ * (spec §5.3). Exceeding the cap is a LOUD refusal, never a queue.
+ */
+export const SSH_RELAY_MAX_PER_NODE = 8;
+
+/**
+ * Hard ceiling on a relay session's life (spec §5.6). Modeled on
+ * {@link SSH_SESSION_OPEN_DEADLINE_MS}: the relay exists only for the
+ * handshake window, and the lifetime is the last-resort cut beneath the
+ * earlier ones (grace elapsed, child exit, A drop, grant revoke).
+ */
+export const SSH_RELAY_LIFETIME_MS = 30_000;
+
+/**
+ * How long B's proxy keeps the relay open after the `ssh` child is alive
+ * with no agent error before tearing it down (spec §5.6: B cannot see
+ * ssh's handshake to D, so a quiet grace stands in for the signal, and
+ * child exit cuts immediately). Same 5 s family as {@link SSH_CANCEL_GRACE_MS}.
+ */
+export const SSH_RELAY_TEARDOWN_GRACE_MS = 5_000;
+
+/**
+ * Key fingerprints one grant may select (spec §5.4). Deliberately
+ * DISTINCT from {@link SSH_MAX_IDENTITY_REFS}, which bounds snapshot
+ * identity PATHS, not grant selections; an approval selecting more is a
+ * hard refusal, never a silent truncation. Public data end to end:
+ * `SHA256:` base64 fingerprints, never key material.
+ */
+export const SSH_MAX_GRANT_FINGERPRINTS = 8;
+
 /**
  * Largest raw stdout slice one brokered `session_frame` event may carry
  * (design §3's pump, restated as a number: the node-frames `session_frame`

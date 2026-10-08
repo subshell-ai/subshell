@@ -47,6 +47,7 @@ import {
   releaseHeld,
 } from "./node-registry.js";
 import { binaryPayload, failConnPendings, resolveResult } from "./node-rpc.js";
+import { onRelayFrame } from "./relay-frames.js";
 import { recordNodeDisconnect, recordNodeReady } from "./update-tracker.js";
 
 /**
@@ -1073,6 +1074,17 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
     case "error":
       logger.withMetadata({ nodeId, code: event.code }).warn(`node reported error: ${event.message}`);
       return;
+    case "relay": {
+      // The sealed agent-relay leg (spec 2026-10-08 §5.1). Everything a
+      // router must know about this frame is already decided upstream: the
+      // grammar validated shape and the SSH_RELAY_FRAME_MAX_BYTES cap, the
+      // exact-match handshake refused any pre-18 agent BEFORE this socket
+      // could carry a frame, and the held/supersede guards above ran. The
+      // blob stays opaque right through here (§5.5) - Task 8's broker pairs
+      // refs and shuttles; this is the routing seam, not the broker.
+      onRelayFrame(nodeId, event);
+      return;
+    }
   }
 }
 

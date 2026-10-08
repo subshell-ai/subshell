@@ -7,6 +7,8 @@ import {
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
+  type RelayFrame,
+  SSH_RELAY_FRAME_MAX_BYTES,
 } from "@internal/subshell-protocol";
 import {
   createClientSession,
@@ -48,6 +50,7 @@ import {
   type NodeWsDeps,
   type NodeWsSocket,
 } from "../node-ws-handler.js";
+import { relayFramesSeenFor, resetRelayFramesForTests } from "../relay-frames.js";
 import { beginUpdate, readView, resetForTests, updateSwapped } from "../update-tracker.js";
 
 /* ---------------------------- fakes ----------------------------- */
@@ -1746,6 +1749,69 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
     Object.assign(big.data, { linkMode: "handshake", linkEncryptPublicKey: "irrelevant" });
     await handleNodeMessage(h.deps, big, new Uint8Array(NODE_MAX_FRAME_BYTES + 1));
     expect(big.closed[0]?.code).toBe(NODE_CLOSE_TOO_BIG);
+  });
+
+  it("(g2) a tier-17 binding is refused, and no relay frame EVER reaches the seam on that socket (spec 2026-10-08 §11)", async () => {
+    // THE bump gate: relay frames are a new link frame kind, so an agent
+    // that ships no relay grammar must not pair at all. The exact-match
+    // check in the binding is what refuses it - BEFORE establishment, which
+    // is the only door a relay frame has (the machine hands plaintext only
+    // after `established`, and the switch never runs on an unestablished
+    // socket). The relay frame here is a VALID shape; it fails on the
+    // version, which is the point.
+    resetRelayFramesForTests();
+    const f = await handshakeFixture();
+    const { h, ws, client } = f;
+    await handleNodeMessage(h.deps, ws, kxText(f));
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      client.session.sealFrame(
+        JSON.stringify({ nodeId: "n1", nodeKey: LIVE, protocolVersion: NODE_PROTOCOL_VERSION - 1 }),
+      ),
+    );
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_HANDSHAKE_REQUIRED); // 4410
+    expect(ws.data.linkPhase).not.toBe("established");
+    // What the pre-18 agent tries anyway - first as plaintext junk, then as
+    // a WELL-FORMED sealed relay frame its own session can still encrypt.
+    const relayFrame = { type: "relay", ref: "r-1", seq: 0, direction: "B2A", blob: "QUJD" };
+    await handleNodeMessage(h.deps, ws, JSON.stringify(relayFrame));
+    await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify(relayFrame)));
+    expect(relayFramesSeenFor("n1")).toBeUndefined(); // refused at the version match, never routed
+  });
+
+  it("(g3) an established tier-18 link routes a sealed relay frame verbatim to the seam; over-cap is dropped", async () => {
+    resetRelayFramesForTests();
+    const f = await handshakeFixture();
+    const { h, ws, client } = f;
+    await handleNodeMessage(h.deps, ws, kxText(f));
+    await handleNodeMessage(h.deps, ws, bindingBytes(f)); // established at 18
+    const relayFrame: RelayFrame = { type: "relay", ref: "r-1", seq: 3, direction: "A2B", blob: "QUJD" };
+    await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify(relayFrame)));
+    // The seam saw EXACTLY the frame, blob included - and nothing else did:
+    // the plane is a blind router (§5.5), the stub only records.
+    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, last: relayFrame });
+    // The over-cap blob is refused by the grammar upstream of the seam
+    // (§5.1: cap is law); the socket survives, the frame does not arrive.
+    const over = "A".repeat(Math.ceil(SSH_RELAY_FRAME_MAX_BYTES / 3) * 4 + 4);
+    await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify({ ...relayFrame, blob: over })));
+    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, last: relayFrame }); // unchanged
+    expect(ws.closed).toHaveLength(0); // a dropped frame is not fatal (spec §3.1 posture)
+  });
+
+  it("(g4) a HELD socket's relay frame is dropped by the held-gate, not routed", async () => {
+    resetRelayFramesForTests();
+    const h = makeHarness();
+    const ws = fakeSocket("n1"); // unclassified fake: straight to the gates/switch
+    handleNodeOpen(OPEN_DEPS, ws); // the hold needs the connection it attaches
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ protocolVersion: 999 })));
+    expect(getHeld("n1")).toBeDefined();
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      JSON.stringify({ type: "relay", ref: "r-1", seq: 0, direction: "B2A", blob: "QUJD" }),
+    );
+    expect(relayFramesSeenFor("n1")).toBeUndefined(); // held speaks exactly one thing: `result`
   });
 
   it("(h) the held `update` path traverses the machine untouched: plaintext out, plaintext result in, RPC completes", async () => {

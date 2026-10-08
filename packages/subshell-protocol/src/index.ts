@@ -111,7 +111,10 @@ export {
   parseNodeMaintenance,
   parseNodeRuntimeReport,
   parseNodeSshEnabled,
+  parseRelayFrame,
   partPathOf,
+  type RelayDirection,
+  type RelayFrame,
 } from "./node-frames.js";
 export {
   type DetectResultWire,
@@ -249,15 +252,23 @@ export {
   type SshDiscoverAliasesCommand,
   type SshNodeCommandBody,
   type SshRegisterIdentityCommand,
+  type SshRelayCloseCommand,
+  type SshRelayOpenCommand,
+  type SshRelayRole,
   type SshResolveConfigCommand,
 } from "./ssh-frames.js";
 export {
   SSH_CONFIG_FILE_MAX_BYTES,
   SSH_MAX_DISCOVERED_ALIASES,
+  SSH_MAX_GRANT_FINGERPRINTS,
   SSH_MAX_PROXY_HOPS,
   SSH_NAME_MAX_CHARS,
   SSH_PATH_MAX_CHARS,
   SSH_PROBE_DEADLINE_MS,
+  SSH_RELAY_FRAME_MAX_BYTES,
+  SSH_RELAY_LIFETIME_MS,
+  SSH_RELAY_MAX_PER_NODE,
+  SSH_RELAY_TEARDOWN_GRACE_MS,
 } from "./ssh-limits.js";
 // PURE module (WebCrypto globals only, no node: builtins): safe in the
 // Metro-consumed barrel; pinned by __tests__/ssh-pin-store.test.ts.

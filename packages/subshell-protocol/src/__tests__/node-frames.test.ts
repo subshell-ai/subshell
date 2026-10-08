@@ -24,8 +24,8 @@ import {
   parseNodeRuntimeReport,
   partPathOf,
 } from "../node-frames.js";
-import { SSH_COMMAND_TYPES } from "../ssh-frames.js";
-import { SSH_CONFIG_FILE_MAX_BYTES } from "../ssh-limits.js";
+import { SSH_COMMAND_TYPES, type SshRelayOpenCommand } from "../ssh-frames.js";
+import { SSH_CONFIG_FILE_MAX_BYTES, SSH_MAX_GRANT_FINGERPRINTS } from "../ssh-limits.js";
 import { MIN_NODE_VERSION } from "../versions.js";
 
 const launchCmd = {
@@ -43,6 +43,25 @@ const launchCmd = {
   // names a command line nothing on that machine can build.
   argv: [HARNESS_BINARY_PLACEHOLDER],
   resolve: { binaryName: "claude" },
+};
+
+/**
+ * A complete relay-open pairing (spec 2026-10-08 §5.1): every field the
+ * brokered open carries is REQUIRED on the wire, so one fixture serves the
+ * accept paths and the field-by-field refusals below.
+ */
+const relayOpenCmd: SshRelayOpenCommand = {
+  type: "ssh_relay_open",
+  relayId: "relay-9c31",
+  ref: "r-4f2a",
+  role: "A",
+  aNodeId: "node-a",
+  bNodeId: "node-b",
+  peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB"}',
+  peerEncryptPublicKey: "SGVsbG9Xb3JsZEhlcmVJc1RoaXJ0eXR3b0J5dGVzMTI=",
+  grantId: "grant-77",
+  fingerprints: ["SHA256:AAAA", "SHA256:BBBB"],
+  lifetimeMs: 30_000,
 };
 
 describe("parseNodeCommandBody", () => {
@@ -323,7 +342,12 @@ describe("parseNodeCommandBody", () => {
     // `ssh` block and the `ssh_discover_aliases` / `ssh_resolve_config` arms.
     // A lagging agent ignores the launch block and spawns a bare `ssh` with no
     // `-F` config, so it is HELD (update-only) until crossed, not approximated.
-    expect(NODE_PROTOCOL_VERSION).toBe(17);
+    // 18 is the sealed agent relay (spec 2026-10-08 §5.1): the `relay` link
+    // frame (a new frame kind on the established link) and the `ssh_relay_open`
+    // / `ssh_relay_close` signed commands. A tier-17 agent understands no relay
+    // frame, and the exact-match gate refuses it BEFORE any relay command
+    // (spec §11: never half-relaying).
+    expect(NODE_PROTOCOL_VERSION).toBe(18);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -932,17 +956,26 @@ describe("ssh command arms and the launch ssh block", () => {
       type: "ssh_register_identity",
     });
     expect(parseNodeCommandBody({ type: "ssh_register_identity" })).not.toBeNull();
-    // The family's census: exactly these three types, and the count is the
-    // tripwire - a fourth arm must show up here before it ships.
+    // The family's census: exactly these five types, and the count is the
+    // tripwire - a further arm must show up here before it ships.
     expect([...SSH_COMMAND_TYPES].sort()).toEqual([
       "ssh_discover_aliases",
       "ssh_register_identity",
+      "ssh_relay_close",
+      "ssh_relay_open",
       "ssh_resolve_config",
     ]);
-    expect(SSH_COMMAND_TYPES).toHaveLength(3);
+    expect(SSH_COMMAND_TYPES).toHaveLength(5);
     // Every census type is a type the dispatcher actually narrows.
     for (const t of SSH_COMMAND_TYPES) {
-      const body = t === "ssh_resolve_config" ? { type: t, alias: "box-a" } : { type: t };
+      const body =
+        t === "ssh_resolve_config"
+          ? { type: t, alias: "box-a" }
+          : t === "ssh_relay_open"
+            ? relayOpenCmd
+            : t === "ssh_relay_close"
+              ? { type: t, ref: "r-1", reason: "lifetime_expired" }
+              : { type: t };
       expect(parseNodeCommandBody(body)).not.toBeNull();
     }
   });
@@ -967,6 +1000,80 @@ describe("ssh command arms and the launch ssh block", () => {
       }),
     ).not.toBeNull();
     expect(parseNodeCommandBody({ ...launchCmd, ssh: "x" })).toBeNull();
+  });
+});
+
+describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => {
+  it("narrows a complete open pairing, every field carried through", () => {
+    expect(parseNodeCommandBody(structuredClone(relayOpenCmd))).toEqual(structuredClone(relayOpenCmd));
+    expect(parseNodeCommandBody(JSON.stringify(relayOpenCmd))).toEqual(relayOpenCmd);
+    // Role B is the same grammar; the plane decides which machine gets which.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, role: "B" })).toMatchObject({ role: "B" });
+    // An empty fingerprint set parses: scoping (serve nothing) is the
+    // responder's rule (§5.4), not a reason to refuse the frame.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [] })).toMatchObject({ fingerprints: [] });
+  });
+
+  it("refuses an open missing any half of the pairing", () => {
+    // The command IS the pairing; a partial one names no complete session,
+    // so every field is required (same posture as `update`'s three).
+    for (const drop of [
+      "relayId",
+      "ref",
+      "role",
+      "aNodeId",
+      "bNodeId",
+      "peerSigningPublicKey",
+      "peerEncryptPublicKey",
+      "grantId",
+      "fingerprints",
+      "lifetimeMs",
+    ] as const) {
+      const partial = structuredClone(relayOpenCmd) as unknown as Record<string, unknown>;
+      delete partial[drop];
+      expect(parseNodeCommandBody(partial)).toBeNull();
+    }
+  });
+
+  it("refuses malformed open fields", () => {
+    expect(parseNodeCommandBody({ ...relayOpenCmd, role: "C" })).toBeNull(); // only A or B
+    expect(parseNodeCommandBody({ ...relayOpenCmd, relayId: "" })).toBeNull(); // ids are non-empty
+    expect(parseNodeCommandBody({ ...relayOpenCmd, grantId: 42 })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: "SHA256:AAAA" })).toBeNull(); // array, not string
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["ok", 7] })).toBeNull();
+    // The grant's selection is capped by SSH_MAX_GRANT_FINGERPRINTS, and the
+    // refusal is hard - never a silent truncation (§5.4).
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        fingerprints: Array.from({ length: SSH_MAX_GRANT_FINGERPRINTS + 1 }, (_, i) => `SHA256:${i}`),
+      }),
+    ).toBeNull();
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        fingerprints: Array.from({ length: SSH_MAX_GRANT_FINGERPRINTS }, (_, i) => `SHA256:${i}`),
+      }),
+    ).not.toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, lifetimeMs: 0 })).toBeNull(); // positive or refuse
+    expect(parseNodeCommandBody({ ...relayOpenCmd, lifetimeMs: 1.5 })).toBeNull();
+    // The encryption half is a base64 key (same spelling the link pins carry);
+    // junk at the grammar is malformed, not "the pin will sort it out".
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerEncryptPublicKey: "!!!" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerEncryptPublicKey: "" })).toBeNull();
+  });
+
+  it("narrows the close: routing ref and named reason, nothing else", () => {
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason: "grant_revoked" })).toEqual({
+      type: "ssh_relay_close",
+      ref: "r-4f2a",
+      reason: "grant_revoked",
+    });
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a" })).toBeNull(); // reason required
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", reason: "lifetime_expired" })).toBeNull(); // ref required
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "", reason: "child_exit" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r", reason: "" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r", reason: 3 })).toBeNull();
   });
 });
 
