@@ -1,6 +1,7 @@
 import { compactVerify, importJWK, type JWK, type JWTPayload, SignJWT } from "jose";
 import { BASE64_RE, isRecord, isStr } from "./guards.js";
-import type { RelayDirection } from "./node-frames.js";
+import { isRelayDirection, type RelayDirection } from "./node-frames.js";
+import { base64FromBytes, base64ToBytes } from "./ssh-base64-std.js";
 import { SSH_RELAY_FRAME_MAX_BYTES } from "./ssh-limits.js";
 import { base64UrlNoPad, base64UrlToBytes } from "./ssh-pin-store.js";
 
@@ -16,7 +17,8 @@ import { base64UrlNoPad, base64UrlToBytes } from "./ssh-pin-store.js";
  *                            sealed so the plane never sees them either)
  *           -> seal         (the injected mcp-core recipe: ECDH-ES+A256KW /
  *                            A256GCM to the recipient's PINNED encryption key)
- *           -> base64       (the strict padded spelling RelayFrame.blob wants)
+ *           -> base64       (the strict padded spelling RelayFrame.blob wants;
+ *                            that codec lives in ssh-base64-std.ts)
  *
  * `open` yields the JWS + routing fields, `verifyRelayEnvelope` binds the rest,
  * and the receiver's {@link SeqGate} refuses resends and rewinds. The agent
@@ -114,11 +116,26 @@ export interface SignRelayEnvelopeInput {
   message: RelayInnerMessage;
 }
 
-/** The routing triple a verifier cross-checks the signature against. */
+/**
+ * The facts a verifier cross-checks the signature against: the routing
+ * triple the wrapper locates its session by, plus the session facts only the
+ * ENDPOINT knows (I-1, Task 5 review): when the caller holds a session, it
+ * supplies what it recorded and {@link verifyRelayEnvelope} enforces every
+ * present member. The codec owns none of these facts itself.
+ */
 export interface RelayBinding {
+  /** The opaque routing ref the session's frames ride */
   routingRef: string;
+  /** Which way the message travels inside the session */
   direction: RelayDirection;
+  /** The signed anti-replay seq */
   seq: number;
+  /** B's endpoint nonce as this endpoint recorded it for this relay-open */
+  nB?: string;
+  /** A's endpoint nonce as this endpoint recorded it for this relay-open */
+  nA?: string;
+  /** The relay-session id from the `ssh_relay_open` command */
+  relaySessionId?: string;
 }
 
 /** Inputs to {@link verifyRelayEnvelope}. */
@@ -128,9 +145,12 @@ export interface VerifyRelayEnvelopeInput {
   /** The sender's PINNED ES256 signing public key (the §4.4 machine pin) */
   publicJwk: JsonWebKey;
   /**
-   * The wrapper's locate-first fields. Every provided member MUST equal what
-   * the signature says, so a sealed-but-hostile wrapper cannot pair one
-   * session's ref with another session's signed bytes.
+   * The wrapper's locate-first fields and, once the caller holds session
+   * state, the nonces and relay-session id it recorded (see
+   * {@link RelayBinding}). Every provided member MUST equal what the
+   * signature says, so a sealed-but-hostile wrapper cannot pair one
+   * session's ref with another session's signed bytes, and an envelope
+   * carrying another pairing's nonce is refused the same way.
    */
   expect?: Partial<RelayBinding>;
 }
@@ -156,11 +176,15 @@ export interface OpenRelayEnvelopeInput {
   /** The opening primitive (mcp-core's `open`; see the file header) */
   open: RelayOpenFn;
   /**
-   * The frame's own routing facts. When given, the wrapper must agree with
-   * them - a frame relayed under ref X cannot deliver an envelope addressed
-   * through ref Y, checked before any key material is consulted.
+   * The frame's own routing facts - REQUIRED (Task 5 review M-1: every real
+   * call site holds the frame). The wrapper must agree with them: a frame
+   * relayed under ref X cannot deliver an envelope addressed through ref Y,
+   * checked before any key material is consulted. The SIGNED anti-replay seq
+   * is deliberately absent: the frame's transport seq is a different number
+   * (Task 4's grammar), and the wrapper's is sealed inside and only known
+   * after opening - bind it with {@link verifyRelayEnvelope}'s `expect`.
    */
-  expect?: { ref: string; direction: RelayDirection };
+  expect: { ref: string; direction: RelayDirection };
 }
 
 /** The EC (P-256) JWK shape jose's static types demand (mirrors node-signing). */
@@ -177,64 +201,6 @@ async function importPrivateES256(jwk: JsonWebKey): Promise<CryptoKey> {
 
 async function importPublicES256(jwk: JsonWebKey): Promise<CryptoKey> {
   return (await importJWK(asEcJwk(jwk), "ES256")) as CryptoKey;
-}
-
-/* ------------------------------------------------------------------ */
-/* base64: the STANDARD (padded) spelling the wire's blob field uses   */
-/* ------------------------------------------------------------------ */
-
-const BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-const BASE64_VALUES: number[] = (() => {
-  const values = new Array<number>(128).fill(-1);
-  for (let i = 0; i < BASE64_ALPHABET.length; i++) {
-    values[BASE64_ALPHABET.charCodeAt(i)] = i;
-  }
-  return values;
-})();
-
-/** Encodes bytes as standard base64 WITH `=` padding (the blob's grammar). */
-function base64FromBytes(bytes: Uint8Array): string {
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 3) {
-    const remaining = bytes.length - i;
-    const n = (bytes[i] << 16) | ((bytes[i + 1] ?? 0) << 8) | (bytes[i + 2] ?? 0);
-    out += BASE64_ALPHABET[(n >> 18) & 63];
-    out += BASE64_ALPHABET[(n >> 12) & 63];
-    out += remaining > 1 ? BASE64_ALPHABET[(n >> 6) & 63] : "=";
-    out += remaining > 2 ? BASE64_ALPHABET[n & 63] : "=";
-  }
-  return out;
-}
-
-/**
- * Decodes standard padded base64 to bytes. Callers pre-screen with
- * BASE64_RE; this still refuses mid-text padding, non-alphabet bytes, and
- * non-canonical trailing bits - junk is refused, never repaired.
- */
-function base64ToBytes(text: string): Uint8Array<ArrayBuffer> {
-  if (text.length % 4 !== 0) throw new TypeError("ssh-relay: blob length is not a padded base64 group");
-  let pad = 0;
-  while (pad < 2 && text[text.length - 1 - pad] === "=") pad += 1;
-  const body = text.slice(0, text.length - pad);
-  const out = new Uint8Array(Math.floor((body.length * 6) / 8));
-  let bits = 0;
-  let value = 0;
-  let at = 0;
-  for (const ch of body) {
-    const v = BASE64_VALUES[ch.charCodeAt(0)];
-    if (v < 0) throw new TypeError("ssh-relay: blob carries a non-base64 character");
-    value = (value << 6) | v;
-    bits += 6;
-    if (bits >= 8) {
-      out[at++] = (value >>> (bits - 8)) & 0xff;
-      bits -= 8;
-    }
-  }
-  if (bits === 6 || (value & ((1 << bits) - 1)) !== 0) {
-    throw new TypeError("ssh-relay: blob has non-canonical trailing bits");
-  }
-  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -283,10 +249,12 @@ function assertRelayInnerMessage(raw: Record<string, unknown>): RelayInnerMessag
   if (!isStr(raw.routingRef) || raw.routingRef.length === 0) {
     throw new TypeError("ssh-relay: routingRef must be a non-empty string");
   }
-  if (raw.direction !== "B2A" && raw.direction !== "A2B") {
+  if (!isRelayDirection(raw.direction)) {
     throw new TypeError("ssh-relay: direction must be B2A or A2B");
   }
-  if (!Number.isSafeInteger(raw.seq) || (raw.seq as number) < 0) {
+  // `-0` passes the safe-integer and `< 0` screens yet JSON-spells as `0`, so
+  // it would smuggle a value that === 0 into every later comparison (M-3).
+  if (!Number.isSafeInteger(raw.seq) || (raw.seq as number) < 0 || Object.is(raw.seq, -0)) {
     throw new TypeError("ssh-relay: seq must be a non-negative safe integer");
   }
   if (!isStr(raw.agentBytesB64)) {
@@ -373,8 +341,10 @@ export async function signRelayEnvelope(input: SignRelayEnvelopeInput): Promise<
  * made `publicJwk` trustworthy). jose v6's `compactVerify` checks crypto and
  * format only, so the `iss` claim is evaluated here, and `algorithms` pins
  * ES256 so a header swap can never downgrade the check (node-signing's rule,
- * verbatim). When `expect` is given, the wrapper's routing fields must match
- * what the signature says - a mismatch is a refused binding, not a soft hint.
+ * verbatim). When `expect` is given, EVERY provided member (the routing
+ * triple, and - once the caller holds session state - the recorded nonces and
+ * relay-session id) must match what the signature says; a mismatch is a
+ * refused binding, not a soft hint.
  */
 export async function verifyRelayEnvelope(input: VerifyRelayEnvelopeInput): Promise<RelayInnerMessage> {
   let payload: JWTPayload;
@@ -399,6 +369,18 @@ export async function verifyRelayEnvelope(input: VerifyRelayEnvelopeInput): Prom
     }
     if (expect.seq !== undefined && expect.seq !== message.seq) {
       throw new TypeError("ssh-relay: seq does not match the signature");
+    }
+    if (expect.relaySessionId !== undefined && expect.relaySessionId !== message.relaySessionId) {
+      throw new TypeError("ssh-relay: relaySessionId does not match the signature");
+    }
+    // I-1: the endpoint-minted nonces. The plane cannot mint these, so a
+    // resent envelope from another pairing is refused HERE once the caller
+    // binds the values it recorded for this relay-open.
+    if (expect.nB !== undefined && expect.nB !== message.nB) {
+      throw new TypeError("ssh-relay: nB does not match the signature");
+    }
+    if (expect.nA !== undefined && expect.nA !== message.nA) {
+      throw new TypeError("ssh-relay: nA does not match the signature");
     }
   }
   return message;
@@ -477,19 +459,17 @@ export async function openRelayEnvelope(input: OpenRelayEnvelopeInput): Promise<
   if (!isStr(routingRef) || routingRef.length === 0) {
     throw new TypeError("ssh-relay: wrapper routingRef is not a non-empty string");
   }
-  if (direction !== "B2A" && direction !== "A2B") {
+  if (!isRelayDirection(direction)) {
     throw new TypeError("ssh-relay: wrapper direction is not B2A or A2B");
   }
-  if (!Number.isSafeInteger(seq) || (seq as number) < 0) {
+  if (!Number.isSafeInteger(seq) || (seq as number) < 0 || Object.is(seq, -0)) {
     throw new TypeError("ssh-relay: wrapper seq is not a non-negative safe integer");
   }
-  if (input.expect) {
-    if (input.expect.ref !== routingRef) {
-      throw new TypeError("ssh-relay: wrapper routingRef does not match the frame's ref");
-    }
-    if (input.expect.direction !== direction) {
-      throw new TypeError("ssh-relay: wrapper direction does not match the frame's");
-    }
+  if (input.expect.ref !== routingRef) {
+    throw new TypeError("ssh-relay: wrapper routingRef does not match the frame's ref");
+  }
+  if (input.expect.direction !== direction) {
+    throw new TypeError("ssh-relay: wrapper direction does not match the frame's");
   }
   return { jws, routingRef, direction, seq: seq as number };
 }
@@ -519,7 +499,7 @@ export class SeqGate {
    * nothing - a hostile frame must never move the watermark.
    */
   accept(direction: RelayDirection, seq: number): boolean {
-    if (direction !== "B2A" && direction !== "A2B") return false;
+    if (!isRelayDirection(direction)) return false;
     if (!Number.isSafeInteger(seq) || seq < 0) return false;
     if (seq <= this.#last[direction]) return false;
     this.#last[direction] = seq;
