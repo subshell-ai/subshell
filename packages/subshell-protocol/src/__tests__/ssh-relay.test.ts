@@ -178,6 +178,7 @@ describe("canonicalizeRelayMessage", () => {
     expect(() => canonicalizeRelayMessage(relayMessage({ direction: "C2D" as "B2A" }))).toThrow();
     expect(() => canonicalizeRelayMessage(relayMessage({ seq: 1.5 }))).toThrow();
     expect(() => canonicalizeRelayMessage(relayMessage({ seq: -1 }))).toThrow();
+    expect(() => canonicalizeRelayMessage(relayMessage({ seq: -0 }))).toThrow(); // -0 JSON-spells as 0: refused, not coerced (M-3)
     expect(() => canonicalizeRelayMessage(relayMessage({ seq: Number.NaN }))).toThrow();
     expect(() => canonicalizeRelayMessage(relayMessage({ seq: 2 ** 53 }))).toThrow();
     expect(() => canonicalizeRelayMessage(relayMessage({ relaySessionId: "" }))).toThrow();
@@ -312,6 +313,53 @@ describe("signRelayEnvelope / verifyRelayEnvelope", () => {
     ).rejects.toThrow();
   });
 
+  it("enforces the bound nonces (I-1: the endpoint-minted replay defense, enforced when supplied)", async () => {
+    const a = await es256Jwks();
+    const m = relayMessage({ nA: NA }); // both nonces present
+    const jws = await signRelayEnvelope({ privateJwk: a.privateJwk, message: m });
+    const base = { routingRef: m.routingRef, direction: m.direction, seq: m.seq };
+    // Matching bindings pass, exactly like the routing triple does.
+    const got = await verifyRelayEnvelope({
+      jws,
+      publicJwk: a.publicJwk,
+      expect: { ...base, nA: NA, nB: NB, relaySessionId: m.relaySessionId },
+    });
+    expect(got).toEqual(m);
+    // A different value for a bound nonce fails, in either spelling.
+    await expect(verifyRelayEnvelope({ jws, publicJwk: a.publicJwk, expect: { ...base, nB: NA } })).rejects.toThrow(
+      /nB does not match/,
+    );
+    await expect(verifyRelayEnvelope({ jws, publicJwk: a.publicJwk, expect: { ...base, nA: NB } })).rejects.toThrow(
+      /nA does not match/,
+    );
+    // A bound nonce the signed message does not carry is a mismatch too:
+    // B's first message signed without nA cannot satisfy a caller who bound one.
+    const mNoNA = relayMessage();
+    const jwsNoNA = await signRelayEnvelope({ privateJwk: a.privateJwk, message: mNoNA });
+    await expect(
+      verifyRelayEnvelope({ jws: jwsNoNA, publicJwk: a.publicJwk, expect: { ...base, nA: NA } }),
+    ).rejects.toThrow(/nA does not match/);
+    // An absent binding member enforces nothing (the caller may not hold it yet).
+    const loose = await verifyRelayEnvelope({ jws, publicJwk: a.publicJwk, expect: base });
+    expect(loose).toEqual(m);
+  });
+
+  it("enforces the bound relaySessionId (a reused-ref envelope from another session is refused)", async () => {
+    const a = await es256Jwks();
+    const m = relayMessage();
+    const jws = await signRelayEnvelope({ privateJwk: a.privateJwk, message: m });
+    const base = { routingRef: m.routingRef, direction: m.direction, seq: m.seq };
+    await expect(
+      verifyRelayEnvelope({ jws, publicJwk: a.publicJwk, expect: { ...base, relaySessionId: "relay-EVIL" } }),
+    ).rejects.toThrow(/relaySessionId does not match/);
+    const got = await verifyRelayEnvelope({
+      jws,
+      publicJwk: a.publicJwk,
+      expect: { ...base, relaySessionId: m.relaySessionId },
+    });
+    expect(got).toEqual(m);
+  });
+
   it("refuses malformed JWS input without throwing anything uncatchable", async () => {
     const a = await es256Jwks();
     for (const junk of ["", "not.a.jws", "a.b.c", `${"x".repeat(8)}.${"y".repeat(8)}.${"z".repeat(8)}`]) {
@@ -413,6 +461,7 @@ describe("sealRelayEnvelope / openRelayEnvelope", () => {
         blob,
         own: { principalId: "node:A", publicJwk: wrong.publicJwk, privateJwk: wrong.privateJwk },
         open: openImpl,
+        expect: { ref: m.routingRef, direction: m.direction },
       }),
     ).rejects.toThrow();
   });
@@ -428,7 +477,12 @@ describe("sealRelayEnvelope / openRelayEnvelope", () => {
       seal: sealImpl,
     });
     await expect(
-      openRelayEnvelope({ blob, own: { principalId: "node:B", ...recipient }, open: openImpl }),
+      openRelayEnvelope({
+        blob,
+        own: { principalId: "node:B", ...recipient },
+        open: openImpl,
+        expect: { ref: m.routingRef, direction: m.direction },
+      }),
     ).rejects.toThrow();
   });
 
@@ -448,16 +502,24 @@ describe("sealRelayEnvelope / openRelayEnvelope", () => {
     const c = blob[at] === "A" ? "B" : "A";
     const tampered = `${blob.slice(0, at)}${c}${blob.slice(at + 1)}`;
     await expect(
-      openRelayEnvelope({ blob: tampered, own: { principalId: "node:A", ...recipient }, open: openImpl }),
+      openRelayEnvelope({
+        blob: tampered,
+        own: { principalId: "node:A", ...recipient },
+        open: openImpl,
+        expect: { ref: m.routingRef, direction: m.direction },
+      }),
     ).rejects.toThrow();
   });
 
   it("refuses a blob that is not base64, and base64 that is not an envelope", async () => {
     const recipient = await ecdhStrings();
     const own = { principalId: "node:A", ...recipient };
-    await expect(openRelayEnvelope({ blob: "not base64!", own, open: openImpl })).rejects.toThrow();
-    await expect(openRelayEnvelope({ blob: "", own, open: openImpl })).rejects.toThrow();
-    await expect(openRelayEnvelope({ blob: base64OfText("hello"), own, open: openImpl })).rejects.toThrow();
+    const binding = { ref: "rt-04a1", direction: "B2A" as const };
+    await expect(openRelayEnvelope({ blob: "not base64!", own, open: openImpl, expect: binding })).rejects.toThrow();
+    await expect(openRelayEnvelope({ blob: "", own, open: openImpl, expect: binding })).rejects.toThrow();
+    await expect(
+      openRelayEnvelope({ blob: base64OfText("hello"), own, open: openImpl, expect: binding }),
+    ).rejects.toThrow();
   });
 
   it("the sender refuses an envelope over SSH_RELAY_FRAME_MAX_BYTES (cap is law, both directions)", async () => {
@@ -531,6 +593,22 @@ describe("sealRelayEnvelope / openRelayEnvelope", () => {
     };
     await expect(sealRelayEnvelope(input)).rejects.toThrow(/non-negative safe integer/);
     expect(sealCalls).toBe(0);
+  });
+
+  it("open refuses a wrapper whose seq is spelled -0 (a hostile sender can write it; JSON.parse yields -0)", async () => {
+    const recipient = await ecdhStrings();
+    // sealImpl takes arbitrary text: exactly what a hostile sender seals.
+    const { envelope } = await sealImpl('{"jws":"a.b.c","routingRef":"rt-04a1","direction":"B2A","seq":-0}', [
+      { principalId: "node:A", publicJwk: recipient.publicJwk },
+    ]);
+    await expect(
+      openRelayEnvelope({
+        blob: base64OfText(envelope),
+        own: { principalId: "node:A", ...recipient },
+        open: openImpl,
+        expect: { ref: "rt-04a1", direction: "B2A" },
+      }),
+    ).rejects.toThrow(/non-negative safe integer/);
   });
 });
 

@@ -1288,8 +1288,19 @@ export type PluginReportWire = {
 /* sealed agent relay link frame (spec 2026-10-08 §5.1)                */
 /* ------------------------------------------------------------------ */
 
+/**
+ * The relay directions as a runtime list beside the type: one definition, and
+ * everything that iterates or validates reads these (code-style rule).
+ */
+export const RELAY_DIRECTIONS = ["B2A", "A2B"] as const;
+
 /** Which way one relay envelope travels inside its session (spec §5.1). */
-export type RelayDirection = "B2A" | "A2B";
+export type RelayDirection = (typeof RELAY_DIRECTIONS)[number];
+
+/** Whether `value` is one of the two relay directions (narrows to the type). */
+export function isRelayDirection(value: unknown): value is RelayDirection {
+  return (RELAY_DIRECTIONS as readonly unknown[]).includes(value);
+}
 
 /**
  * The `relay` link frame: ONE sealed envelope per frame, on the established
@@ -1359,7 +1370,7 @@ export function parseRelayFrame(raw: string | object): RelayFrame | null {
   if (!isRecord(value) || value.type !== "relay") return null;
   if (!isStr(value.ref) || value.ref.length === 0) return null;
   if (!isInt(value.seq) || (value.seq as number) < 0) return null;
-  if (value.direction !== "B2A" && value.direction !== "A2B") return null;
+  if (!isRelayDirection(value.direction)) return null;
   if (!isStr(value.blob) || value.blob.length === 0 || !BASE64_RE.test(value.blob)) return null;
   if (base64RawLength(value.blob) > SSH_RELAY_FRAME_MAX_BYTES) return null;
   return { type: "relay", ref: value.ref, seq: value.seq as number, direction: value.direction, blob: value.blob };
@@ -1393,7 +1404,7 @@ export function relayFrameRefIfOverCap(value: unknown): string | null {
   if (!isRecord(parsed) || parsed.type !== "relay") return null;
   if (!isStr(parsed.ref) || parsed.ref.length === 0) return null;
   if (!isInt(parsed.seq) || (parsed.seq as number) < 0) return null;
-  if (parsed.direction !== "B2A" && parsed.direction !== "A2B") return null;
+  if (!isRelayDirection(parsed.direction)) return null;
   if (!isStr(parsed.blob) || parsed.blob.length === 0 || !BASE64_RE.test(parsed.blob)) return null;
   return base64RawLength(parsed.blob) > SSH_RELAY_FRAME_MAX_BYTES ? parsed.ref : null;
 }
