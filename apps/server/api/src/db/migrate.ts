@@ -48,6 +48,7 @@ import * as nodeReregistrationMigration from "@/db/migrations/0045-node-reregist
 import * as backupRecoveryMigration from "@/db/migrations/0046-backup-recovery.js";
 import * as sshEnabledMigration from "@/db/migrations/0047-node-ssh-enabled.js";
 import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-hosts.js";
+import * as sshRelayIdentityMigration from "@/db/migrations/0049-ssh-relay-identity.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -140,6 +141,10 @@ export async function runMigrations(): Promise<void> {
           // The SSH launcher tier: the per-owner destination ledger and the
           // pane's approved snapshot in `subshells.ssh` (spec 2026-10-07 §7).
           "0048-ssh-launch-and-saved-hosts": sshLaunchMigration,
+          // The relay identity tier: the machine's ES256 signing slot in the
+          // identities record and the trust-card fingerprint mirror on the
+          // nodes row (spec 2026-10-08 §4, §9).
+          "0049-ssh-relay-identity": sshRelayIdentityMigration,
         };
       },
     },
