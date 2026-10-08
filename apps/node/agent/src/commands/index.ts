@@ -29,6 +29,7 @@ import { execSetMaintenance } from "./set-maintenance.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execSetSshEnabled } from "./set-ssh-enabled.js";
 import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
+import { execSshHostKey } from "./ssh-host-key.js";
 import { execSshAgentIdentities, execSshRegisterIdentity } from "./ssh-identity.js";
 import { execSshRelayClose, execSshRelayOpen } from "./ssh-relay-exec.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
@@ -62,6 +63,10 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * agent's public identities as fingerprints plus comments, blobs withheld;
  * gated like the config arms, because reading the account's agent IS an SSH
  * act, and it probes the agent's numbering before asking, never guessing),
+ * the host-key capture `ssh_host_key` (spec 2026-10-08 §9, Task 12 - the
+ * `known_hosts` entries for one destination, evaluated by `ssh-keygen -F` so
+ * OpenSSH's own matching answers; gated like the config arms, and an absent
+ * file is the honest empty answer the capture fails closed on),
  * and the brokered relay pair `ssh_relay_open` / `ssh_relay_close`
  * (spec 2026-10-08 §5.1, protocol 18 - open consults the gate then drives the
  * T6/T7 pairing branches by the command's own role; close is ungated teardown,
@@ -151,6 +156,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execSshRegisterIdentity(ctx);
       case "ssh_agent_identities":
         return await execSshAgentIdentities(ctx);
+      case "ssh_host_key":
+        return await execSshHostKey(ctx, cmd);
       case "ssh_relay_open":
         return await execSshRelayOpen(ctx, cmd);
       case "ssh_relay_close":

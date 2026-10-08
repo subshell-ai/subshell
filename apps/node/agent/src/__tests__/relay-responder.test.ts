@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -281,6 +281,8 @@ const evilKeysReady: Promise<JwkPair> = es256Pair();
 
 const KEY_IN = Buffer.concat([Buffer.from([0, 0, 0, 7]), Buffer.from("ssh-ed25519"), sshStr(Buffer.from("KEY-IN"))]);
 const KEY_OUT = Buffer.concat([Buffer.from([0, 0, 0, 7]), Buffer.from("ssh-ed25519"), sshStr(Buffer.from("KEY-OUT"))]);
+// Task 12: the destination's pinned known_hosts line the relay-open carries.
+const HOST_PIN = "git.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000";
 const ROSTER: RosterEntry[] = [
   { blob: KEY_IN, comment: "granted key" },
   { blob: KEY_OUT, comment: "ungranted key" },
@@ -340,6 +342,7 @@ async function openFixture(
     fingerprints: [fp(KEY_IN)],
     lifetimeMs: 30_000,
     paneId: "pane-a-test", // grammar (b): the command names the pane
+    hostPin: HOST_PIN, // grammar (Task 12): the destination's pinned key line
     ...overrides,
   };
   await openARelaySession({
@@ -1036,6 +1039,7 @@ test("openARelaySession refuses a command that does not name this machine in its
     fingerprints: [],
     lifetimeMs: 30_000,
     paneId: "pane-a-test",
+    hostPin: HOST_PIN,
   };
   // role B: the A branch is not for this command.
   await expect(
@@ -1106,6 +1110,7 @@ test("openARelaySession enforces §4.4 byte-equality on B's pin and the duplicat
       fingerprints: [],
       lifetimeMs: 30_000,
       paneId: "pane-a-test",
+      hostPin: HOST_PIN,
     };
     // A moved signing half under the SAME peer id: a hard block, never a silent overwrite.
     await expect(
@@ -1281,6 +1286,7 @@ async function refusalCmd(over: Partial<SshRelayOpenCommand>): Promise<SshRelayO
     fingerprints: [],
     lifetimeMs: 30_000,
     paneId: "pane-refusal",
+    hostPin: HOST_PIN,
     ...over,
   };
 }
@@ -1415,4 +1421,86 @@ test("startRelayResponder rejects a pinned peer key that is not public P-256 mat
       sendRelayFrame: () => {},
     }),
   ).toThrow(/relay responder: pinned peer key rejected/);
+});
+
+/* ------------------------------------------------------------------ */
+/* Task 12: the B branch writes the destination's pinned host-key file */
+/* ------------------------------------------------------------------ */
+
+test("openBRelaySession writes the delivered pin to the pane's 0600 known_hosts before binding", async () => {
+  const aKeys = await machineKeys();
+  const relay = new RelaySessions();
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-relay-hostpin-"));
+  const cmd: SshRelayOpenCommand = {
+    type: "ssh_relay_open",
+    relayId: "relay-1",
+    ref: "r-pin",
+    role: "B",
+    aNodeId: "a-node",
+    bNodeId: "b-node", // selfNodeId below matches: this machine is B
+    peerSigningPublicKey: aKeys.signing.publicJwk,
+    peerEncryptPublicKey: Buffer.from(aKeys.encryption.publicJwk, "utf8").toString("base64"),
+    grantId: "grant-1",
+    fingerprints: [fp(KEY_IN)],
+    lifetimeMs: 30_000,
+    paneId: "pane-b-test",
+    hostPin: HOST_PIN,
+  };
+  const { socketPath } = await openBRelaySession({
+    relay,
+    dataDir,
+    selfNodeId: "b-node",
+    paneId: "pane-b-test",
+    cmd,
+    sendRelayFrame: () => {},
+  });
+  try {
+    const pinPath = join(dataDir, "ssh", "pane-b-test", "known_hosts");
+    // The file is the delivered line, byte-for-byte, plus the trailing
+    // newline ssh_config's own file reader expects.
+    expect(readFileSync(pinPath, "utf8")).toBe(`${HOST_PIN}\n`);
+    // 0600 (enforced past any umask), and the socket bound beside it.
+    expect(statSync(pinPath).mode & 0o777).toBe(0o600);
+    expect(existsSync(socketPath)).toBe(true);
+  } finally {
+    relay.closeAll("lifetime-expiry");
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test("openBRelaySession refuses a malformed host pin WITHOUT writing a file", async () => {
+  const aKeys = await machineKeys();
+  const relay = new RelaySessions();
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-relay-badmin-"));
+  const cmd: SshRelayOpenCommand = {
+    type: "ssh_relay_open",
+    relayId: "relay-1",
+    ref: "r-bad",
+    role: "B",
+    aNodeId: "a-node",
+    bNodeId: "b-node",
+    peerSigningPublicKey: aKeys.signing.publicJwk,
+    peerEncryptPublicKey: Buffer.from(aKeys.encryption.publicJwk, "utf8").toString("base64"),
+    grantId: "grant-1",
+    fingerprints: [fp(KEY_IN)],
+    lifetimeMs: 30_000,
+    paneId: "pane-bad",
+    // A smuggled second entry: the executor's last-station shape check (the
+    // grammar refuses this on the wire too, but the write is the trust file).
+    hostPin: `host ssh-rsa AAA\nother-host ssh-rsa BBB`,
+  };
+  await expect(
+    openBRelaySession({
+      relay,
+      dataDir,
+      selfNodeId: "b-node",
+      paneId: "pane-bad",
+      cmd,
+      sendRelayFrame: () => {},
+    }),
+  ).rejects.toThrow(/host pin/);
+  // Nothing bound, nothing written: the pane's dir does not even exist.
+  expect(existsSync(join(dataDir, "ssh", "pane-bad", "known_hosts"))).toBe(false);
+  expect(relay.size).toBe(0);
+  rmSync(dataDir, { recursive: true, force: true });
 });
