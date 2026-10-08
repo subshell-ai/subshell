@@ -33,6 +33,11 @@ import { SubshellManagerService } from "@/services/subshell-manager.service.js";
  * `row.harnessId === "ssh"` — a hand-built row that names the ssh harness
  * without a snapshot gets no config cleanup, and a snapshot on any harness
  * row gets it.
+ *
+ * The third describe pins the DEATH-transition sweep: a local ssh pane going
+ * dead through the shared `#applyDeath` removes its config dir even when the
+ * exit report's own sweep never fired (the lost-`pane-died`-hook case), and an
+ * agent row going dead there sweeps nothing on this host.
  */
 
 const OWNER = "u-ssh-plumb";
@@ -240,6 +245,10 @@ describe("a death transition sweeps the LOCAL ssh config dir (#applyDeath)", () 
     mkdirSync(localDir(id), { recursive: true });
     const { manager } = mkManager();
     await manager.applySelfReportedExit(id, 1, new Date().toISOString());
+    // The death DID land through #applyDeath (proving the sweep's decline was
+    // exercised, not skipped because the transition never ran) yet the agent
+    // row's dir stands on this host.
+    expect((await subshellsRepo.findById(id))?.alive).toBe(0);
     expect(existsSync(localDir(id))).toBe(true);
     rmSync(localDir(id), { recursive: true, force: true });
   });

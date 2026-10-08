@@ -148,12 +148,18 @@ export function composeSshLaunch(args: {
  * Best-effort `rm -rf` of the per-pane ssh config dir a LOCAL ssh pane wrote
  * on this disk: `<SUBSHELL_SERVER_DATA_DIR>/ssh/<id>` — the dirname of the
  * byte-derived config path the LocalLauncher wrote into. ONE function, called
- * by all four teardown points, so no copy can drift:
+ * from every site where such a pane stops existing, so no copy can drift:
  *
+ * - the shared death transition (the manager's `#applyDeath`), the DETERMINISTIC
+ *   driver: the 60 s reconcile reaches it whenever the process is gone, so a
+ *   lost `pane-died` hook can no longer leave the dir behind (e2e spec 22's
+ *   intermittent miss);
  * - the pane's own death report (the service's `reportExit`), which fires even
  *   when the row is already retired: a terminate kills the pane, the tmux
  *   `pane-died` hook races the retire stamp, and whichever order they land in
  *   the config must be gone once the report has been heard;
+ * - the create rollback: a LOCAL ssh launch that wrote its config then threw
+ *   past the spawn retires the row here, and the half-built dir must go with it;
  * - the terminate verb, AFTER the kill: terminate revokes the pane's token
  *   synchronously with the kill, so the dying hook's report can arrive 401
  *   and run no sweep at all (e2e spec 22) — the hand that kills must also
