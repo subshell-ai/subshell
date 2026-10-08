@@ -29,7 +29,7 @@ import { execSetMaintenance } from "./set-maintenance.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execSetSshEnabled } from "./set-ssh-enabled.js";
 import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
-import { execSshRegisterIdentity } from "./ssh-identity.js";
+import { execSshAgentIdentities, execSshRegisterIdentity } from "./ssh-identity.js";
 import { execSshRelayClose, execSshRelayOpen } from "./ssh-relay-exec.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
 import { execTransferWrite } from "./transfer-write.js";
@@ -58,6 +58,10 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * local gate mirror before any lookup or spawn), the M2 §4.3 bootstrap
  * `ssh_register_identity` (spec 2026-10-08 §4.3 - the machine's own signing
  * PUBLIC key, ungated like `set_ssh_enabled`: registration is not an SSH act),
+ * the roster read `ssh_agent_identities` (spec 2026-10-08 §5.4 - the live
+ * agent's public identities as fingerprints plus comments, blobs withheld;
+ * gated like the config arms, because reading the account's agent IS an SSH
+ * act, and it probes the agent's numbering before asking, never guessing),
  * and the brokered relay pair `ssh_relay_open` / `ssh_relay_close`
  * (spec 2026-10-08 §5.1, protocol 18 - open consults the gate then drives the
  * T6/T7 pairing branches by the command's own role; close is ungated teardown,
@@ -145,6 +149,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execSshResolveConfig(ctx, cmd);
       case "ssh_register_identity":
         return await execSshRegisterIdentity(ctx);
+      case "ssh_agent_identities":
+        return await execSshAgentIdentities(ctx);
       case "ssh_relay_open":
         return await execSshRelayOpen(ctx, cmd);
       case "ssh_relay_close":
