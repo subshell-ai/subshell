@@ -61,7 +61,9 @@ line under the wordmark:
   downward (`side="bottom"`; today's `side="top"` was right for a footer).
   Props stay as they are: `AppSidebar` owns the queries and actions.
 - Collapsed trigger: initials avatar, icon-only, centered under the wordmark
-  button; tooltip and accessible name keep the `Account: <display>` form.
+  button; the tooltip keeps the `Account: <display>` form; the accessible name
+  keeps it as its prefix and appends `Update available: v<x>.` while the dot
+  is lit (the e2e locators match the prefix).
 - Menu contents, top to bottom:
   1. Identity block (as today: name, email), plus one inert `detail` line:
      `Subshell Server <serverVersion> · <instanceName>`, the version folded in,

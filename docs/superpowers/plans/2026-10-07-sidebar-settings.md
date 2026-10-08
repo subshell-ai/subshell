@@ -791,4 +791,4 @@ Expected: `CLEAN`.
 
 - Spec §A → Task 1; §B → Task 2 (component) + Task 3 (wiring); §C → Task 3; §Files/Tests/Docs → Tasks 1-3; verification.md boundary → Task 4.
 - Admin-with-no-news loses the old always-a-door row: spec §B moves that affordance to the Server Settings group's Updates page; the task test names this so a reviewer can object consciously.
-- The `/Account:` accessible name and all menu-item names are unchanged, so the e2e specs (`01-setup-wizard`, `08-mobile-shell`, `10-auth-experience`, `16-server-service`, `19-oidc-signin` - all reach the account through `getByRole("button", { name: /Account:/ })`) keep working without edits; e2e runs in CI, not here.
+- The `Account: ` prefix of the trigger's accessible name is kept (the update notice is appended after it only when lit) and all menu-item names are unchanged, so the e2e specs' /Account:/ regex locators keep working: the specs (`01-setup-wizard`, `08-mobile-shell`, `10-auth-experience`, `16-server-service`, `19-oidc-signin` - all reach the account through `getByRole("button", { name: /Account:/ })`) keep working without edits; e2e runs in CI, not here.

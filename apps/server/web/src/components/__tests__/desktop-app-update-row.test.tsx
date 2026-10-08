@@ -262,8 +262,9 @@ describe("DesktopAppUpdateRow", () => {
     const { container } = renderRow();
     await waitFor(() => expect(screen.getByText("Subshell Server App 0.8.0")).toBeTruthy());
     // The slot is always in the layout for alignment; "no news" is the slot
-    // being `invisible`. Asserting `.bg-warning` here would now pass
-    // vacuously — that class no longer exists anywhere.
+    // being `invisible`. Asserting `.bg-warning` here would now pass vacuously
+    // for the wrong reason - the class exists elsewhere in the rail (the
+    // header card's avatar dot), just not in this row's markup.
     expect(container.querySelector("span[aria-hidden]")?.className).toContain("invisible");
     expect(screen.queryByText(/available/)).toBeNull();
   });

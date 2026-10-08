@@ -35,11 +35,11 @@ import { appUpdateNotice } from "@/lib/desktop-app-update";
  * bundled window for everyone else. Both end at the same act; only an admin
  * gets the table with the Server row folded in beside it.
  *
- * This is the one place the two version rows differ on that question.
- * The header account card (which carries the server version since the retired
- * footer row, spec 2026-10-07) really is inert for a member, and correctly: a
- * SERVER update is admin-only wherever you stand, while replacing THIS app is
- * not.
+ * This is the one place the two version rows differ on that question. The
+ * server-version news the header account card carries (spec 2026-10-07)
+ * really is inert for a member, and correctly: a member gets no dot, no
+ * update row, no door - only an admin can act on a server update, wherever
+ * you stand; replacing THIS app is not admin-only.
  *
  * **Absence still means the shell did not answer**, not "up to date": a
  * browser, or a build predating `desktop_app_update`, renders nothing at all,

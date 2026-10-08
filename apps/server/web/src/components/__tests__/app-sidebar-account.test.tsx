@@ -18,8 +18,9 @@ import { setFetchRouter } from "@/test-setup";
  * What these pin: the card sits in the header and the browser rail carries no
  * footer at all; the version row's audience split survives the move (member
  * never fetches /api/admin/updates, no dot; admin with news gets dot + row +
- * door); desktop shells keep their footer rows. The /Account:/ trigger name is
- * deliberately unchanged - the e2e specs sign out through it.
+ * door); desktop shells keep their footer rows. The trigger's accessible name
+ * keeps its /Account:/ prefix (the update notice is appended after it when
+ * the dot is lit) - the e2e specs sign out through it.
  *
  * Negative DOM asserts in this file use the length-based forms
  * (`querySelectorAll(...).length` / `queryAllByRole(...).length`) because they
