@@ -48,6 +48,12 @@ const ORIGIN = `http://127.0.0.1:${PORTS.ssh}`;
 /** Boot + sshd + agent + a real tmux ssh pane: budgets on spec 12's scale. */
 const READY_TIMEOUT = 60_000;
 const SPAWN_TIMEOUT = 60_000;
+// The death sweep is a longer chain than a boot: typed `exit` -> the ssh
+// process ends -> the tmux pane-died hook -> reportExit -> the server's local
+// sweep rm. On a contended CI runner that whole chain overran the 60s boot
+// budget once and passed on retry, so it gets its own, doubled. It never
+// weakens the assertion: the dir must still be gone.
+const SWEEP_TIMEOUT = 120_000;
 
 const missing = missingSshBins();
 test.skip(missing.length > 0, `SSH binaries absent on this host (${missing.join(", ")}) - spec 22 needs a real sshd`);
@@ -406,7 +412,7 @@ test("ssh pane: gated launch to the fixture sshd, owner input echoes from the re
     // observable because the spec passed the path in.
     const exitLine = await admin.post(`/api/subshells/${subshellId}/input`, { data: { text: "exit" } });
     expect(exitLine.ok(), await exitLine.text()).toBe(true);
-    await pollUntil(`ssh config dir ${sshDir} outlived the pane's own exit`, () => !existsSync(sshDir), READY_TIMEOUT);
+    await pollUntil(`ssh config dir ${sshDir} outlived the pane's own exit`, () => !existsSync(sshDir), SWEEP_TIMEOUT);
 
     // Retire the parked row (terminate accepts a dead pane, delete removes
     // it; the delete path's unlink-only artifact list has nothing left to
