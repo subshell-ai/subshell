@@ -23,12 +23,13 @@ import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray, isStringMap } fr
 import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 import { parseSshConnectionSnapshot } from "./ssh-config.js";
 import { isSshErrorCode } from "./ssh-errors.js";
-import { isSshGrantFingerprint } from "./ssh-frames.js";
-import { SSH_MAX_DISCOVERED_ALIASES, SSH_NAME_MAX_CHARS } from "./ssh-limits.js";
+import { isSshGrantFingerprint, isSshKnownHostsPinLine } from "./ssh-frames.js";
+import { SSH_MAX_DISCOVERED_ALIASES, SSH_MAX_HOST_KEY_LINES, SSH_NAME_MAX_CHARS } from "./ssh-limits.js";
 import type {
   NodeSshAgentIdentitiesResult,
   NodeSshAgentIdentity,
   NodeSshAliasListResult,
+  NodeSshHostKeyResult,
   NodeSshIdentityResult,
   NodeSshResolveOutcomeWire,
 } from "./ssh-results.js";
@@ -613,6 +614,32 @@ export function parseNodeSshAgentIdentities(data: unknown): NodeSshAgentIdentiti
     identities.push({ fingerprint: entry.fingerprint, comment: entry.comment });
   }
   return { identities };
+}
+
+/**
+ * Validates and narrows an `ssh_host_key` command's `result{data}` (spec
+ * 2026-10-08 §9, Task 12). Each line is checked with the SAME predicate that
+ * gates the relay-open's pin carriage ({@link isSshKnownHostsPinLine}) - one
+ * definition of "what a wire host-key line is", answer in and pin out, so a
+ * line A answered can always ride the open that carries it - and the answer
+ * is capped at {@link SSH_MAX_HOST_KEY_LINES} rather than truncated (the
+ * roster cap's reasoning: a past-cap answer is a malformed machine, not a
+ * long one). An empty list parses: "A has recorded nothing" is the fact the
+ * capture fails closed on, and a fabrication-shaped error would hide it.
+ * Deep well-formedness (which token is the key, whether it matches D) is the
+ * capture service's fingerprint extraction and B's OpenSSH at connect time.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed entries, or null when malformed
+ */
+export function parseNodeSshHostKey(data: unknown): NodeSshHostKeyResult | null {
+  if (!isRecord(data) || !Array.isArray(data.lines)) return null;
+  if ((data.lines as unknown[]).length > SSH_MAX_HOST_KEY_LINES) return null;
+  const lines: string[] = [];
+  for (const line of data.lines as unknown[]) {
+    if (!isSshKnownHostsPinLine(line)) return null;
+    lines.push(line);
+  }
+  return { lines };
 }
 
 /**
