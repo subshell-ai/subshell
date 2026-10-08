@@ -50,9 +50,14 @@ its providers via the admin cookie at `POST /api/auth-providers` (whose save gat
 runs discovery against this fake), and no spec ever dials a real IdP.
 
 Every fixed port in `ports.ts` takes an env override (`E2E_PORT_BACKEND`,
-`E2E_PORT_FAKE_REGISTRY`, `E2E_PORT_FAKE_IDP`, `E2E_PORT_ONBOARDING`) with the
-committed defaults unchanged, the escape hatch for two suites running side by
-side on one machine, which the defaults collide on.
+`E2E_PORT_FAKE_REGISTRY`, `E2E_PORT_FAKE_IDP`, `E2E_PORT_ONBOARDING`,
+`E2E_PORT_SSH`) with the committed defaults unchanged, the escape hatch for
+two suites running side by side on one machine, which the defaults collide on.
+
+Spec `22` boots its own backend too (port 3201) for a reason the shared stack
+cannot serve: the ssh tier reads the connecting account's HOME and bun caches
+`os.homedir()` per process, so that child is SPAWNED with `HOME=<fixture home>`
+plus the spec's `ssh-agent` socket, on its own temp DB/data dir/tmux base.
 
 Spec `12` extends the stack itself: it spawns the **real `subshell` from
 source** (`bun apps/node/agent/src/main.ts enroll|run` via `stub/client.ts`, with

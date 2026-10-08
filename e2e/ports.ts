@@ -26,6 +26,15 @@
  * never repeat there. A clean-machine claim needs a clean instance, and this
  * port is where spec 15 boots one — its own temp DB, its own data dir, and
  * every agent-CLI override pointed at a file that does not exist.
+ *
+ * `ssh` belongs to spec 22's SECOND backend for the same shared-DB reason,
+ * plus one that is its own: the ssh tier reads the connecting account's HOME
+ * (its `~/.ssh/config` is the alias source and `ssh -G` runs as that account),
+ * and bun caches `os.homedir()` per process — so that backend must be SPAWNED
+ * with `HOME=<fixture home>` in its env, which the shared stack can never
+ * carry for the other specs. Its own temp DB, its own data dir (whose
+ * `ssh/<id>` dir the spec asserts on through the filesystem), and its own
+ * tmux base.
  */
 const envPort = (name: string, fallback: number): number => {
   const raw = process.env[name];
@@ -42,6 +51,7 @@ export const PORTS = {
   fakeRegistry: envPort("E2E_PORT_FAKE_REGISTRY", 3198),
   fakeIdp: envPort("E2E_PORT_FAKE_IDP", 3197),
   onboarding: envPort("E2E_PORT_ONBOARDING", 3200),
+  ssh: envPort("E2E_PORT_SSH", 3201),
 } as const;
 
 export const BASE_URL = `http://127.0.0.1:${PORTS.backend}`;
