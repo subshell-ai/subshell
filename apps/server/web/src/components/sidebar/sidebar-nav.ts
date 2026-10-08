@@ -1,6 +1,7 @@
 import {
   Activity,
   ArrowUpCircle,
+  Cable,
   DatabaseBackup,
   KeyRound,
   LayoutDashboard,
@@ -57,6 +58,10 @@ const NAV_ENTRIES: NavEntry[] = [
   // Terminal, like the empty subshells box — subshells are terminal harnesses,
   // not a grid (the grid icon belongs to the tiles/list view toggle).
   { to: "/", label: "Subshells", icon: TerminalSquare },
+  // A primary action, so it sits above the objects it creates, not under
+  // Settings (spec 2026-10-07 §7). Cable names the link being opened; the
+  // icons test pins global uniqueness.
+  { to: "/connect", label: "Connect", icon: Cable },
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
   // Personal settings (spec 2026-10-07 §A): the pages this viewer always owns,
   // grouped the way the admin's Server Settings group is. No gate: every

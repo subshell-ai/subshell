@@ -107,6 +107,10 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     const { message, code, errId } = parseErrorBody(body);
     throw new ApiError(res.status, message, { code, errId });
   }
+  // 204 may not carry a body (a `Response` constructed with one throws), and
+  // `res.json()` on an empty one throws too. The ssh saved-host DELETE is the
+  // first route to answer it; a body-less success resolves undefined.
+  if (res.status === 204) return undefined as unknown as T;
   return (await res.json()) as T;
 }
 

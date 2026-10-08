@@ -34,6 +34,7 @@ function node(over: Partial<NodeDetail> = {}): NodeDetail {
     maintenance: false,
     maintenanceAt: null,
     maintenanceSource: null,
+    sshEnabled: false,
     held: null,
     ...over,
   };
