@@ -1,9 +1,15 @@
 {
   "extends": "@internal/tsconfig/tsconfig.json",
   "include": ["src/**/*"],
+  "//": [
+    "No rootDir/outDir here (the typecheck config): the relay integration test",
+    "under src/**/__tests__ imports the agent's relay modules from",
+    "apps/node/agent IN PLACE, and an emit layout (explicit or inferred from",
+    "outDir) makes every such file a TS6059. The build config pins both.",
+    "The DOM lib (which the agent's own tsconfig carries too) supplies the",
+    "WebCrypto globals (JsonWebKey) the agent's relay modules reference."
+  ],
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src",
     "module": "NodeNext",
     "moduleResolution": "node16",
     "paths": {
