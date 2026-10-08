@@ -76,15 +76,29 @@ export type SshRelayRole = "A" | "B";
  * both node ids with their roles, the peer's registered signing AND
  * encryption public keys to pin (§4.4), the grant id with its selected
  * key-fingerprint set (§5.4, delivered so the responder enforces it without
- * a REST call it cannot make), and the lifetime. Every field is REQUIRED:
- * a partial pairing names no session the endpoint could honor, so the
- * grammar refuses it rather than let an executor guess a half.
+ * a REST call it cannot make), the lifetime, and the pane the pairing serves.
+ * Every field is REQUIRED: a partial pairing names no session the endpoint
+ * could honor, so the grammar refuses it rather than let an executor guess a
+ * half.
  *
- * The peer keys travel as their registered spellings: the ES256 signing half
- * as a JSON-serialized public JWK (what §4.2/§4.3 store and report), the
- * ECDH-ES encryption half as canonical base64 (what the link pins). The
- * byte-equality enforcement is the receiver's machine pin store (§4.4),
+ * The peer keys travel as their ONE canonical spellings - the same strings
+ * §4.2/§4.3 store, transported byte-identically so the pin store's
+ * byte-equality rule has something to match:
+ * - `peerSigningPublicKey`: the peer's ES256 signing PUBLIC JWK, JSON-
+ *   serialized (the registration/enroll reporting spelling).
+ * - `peerEncryptPublicKey`: base64 (standard, padded, `BASE64_RE`) of the
+ *   UTF-8 bytes of the peer's ECDH-ES encryption PUBLIC JWK, JSON-serialized
+ *   (what the receiver decodes back to the exact string its machine pin
+ *   store holds, and what `seal` consumes).
+ * The byte-equality enforcement is the receiver's machine pin store (§4.4),
  * not this grammar's.
+ *
+ * `paneId` (Task 8 (b)): the B-side proxy socket is
+ * `<dataDir>/ssh/<paneId>/agent.sock`, and pane-runtime's path-composition
+ * guard (`buildSshConfigPath`/`buildAgentSocketPath`) accepts only ids
+ * matching {@link isSshPaneId}; the grammar names the SAME shape so a command
+ * that could only ever fail the node's socket-path guard is refused here,
+ * before the plane signs it.
  */
 export interface SshRelayOpenCommand {
   type: "ssh_relay_open";
@@ -100,7 +114,7 @@ export interface SshRelayOpenCommand {
   bNodeId: string;
   /** The peer's registered ES256 signing public key (JSON public JWK) to pin. */
   peerSigningPublicKey: string;
-  /** The peer's registered ECDH-ES encryption public key (canonical base64) to pin. */
+  /** Base64 of the UTF-8 bytes of the peer's JSON-serialized encryption public JWK, to pin. */
   peerEncryptPublicKey: string;
   /** The live grant this session runs under (revoke cuts the session, §6.3). */
   grantId: string;
@@ -108,6 +122,8 @@ export interface SshRelayOpenCommand {
   fingerprints: string[];
   /** Session ceiling in ms; SSH_RELAY_LIFETIME_MS is what the plane sends. */
   lifetimeMs: number;
+  /** The pane (subshell id) the pairing serves: names B's proxy socket path (§5.2). */
+  paneId: string;
 }
 
 /**
@@ -197,15 +213,35 @@ function isIdStr(value: unknown): value is string {
 const GRANT_FINGERPRINT_RE = /^SHA256:[A-Za-z0-9_-]{1,128}$/;
 
 /**
+ * The pane id the relay-open command names: exactly the shape pane-runtime's
+ * socket-path composition accepts (`buildSshConfigPath`'s own guard - the
+ * grammar and the path guard cannot drift apart, because the plane's
+ * `openRelay` validates with THIS predicate before signing, both nodes'
+ * parsers validate it on receipt, and the node's bind still runs the path
+ * guard itself as the last station.
+ */
+const SSH_PANE_ID_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+
+/**
+ * Whether `value` is a pane (subshell) id inside the socket-path composition
+ * shape. Exported so the PLANE validates the id it is about to sign into a
+ * relay-open with the same rule its parser enforces on receipt.
+ */
+export function isSshPaneId(value: unknown): value is string {
+  return isStr(value) && SSH_PANE_ID_RE.test(value);
+}
+
+/**
  * The grant's selected fingerprint set: strings, every one in the `SHA256:`
  * display form (an empty or free-text entry matches no key yet would ride a
  * grant as a silent never-serve line), and at most
  * {@link SSH_MAX_GRANT_FINGERPRINTS} - over-cap is a refusal at the grammar
  * so the truncation nobody may silently perform is impossible by construction
  * (§5.4). An EMPTY set parses: §5.4's "names no fingerprint, serves nothing"
- * is a decision, not a defect.
+ * is a decision, not a defect. Exported for the plane's pre-signing check
+ * (one definition of the grant-selection law, both directions).
  */
-function isGrantFingerprints(value: unknown): value is string[] {
+export function isSshGrantFingerprints(value: unknown): value is string[] {
   return (
     isStrArray(value) && value.every((f) => GRANT_FINGERPRINT_RE.test(f)) && value.length <= SSH_MAX_GRANT_FINGERPRINTS
   );
@@ -264,13 +300,18 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
         return null;
       }
       if (!isRecord(peerSigningJwk) || "d" in peerSigningJwk) return null;
-      // The encryption half is a base64 key (the link pin's own spelling); a
-      // present-but-undecodable one is malformed, not "the pin sorts it out".
+      // The encryption half is base64 of the UTF-8 JSON public JWK (the one
+      // canonical spelling, see the command's doc); a present-but-undecodable
+      // one is malformed, not "the pin sorts it out".
       if (!isIdStr(value.peerEncryptPublicKey) || !BASE64_RE.test(value.peerEncryptPublicKey)) return null;
-      if (!isGrantFingerprints(value.fingerprints)) return null;
+      if (!isSshGrantFingerprints(value.fingerprints)) return null;
       // Positive whole milliseconds; the VALUE's lawfulness (SSH_RELAY_LIFETIME_MS
       // as the ceiling the broker sends) is the broker's, this is the shape.
       if (!isInt(value.lifetimeMs) || (value.lifetimeMs as number) <= 0) return null;
+      // Task 8 (b): the pane the pairing serves. The B proxy socket is named
+      // by it, so it must be a path-composability id - the SAME guard the
+      // node's socket bind runs, applied before anything is signed.
+      if (!isSshPaneId(value.paneId)) return null;
       // Rebuilt from the validated fields, never a cast of the candidate: a
       // stray member on the wire drops here, exactly as the close arm drops.
       return {
@@ -285,6 +326,7 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
         grantId: value.grantId,
         fingerprints: [...value.fingerprints],
         lifetimeMs: value.lifetimeMs as number,
+        paneId: value.paneId,
       };
     }
     case "ssh_relay_close": {

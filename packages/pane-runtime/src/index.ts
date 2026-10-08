@@ -150,6 +150,7 @@ export {
   walkSshConfig,
 } from "./ssh/ssh-discover.js";
 export {
+  buildAgentSocketPath,
   buildSshConfigPath,
   renderSshConfigContents,
   sshDestinationToken,
