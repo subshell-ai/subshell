@@ -1,9 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSshConfigPath } from "@internal/pane-runtime";
 import type { SshConnectionSnapshotWire } from "@internal/subshell-protocol";
+import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -184,7 +185,7 @@ describe("createSubshell ssh plumbing", () => {
 });
 
 describe("deleteSubshell reads the row's ssh COLUMN as the kind fact", () => {
-  it("a LOCAL row with a snapshot gets the config path removed — whatever its harness id claims", async () => {
+  it("a LOCAL row with a snapshot gets its config DIR swept — whatever its harness id claims", async () => {
     const id = crypto.randomUUID();
     created.push(id);
     await subshellsRepo.create({
@@ -200,9 +201,16 @@ describe("deleteSubshell reads the row's ssh COLUMN as the kind fact", () => {
       nodeId: LOCAL_NODE_ID,
       ssh: JSON.stringify(SNAPSHOT),
     });
+    // The dir the LocalLauncher would have written, on the SERVER's own disk
+    // (the sweep is byte-derived, not launcher-provided).
+    mkdirSync(join(SUBSHELL_SERVER_DATA_DIR, "ssh", id), { recursive: true });
+    writeFileSync(subshellSshConfigPath(id), "Host *\n");
     const { manager, launcher } = mkManager();
     expect(await manager.deleteSubshell(OWNER, id)).toBe(true);
-    expect(launcher.removedPaths.at(-1)).toEqual([launcher.logPath(id), subshellSshConfigPath(id)]);
+    // The config path is NO LONGER in the launcher's unlink list (a file unlink
+    // left the DIR); the sweep function took the whole directory instead.
+    expect(launcher.removedPaths.at(-1)).toEqual([launcher.logPath(id)]);
+    expect(existsSync(join(SUBSHELL_SERVER_DATA_DIR, "ssh", id))).toBe(false);
   });
 
   it("an AGENT row with a snapshot passes the kind flag through subshellArtifacts", async () => {
@@ -250,8 +258,13 @@ describe("deleteSubshell reads the row's ssh COLUMN as the kind fact", () => {
       nodeId: LOCAL_NODE_ID,
       ssh: null,
     });
+    // A dir carrying the pane's NAME exists, but the row owns no config: the
+    // sweep's guard, not the launcher list, is what keeps it standing.
+    mkdirSync(join(SUBSHELL_SERVER_DATA_DIR, "ssh", id), { recursive: true });
     const { manager, launcher } = mkManager();
     expect(await manager.deleteSubshell(OWNER, id)).toBe(true);
     expect(launcher.removedPaths.at(-1)).toEqual([launcher.logPath(id)]); // no config path
+    expect(existsSync(join(SUBSHELL_SERVER_DATA_DIR, "ssh", id))).toBe(true); // sweep refused
+    rmSync(join(SUBSHELL_SERVER_DATA_DIR, "ssh", id), { recursive: true, force: true });
   });
 });

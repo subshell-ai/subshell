@@ -68,9 +68,9 @@ function assertRenderable(snapshot: SshConnectionSnapshotWire): void {
  */
 const MANDATORY_POLICY: readonly [string, string][] = [
   // first connect records the key in the machine's own known_hosts; a CHANGED
-  // key is refused by OpenSSH itself (spec §9: accept-new is the M1 posture)
+  // key is refused by OpenSSH itself (spec 2026-10-07 §9: accept-new is the M1 posture)
   ["StrictHostKeyChecking", "accept-new"],
-  // no agent or X11 forwarding (the §2 "no agent/X11 forwarding" sentence)
+  // no agent or X11 forwarding (spec 2026-10-07 §5.2: forwards refused by name, never reappearing)
   ["ForwardAgent", "no"],
   ["ForwardX11", "no"],
   ["ForwardX11Trusted", "no"],
@@ -78,13 +78,13 @@ const MANDATORY_POLICY: readonly [string, string][] = [
   ["ClearAllForwardings", "yes"],
   ["Tunnel", "no"],
   ["PermitRemoteOpen", "none"],
-  // no local commands on any branch (§2 "no local commands")
+  // no local commands on any branch (spec 2026-10-07 §5.2: remote/local commands refused by name)
   ["PermitLocalCommand", "no"],
-  // the command contract owns the remote side; no imported remote command / env (§2 "Do not import RemoteCommand, SendEnv, SetEnv")
+  // the command contract owns the remote side; no imported remote command / env (spec 2026-10-07 §5.2: env and command sends refused)
   ["RemoteCommand", "none"],
-  // no escape menu — `~` is a local shell (§2 "no SSH escape commands")
+  // no escape menu; `~` is a local shell (spec 2026-10-07 §5.2: escape sends refused)
   ["EscapeChar", "none"],
-  // no ambient control sockets or multiplexing (§2's explicit clause)
+  // no ambient control sockets or multiplexing (spec 2026-10-07 §5.2: the render carries only approved facts)
   ["ControlMaster", "no"],
   ["ControlPath", "none"],
   ["GSSAPIAuthentication", "no"],
@@ -122,7 +122,7 @@ function configPathValue(path: string): string {
 /** One config line for each known-hosts ref the snapshot names; absent names render nothing. */
 function knownHostsLines(files: string[]): string[] {
   // absent renders nothing: ssh's own default `~/.ssh/known_hosts` is the M1
-  // trust store (§9) - the tier's product wrote /dev/null because its
+  // trust store (spec 2026-10-07 §9) - the tier's product wrote /dev/null because its
   // BatchMode posture made silence fail closed; here silence IS the policy.
   if (files.length === 0) return [];
   return files.map((f) => `    UserKnownHostsFile ${configPathValue(f)}`);
@@ -141,7 +141,7 @@ export function renderSshConfigContents(snapshot: SshConnectionSnapshotWire): st
   assertRenderable(snapshot);
   const lines = [
     "# Subshell managed SSH config - GENERATED, do not edit.",
-    "# Mandatory runtime policy for the connection and every ProxyJump hop (§2).",
+    "# Mandatory runtime policy for the connection and every ProxyJump hop (spec 2026-10-07 §5.2).",
     "Host *",
     ...MANDATORY_POLICY.map(([key, value]) => `    ${key} ${value}`),
     ...knownHostsLines(snapshot.knownHostsFiles),
@@ -155,8 +155,8 @@ export function renderSshConfigContents(snapshot: SshConnectionSnapshotWire): st
 /**
  * Build ssh's option argv for one snapshot: EVERYTHING after the binary
  * EXCEPT the trailing `-- host` tail ({@link sshDestinationToken} carries
- * that one entry). `-F <path>` first — the caller composed the path
- * ({@link buildSshConfigPath}) and owns the write — then `-p` ALWAYS (the
+ * that one entry). `-F <path>` first (the caller composed the path with
+ * {@link buildSshConfigPath} and owns the write), then `-p` ALWAYS (the
  * port is a resolved fact, never ssh's guess), `-l` only when the snapshot
  * names a user, and `HostKeyAlias`/`ProxyJump` only when set. No `-tt`: this
  * pane allocates its PTY through tmux and carries no remote command, so
