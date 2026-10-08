@@ -562,6 +562,12 @@ export class SubshellManagerService {
       } catch {
         // kill is best-effort; the row + token rollback below must still run
       }
+      // A LOCAL ssh launch writes its config inside `launch`, before the spawn
+      // that threw here — so retiring the row must retire the dir too, or a
+      // half-built `<dataDir>/ssh/<id>` leaks until a manual delete. The guard
+      // no-ops every non-local / non-ssh create; `targetNode` keeps a remote
+      // pane's dir on ITS node's disk untouched.
+      sweepLocalSshDir({ id, nodeId: targetNode, ssh: ssh ? JSON.stringify(ssh.snapshot) : null });
       await this.#subshells.markTerminated(id, new Date().toISOString());
       await this.#revokeTokenOrUnlink(id);
       publishLive({ kind: "subshell.changed", id });
@@ -1432,6 +1438,13 @@ export class SubshellManagerService {
             publishLive({ kind: "subshell.changed", id: row.id });
             logger.info(`subshell process absent (no socket): ${row.id}`);
             await this.#notifyDeath(row);
+            // This no-socket branch stamps alive→dead directly rather than
+            // through #applyDeath, so the ssh-config sweep that lives there must
+            // be repeated here (guard no-ops every non-local / non-ssh row). A
+            // real ssh pane always carries a socket at create, so this is the
+            // fixture-shaped belt that keeps "whichever hand first notices
+            // removes the dir" true for EVERY alive→dead stamp, not most.
+            sweepLocalSshDir(row);
           }
         }
         continue;
@@ -1567,16 +1580,19 @@ export class SubshellManagerService {
   }
 
   /**
-   * The shared death transition — the ONE place a running row is stamped
-   * alive→dead. Every entry point that learns of a death calls this: the
-   * sweep (local tmux probe or the agent `probe`/`exit` census), an agent
-   * `exit` event, and the `subshells_report` reconnect census. Idempotent by
-   * construction: the stamp + death push fire only while the FRESH row is
-   * still `running` with `alive: 1`, and a row a restart owns
-   * (`restartInFlight`) is off-limits. After the (possible) transition the
-   * auto-restart ladder runs for parked rows, and a subshell that will never
-   * come back — opted out or backoff-exhausted — has its bearer revoked here.
-   * The cached preview dies with the pane.
+   * The shared death transition — where a probe- or report-driven death is
+   * stamped alive→dead AND the pane's artifacts (preview cache, ssh config dir,
+   * idle tmux server) are cleared. Every entry point that learns a LIVE pane is
+   * gone calls this: the sweep (local tmux probe or the agent `probe`/`exit`
+   * census), an agent `exit` event, and the `subshells_report` reconnect census.
+   * (The reconcile's no-socket fast path — a row that cannot be alive — stamps
+   * directly rather than routing here, and repeats the ssh sweep so no
+   * alive→dead path misses it.) Idempotent by construction: the stamp + death
+   * push fire only while the FRESH row is still `running` with `alive: 1`, and a
+   * row a restart owns (`restartInFlight`) is off-limits. After the (possible)
+   * transition the auto-restart ladder runs for parked rows, and a subshell that
+   * will never come back — opted out or backoff-exhausted — has its bearer
+   * revoked here.
    * @param row - the row as the caller saw it; only its id must still be true
    * @param opts.exitCode - the observed pane exit code (null = never seen)
    * @param opts.endedAt - ISO stamp for the death (the agent's clock for remote events)
