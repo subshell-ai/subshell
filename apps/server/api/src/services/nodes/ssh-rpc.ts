@@ -1,6 +1,8 @@
 import {
+  type NodeSshAgentIdentitiesResult,
   type NodeSshAliasListResult,
   type NodeSshResolveOutcomeWire,
+  parseNodeSshAgentIdentities,
   parseNodeSshAliasList,
   parseNodeSshIdentity,
   parseNodeSshResolveOutcome,
@@ -9,8 +11,9 @@ import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
 /**
  * The ssh commands as plane-side RPC wrappers (spec 2026-10-07 §5 for the
- * discovery/resolve pair; spec 2026-10-08 §4.3 for the identity bootstrap).
- * Each is `sendCommand` plus ITS frozen result parser:
+ * discovery/resolve pair; spec 2026-10-08 §4.3 for the identity bootstrap and
+ * the §5.4 agent roster the approval screen enumerates). Each is `sendCommand`
+ * plus ITS frozen result parser:
  * the value these return is a validated plain object (or the function throws),
  * so no caller can branch on a machine answer it has not parsed.
  *
@@ -121,4 +124,29 @@ export async function sshRegisterIdentity(nodeId: string): Promise<string> {
     throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed signing identity`, nodeId);
   }
   return parsed.signingPublicKey;
+}
+
+/**
+ * Ask one machine for its LIVE agent's public roster (spec 2026-10-08 §5.4,
+ * Task 11): the approval screen's choice list, as the frozen validator
+ * narrows it - fingerprints plus comments, the blobs already withheld on the
+ * machine (the grammar cannot carry them). The command asks the WHOLE
+ * roster, so this wrapper has no input beyond the target: a selection sent
+ * from the plane would be a decision about A's keys made where A's agent is
+ * the only witness.
+ * @throws {SshRpcError} on any transport/wire failure, per the kinds above
+ */
+export async function sshAgentIdentities(nodeId: string): Promise<NodeSshAgentIdentitiesResult> {
+  let data: unknown;
+  try {
+    data = await sendCommand(nodeId, { type: "ssh_agent_identities" });
+  } catch (err) {
+    if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
+    throw err;
+  }
+  const parsed = parseNodeSshAgentIdentities(data);
+  if (!parsed) {
+    throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed agent roster`, nodeId);
+  }
+  return parsed;
 }

@@ -1,10 +1,17 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { isSshGrantFingerprints, SSH_MAX_GRANT_FINGERPRINTS, SSH_NAME_MAX_CHARS } from "@internal/subshell-protocol";
+import {
+  isSshGrantFingerprints,
+  type NodeSshAgentIdentitiesResult,
+  type NodeSshAgentIdentity,
+  SSH_MAX_GRANT_FINGERPRINTS,
+  SSH_NAME_MAX_CHARS,
+} from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { type NewSshGrantRequest, SshGrantsRepository } from "@/db/repositories/ssh-grants.repository.js";
 import type { SshGrantCreatedVia, SshGrantRequestStatus, SshKeyGrantTable } from "@/db/types/ssh-grants.db-types.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
+import { SshRpcError, sshAgentIdentities } from "@/services/nodes/ssh-rpc.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { getRelayBroker, type RelayBroker, type RelayPeerKeys, SshRelayRefusal } from "@/services/ssh-relay.service.js";
 import { logger } from "@/utils/logger.js";
@@ -41,8 +48,9 @@ import { logger } from "@/utils/logger.js";
  * file writes; no key material, challenge, or signature ever rides any row.
  *
  * Everything outside the module is an injected seam (the `getNodeWsDeps`
- * pattern): the clock, the relay broker, and the notification sink. The
- * production defaults sit at the bottom; tests replace the whole trio.
+ * pattern): the clock, the relay broker, the notification sink, and the
+ * roster RPC the approval screen reads. The production defaults sit at the
+ * bottom; tests replace the whole set.
  */
 
 /** How long an unanswered first-use request stays answerable: setup-key scale (24 h). */
@@ -58,6 +66,13 @@ export interface SshGrantsDeps {
   broker(): RelayBroker;
   /** Ring the owner about one pending request (fire-and-forget; the sink swallows its own failures). */
   notifyGrantApproval(ownerUserId: string, requestId: string): void;
+  /**
+   * Ask one machine for its live agent's public roster over the node link
+   * (default: `ssh-rpc.sshAgentIdentities`, the `??` at the call site being
+   * the production wiring - the NodeWsDeps.detect shape). A test seam so the
+   * approval surface can pin fail-closed behavior without a live socket.
+   */
+  fetchAgentIdentities?(nodeId: string): Promise<NodeSshAgentIdentitiesResult>;
 }
 
 let depsOverride: SshGrantsDeps | null = null;
@@ -561,6 +576,82 @@ export async function listGrantRequests(args: {
     status: row.status,
     createdAt: row.createdAt,
   }));
+}
+
+/* ------------------------------------------------------------------ */
+/* the roster fetch: the approval screen's choice list (§5.4, Task 11) */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Read the key home's public agent roster for the approval screen (spec
+ * 2026-10-08 §5.4): the signed `ssh_agent_identities` command goes to A over
+ * the existing node-link RPC, and the answer is A's WHOLE roster - the
+ * operator selects the grant's subset from it, capped at approval, never
+ * here. The read is a question, not an answer: it writes NO audit row and
+ * changes no row, and every failure (offline, outdated, timeout, refusal,
+ * malformed answer) answers the named error with the request left PENDING.
+ * Fabricating an empty roster would read to the operator as "A holds no
+ * keys"; an empty roster that is the truth comes from a live agent and rides
+ * the answer untouched.
+ */
+export async function listRequestAgentIdentities(args: {
+  ownerUserId: string;
+  requestId: string;
+}): Promise<SshGrantAnswer<{ identities: NodeSshAgentIdentity[] }>> {
+  const now = grantsDeps().nowIso();
+  await repo.sweepExpiredRequests(now);
+  const row = await repo.getRequest(args.ownerUserId, args.requestId);
+  if (!row) return refused(NOT_FOUND_REQUEST);
+  if (row.status !== "pending") return refused(ALREADY_ANSWERED);
+  try {
+    const fetcher = grantsDeps().fetchAgentIdentities ?? sshAgentIdentities; // the `??` is the production wiring
+    const roster = await fetcher(row.keyHomeNodeId);
+    return granted({ identities: roster.identities });
+  } catch (err) {
+    if (err instanceof SshRpcError) return refused(rosterRpcRefusal(err));
+    throw err;
+  }
+}
+
+/**
+ * The roster RPC's failure as a grant-surface refusal: the same code family
+ * `ssh-launch`'s `rpcRefusal` uses (they are the same doors on the same
+ * link), with the KEY HOME named in the copy and the agent's own text kept
+ * out of the response (it reaches the log on the refused/malformed arm, per
+ * the files-remote-browse posture). The pending row rides untouched through
+ * every arm - §5.4's "stays pending until A is reachable" is exactly the
+ * absence of a write here.
+ */
+function rosterRpcRefusal(err: SshRpcError): SshRefusalNarrow {
+  if (err.kind === "offline") {
+    return {
+      status: 409,
+      code: BackendErrorCodes.NODE_OFFLINE,
+      message: "The key home has no live connection right now; bring its Subshell app online and ask again.",
+    };
+  }
+  if (err.kind === "unsupported") {
+    return {
+      status: 409,
+      code: BackendErrorCodes.NODE_OUTDATED,
+      message: "The Subshell app on the key home is too old to report its agent keys. Update it from its machine page.",
+    };
+  }
+  if (err.kind === "timeout") {
+    return {
+      status: 409,
+      code: BackendErrorCodes.NODE_UNREACHABLE,
+      message: "The key home did not answer the roster request in time; check its connection and ask again.",
+    };
+  }
+  logger
+    .withError(err)
+    .warn(`ssh roster rpc ${err.kind} failed against node ${err.nodeId}: ${err.detail ?? err.message}`);
+  return {
+    status: 502,
+    code: BackendErrorCodes.SSH_NODE_REFUSED,
+    message: "The key home refused the roster request. Check that SSH is switched on there and an agent is running.",
+  };
 }
 
 /* ------------------------------------------------------------------ */
