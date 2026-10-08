@@ -2191,14 +2191,17 @@ Audit events are written, grouped by family:
   and nothing else in the metadata - never the key value; the idempotent
   re-report of the same bytes and the refused different-bytes report write
   no row),
-  `node.ssh_grant.request|create|update|delete|approve|deny` (spec §6/§9,
+  `node.ssh_grant.request|create|update|delete|approve|deny` (spec §6/§9/§10,
   migration 0050: the ask names the pane, the two machines, and the resolved
-  destination; approve/create name the grant, the destination, and the
-  selected-key COUNT (`fingerprintsCount`) - the fingerprint VALUES are
-  public identifiers but they never enter an audit row, a log line, or a
-  notification body; deny is audit-only and expiry writes NOTHING; delete
-  carries `relaysClosed`, the revoke's live-session cut made real; create
-  carries `via: "first-use" | "manual"`),
+  destination; approve/create name the grant, the destination, and the CHOSEN
+  key FINGERPRINTS (the `SHA256:` public identifiers - spec §10 makes the
+  approve row the only durable record of the operator's selection, since a
+  plane could widen the set it hands A and no plane-independent surface shows
+  what A enforced); those fingerprint values appear ONLY in the grant
+  approve/create audit rows - never in a log line or a notification body; deny
+  is audit-only and expiry writes NOTHING; delete carries `relaysClosed`, the
+  revoke's live-session cut made real; create carries `via: "first-use" |
+  "manual"`; no key material, challenge, or signature rides any row),
   `node.ssh_relay.open|close` (spec §5.3/§9: open names grant, A, B, pane,
   the routing ref, and the fingerprint COUNT; close names the one
   `reason` word from the grammar - the plane's broker rows, `actorUserId:
