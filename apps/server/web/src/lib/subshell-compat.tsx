@@ -116,7 +116,8 @@ const TERMINAL_PLUGIN_ID = "terminal";
  * reads its id, the same named plugin.
  *
  * @param options - output of {@link buildAgentOptions} for the current pair
- * @param plugins - the plugin rows, for the terminal lookup by id
+ * @param plugins - the plugin rows, for the agent-harness type lookup (the
+ *   shell tier reads its id off `options`, not these rows)
  * @param recentHarnessId - harnessId of the user's most recent subshell, null when none
  */
 export function defaultAgentId(
