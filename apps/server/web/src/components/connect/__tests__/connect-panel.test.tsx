@@ -209,7 +209,7 @@ describe("machine disclosure (contract 1)", () => {
       await settle();
       const row = await screen.findByRole("option", { name: /this host/ });
       expect(row.getAttribute("data-disabled")).toBe("");
-      expect(row.textContent).toContain("SSH is off here. An admin can switch it on in Server Settings.");
+      expect(row.textContent).toContain("SSH is off here. An admin can switch it on from this machine's settings.");
     } finally {
       restore();
     }

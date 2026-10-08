@@ -59,7 +59,7 @@ test.skip(missing.length > 0, `SSH binaries absent on this host (${missing.join(
 const SSH_DISCLOSURE_COPY =
   "Resolving asks the connecting machine to read its SSH config. A hidden Match exec in that config can run a local command while it resolves.";
 const SSH_VIEW_ONLY_COPY = "SSH sessions take input from their owner only.";
-const MACHINE_OFF_REASON = "SSH is off here. An admin can switch it on in Server Settings.";
+const MACHINE_OFF_REASON = "SSH is off here. An admin can switch it on from this machine's settings.";
 /** The seeded control-plane host's display name (seed-local.ts): the picker reads names, not ids. */
 const LOCAL_NODE_NAME = "Server";
 /** `configGroupLabel(selectedNode.name)` for that row. */
