@@ -1,0 +1,98 @@
+import {
+  type NodeSshAliasListResult,
+  type NodeSshResolveOutcomeWire,
+  parseNodeSshAliasList,
+  parseNodeSshResolveOutcome,
+} from "@internal/subshell-protocol";
+import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
+
+/**
+ * The two ssh discovery/resolve commands as plane-side RPC wrappers
+ * (spec 2026-10-07 §5). Each is `sendCommand` plus ITS frozen result parser:
+ * the value these return is a validated plain object (or the function throws),
+ * so no caller can branch on a machine answer it has not parsed.
+ *
+ * **The outcome's `accepted:false` arm is NOT an error.** "This config needs a
+ * ProxyCommand" is a successful resolution the human must read (§2's refusal
+ * doctrine), and it travels IN THE DATA; these wrappers return the whole
+ * outcome and refuse only what the transport or the wire grammar refused.
+ *
+ * Every failure leaves as one {@link SshRpcError} whose `kind` says which
+ * door closed, so the service maps statuses without re-deriving them from
+ * error sentences:
+ * - `offline` — no live socket (or it dropped before the frame was sent);
+ * - `unsupported` — the connected agent does not know the command (an old
+ *   app; the remedy is the node update);
+ * - `timeout` — the machine did not answer inside the RPC deadline;
+ * - `refused` — the agent answered `ok:false` (its own mirror gate, a missing
+ *   ssh binary, …); `detail` carries the agent's verbatim string for the LOG,
+ *   never for a response body;
+ * - `malformed` — `ok:true` with a payload the frozen validator rejects (a
+ *   protocol violation; treated as a refusal, loudly).
+ */
+
+/** Which door closed on a machine-level ssh RPC failure. */
+export type SshRpcFailure = "offline" | "unsupported" | "timeout" | "refused" | "malformed";
+
+export class SshRpcError extends Error {
+  readonly kind: SshRpcFailure;
+  readonly nodeId: string;
+  /** The agent's `error` string verbatim on a `refused` failure (log/diagnosis only). */
+  readonly detail: string | undefined;
+
+  constructor(kind: SshRpcFailure, message: string, nodeId: string, detail?: string) {
+    super(message);
+    this.name = "SshRpcError";
+    this.kind = kind;
+    this.nodeId = nodeId;
+    this.detail = detail;
+  }
+}
+
+/** Map the RPC layer's failure onto the ssh surface's failure kind. */
+function mapRpcError(nodeId: string, err: NodeRpcError): SshRpcError {
+  const kind: SshRpcFailure =
+    err.code === "offline"
+      ? "offline"
+      : err.code === "unsupported"
+        ? "unsupported"
+        : err.code === "timeout"
+          ? "timeout"
+          : "refused";
+  return new SshRpcError(kind, err.message, nodeId, err.detail);
+}
+
+/** Ask one machine for the NAMES of its usable SSH aliases (never config contents). */
+export async function sshDiscover(nodeId: string): Promise<NodeSshAliasListResult> {
+  let data: unknown;
+  try {
+    data = await sendCommand(nodeId, { type: "ssh_discover_aliases" });
+  } catch (err) {
+    if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
+    throw err;
+  }
+  const parsed = parseNodeSshAliasList(data);
+  if (!parsed) {
+    throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed alias list`, nodeId);
+  }
+  return parsed;
+}
+
+/**
+ * Ask one machine to resolve one destination token into the approved
+ * snapshot (or its named refusal, which is a SUCCESSFUL answer).
+ */
+export async function sshResolve(nodeId: string, alias: string): Promise<NodeSshResolveOutcomeWire> {
+  let data: unknown;
+  try {
+    data = await sendCommand(nodeId, { type: "ssh_resolve_config", alias });
+  } catch (err) {
+    if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
+    throw err;
+  }
+  const parsed = parseNodeSshResolveOutcome(data);
+  if (!parsed) {
+    throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed resolve outcome`, nodeId);
+  }
+  return parsed;
+}

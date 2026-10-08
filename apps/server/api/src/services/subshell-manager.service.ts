@@ -17,6 +17,7 @@ import {
   type NodeProbeEntry,
   normalizeLabel,
   parseNodeProbeEntries,
+  type SshConnectionSnapshotWire,
 } from "@internal/subshell-protocol";
 import { harnessUsable } from "@/api/harness-utils.js";
 import type { PresetsRepository } from "@/db/repositories/presets.repository.js";
@@ -127,6 +128,23 @@ const defaultNotify: (subshellId: string, kind: NotifyKind) => Promise<void> = a
   // construct the real notify service (and never load web-push).
   await getNotifyService().notifySubshell(id, kind);
 };
+
+/**
+ * The composed half of an ssh-pane launch (spec 2026-10-07 decision 4, Task 7
+ * plumbing): the derived config path, the rendered bytes, and the APPROVED
+ * snapshot the row keeps. `subshells.ssh` = `JSON.stringify(snapshot)` is
+ * written by `createSubshell`; the LaunchPlan member carries only
+ * `configPath`/`fileContent` (the snapshot never rides the wire — the
+ * launcher re-derives the path and the renderer produced the bytes).
+ */
+export interface SshLaunchPlumbing {
+  /** `buildSshConfigPath(<target dataDir>, <this pane's id>)` — derived, never chosen. */
+  configPath: string;
+  /** `renderSshConfigContents(snapshot)`. */
+  fileContent: string;
+  /** The snapshot the resolver approved (grammar-validated at each boundary already). */
+  snapshot: SshConnectionSnapshotWire;
+}
 
 /**
  * Orchestrates agent subshells: validate inputs, spawn a tmux-backed harness,
@@ -317,6 +335,10 @@ export class SubshellManagerService {
     notify,
     nodeId,
     crossAgent,
+    ssh,
+    presetFlags,
+    extraPaneEnv,
+    subshellId,
   }: {
     userId: string;
     /** Harness plugin to launch — required, with or without a preset. */
@@ -356,7 +378,40 @@ export class SubshellManagerService {
      * silent. Only creation writes it; a restart reuses the row.
      */
     crossAgent?: number;
+    /**
+     * The composed ssh pane (Task 7 plumbing): the row gets
+     * `ssh = JSON.stringify(snapshot)`, the LaunchPlan gets the config member,
+     * and the launch is refused nothing else — an ssh pane is a terminal-type
+     * harness whose flags arrive through `presetFlags`.
+     */
+    ssh?: SshLaunchPlumbing;
+    /**
+     * The launch preset's flags when a caller composes them (the ssh service
+     * does; no one else does today). Present ⇒ the launch preset is
+     * `{ ...EMPTY_PRESET, flags }` — a FRESH object, since EMPTY_PRESET is the
+     * shared frozen constant every other presetless launch reads. Ignored when
+     * a preset row is also given (the row wins: presetFlags exists for the
+     * presetless compose path, not to edit somebody's saved preset).
+     */
+    presetFlags?: string[];
+    /**
+     * Env additions merged into the pane's `subshellEnv` at the compose site
+     * (spec 2026-10-07 decision 3: an ssh pane's `SSH_AUTH_SOCK` — the pane's
+     * command IS the ssh process, so the pane env is the ssh env). Merged
+     * AFTER the preset-independent `SUBSHELL_*` block, before the launch.
+     */
+    extraPaneEnv?: Record<string, string>;
+    /**
+     * Pre-assigned row id, for callers that must compose id-derived facts
+     * BEFORE the row exists (the ssh config path is derived from the pane's
+     * id; Task 7). Shape-guarded; production callers pass nothing and get the
+     * `crypto.randomUUID()` they always got.
+     */
+    subshellId?: string;
   }): Promise<{ id: string; tmuxSocket: string; apiKey: string; promptDelivered: boolean }> {
+    if (subshellId !== undefined && !/^[a-zA-Z0-9_-]{1,64}$/.test(subshellId)) {
+      throw new Error("createSubshell: subshellId is outside the id grammar");
+    }
     const presetRow = presetId ? await this.#presets.findById(presetId) : undefined;
     if (presetId && (!presetRow || presetRow.userId !== userId)) {
       throw new Error("Preset not found");
@@ -373,13 +428,21 @@ export class SubshellManagerService {
     const launcher = this.#launcherFor(targetNode);
     const realPath = await launcher.validateWorkingDir(workingDir);
     await assertDirAllowed(targetNode, realPath);
-    const preset = presetRow ? parsePreset(presetRow) : EMPTY_PRESET;
+    const preset = presetRow
+      ? parsePreset(presetRow)
+      : presetFlags !== undefined
+        ? // Fresh object every time: EMPTY_PRESET is the shared frozen constant
+          // every presetless launch reads, and mutating it (or handing out the
+          // shared reference with new flags hung on it) would leak ssh option
+          // tokens into unrelated panes.
+          { ...EMPTY_PRESET, flags: [...presetFlags] }
+        : EMPTY_PRESET;
     const binary = await launcher.resolveBinary(harness);
     if (!binary) {
       throw new Error(`Harness "${harness.name}" is not installed on this machine.`);
     }
 
-    const id = crypto.randomUUID();
+    const id = subshellId ?? crypto.randomUUID();
     const socket = tmuxSocketFor(id);
     // Display name vs LAUNCH name (titling spec 2026-09-03): only a name a
     // HUMAN chose travels to the pane command — an unnamed create passes ""
@@ -423,6 +486,11 @@ export class SubshellManagerService {
       // How the pane was OPENED, recorded once; the rail's category and the
       // caller's bell default both read this. 0 = the DB default, human.
       crossAgent: crossAgent === 1 ? 1 : 0,
+      // The ssh snapshot column IS the pane's kind fact (migration 0048): the
+      // owner-only input rule, the restart refusal and the delete sweep all
+      // read its presence. NULL for every pane this call did not compose from
+      // an approved snapshot.
+      ssh: ssh ? JSON.stringify(ssh.snapshot) : null,
     });
 
     // The token is minted AFTER the row exists (issueSubshellToken writes the
@@ -448,6 +516,10 @@ export class SubshellManagerService {
         // means nothing on the node; the agent's own dataDir is the truth there.
         subshellEnv.SUBSHELL_DATA_DIR = facts.dataDir;
       }
+      // Caller-composed env (Task 7: the ssh pane's SSH_AUTH_SOCK, decision 3)
+      // merges after the SUBSHELL_* block — `subshellEnv` is a per-launch
+      // object built just above, never a shared constant, so assigning is safe.
+      if (extraPaneEnv) Object.assign(subshellEnv, extraPaneEnv);
       // Command assembly happens INSIDE launch, which runs inside this try:
       // a rejected env key throws there, and the row + token must roll back
       // like any other spawn failure below.
@@ -464,6 +536,9 @@ export class SubshellManagerService {
         mcpConfigPath,
         harnessSession,
         reporter,
+        // The composed ssh member (spec 2026-10-07 decision 4). Conditional
+        // spread: absent on every non-ssh launch, byte-identical plan there.
+        ...(ssh ? { ssh: { configPath: ssh.configPath, fileContent: ssh.fileContent } } : {}),
       });
       if (prompt?.trim()) {
         promptDelivered = await this.#deliverPrompt(
@@ -1010,12 +1085,14 @@ export class SubshellManagerService {
     // The ssh config path rides the list for THIS row only, and the row's
     // kind fact (spec 2026-10-07 decision 4) is read HERE — the launchers
     // compose paths, only the caller holding the row can say which files the
-    // pane OWNS. `harnessId === "ssh"` is that truth today (the ssh service
-    // launches the ssh harness and only it carries a rendered config); when
-    // migration 0048's snapshot column lands, `row.ssh !== null` becomes the
-    // spelled-out kind fact at this one line — the launchers already take
-    // the flag.
-    const sshPane = row.harnessId === "ssh";
+    // pane OWNS. `row.ssh !== null` IS that truth (migration 0048's snapshot
+    // column): the value's presence means a rendered config was composed for
+    // this pane, which is exactly what the cleanup must remove — a row that
+    // merely NAMES the ssh harness (hand-built, or a launch that never got a
+    // snapshot) has no config file to find, and a snapshot under any other
+    // harness id still owns one. Task 7's re-point, promised by the comment
+    // this replaces.
+    const sshPane = row.ssh !== null;
     const artifacts =
       row.nodeId === LOCAL_NODE_ID
         ? [launcher.logPath(id), ...(sshPane ? [subshellSshConfigPath(id)] : [])]
