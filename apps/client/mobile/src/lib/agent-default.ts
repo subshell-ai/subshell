@@ -1,10 +1,14 @@
 import type { PluginView } from "@/types/plugin";
 import type { SubshellView } from "@/types/subshell";
 
+/** The built-in plain shell, by plugin id; the shell tier's favorite. Name
+ *  matches the web mirror's constant of the same spelling. */
+const TERMINAL_PLUGIN_ID = "terminal";
+
 /**
  * The New screen's default-agent rule (spec 2026-09-13 §5) — the mobile
  * mirror of `defaultAgentId` in
- * `apps/server/web/src/lib/subshell-compat.ts` (its call site there is
+ * `apps/server/web/src/lib/subshell-compat.tsx` (its call site there is
  * `apps/server/web/src/components/subshell-picker/new-subshell-form.tsx`),
  * kept in step by hand (the repo convention for this screen; change one,
  * change both). Pure so the rule is testable without a device.
@@ -58,7 +62,7 @@ export function defaultAgentId(
   const usableAgents = plugins.filter(usable);
   return (
     usableAgents.find((p) => p.type === "agent-harness")?.id ??
-    usableAgents.find((p) => p.id === "terminal")?.id ??
+    usableAgents.find((p) => p.id === TERMINAL_PLUGIN_ID)?.id ??
     usableAgents[0]?.id ??
     null
   );
