@@ -24,6 +24,7 @@ import {
   parseNodeRuntimeReport,
   partPathOf,
 } from "../node-frames.js";
+import { SSH_CONFIG_FILE_MAX_BYTES } from "../ssh-limits.js";
 import { MIN_NODE_VERSION } from "../versions.js";
 
 const launchCmd = {
@@ -903,6 +904,41 @@ describe("ssh gate (arrived at protocol 16)", () => {
     expect(parseNodeCommandBody({ type: "set_ssh_enabled", on: true })).toBeNull();
     expect(parseNodeCommandBody({ type: "set_ssh_enabled", changedAt: state.changedAt })).toBeNull();
     expect(parseNodeCommandBody({ type: "set_ssh_enabled", on: 1, changedAt: state.changedAt })).toBeNull();
+  });
+});
+
+describe("ssh command arms and the launch ssh block", () => {
+  it("ssh discovery/resolve arms delegate to the ssh grammar", () => {
+    expect(parseNodeCommandBody({ type: "ssh_discover_aliases" })).toEqual({ type: "ssh_discover_aliases" });
+    expect(parseNodeCommandBody({ type: "ssh_resolve_config", alias: "box-a" })).toEqual({
+      type: "ssh_resolve_config",
+      alias: "box-a",
+    });
+    // alias hygiene lives in ssh-frames' parser (port-verified): option-like and whitespace are refused there
+    expect(parseNodeCommandBody({ type: "ssh_resolve_config", alias: "-x" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_resolve_config", alias: "a b" })).toBeNull();
+  });
+
+  it("launch accepts an ssh block and refuses malformed ones", () => {
+    const good = { ...launchCmd, ssh: { configPath: "/d/ssh/s1/config", fileContent: "Host *\n" } };
+    expect(parseNodeCommandBody(good)).toMatchObject({
+      type: "launch",
+      ssh: { configPath: "/d/ssh/s1/config", fileContent: "Host *\n" },
+    });
+    expect(parseNodeCommandBody({ ...launchCmd, ssh: { configPath: "relative", fileContent: "Host *\n" } })).toBeNull();
+    expect(
+      parseNodeCommandBody({
+        ...launchCmd,
+        ssh: { configPath: "/d/ssh/s1/config", fileContent: "x".repeat(SSH_CONFIG_FILE_MAX_BYTES + 1) },
+      }),
+    ).toBeNull();
+    expect(
+      parseNodeCommandBody({
+        ...launchCmd,
+        ssh: { configPath: "/d/ssh/s1/config", fileContent: "x".repeat(SSH_CONFIG_FILE_MAX_BYTES) },
+      }),
+    ).not.toBeNull();
+    expect(parseNodeCommandBody({ ...launchCmd, ssh: "x" })).toBeNull();
   });
 });
 

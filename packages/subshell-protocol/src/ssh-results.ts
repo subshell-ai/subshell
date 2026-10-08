@@ -5,9 +5,9 @@ import type { SshErrorCode } from "./ssh-errors.js";
  * The SSH result ENVELOPE types - what the two surviving `ssh_*` discovery
  * commands' `result{data}` carries (the Gate A split from `ssh-frames.ts`;
  * exported NAMES unchanged). The test/run/control envelopes retired with the
- * destination product (design 2026-10-05 §7). Their `parse*` validators join
- * `node-results.ts` beside every other result validator when Plan 2 wires the
- * ssh RPC verbs; none of them exists on this branch yet.
+ * destination product (design 2026-10-05 §7). Their `parse*` validators
+ * (`parseNodeSshAliasList`, `parseNodeSshResolveOutcome`) live in
+ * `node-results.ts` beside every other result validator.
  *
  * Imports no `node:` builtin; lives in the Metro-safe barrel.
  */
