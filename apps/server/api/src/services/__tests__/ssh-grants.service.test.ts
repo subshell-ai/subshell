@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { SSH_MAX_GRANT_FINGERPRINTS } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
@@ -26,6 +26,7 @@ import {
   updateGrant,
 } from "@/services/ssh-grants.service.js";
 import { type RelayBroker, SshRelayRefusal } from "@/services/ssh-relay.service.js";
+import { logger } from "@/utils/logger.js";
 
 /**
  * The grant authorization layer (spec 2026-10-08 §6; Task 10). What this
@@ -36,9 +37,13 @@ import { type RelayBroker, SshRelayRefusal } from "@/services/ssh-relay.service.
  *   approval, no second notification). The row is DB state: a "restart"
  *   (deps swapped, nothing else) still finds it.
  * - APPROVE writes the grant with EXACTLY the chosen fingerprints, flips the
- *   request, and audits `approve` + `create` whose metadata names the COUNT,
- *   never a fingerprint string. A selection over SSH_MAX_GRANT_FINGERPRINTS
- *   is the named red error with the input untouched, never a truncation.
+ *   request, and audits `approve` + `create` naming the CHOSEN fingerprint
+ *   VALUES + destination (spec 2026-10-08 §9/§10: the approve row is the
+ *   durable record of the operator's selection, and a count records no
+ *   selection). The values stay OUT of every other audit row, every log line,
+ *   and every notification, and no key material, challenge, or signature
+ *   rides any row. A selection over SSH_MAX_GRANT_FINGERPRINTS is the named
+ *   red error with the input untouched, never a truncation.
  * - DENY audits only. EXPIRY sweeps the row to `expired` and writes NOTHING.
  * - MATCH: owner + key home + selector against the resolved host; globs are
  *   policy; most specific wins, ties to the OLDEST grant.
@@ -326,31 +331,73 @@ describe("ssh-grants.service", () => {
       expect(one.ok).toBe(false);
     });
 
-    it("approve writes the grant (createdVia first-use), answers the request, and audits COUNTS, never fingerprint strings", async () => {
-      const approved = await approveGrant({
-        ownerUserId: owner,
-        requestId: requestRef,
-        fingerprints: FPS,
-        name: "work git",
-      });
-      expect(approved.ok).toBe(true);
-      if (!approved.ok) return;
-      expect(approved.value.grant.createdVia).toBe("first-use");
-      expect(approved.value.grant.fingerprints).toEqual(FPS);
-      expect(approved.value.grant.resolvedSelector).toBe(HOST);
-      expect(approved.value.grant.keyHomeNodeId).toBe(NODE_A);
-      expect((await repo.getRequest(owner, requestRef))?.status).toBe("approved");
-      const create = await latestAudit("node.ssh_grant.create");
-      expect(create.fingerprintsCount).toBe(2);
-      expect(create.via).toBe("first-use");
-      const approve = await latestAudit("node.ssh_grant.approve");
-      expect(approve.grantId).toBe(approved.value.grant.id);
-      expect(approve.fingerprintsCount).toBe(2);
-      // The Global Constraint, read off the WHOLE trail: no fingerprint VALUE
-      // in any audit row this act wrote.
-      const all = await db.selectFrom("auditEvents").select("metadataJson").execute();
-      for (const row of all) {
-        for (const fp of FPS) expect(row.metadataJson).not.toContain(fp);
+    it("approve writes the grant (createdVia first-use), answers the request, and its approve+create rows NAME the chosen fingerprints", async () => {
+      // The spec's split (2026-10-08 §9/§10, docs/security.md §10): the
+      // approve row is the DURABLE RECORD OF THE SELECTION, so it carries the
+      // chosen `SHA256:` values (public identifiers) + destination; the same
+      // values must appear in NO log line and NO notification this act writes.
+      const logged: string[] = [];
+      const levels = ["debug", "info", "warn", "error"] as const;
+      const originals = levels.map((level) =>
+        (logger[level] as unknown as (...args: unknown[]) => unknown).bind(logger),
+      );
+      const spies = levels.map((level, i) =>
+        spyOn(logger, level).mockImplementation(((...args: unknown[]) => {
+          logged.push(args.filter((a) => typeof a === "string").join(" "));
+          return originals[i](...args);
+        }) as never),
+      );
+      try {
+        const approved = await approveGrant({
+          ownerUserId: owner,
+          requestId: requestRef,
+          fingerprints: FPS,
+          name: "work git",
+        });
+        expect(approved.ok).toBe(true);
+        if (!approved.ok) return;
+        expect(approved.value.grant.createdVia).toBe("first-use");
+        expect(approved.value.grant.fingerprints).toEqual(FPS);
+        expect(approved.value.grant.resolvedSelector).toBe(HOST);
+        expect(approved.value.grant.keyHomeNodeId).toBe(NODE_A);
+        expect((await repo.getRequest(owner, requestRef))?.status).toBe("approved");
+        // The selection record: approve and create carry the VALUES.
+        const create = await latestAudit("node.ssh_grant.create");
+        expect(create.fingerprints).toEqual(FPS);
+        expect(create.destination).toBe(HOST);
+        expect(create.via).toBe("first-use");
+        expect(create.fingerprintsCount).toBeUndefined(); // replaced by the values, not paired with a count
+        const approve = await latestAudit("node.ssh_grant.approve");
+        expect(approve.grantId).toBe(approved.value.grant.id);
+        expect(approve.fingerprints).toEqual(FPS);
+        expect(approve.destination).toBe(HOST);
+        expect(approve.fingerprintsCount).toBeUndefined();
+        // The notification seam carries only opaque ids (fixed copy + the
+        // request id) - not one fingerprint reaches the owner's push.
+        const notified = JSON.stringify(notifyCalls);
+        for (const fp of FPS) expect(notified).not.toContain(fp);
+        // The WHOLE trail, re-targeted: the values appear EXACTLY in the
+        // grant approve/create rows (spec §10 names them nowhere else), and
+        // NO row anywhere carries key material, a challenge, or a signature.
+        const all = await db.selectFrom("auditEvents").select(["action", "metadataJson"]).execute();
+        const valueBearing = new Set(["node.ssh_grant.approve", "node.ssh_grant.create"]);
+        for (const row of all) {
+          const meta = row.metadataJson ?? "";
+          for (const fp of FPS) {
+            if (valueBearing.has(row.action)) expect(meta).toContain(fp);
+            else expect(meta).not.toContain(fp);
+          }
+          for (const marker of ['"kty"', "PRIVATE KEY", "signingPublicKey", "challenge", "signature"]) {
+            expect(meta).not.toContain(marker);
+          }
+        }
+      } finally {
+        for (const spy of spies) spy.mockRestore();
+      }
+      // The log-line half of the guard: no fingerprint VALUE in anything this
+      // act handed the logger (the act is silent; a logging regression trips here).
+      for (const line of logged) {
+        for (const fp of FPS) expect(line).not.toContain(fp);
       }
     });
 
@@ -627,9 +674,15 @@ describe("ssh-grants.service", () => {
       if (!updated.ok) return;
       expect(updated.value.grant.resolvedSelector).toBe("*.example.test");
       expect(updated.value.grant.fingerprints).toEqual(FPS); // selection is immutable through edit
+      // The manual create is the SAME selection record (spec §10): it names
+      // the chosen values, exactly like an approved first use does.
+      const create = await latestAudit("node.ssh_grant.create");
+      expect(create.fingerprints).toEqual(FPS);
+      expect(create.via).toBe("manual");
       const audit = await latestAudit("node.ssh_grant.update");
       expect(audit.grantId).toBe(created.value.grant.id);
-      expect(audit.fingerprintsCount).toBe(2);
+      expect(audit.fingerprintsCount).toBe(2); // an EDIT names the count...
+      expect(audit.fingerprints).toBeUndefined(); // ...only approve/create rows carry the values
     });
 
     it("revoke deletes the row, cuts every live relay through closeForGrant, and audits the count", async () => {

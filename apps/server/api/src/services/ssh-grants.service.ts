@@ -32,10 +32,13 @@ import { logger } from "@/utils/logger.js";
  * account. The routes render foreign ids as the 404 the ownership axis
  * demands; a foreign row is absent here, never "forbidden".
  *
- * **What never leaves this layer's row** (Global Constraints): fingerprint
- * VALUES. They are public identifiers and they live in the grant column, but
- * they appear in NO audit metadata (the COUNT is the law), NO notification
- * (fixed copy + the opaque request id), and NO log line this file writes.
+ * **What may and may not leave this layer's row** (Global Constraints; spec
+ * §9/§10): the fingerprint VALUES are public `SHA256:` identifiers, and the
+ * `approve` and `create` audit rows NAME them - that row pair is the durable
+ * record of the operator's selection, and a count records no selection. The
+ * values appear in NO OTHER audit row (an edit names the count), NO
+ * notification (fixed copy + the opaque request id), and NO log line this
+ * file writes; no key material, challenge, or signature ever rides any row.
  *
  * Everything outside the module is an injected seam (the `getNodeWsDeps`
  * pattern): the clock, the relay broker, and the notification sink. The
@@ -141,26 +144,43 @@ function selectorSpecificity(selector: string): { wildcards: number; literals: n
 
 /** One grant row as the API and the launch leg read it: fingerprints parsed, not a JSON string. */
 export interface SshGrantView {
+  /** Unique grant row id (uuid) */
   id: string;
+  /** Display name the operator gave the grant (defaults to the selector when unnamed) */
   name: string;
+  /** Machine A: the key home whose ssh-agent signs under this grant */
   keyHomeNodeId: string;
+  /** The destination selector, stored resolved (concrete hostname or `*` host pattern, lowercase) */
   resolvedSelector: string;
+  /** The chosen public agent identities (`SHA256:` strings, parsed from the stored JSON array) - exactly which keys may sign */
   fingerprints: string[];
+  /** Which door created the row: an approved first use or the grants screen */
   createdVia: SshGrantCreatedVia;
+  /** ISO 8601 creation stamp (the match tie-break: oldest grant wins) */
   createdAt: string;
+  /** ISO 8601 of the last operator edit (name/selector) */
   updatedAt: string;
 }
 
 /** One first-use request row as the approvals screen reads it. */
 export interface SshGrantRequestView {
+  /** Request row id (uuid) - the opaque ref the launch refusal and the notification name */
   id: string;
+  /** Machine A asked to sign (the key home whose owner must answer) */
   keyHomeNodeId: string;
+  /** The resolved destination hostname the asking launch would have dialed */
   resolvedSelector: string;
+  /** Fingerprints that rode the request; null when none did (the approver selects, the asking pane proposes nothing) */
   requestedFingerprints: string[] | null;
+  /** B's pane (subshell id) whose launch asked - what the screen names as the requester */
   paneId: string;
+  /** B's node id: the connecting machine of the asking launch */
   bNodeId: string;
+  /** ISO 8601 answer deadline (24 h); past it the lazy sweep marks the row expired and writes nothing */
   expiresAt: string;
+  /** Lifecycle state - only `pending` is answerable */
   status: SshGrantRequestStatus;
+  /** ISO 8601 creation stamp */
   createdAt: string;
 }
 
@@ -220,7 +240,8 @@ const ALREADY_ANSWERED = {
 } as const;
 
 /* ------------------------------------------------------------------ */
-/* audit: ids, hosts, COUNTS - the §9 shape, never a fingerprint       */
+/* audit: ids, hosts, the CHOSEN fingerprints on approve/create (§10), */
+/* counts elsewhere - never key material, challenge, or signature      */
 /* ------------------------------------------------------------------ */
 
 function grantAudit(
@@ -310,8 +331,9 @@ export async function sweepExpiredGrantRequests(): Promise<number> {
  * never a double grant), then write the standing grant with EXACTLY the
  * chosen fingerprints, created via first-use. Audits BOTH facts: the answer
  * (`approve`) and the row's birth (`create`, the same event the screen's own
- * create writes, per §6.2), naming ids, destination, and the fingerprint
- * COUNT only.
+ * create writes, per §6.2), naming ids, destination, and the CHOSEN
+ * fingerprint VALUES - §10 makes the approve row the only durable record of
+ * the operator's selection, so a count here would record no selection.
  */
 export async function approveGrant(args: {
   ownerUserId: string;
@@ -344,12 +366,12 @@ export async function approveGrant(args: {
     requestId: row.id,
     grantId: grant.id,
     destination: row.resolvedSelector,
-    fingerprintsCount: keys.value.length, // the COUNT; §10 law
+    fingerprints: keys.value, // the CHOSEN VALUES; §10's durable selection record
   });
   await grantAudit(args.ownerUserId, "node.ssh_grant.create", row.keyHomeNodeId, {
     grantId: grant.id,
     destination: row.resolvedSelector,
-    fingerprintsCount: keys.value.length,
+    fingerprints: keys.value,
     via: "first-use",
   });
   return granted({ grant: grantView(grant) });
@@ -444,7 +466,7 @@ export async function createGrant(args: {
   await grantAudit(args.ownerUserId, "node.ssh_grant.create", args.aNodeId, {
     grantId: grant.id,
     destination: selector,
-    fingerprintsCount: keys.value.length,
+    fingerprints: keys.value, // the same selection record the approved first use writes (§10)
     via: "manual",
   });
   return granted({ grant: grantView(grant) });

@@ -39,8 +39,10 @@ export const SSH_GRANT_REQUEST_STATUSES: readonly SshGrantRequestStatus[] = [
  * selector, sign with the agent on the key-home machine, using exactly the
  * selected public identities. No secret and no key bytes live here - the
  * fingerprints are OpenSSH `SHA256:` display identifiers over the agent wire
- * encoding (public by nature), yet they still never enter a notification body
- * or a log line (Global Constraints; docs/security.md §10 names the COUNT).
+ * encoding (public by nature): spec 2026-10-08 §10 makes the grant's
+ * approve/create audit rows NAME the chosen values (the durable selection
+ * record), while they enter no other audit row, no notification body, and no
+ * log line (docs/security.md §10).
  */
 export interface SshKeyGrantTable {
   /** Unique row id (uuid) */

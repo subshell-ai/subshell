@@ -82,7 +82,7 @@ export const sshGrantRequestsRoutes = new Elysia()
         operationId: "approveSshGrantRequest",
         tags: ["ssh"],
         description:
-          "Answers a pending first-use approval YES: writes the standing grant with exactly the selected identities and audits the answer with the fingerprint COUNT, never the values",
+          "Answers a pending first-use approval YES: writes the standing grant with exactly the selected identities and audits the answer naming the chosen fingerprints (public SHA256: identifiers) and the destination, per the durable selection record in docs/security.md §10",
       },
     },
   )
