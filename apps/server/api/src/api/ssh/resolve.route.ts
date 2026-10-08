@@ -48,7 +48,7 @@ export const sshResolveRoute = new Elysia()
         operationId: "sshResolveDestination",
         tags: ["ssh"],
         description:
-          "Resolves one destination token into the approved connection snapshot (or the named refusal, which is a successful answer to read). Runs on the connecting machine; nothing is launched or stored by this call",
+          "Resolves one destination token into the approved connection snapshot (or the named refusal, which is a successful answer to read). Runs on the connecting machine; nothing is launched or stored by this call. Resolution evaluates the account's own SSH config with `ssh -G`; a `Match exec` hidden from the bounded config walk can run a local command during that evaluation, so approving a destination also approves running its resolution",
       },
     },
   );

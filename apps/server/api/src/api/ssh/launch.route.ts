@@ -74,7 +74,7 @@ export const sshLaunchRoute = new Elysia()
         operationId: "sshLaunchPane",
         tags: ["ssh"],
         description:
-          "Opens an interactive SSH pane from the connecting machine to one approved destination. Owner-only and off by default; a destination whose resolution refused answers 422 carrying the outcome and launches nothing",
+          "Opens an interactive SSH pane from the connecting machine to one approved destination. Owner-only and off by default; a destination whose resolution refused answers 422 carrying the outcome and launches nothing. Resolution evaluates the account's own SSH config with `ssh -G`; a `Match exec` hidden from the bounded config walk can run a local command during that evaluation, so approving a destination also approves running its resolution",
       },
     },
   );
