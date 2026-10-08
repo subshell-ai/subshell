@@ -1174,6 +1174,7 @@ test("a pinned peer key that is not a usable public P-256 JWK rejects the sessio
         fingerprints: [],
         lifetimeMs: 30_000,
         paneId: "pane-a-test",
+        hostPin: HOST_PIN,
       },
       sendRelayFrame: () => {},
       resolveAgentSocket: () => null,

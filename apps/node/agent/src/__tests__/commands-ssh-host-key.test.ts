@@ -181,7 +181,8 @@ describe("ssh_host_key arm (gate ON)", () => {
       "[deploy@git.example.test]:22": { code: 1, stdout: "", stderr: "" },
     });
     const res = await execSshHostKey(makeCtx("dedup"), cmd({ user: "deploy" }), seamsFor(trust, fake.run));
-    expect((res as { data: { lines: string[] } }).data.lines).toEqual([LINE_A]);
+    if (!res.ok) throw new Error(`expected ok:true, got ${JSON.stringify(res)}`);
+    expect((res.data as { lines: string[] }).lines).toEqual([LINE_A]);
   });
 
   it("a silent non-zero run with stderr is the named unreadable-file refusal, never the empty fact", async () => {
