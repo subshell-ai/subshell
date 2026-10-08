@@ -157,6 +157,35 @@ describe("deliverSigningKey (spec 2026-10-08 §4.3)", () => {
     expect(await identities.findByPrincipal(`node:${id}`)).toBeUndefined();
     expect(await auditFor(id)).toHaveLength(0);
   });
+
+  it("a raced double-report lands exactly once (the CAS-loser branch)", async () => {
+    const id = await mkNodeWithEmptySlot();
+    // Two concurrent deliveries against the EMPTY slot: their reads both see
+    // null (each chain yields at the same awaits, and bun:sqlite runs the
+    // query synchronously), so both reach the CAS. Exactly one UPDATE flips
+    // the slot; the loser re-reads and returns the winner's bytes instead of
+    // auditing a second row.
+    const results = await Promise.all([deliverSigningKey(id, KEY_B), deliverSigningKey(id, KEY_B)]);
+    expect(results).toEqual([KEY_B, KEY_B]);
+    expect(await slotOf(id)).toBe(KEY_B);
+    expect(await auditFor(id)).toHaveLength(1); // the loser wrote no audit row
+  });
+});
+
+describe("IdentitiesRepository.fillSigningPublicKey (the CAS in SQL)", () => {
+  it("refuses every write once the slot holds a value, same bytes or different", async () => {
+    const id = await mkNodeWithEmptySlot();
+    const principalId = `node:${id}`;
+    // The first fill lands: this is the write the empty slot exists for.
+    expect(await identities.fillSigningPublicKey(principalId, KEY_A)).toBe(true);
+    // Same bytes: the UPDATE still matches nothing (the `signingPublicKey is
+    // null` predicate fails), so even re-reporting the stored key answers
+    // false. Different bytes: refused the same way.
+    expect(await identities.fillSigningPublicKey(principalId, KEY_A)).toBe(false);
+    expect(await identities.fillSigningPublicKey(principalId, KEY_B)).toBe(false);
+    // The stored bytes never moved.
+    expect(await slotOf(id)).toBe(KEY_A);
+  });
 });
 
 describe("bootstrapSshIdentityOnReady (the ready-time wire-up)", () => {
