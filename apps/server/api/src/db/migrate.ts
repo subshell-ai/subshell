@@ -49,6 +49,7 @@ import * as backupRecoveryMigration from "@/db/migrations/0046-backup-recovery.j
 import * as sshEnabledMigration from "@/db/migrations/0047-node-ssh-enabled.js";
 import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-hosts.js";
 import * as sshRelayIdentityMigration from "@/db/migrations/0049-ssh-relay-identity.js";
+import * as sshGrantsMigration from "@/db/migrations/0050-ssh-grants.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -145,6 +146,9 @@ export async function runMigrations(): Promise<void> {
           // identities record and the trust-card fingerprint mirror on the
           // nodes row (spec 2026-10-08 §4, §9).
           "0049-ssh-relay-identity": sshRelayIdentityMigration,
+          // The grant tier: standing key grants, the durable first-use approval
+          // queue, and the M2 host-pin store (spec 2026-10-08 §6, §9).
+          "0050-ssh-grants": sshGrantsMigration,
         };
       },
     },

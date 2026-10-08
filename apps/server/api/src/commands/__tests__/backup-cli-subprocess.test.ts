@@ -392,21 +392,21 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   // are stripped (rows AND their DDL) so the snapshot ends where an install of
   // that era would; removing one from the middle while a later row stands
   // above it is exactly the non-contiguous history kysely refuses to boot.
-  // WHY 0047+0048+0049 together: this era's three migrations are the tail of
-  // the registered ledger, so the prefix runs contiguously through 0046 and
-  // boot re-applies all three. Advancing LATEST_BACKUP_MIGRATION (0049) means
+  // WHY 0047+0048+0049+0050 together: this era's four migrations are the tail
+  // of the registered ledger, so the prefix runs contiguously through 0046 and
+  // boot re-applies all four. Advancing LATEST_BACKUP_MIGRATION (0050) means
   // the strip set moves with it in the same commit.
   const migrationRows = db
     .query(
-      "SELECT * FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity') ORDER BY name",
+      "SELECT * FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants') ORDER BY name",
     )
     .all() as { name: string; timestamp: string }[];
   db.exec(
-    "ALTER TABLE nodes DROP COLUMN ssh_enabled_at; ALTER TABLE nodes DROP COLUMN ssh_enabled; DROP TABLE ssh_saved_hosts; ALTER TABLE subshells DROP COLUMN ssh; ALTER TABLE identities DROP COLUMN signing_public_key; ALTER TABLE nodes DROP COLUMN ssh_fingerprint; DELETE FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity'); CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');",
+    "ALTER TABLE nodes DROP COLUMN ssh_enabled_at; ALTER TABLE nodes DROP COLUMN ssh_enabled; DROP TABLE ssh_saved_hosts; ALTER TABLE subshells DROP COLUMN ssh; ALTER TABLE identities DROP COLUMN signing_public_key; ALTER TABLE nodes DROP COLUMN ssh_fingerprint; DROP TABLE ssh_key_grants; DROP TABLE ssh_grant_requests; DROP TABLE ssh_host_pins; DELETE FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants'); CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');",
   );
   db.query("VACUUM INTO ?").run(snapshot);
   db.exec(
-    "ALTER TABLE nodes ADD COLUMN ssh_enabled integer NOT NULL DEFAULT 0; ALTER TABLE nodes ADD COLUMN ssh_enabled_at text; CREATE TABLE ssh_saved_hosts(id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES user(id), destination TEXT NOT NULL, alias TEXT, node_id TEXT NOT NULL, saved_at TEXT, last_connect_at TEXT NOT NULL); ALTER TABLE subshells ADD COLUMN ssh text; ALTER TABLE identities ADD COLUMN signing_public_key text; ALTER TABLE nodes ADD COLUMN ssh_fingerprint text; UPDATE migration_restore_probe SET value='newer destination';",
+    "ALTER TABLE nodes ADD COLUMN ssh_enabled integer NOT NULL DEFAULT 0; ALTER TABLE nodes ADD COLUMN ssh_enabled_at text; CREATE TABLE ssh_saved_hosts(id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES user(id), destination TEXT NOT NULL, alias TEXT, node_id TEXT NOT NULL, saved_at TEXT, last_connect_at TEXT NOT NULL); ALTER TABLE subshells ADD COLUMN ssh text; ALTER TABLE identities ADD COLUMN signing_public_key text; ALTER TABLE nodes ADD COLUMN ssh_fingerprint text; CREATE TABLE ssh_key_grants(id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES user(id), name TEXT NOT NULL, key_home_node_id TEXT NOT NULL, resolved_selector TEXT NOT NULL, fingerprints TEXT NOT NULL, created_via TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE TABLE ssh_grant_requests(id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES user(id), key_home_node_id TEXT NOT NULL, resolved_selector TEXT NOT NULL, requested_fingerprints TEXT, pane_id TEXT NOT NULL, b_node_id TEXT NOT NULL, expires_at TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL); CREATE TABLE ssh_host_pins(id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES user(id), destination TEXT NOT NULL, host_key TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); UPDATE migration_restore_probe SET value='newer destination';",
   );
   for (const row of migrationRows)
     db.query("INSERT INTO kysely_migration(name,timestamp) VALUES (?,?)").run(row.name, row.timestamp);
@@ -420,7 +420,7 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   expect(
     offline
       .query(
-        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity')",
+        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants')",
       )
       .all(),
   ).toEqual([]);
@@ -430,13 +430,14 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   expect(
     migrated
       .query(
-        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity') ORDER BY name",
+        "SELECT name FROM kysely_migration WHERE name IN ('0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts','0049-ssh-relay-identity','0050-ssh-grants') ORDER BY name",
       )
       .all(),
   ).toEqual([
     { name: "0047-node-ssh-enabled" },
     { name: "0048-ssh-launch-and-saved-hosts" },
     { name: "0049-ssh-relay-identity" },
+    { name: "0050-ssh-grants" },
   ]);
   expect(migrated.query("SELECT value FROM migration_restore_probe").get()).toEqual({ value: "older snapshot" });
   expect(
@@ -456,6 +457,11 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   expect(migrated.query("SELECT name FROM pragma_table_info('nodes') WHERE name='ssh_fingerprint'").get()).toEqual({
     name: "ssh_fingerprint",
   });
+  for (const grantTable of ["ssh_key_grants", "ssh_grant_requests", "ssh_host_pins"]) {
+    expect(migrated.query("SELECT name FROM sqlite_schema WHERE name=?").get(grantTable)).toEqual({
+      name: grantTable,
+    });
+  }
   migrated.close();
   expect(readFileSync(join(instance.configDir, "config.env"), "utf8")).toBe(originalConfig);
   const deadline = Date.now() + 15_000;
