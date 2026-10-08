@@ -14,6 +14,20 @@ describe("stripAnsi", () => {
     expect(stripAnsi("\x1b]0;window title\x07body")).toBe("body");
   });
 
+  it("strips OSC sequences terminated by ST (ESC backslash), keeping the body", () => {
+    // Shell-integration output (e.g. OSC 3008/133) terminates with ST, not
+    // BEL. Measured in spec 22's pane: a BEL-only regex ran past the ST
+    // terminator and swallowed every byte up to the NEXT BEL, deleting the
+    // line the command had just printed.
+    expect(stripAnsi("\x1b]3008;start=abc;type=command\x1b\\SSH-PANE-2-OK\r\n\x1b]0;~\x07prompt")).toBe(
+      "SSH-PANE-2-OK\nprompt",
+    );
+  });
+
+  it("leaves an unterminated OSC (no BEL, no ST) untouched rather than swallowing the tail", () => {
+    expect(stripAnsi("\x1b]66;never ended")).toBe("\x1b]66;never ended");
+  });
+
   it("strips carriage returns", () => {
     expect(stripAnsi("line1\r\nline2")).toBe("line1\nline2");
   });
