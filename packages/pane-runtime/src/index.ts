@@ -150,6 +150,12 @@ export {
   walkSshConfig,
 } from "./ssh/ssh-discover.js";
 export {
+  buildSshConfigPath,
+  renderSshConfigContents,
+  sshDestinationToken,
+  sshOptionTokens,
+} from "./ssh/ssh-render.js";
+export {
   parseProxyHop,
   resolveSshAliasConfig,
   type SshResolutionDeps,
