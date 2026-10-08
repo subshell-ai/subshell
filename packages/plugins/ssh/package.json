@@ -1,0 +1,60 @@
+{
+  "name": "@subshell-ai/plugin-ssh",
+  "description": "Interactive SSH plugin for Subshell",
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "dist/index.d.ts",
+  "homepage": "https://subshell.sh",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/subshell-ai/subshell.git",
+    "directory": "packages/plugins/ssh"
+  },
+  "bugs": {
+    "url": "https://github.com/subshell-ai/subshell/issues"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "build:dev": "hash-runner",
+    "clean": "rm -rf .turbo node_modules dist .hashes.json",
+    "lint": "biome check --write --unsafe src && biome format src --write && biome lint src --fix",
+    "lint:check": "biome check --no-errors-on-unmatched src",
+    "lint:staged": "biome check --no-errors-on-unmatched --write --unsafe --staged src",
+    "test": "bash \"$(git rev-parse --show-toplevel)/scripts/par-test.sh\" 4 bun test",
+    "verify-types": "tsc --project tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@internal/tsconfig": "workspace:*",
+    "@subshell-ai/plugin-api": "workspace:*",
+    "@types/bun": "1.3.14",
+    "hash-runner": "4.0.0",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  },
+  "files": ["dist", "icon.svg"],
+  "publishConfig": {
+    "access": "public"
+  },
+  "subshell": {
+    "apiVersion": 2,
+    "id": "ssh",
+    "type": "terminal",
+    "name": "SSH",
+    "description": "An interactive SSH session to any sshd host.",
+    "icon": "icon.svg",
+    "entry": "dist/index.js",
+    "detect": {
+      "binaryName": "ssh",
+      "envOverride": "SUBSHELL_SSH_PATH",
+      "knownPaths": ["/usr/bin/ssh", "/bin/ssh", "/usr/local/bin/ssh", "/opt/homebrew/bin/ssh"]
+    }
+  }
+}

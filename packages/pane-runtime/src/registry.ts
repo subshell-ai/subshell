@@ -14,6 +14,7 @@ import hermesFactory, { manifest as hermesManifest } from "@subshell-ai/plugin-h
 import netbirdFactory, { manifest as netbirdManifest } from "@subshell-ai/plugin-netbird";
 import opencodeFactory, { manifest as opencodeManifest } from "@subshell-ai/plugin-opencode";
 import piFactory, { manifest as piManifest } from "@subshell-ai/plugin-pi";
+import sshFactory, { manifest as sshManifest } from "@subshell-ai/plugin-ssh";
 import tailscaleFactory, { manifest as tailscaleManifest } from "@subshell-ai/plugin-tailscale";
 import terminalFactory, { manifest as terminalManifest } from "@subshell-ai/plugin-terminal";
 import { adaptPlugin } from "./plugin-adapter.js";
@@ -59,6 +60,10 @@ const BUILT_INS: BuiltIn[] = [
   { manifest: piManifest, factory: piFactory },
   { manifest: codexManifest, factory: codexFactory },
   { manifest: terminalManifest, factory: terminalFactory },
+  // The ssh pane is the terminal launch pointed at ssh: same TYPE, same
+  // `[binary, ...flags]` shape, the connection described entirely by the
+  // preset's option tokens (plan 2 decision 1).
+  { manifest: sshManifest, factory: sshFactory },
   // The NETWORK built-ins (spec 2026-09-15, phases 2–3 of 2026-09-16) go in
   // the same list because the store is one store; `build()` sorts them into
   // the network half by manifest type. Name order among themselves, which is

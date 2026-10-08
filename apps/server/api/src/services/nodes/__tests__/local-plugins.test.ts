@@ -57,6 +57,7 @@ describe("the control-plane host's plugins", () => {
       "netbird",
       "opencode",
       "pi",
+      "ssh",
       "tailscale",
       "terminal",
     ]);
