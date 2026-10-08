@@ -156,7 +156,13 @@ export interface StubAgent {
   close(): Promise<void>;
 }
 
-async function startStubAgent(roster: RosterEntry[], scheme: AgentScheme): Promise<StubAgent> {
+/**
+ * Start the scheme-behavior stub agent on its own socket. Exported for the
+ * roster-command case (Task 11): the `ssh_agent_identities` read needs A's
+ * live agent and NOTHING ELSE - no broker, no grant, no pairing - so it
+ * drives the stub without the full stack.
+ */
+export async function startStubAgent(roster: RosterEntry[], scheme: AgentScheme): Promise<StubAgent> {
   const dir = mkdtempSync(join(tmpdir(), "subshell-relay-stack-stub-"));
   const path = join(dir, "agent.sock");
   const received: Buffer[] = [];
