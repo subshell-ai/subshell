@@ -178,6 +178,24 @@ export const SSH_RELAY_TEARDOWN_GRACE_MS = 5_000;
 export const SSH_MAX_GRANT_FINGERPRINTS = 8;
 
 /**
+ * Longest single OpenSSH `known_hosts` line the wire may carry, in EITHER
+ * direction: the `ssh_host_key` answer's entries and the `ssh_relay_open`
+ * pin's line alike (spec 2026-10-08 §9, Task 12). A real line is a pattern
+ * list, a key type, and base64 key material - an RSA-8192 entry with a long
+ * pattern runs well past a kilobyte, and the grammar's bound must not refuse
+ * the honest file while leaving a hostile plane an unbounded text field.
+ */
+export const SSH_MAX_HOST_PIN_LINE_CHARS = 4096;
+
+/**
+ * Host-key lines one `ssh_host_key` answer may carry (Task 12). A destination
+ * with more recorded entries than this is not the operator's `known_hosts`
+ * the capture expects; the answer is malformed, refused at the grammar rather
+ * than truncated.
+ */
+export const SSH_MAX_HOST_KEY_LINES = 32;
+
+/**
  * Largest raw stdout slice one brokered `session_frame` event may carry
  * (design §3's pump, restated as a number: the node-frames `session_frame`
  * doc always claimed "in ≤ 192 KiB pieces", and the broker's read can return

@@ -98,3 +98,21 @@ export interface NodeSshAgentIdentitiesResult {
   /** Every public identity A's live agent carries; the approval screen's choice list. */
   identities: NodeSshAgentIdentity[];
 }
+
+/**
+ * `ssh_host_key` answer (spec 2026-10-08 §9, Task 12): the entries A's
+ * connecting account has recorded for ONE resolved destination, each in
+ * OpenSSH's own `known_hosts` line spelling (pattern, key type, base64 key
+ * material, optional comment), verbatim. An EMPTY list is the honest fact "A
+ * has recorded nothing for this destination" - a distinct answer from the
+ * named error an unreadable file or a missing tool produces, and the capture
+ * service fails the grant creation closed on exactly this empty answer
+ * (a relay grant must carry a pin). The key material here is PUBLIC by
+ * nature (a known_hosts entry is what a client uses to CHECK a server), and
+ * it is what becomes the pin; the audit rows name only the destination and
+ * the entry's `SHA256:` fingerprint, never these bytes.
+ */
+export interface NodeSshHostKeyResult {
+  /** Every `known_hosts` line matching the destination's lookup; verbatim, at most SSH_MAX_HOST_KEY_LINES. */
+  lines: string[];
+}

@@ -9,13 +9,17 @@
  * connection`, the run start/status/read/cancel quartet, `ssh_terminal_
  * launch`, `ssh_input_control`) retired with that destination-execution
  * product, which never shipped; their `type` arms are therefore deleted, not
- * refused. The sealed agent-relay milestone (M2) adds four commands here:
+ * refused. The sealed agent-relay milestone (M2) adds five commands here:
  * `ssh_register_identity` (§4.3 bootstrap: a pre-M2 node's signing key reaches
  * the plane inside a signed command on the existing node link), the roster
  * read `ssh_agent_identities` (§5.4: the approval screen asks A's agent for
- * its public identities, fingerprints plus comments, blobs withheld), and the
- * brokered pair `ssh_relay_open` / `ssh_relay_close` (§5.1: the plane's OPEN
- * hands one machine the whole pairing, the CLOSE names why it ends). What
+ * its public identities, fingerprints plus comments, blobs withheld), the
+ * host-key capture `ssh_host_key` (§9, Task 12: the plane asks A's
+ * `known_hosts` for one resolved destination's entries, and the answer
+ * becomes the pin the relay-open carries to B), and the brokered pair
+ * `ssh_relay_open` / `ssh_relay_close` (§5.1: the plane's OPEN hands one
+ * machine the whole pairing plus the destination's host-key pin, the CLOSE
+ * names why it ends). What
  * rides the link AFTER an open - the sealed blobs themselves - is not a
  * command at all: it is the `relay` link frame in `node-frames.ts`, which
  * carries no per-message signing because the link already authenticates.
@@ -33,7 +37,7 @@
  */
 
 import { BASE64_RE, isInt, isRecord, isStr, isStrArray } from "./guards.js";
-import { SSH_MAX_GRANT_FINGERPRINTS, SSH_NAME_MAX_CHARS } from "./ssh-limits.js";
+import { SSH_MAX_GRANT_FINGERPRINTS, SSH_MAX_HOST_PIN_LINE_CHARS, SSH_NAME_MAX_CHARS } from "./ssh-limits.js";
 
 /* ------------------------------------------------------------------ */
 /* command bodies                                                      */
@@ -81,6 +85,33 @@ export interface SshAgentIdentitiesCommand {
 }
 
 /**
+ * Ask the key home for the `known_hosts` entries its connecting account has
+ * recorded for ONE resolved destination (spec 2026-10-08 §9 "M2 host-key pin
+ * path", Task 12): the capture command whose answer becomes the pin delivered
+ * to B on the relay-open. Unlike the roster read it must NAME a destination,
+ * because OpenSSH's host-key lookup is per destination - `host`, `port`, and
+ * the connecting `user` (null when the snapshot named none) are the three
+ * facts the lookup's candidate spellings are built from, and each is sent in
+ * its resolved form so a later `~/.ssh/config` edit cannot retarget the ask
+ * (the same store-resolved rule §6.1 applies to the grant selector).
+ *
+ * Answered with NO grant and no relay session, like `detect`,
+ * `ssh_register_identity`, and `ssh_agent_identities`; it writes no audit row
+ * on either side (the durable record of a pin is `node.ssh_host_pin.create`,
+ * written by the capture ACT, not by the question), and an unreachable or
+ * refusing machine answers a named error - the capture never guesses.
+ */
+export interface SshHostKeyCommand {
+  type: "ssh_host_key";
+  /** The resolved destination host (bracketed IPv6 spelled as OpenSSH spells it). */
+  host: string;
+  /** The resolved port; always sent, because `[host]:port` is one of ssh's own lookup spellings. */
+  port: number;
+  /** The connecting user, or null when the snapshot named none (the bare-`host` spellings still match). */
+  user: string | null;
+}
+
+/**
  * Which side of a relay pairing a machine is (spec 2026-10-08 §2): A is the
  * key home whose agent signs, B is the connecting machine that holds none.
  */
@@ -115,6 +146,19 @@ export type SshRelayRole = "A" | "B";
  * matching {@link isSshPaneId}; the grammar names the SAME shape so a command
  * that could only ever fail the node's socket-path guard is refused here,
  * before the plane signs it.
+ *
+ * `hostPin` (Task 12, spec 2026-10-08 §9): the destination's pinned
+ * `known_hosts` line, captured from A at grant creation and REQUIRED. A
+ * relay-open without it is a relay grant with no pin, and the invariant says
+ * such a thing does not exist: B must never fall back to its own ambient
+ * TOFU, so the grammar refuses the pinless open rather than let the launch
+ * render an `accept-new` config against an untrusted machine's file. The B
+ * side writes the line, byte-for-byte, to `<dataDir>/ssh/<paneId>/known_hosts`
+ * (0600, beside the config the pane's `ssh -F` reads); the shape rule is
+ * {@link isSshKnownHostsPinLine} - one printable line, never a smuggled
+ * second entry. The same class of pre-merge grammar extension as `paneId`:
+ * plane and agent ship together under the exact-match protocol gate, so the
+ * field is required outright, not version-gated.
  */
 export interface SshRelayOpenCommand {
   type: "ssh_relay_open";
@@ -140,6 +184,8 @@ export interface SshRelayOpenCommand {
   lifetimeMs: number;
   /** The pane (subshell id) the pairing serves: names B's proxy socket path (§5.2). */
   paneId: string;
+  /** The destination's pinned host-key line (A's known_hosts entry; required - a pinless relay-open is malformed, §9). */
+  hostPin: string;
 }
 
 /**
@@ -187,6 +233,7 @@ export type SshNodeCommandBody =
   | SshResolveConfigCommand
   | SshRegisterIdentityCommand
   | SshAgentIdentitiesCommand
+  | SshHostKeyCommand
   | SshRelayOpenCommand
   | SshRelayCloseCommand;
 
@@ -196,6 +243,7 @@ export const SSH_COMMAND_TYPES = [
   "ssh_resolve_config",
   "ssh_register_identity",
   "ssh_agent_identities",
+  "ssh_host_key",
   "ssh_relay_open",
   "ssh_relay_close",
 ] as const;
@@ -276,6 +324,35 @@ export function isSshGrantFingerprints(value: unknown): value is string[] {
 }
 
 /**
+ * Whether `value` is ONE OpenSSH `known_hosts` line as the wire carries it:
+ * non-empty, bounded ({@link SSH_MAX_HOST_PIN_LINE_CHARS}), trimmed, and free
+ * of control characters - which subsumes the newline, the load-bearing half.
+ * The B side writes a relay-open's pin line verbatim into the pane's 0600
+ * pinned file, so a smuggled `\n` would install a SECOND, plane-authored
+ * trust entry beside A's; the comment-marker refusal keeps `#` lines out of a
+ * field that promises to be a key. Everything past shape - whether the line
+ * is a well-formed entry, which key it carries, whether it matches D - is
+ * OpenSSH's own judgment at connect time on B (StrictHostKeyChecking yes
+ * against this exact file), and the capture service's fingerprint extraction
+ * on the plane. Hashed (`|1|…`) and option-prefixed entries pass: they are
+ * how the operator's own file may spell A's trust, verbatim-rewritten.
+ *
+ * One definition, both directions: the `ssh_host_key` ANSWER validator
+ * (`node-results.ts`) and the `ssh_relay_open` pin carriage both check with
+ * this predicate, so a line A answered can always ride the relay-open.
+ */
+export function isSshKnownHostsPinLine(value: unknown): value is string {
+  return (
+    isStr(value) &&
+    value.length > 0 &&
+    value.length <= SSH_MAX_HOST_PIN_LINE_CHARS &&
+    value === value.trim() &&
+    !/\p{Cc}/u.test(value) &&
+    !value.startsWith("#")
+  );
+}
+
+/**
  * Validates and narrows any `ssh_*` command body. `parseNodeCommandBody`
  * routes every `ssh_` arm here, so the SSH grammar lives in ONE file
  * beside the commands it narrows. The contract this upholds is
@@ -301,6 +378,20 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       // asks the WHOLE roster, so a plane-sent field could only aim at
       // narrowing or widening what A's agent actually reports.
       return { type: "ssh_agent_identities" };
+    case "ssh_host_key": {
+      // The capture asks for ONE destination's entries, so the destination is
+      // the whole input: host and user take the SAME token hygiene the alias
+      // and snapshot names apply (option-like, whitespace, and control-char
+      // refusals at the grammar, before the plane signs the ask), the port is
+      // a real 16-bit int because `[host]:port` is one of ssh's own lookup
+      // spellings, and the user is REQUIRED to state itself - null spelled -
+      // so no omitted field can silently widen or narrow who the lookup names.
+      if (!isAliasName(value.host)) return null;
+      if (!isInt(value.port) || (value.port as number) < 1 || (value.port as number) > 65_535) return null;
+      if (!("user" in value)) return null;
+      if (!(value.user === null || isAliasName(value.user))) return null;
+      return { type: "ssh_host_key", host: value.host, port: value.port as number, user: value.user };
+    }
     case "ssh_relay_open": {
       // EVERY pairing field is required (§5.1): this command IS the pairing,
       // and an executor guessing a missing half would be guessing trust
@@ -345,6 +436,13 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       // by it, so it must be a path-composability id - the SAME guard the
       // node's socket bind runs, applied before anything is signed.
       if (!isSshPaneId(value.paneId)) return null;
+      // Task 12 (spec §9): the destination's pinned host-key line, REQUIRED.
+      // A relay-open with no pin is a relay grant with no pin, and B must
+      // never ambient-TOFU a destination it does not already trust: the
+      // refusal is the grammar's, before the plane signs and before either
+      // endpoint runs. Shape only here ({@link isSshKnownHostsPinLine});
+      // whether the line matches D is ssh's own hard block on B at connect.
+      if (!isSshKnownHostsPinLine(value.hostPin)) return null;
       // Rebuilt from the validated fields, never a cast of the candidate: a
       // stray member on the wire drops here, exactly as the close arm drops.
       return {
@@ -360,6 +458,7 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
         fingerprints: [...value.fingerprints],
         lifetimeMs: value.lifetimeMs as number,
         paneId: value.paneId,
+        hostPin: value.hostPin,
       };
     }
     case "ssh_relay_close": {

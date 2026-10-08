@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import {
   parseNodeSshAgentIdentities,
   parseNodeSshAliasList,
+  parseNodeSshHostKey,
   parseNodeSshIdentity,
   parseNodeSshResolveOutcome,
 } from "../node-results.js";
+import { SSH_MAX_HOST_KEY_LINES } from "../ssh-limits.js";
 import { makeAliasList, makeResolveOk, makeResolveRefused } from "./fixtures/ssh-fixtures.js";
 
 /** A well-formed public-JWK STRING: the validator's whole job is that it is JSON and an object. */
@@ -120,5 +122,34 @@ describe("parseNodeSshIdentity", () => {
     expect(parseNodeSshIdentity({ signingPublicKey: '"a string that parses"' })).toBeNull();
     expect(parseNodeSshIdentity({ signingPublicKey: "[1,2]" })).toBeNull();
     expect(parseNodeSshIdentity({ signingPublicKey: "null" })).toBeNull();
+  });
+});
+
+describe("parseNodeSshHostKey (spec 2026-10-08 §9, Task 12)", () => {
+  const LINE_A = "git.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000";
+  const LINE_B = "|1|bnVsbHNhbHRudWxsc2FsdA==|dGhlaGFzaA==| ssh-ed25519 AAAA";
+  test("narrows a well-formed answer of verbatim known_hosts lines", () => {
+    expect(parseNodeSshHostKey({ lines: [LINE_A] })).toEqual({ lines: [LINE_A] });
+    expect(parseNodeSshHostKey({ lines: [] })).toEqual({ lines: [] }); // the honest "recorded nothing"
+  });
+  test("rebuilds the lines array (extra answer members do not ride)", () => {
+    const parsed = parseNodeSshHostKey({ lines: [LINE_A, LINE_B], sneaky: "x" });
+    expect(parsed).not.toHaveProperty("sneaky");
+    expect(parsed?.lines).toEqual([LINE_A, LINE_B]);
+  });
+  test("refuses a malformed or over-cap answer", () => {
+    expect(parseNodeSshHostKey({ lines: "not an array" })).toBeNull();
+    expect(parseNodeSshHostKey({ lines: [7] })).toBeNull();
+    expect(parseNodeSshHostKey({ lines: ["host ssh-rsa AAA\nsecond entry"] })).toBeNull(); // smuggled newline
+    expect(parseNodeSshHostKey({ lines: [""] })).toBeNull();
+    expect(parseNodeSshHostKey({ lines: null })).toBeNull();
+    expect(
+      parseNodeSshHostKey({
+        lines: Array.from({ length: SSH_MAX_HOST_KEY_LINES + 1 }, (_, i) => `h${i} ssh-ed25519 A`),
+      }),
+    ).toBeNull();
+    expect(
+      parseNodeSshHostKey({ lines: Array.from({ length: SSH_MAX_HOST_KEY_LINES }, (_, i) => `h${i} ssh-ed25519 A`) }),
+    ).not.toBeNull();
   });
 });

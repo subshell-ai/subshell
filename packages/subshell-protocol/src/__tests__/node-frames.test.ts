@@ -69,6 +69,10 @@ const relayOpenCmd: SshRelayOpenCommand = {
   fingerprints: ["SHA256:AAAA", "SHA256:BBBB"],
   lifetimeMs: 30_000,
   paneId: "11111111-2222-4333-8444-555555555555",
+  // Task 12: the destination's pinned host-key line (A's known_hosts entry,
+  // captured at grant creation). Required: a relay-open without it is a
+  // relay grant with no pin, which is exactly what the grammar refuses.
+  hostPin: "git.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000",
 };
 
 describe("parseNodeCommandBody", () => {
@@ -963,17 +967,18 @@ describe("ssh command arms and the launch ssh block", () => {
       type: "ssh_register_identity",
     });
     expect(parseNodeCommandBody({ type: "ssh_register_identity" })).not.toBeNull();
-    // The family's census: exactly these six types, and the count is the
+    // The family's census: exactly these seven types, and the count is the
     // tripwire - a further arm must show up here before it ships.
     expect([...SSH_COMMAND_TYPES].sort()).toEqual([
       "ssh_agent_identities",
       "ssh_discover_aliases",
+      "ssh_host_key",
       "ssh_register_identity",
       "ssh_relay_close",
       "ssh_relay_open",
       "ssh_resolve_config",
     ]);
-    expect(SSH_COMMAND_TYPES).toHaveLength(6);
+    expect(SSH_COMMAND_TYPES).toHaveLength(7);
     // Every census type is a type the dispatcher actually narrows.
     for (const t of SSH_COMMAND_TYPES) {
       const body =
@@ -983,7 +988,9 @@ describe("ssh command arms and the launch ssh block", () => {
             ? relayOpenCmd
             : t === "ssh_relay_close"
               ? { type: t, ref: "r-1", reason: "lifetime-expiry" }
-              : { type: t };
+              : t === "ssh_host_key"
+                ? { type: t, host: "git.example.test", port: 22, user: null }
+                : { type: t };
       expect(parseNodeCommandBody(body)).not.toBeNull();
     }
   });
@@ -998,6 +1005,39 @@ describe("ssh command arms and the launch ssh block", () => {
     expect(parseNodeCommandBody({ type: "ssh_agent_identities", grantId: "g" })).toEqual({
       type: "ssh_agent_identities",
     });
+  });
+
+  it("the ssh_host_key arm names a destination and nothing else (spec 2026-10-08 §9, Task 12)", () => {
+    // The capture command asks for ONE destination's known_hosts entries: host
+    // always, port always (ssh's own lookup spells the port), user as its
+    // honest null when the snapshot named none. Stray members do not ride.
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "git.example.test", port: 22, user: null })).toEqual({
+      type: "ssh_host_key",
+      host: "git.example.test",
+      port: 22,
+      user: null,
+    });
+    expect(
+      parseNodeCommandBody({ type: "ssh_host_key", host: "git.example.test", port: 2222, user: "deploy" }),
+    ).toEqual({ type: "ssh_host_key", host: "git.example.test", port: 2222, user: "deploy" });
+    expect(
+      parseNodeCommandBody({ type: "ssh_host_key", host: "[2001:db8::1]", port: 22, user: null, smuggled: "x" }),
+    ).not.toHaveProperty("smuggled");
+    // Refusals: the host takes the alias grammar (option-like, whitespace,
+    // control chars, over-long); the port is a positive 16-bit int; the user
+    // is null or an alias-grammar name.
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "-oProxyCommand=x", port: 22, user: null })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "a b", port: 22, user: null })).toBeNull();
+    expect(
+      parseNodeCommandBody({ type: "ssh_host_key", host: `h${"x".repeat(300)}`, port: 22, user: null }),
+    ).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 0, user: null })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 65536, user: null })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 22.5, user: null })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 22, user: "a b" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 22, user: 7 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 22 })).toBeNull(); // user must be present (null is spelled)
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 22, user: undefined })).toBeNull();
   });
 
   it("launch accepts an ssh block and refuses malformed ones", () => {
@@ -1049,6 +1089,7 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
       "fingerprints",
       "lifetimeMs",
       "paneId",
+      "hostPin",
     ] as const) {
       const partial = structuredClone(relayOpenCmd) as unknown as Record<string, unknown>;
       delete partial[drop];
@@ -1117,6 +1158,41 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
     expect(parsed).not.toBeNull();
     expect(parsed).not.toHaveProperty("sneaky");
     expect(parsed).toEqual(relayOpenCmd);
+  });
+
+  it("refuses a hostPin that is not one known_hosts line (spec 2026-10-08 §9, Task 12)", () => {
+    // The pin carriage is A's recorded key line delivered to B; the grammar's
+    // job is the SHAPE: one printable line, bounded, never a comment, never a
+    // multi-line smuggle (the node writes it verbatim into B's 0600 pinned
+    // file, so a newline would be a second, plane-authored trust entry).
+    // Deep truth (does the key match D) stays OpenSSH's at connect time.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "" })).toBeNull(); // empty is no pin
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "   " })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "host ssh-rsa AAA\nsecond ssh-rsa BBB" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "host ssh-rsa AAA\rBBB" })).toBeNull(); // CR smuggle
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "host ssh-rsa AAA\tB\tBB" })).toBeNull(); // tab smuggle
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "# comment line" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: 7 })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: `host ssh-rsa ${"A".repeat(4084)}` })).toBeNull(); // 4097 > SSH_MAX_HOST_PIN_LINE_CHARS
+    // Honest spellings parse: plain, hashed-pattern, and user-qualified lines
+    // all carry A's recorded trust in OpenSSH's own known_hosts form.
+    expect(
+      parseNodeCommandBody({ ...relayOpenCmd, hostPin: "[git.example.test]:2222 ssh-ed25519 AAAAC3Nza==" }),
+    ).not.toBeNull();
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        hostPin:
+          "git.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000 comment@host",
+      }),
+    ).not.toBeNull();
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        hostPin: "|1|bnVsbHNhbHRudWxsc2FsdA==|dGhlaGFzaHRoYXRpc25vdHRoaXM=|ssh-ed25519 AAAAC3NzaC1lZDI1NTE5",
+      }),
+    ).not.toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: `host ssh-rsa ${"A".repeat(4083)}` })).not.toBeNull(); // at the bound (4096 total)
   });
 
   it("refuses fingerprint entries outside the SHA256 display form", () => {
