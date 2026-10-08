@@ -10,8 +10,12 @@
  * seven server files, measured). Adding only the one name the agent relay
  * sources actually use keeps the shim to its smallest honest size.
  *
- * Lives under `__tests__` so `tsc -p tsconfig.build.json` (which excludes
- * `src/**/ __tests__; /**`) never sees it: the shipped server emit is untouched.
+ * Lives under `__tests__` so `tsc -p tsconfig.build.json` (whose exclude
+ * list covers every `__tests__` tree under src) never sees it: the shipped
+ * server emit is untouched. A double-star glob cannot be quoted here: the
+ * comment-closing character pair occurs inside every double-star segment,
+ * so writing one ends this comment mid-string. That is what mangled the
+ * earlier wording in this file.
  */
 
 /** The WebCrypto JSON Web Key shape, as lib.dom declares it (agent relay only). */
