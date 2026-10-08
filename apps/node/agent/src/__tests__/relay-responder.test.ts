@@ -18,47 +18,26 @@ import {
 import { exportJWK, generateKeyPair } from "jose";
 import { openARelaySession, openBRelaySession, RelaySessions } from "../commands/ssh-relay.js";
 import { loadOrCreateIdentity } from "../identity.js";
-import {
-  filterIdentitiesAnswer,
-  fingerprintAgentBlob,
-  liveAgentSocketPath,
-  SSH2_AGENT_FAILURE,
-  SSH2_AGENT_IDENTITIES_ANSWER,
-  SSH2_AGENT_SIGN_RESPONSE,
-  SSH2_AGENTC_REQUEST_IDENTITIES,
-  SSH2_AGENTC_SIGN_REQUEST,
-  startRelayResponder,
-} from "../relay-responder.js";
+import { type AgentScheme, CLASSIC_SCHEME, OPENSSH_10X_SCHEME } from "../relay-agent-scheme.js";
+import { startRelayResponder } from "../relay-responder.js";
 
 /**
- * The A-side responder (spec 2026-10-08 §5.4/§5.6): inbound B2A frames are
- * opened, origin-verified against B's PINNED signing key with the full Task-5
- * caller checklist, default-denied by agent method, scoped to the grant's
- * fingerprint set against A's live agent (a stub Unix socket here), and the
- * reply is sealed+signed back as an A2B frame. seal/open are the REAL
- * mcp-core pair, the keys are generated exactly as the protocol and proxy
- * tests do, and the test side computes fingerprints independently (node:crypto
- * over the wire blob) so the scheme is pinned, not echoed.
+ * The A-side responder (spec 2026-10-08 §5.4/§5.6) under the PROBED numbering
+ * ruling (ruling 2026-10-08): the session probes A's live agent once at
+ * relay-open to learn which codepoint scheme it speaks, caches that scheme on
+ * the session, then classifies and scopes every request in it. The stub
+ * agents below answer with real-agent byte literals for BOTH schemes - the
+ * fixtures are written against the measured OpenSSH_10.2p1 behavior (a byte
+ * 13 truncated sign answers FAILURE 5; a byte 11 answers a valid 12) and
+ * OpenSSH's classic behavior (13 answers 14; 15 signs with 16), never against
+ * constants the production module exports, so numeric drift cannot hide.
+ * seal/open are the REAL mcp-core pair; the test side computes fingerprints
+ * independently (node:crypto over the wire blob).
  */
 
 /* ------------------------------------------------------------------ */
-/* the agent wire (OpenSSH `agent-proto.h` values)                     */
+/* the agent wire, spelled by hand                                     */
 /* ------------------------------------------------------------------ */
-
-/**
- * Non-allow-listed request types used as refusals witnesses, named by their
- * OpenSSH `agent-proto.h` values: 17 ADD_IDENTITY, 18 REMOVE_IDENTITY,
- * 19 REMOVE_ALL_IDENTITIES, 22 LOCK, 23 UNLOCK, 27 EXTENSION, and the
- * SSH1-era range starting at 1. (The two FORWARDED types are the production
- * constants imported above.)
- */
-const SSH2_AGENTC_ADD_IDENTITY = 17;
-const SSH2_AGENTC_REMOVE_IDENTITY = 18;
-const SSH2_AGENTC_REMOVE_ALL_IDENTITIES = 19;
-const SSH2_AGENTC_LOCK = 22;
-const SSH2_AGENTC_UNLOCK = 23;
-const SSH2_AGENTC_EXTENSION = 27;
-const SSH1_AGENTC_REQUEST_RSA_IDENTITIES = 1;
 
 /** An independent fingerprint oracle for the tests: SHA-256, base64url no pad. */
 function fp(wire: Uint8Array): string {
@@ -77,16 +56,50 @@ function sshStr(bytes: Buffer | string): Buffer {
   return Buffer.concat([be32(b.length), b]);
 }
 
-function buildIdentitiesAnswer(entries: { blob: Buffer; comment: string }[]): Buffer {
+function buildIdentitiesAnswer(scheme: AgentScheme, entries: { blob: Buffer; comment: string }[]): Buffer {
   return Buffer.concat([
-    Buffer.from([SSH2_AGENT_IDENTITIES_ANSWER]),
+    Buffer.from([scheme.answer]),
     be32(entries.length),
     ...entries.flatMap((e) => [sshStr(e.blob), sshStr(e.comment)]),
   ]);
 }
 
-function buildSignRequest(keyBlob: Buffer, flags = 0): Buffer {
-  return Buffer.concat([Buffer.from([SSH2_AGENTC_SIGN_REQUEST]), sshStr(keyBlob), be32(flags)]);
+/** A classic-scheme SIGN_REQUEST body: blob, data, flags (the classic wire grammar). */
+function buildSignRequestClassic(keyBlob: Buffer, data = Buffer.from("DATA"), flags = 0): Buffer {
+  return Buffer.concat([Buffer.from([15]), sshStr(keyBlob), sshStr(data), be32(flags)]);
+}
+
+/** A 10.x-scheme SIGN_REQUEST body: blob, data, flags, optional trailing algorithms string. */
+function buildSignRequestTenX(
+  keyBlob: Buffer,
+  opts: { data?: Buffer; flags?: number; algorithms?: string } = {},
+): Buffer {
+  const parts = [Buffer.from([13]), sshStr(keyBlob), sshStr(opts.data ?? Buffer.from("DATA")), be32(opts.flags ?? 0)];
+  if (opts.algorithms !== undefined) parts.push(sshStr(opts.algorithms));
+  return Buffer.concat(parts);
+}
+
+/** The stub's independent sign-body validity check (mirrors the real agent's parser). */
+function isWellFormedSignBody(p: Buffer, scheme: AgentScheme): boolean {
+  let off = 1;
+  const str = (): Buffer | null => {
+    if (off + 4 > p.length) return null;
+    const n = p.readUInt32BE(off);
+    off += 4;
+    if (off + n > p.length) return null;
+    const v = Buffer.from(p.subarray(off, off + n));
+    off += n;
+    return v;
+  };
+  const blob = str();
+  if (blob === null || blob.length === 0) return false;
+  if (str() === null) return false; // data
+  if (off + 4 > p.length) return false; // flags
+  off += 4;
+  if (off === p.length) return true;
+  if (!scheme.extendedSign) return false; // trailing bytes need the extended grammar
+  if (str() === null) return false; // algorithms string must be whole
+  return off === p.length;
 }
 
 /** Decode an IDENTITIES_ANSWER the test way (independent of the production parser). */
@@ -110,20 +123,43 @@ function framed(payload: Buffer): Buffer {
 }
 
 /* ------------------------------------------------------------------ */
-/* the stub live agent: a Unix socket that answers the agent wire      */
+/* the stub live agents: Unix sockets speaking one scheme's bytes      */
 /* ------------------------------------------------------------------ */
 
 interface StubAgent {
   path: string;
-  /** Every request payload the stub RECEIVED: the "never forwarded" witness. */
+  /** Every request payload the stub RECEIVED, in order (the probes included). */
   received: Buffer[];
+  /**
+   * Install an answer mutator AFTER the open-time probe (late binding): the
+   * probe must always see a clean agent or the scheme would never resolve;
+   * only later replies get corrupted to drive the response gates.
+   */
+  setMutate(mutate: (kind: "identities" | "sign", answer: Buffer) => Buffer): void;
   close(): Promise<void>;
 }
 
-async function startStubAgent(roster: { blob: Buffer; comment: string }[]): Promise<StubAgent> {
+interface RosterEntry {
+  blob: Buffer;
+  comment: string;
+}
+
+/**
+ * A stub that behaves like a live agent of the given scheme: a one-byte
+ * identities request answers the full roster in that scheme's answer byte; a
+ * WELL-FORMED sign body answers SIGN_RESPONSE (it signs anything it is asked:
+ * "the forwarded list never contains it" is the witness that the responder
+ * refused before forwarding); anything else - including the probe's one-byte
+ * classic candidate hitting a 10.x agent, where byte 13 is a truncated sign -
+ * answers FAILURE(5), exactly the OpenSSH_10.2p1 measurement. {@link
+ * StubAgent.setMutate} can later corrupt would-be-valid answers (foreign type
+ * bytes, truncated rosters) to drive the responder's response gates.
+ */
+async function startStubAgent(roster: RosterEntry[], scheme: AgentScheme): Promise<StubAgent> {
   const dir = mkdtempSync(join(tmpdir(), "subshell-relay-stub-"));
   const path = join(dir, "agent.sock");
   const received: Buffer[] = [];
+  const state: { mutate?: (kind: "identities" | "sign", answer: Buffer) => Buffer } = {};
   const server: Server = createServer((conn: Socket) => {
     let buffer = Buffer.alloc(0);
     conn.on("data", (chunk: Buffer) => {
@@ -136,14 +172,14 @@ async function startStubAgent(roster: { blob: Buffer; comment: string }[]): Prom
         buffer = buffer.subarray(4 + len);
         received.push(request);
         const type = request[0];
-        if (type === SSH2_AGENTC_REQUEST_IDENTITIES) {
-          conn.write(framed(buildIdentitiesAnswer(roster)));
-        } else if (type === SSH2_AGENTC_SIGN_REQUEST) {
-          // The stub signs ANYTHING it is asked: "the stub never received it"
-          // is the witness that the responder refused before forwarding.
-          conn.write(framed(Buffer.concat([Buffer.from([SSH2_AGENT_SIGN_RESPONSE]), sshStr(Buffer.from("SIG"))])));
+        if (request.length === 1 && type === scheme.identities) {
+          const answer = buildIdentitiesAnswer(scheme, roster);
+          conn.write(framed(state.mutate ? state.mutate("identities", answer) : answer));
+        } else if (type === scheme.sign && isWellFormedSignBody(request, scheme)) {
+          const answer = Buffer.concat([Buffer.from([scheme.signResponse]), sshStr(Buffer.from("SIG"))]);
+          conn.write(framed(state.mutate ? state.mutate("sign", answer) : answer));
         } else {
-          conn.write(framed(Buffer.from([SSH2_AGENT_FAILURE])));
+          conn.write(framed(Buffer.from([5])));
         }
       }
     });
@@ -156,7 +192,49 @@ async function startStubAgent(roster: { blob: Buffer; comment: string }[]): Prom
     server.once("listening", () => resolve());
     server.listen(path);
   });
-  return { path, received, close: () => new Promise<void>((r) => server.close(() => r())) };
+  return {
+    path,
+    received,
+    setMutate: (mutate) => {
+      state.mutate = mutate;
+    },
+    close: () => new Promise<void>((r) => server.close(() => r())),
+  };
+}
+
+/** A stub answering FAILURE(5) to EVERY request: it speaks neither scheme. */
+async function startUnprobeableAgent(): Promise<StubAgent> {
+  const dir = mkdtempSync(join(tmpdir(), "subshell-relay-stub-"));
+  const path = join(dir, "agent.sock");
+  const received: Buffer[] = [];
+  const server: Server = createServer((conn: Socket) => {
+    let buffer = Buffer.alloc(0);
+    conn.on("data", (chunk: Buffer) => {
+      buffer = buffer.length === 0 ? Buffer.from(chunk) : Buffer.concat([buffer, chunk]);
+      if (buffer.length < 4) return;
+      const len = buffer.readUInt32BE(0);
+      if (buffer.length < 4 + len) return;
+      received.push(Buffer.from(buffer.subarray(4, 4 + len)));
+      buffer = buffer.subarray(4 + len);
+      conn.write(framed(Buffer.from([5])));
+    });
+    conn.on("error", () => {
+      /* per-request closes; never throw */
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.once("listening", () => resolve());
+    server.listen(path);
+  });
+  return {
+    path,
+    received,
+    setMutate: () => {
+      /* this stub never produces a valid answer to corrupt */
+    },
+    close: () => new Promise<void>((r) => server.close(() => r())),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -196,12 +274,12 @@ const bKeysReady = machineKeys();
 const evilKeysReady: Promise<JwkPair> = es256Pair();
 
 /* ------------------------------------------------------------------ */
-/* the fixture: a brokered A session over RelaySessions + the stub     */
+/* the fixture: a brokered A session over RelaySessions + a stub agent */
 /* ------------------------------------------------------------------ */
 
 const KEY_IN = Buffer.concat([Buffer.from([0, 0, 0, 7]), Buffer.from("ssh-ed25519"), sshStr(Buffer.from("KEY-IN"))]);
 const KEY_OUT = Buffer.concat([Buffer.from([0, 0, 0, 7]), Buffer.from("ssh-ed25519"), sshStr(Buffer.from("KEY-OUT"))]);
-const ROSTER = [
+const ROSTER: RosterEntry[] = [
   { blob: KEY_IN, comment: "granted key" },
   { blob: KEY_OUT, comment: "ungranted key" },
 ];
@@ -210,24 +288,41 @@ interface Fixture {
   relay: RelaySessions;
   frames: RelayFrame[];
   stub: StubAgent;
+  /** Messages the stub received AFTER the open-time probe finished. */
+  forwarded(): Buffer[];
   dataDir: string;
   aPublic: { signing: string; encryption: string };
   aPrivate: { signing: string; encryption: string };
   bKeys: { signing: JwkPair; encryption: JwkPair };
+  /** The scheme the stub agent speaks and the probe is expected to resolve. */
+  scheme: AgentScheme;
   cleanup(): Promise<void>;
 }
 
-/** Open the A side with the shipped command shape through the real registration path. */
+/**
+ * Open the A side with the shipped command shape through the real registration
+ * path. The numbering probe runs INSIDE openARelaySession, so by the time this
+ * resolves the stub has already fielded the probe bytes; everything received
+ * after that point is what the responder forwarded for B's requests.
+ */
 async function openFixture(
   overrides: Partial<SshRelayOpenCommand> = {},
-  opts: { resolveAgentSocket?: () => string | null; send?: (frame: RelayFrame) => void } = {},
+  opts: {
+    resolveAgentSocket?: () => string | null;
+    send?: (frame: RelayFrame) => void;
+    scheme?: AgentScheme;
+    roster?: RosterEntry[];
+    unprobeable?: boolean;
+    mutateAnswer?: (kind: "identities" | "sign", answer: Buffer) => Buffer;
+  } = {},
 ): Promise<Fixture> {
+  const scheme = opts.scheme ?? OPENSSH_10X_SCHEME;
   const bKeys = await bKeysReady;
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-relay-responder-"));
   // The responder loads A's identity from the data dir; mint it first so the
   // test side knows A's keys (loadOrCreateIdentity is idempotent per dir).
   const aIdentity = await loadOrCreateIdentity(dataDir);
-  const stub = await startStubAgent(ROSTER);
+  const stub = opts.unprobeable ? await startUnprobeableAgent() : await startStubAgent(opts.roster ?? ROSTER, scheme);
   const relay = new RelaySessions();
   const frames: RelayFrame[] = [];
   const cmd: SshRelayOpenCommand = {
@@ -256,14 +351,18 @@ async function openFixture(
       }),
     resolveAgentSocket: opts.resolveAgentSocket ?? ((): string => stub.path),
   });
+  const probeCount = stub.received.length; // whatever the open-time probe asked
+  if (opts.mutateAnswer) stub.setMutate(opts.mutateAnswer); // corrupt only post-probe answers
   return {
     relay,
     frames,
     stub,
+    forwarded: (): Buffer[] => stub.received.slice(probeCount),
     dataDir,
     aPublic: { signing: aIdentity.signingPublicJwk, encryption: aIdentity.publicJwk },
     aPrivate: { signing: aIdentity.signingPrivateJwk, encryption: aIdentity.privateJwk },
     bKeys,
+    scheme,
     cleanup: async () => {
       relay.closeAll("lifetime-expiry");
       await stub.close();
@@ -351,14 +450,82 @@ async function waitUntil(cond: () => boolean, what: string, timeoutMs = 3000): P
 }
 
 /* ------------------------------------------------------------------ */
-/* REQUEST_IDENTITIES: forwarded, then filtered to the grant set       */
+/* the open-time probe (the 2026-10-08 numbering ruling)               */
 /* ------------------------------------------------------------------ */
 
-test("a REQUEST_IDENTITIES (13) from pinned B gets an IDENTITIES_ANSWER filtered to the grant fingerprints, and the session's second request rides the recorded nA", async () => {
+test("opening a session on a 10.x agent probes classic-then-10.x, resolves on the 11-to-12 answer, and forwards nothing", async () => {
+  const f = await openFixture(); // the 10.x stub is the fleet default (measured OpenSSH_10.2p1)
+  try {
+    // Byte 13 first: the 10.x stub reads it as a truncated sign and answers
+    // FAILURE(5), the measured behavior. Byte 11 then answers a valid
+    // IDENTITIES_ANSWER(12): the scheme resolves positively on the 11-to-12 pair.
+    expect(f.stub.received).toEqual([Buffer.from([13]), Buffer.from([11])]);
+    // The probe's roster is A's own view of the world: it never rides to B.
+    expect(f.frames.length).toBe(0);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("opening a session on a classic agent resolves on the 13-to-14 answer in a single probe", async () => {
+  const f = await openFixture({}, { scheme: CLASSIC_SCHEME });
+  try {
+    expect(f.stub.received).toEqual([Buffer.from([13])]);
+    expect(f.frames.length).toBe(0);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("the probe never sends anything but one-byte identities requests (it can never ask for a signature)", async () => {
+  const f = await openFixture();
+  try {
+    for (const payload of f.stub.received) {
+      expect(payload.length).toBe(1);
+      expect([11, 13]).toContain(payload[0]);
+    }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("an agent the probe cannot resolve refuses every request and forwards nothing beyond the probes", async () => {
+  const f = await openFixture({}, { unprobeable: true }); // FAILURE(5) to everything
+  try {
+    expect(f.stub.received).toEqual([Buffer.from([13]), Buffer.from([11])]); // both candidates tried
+    const nB = newNonce();
+    // Every byte SOME scheme would honor must be refused while the scheme is
+    // unresolved: never forwarded under a guessed interpretation.
+    const requests = [
+      Buffer.from([11]),
+      buildSignRequestTenX(KEY_IN),
+      Buffer.from([13]),
+      buildSignRequestClassic(KEY_IN),
+    ];
+    let nA: string | undefined;
+    for (const [i, agentBytes] of requests.entries()) {
+      const req = await sealRequest(f, { agentBytes, seq: i, nB, ...(nA === undefined ? {} : { nA }) });
+      f.relay.onInboundRelayFrame(req);
+      await waitUntil(() => f.frames.length === i + 1, `refusal ${i}`);
+      const reply = await decodeA2B(f, f.frames[i], { nB, ...(nA === undefined ? {} : { nA }) });
+      expect([...reply.agentBytes]).toEqual([5]);
+      nA = reply.nA; // later requests must carry the recorded nonce onward (real B's state)
+    }
+    expect(f.forwarded()).toEqual([]); // nothing beyond the two one-byte probes
+  } finally {
+    await f.cleanup();
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* the 10.x scheme: identities 11/answer 12, sign 13/response 14       */
+/* ------------------------------------------------------------------ */
+
+test("under the 10.x scheme a REQUEST_IDENTITIES (11) from pinned B gets an IDENTITIES_ANSWER (12) filtered to the grant, and the session's second request rides the recorded nA", async () => {
   const f = await openFixture();
   try {
     const nB = newNonce();
-    const req1 = await sealRequest(f, { agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]), seq: 0, nB });
+    const req1 = await sealRequest(f, { agentBytes: Buffer.from([11]), seq: 0, nB });
     expect(parseRelayFrame(JSON.stringify(req1))).not.toBeNull();
     f.relay.onInboundRelayFrame(req1);
     await waitUntil(() => f.frames.length === 1, "one A2B reply frame");
@@ -373,67 +540,62 @@ test("a REQUEST_IDENTITIES (13) from pinned B gets an IDENTITIES_ANSWER filtered
     expect(reply1.seq).toBe(0); // the signed seq of the first reply
 
     const answer = parseAnswer(reply1.agentBytes);
-    expect(answer.type).toBe(SSH2_AGENT_IDENTITIES_ANSWER);
+    expect(answer.type).toBe(12); // the 10.x answer byte, never an invented 2 (C-1)
     expect(answer.count).toBe(1); // the stub roster had 2; only the granted fingerprint survives
     expect(answer.comments).toEqual(["granted key"]);
-    expect(f.stub.received.length).toBe(1); // the agent saw exactly one request
-    expect(f.stub.received[0]).toEqual(Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    expect(f.forwarded()[0]).toEqual(Buffer.from([11])); // the agent saw the identities request
 
     // The second request carries A's recorded nonce; A's expect binds it onward.
-    const req2 = await sealRequest(f, { agentBytes: buildSignRequest(KEY_IN), seq: 1, nB, nA: reply1.nA });
+    // The 10.x extended grammar: blob, data, flags, trailing algorithms string.
+    const signReq = buildSignRequestTenX(KEY_IN, { algorithms: "ssh-ed25519" });
+    const req2 = await sealRequest(f, { agentBytes: signReq, seq: 1, nB, nA: reply1.nA });
     f.relay.onInboundRelayFrame(req2);
     await waitUntil(() => f.frames.length === 2, "the second A2B reply frame");
     const reply2 = await decodeA2B(f, f.frames[1], { nB, nA: reply1.nA });
     expect(f.frames[1].seq).toBe(1); // transport seq advanced
     expect(reply2.seq).toBe(1); // signed anti-replay seq advanced
     expect(reply2.nA).toBe(reply1.nA); // every A2B carries the SAME nA (Task-6 handoff)
-    expect(reply2.agentBytes).toEqual(
-      Buffer.concat([Buffer.from([SSH2_AGENT_SIGN_RESPONSE]), sshStr(Buffer.from("SIG"))]),
-    );
-    expect(f.stub.received.length).toBe(2);
-    expect(f.stub.received[1]).toEqual(buildSignRequest(KEY_IN));
+    expect([...reply2.agentBytes]).toEqual([14, 0, 0, 0, 3, ...Buffer.from("SIG")]); // SIGN_RESPONSE 14
+    expect(f.forwarded()[1]).toEqual(signReq); // byte-identical forward, extended grammar included
   } finally {
     await f.cleanup();
   }
 });
 
-/* ------------------------------------------------------------------ */
-/* SIGN_REQUEST: in-set forwarded, out-of-set refused before the agent */
-/* ------------------------------------------------------------------ */
-
-test("a SIGN_REQUEST (15) for an OUT-of-set blob is refused with SSH2_AGENT_FAILURE and never forwarded to A's agent", async () => {
+test("C-2 regression: a crafted byte-13 SIGN_REQUEST under the 10.x scheme with an OUT-of-grant blob is refused and never forwarded", async () => {
+  // Byte 13 is SIGN under 10.x. Before the fix the responder treated it as
+  // the classic identities request and forwarded it raw, unscoped, so A's
+  // agent would have signed an attacker-chosen blob. Now the probe resolves
+  // 10.x and the fingerprint scope must reject it BEFORE any forward.
   const f = await openFixture();
   try {
     const nB = newNonce();
-    const req = await sealRequest(f, { agentBytes: buildSignRequest(KEY_OUT), seq: 0, nB });
+    const crafted = buildSignRequestTenX(KEY_OUT); // KEY_OUT is not in the grant
+    const req = await sealRequest(f, { agentBytes: crafted, seq: 0, nB });
     f.relay.onInboundRelayFrame(req);
     await waitUntil(() => f.frames.length === 1, "a refusal reply frame");
     const reply = await decodeA2B(f, f.frames[0], { nB });
-    expect([...reply.agentBytes]).toEqual([SSH2_AGENT_FAILURE]);
+    expect([...reply.agentBytes]).toEqual([5]); // SSH2_AGENT_FAILURE
     await sleep(30);
-    expect(f.stub.received.length).toBe(0); // the stub agent never saw it (§5.4: refused at the responder)
+    expect(f.forwarded()).toEqual([]); // §5.4: checked at the responder, never forwarded
+    // And the byte-13 traffic the stub saw is only the one-byte probe, never
+    // the crafted body.
+    for (const seen of f.stub.received) {
+      if (seen[0] === 13) expect(seen.length).toBe(1);
+    }
   } finally {
     await f.cleanup();
   }
 });
 
-/* ------------------------------------------------------------------ */
-/* method allow-list: default-deny on everything else                  */
-/* ------------------------------------------------------------------ */
-
-test("disallowed request types (ADD 17, REMOVE 18, REMOVE_ALL 19, LOCK 22, UNLOCK 23, EXTENSION 27, SSH1 1) are refused and never forwarded", async () => {
+test("under the 10.x scheme every codepoint the scheme does not name is refused and never forwarded (default-deny)", async () => {
   const f = await openFixture();
   try {
     const nB = newNonce();
-    const disallowed = [
-      SSH2_AGENTC_ADD_IDENTITY,
-      SSH2_AGENTC_REMOVE_IDENTITY,
-      SSH2_AGENTC_REMOVE_ALL_IDENTITIES,
-      SSH2_AGENTC_LOCK,
-      SSH2_AGENTC_UNLOCK,
-      SSH2_AGENTC_EXTENSION,
-      SSH1_AGENTC_REQUEST_RSA_IDENTITIES,
-    ];
+    // 15/16 are the CLASSIC sign request/response bytes; 14 is 10.x's own
+    // response byte aimed at us as a request; the rest are agent-proto.h
+    // mutations/locks/SSH1 codes. NONE is 10.x identities (11) or sign (13).
+    const disallowed = [15, 16, 14, 17, 18, 19, 22, 23, 27, 1, 200];
     let nA: string | undefined;
     for (const [i, type] of disallowed.entries()) {
       const req = await sealRequest(f, {
@@ -445,50 +607,209 @@ test("disallowed request types (ADD 17, REMOVE 18, REMOVE_ALL 19, LOCK 22, UNLOC
       f.relay.onInboundRelayFrame(req);
       await waitUntil(() => f.frames.length === i + 1, `a refusal for disallowed type ${type}`);
       const reply = await decodeA2B(f, f.frames[i], { nB, ...(nA === undefined ? {} : { nA }) });
-      expect([...reply.agentBytes]).toEqual([SSH2_AGENT_FAILURE]);
+      expect([...reply.agentBytes]).toEqual([5]);
       expect(f.frames[i].seq).toBe(i);
       nA = reply.nA; // later requests must carry the recorded nonce onward (real B's state)
     }
     await sleep(30);
-    expect(f.stub.received.length).toBe(0); // nothing reached A's agent
+    expect(f.forwarded()).toEqual([]); // nothing reached A's agent
   } finally {
     await f.cleanup();
   }
 });
 
-test("a malformed SIGN_REQUEST (truncated wire) is refused and not forwarded", async () => {
+test("under the 10.x scheme malformed sign bodies are refused and never forwarded", async () => {
   const f = await openFixture();
   try {
     const nB = newNonce();
-    const truncated = Buffer.concat([Buffer.from([SSH2_AGENTC_SIGN_REQUEST]), sshStr(KEY_IN).subarray(0, 2)]);
-    const req = await sealRequest(f, { agentBytes: truncated, seq: 0, nB });
-    f.relay.onInboundRelayFrame(req);
-    await waitUntil(() => f.frames.length === 1, "a refusal reply frame");
-    const reply = await decodeA2B(f, f.frames[0], { nB });
-    expect([...reply.agentBytes]).toEqual([SSH2_AGENT_FAILURE]);
+    let nA: string | undefined;
+    const malformed: Buffer[] = [
+      Buffer.from([13, 0, 0, 0, 2]), // truncated blob length
+      Buffer.concat([Buffer.from([13]), sshStr(KEY_IN)]), // blob-only: no data, no flags
+      Buffer.concat([Buffer.from([13]), sshStr(KEY_IN), be32(0)]), // blob+flags: not the wire grammar
+      Buffer.concat([Buffer.from([13]), sshStr(KEY_IN), sshStr("DATA")]), // missing flags
+      Buffer.concat([Buffer.from([13]), sshStr(Buffer.alloc(0)), sshStr("DATA"), be32(0)]), // empty blob
+      Buffer.concat([Buffer.from([13]), sshStr(KEY_IN), sshStr("DATA"), be32(0), Buffer.from([0, 0])]), // junk tail
+      Buffer.concat([
+        Buffer.from([13]),
+        sshStr(KEY_IN),
+        sshStr("DATA"),
+        be32(0),
+        Buffer.from([0, 0, 0, 99]), // algorithms string longer than the buffer
+      ]),
+    ];
+    for (const [i, agentBytes] of malformed.entries()) {
+      const req = await sealRequest(f, { agentBytes, seq: i, nB, ...(nA === undefined ? {} : { nA }) });
+      f.relay.onInboundRelayFrame(req);
+      await waitUntil(() => f.frames.length === i + 1, `a refusal for malformed body ${i}`);
+      const reply = await decodeA2B(f, f.frames[i], { nB, ...(nA === undefined ? {} : { nA }) });
+      expect([...reply.agentBytes]).toEqual([5]);
+      nA = reply.nA;
+    }
     await sleep(30);
-    expect(f.stub.received.length).toBe(0);
+    expect(f.forwarded()).toEqual([]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("under the 10.x scheme a REQUEST_IDENTITIES (11) must be exactly one byte (extra bytes are refused, not forwarded)", async () => {
+  const f = await openFixture();
+  try {
+    const nB = newNonce();
+    const req = await sealRequest(f, { agentBytes: Buffer.from([11, 0, 1, 2, 3]), seq: 0, nB });
+    f.relay.onInboundRelayFrame(req);
+    await waitUntil(() => f.frames.length === 1, "the refusal");
+    const reply = await decodeA2B(f, f.frames[0], { nB });
+    expect([...reply.agentBytes]).toEqual([5]);
+    await sleep(30);
+    expect(f.forwarded()).toEqual([]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("under the 10.x scheme a grant naming no fingerprint serves the count-zero answer (12), never the roster", async () => {
+  const f = await openFixture({ fingerprints: [] });
+  try {
+    const nB = newNonce();
+    const req = await sealRequest(f, { agentBytes: Buffer.from([11]), seq: 0, nB });
+    f.relay.onInboundRelayFrame(req);
+    await waitUntil(() => f.frames.length === 1, "the filtered reply frame");
+    const reply = await decodeA2B(f, f.frames[0], { nB });
+    // The full two-key roster is on the stub; the answer is five bytes: 12 + count 0.
+    expect([...reply.agentBytes]).toEqual([12, 0, 0, 0, 0]);
   } finally {
     await f.cleanup();
   }
 });
 
 /* ------------------------------------------------------------------ */
-/* the empty grant: serve nothing, never the full list                 */
+/* the classic scheme: identities 13/answer 14, sign 15/response 16    */
 /* ------------------------------------------------------------------ */
 
-test("a grant naming no fingerprint yields an empty (count 0) IDENTITIES_ANSWER, never the roster", async () => {
-  const f = await openFixture({ fingerprints: [] });
+test("under the classic scheme a REQUEST_IDENTITIES (13) gets an IDENTITIES_ANSWER (14) filtered to the grant", async () => {
+  const f = await openFixture({}, { scheme: CLASSIC_SCHEME });
   try {
     const nB = newNonce();
-    const req = await sealRequest(f, { agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]), seq: 0, nB });
+    const req = await sealRequest(f, { agentBytes: Buffer.from([13]), seq: 0, nB });
     f.relay.onInboundRelayFrame(req);
-    await waitUntil(() => f.frames.length === 1, "the filtered reply frame");
+    await waitUntil(() => f.frames.length === 1, "one A2B reply frame");
     const reply = await decodeA2B(f, f.frames[0], { nB });
     const answer = parseAnswer(reply.agentBytes);
-    expect(answer.type).toBe(SSH2_AGENT_IDENTITIES_ANSWER);
-    expect(answer.count).toBe(0);
-    expect(reply.agentBytes.length).toBe(5); // type + zero count, nothing else
+    expect(answer.type).toBe(14); // the classic answer byte
+    expect(answer.count).toBe(1);
+    expect(answer.comments).toEqual(["granted key"]);
+    expect(f.forwarded()[0]).toEqual(Buffer.from([13])); // byte 13 IS identities here
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("under the classic scheme a SIGN_REQUEST (15) is scoped by fingerprint and a granted one rides byte-identical", async () => {
+  const f = await openFixture({}, { scheme: CLASSIC_SCHEME });
+  try {
+    const nB = newNonce();
+    const outOfSet = buildSignRequestClassic(KEY_OUT);
+    const bad = await sealRequest(f, { agentBytes: outOfSet, seq: 0, nB });
+    f.relay.onInboundRelayFrame(bad);
+    await waitUntil(() => f.frames.length === 1, "the out-of-set refusal");
+    const refusal = await decodeA2B(f, f.frames[0], { nB });
+    expect([...refusal.agentBytes]).toEqual([5]);
+    expect(f.forwarded()).toEqual([]); // out-of-set never reached the agent
+
+    const inSet = buildSignRequestClassic(KEY_IN);
+    const good = await sealRequest(f, { agentBytes: inSet, seq: 1, nB, nA: refusal.nA });
+    f.relay.onInboundRelayFrame(good);
+    await waitUntil(() => f.frames.length === 2, "the signature reply");
+    const reply = await decodeA2B(f, f.frames[1], { nB, nA: refusal.nA });
+    expect([...reply.agentBytes]).toEqual([16, 0, 0, 0, 3, ...Buffer.from("SIG")]); // SIGN_RESPONSE 16
+    expect(f.forwarded()[0]).toEqual(inSet);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("under the classic scheme the 10.x bytes and non-grammatical bodies are refused and never forwarded", async () => {
+  const f = await openFixture({}, { scheme: CLASSIC_SCHEME });
+  try {
+    const nB = newNonce();
+    let nA: string | undefined;
+    const cases = [
+      Buffer.from([11]), // 10.x identities: a classic agent has no such request
+      Buffer.from([12]), // 10.x's answer byte aimed at us as a request
+      Buffer.from([13, 9]), // classic identities must be exactly one byte
+      buildSignRequestClassic(KEY_IN).subarray(0, 5), // truncated before data
+      buildSignRequestTenX(KEY_IN), // byte 13 with a full body: 13 must be one byte here
+      Buffer.concat([buildSignRequestClassic(KEY_IN), sshStr("ssh-ed25519")]), // trailing algorithms: the extended grammar belongs to 10.x
+    ];
+    for (const [i, agentBytes] of cases.entries()) {
+      const req = await sealRequest(f, { agentBytes, seq: i, nB, ...(nA === undefined ? {} : { nA }) });
+      f.relay.onInboundRelayFrame(req);
+      await waitUntil(() => f.frames.length === i + 1, `a refusal for case ${i}`);
+      const reply = await decodeA2B(f, f.frames[i], { nB, ...(nA === undefined ? {} : { nA }) });
+      expect([...reply.agentBytes]).toEqual([5]);
+      nA = reply.nA;
+    }
+    await sleep(30);
+    expect(f.forwarded()).toEqual([]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* agent answers that misbehave (the response gates)                   */
+/* ------------------------------------------------------------------ */
+
+test("an agent answering identities with a FOREIGN type byte becomes a refusal, never a forward-through", async () => {
+  // The 10.x session asks [11]; the stub answers a well-formed roster spelled
+  // with the classic 14 (the collision byte). The resolved scheme's answer
+  // gate must refuse it: 14 is a SIGN_RESPONSE here, not a roster.
+  const f = await openFixture({}, { mutateAnswer: (_kind, answer) => Buffer.from([14, ...answer.subarray(1)]) });
+  try {
+    const nB = newNonce();
+    const req = await sealRequest(f, { agentBytes: Buffer.from([11]), seq: 0, nB });
+    f.relay.onInboundRelayFrame(req);
+    await waitUntil(() => f.frames.length === 1, "the refusal");
+    const reply = await decodeA2B(f, f.frames[0], { nB });
+    expect([...reply.agentBytes]).toEqual([5]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("an unparseable roster never rides on: partial parsing is exactly what §5.4 exists to prevent", async () => {
+  // A valid 12 header whose declared entries the buffer does not carry.
+  const f = await openFixture({}, { mutateAnswer: (_kind, answer) => answer.subarray(0, answer.length - 4) });
+  try {
+    const nB = newNonce();
+    const req = await sealRequest(f, { agentBytes: Buffer.from([11]), seq: 0, nB });
+    f.relay.onInboundRelayFrame(req);
+    await waitUntil(() => f.frames.length === 1, "the refusal");
+    const reply = await decodeA2B(f, f.frames[0], { nB });
+    expect([...reply.agentBytes]).toEqual([5]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("an agent answering a granted sign with a FOREIGN response byte becomes a refusal (the signature never rides)", async () => {
+  // The 10.x session forwards byte 13; the stub answers type 16 (the classic
+  // SIGN_RESPONSE) with a signature: under the resolved 10.x scheme that is
+  // not a legal answer, and the bytes must never reach B.
+  const f = await openFixture(
+    {},
+    { mutateAnswer: (kind, answer) => (kind === "sign" ? Buffer.from([16, ...answer.subarray(1)]) : answer) },
+  );
+  try {
+    const nB = newNonce();
+    const req = await sealRequest(f, { agentBytes: buildSignRequestTenX(KEY_IN), seq: 0, nB });
+    f.relay.onInboundRelayFrame(req);
+    await waitUntil(() => f.frames.length === 1, "the refusal");
+    const reply = await decodeA2B(f, f.frames[0], { nB });
+    expect([...reply.agentBytes]).toEqual([5]);
+    expect(f.forwarded().length).toBe(1); // the scoped request DID ride; its answer did not
   } finally {
     await f.cleanup();
   }
@@ -503,7 +824,7 @@ test("a request signed by a key that is not B's pin is refused: no reply frame, 
   const evil = await evilKeysReady;
   try {
     const req = await sealRequest(f, {
-      agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]),
+      agentBytes: Buffer.from([11]),
       seq: 0,
       nB: newNonce(),
       signerPrivateJwk: evil.privateJwk,
@@ -511,7 +832,7 @@ test("a request signed by a key that is not B's pin is refused: no reply frame, 
     f.relay.onInboundRelayFrame(req);
     await sleep(50);
     expect(f.frames.length).toBe(0);
-    expect(f.stub.received.length).toBe(0);
+    expect(f.forwarded()).toEqual([]);
   } finally {
     await f.cleanup();
   }
@@ -523,7 +844,7 @@ test("a request bound to a foreign relay-session id or a foreign nB nonce is ref
     const nB = newNonce();
     // Cross-session replay: right keys, another session's id.
     const wrongSession = await sealRequest(f, {
-      agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]),
+      agentBytes: Buffer.from([11]),
       seq: 0,
       nB,
       relaySessionId: "relay-EVIL",
@@ -533,14 +854,14 @@ test("a request bound to a foreign relay-session id or a foreign nB nonce is ref
     expect(f.frames.length).toBe(0);
 
     // Land the genuine first request so nB is recorded...
-    const good = await sealRequest(f, { agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]), seq: 0, nB });
+    const good = await sealRequest(f, { agentBytes: Buffer.from([11]), seq: 0, nB });
     f.relay.onInboundRelayFrame(good);
     await waitUntil(() => f.frames.length === 1, "the genuine reply");
     const first = await decodeA2B(f, f.frames[0], { nB });
 
     // ...then a second-seq request carrying a nonce this session never saw.
     const foreignNonce = await sealRequest(f, {
-      agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]),
+      agentBytes: Buffer.from([11]),
       seq: 1,
       nB: newNonce(),
       nA: first.nA,
@@ -548,7 +869,7 @@ test("a request bound to a foreign relay-session id or a foreign nB nonce is ref
     f.relay.onInboundRelayFrame(foreignNonce);
     await sleep(50);
     expect(f.frames.length).toBe(1); // no reply to the foreign nonce
-    expect(f.stub.received.length).toBe(1); // and nothing further reached the agent
+    expect(f.forwarded().length).toBe(1); // and nothing further reached the agent
   } finally {
     await f.cleanup();
   }
@@ -558,7 +879,7 @@ test("a replayed or non-increasing-seq request is refused: no reply frame, nothi
   const f = await openFixture();
   try {
     const nB = newNonce();
-    const good = await sealRequest(f, { agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]), seq: 0, nB });
+    const good = await sealRequest(f, { agentBytes: Buffer.from([11]), seq: 0, nB });
     f.relay.onInboundRelayFrame(good);
     await waitUntil(() => f.frames.length === 1, "the first genuine reply");
     const first = await decodeA2B(f, f.frames[0], { nB });
@@ -566,24 +887,14 @@ test("a replayed or non-increasing-seq request is refused: no reply frame, nothi
     // Byte-identical resend of the first frame (the plane can resend anything).
     f.relay.onInboundRelayFrame(good);
     // A freshly signed request that rewinds the seq (the signature binds seq).
-    const rewind = await sealRequest(f, {
-      agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]),
-      seq: 0,
-      nB,
-      nA: first.nA,
-    });
+    const rewind = await sealRequest(f, { agentBytes: Buffer.from([11]), seq: 0, nB, nA: first.nA });
     f.relay.onInboundRelayFrame(rewind);
     await sleep(50);
     expect(f.frames.length).toBe(1);
-    expect(f.stub.received.length).toBe(1);
+    expect(f.forwarded().length).toBe(1);
 
     // The session still works after refusals: seq 1 advances.
-    const next = await sealRequest(f, {
-      agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]),
-      seq: 1,
-      nB,
-      nA: first.nA,
-    });
+    const next = await sealRequest(f, { agentBytes: Buffer.from([11]), seq: 1, nB, nA: first.nA });
     f.relay.onInboundRelayFrame(next);
     await waitUntil(() => f.frames.length === 2, "the next-seq reply still lands");
   } finally {
@@ -597,7 +908,7 @@ test("a frame on another ref or with the A2B direction never reaches the respond
     const nB = newNonce();
     // Another ref: the registry itself drops it (the unbrokered-session case).
     const foreignRef = await sealRequest(f, {
-      agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]),
+      agentBytes: Buffer.from([11]),
       seq: 0,
       nB,
       ref: "r-EVIL",
@@ -605,7 +916,7 @@ test("a frame on another ref or with the A2B direction never reaches the respond
     f.relay.onInboundRelayFrame(foreignRef);
     // The wrong direction for A's side (B's own echo posture).
     const echo = await sealRequest(f, {
-      agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]),
+      agentBytes: Buffer.from([11]),
       seq: 0,
       nB,
       direction: "A2B",
@@ -613,7 +924,7 @@ test("a frame on another ref or with the A2B direction never reaches the respond
     f.relay.onInboundRelayFrame(echo);
     await sleep(50);
     expect(f.frames.length).toBe(0);
-    expect(f.stub.received.length).toBe(0);
+    expect(f.forwarded()).toEqual([]);
   } finally {
     await f.cleanup();
   }
@@ -654,6 +965,7 @@ test("openARelaySession refuses a command that does not name this machine in its
         peerEncryptPublicKey: encB64,
       },
       sendRelayFrame: () => {},
+      resolveAgentSocket: () => null,
     }),
   ).rejects.toThrow(/not the A side/);
   // role A but aNodeId names someone else: not OUR brokered session.
@@ -670,6 +982,7 @@ test("openARelaySession refuses a command that does not name this machine in its
         peerEncryptPublicKey: encB64,
       },
       sendRelayFrame: () => {},
+      resolveAgentSocket: () => null,
     }),
   ).rejects.toThrow(/not the key home/);
   // The mirrored guard on the B branch: bNodeId must name the receiver too.
@@ -720,6 +1033,7 @@ test("openARelaySession enforces §4.4 byte-equality on B's pin and the duplicat
           peerEncryptPublicKey: Buffer.from(otherB.encryption.publicJwk, "utf8").toString("base64"),
         },
         sendRelayFrame: () => {},
+        resolveAgentSocket: () => null,
       }),
     ).rejects.toThrow(/pin for b-node has MOVED/);
     // Same pinned pairing, already-owned ref: refused, registry untouched.
@@ -736,6 +1050,7 @@ test("openARelaySession enforces §4.4 byte-equality on B's pin and the duplicat
           peerEncryptPublicKey: Buffer.from(f.bKeys.encryption.publicJwk, "utf8").toString("base64"),
         },
         sendRelayFrame: () => {},
+        resolveAgentSocket: () => null,
       }),
     ).rejects.toThrow(/routing ref already owned/);
     expect(f.relay.size).toBe(1);
@@ -768,6 +1083,7 @@ test("a pinned peer key that is not a usable public P-256 JWK rejects the sessio
         lifetimeMs: 30_000,
       },
       sendRelayFrame: () => {},
+      resolveAgentSocket: () => null,
     }),
   ).rejects.toThrow(/relay open refused/);
   expect(relay.size).toBe(0);
@@ -780,11 +1096,11 @@ test("relay.close tears the responder down: later frames produce nothing", async
     expect(f.relay.close("r-1", "grant-revoked")).toBe(true);
     expect(f.relay.has("r-1")).toBe(false);
     const nB = newNonce();
-    const req = await sealRequest(f, { agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]), seq: 0, nB });
+    const req = await sealRequest(f, { agentBytes: Buffer.from([11]), seq: 0, nB });
     f.relay.onInboundRelayFrame(req); // the registry: unknown ref now, dropped
     await sleep(30);
     expect(f.frames.length).toBe(0);
-    expect(f.stub.received.length).toBe(0);
+    expect(f.forwarded()).toEqual([]);
   } finally {
     await f.cleanup();
   }
@@ -794,22 +1110,17 @@ test("relay.close tears the responder down: later frames produce nothing", async
 /* the live agent socket seam                                          */
 /* ------------------------------------------------------------------ */
 
-test("liveAgentSocketPath honors only an absolute SSH_AUTH_SOCK (the ssh-resolve rule)", () => {
-  expect(liveAgentSocketPath({ SSH_AUTH_SOCK: "/run/user/1000/ssh-agent.sock" })).toBe("/run/user/1000/ssh-agent.sock");
-  expect(liveAgentSocketPath({})).toBeNull();
-  expect(liveAgentSocketPath({ SSH_AUTH_SOCK: "" })).toBeNull();
-  expect(liveAgentSocketPath({ SSH_AUTH_SOCK: "relative/path.sock" })).toBeNull();
-});
-
-test("with no live agent socket the responder answers SSH2_AGENT_FAILURE and touches nothing", async () => {
+test("with no live agent socket the session opens with no scheme and answers SSH2_AGENT_FAILURE, touching nothing", async () => {
   const f = await openFixture({}, { resolveAgentSocket: () => null });
   try {
+    // Nothing connected at open either: the probe only runs when a socket exists.
+    expect(f.stub.received.length).toBe(0);
     const nB = newNonce();
-    const req = await sealRequest(f, { agentBytes: Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]), seq: 0, nB });
+    const req = await sealRequest(f, { agentBytes: Buffer.from([11]), seq: 0, nB });
     f.relay.onInboundRelayFrame(req);
     await waitUntil(() => f.frames.length === 1, "the no-agent refusal reply");
     const reply = await decodeA2B(f, f.frames[0], { nB });
-    expect([...reply.agentBytes]).toEqual([SSH2_AGENT_FAILURE]);
+    expect([...reply.agentBytes]).toEqual([5]);
     expect(f.stub.received.length).toBe(0); // the stub socket was never connected
   } finally {
     await f.cleanup();
@@ -817,7 +1128,7 @@ test("with no live agent socket the responder answers SSH2_AGENT_FAILURE and tou
 });
 
 /* ------------------------------------------------------------------ */
-/* the filtering/parser helpers, pinned directly                       */
+/* startRelayResponder's own gates                                     */
 /* ------------------------------------------------------------------ */
 
 test("startRelayResponder rejects a pinned peer key that is not public P-256 material (the deep bytesOfJwk gate)", () => {
@@ -833,32 +1144,10 @@ test("startRelayResponder rejects a pinned peer key that is not public P-256 mat
       ownEncryptionPrivateJwk: "{}",
       ownSigningPrivateJwk: "{}",
       fingerprints: [],
+      agentScheme: OPENSSH_10X_SCHEME,
       seal: mcpSeal,
       open: mcpOpen,
       sendRelayFrame: () => {},
     }),
   ).toThrow(/relay responder: pinned peer key rejected/);
-});
-
-test("fingerprintAgentBlob spells SHA256 over the wire blob in the grant grammar's base64url form", () => {
-  const s = fingerprintAgentBlob(Buffer.from("hello"));
-  expect(s).toMatch(/^SHA256:[A-Za-z0-9_-]{43}$/);
-  expect(s).toBe(fp(Buffer.from("hello")));
-});
-
-test("filterIdentitiesAnswer keeps only granted entries (count fixed, bytes preserved) and refuses malformed answers", () => {
-  const allowed = new Set([fp(KEY_OUT)]); // grant the SECOND entry: order must not matter
-  const filtered = filterIdentitiesAnswer(buildIdentitiesAnswer(ROSTER), allowed);
-  const answer = parseAnswer(filtered);
-  expect(answer.count).toBe(1);
-  expect(answer.comments).toEqual(["ungranted key"]);
-  // The kept entry's wire bytes survive byte-identical: type + count + str(blob) + str(comment).
-  expect(filtered).toEqual(
-    Buffer.concat([Buffer.from([SSH2_AGENT_IDENTITIES_ANSWER]), be32(1), sshStr(KEY_OUT), sshStr("ungranted key")]),
-  );
-  expect(filterIdentitiesAnswer(buildIdentitiesAnswer([]), new Set()).length).toBe(5);
-  // Malformed: declared entries the buffer does not carry, and a wrong type byte.
-  const truncated = buildIdentitiesAnswer(ROSTER).subarray(0, 20);
-  expect(() => filterIdentitiesAnswer(truncated, new Set())).toThrow();
-  expect(() => filterIdentitiesAnswer(Buffer.from([SSH2_AGENT_SIGN_RESPONSE, 0, 0, 0, 0]), new Set())).toThrow();
 });

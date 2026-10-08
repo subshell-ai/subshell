@@ -1,5 +1,3 @@
-import { createHash } from "node:crypto";
-import { createConnection, type Socket } from "node:net";
 import {
   base64UrlNoPad,
   bytesOfJwk,
@@ -9,11 +7,18 @@ import {
   type RelayOpenFn,
   type RelaySealFn,
   SeqGate,
-  SSH_RELAY_FRAME_MAX_BYTES,
   sealRelayEnvelope,
   verifyRelayEnvelope,
 } from "@internal/subshell-protocol";
 import { log } from "./log.js";
+import {
+  type AgentScheme,
+  filterIdentitiesAnswer,
+  fingerprintAgentBlob,
+  parseSignRequest,
+  SSH2_AGENT_FAILURE,
+} from "./relay-agent-scheme.js";
+import { liveAgentSocketPath, requestLiveAgent } from "./relay-agent-socket.js";
 
 /**
  * A-side responder of the sealed agent relay (spec 2026-10-08 §5.4/§5.6): the
@@ -21,29 +26,38 @@ import { log } from "./log.js";
  * sealed from B; this module opens it with A's own encryption key, verifies
  * origin against B's PINNED signing key with the full Task-5 caller checklist
  * (frame-bound open, structurally bound relaySessionId / nB / nA, per-session
- * {@link SeqGate}), default-denies the agent method, enforces the grant's
- * fingerprint set against A's LIVE agent socket, and seals+signs the (possibly
- * filtered or refused) agent answer back as an A2B frame.
+ * {@link SeqGate}), default-denies the agent method **in the probed scheme**,
+ * enforces the grant's fingerprint set against A's LIVE agent socket, and
+ * seals+signs the (possibly filtered or refused) agent answer back as an A2B
+ * frame. The agent wire itself (numbering, parsing, scoping helpers) lives in
+ * `relay-agent-scheme.ts`; the socket round trip in `relay-agent-socket.ts`.
  *
- * The two rules of §5.4, in the order they run:
+ * The three rules of §5.4, in the order they run:
  *
- * 1. **Method allow-list, default-deny.** Exactly the two request types SSH
- *    publickey auth uses are forwarded, matched by numeric type byte on the
- *    wire; every other type (identity mutations, LOCK/UNLOCK, EXTENSION, the
- *    SSH1-era range, anything unknown) is refused WITHOUT touching A's agent.
- *    A granted window therefore cannot mutate or lock A's agent against its
- *    other panes, by default-deny rather than a name list that could miss a
- *    code.
- * 2. **Identity scoping.** The IDENTITIES_ANSWER is rebuilt with only the
- *    entries whose `SHA256:` fingerprint is in the grant's selected set, and a
- *    SIGN_REQUEST whose key blob hashes outside the set is refused before it
- *    is ever forwarded. A grant naming no fingerprint serves nothing.
+ * 1. **The scheme is probed, never assumed (ruling 2026-10-08).** Classic
+ * (identities 13 / sign 15) and RFC 9987 / OpenSSH-10.x (identities 11 / sign
+ * 13) numbering COLLIDE at byte 13: forwarding it raw as identities against a
+ * 10.x agent forwards a SIGN_REQUEST unscoped, and the key home signs an
+ * attacker-chosen blob. The session is therefore opened with a resolved
+ * `AgentScheme` (the probe lives in `relay-agent-scheme.ts`, run by
+ * `openARelaySession`); a session whose probe resolved NOTHING classifies
+ * nothing and forwards nothing - every request is refused.
+ * 2. **Method allow-list, default-deny in the resolved scheme.** Exactly the
+ * two request types SSH publickey auth uses - the identities and sign
+ * codepoints THAT scheme names - are ever forwarded; every other byte
+ * (identity mutations, LOCK/UNLOCK, EXTENSION, the SSH1-era range, the OTHER
+ * scheme's codes, anything unknown) dies here without touching A's agent.
+ * 3. **Identity scoping BEFORE any forward.** The identities answer is
+ * rebuilt with only the entries whose `SHA256:` fingerprint is in the grant;
+ * a sign request is parsed, its key blob fingerprinted, and a blob outside
+ * the set is refused at the responder - the bytes NEVER reach A's agent,
+ * whichever codepoint the scheme treats as sign (§5.4's load-bearing rule).
+ * A granted window therefore signs and sees only the keys the operator picked.
  *
  * **Agent-only (§3 item 4):** the only path to a key is A's running agent
- * socket (`SSH_AUTH_SOCK`, the connecting account's own, the same
- * absolute-path rule `ssh-resolve.ts` established for the launch side). No
- * private key file is opened here, and nothing about key material is ever
- * logged.
+ * socket (`SSH_AUTH_SOCK`, the connecting account's own, the absolute-path
+ * rule `relay-agent-socket.ts` shares with `ssh-resolve.ts`). No private key
+ * file is opened anywhere, and nothing about key material is ever logged.
  *
  * Refusal semantics mirror Task 6's proxy: an unopenable envelope is
  * plane-crafted noise and costs a log line (§5.6 first line: the plane holds
@@ -54,7 +68,7 @@ import { log } from "./log.js";
  * never punished, because the plane routes and can resend anything. A refused
  * REQUEST still gets the session's normal answer only in the agent layer:
  * disallowed or out-of-scope agent requests are answered with
- * `SSH2_AGENT_FAILURE` (B's ssh sees a clean "agent refused", never a hang),
+ * SSH2_AGENT_FAILURE (B's ssh sees a clean "agent refused", never a hang),
  * while refused FRAMES (origin/replay) never produce any A2B at all.
  *
  * Nonce protocol (§5.6, A's side of the mirror): A mints `nA` once at session
@@ -70,230 +84,14 @@ import { log } from "./log.js";
  * mcp-core's pair straight through.
  */
 
-/* ------------------------------------------------------------------ */
-/* the ssh-agent wire (OpenSSH `agent-proto.h` values)                 */
-/* ------------------------------------------------------------------ */
-
-/**
- * `SSH2_AGENTC_REQUEST_IDENTITIES` - ask for the public-key list. The value
- * is from OpenSSH's `agent-proto.h` (NOT the RFC 9987 renumbering, where this
- * is 11: the wire and the real agent are OpenSSH, and the real-agent e2e is
- * the arbiter). One of the TWO forwarded request types.
- */
-export const SSH2_AGENTC_REQUEST_IDENTITIES = 13;
-
-/**
- * `SSH2_AGENTC_SIGN_REQUEST` - sign with a named blob. The value is from
- * OpenSSH's `agent-proto.h` (RFC 9987 calls this 13 - not this wire). One of
- * the TWO forwarded request types.
- */
-export const SSH2_AGENTC_SIGN_REQUEST = 15;
-
-/** `SSH2_AGENT_IDENTITIES_ANSWER` (agent-proto.h): the roster reply this module filters. */
-export const SSH2_AGENT_IDENTITIES_ANSWER = 2;
-
-/** `SSH2_AGENT_SIGN_RESPONSE` (agent-proto.h): the signature reply, forwarded verbatim (it is opaque). */
-export const SSH2_AGENT_SIGN_RESPONSE = 14;
-
-/** `SSH2_AGENT_FAILURE` (agent-proto.h): the uniform answer to any refused request. */
-export const SSH2_AGENT_FAILURE = 5;
-
-/** One agent message's maximum payload: the relay frame cap (§5.1: cap is law). */
-const MAX_AGENT_MESSAGE_BYTES = SSH_RELAY_FRAME_MAX_BYTES;
-
-/** Local I/O budget for one round trip to A's agent (a local Unix socket call; ssh's own is unbounded, ours is not). */
-const AGENT_REQUEST_TIMEOUT_MS = 10_000;
-
-/** The single-byte refusal every refused request is answered with. */
+/** The single-byte refusal every refused request is answered with (5 in both schemes). */
 const FAILURE = Buffer.from([SSH2_AGENT_FAILURE]);
-
-/* ------------------------------------------------------------------ */
-/* agent-wire framing + parsing (4-byte BE length + payload, shared    */
-/* shape with the B proxy; the TYPE parsing is A-only per §5.4)        */
-/* ------------------------------------------------------------------ */
-
-/** Frame one agent message for the wire: 4-byte big-endian length, then the payload. */
-function framing(payload: Buffer): Buffer {
-  const header = Buffer.alloc(4);
-  header.writeUInt32BE(payload.length, 0);
-  return Buffer.concat([header, payload]);
-}
-
-/** A cursor over an agent payload; every read past the end throws (never a silent partial parse). */
-class ByteReader {
-  #buf: Buffer;
-  #off = 0;
-
-  constructor(buf: Buffer) {
-    this.#buf = buf;
-  }
-
-  u32(): number {
-    if (this.#off + 4 > this.#buf.length) throw new Error("agent wire: truncated uint32");
-    const v = this.#buf.readUInt32BE(this.#off);
-    this.#off += 4;
-    return v;
-  }
-
-  bytes(n: number): Buffer {
-    if (n > this.#buf.length - this.#off) throw new Error("agent wire: truncated byte run");
-    const v = this.#buf.subarray(this.#off, this.#off + n);
-    this.#off += n;
-    return v;
-  }
-
-  /** An SSH string: uint32 length + bytes. */
-  string(): Buffer {
-    return this.bytes(this.u32());
-  }
-
-  done(): boolean {
-    return this.#off === this.#buf.length;
-  }
-}
-
-/** Serialize an SSH string for the rebuilt answer: uint32 length + bytes. */
-function sshString(bytes: Buffer): Buffer {
-  const header = Buffer.alloc(4);
-  header.writeUInt32BE(bytes.length, 0);
-  return Buffer.concat([header, bytes]);
-}
-
-/**
- * The OpenSSH display fingerprint of one agent key blob: SHA-256 over the
- * RAW SSH wire encoding (the agent-answer blob bytes), spelled `SHA256:` +
- * base64url without padding - the same scheme `fingerprintJwk` established
- * (§4.5: "Agent keys hash their agent wire encoding"; §5.4), which is also
- * the only spelling the grant grammar's `GRANT_FINGERPRINT_RE` accepts.
- */
-export function fingerprintAgentBlob(blob: Uint8Array): string {
-  return `SHA256:${createHash("sha256").update(blob).digest("base64url")}`;
-}
-
-/**
- * Rebuild an IDENTITIES_ANSWER keeping ONLY the entries whose blob
- * fingerprints into `allowed`; fixes the count; kept entries ride byte-
- * identically. Throws on a malformed answer (type byte, declared entries the
- * buffer does not carry, trailing bytes) - an unparseable answer is refused
- * as a failure, NEVER forwarded unfiltered, because a partial parse of the
- * roster is exactly what §5.4 exists to prevent.
- */
-export function filterIdentitiesAnswer(answer: Buffer, allowed: ReadonlySet<string>): Buffer {
-  if (answer.length < 5 || answer[0] !== SSH2_AGENT_IDENTITIES_ANSWER) {
-    throw new Error("relay responder: expected an SSH2_AGENT_IDENTITIES_ANSWER");
-  }
-  const reader = new ByteReader(answer.subarray(1));
-  const count = reader.u32();
-  const kept: Buffer[] = []; // one item per KEPT ENTRY (both fields pre-concatenated, so the rebuilt count is the entry count)
-  for (let i = 0; i < count; i += 1) {
-    const blob = reader.string();
-    const comment = reader.string();
-    if (allowed.has(fingerprintAgentBlob(blob))) kept.push(Buffer.concat([sshString(blob), sshString(comment)]));
-  }
-  if (!reader.done()) throw new Error("relay responder: IDENTITIES_ANSWER carries trailing bytes");
-  return Buffer.concat([Buffer.from([SSH2_AGENT_IDENTITIES_ANSWER]), sshStringCount(kept.length), ...kept]);
-}
-
-/** The count field of a rebuilt answer (an unframed uint32, unlike an SSH string). */
-function sshStringCount(n: number): Buffer {
-  const b = Buffer.alloc(4);
-  b.writeUInt32BE(n, 0);
-  return b;
-}
-
-/**
- * Split a SIGN_REQUEST into its key blob (the parse throws on anything short
- * of the full grammar: string blob + uint32 flags + nothing else). The flags
- * ride through to the agent unexamined: §5.4 scopes by BLOB, not by flag.
- */
-export function parseSignRequest(payload: Buffer): { keyBlob: Buffer; flags: number } {
-  const reader = new ByteReader(payload.subarray(1));
-  const keyBlob = reader.string();
-  const flags = reader.u32();
-  if (keyBlob.length === 0) throw new Error("relay responder: SIGN_REQUEST names an empty key blob");
-  if (!reader.done()) throw new Error("relay responder: SIGN_REQUEST carries trailing bytes");
-  return { keyBlob, flags };
-}
-
-/* ------------------------------------------------------------------ */
-/* A's live agent socket                                               */
-/* ------------------------------------------------------------------ */
-
-/**
- * The connecting account's live agent socket: an absolute `SSH_AUTH_SOCK`,
- * else null - the same trust rule `ssh-resolve.ts` runs for the launch side
- * ("the env sock is trusted because it is the connecting account's own
- * setup"). A null answer is the honest no-agent case: the responder refuses
- * with SSH2_AGENT_FAILURE and never reads a key file (agent-only, §5.4).
- */
-export function liveAgentSocketPath(env: NodeJS.ProcessEnv = process.env): string | null {
-  const sock = env.SSH_AUTH_SOCK;
-  return typeof sock === "string" && sock.startsWith("/") && sock.length > 1 ? sock : null;
-}
-
-/**
- * One request/response round trip to A's agent over the Unix socket:
- * connect, write one framed message, read one framed answer, close. Each
- * request rides its own connection (ssh's agent protocol permits it; no
- * session state lives on the socket). Rejects on connect failure, timeout,
- * an empty or over-cap answer, or a close before a complete answer.
- */
-function requestLiveAgent(socketPath: string, payload: Buffer): Promise<Buffer> {
-  return new Promise<Buffer>((resolve, reject) => {
-    let conn: Socket;
-    try {
-      conn = createConnection({ path: socketPath });
-    } catch (err) {
-      reject(new Error(`relay responder: cannot reach the agent socket: ${String(err)}`));
-      return;
-    }
-    let buffer = Buffer.alloc(0);
-    let settled = false;
-    const fail = (why: string): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      try {
-        conn.destroy();
-      } catch {
-        /* already gone */
-      }
-      reject(new Error(`relay responder: ${why}`));
-    };
-    const timer = setTimeout(() => fail("agent request timed out"), AGENT_REQUEST_TIMEOUT_MS);
-    conn.on("error", (err: Error) => fail(`agent socket error: ${err.message}`));
-    conn.on("connect", () => {
-      conn.write(framing(payload));
-    });
-    conn.on("data", (chunk: Buffer) => {
-      buffer = buffer.length === 0 ? Buffer.from(chunk) : Buffer.concat([buffer, chunk]);
-      if (buffer.length < 4) return;
-      const len = buffer.readUInt32BE(0);
-      if (len === 0 || len > MAX_AGENT_MESSAGE_BYTES) {
-        fail(`agent answer length ${len} is empty or over the cap`);
-        return;
-      }
-      if (buffer.length < 4 + len) return;
-      const answer = Buffer.from(buffer.subarray(4, 4 + len));
-      settled = true;
-      clearTimeout(timer);
-      try {
-        conn.end();
-      } catch {
-        /* the destroy below handles it */
-      }
-      conn.destroy();
-      resolve(answer);
-    });
-    conn.on("close", () => fail("the agent socket closed before a complete answer"));
-  });
-}
 
 /* ------------------------------------------------------------------ */
 /* the responder                                                       */
 /* ------------------------------------------------------------------ */
 
-/** Inputs to {@link startRelayResponder}: session facts, B's pins, A's identity, the pump, the seams. */
+/** Inputs to {@link startRelayResponder}: session facts, B's pins, A's identity, the probed scheme, the seams. */
 export interface RelayResponderArgs {
   /** The relay-session id the plane minted (§5.6: signed into every envelope). */
   relayId: string;
@@ -314,6 +112,14 @@ export interface RelayResponderArgs {
   ownSigningPrivateJwk: string;
   /** The grant's selected fingerprints (§5.4); empty names nothing, serves nothing. */
   fingerprints: readonly string[];
+  /**
+   * The numbering probe resolved against A's live agent at session open
+   * ({@link probeAgentScheme} in relay-agent-scheme.ts, run by
+   * openARelaySession). Null means unresolved: this session classifies no
+   * byte and forwards nothing, because a byte under a GUESSED scheme is the
+   * CRITICAL the 2026-10-08 ruling exists to prevent.
+   */
+  agentScheme: AgentScheme | null;
   /** The sealing primitive - mcp-core's `seal` in production (injected, Task-5 doctrine). */
   seal: RelaySealFn;
   /** The opening primitive - mcp-core's `open`. */
@@ -328,9 +134,11 @@ export interface RelayResponderArgs {
    */
   sendRelayFrame(frame: RelayFrame): void;
   /**
-   * Resolve A's live agent socket per request (default {@link
-   * liveAgentSocketPath}). A test seam and the operator override land here;
-   * returning null is the honest no-agent case.
+   * Resolve A's live agent socket per request (default `liveAgentSocketPath`
+   * from relay-agent-socket.ts). A test seam and the operator override land
+   * here; returning null is the honest no-agent case. The scheme is cached
+   * once at open; a later agent restart under a DIFFERENT numbering fails the
+   * response-type gate, never a silent re-interpretation.
    */
   resolveAgentSocket?: () => string | null;
   /** Line sink; defaults to the agent logger. Never receives keys, fingerprints, nonces, or agent bytes. */
@@ -354,8 +162,8 @@ export interface RelayResponderHandle {
  * Start the A-side responder for ONE brokered session: validate B's pins
  * (deep public-only P-256 via {@link bytesOfJwk}, the same gate the B proxy
  * runs), mint A's session nonce, and return the handler that
- * `commands/ssh-relay.ts` registers into {@link RelaySessions}. Throws a
- * named refusal when either pinned half is not usable public material.
+ * `commands/ssh-relay.ts` registers into `RelaySessions`. Throws a named
+ * refusal when either pinned half is not usable public material.
  */
 export function startRelayResponder(args: RelayResponderArgs): RelayResponderHandle {
   const say = args.log ?? ((line: string): void => log(line));
@@ -380,13 +188,14 @@ export function startRelayResponder(args: RelayResponderArgs): RelayResponderHan
   const recipient = { principalId: `node:${args.peerNodeId}`, publicJwk: args.peerEncryptionJwk };
   const allowed = new Set(args.fingerprints);
   const resolveAgent = args.resolveAgentSocket ?? liveAgentSocketPath;
+  const scheme = args.agentScheme; // cached at session open; NEVER re-derived per byte
 
   // Session state (§5.6): A's nonce is minted once and every A2B carries it;
-  // B's is recorded from the first verified request. `nASeenBinding` marks
-  // that the first verified request has passed, from which point every
-  // inbound message MUST carry A's nonce (B learns it from A's first reply,
-  // and B's single-outstanding FIFO means B's next request was sealed after
-  // that reply landed - a request without it is a replay or a forgery).
+  // B's is recorded from the first verified request. `bindNA` marks that the
+  // first verified request has passed, from which point every inbound message
+  // MUST carry A's nonce (B learns it from A's first reply, and B's
+  // single-outstanding FIFO means B's next request was sealed after that
+  // reply landed - a request without it is a replay or a forgery).
   const nA = newNonce();
   let nB: string | undefined;
   let bindNA = false;
@@ -397,28 +206,36 @@ export function startRelayResponder(args: RelayResponderArgs): RelayResponderHan
 
   /** The agent-layer decision for one decoded request: the payload to answer B with. */
   const respondToAgent = async (request: Buffer): Promise<Buffer> => {
-    if (request.length === 0) return FAILURE; // no type byte: nothing allow-listed, nothing forwarded
-    const type = request[0];
-    const agentPath = resolveAgent();
-    if (type !== SSH2_AGENTC_REQUEST_IDENTITIES && type !== SSH2_AGENTC_SIGN_REQUEST) {
-      // §5.4's default-deny: by the REFUSED set's behavior, not a lookup. Log the
-      // numeric type (not a secret) so the operator can see what B asked for.
-      say(`relay session ${args.ref}: refused disallowed agent request type ${type}; not forwarded`);
+    if (request.length === 0) {
+      say(`relay session ${args.ref}: refused an agent request with no type byte; not forwarded`);
       return FAILURE;
     }
-    if (type === SSH2_AGENTC_SIGN_REQUEST) {
+    if (scheme === null) {
+      // The numbering probe resolved nothing at open: there is no safe
+      // reading of ANY byte, and forwarding under a guess is exactly the
+      // C-2 bug this ruling killed. Refuse, always.
+      say(`relay session ${args.ref}: refused a request with no resolved agent scheme; not forwarded`);
+      return FAILURE;
+    }
+    const type = request[0];
+
+    if (type === scheme.sign) {
       let keyBlob: Buffer;
       try {
-        ({ keyBlob } = parseSignRequest(request));
+        ({ keyBlob } = parseSignRequest(request, scheme));
       } catch {
-        say(`relay session ${args.ref}: refused a malformed SIGN_REQUEST; not forwarded`);
+        say(`relay session ${args.ref}: refused a malformed SIGN_REQUEST body; not forwarded`);
         return FAILURE;
       }
-      // §5.4's signing gate: checked HERE, before anything touches the agent.
+      // §5.4's signing gate, BEFORE anything else touches the agent: a sign
+      // whose blob is outside the grant dies here whichever codepoint the
+      // probed scheme treats as sign (classic 15 or 10.x 13 - the very byte
+      // the first pass forwarded raw).
       if (!allowed.has(fingerprintAgentBlob(keyBlob))) {
         say(`relay session ${args.ref}: refused a SIGN_REQUEST outside the grant set; not forwarded`);
         return FAILURE;
       }
+      const agentPath = resolveAgent();
       if (agentPath === null) {
         say(`relay session ${args.ref}: no live agent socket (SSH_AUTH_SOCK unset): refusing the request`);
         return FAILURE;
@@ -431,42 +248,55 @@ export function startRelayResponder(args: RelayResponderArgs): RelayResponderHan
         return FAILURE;
       }
       // The signature is opaque and the blob was already scoped, but the
-      // response TYPE still gates: only SIGN_RESPONSE and the agent's own
-      // FAILURE ride onward; anything unexpected becomes a failure.
-      if (response.length < 1 || (response[0] !== SSH2_AGENT_SIGN_RESPONSE && response[0] !== SSH2_AGENT_FAILURE)) {
+      // response TYPE still gates in the resolved scheme: only that scheme's
+      // SIGN_RESPONSE and the agent's own FAILURE ride onward; anything
+      // else (a foreign scheme's bytes included) becomes a failure.
+      if (response.length < 1 || (response[0] !== scheme.signResponse && response[0] !== SSH2_AGENT_FAILURE)) {
         say(`relay session ${args.ref}: the agent answered a sign request with an unexpected type; refusing`);
         return FAILURE;
       }
       return response;
     }
-    // SSH2_AGENTC_REQUEST_IDENTITIES: the roster goes to the agent, comes
-    // back, and is FILTERED here - the grant set is enforced at A, the only
-    // machine that can see A's whole roster.
-    if (agentPath === null) {
-      say(`relay session ${args.ref}: no live agent socket (SSH_AUTH_SOCK unset): refusing the request`);
-      return FAILURE;
+
+    if (type === scheme.identities) {
+      if (request.length !== 1) {
+        say(`relay session ${args.ref}: refused a malformed REQUEST_IDENTITIES; not forwarded`);
+        return FAILURE;
+      }
+      const agentPath = resolveAgent();
+      if (agentPath === null) {
+        say(`relay session ${args.ref}: no live agent socket (SSH_AUTH_SOCK unset): refusing the request`);
+        return FAILURE;
+      }
+      let answer: Buffer;
+      try {
+        answer = await requestLiveAgent(agentPath, request);
+      } catch (err) {
+        say(`relay session ${args.ref}: the agent request failed: ${String(err)}`);
+        return FAILURE;
+      }
+      if (answer.length < 1) return FAILURE;
+      if (answer[0] === SSH2_AGENT_FAILURE) return FAILURE; // A's agent itself refused: pass the refusal
+      if (answer[0] !== scheme.answer) {
+        say(`relay session ${args.ref}: the agent answered identities with an unexpected type; refusing`);
+        return FAILURE;
+      }
+      try {
+        return filterIdentitiesAnswer(answer, allowed, scheme);
+      } catch {
+        // An unparseable roster NEVER rides on: partial parsing is how an
+        // ungranted identity could leak. The pane sees a clean failure.
+        say(`relay session ${args.ref}: the agent's IDENTITIES_ANSWER did not parse; refusing it`);
+        return FAILURE;
+      }
     }
-    let answer: Buffer;
-    try {
-      answer = await requestLiveAgent(agentPath, request);
-    } catch (err) {
-      say(`relay session ${args.ref}: the agent request failed: ${String(err)}`);
-      return FAILURE;
-    }
-    if (answer.length < 1) return FAILURE;
-    if (answer[0] === SSH2_AGENT_FAILURE) return FAILURE; // A's agent itself refused: pass the refusal
-    if (answer[0] !== SSH2_AGENT_IDENTITIES_ANSWER) {
-      say(`relay session ${args.ref}: the agent answered identities with an unexpected type; refusing`);
-      return FAILURE;
-    }
-    try {
-      return filterIdentitiesAnswer(answer, allowed);
-    } catch {
-      // An unparseable roster NEVER rides on: partial parsing is how an
-      // ungranted identity could leak. The pane sees a clean failure.
-      say(`relay session ${args.ref}: the agent's IDENTITIES_ANSWER did not parse; refusing it`);
-      return FAILURE;
-    }
+
+    // §5.4's default-deny in the resolved scheme: the OTHER scheme's codes,
+    // the answer/response bytes aimed at us as requests, identity mutations,
+    // LOCK/UNLOCK, EXTENSION, the SSH1-era range, anything unknown. Log the
+    // numeric type (not a secret) so the operator can see what B asked for.
+    say(`relay session ${args.ref}: refused disallowed agent request type ${type}; not forwarded`);
+    return FAILURE;
   };
 
   /** The full inbound pipeline for one frame: open, verify, gate, answer. */

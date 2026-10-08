@@ -27,13 +27,13 @@ import { type AgentProxyHandle, buildAgentSocketPath, startAgentProxy } from "..
  */
 
 /**
- * The ssh-agent wire type bytes as OpenSSH `agent-proto.h` defines them:
- * SSH2_AGENTC_REQUEST_IDENTITIES is 13 and SSH2_AGENTC_SIGN_REQUEST is 15
- * (NOT the RFC 9987 renumbering 11/13; 17/18 are ADD/REMOVE IDENTITY, the
- * common misread the first draft of this file carried). These are opaque
- * fixture payloads only: the B proxy forwards agent bytes byte-agnostically
- * and never parses a type byte - the numeric type gate is A's responder's
- * default-deny (Task 7).
+ * ssh-agent wire type bytes used as FIXTURE PAYLOADS only: the B proxy
+ * forwards agent bytes byte-agnostically and never parses a type byte, so the
+ * numbers here carry no protocol meaning (the classic 13/15 pair from
+ * `agent-proto.h` is what a pre-10.x agent speaks; OpenSSH 10.x ships the RFC
+ * 9987 renumbering 11/13 - see the ruling of 2026-10-08, which is why A's
+ * responder PROBEs the numbering and the numeric type gate is A's responder's
+ * default-deny, Task 7, never this side).
  */
 const SSH2_AGENTC_REQUEST_IDENTITIES = 13;
 const SSH2_AGENTC_SIGN_REQUEST = 15;
