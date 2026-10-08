@@ -64,6 +64,9 @@ export const SubshellSchema = t.Object({
   access: t.Union([t.Literal("owner"), t.Literal("edit"), t.Literal("view")], {
     description: "Caller's effective access to this subshell (viewer-relative; never 'none' on a returned row)",
   }),
+  ssh: t.Boolean({
+    description: "True when this pane is an SSH-terminal pane: only its owner can type into it.",
+  }),
   nodeOffline: t.Boolean({
     description:
       "True when the subshell's agent node has no live connection; the subshell may still be running there (spec §5.6); always false for local subshells",

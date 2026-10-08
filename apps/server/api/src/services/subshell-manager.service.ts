@@ -2204,6 +2204,8 @@ export function toSubshellView(
     waitingSince: string | null;
     lastPushUrgency: number | null;
     crossAgent: number;
+    /** The ssh snapshot column (migration 0048); read for presence only, never parsed here. */
+    ssh: string | null;
   },
   status: string,
   /** The subshell's current screen, bottom-first-trimmed; empty when not running. */
@@ -2262,6 +2264,9 @@ export function toSubshellView(
     // (spec 2026-09-23) — what turns the rail's dot into a bell.
     unseenPush: row.lastPushUrgency !== null,
     access,
+    // The pane's KIND fact: the ssh snapshot column's PRESENCE (migration
+    // 0048). The snapshot itself stays never-serialized (its db-types doc).
+    ssh: row.ssh !== null,
     // Agent node unreachable right now (see the param doc) — the UI's
     // "node offline" chip; false for every local subshell.
     nodeOffline,
