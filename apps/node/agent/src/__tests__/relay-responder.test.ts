@@ -794,6 +794,88 @@ test("an unparseable roster never rides on: partial parsing is exactly what §5.
   }
 });
 
+test("regression: a SIGN_RESPONSE of exactly the type byte plus one string rides on in BOTH schemes", async () => {
+  // The strict body parse accepts the honest shape in each scheme and forwards
+  // it byte-identical: 10.x's [14, string] and classic's [16, string].
+  for (const [scheme, responseByte, signReq] of [
+    [OPENSSH_10X_SCHEME, 14, buildSignRequestTenX(KEY_IN)],
+    [CLASSIC_SCHEME, 16, buildSignRequestClassic(KEY_IN)],
+  ] as [AgentScheme, number, Buffer][]) {
+    const f = await openFixture({}, { scheme });
+    try {
+      const nB = newNonce();
+      const req = await sealRequest(f, { agentBytes: signReq, seq: 0, nB });
+      f.relay.onInboundRelayFrame(req);
+      await waitUntil(() => f.frames.length === 1, `the ${scheme.name} signature reply`);
+      const reply = await decodeA2B(f, f.frames[0], { nB });
+      expect([...reply.agentBytes]).toEqual([responseByte, 0, 0, 0, 3, ...Buffer.from("SIG")]);
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test("collision regression: a classic roster answering under byte 14 is refused by a 10.x session's sign gate", async () => {
+  // classic answer 14 == 10.x signResponse 14. A mid-session swap of A's agent
+  // to a classic build reads the forwarded byte 13 (10.x sign) as classic
+  // REQUEST_IDENTITIES and answers its FULL UNFILTERED roster under type 14 -
+  // exactly the byte a type-only gate would wave through to B as a sign
+  // response, leaking public blobs plus comments. The strictly parsed body
+  // must refuse the roster shape; B sees only the clean FAILURE.
+  const rosterUnder14 = Buffer.concat([
+    Buffer.from([14]),
+    be32(2),
+    sshStr(KEY_IN),
+    sshStr("granted key"),
+    sshStr(KEY_OUT),
+    sshStr("ungranted key"),
+  ]);
+  const f = await openFixture(
+    {},
+    { scheme: OPENSSH_10X_SCHEME, mutateAnswer: (kind, answer) => (kind === "sign" ? rosterUnder14 : answer) },
+  );
+  try {
+    const nB = newNonce();
+    const req = await sealRequest(f, { agentBytes: buildSignRequestTenX(KEY_IN), seq: 0, nB });
+    f.relay.onInboundRelayFrame(req);
+    await waitUntil(() => f.frames.length === 1, "the refusal");
+    const reply = await decodeA2B(f, f.frames[0], { nB });
+    expect([...reply.agentBytes]).toEqual([5]); // never the roster
+    expect(f.forwarded().length).toBe(1); // the scoped sign request DID reach the agent
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test("regression: a roster-shaped body under classic's SIGN_RESPONSE byte 16 is refused too", async () => {
+  // Not a real-world collision (classic's roster answer is 14): the point is
+  // the gate parses the BODY, so a multi-string roster under the response
+  // byte is refused whichever agent spelled it.
+  const rosterUnder16 = Buffer.concat([
+    Buffer.from([16]),
+    be32(2),
+    sshStr(KEY_IN),
+    sshStr("granted key"),
+    sshStr(KEY_OUT),
+    sshStr("ungranted key"),
+  ]);
+  const f = await openFixture(
+    {},
+    { scheme: CLASSIC_SCHEME, mutateAnswer: (kind, answer) => (kind === "sign" ? rosterUnder16 : answer) },
+  );
+  try {
+    const nB = newNonce();
+    const req = await sealRequest(f, { agentBytes: buildSignRequestClassic(KEY_IN), seq: 0, nB });
+    f.relay.onInboundRelayFrame(req);
+    await waitUntil(() => f.frames.length === 1, "the refusal");
+    const reply = await decodeA2B(f, f.frames[0], { nB });
+    expect([...reply.agentBytes]).toEqual([5]); // never the roster
+    expect(f.forwarded().length).toBe(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test("an agent answering a granted sign with a FOREIGN response byte becomes a refusal (the signature never rides)", async () => {
   // The 10.x session forwards byte 13; the stub answers type 16 (the classic
   // SIGN_RESPONSE) with a signature: under the resolved 10.x scheme that is

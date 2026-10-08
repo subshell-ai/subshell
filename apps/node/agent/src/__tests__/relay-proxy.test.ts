@@ -27,17 +27,15 @@ import { type AgentProxyHandle, buildAgentSocketPath, startAgentProxy } from "..
  */
 
 /**
- * ssh-agent wire type bytes used as FIXTURE PAYLOADS only: the B proxy
- * forwards agent bytes byte-agnostically and never parses a type byte, so the
- * numbers here carry no protocol meaning (the classic 13/15 pair from
- * `agent-proto.h` is what a pre-10.x agent speaks; OpenSSH 10.x ships the RFC
- * 9987 renumbering 11/13 - see the ruling of 2026-10-08, which is why A's
- * responder PROBEs the numbering and the numeric type gate is A's responder's
- * default-deny, Task 7, never this side).
+ * Opaque FIXTURE PAYLOADS only: the B proxy forwards agent bytes
+ * byte-agnostically and never parses a type byte, so these numbers carry no
+ * protocol meaning at this side. These tests exercise transport framing (the
+ * FIFO, seq, nonces, socket lifecycle); what a real agent makes of a byte is
+ * A's responder's business, and its scheme semantics are pinned there.
  */
-const SSH2_AGENTC_REQUEST_IDENTITIES = 13;
-const SSH2_AGENTC_SIGN_REQUEST = 15;
-const SSH2_AGENT_IDENTITIES_ANSWER = 12;
+const SAMPLE_AGENT_REQUEST_A = 13;
+const SAMPLE_AGENT_REQUEST_B = 15;
+const SAMPLE_AGENT_ANSWER_A = 12;
 
 interface JwkPair {
   publicJwk: string;
@@ -237,7 +235,7 @@ test("a REQUEST_IDENTITIES on the socket emits exactly one B2A relay frame, seq 
       conn.on("error", rej);
     });
     void w;
-    conn.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    conn.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
     await waitUntil(() => f.frames.length === 1, "one outbound relay frame");
     await sleep(30);
     expect(f.frames.length).toBe(1); // exactly one
@@ -251,7 +249,7 @@ test("a REQUEST_IDENTITIES on the socket emits exactly one B2A relay frame, seq 
 
     const opened = await openAndVerifyB2A(f, frame);
     expect(opened.seq).toBe(0); // the SIGNED anti-replay seq agrees for the first request
-    expect(opened.agentBytes).toEqual(Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    expect(opened.agentBytes).toEqual(Buffer.from([SAMPLE_AGENT_REQUEST_A]));
     expect(opened.nB).toMatch(/^[A-Za-z0-9_-]{22}$/); // a 128-bit base64url endpoint nonce
     expect(opened.nA).toBeUndefined(); // B speaks first; nA has not been minted yet
     conn.destroy();
@@ -267,7 +265,7 @@ test("a second request gets seq 1 and carries the recorded nA onward", async () 
     const spyC = spy(conn);
     await new Promise<void>((res) => conn.on("connect", () => res()));
 
-    conn.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    conn.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
     await waitUntil(() => f.frames.length === 1, "first request frame");
     const first = await openAndVerifyB2A(f, f.frames[0]);
 
@@ -276,19 +274,19 @@ test("a second request gets seq 1 and carries the recorded nA onward", async () 
       seq: 0,
       nB: first.nB,
       nA,
-      agentBytes: [SSH2_AGENT_IDENTITIES_ANSWER, 0, 0, 0, 0],
+      agentBytes: [SAMPLE_AGENT_ANSWER_A, 0, 0, 0, 0],
     });
     f.proxy.deliverInboundRelayFrame(reply);
     await waitUntil(() => spyC.chunks.length === 1, "reply bytes written back");
 
-    conn.write(agentFrame([SSH2_AGENTC_SIGN_REQUEST, 0, 1, 2, 3]));
+    conn.write(agentFrame([SAMPLE_AGENT_REQUEST_B, 0, 1, 2, 3]));
     await waitUntil(() => f.frames.length === 2, "second request frame");
     const second = await openAndVerifyB2A(f, f.frames[1]);
     expect(f.frames[1].seq).toBe(1); // transport seq advanced
     expect(second.seq).toBe(1); // signed anti-replay seq advanced
     expect(second.nB).toBe(first.nB); // B keeps its own nonce
     expect(second.nA).toBe(nA); // and signs A's onward (§5.6: recorded peer value)
-    expect(second.agentBytes).toEqual(Buffer.from([SSH2_AGENTC_SIGN_REQUEST, 0, 1, 2, 3]));
+    expect(second.agentBytes).toEqual(Buffer.from([SAMPLE_AGENT_REQUEST_B, 0, 1, 2, 3]));
   } finally {
     f.cleanup();
   }
@@ -304,11 +302,11 @@ test("a correctly sealed+signed A reply (stub A keypair pinned) writes the agent
     const conn = connectSocket(f.proxy.socketPath);
     const spyC = spy(conn);
     await new Promise<void>((res) => conn.on("connect", () => res()));
-    conn.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    conn.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
     await waitUntil(() => f.frames.length === 1, "request frame out");
     const first = await openAndVerifyB2A(f, f.frames[0]);
 
-    const replyBytes = [SSH2_AGENT_IDENTITIES_ANSWER, 0, 0, 0, 2, 0, 0, 0, 1, 65];
+    const replyBytes = [SAMPLE_AGENT_ANSWER_A, 0, 0, 0, 2, 0, 0, 0, 1, 65];
     const reply = await sealReply(f, { seq: 0, nB: first.nB, nA: newNonce(), agentBytes: replyBytes });
     f.proxy.deliverInboundRelayFrame(reply);
     await waitUntil(() => spyC.chunks.length >= 1, "reply written back");
@@ -329,7 +327,7 @@ test("a reply signed by the WRONG key is refused: nothing written, the pending c
     const conn = connectSocket(f.proxy.socketPath);
     const spyC = spy(conn);
     await new Promise<void>((res) => conn.on("connect", () => res()));
-    conn.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    conn.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
     await waitUntil(() => f.frames.length === 1, "request frame out");
     const first = await openAndVerifyB2A(f, f.frames[0]);
 
@@ -337,7 +335,7 @@ test("a reply signed by the WRONG key is refused: nothing written, the pending c
       seq: 0,
       nB: first.nB,
       nA: newNonce(),
-      agentBytes: [SSH2_AGENT_IDENTITIES_ANSWER],
+      agentBytes: [SAMPLE_AGENT_ANSWER_A],
       signerPrivateJwk: evil.privateJwk, // not the pinned key: an origin failure
     });
     f.proxy.deliverInboundRelayFrame(forged);
@@ -354,7 +352,7 @@ test("a reply with a mismatched relay-session id or nB nonce is refused and not 
     const conn = connectSocket(f.proxy.socketPath);
     const spyC = spy(conn);
     await new Promise<void>((res) => conn.on("connect", () => res()));
-    conn.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    conn.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
     await waitUntil(() => f.frames.length === 1, "request frame out");
     const first = await openAndVerifyB2A(f, f.frames[0]);
 
@@ -363,7 +361,7 @@ test("a reply with a mismatched relay-session id or nB nonce is refused and not 
       seq: 0,
       nB: first.nB,
       nA: newNonce(),
-      agentBytes: [SSH2_AGENT_IDENTITIES_ANSWER],
+      agentBytes: [SAMPLE_AGENT_ANSWER_A],
       relaySessionId: "relay-OTHER",
     });
     f.proxy.deliverInboundRelayFrame(wrongSession);
@@ -374,13 +372,13 @@ test("a reply with a mismatched relay-session id or nB nonce is refused and not 
     const conn2 = connectSocket(f.proxy.socketPath);
     const spy2 = spy(conn2);
     await new Promise<void>((res) => conn2.on("connect", () => res()));
-    conn2.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    conn2.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
     await waitUntil(() => f.frames.length === 2, "second request frame out");
     const wrongNonce = await sealReply(f, {
       seq: 0,
       nB: newNonce(),
       nA: newNonce(),
-      agentBytes: [SSH2_AGENT_IDENTITIES_ANSWER],
+      agentBytes: [SAMPLE_AGENT_ANSWER_A],
     });
     f.proxy.deliverInboundRelayFrame(wrongNonce);
     await waitUntil(() => spy2.closed(), "nonce mismatch fails the pending connection");
@@ -396,7 +394,7 @@ test("a repeated seq is refused by the SeqGate and not written; a valid next-seq
     const conn = connectSocket(f.proxy.socketPath);
     const spyC = spy(conn);
     await new Promise<void>((res) => conn.on("connect", () => res()));
-    conn.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    conn.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
     await waitUntil(() => f.frames.length === 1, "request frame out");
     const first = await openAndVerifyB2A(f, f.frames[0]);
 
@@ -418,7 +416,7 @@ test("a repeated seq is refused by the SeqGate and not written; a valid next-seq
     expect(spyC.closed()).toBe(false); // a replay refusal is not a connection failure
 
     // The stream continues: seq 1 over seq 0 is accepted.
-    conn.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    conn.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
     await waitUntil(() => f.frames.length === 2, "second request frame out");
     const next = await sealReply(f, { seq: 1, nB: first.nB, nA, agentBytes: [4, 5, 6] });
     f.proxy.deliverInboundRelayFrame(next);
@@ -435,7 +433,7 @@ test("an openable but unsigned-sealed blob (plane-crafted noise, wrong recipient
     const conn = connectSocket(f.proxy.socketPath);
     const spyC = spy(conn);
     await new Promise<void>((res) => conn.on("connect", () => res()));
-    conn.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    conn.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
     await waitUntil(() => f.frames.length === 1, "request frame out");
 
     // Not even valid base64-of-a-JWE: the open fails before any trust question.
@@ -464,7 +462,7 @@ test("a reply to a dead connection is absorbed: never written to the next connec
     const x = connectSocket(f.proxy.socketPath);
     const spyX = spy(x);
     await new Promise<void>((res) => x.on("connect", () => res()));
-    x.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    x.write(agentFrame([SAMPLE_AGENT_REQUEST_A]));
     await waitUntil(() => f.frames.length === 1, "X's request frame out");
     const first = await openAndVerifyB2A(f, f.frames[0]);
 
@@ -472,7 +470,7 @@ test("a reply to a dead connection is absorbed: never written to the next connec
     const y = connectSocket(f.proxy.socketPath);
     const spyY = spy(y);
     await new Promise<void>((res) => y.on("connect", () => res()));
-    y.write(agentFrame([SSH2_AGENTC_SIGN_REQUEST, 1, 2, 3]));
+    y.write(agentFrame([SAMPLE_AGENT_REQUEST_B, 1, 2, 3]));
     await sleep(30);
     expect(f.frames.length).toBe(1); // queued unsealed: the slot holds X's request
 
@@ -498,7 +496,7 @@ test("a reply to a dead connection is absorbed: never written to the next connec
     expect(f.frames[1].seq).toBe(1);
     expect(second.seq).toBe(1);
     expect(second.nA).toBe(nA);
-    expect(second.agentBytes).toEqual(Buffer.from([SSH2_AGENTC_SIGN_REQUEST, 1, 2, 3]));
+    expect(second.agentBytes).toEqual(Buffer.from([SAMPLE_AGENT_REQUEST_B, 1, 2, 3]));
 
     // A's reply to Y (seq 1) arrives: THAT is what Y receives, in order.
     const replyToY = await sealReply(f, { seq: 1, nB: first.nB, nA, agentBytes: [1, 2, 3] });
@@ -529,7 +527,7 @@ test("a sendRelayFrame that throws fails the connection and drains the queue; no
     await new Promise<void>((res) => a.on("connect", () => res()));
     // req1 takes the slot straight away; req2 queues behind the in-flight
     // seal (arrives in the same read while sealedInFlight holds).
-    a.write(Buffer.concat([agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]), agentFrame([SSH2_AGENTC_SIGN_REQUEST, 9])]));
+    a.write(Buffer.concat([agentFrame([SAMPLE_AGENT_REQUEST_A]), agentFrame([SAMPLE_AGENT_REQUEST_B, 9])]));
     await waitUntil(() => spyA.closed(), "the connection fails on the refused send instead of hanging");
     expect(attempts).toBe(1); // only req1 reached the pump; req2 died at the liveness gate
     expect(sent.length).toBe(0); // nothing ever reached A
@@ -540,12 +538,12 @@ test("a sendRelayFrame that throws fails the connection and drains the queue; no
     const b = connectSocket(f.proxy.socketPath);
     const spyB = spy(b);
     await new Promise<void>((res) => b.on("connect", () => res()));
-    b.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES, 4, 5]));
+    b.write(agentFrame([SAMPLE_AGENT_REQUEST_A, 4, 5]));
     await waitUntil(() => sent.length === 1, "the next request goes out after the failed send");
     expect(sent[0].seq).toBe(0);
     const first = await openAndVerifyB2A(f, sent[0]);
     expect(first.seq).toBe(0);
-    expect(first.agentBytes).toEqual(Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES, 4, 5]));
+    expect(first.agentBytes).toEqual(Buffer.from([SAMPLE_AGENT_REQUEST_A, 4, 5]));
 
     const reply = await sealReply(f, { seq: 0, nB: first.nB, nA: newNonce(), agentBytes: [7, 7] });
     f.proxy.deliverInboundRelayFrame(reply);

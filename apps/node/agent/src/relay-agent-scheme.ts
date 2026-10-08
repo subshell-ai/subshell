@@ -233,6 +233,28 @@ export function parseSignRequest(payload: Buffer, scheme: AgentScheme): SignRequ
 }
 
 /* ------------------------------------------------------------------ */
+/* SIGN_RESPONSE: the answer body the relay gate accepts               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Strictly parse a SIGN_RESPONSE (full payload, type byte included): the type
+ * byte must be THAT scheme's sign-response codepoint and the body must be
+ * exactly one `string` (the signature blob) with nothing after it. Throws
+ * otherwise. The type byte ALONE is not enough: the codepoints collide across
+ * schemes (classic's roster answer is 14, which is 10.x's sign response), so
+ * only the body tells a signature from a foreign scheme's roster.
+ */
+export function parseSignResponse(response: Buffer, scheme: AgentScheme): Buffer {
+  if (response.length < 5 || response[0] !== scheme.signResponse) {
+    throw new Error(`relay agent wire: expected a ${scheme.name} SIGN_RESPONSE (${scheme.signResponse})`);
+  }
+  const reader = new ByteReader(response.subarray(1));
+  const signature = reader.string();
+  if (!reader.done()) throw new Error("relay agent wire: SIGN_RESPONSE carries bytes after the signature string");
+  return signature;
+}
+
+/* ------------------------------------------------------------------ */
 /* the probe (ruling 2026-10-08: the numbering is learned, never assumed) */
 /* ------------------------------------------------------------------ */
 
