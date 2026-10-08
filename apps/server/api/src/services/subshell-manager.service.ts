@@ -55,10 +55,11 @@ import {
   previewCachePut,
 } from "@/services/nodes/preview-cache.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
-import { subshellLogPath, subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
+import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
+import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
 
@@ -1072,32 +1073,28 @@ export class SubshellManagerService {
     // Best-effort artifact cleanup ON THE ROW'S NODE (the log is only an
     // attach-replay artifact; the MCP config holds no secrets but nothing
     // should be left behind). The layout lives behind the launcher seam
-    // (spec §6.4): a local row leaves exactly its replay log (plus, for an
-    // ssh pane, the rendered config the LocalLauncher wrote under the
-    // server's dataDir); an agent node names its triple (log + MCP config +
-    // the agent's own meta record — deliberately left behind by a kill, so
-    // the DELETE unlinks it) from its live `ready` facts, and an OFFLINE
-    // agent answers `[]`: no facts, no layout to name paths from, artifacts
-    // age out with the node (§5.6).
+    // (spec §6.4): a local row leaves exactly its replay log; an agent node
+    // names its triple (log + MCP config + the agent's own meta record —
+    // deliberately left behind by a kill, so the DELETE unlinks it) plus the
+    // ssh config at the node-derived path, from its live `ready` facts, and
+    // an OFFLINE agent answers `[]`: no facts, no layout to name paths from,
+    // artifacts age out with the node (§5.6).
     // The local short-circuit is row-keyed because a TEST launcher answers for
     // EVERY node id (the phase-0 suites) — a fake standing in for `local`
     // must keep receiving the local artifact set, never the agent triple.
-    // The ssh config path rides the list for THIS row only, and the row's
-    // kind fact (spec 2026-10-07 decision 4) is read HERE — the launchers
-    // compose paths, only the caller holding the row can say which files the
-    // pane OWNS. `row.ssh !== null` IS that truth (migration 0048's snapshot
-    // column): the value's presence means a rendered config was composed for
-    // this pane, which is exactly what the cleanup must remove — a row that
-    // merely NAMES the ssh harness (hand-built, or a launch that never got a
-    // snapshot) has no config file to find, and a snapshot under any other
-    // harness id still owns one. Task 7's re-point, promised by the comment
-    // this replaces.
+    // A LOCAL ssh pane's config is deliberately NOT in that list: it lives in
+    // its own directory under the server's dataDir, and unlinking the file
+    // while leaving the DIR is not a removal. `sweepLocalSshDir` (the one
+    // sweep function, shared with the exit report and terminate) removes the
+    // dir, keyed on the same row facts the old list entry consulted: the
+    // node id here, the snapshot column (`row.ssh !== null`, migration 0048)
+    // inside the guard — a row that merely NAMES the ssh harness has no
+    // config to find, and a snapshot under any other harness id still owns
+    // one.
     const sshPane = row.ssh !== null;
-    const artifacts =
-      row.nodeId === LOCAL_NODE_ID
-        ? [launcher.logPath(id), ...(sshPane ? [subshellSshConfigPath(id)] : [])]
-        : launcher.subshellArtifacts(id, sshPane);
+    const artifacts = row.nodeId === LOCAL_NODE_ID ? [launcher.logPath(id)] : launcher.subshellArtifacts(id, sshPane);
     await launcher.removeArtifacts(artifacts);
+    sweepLocalSshDir(row); // guard: local node ∧ snapshot; agent rows skip (their disk, their watcher)
     // And the generated MCP config (no secrets, but nothing to leave behind).
     try {
       unlinkSync(subshellMcpConfigPath(id));

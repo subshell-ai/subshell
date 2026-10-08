@@ -1,4 +1,6 @@
+import { rmSync } from "node:fs";
 import { homedir as osHomedir } from "node:os";
+import { dirname } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import {
   buildSshConfigPath,
@@ -23,13 +25,15 @@ import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SshSavedHostsRepository } from "@/db/repositories/ssh-saved-hosts.repository.js";
-import type { NodeTable } from "@/db/types/nodes.db-types.js";
+import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import type { SshSavedHostTable } from "@/db/types/ssh-saved-hosts.db-types.js";
 import { sshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
+import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { nodeCanSsh } from "@/lib/node-access.js";
 import { audit } from "@/services/audit.js";
 import { getHeld, getLive } from "@/services/nodes/node-registry.js";
 import { SshRpcError, sshDiscover, sshResolve } from "@/services/nodes/ssh-rpc.js";
+import { subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
@@ -128,6 +132,51 @@ export function composeSshLaunch(args: {
   return approved.authAgentSocket === null
     ? { configPath, fileContent, presetFlags }
     : { configPath, fileContent, presetFlags, extraPaneEnv: { SSH_AUTH_SOCK: approved.authAgentSocket } };
+}
+
+/* ------------------------------------------------------------------ */
+/* config lifecycle: the LOCAL sweep, ONE function for every teardown  */
+/* point (spec 2026-10-07 decision 4; plan-2 handoff 2)                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Best-effort `rm -rf` of the per-pane ssh config dir a LOCAL ssh pane wrote
+ * on this disk: `<SUBSHELL_SERVER_DATA_DIR>/ssh/<id>` — the dirname of the
+ * byte-derived config path the LocalLauncher wrote into. ONE function, called
+ * by all three teardown points, so no copy can drift:
+ *
+ * - the pane's own death report (the service's `reportExit`), which fires even
+ *   when the row is already retired: a terminate kills the pane, the tmux
+ *   `pane-died` hook races the retire stamp, and whichever order they land in
+ *   the config must be gone once the report has been heard;
+ * - the terminate verb, AFTER the kill: terminate revokes the pane's token
+ *   synchronously with the kill, so the dying hook's report can arrive 401
+ *   and run no sweep at all (e2e spec 22) — the hand that kills must also
+ *   remove the dir;
+ * - the delete path: the row is gone before the sweep could ever ride the
+ *   exit hook, and the artifacts list must not carry the config path either,
+ *   because removing the file and leaving the DIR behind is not a removal.
+ *
+ * The guard is the row's OWN facts (`local` node ∧ the snapshot column,
+ * migration 0048) applied HERE, once, so callers hand over the row they
+ * already hold unconditionally. Agent rows are skipped by rule, not by
+ * accident — their config lives on the NODE's disk and the agent's own exit
+ * watcher unlinks it; removing a directory named after a remote pane off THIS
+ * server would be this host deleting a file that is not its (the delete
+ * path's per-node launcher doctrine, same reason).
+ *
+ * Best-effort by shape: any failure (missing dir, an id outside the path
+ * guard, a refusing filesystem) costs one log line and nothing else — the
+ * teardown must land regardless, and a stale config in a dir whose name is a
+ * dead pane's id is garbage, not a hazard.
+ */
+export function sweepLocalSshDir(row: Pick<SubshellTable, "id" | "nodeId" | "ssh"> | null | undefined): void {
+  if (!row || row.nodeId !== LOCAL_NODE_ID || row.ssh === null) return;
+  try {
+    rmSync(dirname(subshellSshConfigPath(row.id)), { recursive: true, force: true });
+  } catch (err) {
+    logger.withError(err).warn(`ssh config sweep failed for local pane ${row.id}`);
+  }
 }
 
 /* ------------------------------------------------------------------ */

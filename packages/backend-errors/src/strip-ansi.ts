@@ -4,9 +4,9 @@
  * output, so the two consumers must agree on what counts as escape noise.
  *
  * Strips CSI sequences (`ESC [ ... final-byte`, including DEC private modes
- * like `ESC [ ? 1049 h`), OSC title sequences (`ESC ] ... BEL`), and carriage
- * returns. Safe for arbitrary terminal output; exported as a pure function so
- * it can be unit-tested.
+ * like `ESC [ ? 1049 h`), OSC sequences (`ESC ] ...` ended by either BEL or
+ * ST = `ESC \`), and carriage returns. Safe for arbitrary terminal output;
+ * exported as a pure function so it can be unit-tested.
  */
 
 /**

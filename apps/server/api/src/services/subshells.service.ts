@@ -1,6 +1,4 @@
-import { rmSync } from "node:fs";
 import { homedir as osHomedir } from "node:os";
-import { dirname } from "node:path";
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 // The attention kinds are imported from the reporter that SPEAKS them rather
 // than restated here: the old local `Extract<NotifyKind, …>`, widened once to
@@ -39,9 +37,9 @@ import {
   waitSentinel,
 } from "@/services/nodes/pane-exec.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
-import { subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
+import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
 import {
   PROMPT_POLL_MS,
   PROMPT_SETTLE_TIMEOUT_MS,
@@ -684,49 +682,25 @@ export class SubshellsService extends BaseService {
    * or on any enrolled node, since both reach this plane the same way.
    *
    * Thin by design: the route has already established that this is the
-   * subshell's own key, and the manager owns the one death transition the
-   * sweep also runs through — so nothing here decides anything, it only
-   * carries the timestamp.
+   * subshell's own key, and the manager owns the one death transition. The
+   * row read below decides nothing either — it only feeds the shared LOCAL
+   * ssh config sweep (its own guard skips every other row shape); the death
+   * transition itself carries just the timestamp.
    *
    * @param id - the subshell whose pane exited
    * @param exitCode - tmux's `#{pane_dead_status}`, null when it could not be read
    */
   async reportExit(id: string, exitCode: number | null): Promise<void> {
-    await this.#sweepLocalSshConfig(id);
+    // The read is part of the best-effort sweep too: a throwing row read costs
+    // a log line, never the death transition below (the pre-helper code had the
+    // read inside its try for exactly this).
+    sweepLocalSshDir(
+      await this.repos.subshells.findById(id).catch((err: unknown) => {
+        logger.withError(err).warn(`ssh config sweep skipped for pane ${id}; the row read failed`);
+        return null;
+      }),
+    );
     await this.#manager.applySelfReportedExit(id, exitCode, new Date().toISOString());
-  }
-
-  /**
-   * The LOCAL half of the ssh config lifecycle (spec 2026-10-07 decision 4;
-   * plan-2 handoff 2): when the dying pane is a LOCAL ssh pane, best-effort
-   * `rm -rf` of `<SUBSHELL_SERVER_DATA_DIR>/ssh/<id>` — the directory the
-   * LocalLauncher wrote the rendered config into, the dirname of the one
-   * byte-derived path the launchers and the sweep agree on.
-   *
-   * Deliberately keyed on the row's `ssh` column plus its `local` node and
-   * fired BEFORE the manager's death transition, and it runs even when the
-   * row is already retired: a terminate kills the pane, the tmux `pane-died`
-   * hook races the retire stamp, and whichever order they land in the config
-   * must be gone once the report has been heard (Task 9's e2e asserts exactly
-   * that after terminate). Agent rows are skipped by rule, not by accident —
-   * their config lives on the NODE's disk and the agent's own exit watcher
-   * unlinks it; removing a directory named after a remote pane off THIS
-   * server would be this host deleting a file that is not its (the delete
-   * path's per-node launcher doctrine, same reason).
-   *
-   * Best-effort by shape: any failure (missing dir, an id outside the path
-   * guard, a refusing filesystem) costs one log line and nothing else — the
-   * death transition must land regardless, and a stale config in a dir whose
-   * name is a dead pane's id is garbage, not a hazard.
-   */
-  async #sweepLocalSshConfig(id: string): Promise<void> {
-    try {
-      const row = await this.repos.subshells.findById(id);
-      if (!row || row.nodeId !== LOCAL_NODE_ID || row.ssh === null) return;
-      rmSync(dirname(subshellSshConfigPath(id)), { recursive: true, force: true });
-    } catch (err) {
-      logger.withError(err).warn(`ssh config sweep failed for local pane ${id}; the dir ages out with the delete path`);
-    }
   }
 
   /**
@@ -1450,6 +1424,13 @@ export class SubshellsService extends BaseService {
   async terminateSubshell(viewerId: string, id: string, actor: GuardActor): Promise<{ ok: true }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
     await this.#manager.terminateSubshell(row.userId, id);
+    // AFTER the kill, the same sweep the dying hook runs — and it cannot be
+    // left TO the hook: terminate revokes the pane's token synchronously with
+    // the kill, so the `pane-died` report can arrive 401 and never sweep
+    // (e2e spec 22). The hand that killed removes the dir; the hook, whenever
+    // it lands, stays the second sure thing (its sweep is idempotent). The
+    // helper's guard no-ops this for every non-local-ssh row.
+    sweepLocalSshDir(row);
     return { ok: true };
   }
 
