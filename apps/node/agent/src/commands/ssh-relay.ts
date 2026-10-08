@@ -4,6 +4,7 @@ import { loadOrCreateIdentity } from "../identity.js";
 import { log } from "../log.js";
 import { MachinePinStore } from "../machine-pin-store.js";
 import { startAgentProxy } from "../relay-proxy.js";
+import { liveAgentSocketPath, startRelayResponder } from "../relay-responder.js";
 
 /**
  * The node-side relay session registry (spec 2026-10-08 §5.1/§5.2) and the B
@@ -12,11 +13,11 @@ import { startAgentProxy } from "../relay-proxy.js";
  * The daemon's inbound route hands EVERY `relay` link frame to this module's
  * single dispatcher ({@link RelaySessions.onInboundRelayFrame}); the JWS
  * command path never sees one. Which local role owns a `ref` is the only
- * question routing asks: today the B-side agent proxy registers itself
- * ({@link openBRelaySession}); Task 7's A-side responder registers into the
- * SAME registry for the other role, and Task 8's `ssh_relay_open` executor
- * decides which branch a command drives by the command's own `role` field.
- * That is the whole seam - one dispatch, one map, any number of roles.
+ * question routing asks: the B-side agent proxy registers itself
+ * ({@link openBRelaySession}) and the A-side responder registers into the
+ * SAME registry ({@link openARelaySession}); Task 8's `ssh_relay_open`
+ * executor decides which branch a command drives by the command's own `role`
+ * field. That is the whole seam - one dispatch, one map, both roles.
  *
  * §5.1's pairing doctrine needs the pairing itself: the plane's
  * `ssh_relay_open` command carries the relay-session id, the routing ref, both
@@ -183,14 +184,27 @@ function decodePeerEncryptionJwk(b64: string): string {
 export async function openBRelaySession(args: BRelaySessionArgs): Promise<{ socketPath: string }> {
   const { cmd } = args;
   if (cmd.role !== "B") throw new Error("relay open refused: this machine is not the B side of the pairing");
+  // The role says B; the pairing must ALSO name THIS machine as B (§5.4's
+  // "a session naming this machine" reads both branches alike - a command
+  // about someone else's pairing is refused before any pin is consulted).
+  if (cmd.bNodeId !== args.selfNodeId) {
+    throw new Error("relay open refused: this machine is not the connecting side named by the pairing");
+  }
 
   // §4.4: both halves, byte-equal, in the node-side store (its own file, never
-  // honoring SUBSHELL_CHANNEL_PIN - MachinePinStore's own doctrine).
-  const candidate = {
-    signing: cmd.peerSigningPublicKey,
-    encryption: decodePeerEncryptionJwk(cmd.peerEncryptPublicKey),
-  };
-  bytesOfJwk(candidate.signing); // deep public-only validity on the signing half too
+  // honoring SUBSHELL_CHANNEL_PIN - MachinePinStore's own doctrine). Every key
+  // gate lands in the SAME named refusal (the raw bytesOfJwk text would reach
+  // the dispatch answer otherwise): decode, deep-check, reject before any pin.
+  let candidate: { signing: string; encryption: string };
+  try {
+    candidate = {
+      signing: cmd.peerSigningPublicKey,
+      encryption: decodePeerEncryptionJwk(cmd.peerEncryptPublicKey),
+    };
+    bytesOfJwk(candidate.signing); // deep public-only validity on the signing half too
+  } catch (err) {
+    throw new Error(`relay open refused: peer pin rejected: ${err instanceof Error ? err.message : String(err)}`);
+  }
   const pins = new MachinePinStore(args.dataDir);
   const existing = pins.get(cmd.aNodeId);
   if (existing === null) {
@@ -232,4 +246,115 @@ export async function openBRelaySession(args: BRelaySessionArgs): Promise<{ sock
     throw new Error("relay open refused: routing ref already owned by a live session");
   }
   return { socketPath: proxy.socketPath };
+}
+
+/** Everything {@link openARelaySession} needs: the daemon's seams + the command's pairing. */
+export interface ARelaySessionArgs {
+  /** The daemon's registry this session joins. */
+  relay: RelaySessions;
+  /** The node's data dir (config.dataDir): holds A's identity and B's pin. */
+  dataDir: string;
+  /** This machine's node id (config.nodeId) - must equal `cmd.aNodeId`, the open-as principal. */
+  selfNodeId: string;
+  /** The verified `ssh_relay_open` body; its `role` MUST be "A" and its `aNodeId` MUST be this machine. */
+  cmd: SshRelayOpenCommand;
+  /**
+   * The link pump: one sealed A2B frame onto the current socket. The
+   * responder forwards it unchanged, so it carries the DELIVER-OR-THROW
+   * contract (the Task-8 glue obligation): a dropped send must THROW, and A
+   * consumes no seq for a reply that never left.
+   */
+  sendRelayFrame(frame: RelayFrame): void;
+  /**
+   * Resolve A's live agent socket per request; defaults to
+   * `liveAgentSocketPath` (the connecting account's absolute `SSH_AUTH_SOCK`,
+   * the ssh-resolve rule). The test seam for a stub agent.
+   */
+  resolveAgentSocket?: () => string | null;
+  /** Line sink (defaults to the agent logger); never sees keys, fingerprints, or agent bytes. */
+  log?: (line: string) => void;
+}
+
+/**
+ * Open the A side of a brokered relay pairing: enforce §4.4's machine pin on
+ * B (first pairing writes both halves, a moved pin is a hard block naming the
+ * peer and §4.5's re-pair), then start {@link startRelayResponder} for the
+ * command's grant (its selected fingerprint set is carried by the command
+ * itself, §5.1 - the responder enforces it without a REST call it cannot
+ * make) and register the ref. Throws a named refusal (the dispatch wrapper
+ * turns it into `ok:false`) on: role other than A, a pairing that names a
+ * different machine as A, an unusable peer key, a MOVED pin, or a ref already
+ * owned. Resolves with the session id - nothing about the machine is in the
+ * answer, and no path exists to leak.
+ *
+ * The gate (ssh-enabled mirror) is the CALLER's first check, like every SSH
+ * arm's: this function is the pairing's mechanics, not the policy. §5.4's
+ * roster command (`ssh_agent_identities`, Task 11) is a separate signed
+ * command, not this session: the responder serves ONLY brokered traffic.
+ */
+export async function openARelaySession(args: ARelaySessionArgs): Promise<{ relayId: string }> {
+  const { cmd } = args;
+  if (cmd.role !== "A") throw new Error("relay open refused: this machine is not the A side of the pairing");
+  // §5.4: "a session naming this A" - the role alone is not enough when the
+  // plane brokers many machines' pairings through one daemon; the pairing
+  // must name THIS machine as the key home before any pin is consulted.
+  if (cmd.aNodeId !== args.selfNodeId) {
+    throw new Error(`relay open refused: this machine is not the key home ${cmd.aNodeId} named by the pairing`);
+  }
+
+  // §4.4: both halves, byte-equal, in the node-side store (its own file, never
+  // honoring SUBSHELL_CHANNEL_PIN - MachinePinStore's own doctrine). The peer
+  // here is B: A pins whoever the command names as the connecting machine.
+  // Same named-refusal wrapper as the B branch.
+  let candidate: { signing: string; encryption: string };
+  try {
+    candidate = {
+      signing: cmd.peerSigningPublicKey,
+      encryption: decodePeerEncryptionJwk(cmd.peerEncryptPublicKey),
+    };
+    bytesOfJwk(candidate.signing); // deep public-only validity on the signing half too
+  } catch (err) {
+    throw new Error(`relay open refused: peer pin rejected: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const pins = new MachinePinStore(args.dataDir);
+  const existing = pins.get(cmd.bNodeId);
+  if (existing === null) {
+    pins.pin(cmd.bNodeId, candidate); // first pairing: the plane-delivered keys become the pin (§4.4/§4.6's accepted window)
+  } else if (pins.check(cmd.bNodeId, candidate) !== "ok") {
+    // Hard block naming the peer and pointing at recovery - §4.5: re-pair is
+    // an operator act; nothing here may "trust anyway".
+    throw new Error(
+      `relay open refused: machine pin for ${cmd.bNodeId} has MOVED (re-pair per §4.5 after out-of-band verification)`,
+    );
+  }
+
+  const identity = await loadOrCreateIdentity(args.dataDir);
+  const responder = startRelayResponder({
+    relayId: cmd.relayId,
+    ref: cmd.ref,
+    selfNodeId: args.selfNodeId,
+    peerNodeId: cmd.bNodeId,
+    peerSigningJwk: candidate.signing,
+    peerEncryptionJwk: candidate.encryption,
+    ownEncryptionPublicJwk: identity.publicJwk,
+    ownEncryptionPrivateJwk: identity.privateJwk,
+    ownSigningPrivateJwk: identity.signingPrivateJwk,
+    fingerprints: cmd.fingerprints,
+    seal: mcpSeal,
+    open: mcpOpen,
+    sendRelayFrame: args.sendRelayFrame,
+    resolveAgentSocket: args.resolveAgentSocket ?? liveAgentSocketPath,
+    ...(args.log === undefined ? {} : { log: args.log }),
+  });
+
+  if (
+    !args.relay.register(cmd.ref, {
+      onRelayFrame: (f) => responder.deliverInboundRelayFrame(f),
+      close: (reason) => responder.close(reason),
+    })
+  ) {
+    responder.close();
+    throw new Error("relay open refused: routing ref already owned by a live session");
+  }
+  return { relayId: cmd.relayId };
 }
