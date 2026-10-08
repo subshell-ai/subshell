@@ -392,17 +392,21 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   // are stripped (rows AND their DDL) so the snapshot ends where an install of
   // that era would; removing one from the middle while a later row stands
   // above it is exactly the non-contiguous history kysely refuses to boot.
+  // WHY 0046+0047+0048 together: this era's three migrations are the tail of
+  // the registered ledger, so the prefix runs contiguously through 0045 and
+  // boot re-applies all three. Advancing LATEST_BACKUP_MIGRATION (0048) means
+  // the strip set moves with it in the same commit.
   const migrationRows = db
     .query(
-      "SELECT * FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled') ORDER BY name",
+      "SELECT * FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts') ORDER BY name",
     )
     .all() as { name: string; timestamp: string }[];
   db.exec(
-    "DROP TABLE backup_recovery; ALTER TABLE nodes DROP COLUMN ssh_enabled_at; ALTER TABLE nodes DROP COLUMN ssh_enabled; DELETE FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled'); CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');",
+    "DROP TABLE backup_recovery; ALTER TABLE nodes DROP COLUMN ssh_enabled_at; ALTER TABLE nodes DROP COLUMN ssh_enabled; DROP TABLE ssh_saved_hosts; ALTER TABLE subshells DROP COLUMN ssh; DELETE FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts'); CREATE TABLE migration_restore_probe(value TEXT); INSERT INTO migration_restore_probe VALUES ('older snapshot');",
   );
   db.query("VACUUM INTO ?").run(snapshot);
   db.exec(
-    "CREATE TABLE backup_recovery(user_id TEXT PRIMARY KEY REFERENCES user(id)); ALTER TABLE nodes ADD COLUMN ssh_enabled integer NOT NULL DEFAULT 0; ALTER TABLE nodes ADD COLUMN ssh_enabled_at text; UPDATE migration_restore_probe SET value='newer destination';",
+    "CREATE TABLE backup_recovery(user_id TEXT PRIMARY KEY REFERENCES user(id)); ALTER TABLE nodes ADD COLUMN ssh_enabled integer NOT NULL DEFAULT 0; ALTER TABLE nodes ADD COLUMN ssh_enabled_at text; CREATE TABLE ssh_saved_hosts(id TEXT PRIMARY KEY, owner_user_id TEXT NOT NULL REFERENCES user(id), destination TEXT NOT NULL, alias TEXT, node_id TEXT NOT NULL, saved_at TEXT, last_connect_at TEXT NOT NULL); ALTER TABLE subshells ADD COLUMN ssh text; UPDATE migration_restore_probe SET value='newer destination';",
   );
   for (const row of migrationRows)
     db.query("INSERT INTO kysely_migration(name,timestamp) VALUES (?,?)").run(row.name, row.timestamp);
@@ -415,7 +419,9 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   const offline = new Database(instance.databasePath, { readonly: true });
   expect(
     offline
-      .query("SELECT name FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled')")
+      .query(
+        "SELECT name FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts')",
+      )
       .all(),
   ).toEqual([]);
   offline.close();
@@ -424,10 +430,14 @@ test("real entry: available older upgrade snapshot restores and migrates before 
   expect(
     migrated
       .query(
-        "SELECT name FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled') ORDER BY name",
+        "SELECT name FROM kysely_migration WHERE name IN ('0046-backup-recovery','0047-node-ssh-enabled','0048-ssh-launch-and-saved-hosts') ORDER BY name",
       )
       .all(),
-  ).toEqual([{ name: "0046-backup-recovery" }, { name: "0047-node-ssh-enabled" }]);
+  ).toEqual([
+    { name: "0046-backup-recovery" },
+    { name: "0047-node-ssh-enabled" },
+    { name: "0048-ssh-launch-and-saved-hosts" },
+  ]);
   expect(migrated.query("SELECT value FROM migration_restore_probe").get()).toEqual({ value: "older snapshot" });
   expect(migrated.query("SELECT name FROM sqlite_schema WHERE name='backup_recovery'").get()).toEqual({
     name: "backup_recovery",
@@ -437,6 +447,12 @@ test("real entry: available older upgrade snapshot restores and migrates before 
       .query("SELECT name FROM pragma_table_info('nodes') WHERE name IN ('ssh_enabled','ssh_enabled_at') ORDER BY name")
       .all(),
   ).toEqual([{ name: "ssh_enabled" }, { name: "ssh_enabled_at" }]);
+  expect(migrated.query("SELECT name FROM sqlite_schema WHERE name='ssh_saved_hosts'").get()).toEqual({
+    name: "ssh_saved_hosts",
+  });
+  expect(migrated.query("SELECT name FROM pragma_table_info('subshells') WHERE name='ssh'").get()).toEqual({
+    name: "ssh",
+  });
   migrated.close();
   expect(readFileSync(join(instance.configDir, "config.env"), "utf8")).toBe(originalConfig);
   const deadline = Date.now() + 15_000;

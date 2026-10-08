@@ -79,6 +79,13 @@ export interface SubshellTable {
    */
   crossAgent: number;
   /**
+   * an SSH-terminal pane carries its approved snapshot here; the value's
+   * presence is the owner-only-input rule's trigger (spec §5.4). JSON-encoded
+   * `SshConnectionSnapshotWire`; never serialized to clients except the
+   * launch's own answer. See migration 0048.
+   */
+  ssh: string | null;
+  /**
    * DEPRECATED (spec 2026-09-03): the terminal history cap moved per-USER
    * (`user_meta.terminal_replay_lines`, migration 0020). This column is
    * read and written by nothing; it stays so a rollback finds its data.
@@ -113,6 +120,7 @@ export type NewSubshell = Omit<
   | "lastPushUrgency"
   | "nodeId"
   | "crossAgent"
+  | "ssh"
   | "terminalReplayLines"
 > & {
   /** Preset launched with; omitted = NULL (presetless launch). Defaults on insert. */
@@ -121,6 +129,8 @@ export type NewSubshell = Omit<
   nodeId?: string;
   /** 1 = agent-launched cross-agent comms pane; omitted = DB default 0 (human) */
   crossAgent?: number;
+  /** SSH snapshot JSON for an ssh pane; omitted = NULL = not an ssh pane (migration 0048) */
+  ssh?: string | null;
   /** Per-subshell terminal replay cap; omitted = NULL = instance default */
   terminalReplayLines?: number | null;
   harnessSessionId?: string | null;
