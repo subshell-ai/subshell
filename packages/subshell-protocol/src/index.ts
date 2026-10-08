@@ -145,6 +145,7 @@ export {
   parseNodeProbeEntries,
   parseNodePromptDeliver,
   parseNodeSshAliasList,
+  parseNodeSshIdentity,
   parseNodeSshResolveOutcome,
   parseNodeStatDirResult,
   parseNodeTreeManifestPage,
@@ -247,6 +248,7 @@ export {
   SSH_COMMAND_TYPES,
   type SshDiscoverAliasesCommand,
   type SshNodeCommandBody,
+  type SshRegisterIdentityCommand,
   type SshResolveConfigCommand,
 } from "./ssh-frames.js";
 export {
@@ -262,6 +264,7 @@ export {
 export { base64UrlNoPad, bytesOfJwk, fingerprintJwk, type PublicJwkInput } from "./ssh-pin-store.js";
 export type {
   NodeSshAliasListResult,
+  NodeSshIdentityResult,
   NodeSshResolveOutcomeWire,
 } from "./ssh-results.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";

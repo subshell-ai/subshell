@@ -58,3 +58,16 @@ export type NodeSshResolveOutcomeWire =
       /** Config keywords that blocked acceptance; empty when the code names the whole cause. */
       settings: string[];
     };
+
+/**
+ * `ssh_register_identity` answer (spec 2026-10-08 §4.3): the machine's OWN
+ * ES256 signing public key, for a node that enrolled before the key existed.
+ * The grammar here only proves the field is a non-empty string carrying
+ * well-formed JSON; the ES256/P-256 importability check (and the refusal of
+ * any JWK holding a private component) is the SERVER's gate, beside the one
+ * the enroll path runs.
+ */
+export interface NodeSshIdentityResult {
+  /** JSON-serialized public JWK (P-256 / ES256) - never the private half. */
+  signingPublicKey: string;
+}

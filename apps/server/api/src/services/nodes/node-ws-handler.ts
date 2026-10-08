@@ -29,6 +29,7 @@ import {
 } from "@/services/nodes/link-session.js";
 import { loadNodeEncryptionKeys, nodeEncryptionPublicKey } from "@/services/nodes/node-encryption-keys.js";
 import { announceNodePresence, projectNodeOffline } from "@/services/nodes/node-presence-announce.js";
+import { bootstrapSshIdentityOnReady } from "@/services/nodes/ssh-identity.js";
 import { logger } from "@/utils/logger.js";
 import { refireInputHoldsForNode } from "@/ws/input-hold.js";
 import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
@@ -980,6 +981,14 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // cheap; everything slow lives in the push's own best-effort swallow.
       if (hooks) await hooks.onSshEnabled(nodeId, event.sshEnabled);
       else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile ssh_enabled`);
+      // The §4.3 signing bootstrap (spec 2026-10-08): an agent whose identity
+      // record has no signing key is ASKED ONCE, and the answer files itself.
+      // Fire-and-forget for the same reason the detect kick above is: the
+      // machine's answer arrives as a LATER `result` frame on this socket's
+      // own queue, and awaiting it inside this frame would deadlock the
+      // chain. The no-spam gate (filled slot / absent record = silent skip)
+      // lives in the call itself.
+      void bootstrapSshIdentityOnReady(nodeId);
       return;
     }
     case "heartbeat":

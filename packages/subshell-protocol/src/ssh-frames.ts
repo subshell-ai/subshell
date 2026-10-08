@@ -1,17 +1,20 @@
 /**
- * The two surviving SSH node commands (design 2026-10-05 §7): the bounded
- * config DISCOVERY and the single-alias RESOLUTION that feed the wizard's
- * review step. They ride the existing signed/encrypted command transport
- * unchanged - signing proves WHO ordered it, this file freezes WHAT was
- * ordered.
+ * The SSH node commands: the bounded config DISCOVERY and the single-alias
+ * RESOLUTION that feed the wizard's review step (design 2026-10-05 §7), and
+ * the M2 §4.3 IDENTITY bootstrap a pre-M2 node answers once. They ride the
+ * existing signed/encrypted command transport unchanged - signing proves WHO
+ * ordered it, this file freezes WHAT was ordered.
  *
  * The rest of the family the earlier command table named (`ssh_test_
  * connection`, the run start/status/read/cancel quartet, `ssh_terminal_
  * launch`, `ssh_input_control`) retired with that destination-execution
  * product, which never shipped; their `type` arms are therefore deleted, not
- * refused. The brokered-session commands are NOT defined on this branch — they
- * arrive with the sealed agent-relay milestone (M2); no file names them here yet
- * (`ssh-limits.ts` carries their limits ahead of the frames, as it declares).
+ * refused. The sealed agent-relay milestone (M2) adds ONE command here,
+ * `ssh_register_identity` (§4.3 bootstrap: a pre-M2 node's signing key reaches
+ * the plane inside a signed command on the existing node link). The
+ * brokered-session commands are NOT defined yet - they land with the relay
+ * frames themselves (`ssh-limits.ts` carries their limits ahead of the frames,
+ * as it declares).
  *
  * The commands are TRANSPORT-AGNOSTIC plain objects: the server-hosted
  * `local` node executes the same runtime in-process against these exact
@@ -48,11 +51,21 @@ export interface SshResolveConfigCommand {
   alias: string;
 }
 
+/**
+ * The machine reports its OWN ES256 relay signing public key (spec
+ * 2026-10-08 §4.3): the once-over-the-link bootstrap for a node that enrolled
+ * before the key existed. No input beyond the type - the answer is the
+ * machine's own identity, there is nothing for the plane to ask about.
+ */
+export interface SshRegisterIdentityCommand {
+  type: "ssh_register_identity";
+}
+
 /** Every SSH-family command body, as one union the {@link NodeCommandBody} union folds in. */
-export type SshNodeCommandBody = SshDiscoverAliasesCommand | SshResolveConfigCommand;
+export type SshNodeCommandBody = SshDiscoverAliasesCommand | SshResolveConfigCommand | SshRegisterIdentityCommand;
 
 /** Every SSH command `type`, for census tests and dispatch tables. */
-export const SSH_COMMAND_TYPES = ["ssh_discover_aliases", "ssh_resolve_config"] as const;
+export const SSH_COMMAND_TYPES = ["ssh_discover_aliases", "ssh_resolve_config", "ssh_register_identity"] as const;
 
 /* ------------------------------------------------------------------ */
 /* arm validators (delegated from parseNodeCommandBody)                */
@@ -86,6 +99,10 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       return { type: "ssh_discover_aliases" };
     case "ssh_resolve_config":
       return isAliasName(value.alias) ? { type: "ssh_resolve_config", alias: value.alias } : null;
+    case "ssh_register_identity":
+      // The whole command is its type: the machine answers about ITSELF, and
+      // the answer's shape is `node-results.ts`'s business, not this grammar's.
+      return { type: "ssh_register_identity" };
     default:
       return null;
   }

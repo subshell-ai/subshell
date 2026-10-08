@@ -29,6 +29,7 @@ import { execSetMaintenance } from "./set-maintenance.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execSetSshEnabled } from "./set-ssh-enabled.js";
 import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
+import { execSshRegisterIdentity } from "./ssh-identity.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
 import { execTransferWrite } from "./transfer-write.js";
 import { execTreeManifest } from "./tree-manifest.js";
@@ -51,9 +52,12 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * commands `archive_create`, `file_read`, `transfer_write`, `archive_extract`
  * and `tree_manifest` (spec 2026-10-01 §4, protocol 15), and
  * `set_ssh_enabled` (spec 2026-10-07 §4.3, protocol 16 — the SSH gate's plane-
- * to-machine write), and the two SSH read arms `ssh_discover_aliases` and
+ * to-machine write), the two SSH read arms `ssh_discover_aliases` and
  * `ssh_resolve_config` (spec 2026-10-07 §5, protocol 17 — both refuse on the
- * local gate mirror before any lookup or spawn). Any
+ * local gate mirror before any lookup or spawn), and the M2 §4.3 bootstrap
+ * `ssh_register_identity` (spec 2026-10-08 §4.3 - the machine's own signing
+ * PUBLIC key, ungated like `set_ssh_enabled`: registration is not an SSH act).
+ * Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
  *
@@ -134,6 +138,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execSshDiscoverAliases(ctx);
       case "ssh_resolve_config":
         return await execSshResolveConfig(ctx, cmd);
+      case "ssh_register_identity":
+        return await execSshRegisterIdentity(ctx);
       case "set_server_url":
         return await execSetServerUrl(ctx, cmd);
       case "update":

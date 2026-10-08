@@ -24,6 +24,7 @@ import {
   parseNodeRuntimeReport,
   partPathOf,
 } from "../node-frames.js";
+import { SSH_COMMAND_TYPES } from "../ssh-frames.js";
 import { SSH_CONFIG_FILE_MAX_BYTES } from "../ssh-limits.js";
 import { MIN_NODE_VERSION } from "../versions.js";
 
@@ -921,6 +922,29 @@ describe("ssh command arms and the launch ssh block", () => {
     // alias hygiene lives in ssh-frames' parser (port-verified): option-like and whitespace are refused there
     expect(parseNodeCommandBody({ type: "ssh_resolve_config", alias: "-x" })).toBeNull();
     expect(parseNodeCommandBody({ type: "ssh_resolve_config", alias: "a b" })).toBeNull();
+  });
+
+  it("the ssh_register_identity arm is its type alone (spec 2026-10-08 §4.3)", () => {
+    expect(parseNodeCommandBody({ type: "ssh_register_identity" })).toEqual({ type: "ssh_register_identity" });
+    // Nothing beyond the type travels: the machine answers about itself, so
+    // a plane-sent field could only be an injection attempt at its own slot.
+    expect(parseNodeCommandBody({ type: "ssh_register_identity", signingPublicKey: "x" })).toEqual({
+      type: "ssh_register_identity",
+    });
+    expect(parseNodeCommandBody({ type: "ssh_register_identity" })).not.toBeNull();
+    // The family's census: exactly these three types, and the count is the
+    // tripwire - a fourth arm must show up here before it ships.
+    expect([...SSH_COMMAND_TYPES].sort()).toEqual([
+      "ssh_discover_aliases",
+      "ssh_register_identity",
+      "ssh_resolve_config",
+    ]);
+    expect(SSH_COMMAND_TYPES).toHaveLength(3);
+    // Every census type is a type the dispatcher actually narrows.
+    for (const t of SSH_COMMAND_TYPES) {
+      const body = t === "ssh_resolve_config" ? { type: t, alias: "box-a" } : { type: t };
+      expect(parseNodeCommandBody(body)).not.toBeNull();
+    }
   });
 
   it("launch accepts an ssh block and refuses malformed ones", () => {
