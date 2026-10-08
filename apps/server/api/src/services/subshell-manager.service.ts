@@ -54,7 +54,7 @@ import {
   previewCachePut,
 } from "@/services/nodes/preview-cache.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
-import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
+import { subshellLogPath, subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService, type NotifyKind } from "@/services/notify.service.js";
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
@@ -997,15 +997,29 @@ export class SubshellManagerService {
     // Best-effort artifact cleanup ON THE ROW'S NODE (the log is only an
     // attach-replay artifact; the MCP config holds no secrets but nothing
     // should be left behind). The layout lives behind the launcher seam
-    // (spec §6.4): a local row leaves exactly its replay log; an agent node
-    // names the triple (log + MCP config + the agent's own meta record —
-    // deliberately left behind by a kill, so the DELETE unlinks it) from its
-    // live `ready` facts, and an OFFLINE agent answers `[]`: no facts, no
-    // layout to name paths from, artifacts age out with the node (§5.6).
+    // (spec §6.4): a local row leaves exactly its replay log (plus, for an
+    // ssh pane, the rendered config the LocalLauncher wrote under the
+    // server's dataDir); an agent node names its triple (log + MCP config +
+    // the agent's own meta record — deliberately left behind by a kill, so
+    // the DELETE unlinks it) from its live `ready` facts, and an OFFLINE
+    // agent answers `[]`: no facts, no layout to name paths from, artifacts
+    // age out with the node (§5.6).
     // The local short-circuit is row-keyed because a TEST launcher answers for
     // EVERY node id (the phase-0 suites) — a fake standing in for `local`
     // must keep receiving the local artifact set, never the agent triple.
-    const artifacts = row.nodeId === LOCAL_NODE_ID ? [launcher.logPath(id)] : launcher.subshellArtifacts(id);
+    // The ssh config path rides the list for THIS row only, and the row's
+    // kind fact (spec 2026-10-07 decision 4) is read HERE — the launchers
+    // compose paths, only the caller holding the row can say which files the
+    // pane OWNS. `harnessId === "ssh"` is that truth today (the ssh service
+    // launches the ssh harness and only it carries a rendered config); when
+    // migration 0048's snapshot column lands, `row.ssh !== null` becomes the
+    // spelled-out kind fact at this one line — the launchers already take
+    // the flag.
+    const sshPane = row.harnessId === "ssh";
+    const artifacts =
+      row.nodeId === LOCAL_NODE_ID
+        ? [launcher.logPath(id), ...(sshPane ? [subshellSshConfigPath(id)] : [])]
+        : launcher.subshellArtifacts(id, sshPane);
     await launcher.removeArtifacts(artifacts);
     // And the generated MCP config (no secrets, but nothing to leave behind).
     try {

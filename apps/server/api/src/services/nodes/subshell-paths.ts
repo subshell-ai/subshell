@@ -1,3 +1,4 @@
+import { buildSshConfigPath } from "@internal/pane-runtime";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 
 /**
@@ -19,4 +20,18 @@ export function subshellLogDir(): string {
  */
 export function subshellLogPath(id: string): string {
   return `${subshellLogDir()}/${id}.log`;
+}
+
+/**
+ * The rendered ssh config for one pane ON THE SERVER's own disk — the local
+ * twin of the node-side path the agent derives from its own dataDir
+ * (spec 2026-10-07 decision 4). The composition is the pane-runtime
+ * {@link buildSshConfigPath} itself, not a re-spelling of its template:
+ * plane and node agree byte-for-byte because they call ONE function, and the
+ * `LocalLauncher` launch path refuses a plan whose `configPath` disagrees
+ * with this derivation. Throws on an id outside the composition guard, like
+ * every other call site.
+ */
+export function subshellSshConfigPath(id: string): string {
+  return buildSshConfigPath(SUBSHELL_SERVER_DATA_DIR, id);
 }

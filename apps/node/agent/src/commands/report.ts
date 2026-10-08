@@ -1,3 +1,6 @@
+import { rm } from "node:fs/promises";
+import { dirname } from "node:path";
+import { buildSshConfigPath } from "@internal/pane-runtime";
 import type { NodeEvent, NodeMaintenanceWire, NodeSshEnabledWire } from "@internal/subshell-protocol";
 import { log } from "../log.js";
 import { readMaintenance, reportableMaintenance, writeMaintenance } from "../maintenance.js";
@@ -233,7 +236,9 @@ export function stopWatcher(ctx: CommandContext, subshellId: string): void {
  * it — or stops ANSWERING for {@link NODE_EXIT_UNREACHABLE_TICKS} consecutive
  * ticks (design §1: one blip never reports a live pane dead) — the shared tick
  * emits exactly one `exit` event and cleans up (unregister,
- * forget the meta record, drop the subshell's tail pumps). Re-registering for
+ * forget the meta record, drop the subshell's tail pumps, and — for a pane
+ * whose meta named the ssh harness — best-effort remove its rendered ssh
+ * config dir, spec 2026-10-07 decision 4). Re-registering for
  * the same id REPLACES the old entry with a fresh registration token — a
  * relaunch on a restarted row rotates its socket, and the tick that
  * snapshotted the old pane sees the token mismatch and never reports the live
@@ -374,6 +379,13 @@ async function reportDeath(ctx: CommandContext, socket: string, subshellId: stri
   // to report. (On the unreachable path the socket is not answering, so
   // this reads null — the same shape a dead server always produced.)
   const exitCode = (await ctx.tmux.paneExitCode(socket, subshellId)) ?? null;
+  // Read the meta's KIND here, before the forget below erases the record:
+  // the ssh sweep at the end of this sequence fires only for a pane whose
+  // record named the ssh harness (spec 2026-10-07 decision 4). Absence is
+  // not a kind — an ssh pane that lost its meta file keeps its config (a
+  // leftover file is swept by the delete path; wiping an unknown pane's
+  // directory is not).
+  const paneMeta = await ctx.meta.get(subshellId);
   ctx.watchers.delete(subshellId); // stop-first: at most one event per registration
   // LOAD-BEARING ORDER (spec 2026-09-14 §4.3): the flag goes out BEFORE the
   // death it explains. The plane serialises frames per socket, so a
@@ -409,6 +421,22 @@ async function reportDeath(ctx: CommandContext, socket: string, subshellId: stri
     } catch {
       // Already gone is the outcome we wanted; anything else costs an idle
       // process, never correctness.
+    }
+    // Sweep the ssh config (spec 2026-10-07 decision 4). The pane was its only
+    // reader; leaving it means a signed launch leaves a file forever. Gated on
+    // the meta kind read BEFORE the forget (only the ssh harness ever owned
+    // one), and on the SAME relaunch re-check that guards the tails and the
+    // reap: a relaunched pane owns the path now. The whole per-pane ssh DIR
+    // goes, not just the file — the launch may have added host keys beside the
+    // config. Best-effort by contract: a throwing rm costs a log line and
+    // NEVER refuses the death report or unwinds the sequence.
+    if (paneMeta?.harnessId === "ssh") {
+      const sshDir = dirname(buildSshConfigPath(ctx.config.dataDir, subshellId));
+      try {
+        await rm(sshDir, { recursive: true, force: true });
+      } catch (err) {
+        log(`ssh config sweep failed for ${subshellId}: ${err instanceof Error ? err.message : String(err)}`);
+      }
     }
   }
 }

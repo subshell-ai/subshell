@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   assembleHarnessCommand,
+  buildSshConfigPath,
   enforceMode,
   exitHookFor,
   findBinary,
@@ -37,8 +38,9 @@ import { reportMaintenance, startExitWatcher } from "./report.js";
  * Start one harness subshell on this node.
  *
  * Step order is contractual (interfaces, brief §Task 4): id gate → allowlist
- * gate → argv + binary resolution → MCP file (policy-gated) → meta record →
- * pane argv assembly → `newSubshell` (rollback on throw) → log attach
+ * gate → argv + binary resolution → MCP file (policy-gated) → ssh config
+ * (byte-derived path, policy-gated; spec 2026-10-07 decision 4) → meta record
+ * → pane argv assembly → `newSubshell` (rollback on throw) → log attach
  * (strict by default; `bestEffortLog` downgrades the whole attach region) →
  * optional resize (cosmetic) → exit watcher. A strict log-attach throw
  * PROPAGATES (the dispatcher answers `{ok:false}`) exactly like
@@ -129,6 +131,34 @@ export async function execLaunch(ctx: CommandContext, cmd: Cmd<"launch">): Promi
     await enforceMode(dir, 0o700);
     await writeFile(cmd.mcp.path, cmd.mcp.fileContent, { mode: 0o600 });
     await enforceMode(cmd.mcp.path, 0o600); // Task-2 re-tightening: umask cannot leak bits here
+  }
+
+  // (3b) SSH pane config (spec 2026-10-07 decision 4). The MCP block above is
+  // the posture this mirrors — file-placement is a NODE control, not plugin
+  // knowledge — with one sharper rule: the MCP path is the plane's to name,
+  // the ssh path is not. This machine derives it
+  // (`buildSshConfigPath(dataDir, id)`), and refuses unless the frame's
+  // `configPath` is BYTE-equal to that derivation. The plane may name nothing
+  // else: `buildSshConfigPath` composes from the two facts each side already
+  // holds (dataDir, id), so the file always lands where this machine's own
+  // exit sweep and the plane's delete-side `subshellArtifacts` will both look
+  // for it — and a plane that could point the write anywhere would turn a
+  // signed launch into an arbitrary-file write.
+  if (cmd.ssh) {
+    const derivedPath = buildSshConfigPath(ctx.config.dataDir, cmd.subshellId);
+    if (cmd.ssh.configPath !== derivedPath) {
+      // A bare message, no path interpolation: the byte-equality failure is
+      // the whole fact, and the paths here are this machine's own layout.
+      return { ok: false, error: "ssh config path refused: not the derived path" };
+    }
+    if (!(await pathAllowed(derivedPath, await realpathRoots([ctx.config.dataDir])))) {
+      return { ok: false, error: "ssh config path refused" };
+    }
+    const dir = dirname(derivedPath);
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    await enforceMode(dir, 0o700);
+    await writeFile(derivedPath, cmd.ssh.fileContent, { mode: 0o600 });
+    await enforceMode(derivedPath, 0o600); // umask cannot leak bits past this
   }
 
   // (4) Record meta FIRST: path policy + socket lookup must see the cwd even
