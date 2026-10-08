@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import {
   buildSshConfigPath,
+  buildSshKnownHostsPath,
   discoverSshAliases,
   findBinary,
   getHarness,
@@ -125,6 +126,17 @@ export function composeSshLaunch(args: {
   snapshot: SshConnectionSnapshotWire;
   targetDataDir: string;
   subshellId: string;
+  /**
+   * The relay session's pinned host-key file path (Task 12, spec 2026-10-08
+   * §9). PRESENT is the relay mode: the rendered config forces
+   * `StrictHostKeyChecking yes` and names this one file as the ONLY trust
+   * source - the pane's ssh verifies D against A's recorded key, never
+   * against B's ambient known_hosts. ABSENT is the M1 direct launch: the
+   * accept-new posture, byte-for-byte. The path is `buildSshKnownHostsPath`
+   * of the SAME two facts the config path derives from; B writes the pin
+   * delivered on the signed relay-open to its own derivation of them.
+   */
+  hostPinPath?: string;
 }): {
   configPath: string;
   fileContent: string;
@@ -134,7 +146,10 @@ export function composeSshLaunch(args: {
   const approved = parseSshConnectionSnapshot(args.snapshot);
   if (approved === null) throw new Error("ssh compose: snapshot failed grammar re-validation");
   const configPath = buildSshConfigPath(args.targetDataDir, args.subshellId);
-  const fileContent = renderSshConfigContents(approved);
+  const fileContent = renderSshConfigContents(
+    approved,
+    args.hostPinPath === undefined ? undefined : { hostPinPath: args.hostPinPath },
+  );
   const presetFlags = [...sshOptionTokens(approved, configPath), "--", sshDestinationToken(approved)];
   return approved.authAgentSocket === null
     ? { configPath, fileContent, presetFlags }
@@ -444,12 +459,23 @@ export async function sshLaunch(args: {
       aNode: { id: aRow.id, name: aRow.name },
       bNodeId: row.id,
       resolvedHost: snapshot.host,
+      // The canonical triple the pin is keyed by, from the SAME validated
+      // snapshot whose host drove the grant match (Task 12).
+      destination: sshCanonicalDestination({ host: snapshot.host, port: snapshot.port, user: snapshot.user }),
       paneId: subshellId,
     });
     if (!leg.ok) return leg;
     relay = leg.value;
   }
-  const composed = composeSshLaunch({ snapshot, targetDataDir: dataDir, subshellId });
+  const composed = composeSshLaunch({
+    snapshot,
+    targetDataDir: dataDir,
+    subshellId,
+    // Relay mode (Task 12): the config pins B's trust source to the file the
+    // signed relay-open just wrote beside it; a direct launch renders the M1
+    // accept-new bytes untouched.
+    ...(relay ? { hostPinPath: buildSshKnownHostsPath(dataDir, subshellId) } : {}),
+  });
   // Relay mode RE-POINTS the scoped exception (spec §5.2): the socket the
   // pane's ssh authenticates through is B's proxy the broker just verified,
   // never the snapshot's agent socket even if the config names one. Still

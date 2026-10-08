@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildSshConfigPath, renderSshConfigContents } from "@internal/pane-runtime";
+import { buildSshConfigPath, buildSshKnownHostsPath, renderSshConfigContents } from "@internal/pane-runtime";
 import type { SshConnectionSnapshotWire } from "@internal/subshell-protocol";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
@@ -55,6 +55,32 @@ describe("isWireSafeSshDestination", () => {
     ]) {
       expect(isWireSafeSshDestination(bad)).toBe(false);
     }
+  });
+});
+
+describe("composeSshLaunch in relay mode (Task 12, spec 2026-10-08 §9)", () => {
+  it("the relay render forces yes on the PINNED file and replaces the snapshot's trust refs", () => {
+    const snapshot = SNAP({ knownHostsFiles: ["/home/scripted/.ssh/known_hosts"] });
+    const pinPath = buildSshKnownHostsPath("/home/scripted/.subshell", ID);
+    const composed = composeSshLaunch({
+      snapshot,
+      targetDataDir: "/home/scripted/.subshell",
+      subshellId: ID,
+      hostPinPath: pinPath,
+    });
+    expect(composed.fileContent).toContain("StrictHostKeyChecking yes");
+    expect(composed.fileContent).not.toContain("accept-new");
+    expect(composed.fileContent).toContain(`    UserKnownHostsFile ${pinPath}`);
+    expect(composed.fileContent).not.toContain("/home/scripted/.ssh/known_hosts"); // B's ambient file is not consulted
+    // Same path derivation as the config: the pane's dir holds config + known_hosts + agent.sock.
+    expect(pinPath).toBe(`/home/scripted/.subshell/ssh/${ID}/known_hosts`);
+  });
+
+  it("absent the pin option, the bytes are the M1 compose byte-for-byte (the accept-new branch is untouched)", () => {
+    const snapshot = SNAP();
+    const plain = composeSshLaunch({ snapshot, targetDataDir: "/home/n/.subshell", subshellId: ID });
+    expect(plain.fileContent).toBe(renderSshConfigContents(snapshot));
+    expect(plain.fileContent).toContain("accept-new");
   });
 });
 

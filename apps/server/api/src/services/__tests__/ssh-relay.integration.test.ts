@@ -403,6 +403,7 @@ test("6. a captured envelope is INERT replayed inside the lifetime and inert rep
       fingerprints: [fp(KEY_IN)],
       lifetimeMs: SSH_RELAY_LIFETIME_MS,
       paneId: PANE_ID,
+      hostPin: `git.example.test ssh-ed25519 ${"A".repeat(51)}`,
     });
     await openARelaySession({
       relay: s.aRelay,

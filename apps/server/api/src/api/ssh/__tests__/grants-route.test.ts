@@ -18,6 +18,7 @@ import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { SshRpcError } from "@/services/nodes/ssh-rpc.js";
 import { createGrant, requestFirstUse, setSshGrantsDepsForTests } from "@/services/ssh-grants.service.js";
+import { setSshHostPinsDepsForTests } from "@/services/ssh-host-pins.service.js";
 import { type RelayBroker, SshRelayRefusal } from "@/services/ssh-relay.service.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { attachScriptedNode, ok, statDirEcho } from "@/test-helpers/scripted-node.js";
@@ -69,7 +70,14 @@ const emails: string[] = [];
 
 /** The broker's stand-in: it records the pairing and answers a fixed socket. */
 const FAKE_SOCK = "/home/scripted/.subshell/ssh/fake-pane/agent.sock";
-let openCalls: { grantId: string; fingerprints: string[]; paneId: string; aNode: string; bNode: string }[] = [];
+let openCalls: {
+  grantId: string;
+  fingerprints: string[];
+  paneId: string;
+  aNode: string;
+  bNode: string;
+  hostPin?: string;
+}[] = [];
 let closeGrantCalls: { grantId: string; reason: string }[] = [];
 let notifyCalls: string[] = [];
 let openRelayThrows: ((input: unknown) => never) | null = null;
@@ -79,7 +87,20 @@ let rosterAnswer: () => NodeSshAgentIdentitiesResult = () => ({
 });
 let rosterCalls: string[] = [];
 
+/** Task 12: the key home's canned host-key answer (the approval + launch captures). */
+const PIN_LINE = "git.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000";
+const pinAnswer: () => { lines: string[] } = () => ({ lines: [PIN_LINE] });
+let pinFetch: { nodeId: string; destination: string }[] = [];
+
 function installFakeDeps() {
+  pinFetch = [];
+  setSshHostPinsDepsForTests({
+    nowIso: () => new Date().toISOString(),
+    fetchHostKey: async (nodeId, triple) => {
+      pinFetch.push({ nodeId, destination: `${triple.host}:${triple.port}` });
+      return pinAnswer();
+    },
+  });
   const broker = {
     async openRelay(input: { grantId: string; fingerprints: string[]; paneId: string; aNode: string; bNode: string }) {
       if (openRelayThrows) openRelayThrows(input);
@@ -194,6 +215,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   setSshGrantsDepsForTests(null);
+  setSshHostPinsDepsForTests(null);
+  await db.deleteFrom("sshHostPins").execute();
   resetNodeRegistryForTests();
   for (const id of createdSubshellIds) await new SubshellsRepository(db).delete(id).catch(() => {});
   await db.deleteFrom("sshGrantRequests").execute();
@@ -317,6 +340,7 @@ describe("GET/POST /api/ssh/grant-requests", () => {
       aNodeId: NODE_A,
       bNodeId: NODE_B,
       resolvedSelector: "git.example.test",
+      destination: "git.example.test:22",
       paneId: "pane-queue-probe",
     });
     if (!asked.ok) throw new Error("fixture ask refused");
@@ -382,6 +406,7 @@ describe("GET/POST /api/ssh/grant-requests", () => {
       aNodeId: NODE_A,
       bNodeId: NODE_B,
       resolvedSelector: "second.example.test",
+      destination: "second.example.test:22",
       paneId: "pane-deny-probe",
     });
     if (!second.ok) throw new Error("fixture ask refused");
@@ -522,6 +547,18 @@ describe("POST /api/ssh/launch in relay mode (the grant-gated relay leg)", () =>
       // The relay override: the snapshot names /run/user/501/ssh-agent.sock;
       // the pane gets the proxy socket the broker verified (spec §5.2).
       expect(cmd.subshellEnv?.SSH_AUTH_SOCK).toBe(FAKE_SOCK);
+      // Task 12 end to end at the door: the broker received the captured pin,
+      // and the launch's OWN rendered config is the relay one - yes against
+      // the pinned file the B open writes beside the socket, never accept-new
+      // against B's ambient known_hosts.
+      expect(openCalls[0]?.hostPin).toBe(PIN_LINE);
+      const launch = scripted.cmdsOf("launch")[0] as unknown as {
+        ssh?: { configPath: string; fileContent: string };
+      };
+      const dir = launch.ssh?.configPath?.slice(0, launch.ssh.configPath.lastIndexOf("/")) ?? "";
+      expect(launch.ssh?.fileContent).toContain("StrictHostKeyChecking yes");
+      expect(launch.ssh?.fileContent).not.toContain("accept-new");
+      expect(launch.ssh?.fileContent).toContain(`UserKnownHostsFile ${dir}/known_hosts`);
     } finally {
       scripted.detach();
     }
@@ -590,6 +627,7 @@ describe("GET /api/ssh/grant-requests/:id/identities (the roster behind the appr
       aNodeId: NODE_A,
       bNodeId: NODE_B,
       resolvedSelector: "git.example.test",
+      destination: "git.example.test:22",
       paneId,
     });
     if (!asked.ok) throw new Error("fixture ask refused");

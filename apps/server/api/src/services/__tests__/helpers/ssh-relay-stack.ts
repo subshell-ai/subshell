@@ -412,6 +412,9 @@ export async function openStack(opts: StackOptions = {}): Promise<Stack> {
     grantId: "grant-1",
     fingerprints,
     paneId: PANE_ID,
+    // Task 12: the pin is REQUIRED on the open; B's branch writes it beside
+    // the socket, which is part of what this stack proves end to end.
+    hostPin: `git.example.test ssh-ed25519 ${"A".repeat(51)}`,
     aNode: "a-node",
     bNode: "b-node",
     aPeer: { signingPublicKey: aId.signingPublicJwk, encryptionPublicJwk: aId.publicJwk },
