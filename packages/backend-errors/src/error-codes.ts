@@ -262,6 +262,22 @@ export enum BackendErrorCodes {
    * `ready` fill the slot.
    */
   SSH_RELAY_IDENTITY_MISSING = "SSH_RELAY_IDENTITY_MISSING",
+  /**
+   * A grant destination selector the grammar refuses: blank, over 253
+   * characters, leading `-`/`.`, doubled `*`, control characters or
+   * whitespace. A selector is a hostname pattern (concrete host or `*`
+   * globs) matched against resolved destination hostnames; it is refused
+   * before anything is stored.
+   */
+  SSH_GRANT_SELECTOR_INVALID = "SSH_GRANT_SELECTOR_INVALID",
+  /**
+   * An approval question already answered (or already expired) when someone
+   * tried to answer it: the queue is compare-and-set, so a second approver or
+   * the sweep wins and this is the loud no the screen shows (spec 2026-10-08
+   * §6.2 - the row records the whole lifecycle, the answer does not rewrite
+   * history).
+   */
+  SSH_GRANT_ALREADY_ANSWERED = "SSH_GRANT_ALREADY_ANSWERED",
 }
 
 export const BackendErrorCodeDefs = {
@@ -540,6 +556,14 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.SSH_RELAY_IDENTITY_MISSING]: {
     message: "That machine has no registered relay identity yet",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_GRANT_SELECTOR_INVALID]: {
+    message: "That grant selector is not a hostname pattern",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.SSH_GRANT_ALREADY_ANSWERED]: {
+    message: "That grant request has already been answered",
     statusCode: 409,
   },
 };
