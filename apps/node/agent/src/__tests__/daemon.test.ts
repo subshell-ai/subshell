@@ -26,6 +26,7 @@ import {
   type NodeEvent,
   type NodeRuntimeReport,
   parseNodeEvent,
+  type RelayFrame,
   signCommand,
 } from "@internal/subshell-protocol";
 import {
@@ -37,6 +38,7 @@ import {
   parseLinkBinding,
 } from "@internal/subshell-protocol/node-link-crypto";
 import { run as runCli } from "../cli.js";
+import { RelaySessions } from "../commands/ssh-relay.js";
 import { TAIL_POLL_MS } from "../commands/tail.js";
 import { configPath, type NodeConfig, saveConfig } from "../config.js";
 import {
@@ -467,6 +469,7 @@ async function startDaemon(
       | "runtime"
       | "retentionMs"
       | "retentionPass"
+      | "relaySessions"
     >
   > & {
     config?: Partial<NodeConfig>;
@@ -2551,4 +2554,43 @@ describe("pane-log retention wiring", () => {
       delete process.env.SUBSHELL_LOG_RETENTION_HOURS;
     }
   });
+});
+
+/* ------------------------------------------------------------------ */
+/* relay inbound routing (spec 2026-10-08 §5.1): frames are not commands */
+/* ------------------------------------------------------------------ */
+
+test("an inbound relay frame reaches the relay seam and never the JWS-command path", async () => {
+  // The registry is INJECTED: this pins the daemon's routing decision, and the
+  // seam is the one Task 7's A-side responder registers into (a single
+  // onInboundRelayFrame dispatch, routed by the ref the relay-open paired).
+  const relay = new RelaySessions();
+  const seen: RelayFrame[] = [];
+  relay.register("r-1", { onRelayFrame: (f) => seen.push(f), close: () => {} });
+  const h = await startDaemon({ relaySessions: relay });
+  await waitFor(h, (e) => e.type === "inventory", "connect inventory push");
+
+  h.plane.sendToAgent(JSON.stringify({ type: "relay", ref: "r-1", seq: 0, direction: "A2B", blob: "AAAA" }));
+  await waitUntil(() => seen.length === 1, "the frame routed to its session handler");
+  await sleep(120);
+  // NOT a command: the JWS path answers every non-command text frame with a
+  // `verify: malformed` error - a relay frame must draw NOTHING from it.
+  expect(eventsAs(h, "error").length).toBe(0);
+  expect(count(h, (e) => e.type === "result")).toBe(0);
+
+  // A malformed relay candidate is relay-TYPED noise: dropped, still never a
+  // command refusal the plane would read as a command anomaly.
+  h.plane.sendToAgent(JSON.stringify({ type: "relay", ref: "r-1", seq: 0, direction: "A2B", blob: "!!!!" }));
+  h.plane.sendToAgent(JSON.stringify({ type: "relay", ref: "", seq: 0, direction: "A2B", blob: "AAAA" }));
+  // A frame for an unregistered ref is dropped by the registry, not re-routed.
+  h.plane.sendToAgent(JSON.stringify({ type: "relay", ref: "r-none", seq: 0, direction: "A2B", blob: "AAAA" }));
+  await sleep(120);
+  expect(seen.length).toBe(1);
+  expect(eventsAs(h, "error").length).toBe(0);
+
+  // And the command path is UNTOUCHED for what is not relay-shaped: the old
+  // non-JWS text frame still draws the ordinary malformed answer.
+  h.plane.sendToAgent(JSON.stringify({ jws: 42 }));
+  await waitFor(h, (e) => e.type === "error" && e.code === "verify", "non-relay junk still answers verify/malformed");
+  expect(seen.length).toBe(1);
 });
