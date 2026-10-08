@@ -89,7 +89,9 @@ export function UserMenu({
           2026-10-07 §B): on the face of the trigger, no menu to open, no
           off switch - and collapsed rails included, since the dot is part
           of the avatar. `bg-warning`: the same amber the whole app marks
-          "newer exists" with. */}
+          "newer exists" with. This span is `aria-hidden`, so the light
+          reaches assistive tech through the trigger's accessible name: the
+          label below carries the notice whenever the dot shows. */}
       {updateNotice !== null && (
         <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-warning ring-2 ring-card" />
       )}
@@ -101,7 +103,9 @@ export function UserMenu({
         render={
           <button
             type="button"
-            aria-label={`Account: ${display}`}
+            aria-label={
+              updateNotice === null ? `Account: ${display}` : `Account: ${display}. Update available: v${updateNotice}.`
+            }
             title={collapsed ? `Account: ${display}` : undefined}
             className={cn(
               "flex items-center rounded-md text-muted-foreground text-sm transition-colors hover:bg-accent/50 hover:text-foreground",

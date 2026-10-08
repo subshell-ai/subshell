@@ -123,7 +123,7 @@ describe("the header account card", () => {
     }
   };
 
-  it("sits under the wordmark and leaves the browser rail footerless", async () => {
+  it("replaces the footer card and leaves the browser rail footerless", async () => {
     await withRail({ admin: false }, async () => {
       expect(accountTrigger()).toBeTruthy();
       // The bordered footer div was a direct child of the aside with

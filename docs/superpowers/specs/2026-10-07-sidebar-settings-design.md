@@ -75,9 +75,9 @@ line under the wordmark:
   off switch"), so it must survive outside the menu: when the update condition
   above is true, the avatar carries a small amber dot (collapsed rail included).
   Pressing through the menu is the act; the dot is the light.
-- `useUpdates` keeps exactly one consumer (the header card takes over from
-  `ServerVersionRow`), preserving the one-request-per-page-load property its
-  JSDoc states.
+- The header card takes over `ServerVersionRow`'s read and is the rail's
+  only consumer of `useUpdates`; the Updates page's own use shares the same
+  cached query by key, keeping one request per document load.
 
 ## C. Footer behavior
 

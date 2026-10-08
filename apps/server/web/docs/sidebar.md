@@ -120,8 +120,8 @@ move. The account card that used to sit in the rail's footer moved into the
 header, into the slot the instance-name line used: the browser rail renders
 no footer at all, and the server version plus instance name ride the menu's
 detail line. An admin with a newer server published gets an amber dot on the
-avatar and an "Update available" row leading to `/settings/updates`. The
-Only the Subshell Server desktop keeps the footer rows (server pill,
+avatar and an "Update available" row leading to `/settings/updates`. Only
+the Subshell Server desktop keeps the footer rows (server pill,
 app-update line): they describe the server connection and the app bundle,
 not an account. The Subshell Client window takes the browser branch, so it
 renders no footer at all.

@@ -115,6 +115,11 @@ describe("UserMenu version + update additions", () => {
     );
     // The dot sits on the trigger, visible before anything opens.
     expect(container.querySelector(".bg-warning")).not.toBeNull();
+    // The dot is aria-hidden, so its news reaches assistive tech through the
+    // trigger's accessible name, before anything opens.
+    expect(screen.getByRole("button", { name: /Account: Thea/ }).getAttribute("aria-label")).toContain(
+      "Update available: v0.12.0",
+    );
     openMenu();
     fireEvent.click(await screen.findByRole("menuitem", { name: "Update available: v0.12.0" }));
     expect(opens).toEqual(["u"]);
@@ -123,6 +128,8 @@ describe("UserMenu version + update additions", () => {
   it("renders no dot and no row without a notice", async () => {
     const { container } = render(<UserMenu {...base} serverVersion="0.11.1" />);
     expect(container.querySelector(".bg-warning")).toBeNull();
+    // Quiet trigger, quiet name: the notice only rides along with the dot.
+    expect(screen.getByRole("button", { name: /Account: Thea/ }).getAttribute("aria-label")).toBe("Account: Thea");
     openMenu();
     await screen.findByRole("menuitem", { name: "Sign out" });
     expect(screen.queryByRole("menuitem", { name: /Update available/ })).toBeNull();

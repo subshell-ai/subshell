@@ -25,6 +25,7 @@
 
 **Files:**
 - Modify: `apps/server/web/src/components/sidebar/sidebar-nav.ts` (the `NAV_ENTRIES` array + lucide import)
+- Modify: `apps/server/web/src/components/app-sidebar.tsx` (the group's `childActive` prefix rule)
 - Modify: `apps/server/web/src/components/__tests__/sidebar-nav.test.ts`
 - Modify: `apps/server/web/src/components/__tests__/app-sidebar-group.test.tsx`
 
@@ -108,7 +109,21 @@ cd apps/server/web && env -u SHELLOPTS bun test src/components/__tests__/sidebar
 
 Expected: all pass. `app-sidebar.test.ts` (the icons test) matters: it asserts no two visible icons repeat across leaves AND group headers - `UserRoundCog` is new to the rail, so it passes.
 
-- [ ] **Step 5: Add the group's wiring tests to `app-sidebar-group.test.tsx`**
+- [ ] **Step 5: Add the childActive prefix rule**
+
+In `apps/server/web/src/components/app-sidebar.tsx`, in the group branch of the nav map, replace the exact-match `childActive` with the prefix form:
+
+```ts
+            const childActive = entry.children.some(
+              (child) =>
+                location.pathname === child.to ||
+                (child.to !== "/settings" && location.pathname.startsWith(`${child.to}/`)),
+            );
+```
+
+Detail pages like `/nodes/local` count as inside their child's page, so the group stays open there. General stays exact-only: `/settings` is a page, not a folder over its siblings, so a future personal `/settings/...` page cannot light the admin group.
+
+- [ ] **Step 6: Add the group's wiring tests to `app-sidebar-group.test.tsx`**
 
 In `renderRail`, the `paths` array becomes (so clicking group children navigates and the detail page resolves):
 
@@ -173,7 +188,7 @@ describe("the Settings group", () => {
 });
 ```
 
-- [ ] **Step 6: Run the group tests**
+- [ ] **Step 7: Run the group tests**
 
 ```bash
 cd apps/server/web && env -u SHELLOPTS bun test src/components/__tests__/app-sidebar-group.test.tsx
@@ -181,10 +196,11 @@ cd apps/server/web && env -u SHELLOPTS bun test src/components/__tests__/app-sid
 
 Expected: all pass (the six existing admin-group tests included - their `/Server Settings/` name regex cannot match the new "Settings" header, and the links they query still exist, only one level deeper).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add apps/server/web/src/components/sidebar/sidebar-nav.ts \
+  apps/server/web/src/components/app-sidebar.tsx \
   apps/server/web/src/components/__tests__/sidebar-nav.test.ts \
   apps/server/web/src/components/__tests__/app-sidebar-group.test.tsx
 git commit -m "feat(web): group nodes presets and prompts under Settings"

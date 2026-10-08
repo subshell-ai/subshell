@@ -106,7 +106,7 @@ export function AppSidebar({
   // ServerVersionRow held. `=== true`, never truthiness: `undefined` is the
   // read in flight, and counting it as admin fires a doomed 403. The header
   // card is this rail's only consumer of the query; the Updates page runs its
-  // own use, which share-caches by key, so a page load still costs one request.
+  // own use, which share-caches by key, keeping one request per document load.
   const isAdmin = publicSettings?.viewerIsAdmin === true;
   const { data: updates } = useUpdates(isAdmin);
   const serverUpdate = updates?.server;
@@ -341,9 +341,10 @@ export function AppSidebar({
 
       {/* `min-h-0` is load-bearing, not tidying: a flex item's automatic minimum
           size is its CONTENT, so `flex-1` + `overflow-y-auto` alone still grows
-          past the container and pushes the footer below the fold instead of
-          scrolling. Invisible on a tall desktop rail; on the phone drawer it
-          took one extra nav item to surface (e2e 08, 2026-09-12). */}
+          past the container and pushes what follows the nav (the desktop
+          footer, where one exists) below the fold instead of scrolling.
+          Invisible on a tall desktop rail; on the phone drawer it took one
+          extra nav item to surface (e2e 08, 2026-09-12). */}
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2" aria-label="Main">
         {visibleNavEntries(publicSettings?.viewerIsAdmin).map((entry) => {
           if (isNavGroup(entry)) {
