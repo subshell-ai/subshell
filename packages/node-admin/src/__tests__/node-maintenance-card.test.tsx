@@ -40,6 +40,7 @@ function node(overrides: Partial<NodeDetail> = {}): NodeDetail {
     maintenance: false,
     maintenanceAt: null,
     maintenanceSource: null,
+    sshEnabled: false,
     held: null,
     ...overrides,
   };

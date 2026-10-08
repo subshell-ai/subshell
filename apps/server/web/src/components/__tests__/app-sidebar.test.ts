@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ServerCog, Settings, SlidersHorizontal } from "lucide-react";
+import { Cable, ServerCog, Settings, SlidersHorizontal } from "lucide-react";
 import { isNavGroup, visibleNavEntries, visibleNavItems } from "@/components/sidebar/sidebar-nav";
 
 describe("sidebar nav icons (spec 2026-09-02 §3, 2026-09-11 §3.1)", () => {
@@ -18,6 +18,12 @@ describe("sidebar nav icons (spec 2026-09-02 §3, 2026-09-11 §3.1)", () => {
 
   it("the Server Settings group takes ServerCog", () => {
     expect(entries.filter(isNavGroup).find((g) => g.id === "server-settings")?.icon).toBe(ServerCog);
+  });
+
+  it("Connect takes Cable, beside Subshells as a primary action", () => {
+    // The Connect page is a top-level action (spec 2026-10-07 §7), not a
+    // settings page; Cable was free of the rail when it landed.
+    expect(items.find((i) => i.to === "/connect")?.icon).toBe(Cable);
   });
 
   it("no two visible icons are the same — group headers included", () => {
