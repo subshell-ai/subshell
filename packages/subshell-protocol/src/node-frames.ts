@@ -149,8 +149,16 @@ import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS } from "./ssh-limits.js";
  * `sshEnabled`, which on the wire is indistinguishable from a 16 agent whose
  * mirror simply says no. A capability gate cannot live with that ambiguity
  * (spec §4.3), so the number is what refuses the old agent, not the frame.
+ *
+ * **16 -> 17 (this tier):** the ssh launch block and the two discovery/resolve
+ * commands. A lagging agent is HELD (update-only) until crossed, per the
+ * capability-gate doctrine in docs/superpowers/specs/2026-10-07-ssh-anywhere-design.md
+ * §4.3; the desktop update path is the crossing. The ambiguity the bump
+ * refuses: a tier-1 agent that ignores the launch frame's `ssh` member would
+ * spawn a bare `ssh` pane with no `-F` config (§4.3's gate doctrine refuses to
+ * live with that).
  */
-export const NODE_PROTOCOL_VERSION = 16;
+export const NODE_PROTOCOL_VERSION = 17;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an
