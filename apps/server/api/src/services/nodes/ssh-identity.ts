@@ -18,7 +18,7 @@ import { logger } from "@/utils/logger.js";
  * own history by overwriting the record the relay verifies against (the
  * peer-side repair path is §4.5, a separate deliberate owner act). Same
  * bytes, or a first fill, are the only writes this seam can ever cause -
- * plus {@link IdentitiesRepository.fillSigningPublicKey}'s CAS, which makes
+ * plus the identities repository's `fillSigningPublicKey` CAS, which makes
  * even a raced double-report answerable: whoever lands first owns the slot.
  *
  * No key VALUE ever enters a log line or an audit row (Global Constraint);
