@@ -25,8 +25,11 @@ import { sshCreateGrant } from "@/services/ssh-launch.service.js";
  * that ran under it is torn down inside the service (spec §6.3).
  *
  * What the audit rows carry (written by the service, not here): ids, hosts,
- * and the fingerprint COUNT - never a fingerprint string, which is the
- * screen's to show and the trail's never to hold (docs/security.md §10).
+ * and on the grant approve/create rows the CHOSEN fingerprint VALUES - the
+ * public `SHA256:` identifiers, named because spec §10 makes those rows the
+ * durable record of the operator's selection. Everywhere else the trail names
+ * the COUNT only, no fingerprint value rides a log line or a notification,
+ * and no row carries key material (docs/security.md §10).
  */
 export const sshGrantsRoutes = new Elysia()
   .use(authGuard)
@@ -155,10 +158,11 @@ export const sshGrantsRoutes = new Elysia()
     {
       params: t.Object({ id: t.String({ description: "Grant row id" }) }),
       response: {
+        // The comment above is the law now: revoke's ONLY refusal arm is the
+        // 404, so no decorative 409 is declared.
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",
         404: "ApiErrorResponse",
-        409: "ApiErrorResponse",
       },
       detail: {
         operationId: "revokeSshKeyGrant",

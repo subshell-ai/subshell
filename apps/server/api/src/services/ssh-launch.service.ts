@@ -430,9 +430,11 @@ export async function sshLaunch(args: {
     const aRow = gateA.value.row;
     if (aRow.kind !== "agent") {
       // Acceptance (d) restated at the door that can name it: the server host
-      // is never a key home, whatever its own gate says about SSH.
+      // is never a key home, whatever its own gate says about SSH. The 409
+      // is the code's canonical render (`throwCodedRefusal` rides the code's
+      // own status), matching what the broker's own `local-node` refusal is.
       return codedRefusal(
-        400,
+        409,
         BackendErrorCodes.SSH_RELAY_OPEN_FAILED,
         "The server host itself cannot hold a relay key home; pick a machine running the Subshell app.",
       );
@@ -465,7 +467,7 @@ export async function sshLaunch(args: {
       harnessId: "ssh",
       presetId: null,
       // The presetless-terminal default (spec 2026-10-01 §2): the launch node's
-      // home, resolved by the create path itself — exactly what the wizard's
+      // home, resolved by the create path itself - exactly what the wizard's
       // "connect from this machine" journey wants as the pane's starting cwd.
       workingDir: undefined,
       name: args.name,
@@ -554,12 +556,12 @@ export async function sshRemoveSavedHost(viewerId: string, id: string): Promise<
 }
 
 /**
- * `POST /api/ssh/grants` — create a standing grant from the screen (spec
- * 2026-10-08 §8). The gate here is the key home's: a grant authorizes AN's
- * agent, so A must be an agent node this caller may SSH through, switched on
- * and unheld - the same `gateSshNode` a relay launch runs, run at creation
- * so the screen cannot store an authorization pointed at a machine the
- * caller has no say over. `local` is never a key home (acceptance (d)); the
+ * `POST /api/ssh/grants` - create a standing grant from the screen (spec
+ * 2026-10-08 §8). The gate here is the key home's: a grant authorizes the key
+ * home's agent to sign, so A must be an agent node this caller may SSH
+ * through, switched on and unheld - the same `gateSshNode` a relay launch
+ * runs, run at creation so the screen cannot store an authorization pointed
+ * at a machine the caller has no say over. `local` is never a key home (acceptance (d)); the
  * refusal names that door with the open-failure code because it is exactly
  * what the broker would have refused, refused before anything was stored.
  */
@@ -591,7 +593,10 @@ export async function sshCreateGrant(args: {
     return {
       ok: false,
       refusal: {
-        status: 400,
+        // 409 is this code's canonical render (`throwCodedRefusal` rides the
+        // code's own status), and it is what the broker's own `local-node`
+        // refusal gives: the same door, refused before anything is stored.
+        status: 409,
         code: BackendErrorCodes.SSH_RELAY_OPEN_FAILED,
         message: "The server host itself cannot hold a grant key home; pick a machine running the Subshell app.",
       },
