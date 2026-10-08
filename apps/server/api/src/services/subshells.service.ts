@@ -687,6 +687,14 @@ export class SubshellsService extends BaseService {
    * ssh config sweep (its own guard skips every other row shape); the death
    * transition itself carries just the timestamp.
    *
+   * The sweep here is DELIBERATELY unconditional, not deferred to the
+   * transition below: `applySelfReportedExit` returns early when the row is
+   * already retired, and the hook-vs-retire race (a terminate kills the pane,
+   * its `pane-died` report lands after the row is gone) must still remove the
+   * config. The complementary gap — a `pane-died` hook lost entirely, so no
+   * report ever reaches here — is closed by the sweep in the shared
+   * `#applyDeath`, which the 60 s reconcile drives off the process being gone.
+   *
    * @param id - the subshell whose pane exited
    * @param exitCode - tmux's `#{pane_dead_status}`, null when it could not be read
    */

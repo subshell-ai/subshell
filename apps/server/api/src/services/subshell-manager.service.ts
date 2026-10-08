@@ -1616,6 +1616,15 @@ export class SubshellManagerService {
     // "Never" means opted out OR the backoff limit was exhausted (the
     // sweep gives up at that count, so the bearer would linger otherwise).
     const restarted = await this.maybeAutoRestart(fresh);
+    // The ssh config dir is a pane artifact like the preview cache and the idle
+    // tmux server below: it dies with the pane, HERE, in the ONE shared
+    // transition. Doing it only from the tmux `pane-died` hook's self-report
+    // left a gap — the hook is best-effort, and a report lost to a 401 or a
+    // dropped exec left the dir behind until a manual teardown; the 60 s
+    // reconcile reaches this same line whenever the process is gone, so this is
+    // the deterministic sweep. Guarded on `!restarted` (never clobber a live
+    // re-render) and by the helper itself (local ∧ ssh; every other row no-ops).
+    if (!restarted) sweepLocalSshDir(fresh);
     if (!restarted && (fresh.restartOnExit !== 1 || fresh.backoffCount >= 5)) {
       // Terminal: this subshell will never come back, so its bearer must
       // not linger. Revoke failures here must not abort the sweep for the
