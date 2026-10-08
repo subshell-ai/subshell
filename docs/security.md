@@ -2202,6 +2202,14 @@ Audit events are written, grouped by family:
   is audit-only and expiry writes NOTHING; delete carries `relaysClosed`, the
   revoke's live-session cut made real; create carries `via: "first-use" |
   "manual"`; no key material, challenge, or signature rides any row),
+  `node.ssh_host_pin.create|delete` (spec §9, Task 12: the destination's
+  TOFU record, created at a grant's capture or an explicit supply and deleted
+  as the recovery's first half; metadata names the canonical destination and
+  the pinned key's `SHA256:` fingerprint ONLY - a host-key fingerprint is a
+  public identifier like the grant's agent fingerprints - plus `via:
+  "captured" | "explicit"` on create; the pinned line's bytes ride NO audit
+  row, log line, or notification, and the `ssh_host_key` capture COMMAND
+  itself writes nothing: the row belongs to the capture act),
   `node.ssh_relay.open|close` (spec §5.3/§9: open names grant, A, B, pane,
   the routing ref, and the fingerprint COUNT; close names the one
   `reason` word from the grammar - the plane's broker rows, `actorUserId:

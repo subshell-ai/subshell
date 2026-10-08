@@ -15,6 +15,7 @@ import {
   requestFirstUse,
   setSshGrantsDepsForTests,
 } from "@/services/ssh-grants.service.js";
+import { setSshHostPinsDepsForTests } from "@/services/ssh-host-pins.service.js";
 import type { RelayBroker } from "@/services/ssh-relay.service.js";
 
 /**
@@ -62,6 +63,8 @@ const NODE_A = "roster-node-a";
 const NODE_B = "roster-node-b";
 
 const HOST = "git.example.test";
+/** Task 12: the canned key-home pin the approve door captures. */
+const PIN_LINE = `${HOST} ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000`;
 const PANE = "11111111-2222-4333-8444-555555555555";
 
 let clockMs = Date.parse("2026-10-08T00:00:00.000Z");
@@ -78,6 +81,13 @@ function installRosterDeps(): void {
   };
   rosterFailure = null;
   rosterCalls = [];
+  // Task 12: approveGrant captures the destination's host-key pin; this
+  // roster suite approves a request, so the pins seam answers with a canned
+  // line and never reaches the (unwired) node RPC.
+  setSshHostPinsDepsForTests({
+    nowIso: () => new Date().toISOString(),
+    fetchHostKey: async () => ({ lines: [PIN_LINE] }),
+  });
   setSshGrantsDepsForTests({
     nowIso,
     broker: () =>
@@ -102,6 +112,7 @@ async function mkPendingRequest(): Promise<string> {
     aNodeId: NODE_A,
     bNodeId: NODE_B,
     resolvedSelector: HOST,
+    destination: `${HOST}:22`,
     paneId: PANE,
   });
   if (!answer.ok) throw new Error("the pending row was not created");
@@ -130,6 +141,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   setSshGrantsDepsForTests(null);
+  setSshHostPinsDepsForTests(null);
   await db.deleteFrom("sshGrantRequests").execute();
   await db.deleteFrom("sshKeyGrants").execute();
   await db.deleteFrom("auditEvents").execute();

@@ -41,6 +41,7 @@ import {
  * routing is a byte-for-byte copy and no session record ever holds a blob.
  */
 
+const PIN_LINE = `git.example.test ssh-ed25519 ${"A".repeat(51)}`;
 const PANE = "11111111-2222-4333-8444-555555555555";
 const A_SIGNING = '{"kty":"EC","crv":"P-256","x":"AX","y":"AY","use":"sig"}';
 const A_ENCRYPT = '{"kty":"EC","crv":"P-256","x":"EX","y":"EY","use":"enc"}';
@@ -162,6 +163,9 @@ function makeHarness(
         bNode: "b",
         aPeer: { signingPublicKey: A_SIGNING, encryptionPublicJwk: A_ENCRYPT },
         bPeer: { signingPublicKey: B_SIGNING, encryptionPublicJwk: B_ENCRYPT },
+        // Task 12: the destination's pin is REQUIRED at the broker; the base
+        // carries a well-formed line and one refusal test drops it.
+        hostPin: PIN_LINE,
         ...over,
       }),
   };
@@ -208,6 +212,12 @@ describe("openRelay (spec §5.1/§5.3, Task 8 (a)(b)(d)(g)(h))", () => {
     // (a) the grant's selected fingerprints are delivered for A's responder.
     expect(toA?.fingerprints).toEqual(FINGERPRINTS);
     expect(toA?.grantId).toBe("grant-1");
+    // Task 12 (spec §9): the destination's pinned host-key line rides the
+    // signed open to BOTH sides (B writes it beside the socket it binds); the
+    // audit still names only ids, never the pin bytes.
+    expect(toA?.hostPin).toBe(PIN_LINE);
+    expect(toB?.hostPin).toBe(PIN_LINE);
+    expect(JSON.stringify(h.audits[0]?.meta ?? {})).not.toContain("ssh-ed25519");
     // The open is audited once, ids only.
     expect(h.audits.map((a) => a.action)).toEqual(["node.ssh_relay.open"]);
     expect(h.audits[0]?.meta).toEqual({
@@ -279,6 +289,14 @@ describe("openRelay (spec §5.1/§5.3, Task 8 (a)(b)(d)(g)(h))", () => {
     await expect(h.open({ paneId: "" })).rejects.toMatchObject({ code: "bad-pane-id" });
     await expect(h.open({ paneId: "x".repeat(65) })).rejects.toMatchObject({ code: "bad-pane-id" });
     await expect(h.open({ fingerprints: ["not-a-fingerprint"] })).rejects.toMatchObject({ code: "bad-fingerprints" });
+    // Task 12 (spec §9): the pin door at the mint - a session without the
+    // destination's pinned line does not exist, so a missing, empty, or
+    // multi-line hostPin is refused BEFORE any command leaves the plane.
+    await expect(h.open({ hostPin: "" })).rejects.toMatchObject({ code: "bad-host-pin" });
+    await expect(h.open({ hostPin: undefined })).rejects.toMatchObject({ code: "bad-host-pin" });
+    await expect(h.open({ hostPin: "host ssh-rsa AAA\nsecond ssh-rsa BBB" })).rejects.toMatchObject({
+      code: "bad-host-pin",
+    });
     expect(h.commands).toHaveLength(0);
     expect(h.audits).toHaveLength(0);
   });

@@ -25,6 +25,7 @@ import {
   sweepExpiredGrantRequests,
   updateGrant,
 } from "@/services/ssh-grants.service.js";
+import { captureHostPin, hostKeyFingerprints, setSshHostPinsDepsForTests } from "@/services/ssh-host-pins.service.js";
 import { type RelayBroker, SshRelayRefusal } from "@/services/ssh-relay.service.js";
 import { logger } from "@/utils/logger.js";
 
@@ -78,8 +79,14 @@ const NODE_A = "gsvc-node-a";
 const NODE_B = "gsvc-node-b";
 const nodes = new NodesRepository(db);
 
-/** The one destination this suite routes through. */
+/** The one destination this suite routes through, and its canonical triple. */
 const HOST = "git.example.test";
+const DEST = "git.example.test:22";
+/** A's canned known_hosts answer for DEST (Task 12: the approval's capture). */
+const PIN_LINE = `${HOST} ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000`;
+/** What the pinned host-key fetch answers; a test script can empty or swap it. */
+let pinAnswer: () => { lines: string[] } = () => ({ lines: [PIN_LINE] });
+let pinFetchCalls: { nodeId: string; destination: string }[] = [];
 
 /** A fake clock the sweep and the expiry windows read; setT() moves it. */
 let clockMs = Date.parse("2026-10-08T00:00:00.000Z");
@@ -94,6 +101,14 @@ let closeGrantCalls: FakeCall[] = [];
 let notifyCalls: { ownerUserId: string; requestId: string }[] = [];
 
 function installFakeDeps(brokerOverrides: Partial<RelayBroker> = {}) {
+  pinFetchCalls = [];
+  setSshHostPinsDepsForTests({
+    nowIso,
+    fetchHostKey: async (nodeId, triple) => {
+      pinFetchCalls.push({ nodeId, destination: `${triple.host}:${triple.port}` });
+      return pinAnswer();
+    },
+  });
   const broker = {
     openRelay: async (input: unknown) => {
       openCalls.push(input);
@@ -148,6 +163,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   setSshGrantsDepsForTests(null);
+  setSshHostPinsDepsForTests(null);
+  await db.deleteFrom("sshHostPins").execute();
   await db.deleteFrom("sshGrantRequests").execute();
   await db.deleteFrom("sshKeyGrants").execute();
   await db.deleteFrom("auditEvents").execute();
@@ -167,7 +184,9 @@ beforeEach(() => {
 async function cleanTier() {
   await db.deleteFrom("sshGrantRequests").execute();
   await db.deleteFrom("sshKeyGrants").execute();
+  await db.deleteFrom("sshHostPins").execute();
   await db.deleteFrom("auditEvents").execute();
+  pinAnswer = () => ({ lines: [PIN_LINE] });
 }
 
 async function latestAudit(action: string): Promise<Record<string, unknown>> {
@@ -193,6 +212,7 @@ describe("ssh-grants.service", () => {
         aNodeId: NODE_A,
         bNodeId: NODE_B,
         resolvedSelector: HOST,
+        destination: DEST,
         paneId: "pane-ask-1",
       });
       expect(answer.ok).toBe(true);
@@ -221,6 +241,7 @@ describe("ssh-grants.service", () => {
         aNodeId: NODE_A,
         bNodeId: NODE_B,
         resolvedSelector: HOST,
+        destination: DEST,
         paneId: "p1",
       });
       expect(first.ok).toBe(true);
@@ -231,6 +252,7 @@ describe("ssh-grants.service", () => {
         aNodeId: NODE_A,
         bNodeId: NODE_B,
         resolvedSelector: HOST,
+        destination: DEST,
         paneId: "p2",
       });
       expect(again.ok).toBe(true);
@@ -254,6 +276,7 @@ describe("ssh-grants.service", () => {
         aNodeId: NODE_A,
         bNodeId: NODE_B,
         resolvedSelector: HOST,
+        destination: DEST,
         paneId: "p1",
       });
       expect(first.ok).toBe(true);
@@ -267,6 +290,7 @@ describe("ssh-grants.service", () => {
         aNodeId: NODE_A,
         bNodeId: NODE_B,
         resolvedSelector: HOST,
+        destination: DEST,
         paneId: "p1",
       });
       expect(after.ok).toBe(true);
@@ -284,6 +308,7 @@ describe("ssh-grants.service", () => {
         aNodeId: NODE_A,
         bNodeId: NODE_B,
         resolvedSelector: HOST,
+        destination: DEST,
         paneId: "p1",
       });
       if (asked.ok) requestRef = asked.value.requestId;
@@ -433,6 +458,7 @@ describe("ssh-grants.service", () => {
         aNodeId: NODE_A,
         bNodeId: NODE_B,
         resolvedSelector: HOST,
+        destination: DEST,
         paneId: "p9",
       });
       expect(asked.ok).toBe(true);
@@ -451,6 +477,7 @@ describe("ssh-grants.service", () => {
         aNodeId: NODE_A,
         bNodeId: NODE_B,
         resolvedSelector: HOST,
+        destination: DEST,
         paneId: "p9",
       });
       expect(again.ok).toBe(true);
@@ -517,6 +544,7 @@ describe("ssh-grants.service", () => {
         aNode: { id: NODE_A, name: "key home" },
         bNodeId: NODE_B,
         resolvedHost: HOST,
+        destination: DEST,
         paneId: "pane-1",
       });
       expect(leg.ok).toBe(true);
@@ -541,6 +569,7 @@ describe("ssh-grants.service", () => {
         aNode: { id: NODE_A, name: "key home" },
         bNodeId: NODE_B,
         resolvedHost: HOST,
+        destination: DEST,
         paneId: "pane-ask",
       });
       expect(leg.ok).toBe(false);
@@ -565,6 +594,7 @@ describe("ssh-grants.service", () => {
         aNode: { id: NODE_A, name: "A" },
         bNodeId: NODE_B,
         resolvedHost: HOST,
+        destination: DEST,
         paneId: "p",
       });
       expect(leg.ok).toBe(false);
@@ -590,6 +620,7 @@ describe("ssh-grants.service", () => {
         aNode: { id: NODE_A, name: "A" },
         bNodeId: NODE_B,
         resolvedHost: HOST,
+        destination: DEST,
         paneId: "p",
       });
       expect(leg.ok).toBe(false);
@@ -619,12 +650,117 @@ describe("ssh-grants.service", () => {
         aNode: { id: NODE_A, name: "A" },
         bNodeId: NODE_B,
         resolvedHost: HOST,
+        destination: DEST,
         paneId: "p",
       });
       expect(leg.ok).toBe(false);
       if (leg.ok) return;
       expect(leg.refusal.code).toBe(BackendErrorCodes.SSH_GRANT_APPROVAL_REQUIRED);
       expect(closeGrantCalls).toEqual([{ grantId: g.id, reason: "grant-revoked" }]);
+    });
+  });
+
+  describe("host-key pinning at the grant doors (Task 12, spec 2026-10-08 §9)", () => {
+    async function ask(): Promise<string> {
+      const asked = await requestFirstUse({
+        ownerUserId: owner,
+        aNodeId: NODE_A,
+        bNodeId: NODE_B,
+        resolvedSelector: HOST,
+        destination: DEST,
+        paneId: "p-pin",
+      });
+      if (!asked.ok) throw new Error("ask refused");
+      return asked.value.requestId;
+    }
+
+    it("approve captures A's host key as ssh_host_pins for user@host:port BEFORE the grant stands (audit names destination + fingerprint)", async () => {
+      const requestId = await ask();
+      const approved = await approveGrant({ ownerUserId: owner, requestId, fingerprints: FPS });
+      expect(approved.ok).toBe(true);
+      // The ask went to the KEY HOME with the parsed triple.
+      expect(pinFetchCalls).toEqual([{ nodeId: NODE_A, destination: DEST }]);
+      const pin = await db.selectFrom("sshHostPins").selectAll().execute();
+      expect(pin).toHaveLength(1);
+      expect(pin[0]?.destination).toBe(DEST);
+      expect(pin[0]?.hostKey).toBe(PIN_LINE);
+      const audit = await latestAudit("node.ssh_host_pin.create");
+      expect(audit.destination).toBe(DEST);
+      expect(audit.fingerprint).toBe(hostKeyFingerprints(PIN_LINE)[0]);
+      // The bytes are on no grant/audit row anywhere.
+      const all = await db.selectFrom("auditEvents").select(["action", "metadataJson"]).execute();
+      for (const row of all) expect(row.metadataJson ?? "").not.toContain("AAAAC3NzaC1lZDI1NTE5");
+    });
+
+    it("approve with NO pin to capture refuses by name: the request stays pending and NO grant row exists", async () => {
+      const requestId = await ask();
+      pinAnswer = () => ({ lines: [] }); // A has recorded nothing for DEST
+      const refused = await approveGrant({ ownerUserId: owner, requestId, fingerprints: FPS });
+      expect(refused.ok).toBe(false);
+      if (refused.ok) return;
+      expect(refused.refusal).toMatchObject({ status: 409, code: BackendErrorCodes.SSH_HOST_PIN_MISSING });
+      expect((await repo.getRequest(owner, requestId))?.status).toBe("pending");
+      expect(await db.selectFrom("sshKeyGrants").selectAll().execute()).toHaveLength(0);
+      expect(await db.selectFrom("sshHostPins").selectAll().execute()).toHaveLength(0);
+    });
+
+    it("a standing pin satisfies the approval door WITHOUT re-asking A (TOFU persists across grants)", async () => {
+      await captureHostPin({ ownerUserId: owner, aNodeId: NODE_A, destination: DEST });
+      const requestId = await ask();
+      pinAnswer = () => {
+        throw new Error("must not fetch: the pin stands");
+      };
+      const approved = await approveGrant({ ownerUserId: owner, requestId, fingerprints: FPS });
+      expect(approved.ok).toBe(true);
+    });
+
+    it("the launch leg hands the broker the pin line; no pin means the open is refused before it is attempted", async () => {
+      const g = await createGrant({
+        ownerUserId: owner,
+        aNodeId: NODE_A,
+        name: "g",
+        selector: HOST,
+        fingerprints: FPS,
+      });
+      if (!g.ok) throw new Error("grant fixture refused");
+      const leg = await prepareRelayLeg({
+        viewerId: owner,
+        aNode: { id: NODE_A, name: "key home" },
+        bNodeId: NODE_B,
+        resolvedHost: HOST,
+        destination: DEST,
+        paneId: "pane-pin",
+      });
+      expect(leg.ok).toBe(true);
+      // Manual grants have no approve-capture: the FIRST OPEN captured it.
+      expect(pinFetchCalls).toEqual([{ nodeId: NODE_A, destination: DEST }]);
+      const call = openCalls[0] as Record<string, unknown>;
+      expect(call.hostPin).toBe(PIN_LINE);
+      // And with nothing to capture, a second destination under the same grant refuses before any open.
+      openCalls = [];
+      pinAnswer = () => ({ lines: [] });
+      const denied = await prepareRelayLeg({
+        viewerId: owner,
+        aNode: { id: NODE_A, name: "key home" },
+        bNodeId: NODE_B,
+        resolvedHost: HOST,
+        destination: "other.example.test:22",
+        paneId: "pane-pin-2",
+      });
+      expect(denied.ok).toBe(false);
+      if (denied.ok) return;
+      expect(denied.refusal.code).toBe(BackendErrorCodes.SSH_HOST_PIN_MISSING);
+      expect(openCalls).toHaveLength(0); // no session, no relay-open, no ambient TOFU on B
+    });
+
+    it("the legacy pending row (no destination to pin) is refused by name, never approved blind", async () => {
+      const requestId = await ask();
+      await db.updateTable("sshGrantRequests").set({ destination: null }).where("id", "=", requestId).execute();
+      const refused = await approveGrant({ ownerUserId: owner, requestId, fingerprints: FPS });
+      expect(refused.ok).toBe(false);
+      if (refused.ok) return;
+      expect(refused.refusal.code).toBe(BackendErrorCodes.SSH_HOST_PIN_MISSING);
+      expect((await repo.getRequest(owner, requestId))?.status).toBe("pending");
     });
   });
 
@@ -718,6 +854,7 @@ describe("ssh-grants.service", () => {
         aNodeId: NODE_A,
         bNodeId: NODE_B,
         resolvedSelector: HOST,
+        destination: DEST,
         paneId: "p",
       });
       expect((await listGrantRequests({ ownerUserId: owner })).length).toBe(1);

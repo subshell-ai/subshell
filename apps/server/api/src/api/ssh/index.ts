@@ -5,6 +5,7 @@ import { sshGrantsRoutes } from "@/api/ssh/grants.route.js";
 import { sshLaunchRoute } from "@/api/ssh/launch.route.js";
 import { sshResolveRoute } from "@/api/ssh/resolve.route.js";
 import { sshSavedHostsRoutes } from "@/api/ssh/saved-hosts.route.js";
+import { sshTrustRoutes } from "@/api/ssh/trust.route.js";
 
 /**
  * `/api/ssh` — the launcher surface (spec 2026-10-07 §5/§7, plan 2 Task 7):
@@ -25,4 +26,9 @@ export const sshRoutes = new Elysia({ prefix: "/api/ssh" })
   // top-level `.route()` tier is the Elysia App-type-depth trap, and these
   // are the launcher's own authorization surface.
   .use(sshGrantsRoutes)
-  .use(sshGrantRequestsRoutes);
+  .use(sshGrantRequestsRoutes)
+  // The host-key pin trust screen (spec 2026-10-08 §8-§9, Task 12): the TOFU
+  // pins a relay launch verifies D against. Mounted inside this group for the
+  // same Elysia App-type-depth reason the grant tier is; these are the
+  // grant layer's destination-trust half.
+  .use(sshTrustRoutes);

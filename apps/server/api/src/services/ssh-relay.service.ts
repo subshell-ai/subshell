@@ -1,6 +1,7 @@
 import { buildAgentSocketPath } from "@internal/pane-runtime";
 import {
   isSshGrantFingerprints,
+  isSshKnownHostsPinLine,
   isSshPaneId,
   NODE_MAX_FRAME_BYTES,
   type NodeCommandBody,
@@ -101,6 +102,7 @@ export interface RelayPeerKeys {
 export type SshRelayRefusalCode =
   | "bad-pane-id"
   | "bad-fingerprints"
+  | "bad-host-pin"
   | "same-node"
   | "no-node"
   | "local-node"
@@ -171,6 +173,14 @@ export interface OpenRelayInput {
   aPeer: RelayPeerKeys;
   /** B's registered public halves, from B's identity row. */
   bPeer: RelayPeerKeys;
+  /**
+   * The destination's pinned `known_hosts` line (spec 2026-10-08 §9, Task
+   * 12), REQUIRED and validated with the wire grammar's own predicate before
+   * anything is signed. B's open writes it to the pane's 0600 pinned file;
+   * a broker call without it is a broker bug, refused like the bad-pane-id
+   * and bad-fingerprints doors beside it.
+   */
+  hostPin: string;
 }
 
 /** What a successful `openRelay` answers: the pairing, plus the socket the pane's scoped env must point at. */
@@ -267,6 +277,7 @@ function openCmd(input: OpenRelayInput, role: "A" | "B", ref: string, relayId: s
     fingerprints: [...input.fingerprints],
     lifetimeMs: SSH_RELAY_LIFETIME_MS,
     paneId: input.paneId,
+    hostPin: input.hostPin,
   };
 }
 
@@ -347,6 +358,17 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
       throw new SshRelayRefusal(
         "bad-fingerprints",
         "relay open refused: the grant's fingerprint set is malformed or over SSH_MAX_GRANT_FINGERPRINTS",
+      );
+    }
+    // Task 12 (spec §9): the destination's pin travels on the open, and the
+    // grammar's own line predicate is the broker's check too - a relay
+    // session with no pin (or with a multi-line smuggle) is refused BEFORE
+    // anything is signed or sent, so "the relay grant carries a pin" is
+    // enforced at the mint, not hoped for at the endpoints.
+    if (!isSshKnownHostsPinLine(input.hostPin)) {
+      throw new SshRelayRefusal(
+        "bad-host-pin",
+        "relay open refused: the destination host pin is missing, empty, or not one known_hosts line",
       );
     }
     if (input.aNode === input.bNode) {

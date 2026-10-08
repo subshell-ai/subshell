@@ -13,6 +13,7 @@ import type { SshGrantCreatedVia, SshGrantRequestStatus, SshKeyGrantTable } from
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { SshRpcError, sshAgentIdentities } from "@/services/nodes/ssh-rpc.js";
 import { getNotifyService } from "@/services/notify.service.js";
+import { captureHostPin, hostPinFor, hostPinRefusal, SshHostPinError } from "@/services/ssh-host-pins.service.js";
 import { getRelayBroker, type RelayBroker, type RelayPeerKeys, SshRelayRefusal } from "@/services/ssh-relay.service.js";
 import { logger } from "@/utils/logger.js";
 
@@ -292,6 +293,13 @@ export async function requestFirstUse(args: {
   aNodeId: string;
   bNodeId: string;
   resolvedSelector: string;
+  /**
+   * The FULL canonical destination `user@host:port` the asking launch dialed
+   * (Task 12): the approval that answers this row also captures the host-key
+   * pin, and the pin is keyed per triple - the host alone cannot name a port
+   * or a user. Row-stored (migration 0051), never re-derived at approval.
+   */
+  destination: string;
   paneId: string;
 }): Promise<SshGrantAnswer<{ requestId: string; reused: boolean }>> {
   const now = grantsDeps().nowIso();
@@ -303,6 +311,7 @@ export async function requestFirstUse(args: {
     ownerUserId: args.ownerUserId,
     keyHomeNodeId: args.aNodeId,
     resolvedSelector: args.resolvedSelector,
+    destination: args.destination,
     requestedFingerprints: null, // the approver selects; the asking pane proposes nothing (spec §6.2)
     paneId: args.paneId,
     bNodeId: args.bNodeId,
@@ -341,14 +350,21 @@ export async function sweepExpiredGrantRequests(): Promise<number> {
 
 /**
  * Answer a pending request YES (spec §6.2): validate the selection against
- * the cap and the grammar FIRST, then flip the row `pending -> approved` on a
- * compare-and-set (a raced approver or the sweep loses here and sees the 409,
- * never a double grant), then write the standing grant with EXACTLY the
- * chosen fingerprints, created via first-use. Audits BOTH facts: the answer
- * (`approve`) and the row's birth (`create`, the same event the screen's own
- * create writes, per §6.2), naming ids, destination, and the CHOSEN
- * fingerprint VALUES - §10 makes the approve row the only durable record of
- * the operator's selection, so a count here would record no selection.
+ * the cap and the grammar FIRST, then - Task 12 - ensure the destination's
+ * host-key PIN exists (capture from A's `known_hosts`, or accept the owner's
+ * standing/explicit pin: the approval is "grant creation" for the first-use
+ * door, and a relay grant is never created without its pin), then flip the
+ * row `pending -> approved` on a compare-and-set (a raced approver or the
+ * sweep loses here and sees the 409, never a double grant), then write the
+ * standing grant with EXACTLY the chosen fingerprints, created via first-use.
+ * Audits BOTH facts: the answer (`approve`) and the row's birth (`create`,
+ * the same event the screen's own create writes, per §6.2), naming ids,
+ * destination, and the CHOSEN fingerprint VALUES - §10 makes the approve row
+ * the only durable record of the operator's selection, so a count here would
+ * record no selection. A capture failure leaves the row PENDING and the grant
+ * unwritten (the pending row is what makes the ask retryable); a pin row
+ * captured before a lost race stands harmless - same owner, same key home,
+ * same destination, and the retried capture accepts it idempotently.
  */
 export async function approveGrant(args: {
   ownerUserId: string;
@@ -363,6 +379,29 @@ export async function approveGrant(args: {
   const row = await repo.getRequest(args.ownerUserId, args.requestId);
   if (!row) return refused(NOT_FOUND_REQUEST);
   if (row.status !== "pending") return refused(ALREADY_ANSWERED);
+  // Capture-at-grant-creation (spec §9), before the flip and before the grant
+  // row exists: no pin, no grant. The stored pin (a previous grant's TOFU
+  // record for the same destination) satisfies the door WITHOUT re-asking A -
+  // the TOFU decision persists across grants; only an ABSENT pin triggers the
+  // fetch, whose every failure leaves the request pending untouched.
+  if (row.destination === null) {
+    return refused({
+      status: 409,
+      code: BackendErrorCodes.SSH_HOST_PIN_MISSING,
+      message:
+        "This request predates host-key pinning and carries no full destination to pin. Deny it and launch again to ask fresh.",
+    });
+  }
+  try {
+    await ensureDestinationPin({
+      ownerUserId: args.ownerUserId,
+      aNodeId: row.keyHomeNodeId,
+      destination: row.destination,
+    });
+  } catch (err) {
+    if (err instanceof SshHostPinError) return refused(hostPinRefusal(err));
+    throw err;
+  }
   const flipped = await repo.markRequestStatus(args.ownerUserId, args.requestId, "pending", "approved");
   if (!flipped) return refused(ALREADY_ANSWERED);
   const grant: SshKeyGrantTable = {
@@ -655,6 +694,31 @@ function rosterRpcRefusal(err: SshRpcError): SshRefusalNarrow {
 }
 
 /* ------------------------------------------------------------------ */
+/* the pin door (spec 2026-10-08 §9, Task 12): a relay never opens     */
+/* without the destination's stored pin - the approval captures one   */
+/* (this helper's first-use half) and the launch leg captures at the   */
+/* first open for a destination a manual grant has not pinned yet.     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Read the destination's pin, capturing from A's `known_hosts` when none
+ * stands. Returns the row's pinned `known_hosts` line - the exact bytes that
+ * ride the relay-open to B. Raises {@link SshHostPinError} with the named
+ * cause on every fail-closed door (no entry, ambiguous, changed, the machine
+ * unreachable); nothing is written and no relay opens past one.
+ */
+export async function ensureDestinationPin(args: {
+  ownerUserId: string;
+  aNodeId: string;
+  destination: string;
+}): Promise<{ line: string }> {
+  const existing = await hostPinFor({ ownerUserId: args.ownerUserId, destination: args.destination });
+  if (existing !== null) return { line: existing.hostKey };
+  const row = await captureHostPin(args);
+  return { line: row.hostKey };
+}
+
+/* ------------------------------------------------------------------ */
 /* the launch leg: match -> open (or ask -> refuse)                    */
 /* ------------------------------------------------------------------ */
 
@@ -681,6 +745,14 @@ export async function prepareRelayLeg(args: {
   aNode: { id: string; name: string };
   bNodeId: string;
   resolvedHost: string;
+  /**
+   * The canonical destination `user@host:port` the launch dialed (Task 12):
+   * the pin lookup key AND the capture destination (a manual wildcard grant
+   * gets its pin at this first open for each concrete destination - "one
+   * selector over many hosts yields many pins"), AND the first-use row's
+   * stored destination. The relay-open never carries a pairing without it.
+   */
+  destination: string;
   paneId: string;
 }): Promise<SshGrantAnswer<{ socketPath: string; grantId: string }>> {
   const grant = await matchGrant({
@@ -694,6 +766,7 @@ export async function prepareRelayLeg(args: {
       aNodeId: args.aNode.id,
       bNodeId: args.bNodeId,
       resolvedSelector: args.resolvedHost,
+      destination: args.destination,
       paneId: args.paneId,
     });
     const ref = asked.ok ? asked.value.requestId : "";
@@ -733,6 +806,20 @@ export async function prepareRelayLeg(args: {
   if (!standing) {
     return refused(GRANT_REVOKED_DURING_LAUNCH);
   }
+  // The pin door (spec §9, Task 12): read the destination's stored pin,
+  // capturing from A's `known_hosts` at first open when none stands (the
+  // manual-grant and later-destination case). Every failure refuses the
+  // launch BEFORE any session exists - a relay without a pin would mean B
+  // ambient-TOFUing D, which is the one posture the design refuses.
+  let hostPin: string;
+  try {
+    hostPin = (
+      await ensureDestinationPin({ ownerUserId: args.viewerId, aNodeId: args.aNode.id, destination: args.destination })
+    ).line;
+  } catch (err) {
+    if (err instanceof SshHostPinError) return refused(hostPinRefusal(err));
+    throw err;
+  }
   const broker = grantsDeps().broker();
   let socketPath: string;
   try {
@@ -744,6 +831,7 @@ export async function prepareRelayLeg(args: {
       bNode: args.bNodeId,
       aPeer,
       bPeer,
+      hostPin,
     });
     socketPath = opened.socketPath;
   } catch (err) {
@@ -793,6 +881,8 @@ function relayRefusalCopy(code: SshRelayRefusal["code"]): string {
     case "bad-pane-id":
     case "bad-fingerprints":
       return "The relay refused the session's identifiers as malformed; the launch was refused.";
+    case "bad-host-pin":
+      return "The relay refused the destination host pin as malformed; the launch was refused.";
   }
 }
 
