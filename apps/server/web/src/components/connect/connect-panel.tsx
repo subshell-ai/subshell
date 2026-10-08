@@ -46,7 +46,11 @@ import { launchableNodes } from "@/lib/subshell-compat";
  * config list (§7's alias-is-display rule).
  */
 const DESTINATION_IDS = { field: "connect-destination", disclosure: "connect-destination-disclosure" };
-const MACHINE_IDS = { field: "connect-machine", requirement: "connect-machine-requirement" };
+const MACHINE_IDS = {
+  field: "connect-machine",
+  requirement: "connect-machine-requirement",
+  refusal: "connect-machine-refusal",
+};
 
 /** The disclosure every ssh surface owes before the button (decision 6, verbatim). */
 export const SSH_DISCLOSURE_COPY =
@@ -171,6 +175,13 @@ export function ConnectPanel(): JSX.Element {
     submitAttempted && machineRequired
       ? fieldErrorToned([{ message: "Choose a connecting machine first.", gap: true }])
       : null;
+  // aria-describedby may name nothing that is not rendered, so the
+  // association is exactly the explanation lines currently on screen.
+  const machineRefusal = refusal?.field === "machine" ? refusal.text : null;
+  const machineDescribedBy =
+    [machineGap ? MACHINE_IDS.requirement : null, machineRefusal !== null ? MACHINE_IDS.refusal : null]
+      .filter((id): id is string => id !== null)
+      .join(" ") || undefined;
 
   return (
     <div className="max-w-xl space-y-6">
@@ -208,15 +219,16 @@ export function ConnectPanel(): JSX.Element {
             placeholder="Choose a machine"
             options={machineOptions}
             onValueChange={(id) => id !== "" && setNodeId(id)}
+            describedBy={machineDescribedBy}
           />
           {machineGap && (
             <p id={MACHINE_IDS.requirement} className={REQUIREMENT_CAPTION_CLASS}>
               {machineGap.text}
             </p>
           )}
-          {refusal?.field === "machine" && (
-            <p role="alert" className="text-destructive text-detail">
-              {refusal.text}
+          {machineRefusal !== null && (
+            <p id={MACHINE_IDS.refusal} role="alert" className="text-destructive text-detail">
+              {machineRefusal}
             </p>
           )}
           {selectedNode !== null && defaultNodeId !== selectedNode.id && (
