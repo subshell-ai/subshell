@@ -8,6 +8,7 @@ import {
   OPENSSH_10X_SCHEME,
   parseIdentitiesAnswer,
   parseSignRequest,
+  parseSignResponse,
   probeAgentScheme,
   SSH2_AGENT_FAILURE,
 } from "../relay-agent-scheme.js";
@@ -192,6 +193,45 @@ test("parseSignRequest refuses every malformed body in both schemes", () => {
       OPENSSH_10X_SCHEME,
     ),
   ).toThrow();
+});
+
+/* ---------------- SIGN_RESPONSE: the body the relay gate accepts ---------------- */
+
+test("parseSignResponse accepts exactly the type byte plus one string in each scheme", () => {
+  // The collision this strictness exists for, pinned: classic answer 14 ==
+  // 10.x signResponse 14. The type byte alone cannot tell a signature from a
+  // foreign scheme's roster; only the body parse can.
+  expect(CLASSIC_SCHEME.answer).toBe(14);
+  expect(OPENSSH_10X_SCHEME.signResponse).toBe(14);
+  expect(parseSignResponse(Buffer.concat([Buffer.from([14]), sshStr(Buffer.from("SIG"))]), OPENSSH_10X_SCHEME)).toEqual(
+    Buffer.from("SIG"),
+  );
+  expect(parseSignResponse(Buffer.concat([Buffer.from([16]), sshStr(Buffer.from("SIG"))]), CLASSIC_SCHEME)).toEqual(
+    Buffer.from("SIG"),
+  );
+});
+
+test("parseSignResponse refuses a roster-shaped body, extra bytes, truncation, and a foreign type byte", () => {
+  // A multi-entry roster spelled under the SIGN_RESPONSE byte (the exact
+  // shape a mid-session classic swap answers a forwarded 13 with): refused.
+  const roster = Buffer.concat([Buffer.from([14]), be32(2), sshStr(KEY_A), sshStr("a"), sshStr(KEY_B), sshStr("b")]);
+  expect(() => parseSignResponse(roster, OPENSSH_10X_SCHEME)).toThrow();
+  expect(() =>
+    parseSignResponse(Buffer.concat([Buffer.from([16]), be32(1), sshStr(KEY_A), sshStr("a")]), CLASSIC_SCHEME),
+  ).toThrow();
+  // Bytes after the one signature string: not the wire shape.
+  expect(() =>
+    parseSignResponse(
+      Buffer.concat([Buffer.from([14]), sshStr(Buffer.from("SIG")), Buffer.from([0])]),
+      OPENSSH_10X_SCHEME,
+    ),
+  ).toThrow();
+  // Empty body and a truncated length prefix.
+  expect(() => parseSignResponse(Buffer.from([14]), OPENSSH_10X_SCHEME)).toThrow();
+  expect(() => parseSignResponse(Buffer.from([14, 0, 0, 0]), OPENSSH_10X_SCHEME)).toThrow();
+  // A foreign scheme's response byte is refused in the resolved scheme.
+  expect(() => parseSignResponse(Buffer.concat([Buffer.from([16]), sshStr("S")]), OPENSSH_10X_SCHEME)).toThrow();
+  expect(() => parseSignResponse(Buffer.concat([Buffer.from([14]), sshStr("S")]), CLASSIC_SCHEME)).toThrow();
 });
 
 /* ---------------- the probe: resolving the live agent's numbering ---------------- */

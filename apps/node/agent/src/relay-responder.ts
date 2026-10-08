@@ -16,6 +16,7 @@ import {
   filterIdentitiesAnswer,
   fingerprintAgentBlob,
   parseSignRequest,
+  parseSignResponse,
   SSH2_AGENT_FAILURE,
 } from "./relay-agent-scheme.js";
 import { liveAgentSocketPath, requestLiveAgent } from "./relay-agent-socket.js";
@@ -136,9 +137,9 @@ export interface RelayResponderArgs {
   /**
    * Resolve A's live agent socket per request (default `liveAgentSocketPath`
    * from relay-agent-socket.ts). A test seam and the operator override land
-   * here; returning null is the honest no-agent case. The scheme is cached
-   * once at open; a later agent restart under a DIFFERENT numbering fails the
-   * response-type gate, never a silent re-interpretation.
+   * here; returning null is the honest no-agent case. The cached scheme is
+   * not re-probed mid-session: the strictly-parsed response body, not merely
+   * the type byte, is what rejects a foreign-scheme answer.
    */
   resolveAgentSocket?: () => string | null;
   /** Line sink; defaults to the agent logger. Never receives keys, fingerprints, nonces, or agent bytes. */
@@ -248,11 +249,17 @@ export function startRelayResponder(args: RelayResponderArgs): RelayResponderHan
         return FAILURE;
       }
       // The signature is opaque and the blob was already scoped, but the
-      // response TYPE still gates in the resolved scheme: only that scheme's
-      // SIGN_RESPONSE and the agent's own FAILURE ride onward; anything
-      // else (a foreign scheme's bytes included) becomes a failure.
-      if (response.length < 1 || (response[0] !== scheme.signResponse && response[0] !== SSH2_AGENT_FAILURE)) {
-        say(`relay session ${args.ref}: the agent answered a sign request with an unexpected type; refusing`);
+      // answer is still gated in the resolved scheme, by TYPE AND BODY:
+      // the type bytes collide across schemes (classic's roster answer is
+      // 14, which is 10.x's sign response), so only the strictly parsed
+      // body - exactly one signature string - tells a signature from a
+      // foreign scheme's roster. That scheme's well-formed SIGN_RESPONSE
+      // and the agent's own FAILURE ride onward; anything else fails.
+      if (response.length >= 1 && response[0] === SSH2_AGENT_FAILURE) return response;
+      try {
+        parseSignResponse(response, scheme);
+      } catch {
+        say(`relay session ${args.ref}: the agent's sign answer was not a well-formed SIGN_RESPONSE; refusing`);
         return FAILURE;
       }
       return response;
