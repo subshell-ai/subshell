@@ -252,6 +252,34 @@ describe("a death transition sweeps the LOCAL ssh config dir (#applyDeath)", () 
     expect(existsSync(localDir(id))).toBe(true);
     rmSync(localDir(id), { recursive: true, force: true });
   });
+
+  it("the reconcile no-socket path sweeps too (it stamps alive->dead without #applyDeath)", async () => {
+    // The one alive->dead stamp that does NOT funnel through #applyDeath: a row
+    // with no socket cannot be alive, so the sweep fast-path retires it directly.
+    // It must still remove a local ssh pane's config dir, or the "whichever hand
+    // first notices removes it" guarantee has a hole. A dedicated user keeps
+    // reconcile() from touching any other test's (socketed, real-tmux) rows.
+    const id = crypto.randomUUID();
+    created.push(id);
+    const user = "u-ssh-nosocket";
+    await subshellsRepo.create({
+      id,
+      userId: user,
+      harnessId: "ssh",
+      name: "no-socket local ssh",
+      workingDir: tmpdir(),
+      tmuxSocket: null, // -> the no-socket branch, before any tmux probe
+      status: "running",
+      alive: 1,
+      nodeId: LOCAL_NODE_ID,
+      ssh: JSON.stringify(SNAPSHOT),
+    });
+    mkdirSync(localDir(id), { recursive: true });
+    const { manager } = mkManager();
+    await manager.reconcile(user);
+    expect(existsSync(localDir(id))).toBe(false);
+    expect((await subshellsRepo.findById(id))?.alive).toBe(0);
+  });
 });
 
 describe("deleteSubshell reads the row's ssh COLUMN as the kind fact", () => {
