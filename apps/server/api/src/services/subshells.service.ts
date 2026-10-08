@@ -40,6 +40,7 @@ import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
+import { closeRelayForPaneExit, sweepRelayForPane } from "@/services/ssh-relay.service.js";
 import {
   PROMPT_POLL_MS,
   PROMPT_SETTLE_TIMEOUT_MS,
@@ -732,6 +733,7 @@ export class SubshellsService extends BaseService {
         return null;
       }),
     );
+    closeRelayForPaneExit(id); // the pane's own report is the §5.6 child-exit signal
     await this.#manager.applySelfReportedExit(id, exitCode, new Date().toISOString());
   }
 
@@ -1469,6 +1471,7 @@ export class SubshellsService extends BaseService {
     // it lands, stays the second sure thing (its sweep is idempotent). The
     // helper's guard no-ops this for every non-local-ssh row.
     sweepLocalSshDir(row);
+    sweepRelayForPane(row); // terminate kills the ssh child too: its relay dies with it
     return { ok: true };
   }
 

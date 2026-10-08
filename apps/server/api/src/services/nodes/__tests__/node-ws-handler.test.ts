@@ -22,6 +22,7 @@ import { type NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.r
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
 import { subscribeLive } from "@/services/live-bus.js";
+import { type RelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
 import { resetInputHoldsForTests } from "@/ws/input-hold.js";
 import { resetInputWindowsForTests } from "@/ws/input-window.js";
 import { handleSubshellMessage } from "@/ws/subshell-ws.js";
@@ -1394,6 +1395,47 @@ describe("handleNodeClose (superseded-close hygiene, spec §5.3)", () => {
     await handleNodeClose(h.deps, fakeSocket("n1"));
     expect(h.statuses).toEqual([]);
   });
+
+  it("(Task 8, spec 2026-10-08 §5.6) the LIVE socket's death is witnessed by the relay broker; a superseded one is not", async () => {
+    // The `a-dropped` cut's ONLY trigger is this witness: the handler owns
+    // "the authenticated link is gone", the broker owns "which sessions that
+    // kills". A superseded close means the node is NOT gone - its newer
+    // socket still answers - so the witness must fire once, for the real
+    // death only.
+    const seen: string[] = [];
+    const broker: RelayBroker = {
+      openRelay: async () => {
+        throw new Error("unused");
+      },
+      routeRelayFrame: () => {},
+      closeRelay: async () => false,
+      closeForGrant: async () => 0,
+      closeForPane: async () => 0,
+      refuseOverCap: async () => false,
+      onNodeSocketClosed: async (nodeId) => {
+        seen.push(nodeId);
+        return 0;
+      },
+      activeRelayCount: () => 0,
+      sessionInfo: () => null,
+      reset: () => {},
+    };
+    setRelayBrokerForTests(broker);
+    try {
+      const h = makeHarness();
+      const first = fakeSocket("n1");
+      handleNodeOpen(OPEN_DEPS, first);
+      const second = fakeSocket("n1"); // newest-wins: the first is superseded
+      handleNodeOpen(OPEN_DEPS, second);
+      await handleNodeClose(h.deps, first);
+      expect(seen).toEqual([]); // a superseded close tells the broker NOTHING
+      await handleNodeClose(h.deps, second);
+      expect(seen).toEqual(["n1"]); // the real death is reported exactly once
+      await new Promise((resolve) => setTimeout(resolve, 0)); // drain the fire-and-forget
+    } finally {
+      setRelayBrokerForTests(null);
+    }
+  });
 });
 
 /**
@@ -1788,16 +1830,18 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
     await handleNodeMessage(h.deps, ws, bindingBytes(f)); // established at 18
     const relayFrame: RelayFrame = { type: "relay", ref: "r-1", seq: 3, direction: "A2B", blob: "QUJD" };
     await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify(relayFrame)));
-    // The seam saw EXACTLY the frame, blob included - and nothing else did:
-    // the plane is a blind router (§5.5), the stub only records.
-    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, last: relayFrame });
+    // The frame reached the broker (Task 8's route: pair by ref, copy the
+    // blob unopened). The seam's own record is a routing SUMMARY - the plane
+    // is a blind router (§5.5) and the summary has no slot to hold a blob.
+    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, lastRef: "r-1", lastDirection: "A2B" });
+    expect(JSON.stringify(relayFramesSeenFor("n1"))).not.toContain("QUJD");
     // The over-cap blob is refused by the grammar upstream of the ROUTER seam
     // (§5.1: cap is law); the socket survives, the frame is not forwarded.
     // But §5.1's named-reason close needs the refusal to be OBSERVABLE, and
     // the handler's over-cap probe is what routes it - ref only, no blob.
     const over = "A".repeat(Math.ceil(SSH_RELAY_FRAME_MAX_BYTES / 3) * 4 + 4);
     await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify({ ...relayFrame, blob: over })));
-    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, last: relayFrame }); // router seam: NOT the normal route
+    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, lastRef: "r-1", lastDirection: "A2B" }); // router seam: NOT the normal route
     expect(relayOverCapsSeenFor("n1")).toEqual({ overCaps: 1, lastRef: "r-1" }); // over-cap seam, ref carried
     // The blob never crossed: the record has no byte slot, and the only
     // bytes the seam could know are the ref (§5.5 blindness end to end).
@@ -1827,7 +1871,7 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
     // And a well-formed UNDER-cap frame goes the other way: routed, not refused.
     const goodFrame: RelayFrame = { type: "relay", ref: "r-11", seq: 0, direction: "A2B", blob: "QUJD" };
     await handleNodeMessage(h.deps, ws, JSON.stringify(goodFrame));
-    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, last: goodFrame });
+    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, lastRef: "r-11", lastDirection: "A2B" });
     expect(relayOverCapsSeenFor("n1")).toMatchObject({ overCaps: 2 }); // still just the two
     expect(ws.closed).toHaveLength(0);
   });

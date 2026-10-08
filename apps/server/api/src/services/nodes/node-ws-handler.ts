@@ -48,7 +48,7 @@ import {
   releaseHeld,
 } from "./node-registry.js";
 import { binaryPayload, failConnPendings, resolveResult } from "./node-rpc.js";
-import { onRelayFrame, onRelayFrameOverCap } from "./relay-frames.js";
+import { onNodeSocketClosed, onRelayFrame, onRelayFrameOverCap } from "./relay-frames.js";
 import { recordNodeDisconnect, recordNodeReady } from "./update-tracker.js";
 
 /**
@@ -1166,6 +1166,14 @@ export async function handleNodeClose(deps: NodeWsDeps, ws: NodeWsSocket): Promi
     // touched any of them — so without this the dashboard keeps rendering
     // them as healthy until the viewer reconnects.
     announceNodePresence(nodeId);
+    // The relay broker's `a-dropped` witness (spec 2026-10-08 §5.6): this is
+    // the honest "this node's authenticated link is gone" moment - the
+    // broker cuts sessions where this machine was A and leaves its B-side
+    // sessions for the redial (or a child-exit / cap cut). The superseded
+    // branch below deliberately calls nothing: a replacement socket means
+    // the node is NOT gone. Fire-and-forget by contract (relay-frames owns
+    // the swallow).
+    onNodeSocketClosed(nodeId);
     logger.debug(`node ws: ${nodeId} disconnected → offline`);
     return;
   }
