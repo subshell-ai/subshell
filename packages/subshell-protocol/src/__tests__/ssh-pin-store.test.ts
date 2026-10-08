@@ -81,6 +81,34 @@ test("private material and junk are refused, never fingerprinted", async () => {
   expect(() => bytesOfJwk(JSON.stringify({ kty: "EC", crv: "P-256", x: "!!!" }))).toThrow();
 });
 
+test("base64UrlToBytes inverts base64UrlNoPad at every byte length 0..8", () => {
+  // Canonical encodings must decode, not just the convenient ones: byte
+  // lengths 1, 4, and 7 land 4 leftover bits, which earlier guards misread
+  // as non-canonical and threw on.
+  for (let len = 0; len <= 8; len++) {
+    const bytes = Uint8Array.from({ length: len }, (_, i) => (i * 37 + 11) & 0xff);
+    expect(base64UrlToBytes(base64UrlNoPad(bytes))).toEqual(bytes);
+  }
+});
+
+test("base64UrlToBytes refuses non-canonical trailing bits", () => {
+  // "QQ" is the canonical encoding of the single byte 0x41 and must decode;
+  // "AB" claims the same byte with nonzero padding bits, which
+  // base64UrlNoPad never emits, so it must throw.
+  expect(base64UrlToBytes("QQ")).toEqual(Uint8Array.from([0x41]));
+  expect(() => base64UrlToBytes("AB")).toThrow(/non-canonical trailing bits/);
+  // One character past a full group is an impossible spelling: six leftover
+  // bits, whatever their value.
+  expect(() => base64UrlToBytes("A")).toThrow(/non-canonical trailing bits/);
+  // The coordinate width itself: 32 zero bytes encode to 43 characters whose
+  // last carries two zero pad bits; bytesOfJwk's length check alone would
+  // accept the flipped spelling, so the decoder must not.
+  const canonical = base64UrlNoPad(new Uint8Array(32));
+  expect(canonical.length).toBe(43);
+  expect(canonical.endsWith("A")).toBe(true);
+  expect(() => base64UrlToBytes(`${canonical.slice(0, 42)}B`)).toThrow(/non-canonical trailing bits/);
+});
+
 test("base64url round trip is pure and padding-free", () => {
   const bytes = Uint8Array.from([0x00, 0xff, 0x10, 0x23, 0x45]);
   const encoded = base64UrlNoPad(bytes);
@@ -102,6 +130,10 @@ test("ssh-pin-store.ts is Metro-safe: no node: builtin import in CODE", () => {
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/^\s*\/\/.*$/gm, "");
   expect(source).not.toMatch(/from\s+["']node:/);
+  // The `from` line above cannot see a bare side-effect import or an
+  // unawaited dynamic one; this pattern covers `import "node:fs"` and
+  // `import("node:fs")` (with or without await).
+  expect(source).not.toMatch(/import\s*\(?\s*["']node:/);
   expect(source).not.toMatch(/require\(\s*["']node:/);
   expect(source).not.toMatch(/\bBuffer\b/);
   expect(source).not.toMatch(/await\s+import\(/);

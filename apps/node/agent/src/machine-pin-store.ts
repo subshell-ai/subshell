@@ -53,6 +53,16 @@ function isMachinePin(value: unknown): value is MachinePin {
 }
 
 /**
+ * A fresh peer-keyed map with NO prototype. A plain `{}` would let
+ * `get("__proto__")` or `get("toString")` read back inherited members
+ * instead of "never pinned", breaking the null contract Tasks 6 and 8
+ * branch on; prototype-free, those ids are ordinary missing keys.
+ */
+function emptyPinMap(): Record<string, MachinePin> {
+  return Object.create(null) as Record<string, MachinePin>;
+}
+
+/**
  * Byte-equality pins for relay peers, one JSON map per node data dir. Every
  * method reads the file fresh, so a re-pair written by another process is
  * visible without restarting the agent.
@@ -107,7 +117,7 @@ export class MachinePinStore {
     try {
       raw = readFileSync(file, "utf8");
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") return emptyPinMap();
       throw new Error(`machine pin file ${file} is unreadable: ${err instanceof Error ? err.message : String(err)}`);
     }
     let parsed: unknown;
@@ -119,7 +129,7 @@ export class MachinePinStore {
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
       throw this.quarantine(file, new Error("top level is not a JSON object"));
     }
-    const all: Record<string, MachinePin> = {};
+    const all = emptyPinMap();
     for (const [peerId, value] of Object.entries(parsed as Record<string, unknown>)) {
       if (!isMachinePin(value)) {
         throw this.quarantine(file, new Error(`entry '${peerId}' is not a {signing, encryption} pin object`));
@@ -129,18 +139,25 @@ export class MachinePinStore {
     return all;
   }
 
-  /** Write the whole map, keys sorted for stable diffs, then force 0600. */
+  /**
+   * Write the whole map, keys sorted for stable diffs: a full tmp-then-rename
+   * (rename is atomic within a directory, so a crash mid-write leaves the
+   * previous file intact, never a truncated pin set), then force 0600.
+   */
   private saveAll(all: Record<string, MachinePin>): void {
     const file = machinePinPath(this.dataDir);
     mkdirSync(this.dataDir, { recursive: true });
-    const sorted: Record<string, MachinePin> = {};
+    const sorted = emptyPinMap();
     for (const peerId of Object.keys(all).sort()) {
       sorted[peerId] = all[peerId];
     }
     // The mode option covers O_CREAT only, is masked by the umask, and is
-    // ignored for a file that already exists - chmod after write is the part
-    // that actually guarantees 0600 (same posture as identity.ts).
-    writeFileSync(file, JSON.stringify(sorted, null, 2), { mode: 0o600 });
+    // ignored for a file that already exists - chmod after the rename is the
+    // part that actually guarantees 0600 on the final file (same posture as
+    // identity.ts).
+    const tmp = `${file}.tmp`;
+    writeFileSync(tmp, JSON.stringify(sorted, null, 2), { mode: 0o600 });
+    renameSync(tmp, file);
     chmodSync(file, 0o600);
   }
 
