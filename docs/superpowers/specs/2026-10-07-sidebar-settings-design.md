@@ -33,10 +33,13 @@ group between Workspaces and Server Settings:
 
 - No `requiresAdmin`: every signed-in person reaches these pages today; access
   rules are unchanged, this is chrome only.
-- Group behavior comes free from the existing machinery: the chevron opens it
-  when the route is inside (detail pages like `/nodes/local` count, via the
-  existing `childActive` prefix rule), the collapsed rail renders the children
-  as plain icons with no header, so collapsed behavior is identical to today.
+- Group behavior comes from the existing machinery plus one rule the grouping
+  needs: the chevron opens it when the route is inside, and detail pages like
+  `/nodes/local` count, via a segment-aware `childActive` prefix rule
+  (`pathname === child.to || pathname.startsWith(child.to + "/")`) that
+  Task 1 of the plan adds to `app-sidebar.tsx`. The collapsed rail renders the
+  children as plain icons with no header, so collapsed behavior is identical to
+  today.
 - "Settings" vs "Server Settings": the second word is the disambiguator, same
   reasoning the Server Settings label comment (spec 2026-09-11 §2.1) records.
 - `UserRoundCog` (person-gear) distinguishes it from the plain `Settings` gear
