@@ -239,6 +239,58 @@ describe("RelaySessions concurrency bound (acceptance (g), node-side defense)", 
     relay.close("r-3", "lifetime-expiry");
     expect(relay.register(`r-${SSH_RELAY_MAX_PER_NODE}`, handler)).toBe(true);
   });
+
+  it("a THROWN cap refusal does not create a session and the refused opener can still release itself", () => {
+    // The call-site contract the executors rely on (fix round T8 MAJOR 1):
+    // every refusal path of register leaves the registry exactly as it was,
+    // so the OPENERS cleanup (its try/catch around register) is the whole
+    // release story - the cap throw must not half-own anything.
+    const relay = new RelaySessions();
+    for (let i = 0; i < SSH_RELAY_MAX_PER_NODE; i += 1) relay.register(`r-${i}`, handler);
+    expect(() => relay.register("r-over", handler)).toThrow(/relay registry full/);
+    expect(relay.size).toBe(SSH_RELAY_MAX_PER_NODE);
+    expect(relay.has("r-over")).toBe(false);
+  });
+});
+
+describe("RelaySessions close tombstones (fix round T8 MAJOR 2)", () => {
+  const handler = { onRelayFrame: () => {}, close: () => {} };
+
+  it("remembers a close of an UNKNOWN ref, refuses a late register, and expires the tombstone", () => {
+    // The clock and the TTL are injected: the race window (a detached open
+    // worst-case ~20 s deep in its probe) is real time the suite cannot pay.
+    let now = 1_000_000;
+    const relay = new RelaySessions(undefined, { nowMs: () => now, tombstoneMs: 5_000 });
+    // The plane's cut lands BEFORE the open ever registers: nothing is owned,
+    // and the answer stays the honest `closed: false` the executor answers.
+    expect(relay.close("r-late", "handshake-grace")).toBe(false);
+    expect(relay.isTombstoned("r-late")).toBe(true);
+    // A late SUCCESS must not own a ref the plane already dropped.
+    expect(relay.register("r-late", handler)).toBe(false);
+    expect(relay.size).toBe(0);
+    // A close of an OWNED ref is NOT tombstoned: it took the normal path.
+    expect(relay.register("r-own", handler)).toBe(true);
+    expect(relay.close("r-own", "lifetime-expiry")).toBe(true);
+    expect(relay.isTombstoned("r-own")).toBe(false);
+    // The set is TTL-bounded, not a growing ledger: after the tombstone
+    // expires, the ref (or any other) registers normally again.
+    now += 5_001;
+    expect(relay.isTombstoned("r-late")).toBe(false);
+    expect(relay.register("r-late", handler)).toBe(true);
+  });
+
+  it("sweeps expired tombstones on every touch so repeated unknown closes stay bounded", () => {
+    let now = 0;
+    const lines: string[] = [];
+    const relay = new RelaySessions((line) => lines.push(line), { nowMs: () => now, tombstoneMs: 100 });
+    for (let i = 0; i < 50; i += 1) expect(relay.close(`r-${i}`, "grant-revoked")).toBe(false);
+    now += 101; // every tombstone is now past its TTL
+    expect(relay.register("sweep-probe", handler)).toBe(true); // the sweep ran at register
+    for (let i = 0; i < 50; i += 1) expect(relay.isTombstoned(`r-${i}`)).toBe(false);
+    // The remembered close is observable in the log (ids and the named
+    // reason only - the same refusal vocabulary every relay line keeps).
+    expect(lines.some((l) => l.includes("r-0") && l.includes("grant-revoked"))).toBe(true);
+  });
 });
 
 describe("the daemon seam wiring", () => {

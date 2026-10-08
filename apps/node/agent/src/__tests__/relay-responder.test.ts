@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ import {
   openRelayEnvelope,
   parseRelayFrame,
   type RelayFrame,
+  SSH_RELAY_MAX_PER_NODE,
   type SshRelayOpenCommand,
   sealRelayEnvelope,
   verifyRelayEnvelope,
@@ -19,6 +20,7 @@ import { exportJWK, generateKeyPair } from "jose";
 import { openARelaySession, openBRelaySession, RelaySessions } from "../commands/ssh-relay.js";
 import { loadOrCreateIdentity } from "../identity.js";
 import { type AgentScheme, CLASSIC_SCHEME, OPENSSH_10X_SCHEME } from "../relay-agent-scheme.js";
+import { buildAgentSocketPath } from "../relay-proxy.js";
 import { startRelayResponder } from "../relay-responder.js";
 
 /**
@@ -1211,6 +1213,183 @@ test("with no live agent socket the session opens with no scheme and answers SSH
   } finally {
     await f.cleanup();
   }
+});
+
+/* ------------------------------------------------------------------ */
+/* refused opens release what they bound (fix round T8 MAJOR 1 + 2)    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A stub agent that answers EVERY request with FAILURE(5) only after
+ * `delayMs`: the open-time numbering probe stays in flight for the whole
+ * (delayed) round trip, which is the window the race test drops the plane's
+ * close into. Same one-shot wire posture as the real round trips.
+ */
+async function startLaggingAgent(delayMs: number): Promise<StubAgent> {
+  const dir = mkdtempSync(join(tmpdir(), "subshell-relay-lag-"));
+  const path = join(dir, "agent.sock");
+  const received: Buffer[] = [];
+  const server: Server = createServer((conn: Socket) => {
+    let buffer = Buffer.alloc(0);
+    conn.on("data", (chunk: Buffer) => {
+      buffer = buffer.length === 0 ? Buffer.from(chunk) : Buffer.concat([buffer, chunk]);
+      if (buffer.length < 4) return;
+      const len = buffer.readUInt32BE(0);
+      if (buffer.length < 4 + len) return;
+      received.push(Buffer.from(buffer.subarray(4, 4 + len)));
+      buffer = buffer.subarray(4 + len);
+      setTimeout(() => {
+        if (!conn.destroyed) conn.write(framed(Buffer.from([5])));
+      }, delayMs);
+    });
+    conn.on("error", () => {
+      /* per-request closes; never throw */
+    });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.once("listening", () => resolve());
+    server.listen(path);
+  });
+  return {
+    path,
+    received,
+    setMutate: () => {
+      /* nothing well-formed to corrupt */
+    },
+    close: () => new Promise<void>((r) => server.close(() => r())),
+  };
+}
+
+const REFUSAL_FILLER = { onRelayFrame: () => {}, close: () => {} };
+
+/** A command whose peer keys are REAL P-256 material: these tests must reach
+ *  the register step, which sits past every pin gate, so a placeholder JWK
+ *  would refuse in the wrong place. */
+async function refusalCmd(over: Partial<SshRelayOpenCommand>): Promise<SshRelayOpenCommand> {
+  const bKeys = await bKeysReady; // here they stand for the PEER's registered keys
+  return {
+    type: "ssh_relay_open",
+    relayId: "relay-refusal",
+    ref: "r-refusal",
+    role: "A",
+    aNodeId: "a-node",
+    bNodeId: "b-node",
+    peerSigningPublicKey: bKeys.signing.publicJwk,
+    peerEncryptPublicKey: Buffer.from(bKeys.encryption.publicJwk, "utf8").toString("base64"),
+    grantId: "grant-1",
+    fingerprints: [],
+    lifetimeMs: 30_000,
+    paneId: "pane-refusal",
+    ...over,
+  };
+}
+
+test("a B open refused at the node cap releases its bound proxy: no socket file survives (fix MAJOR 1)", async () => {
+  const relay = new RelaySessions();
+  for (let i = 0; i < SSH_RELAY_MAX_PER_NODE; i += 1) expect(relay.register(`fill-${i}`, REFUSAL_FILLER)).toBe(true);
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-relay-cap-"));
+  const socketPath = buildAgentSocketPath(dataDir, "pane-cap");
+  await expect(
+    openBRelaySession({
+      relay,
+      dataDir,
+      selfNodeId: "b-node",
+      paneId: "pane-cap",
+      cmd: await refusalCmd({ role: "B", ref: "r-cap-9", relayId: "relay-cap-9" }),
+      sendRelayFrame: () => {},
+    }),
+  ).rejects.toThrow(/relay registry full/);
+  // The proxy had already listen()ed when the cap THREW out of register: the
+  // throw path must run the same release the dup-ref path always ran - the
+  // listener closed and the socket name unlinked (close() does both, so the
+  // absent name is the witness that the release ran).
+  expect(existsSync(socketPath)).toBe(false);
+  expect(relay.size).toBe(SSH_RELAY_MAX_PER_NODE);
+  relay.closeAll("lifetime-expiry");
+});
+
+test("an A open refused at the node cap closes its responder too (fix MAJOR 1, A twin)", async () => {
+  const relay = new RelaySessions();
+  for (let i = 0; i < SSH_RELAY_MAX_PER_NODE; i += 1) expect(relay.register(`fill-${i}`, REFUSAL_FILLER)).toBe(true);
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-relay-acap-"));
+  const lines: string[] = [];
+  await expect(
+    openARelaySession({
+      relay,
+      dataDir,
+      selfNodeId: "a-node",
+      cmd: await refusalCmd({ ref: "r-cap-a", relayId: "relay-cap-a" }),
+      sendRelayFrame: () => {},
+      resolveAgentSocket: () => null, // no probe: the cap refusal is the registry's own
+      log: (line) => lines.push(line),
+    }),
+  ).rejects.toThrow(/relay registry full/);
+  // The responder existed when register threw; the symmetric catch closes it.
+  expect(lines.some((l) => l.includes("r-cap-a") && l.includes("A-side responder closed"))).toBe(true);
+  expect(relay.size).toBe(SSH_RELAY_MAX_PER_NODE);
+  relay.closeAll("lifetime-expiry");
+});
+
+test("a close that lands mid-probe wins the race: the late A open is refused and releases its responder (fix MAJOR 2)", async () => {
+  const lag = await startLaggingAgent(80); // each probe answer is ~80 ms late
+  const relay = new RelaySessions();
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-relay-race-"));
+  const lines: string[] = [];
+  try {
+    // The ack has already left the executor (pending: true); the detached
+    // open is inside its probe when the plane's cut arrives - worst-case
+    // ~20 s of agent round trips, here 2 x 80 ms of lagging answers.
+    const pending = openARelaySession({
+      relay,
+      dataDir,
+      selfNodeId: "a-node",
+      cmd: await refusalCmd({ ref: "r-race", relayId: "relay-race" }),
+      sendRelayFrame: () => {},
+      resolveAgentSocket: () => lag.path,
+      log: (line) => lines.push(line),
+    });
+    await sleep(20); // mid-probe: nothing owns the ref yet
+    expect(lag.received.length).toBeGreaterThan(0); // the probe really is running
+    expect(relay.close("r-race", "handshake-grace")).toBe(false); // the plane's ssh_relay_close lands first
+    await expect(pending).rejects.toThrow(/already closed by the plane/);
+    // (b) release: the responder's own close line ran (the probe's one-shot
+    // connections are gone by then; nothing was ever forwarded).
+    expect(lines.some((l) => l.includes("r-race") && l.includes("A-side responder closed"))).toBe(true);
+    // (c) no orphan: the refused late register took no slot...
+    expect(relay.size).toBe(0);
+    // (d) and the tombstone punishes only THAT ref: a genuinely new session
+    // registers normally (the TTL-bounded expiry itself is pinned in
+    // commands-ssh-relay.test.ts with an injected clock).
+    expect(relay.register("r-fresh", REFUSAL_FILLER)).toBe(true);
+    expect(relay.isTombstoned("r-race")).toBe(true);
+  } finally {
+    relay.closeAll("lifetime-expiry");
+    await lag.close();
+  }
+});
+
+test("a late B open for a ref the plane already closed unbinds its proxy (fix MAJOR 2, B twin)", async () => {
+  const relay = new RelaySessions();
+  // The plane's cut lands before the open ever registers.
+  expect(relay.close("r-late-b", "handshake-grace")).toBe(false);
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-relay-btomb-"));
+  const socketPath = buildAgentSocketPath(dataDir, "pane-late");
+  await expect(
+    openBRelaySession({
+      relay,
+      dataDir,
+      selfNodeId: "b-node",
+      paneId: "pane-late",
+      cmd: await refusalCmd({ role: "B", ref: "r-late-b", relayId: "relay-late-b" }),
+      sendRelayFrame: () => {},
+    }),
+  ).rejects.toThrow(/already closed by the plane/);
+  // The proxy bound, the refused register released it: no socket remains and
+  // no slot was taken.
+  expect(existsSync(socketPath)).toBe(false);
+  expect(relay.size).toBe(0);
+  expect(relay.isTombstoned("r-late-b")).toBe(true);
 });
 
 /* ------------------------------------------------------------------ */

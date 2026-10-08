@@ -104,10 +104,14 @@ export async function execSshRelayOpen(
     });
     return { ok: true, data: { role: "B", relayId: cmd.relayId, socketPath } as unknown as JsonValue };
   } catch (err: unknown) {
-    // Named refusals (MOVED pin, malformed peer key, owned ref): the plane's
-    // openRelay turns the rejection into its own named refusal. The string
-    // travels the RESULT channel only - openBRelaySession's refusals name
-    // ids and the §4.5 remedy, never key material.
+    // Named refusals (MOVED pin, malformed peer key, owned ref, registry
+    // cap, already-closed ref): the plane's openRelay turns the rejection
+    // into its own named refusal. The string travels the RESULT channel -
+    // and the plane ALSO interpolates a rejected command's reason into the
+    // THROWN `SshRelayRefusal("handshake", ...)` that openRelay raises, so
+    // anything that ever logs either shape, at any level, inherits this as
+    // load-bearing: node refusals name ids and the §4.5 remedy, never key
+    // material (NIT, fix round T8).
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
@@ -117,7 +121,11 @@ export async function execSshRelayOpen(
  * named reason to the local owner (§5.6's endpoint line). Ungated by design
  * (module doc). An unknown ref answers `closed: false` - a close racing the
  * plane's own cut is routine, and a false answer to a redundant close is the
- * honest record, not an error.
+ * honest record, not an error. The registry additionally TOMBSTONES an
+ * unknown ref for a bounded TTL (RelaySessions, fix round T8 MAJOR 2), so
+ * the close also disarms the one race that answer used to hide: a detached
+ * A-open that succeeds AFTER this cut can no longer register a responder
+ * nothing will ever close.
  */
 export function execSshRelayClose(ctx: CommandContext, cmd: SshRelayCloseCommand): CommandResult {
   const relay = ctx.relay;
