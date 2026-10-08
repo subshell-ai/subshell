@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { NODE_PROTOCOL_VERSION, parseNodeEvent, parseRelayFrame } from "../node-frames.js";
+import {
+  NODE_PROTOCOL_VERSION,
+  parseNodeEvent,
+  parseRelayFrame,
+  relayFrameOverCap,
+  relayFrameRefIfOverCap,
+} from "../node-frames.js";
 import { SSH_RELAY_FRAME_MAX_BYTES } from "../ssh-limits.js";
 
 /**
@@ -71,6 +77,33 @@ describe("parseRelayFrame", () => {
     expect(parseRelayFrame("nope")).toBeNull();
     expect(parseRelayFrame("null")).toBeNull(); // parses, and null is not a frame
     expect(parseRelayFrame(JSON.stringify([good]))).toBeNull(); // an array is not a record either
+  });
+
+  it("parseRelayFrame stays STRICT about over-cap, and the over-cap probe names it (Task 4 review)", () => {
+    // The strict parse answers an over-cap blob with the same null as junk,
+    // which keeps the NodeEvent union safe but is invisible to the future
+    // broker (§5.1 owes the refusal a named close). relayFrameOverCap is the
+    // tiebreaker: true ONLY for a well-formed candidate whose decoded blob
+    // is over the cap; the blob is measured, never decoded.
+    const over = { ...good, blob: b64OfRawLength(SSH_RELAY_FRAME_MAX_BYTES + 1) };
+    expect(parseRelayFrame(over)).toBeNull(); // strict, unchanged
+    expect(relayFrameOverCap(over)).toBe(true);
+    expect(relayFrameRefIfOverCap(over)).toBe("r-4f2a"); // the ref a named close needs
+    expect(relayFrameOverCap(JSON.stringify(over))).toBe(true); // raw-text intake
+    // At the cap is lawful, not over-cap.
+    expect(relayFrameOverCap({ ...good, blob: b64OfRawLength(SSH_RELAY_FRAME_MAX_BYTES) })).toBe(false);
+    expect(relayFrameRefIfOverCap({ ...good, blob: b64OfRawLength(SSH_RELAY_FRAME_MAX_BYTES) })).toBeNull();
+    // A malformed shape is NOT an over-cap, even when its blob is huge: the
+    // probe follows the same shape checks as the strict parse, in order.
+    expect(relayFrameOverCap({ ...over, direction: "sideways" })).toBe(false);
+    expect(relayFrameOverCap({ ...over, seq: -1 })).toBe(false);
+    expect(relayFrameOverCap({ ...over, ref: "" })).toBe(false);
+    expect(relayFrameOverCap({ ...over, blob: "!!!" })).toBe(false);
+    // Junk answers false/false, never an error.
+    expect(relayFrameOverCap("nope")).toBe(false);
+    expect(relayFrameRefIfOverCap("nope")).toBeNull();
+    expect(relayFrameOverCap(null)).toBe(false);
+    expect(relayFrameOverCap(good)).toBe(false);
   });
 
   it("the relay kind joins the node-event narrowing (the plane's one inbound parse)", () => {

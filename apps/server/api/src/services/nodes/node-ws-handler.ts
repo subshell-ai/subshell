@@ -7,6 +7,7 @@ import {
   type NodeEvent,
   nodeVersionSupported,
   parseNodeEvent,
+  relayFrameRefIfOverCap,
 } from "@internal/subshell-protocol";
 import type { LinkSession } from "@internal/subshell-protocol/node-link-crypto";
 import { HttpError } from "@/api/auth-guard.js";
@@ -47,7 +48,7 @@ import {
   releaseHeld,
 } from "./node-registry.js";
 import { binaryPayload, failConnPendings, resolveResult } from "./node-rpc.js";
-import { onRelayFrame } from "./relay-frames.js";
+import { onRelayFrame, onRelayFrameOverCap } from "./relay-frames.js";
 import { recordNodeDisconnect, recordNodeReady } from "./update-tracker.js";
 
 /**
@@ -746,6 +747,18 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
 
   const event = parseNodeEvent(resolved);
   if (!event) {
+    // A WELL-FORMED relay frame whose blob exceeds SSH_RELAY_FRAME_MAX_BYTES
+    // is refused by the strict grammar (parseRelayFrame stays strict so the
+    // NodeEvent union cannot carry an unlawful frame), but §5.1 refuses to
+    // answer it with silence: "closed with a named reason" needs the refusal
+    // to be OBSERVABLE. Probe the shape before logging "unrecognized" - the
+    // probe reads shape and the blob's raw length only, never the bytes
+    // (§5.5) - and route the named refusal to the relay seam.
+    const overCapRef = relayFrameRefIfOverCap(resolved);
+    if (overCapRef !== null) {
+      onRelayFrameOverCap(nodeId, overCapRef);
+      return;
+    }
     logger.debug(`node ws: dropped unrecognized frame from ${nodeId}`);
     return;
   }

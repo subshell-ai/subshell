@@ -115,6 +115,8 @@ export {
   partPathOf,
   type RelayDirection,
   type RelayFrame,
+  relayFrameOverCap,
+  relayFrameRefIfOverCap,
 } from "./node-frames.js";
 export {
   type DetectResultWire,
@@ -249,10 +251,12 @@ export {
 export {
   parseSshNodeCommandBody,
   SSH_COMMAND_TYPES,
+  SSH_RELAY_CLOSE_REASONS,
   type SshDiscoverAliasesCommand,
   type SshNodeCommandBody,
   type SshRegisterIdentityCommand,
   type SshRelayCloseCommand,
+  type SshRelayCloseReason,
   type SshRelayOpenCommand,
   type SshRelayRole,
   type SshResolveConfigCommand,
