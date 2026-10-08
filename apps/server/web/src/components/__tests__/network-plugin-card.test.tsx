@@ -1357,10 +1357,10 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
   // per-wait budgets stay honest; the load allowance is NOT here anymore -
   // the package's script carries `--timeout 45000` (issue #261 round 2 set it
   // to 30000 after CI's serial run measured this file's sibling chain at
-  // 26.2 s against a 20 s ceiling; the 2026-10-08 serial run timed out THIS
-  // test at 30.098 s on a larger suite, so the knob moved one notch), and one
-  // knob per package is the rule the server package's testing-notes record
-  // for exactly this whack-a-mole.
+  // 26.2 s against a 20 s ceiling; the 2026-10-08 serial run timed out the
+  // fail-then-succeed test BELOW at 30.098 s on a larger suite, moving the
+  // knob one more notch), and one knob per package is the rule the server
+  // package's testing-notes record for exactly this whack-a-mole.
   it("a failed act says so", async () => {
     failedPublishThenLeave();
     await renderCard(JOINED);
@@ -1404,8 +1404,8 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     // No per-test ceiling: the package's 45 s script budget governs, per the
     // rationale on the test above. This one runs the full fail-then-succeed
     // chain - measured 12-16 s on CI's slice when the 20 s ceiling was set,
-    // 26.2 s on 2026-09-30's, and it crossed 30 s (timed out at 30.098 s) on
-    // 2026-10-08's larger suite, the two events that moved the knob 30 to 45.
+    // 26.2 s on 2026-09-30's (which moved the knob 20 to 30), and it crossed
+    // 30 s (timed out at 30.098 s) on 2026-10-08's larger suite (30 to 45).
   });
 
   it("uses the vendor's own words for the credential and for publishing", async () => {
