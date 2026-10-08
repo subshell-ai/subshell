@@ -337,6 +337,7 @@ async function openFixture(
     grantId: "grant-1",
     fingerprints: [fp(KEY_IN)],
     lifetimeMs: 30_000,
+    paneId: "pane-a-test", // grammar (b): the command names the pane
     ...overrides,
   };
   await openARelaySession({
@@ -1032,6 +1033,7 @@ test("openARelaySession refuses a command that does not name this machine in its
     grantId: "grant-1",
     fingerprints: [],
     lifetimeMs: 30_000,
+    paneId: "pane-a-test",
   };
   // role B: the A branch is not for this command.
   await expect(
@@ -1101,6 +1103,7 @@ test("openARelaySession enforces §4.4 byte-equality on B's pin and the duplicat
       grantId: "grant-1",
       fingerprints: [],
       lifetimeMs: 30_000,
+      paneId: "pane-a-test",
     };
     // A moved signing half under the SAME peer id: a hard block, never a silent overwrite.
     await expect(
@@ -1163,6 +1166,7 @@ test("a pinned peer key that is not a usable public P-256 JWK rejects the sessio
         grantId: "grant-1",
         fingerprints: [],
         lifetimeMs: 30_000,
+        paneId: "pane-a-test",
       },
       sendRelayFrame: () => {},
       resolveAgentSocket: () => null,

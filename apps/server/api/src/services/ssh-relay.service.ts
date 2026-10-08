@@ -184,8 +184,8 @@ export interface OpenRelayResult {
   socketPath: string;
 }
 
-/** Opaque timer handle; the scheduler seam's own identity. */
-export type TimerHandle = { readonly brand?: never };
+/** Opaque timer handle: the scheduler seam's own identity, carried untouched to `cancel`. */
+export type TimerHandle = unknown;
 
 /** The broker's world, every seam injectable (production default at the bottom). */
 export interface RelayBrokerDeps {

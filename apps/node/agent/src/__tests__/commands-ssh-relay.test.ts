@@ -2,10 +2,15 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { NodeCommandBody, RelayFrame, SshRelayOpenCommand } from "@internal/subshell-protocol";
+import {
+  type NodeCommandBody,
+  type RelayFrame,
+  SSH_RELAY_MAX_PER_NODE,
+  type SshRelayOpenCommand,
+} from "@internal/subshell-protocol";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
-import { type ARelaySessionArgs, RelaySessions } from "../commands/ssh-relay.js";
+import { type BRelaySessionArgs, RelaySessions } from "../commands/ssh-relay.js";
 import { execSshRelayClose, execSshRelayOpen, type RelayOpenSeams } from "../commands/ssh-relay-exec.js";
 import { writeSshEnabled } from "../ssh-enabled.js";
 
@@ -179,13 +184,13 @@ describe("the A branch: the probe runs OFF the command chain (T7 handoff)", () =
 describe("the B branch: the pane rides the command, the answer carries the socket", () => {
   it("openBRelaySession gets the COMMAND's paneId and its socket path answers back", async () => {
     const { ctx, relay } = makeCtx("b-ok");
-    const seenArgs: ARelaySessionArgs[] = [];
+    const seenArgs: BRelaySessionArgs[] = [];
     const seams: RelayOpenSeams = {
       openA: async () => {
         throw new Error("must not run");
       },
       openB: async (args) => {
-        seenArgs.push(args as unknown as ARelaySessionArgs);
+        seenArgs.push(args);
         relay?.sessions.register(args.cmd.ref, { onRelayFrame: () => {}, close: () => {} });
         return { socketPath: `${args.dataDir}/ssh/${args.paneId}/agent.sock` };
       },
@@ -214,6 +219,25 @@ describe("the B branch: the pane rides the command, the answer carries the socke
     const res = await execSshRelayOpen(ctx, openCmd({ role: "B", aNodeId: "node-peer", bNodeId: "node-self" }), seams);
     expect(res.ok).toBe(false);
     expect(res.ok === false && res.error).toContain("MOVED");
+  });
+});
+
+describe("RelaySessions concurrency bound (acceptance (g), node-side defense)", () => {
+  const handler = { onRelayFrame: () => {}, close: () => {} };
+
+  it("rejects a 9th concurrent session with a named refusal and keeps the dup-ref false", () => {
+    const relay = new RelaySessions();
+    for (let i = 0; i < SSH_RELAY_MAX_PER_NODE; i += 1) expect(relay.register(`r-${i}`, handler)).toBe(true);
+    // The existing dup-ref contract is UNCHANGED: false, no throw.
+    expect(relay.register("r-0", handler)).toBe(false);
+    // A NEW ref over the cap is a loud named refusal (defense-in-depth; the
+    // plane's quota is authoritative, this is the machine refusing to hold a
+    // 9th proxy anyway).
+    expect(() => relay.register(`r-${SSH_RELAY_MAX_PER_NODE}`, handler)).toThrow(/max 8/);
+    expect(relay.size).toBe(SSH_RELAY_MAX_PER_NODE);
+    // Releasing a ref frees a slot: the next register lands.
+    relay.close("r-3", "lifetime-expiry");
+    expect(relay.register(`r-${SSH_RELAY_MAX_PER_NODE}`, handler)).toBe(true);
   });
 });
 
