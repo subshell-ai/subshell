@@ -44,6 +44,14 @@ import { log } from "./log.js";
  * agent requests per connection; the queue makes that true across the relay
  * too, which is what makes replies safely FIFO.
  *
+ * When a connection dies with its request ALREADY delivered, the slot BURNS
+ * rather than freeing: it keeps holding the dead request's seq until that
+ * request's reply arrives, and that reply - verified through the same
+ * checklist as any - is decoded and DISCARDED without touching a socket.
+ * Only after the absorb does the slot release and the queue promote, so a
+ * dead request's honest answer can never be written into a live connection's
+ * ssh stream.
+ *
  * Key handling mirrors the caller checklist in `task-5-report` verbatim: the
  * wrapper is opened with B's own encryption key and the FRAME's ref/direction
  * (`expect` required, M-1); the signature is verified against A's pinned
@@ -83,7 +91,15 @@ export interface AgentProxyArgs {
   seal: RelaySealFn;
   /** The opening primitive - mcp-core's `open`. */
   open: RelayOpenFn;
-  /** Hand one sealed B2A frame to the link pump (the daemon's `send`, via the ctx seam). */
+  /**
+   * Hand one sealed B2A frame to the link pump (the daemon's `send`, via the
+   * ctx seam). DELIVER-OR-THROW: the proxy treats a THROW from this callback
+   * as NON-DELIVERY - the request's connection is failed, no slot is taken,
+   * and the queue advances (the seal-failure posture). The Task-8 glue MUST
+   * therefore throw on a dropped send: a pump that logs-and-returns while no
+   * socket lives would otherwise leave a phantom request whose reply never
+   * comes, hanging the session until an external teardown.
+   */
   sendRelayFrame(frame: RelayFrame): void;
   /** Line sink; defaults to the agent logger. Never receives keys, nonces, or agent bytes. */
   log?: (line: string) => void;
@@ -122,10 +138,26 @@ function framing(payload: Buffer): Buffer {
   return Buffer.concat([header, payload]);
 }
 
-/** A live client connection plus its receive buffer and (while outstanding) its relay slot. */
+/** A live client connection plus its receive buffer. */
 interface ConnState {
   socket: Socket;
   buffer: Buffer;
+}
+
+/**
+ * The ONE outstanding request (the FIFO head at the relay) plus its burn
+ * state. While `awaitingAbsorb` is false, `conn` owns the reply when it
+ * lands. Once that connection has DIED after its frame was delivered, the
+ * slot burns: the next gate-passed A2B reply belongs to the dead request, is
+ * verified through the full checklist and then discarded without touching any
+ * socket, and only after that does the slot release and the queue promote.
+ */
+interface OutstandingSlot {
+  conn: ConnState;
+  /** The signed seq the delivered request carried (burn bookkeeping, log line). */
+  signedSeq: number;
+  /** True once the slot's connection died with the reply still owed to it. */
+  awaitingAbsorb: boolean;
 }
 
 /**
@@ -139,15 +171,17 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
   const socketPath = buildAgentSocketPath(args.dataDir, args.paneId);
 
   // Pin sanity BEFORE binding: both peer halves must be public P-256 JWKs
-  // (bytesOfJwk throws on a `d` member, a foreign curve, or junk). Parsing
-  // once keeps the per-frame verify free of JSON work.
-  const peerSigning = JSON.parse(args.peerSigningJwk) as JsonWebKey;
+  // (bytesOfJwk throws on a `d` member, a foreign curve, or junk - and it
+  // parses the string itself, so a malformed pin is caught HERE and surfaces
+  // as the named refusal, never as a raw SyntaxError). Parsing once AFTER
+  // the guard keeps the per-frame verify free of JSON work.
   try {
     bytesOfJwk(args.peerSigningJwk);
     bytesOfJwk(args.peerEncryptionJwk);
   } catch (err) {
     throw new Error(`relay proxy: pinned peer key rejected: ${err instanceof Error ? err.message : String(err)}`);
   }
+  const peerSigning = JSON.parse(args.peerSigningJwk) as JsonWebKey;
   const ownSigningPrivate = JSON.parse(args.ownSigningPrivateJwk) as JsonWebKey;
   const ownEncryption = {
     principalId: `node:${args.selfNodeId}`,
@@ -183,7 +217,7 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
 
   const conns = new Set<ConnState>();
   /** The ONE outstanding request (the FIFO head at the relay), if any. */
-  let outstanding: { conn: ConnState } | null = null;
+  let outstanding: OutstandingSlot | null = null;
   /** True while a seal is in flight: no slot has been taken, and no other request starts. */
   let sealedInFlight = false;
   const queue: { conn: ConnState; payload: Buffer }[] = [];
@@ -219,11 +253,12 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
   /** Seal one agent request and hand the frame to the pump; then open the slot. */
   const sendRequest = async (conn: ConnState, payload: Buffer): Promise<void> => {
     const agentBytesB64 = base64UrlNoPad(new Uint8Array(payload));
+    const reqSeq = signedSeq; // the anti-replay seq this request signs into its envelope
     const message = {
       relaySessionId: args.relayId,
       routingRef: args.ref,
       direction: "B2A" as const,
-      seq: signedSeq,
+      seq: reqSeq,
       nB,
       ...(nA === undefined ? {} : { nA }),
       agentBytesB64,
@@ -250,7 +285,6 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
       void pumpQueue();
       return;
     }
-    signedSeq += 1;
     try {
       args.sendRelayFrame({
         type: "relay",
@@ -260,13 +294,25 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
         blob,
       });
     } catch (err) {
+      // DELIVER-OR-THROW (the callback's JSDoc): a thrown pump means the
+      // frame never reached A, so no reply will ever come for it. Taking the
+      // slot anyway would park a phantom request until an external teardown;
+      // mirror the seal-failure posture instead: cost the request its
+      // connection and drain the queue. No seq is consumed - A never saw
+      // this request, so the next one lawfully re-uses the numbers.
       say(`relay session ${args.ref}: the link pump refused a request: ${String(err)}`);
+      sealedInFlight = false;
+      failConn(conn);
+      void pumpQueue();
+      return;
     }
+    signedSeq += 1;
     transportSeq += 1;
     sealedInFlight = false;
-    // The slot HOLDS the frame's reply: further requests queue until it lands
-    // (or the connection dies and its close handler frees the slot).
-    outstanding = { conn };
+    // The slot HOLDS the delivered frame's reply: further requests queue
+    // until it lands - or the connection dies, which BURNS the slot (see the
+    // close handler) so the owed reply is absorbed, never handed past it.
+    outstanding = { conn, signedSeq: reqSeq, awaitingAbsorb: false };
     void pumpQueue();
   };
 
@@ -319,8 +365,15 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
       }
       // A mid-seal death needs no bookkeeping here: sendRequest re-checks
       // liveness before taking the slot, and drops the sealed frame if the
-      // connection is gone.
-      if (outstanding?.conn === conn && !sealedInFlight) releaseOutstanding();
+      // connection is gone. A death with the frame ALREADY DELIVERED burns
+      // the slot instead of freeing it: A's genuine reply to the dead
+      // request is still coming, and release-and-immediately-promote would
+      // write that reply onto the next connection's socket - a wrong agent
+      // answer into a live ssh stream. The burn is absorbed in deliverReply,
+      // and only then does the slot release and the queue promote.
+      if (outstanding?.conn === conn && !sealedInFlight && !outstanding.awaitingAbsorb) {
+        outstanding.awaitingAbsorb = true;
+      }
     };
     socket.on("close", forget);
     socket.on("error", () => {
@@ -347,7 +400,8 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
   // after the fact can.
   chmodSync(socketPath, 0o600);
 
-  /** Open + verify one inbound reply, then write it back. Runs on the chain. */
+  /** Open + verify one inbound reply, then write it back - or absorb it if its
+   *  connection died (the burned slot consumes it). Runs on the chain. */
   const deliverReply = async (frame: RelayFrame): Promise<void> => {
     if (closed) return;
     let opened;
@@ -399,14 +453,26 @@ export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyH
     }
     if (nA === undefined) nA = message.nA; // record A's nonce on the first verified reply
     const payload = Buffer.from(message.agentBytesB64, "base64url");
-    const waiting = outstanding;
-    if (!waiting) {
+    const slot = outstanding;
+    if (!slot) {
       say(`relay session ${args.ref}: a reply with no outstanding request was dropped`);
+      return;
+    }
+    if (slot.awaitingAbsorb) {
+      // The ABSORB path: the connection that made this request died after its
+      // frame was delivered, so this verified reply is the dead request's
+      // answer. It passed the full checklist (nothing unverified gets this
+      // far) and is then discarded: written to NO socket. The burn ends here
+      // - the slot releases and the queue promotes only now, so the live
+      // connection behind it waits for its OWN reply, in order.
+      say(`relay session ${args.ref}: absorbed the verified reply to a dead agent connection (seq ${slot.signedSeq})`);
+      outstanding = null;
+      void pumpQueue();
       return;
     }
     outstanding = null;
     try {
-      waiting.conn.socket.write(framing(payload));
+      slot.conn.socket.write(framing(payload));
     } catch {
       /* the close handler already forgot it */
     }

@@ -26,10 +26,18 @@ import { type AgentProxyHandle, buildAgentSocketPath, startAgentProxy } from "..
  * consumes is the shipped wire shape end to end.
  */
 
-/** The ssh-agent wire type bytes (OpenSSH `agent-proto.h`). */
-const SSH2_AGENTC_REQUEST_IDENTITIES = 17;
-const SSH2_AGENTC_SIGN_REQUEST = 13;
-const SSH2_AGENT_IDENTITIES = 18;
+/**
+ * The ssh-agent wire type bytes as OpenSSH `agent-proto.h` defines them:
+ * SSH2_AGENTC_REQUEST_IDENTITIES is 13 and SSH2_AGENTC_SIGN_REQUEST is 15
+ * (NOT the RFC 9987 renumbering 11/13; 17/18 are ADD/REMOVE IDENTITY, the
+ * common misread the first draft of this file carried). These are opaque
+ * fixture payloads only: the B proxy forwards agent bytes byte-agnostically
+ * and never parses a type byte - the numeric type gate is A's responder's
+ * default-deny (Task 7).
+ */
+const SSH2_AGENTC_REQUEST_IDENTITIES = 13;
+const SSH2_AGENTC_SIGN_REQUEST = 15;
+const SSH2_AGENT_IDENTITIES_ANSWER = 12;
 
 interface JwkPair {
   publicJwk: string;
@@ -112,7 +120,11 @@ interface ProxyFixture {
   cleanup(): void;
 }
 
-async function startFixture(paneId = "pane-1"): Promise<ProxyFixture> {
+async function startFixture(
+  paneId = "pane-1",
+  /** Overrides the pump entirely (a throwing pump tests deliver-or-throw); default collects. */
+  send?: (frame: RelayFrame) => void,
+): Promise<ProxyFixture> {
   const [aKeys, bKeys] = await Promise.all([aKeysReady, bKeysReady]);
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-relay-proxy-"));
   const frames: RelayFrame[] = [];
@@ -131,6 +143,10 @@ async function startFixture(paneId = "pane-1"): Promise<ProxyFixture> {
     seal: mcpSeal,
     open: mcpOpen,
     sendRelayFrame: (frame) => {
+      if (send) {
+        send(frame);
+        return;
+      }
       frames.push(frame);
     },
   });
@@ -256,7 +272,12 @@ test("a second request gets seq 1 and carries the recorded nA onward", async () 
     const first = await openAndVerifyB2A(f, f.frames[0]);
 
     const nA = newNonce();
-    const reply = await sealReply(f, { seq: 0, nB: first.nB, nA, agentBytes: [SSH2_AGENT_IDENTITIES, 0, 0, 0, 0] });
+    const reply = await sealReply(f, {
+      seq: 0,
+      nB: first.nB,
+      nA,
+      agentBytes: [SSH2_AGENT_IDENTITIES_ANSWER, 0, 0, 0, 0],
+    });
     f.proxy.deliverInboundRelayFrame(reply);
     await waitUntil(() => spyC.chunks.length === 1, "reply bytes written back");
 
@@ -287,7 +308,7 @@ test("a correctly sealed+signed A reply (stub A keypair pinned) writes the agent
     await waitUntil(() => f.frames.length === 1, "request frame out");
     const first = await openAndVerifyB2A(f, f.frames[0]);
 
-    const replyBytes = [SSH2_AGENT_IDENTITIES, 0, 0, 0, 2, 0, 0, 0, 1, 65];
+    const replyBytes = [SSH2_AGENT_IDENTITIES_ANSWER, 0, 0, 0, 2, 0, 0, 0, 1, 65];
     const reply = await sealReply(f, { seq: 0, nB: first.nB, nA: newNonce(), agentBytes: replyBytes });
     f.proxy.deliverInboundRelayFrame(reply);
     await waitUntil(() => spyC.chunks.length >= 1, "reply written back");
@@ -316,7 +337,7 @@ test("a reply signed by the WRONG key is refused: nothing written, the pending c
       seq: 0,
       nB: first.nB,
       nA: newNonce(),
-      agentBytes: [SSH2_AGENT_IDENTITIES],
+      agentBytes: [SSH2_AGENT_IDENTITIES_ANSWER],
       signerPrivateJwk: evil.privateJwk, // not the pinned key: an origin failure
     });
     f.proxy.deliverInboundRelayFrame(forged);
@@ -342,7 +363,7 @@ test("a reply with a mismatched relay-session id or nB nonce is refused and not 
       seq: 0,
       nB: first.nB,
       nA: newNonce(),
-      agentBytes: [SSH2_AGENT_IDENTITIES],
+      agentBytes: [SSH2_AGENT_IDENTITIES_ANSWER],
       relaySessionId: "relay-OTHER",
     });
     f.proxy.deliverInboundRelayFrame(wrongSession);
@@ -359,7 +380,7 @@ test("a reply with a mismatched relay-session id or nB nonce is refused and not 
       seq: 0,
       nB: newNonce(),
       nA: newNonce(),
-      agentBytes: [SSH2_AGENT_IDENTITIES],
+      agentBytes: [SSH2_AGENT_IDENTITIES_ANSWER],
     });
     f.proxy.deliverInboundRelayFrame(wrongNonce);
     await waitUntil(() => spy2.closed(), "nonce mismatch fails the pending connection");
@@ -434,6 +455,108 @@ test("an openable but unsigned-sealed blob (plane-crafted noise, wrong recipient
 });
 
 /* ------------------------------------------------------------------ */
+/* FIFO integrity: a reply to a dead connection burns the slot        */
+/* ------------------------------------------------------------------ */
+
+test("a reply to a dead connection is absorbed: never written to the next connection's socket", async () => {
+  const f = await startFixture();
+  try {
+    const x = connectSocket(f.proxy.socketPath);
+    const spyX = spy(x);
+    await new Promise<void>((res) => x.on("connect", () => res()));
+    x.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]));
+    await waitUntil(() => f.frames.length === 1, "X's request frame out");
+    const first = await openAndVerifyB2A(f, f.frames[0]);
+
+    // Y queues behind X's outstanding slot.
+    const y = connectSocket(f.proxy.socketPath);
+    const spyY = spy(y);
+    await new Promise<void>((res) => y.on("connect", () => res()));
+    y.write(agentFrame([SSH2_AGENTC_SIGN_REQUEST, 1, 2, 3]));
+    await sleep(30);
+    expect(f.frames.length).toBe(1); // queued unsealed: the slot holds X's request
+
+    // X dies with its reply still owed. The slot BURNS: it keeps holding the
+    // dead request, so the queue must NOT promote yet (an immediate release
+    // would put Y's request on the wire while A's answer to X is still in
+    // flight, and that answer would then land on Y's socket).
+    x.destroy();
+    await waitUntil(() => spyX.closed(), "X's socket closed");
+    await sleep(30);
+    expect(f.frames.length).toBe(1); // burned slot: no early promote
+
+    // A's genuine reply to X arrives: fresh, gate-passing seq 0, correctly
+    // signed. It must be verified and DISCARDED, never delivered to Y.
+    const nA = newNonce();
+    const replyToX = await sealReply(f, { seq: 0, nB: first.nB, nA, agentBytes: [99, 98, 97] });
+    f.proxy.deliverInboundRelayFrame(replyToX);
+    await waitUntil(() => f.frames.length === 2, "the absorb releases the slot and Y's queued request goes out");
+    expect(spyY.chunks.length).toBe(0); // NEVER X's agent answer inside Y's stream
+
+    // Y's request left as seq 1 (X lawfully consumed 0), carrying the recorded nA.
+    const second = await openAndVerifyB2A(f, f.frames[1]);
+    expect(f.frames[1].seq).toBe(1);
+    expect(second.seq).toBe(1);
+    expect(second.nA).toBe(nA);
+    expect(second.agentBytes).toEqual(Buffer.from([SSH2_AGENTC_SIGN_REQUEST, 1, 2, 3]));
+
+    // A's reply to Y (seq 1) arrives: THAT is what Y receives, in order.
+    const replyToY = await sealReply(f, { seq: 1, nB: first.nB, nA, agentBytes: [1, 2, 3] });
+    f.proxy.deliverInboundRelayFrame(replyToY);
+    await waitUntil(() => spyY.chunks.length === 1, "Y's own reply written to Y");
+    expect(spyY.chunks[0].subarray(4)).toEqual(Buffer.from([1, 2, 3]));
+    expect(spyY.closed()).toBe(false);
+  } finally {
+    f.cleanup();
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/* deliver-or-throw: a refused send fails the request, never hangs it */
+/* ------------------------------------------------------------------ */
+
+test("a sendRelayFrame that throws fails the connection and drains the queue; no phantom slot, no consumed seq", async () => {
+  const sent: RelayFrame[] = [];
+  let attempts = 0;
+  const f = await startFixture("pane-throw", (frame) => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("link down: the pump dropped the send");
+    sent.push(frame);
+  });
+  try {
+    const a = connectSocket(f.proxy.socketPath);
+    const spyA = spy(a);
+    await new Promise<void>((res) => a.on("connect", () => res()));
+    // req1 takes the slot straight away; req2 queues behind the in-flight
+    // seal (arrives in the same read while sealedInFlight holds).
+    a.write(Buffer.concat([agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES]), agentFrame([SSH2_AGENTC_SIGN_REQUEST, 9])]));
+    await waitUntil(() => spyA.closed(), "the connection fails on the refused send instead of hanging");
+    expect(attempts).toBe(1); // only req1 reached the pump; req2 died at the liveness gate
+    expect(sent.length).toBe(0); // nothing ever reached A
+
+    // The throw is NON-DELIVERY: no slot was claimed, so the session is free
+    // for the next request, and the failed send consumed no seq (A never saw
+    // the request; the retry lawfully re-uses 0).
+    const b = connectSocket(f.proxy.socketPath);
+    const spyB = spy(b);
+    await new Promise<void>((res) => b.on("connect", () => res()));
+    b.write(agentFrame([SSH2_AGENTC_REQUEST_IDENTITIES, 4, 5]));
+    await waitUntil(() => sent.length === 1, "the next request goes out after the failed send");
+    expect(sent[0].seq).toBe(0);
+    const first = await openAndVerifyB2A(f, sent[0]);
+    expect(first.seq).toBe(0);
+    expect(first.agentBytes).toEqual(Buffer.from([SSH2_AGENTC_REQUEST_IDENTITIES, 4, 5]));
+
+    const reply = await sealReply(f, { seq: 0, nB: first.nB, nA: newNonce(), agentBytes: [7, 7] });
+    f.proxy.deliverInboundRelayFrame(reply);
+    await waitUntil(() => spyB.chunks.length === 1, "the live connection's reply is written");
+    expect(spyB.chunks[0].subarray(4)).toEqual(Buffer.from([7, 7]));
+  } finally {
+    f.cleanup();
+  }
+});
+
+/* ------------------------------------------------------------------ */
 /* the socket file and its directory                                   */
 /* ------------------------------------------------------------------ */
 
@@ -475,6 +598,42 @@ test("close() unbinds: the socket file is gone and a fresh connect fails", async
   await waitUntil(() => failed, "connect refused after close");
   // Idempotent: a second close must not throw.
   f.proxy.close();
+});
+
+test("a malformed pinned peer JWK surfaces the named refusal, not a raw SyntaxError", async () => {
+  const [aKeys, bKeys] = await Promise.all([aKeysReady, bKeysReady]);
+  const dataDir = mkdtempSync(join(tmpdir(), "subshell-relay-proxy-"));
+  const base = {
+    dataDir,
+    paneId: "pane-bad",
+    relayId: "relay-1",
+    ref: "r-1",
+    peerNodeId: "a-node",
+    selfNodeId: "b-node",
+    peerSigningJwk: aKeys.signing.publicJwk,
+    peerEncryptionJwk: aKeys.encryption.publicJwk,
+    ownEncryptionPublicJwk: bKeys.encryption.publicJwk,
+    ownEncryptionPrivateJwk: bKeys.encryption.privateJwk,
+    ownSigningPrivateJwk: bKeys.signing.privateJwk,
+    seal: mcpSeal,
+    open: mcpOpen,
+    sendRelayFrame: (): void => {},
+  };
+  // Not JSON at all: bytesOfJwk's guard runs FIRST and turns the parse
+  // failure into the documented refusal (the parse now happens only after
+  // the guard, so a raw SyntaxError can never escape startAgentProxy).
+  await expect(startAgentProxy({ ...base, peerSigningJwk: "{not json" })).rejects.toThrow(
+    /relay proxy: pinned peer key rejected/,
+  );
+  await expect(startAgentProxy({ ...base, peerEncryptionJwk: "!!!" })).rejects.toThrow(
+    /relay proxy: pinned peer key rejected/,
+  );
+  // Deep private material in a pin half keeps the same named refusal.
+  await expect(startAgentProxy({ ...base, peerSigningJwk: aKeys.signing.privateJwk })).rejects.toThrow(
+    /relay proxy: pinned peer key rejected/,
+  );
+  // The refusal precedes any binding: no socket name exists.
+  expect(() => statSync(buildAgentSocketPath(dataDir, "pane-bad"))).toThrow();
 });
 
 test("an over-cap request length prefix fails the connection without emitting a frame", async () => {
