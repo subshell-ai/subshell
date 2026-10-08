@@ -176,7 +176,7 @@ Every task implicitly includes these; values are copied from `docs/superpowers/s
 - Test: `apps/node/agent/src/__tests__/relay-responder.test.ts`
 
 **Interfaces:**
-- Consumes: `MachinePinStore`, `ssh-relay.ts`, the relay open command (grant id + selected fingerprint set + peer keys). Produces: `handleRelayRequest(frame, session): Promise<replyBlob|null>` that verifies origin, default-denies agent methods, filters identities, and forwards to A's real agent socket.
+- Consumes: `MachinePinStore`, `ssh-relay.ts`, the relay open command (grant id + selected fingerprint set + peer keys). Produces (the shipped seam): `startRelayResponder(...)` + `openARelaySession(...)` + `deliverInboundRelayFrame(frame)` returning `{ onRelayFrame, close }` registered into `RelaySessions`. It probes A's agent scheme at open, verifies origin against the machine pin, `SeqGate`s, default-denies agent methods, and filters identity/sign to the grant's fingerprint set (scope-before-forward in the resolved scheme). Two refusal tiers: an agent-layer FAILURE reply (a refused method or an ungranted key) vs frame-level silence (an origin/seq/shape failure drops the frame with no reply). `relay-responder.ts` is split with `relay-agent-scheme.ts` (schemes/probe/grammar) and `relay-agent-socket.ts` (transport).
 
 - [ ] **Step 1: Failing test.** A valid `REQUEST_IDENTITIES` forwarded to a stub agent returns a roster filtered to the grant's fingerprints; a `SIGN_REQUEST` whose blob hash is outside the set is refused (null) and never forwarded; `ADD_IDENTITY`/`REMOVE_ALL_IDENTITIES`/`EXTENSION` refused; a wrong-origin (bad B signature) request refused.
 - [ ] **Step 2: FAIL run.**
