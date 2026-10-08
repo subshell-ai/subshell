@@ -3,8 +3,10 @@ import { bytesOfJwk, type RelayFrame, type SshRelayOpenCommand } from "@internal
 import { loadOrCreateIdentity } from "../identity.js";
 import { log } from "../log.js";
 import { MachinePinStore } from "../machine-pin-store.js";
+import { type AgentScheme, probeAgentScheme } from "../relay-agent-scheme.js";
+import { liveAgentSocketPath, requestLiveAgent } from "../relay-agent-socket.js";
 import { startAgentProxy } from "../relay-proxy.js";
-import { liveAgentSocketPath, startRelayResponder } from "../relay-responder.js";
+import { startRelayResponder } from "../relay-responder.js";
 
 /**
  * The node-side relay session registry (spec 2026-10-08 §5.1/§5.2) and the B
@@ -266,9 +268,10 @@ export interface ARelaySessionArgs {
    */
   sendRelayFrame(frame: RelayFrame): void;
   /**
-   * Resolve A's live agent socket per request; defaults to
-   * `liveAgentSocketPath` (the connecting account's absolute `SSH_AUTH_SOCK`,
-   * the ssh-resolve rule). The test seam for a stub agent.
+   * Resolve A's live agent socket; defaults to `liveAgentSocketPath` (the
+   * connecting account's absolute `SSH_AUTH_SOCK`, the ssh-resolve rule).
+   * Used ONCE by the open-time numbering probe and again per forwarded
+   * request. The test seam for a stub agent.
    */
   resolveAgentSocket?: () => string | null;
   /** Line sink (defaults to the agent logger); never sees keys, fingerprints, or agent bytes. */
@@ -278,14 +281,19 @@ export interface ARelaySessionArgs {
 /**
  * Open the A side of a brokered relay pairing: enforce §4.4's machine pin on
  * B (first pairing writes both halves, a moved pin is a hard block naming the
- * peer and §4.5's re-pair), then start {@link startRelayResponder} for the
- * command's grant (its selected fingerprint set is carried by the command
- * itself, §5.1 - the responder enforces it without a REST call it cannot
- * make) and register the ref. Throws a named refusal (the dispatch wrapper
- * turns it into `ok:false`) on: role other than A, a pairing that names a
- * different machine as A, an unusable peer key, a MOVED pin, or a ref already
- * owned. Resolves with the session id - nothing about the machine is in the
- * answer, and no path exists to leak.
+ * peer and §4.5's re-pair), PROBE A's live agent to resolve its numbering
+ * (the ruling of 2026-10-08: classic 13/15 and OpenSSH-10.x 11/13 collide at
+ * byte 13, so {@link probeAgentScheme} must name the scheme once, here, before
+ * any byte is ever classified; an unresolved probe opens a session that
+ * refuses everything, never one that guesses), then start
+ * {@link startRelayResponder} for the command's grant (its selected
+ * fingerprint set is carried by the command itself, §5.1 - the responder
+ * enforces it without a REST call it cannot make) and register the ref.
+ * Throws a named refusal (the dispatch wrapper turns it into `ok:false`) on:
+ * role other than A, a pairing that names a different machine as A, an
+ * unusable peer key, a MOVED pin, or a ref already owned. A probe failure is
+ * NOT a throw: the session opens refuse-closed. Resolves with the session id
+ * - nothing about the machine is in the answer, and no path exists to leak.
  *
  * The gate (ssh-enabled mirror) is the CALLER's first check, like every SSH
  * arm's: this function is the pairing's mechanics, not the policy. §5.4's
@@ -328,8 +336,27 @@ export async function openARelaySession(args: ARelaySessionArgs): Promise<{ rela
     );
   }
 
+  // The numbering probe (ruling 2026-10-08), at session open and ONCE: the
+  // responder classifies every later byte only in what this resolves. No
+  // socket, or an agent that answers neither candidate, is not an error to
+  // throw around - it is the honest unresolved case, and an unresolved
+  // session refuses every request rather than forward one under a guess.
+  const say = args.log ?? ((line: string): void => log(line));
+  const resolveAgent = args.resolveAgentSocket ?? liveAgentSocketPath;
+  const agentSocket = resolveAgent();
+  let agentScheme: AgentScheme | null = null;
+  if (agentSocket !== null) {
+    agentScheme = await probeAgentScheme(agentSocket, requestLiveAgent);
+  }
+  if (agentScheme === null) {
+    say(`relay session ${cmd.ref}: agent numbering unresolved at open; every request will be refused`);
+  } else {
+    say(`relay session ${cmd.ref}: agent numbering resolved: ${agentScheme.name}`);
+  }
+
   const identity = await loadOrCreateIdentity(args.dataDir);
   const responder = startRelayResponder({
+    agentScheme,
     relayId: cmd.relayId,
     ref: cmd.ref,
     selfNodeId: args.selfNodeId,
@@ -343,7 +370,7 @@ export async function openARelaySession(args: ARelaySessionArgs): Promise<{ rela
     seal: mcpSeal,
     open: mcpOpen,
     sendRelayFrame: args.sendRelayFrame,
-    resolveAgentSocket: args.resolveAgentSocket ?? liveAgentSocketPath,
+    resolveAgentSocket: resolveAgent,
     ...(args.log === undefined ? {} : { log: args.log }),
   });
 
