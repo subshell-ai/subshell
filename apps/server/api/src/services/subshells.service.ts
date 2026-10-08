@@ -1,4 +1,6 @@
+import { rmSync } from "node:fs";
 import { homedir as osHomedir } from "node:os";
+import { dirname } from "node:path";
 import { BackendErrorCodes, throwApiError } from "@internal/backend-errors";
 // The attention kinds are imported from the reporter that SPEAKS them rather
 // than restated here: the old local `Extract<NotifyKind, …>`, widened once to
@@ -36,6 +38,7 @@ import {
   waitSentinel,
 } from "@/services/nodes/pane-exec.js";
 import { isNodeOfflineError } from "@/services/nodes/remote-launcher.js";
+import { subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
 import { getNotifyService } from "@/services/notify.service.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import {
@@ -43,6 +46,7 @@ import {
   PROMPT_SETTLE_TIMEOUT_MS,
   RestartInFlightSwapError,
   readSubshellLogWindow,
+  type SshLaunchPlumbing,
   SubshellManagerService,
 } from "@/services/subshell-manager.service.js";
 import { extendSubshellToken, subshellTokenTtlSeconds } from "@/services/subshell-tokens.js";
@@ -410,6 +414,10 @@ export class SubshellsService extends BaseService {
     nodeId,
     machineActor,
     crossAgent,
+    ssh,
+    presetFlags,
+    extraPaneEnv,
+    subshellId,
   }: {
     /** Owner of the new subshell (never taken from the body). */
     userId: string;
@@ -447,6 +455,19 @@ export class SubshellsService extends BaseService {
      * they can still turn it on from the pane's menu.
      */
     crossAgent: boolean;
+    /**
+     * The composed ssh pane (Task 7 plumbing, spec 2026-10-07 §5/decision 4),
+     * forwarded to the manager untouched: the snapshot column, the LaunchPlan
+     * config member, the flags preset, the merged pane env, the pre-assigned
+     * id the config path was derived from. The ssh-launch service
+     * (`services/ssh-launch.service.ts`) is the only caller that passes these;
+     * every other door (REST create, MCP, mobile) launches panes the ordinary
+     * way and passes none of them.
+     */
+    ssh?: SshLaunchPlumbing;
+    presetFlags?: string[];
+    extraPaneEnv?: Record<string, string>;
+    subshellId?: string;
   }): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     // Lockdown is the FIRST question the instance asks of every create
     // (operator ask 2026-09-24): it answers valid bodies and invalid ones
@@ -609,6 +630,13 @@ export class SubshellsService extends BaseService {
         // OFF — agent-to-agent comms are not news a human needs rung for —
         // and it stays togglable exactly like any other pane's.
         notify: !crossAgent,
+        // The ssh plumbing rides to the manager untouched (its own doc there
+        // says what each part writes); `undefined` everywhere else keeps the
+        // pre-Task-7 launch byte-identical.
+        ...(ssh ? { ssh } : {}),
+        ...(presetFlags !== undefined ? { presetFlags } : {}),
+        ...(extraPaneEnv !== undefined ? { extraPaneEnv } : {}),
+        ...(subshellId !== undefined ? { subshellId } : {}),
       })
       .catch(rethrowLaunchRefusal);
     // Feed the picker's Recents (and the new-subshell form's pre-fill) from
@@ -663,7 +691,41 @@ export class SubshellsService extends BaseService {
    * @param exitCode - tmux's `#{pane_dead_status}`, null when it could not be read
    */
   async reportExit(id: string, exitCode: number | null): Promise<void> {
+    await this.#sweepLocalSshConfig(id);
     await this.#manager.applySelfReportedExit(id, exitCode, new Date().toISOString());
+  }
+
+  /**
+   * The LOCAL half of the ssh config lifecycle (spec 2026-10-07 decision 4;
+   * plan-2 handoff 2): when the dying pane is a LOCAL ssh pane, best-effort
+   * `rm -rf` of `<SUBSHELL_SERVER_DATA_DIR>/ssh/<id>` — the directory the
+   * LocalLauncher wrote the rendered config into, the dirname of the one
+   * byte-derived path the launchers and the sweep agree on.
+   *
+   * Deliberately keyed on the row's `ssh` column plus its `local` node and
+   * fired BEFORE the manager's death transition, and it runs even when the
+   * row is already retired: a terminate kills the pane, the tmux `pane-died`
+   * hook races the retire stamp, and whichever order they land in the config
+   * must be gone once the report has been heard (Task 9's e2e asserts exactly
+   * that after terminate). Agent rows are skipped by rule, not by accident —
+   * their config lives on the NODE's disk and the agent's own exit watcher
+   * unlinks it; removing a directory named after a remote pane off THIS
+   * server would be this host deleting a file that is not its (the delete
+   * path's per-node launcher doctrine, same reason).
+   *
+   * Best-effort by shape: any failure (missing dir, an id outside the path
+   * guard, a refusing filesystem) costs one log line and nothing else — the
+   * death transition must land regardless, and a stale config in a dir whose
+   * name is a dead pane's id is garbage, not a hazard.
+   */
+  async #sweepLocalSshConfig(id: string): Promise<void> {
+    try {
+      const row = await this.repos.subshells.findById(id);
+      if (!row || row.nodeId !== LOCAL_NODE_ID || row.ssh === null) return;
+      rmSync(dirname(subshellSshConfigPath(id)), { recursive: true, force: true });
+    } catch (err) {
+      logger.withError(err).warn(`ssh config sweep failed for local pane ${id}; the dir ages out with the delete path`);
+    }
   }
 
   /**
@@ -1214,6 +1276,19 @@ export class SubshellsService extends BaseService {
     prompt?: string,
   ): Promise<{ id: string; tmuxSocket: string; promptDelivered: boolean }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
+    // An ssh pane refuses restart (spec 2026-10-07 decision 7): its session
+    // lives on the far end of a socket, and a restart would spawn a NEW ssh
+    // process the human never asked to reconnect — the launcher is the way
+    // back in. Keyed to the `subshells.ssh` column (the kind fact, migration
+    // 0048), asked AFTER the visibility gate so a stranger still gets the
+    // ordinary 404, and before anything this path reads or writes.
+    if (row.ssh !== null) {
+      throwApiError({
+        code: BackendErrorCodes.SSH_NO_RESTART,
+        message: "SSH panes are not restarted; launch a new one to reconnect",
+        doNotLog: true,
+      });
+    }
     // Lockdown is instance-wide, so it is asked before anything machine-shaped
     // is read. It names no machine, per the restart path's own rule (the row's
     // owner is the only guaranteed viewer of this refusal). And a stopped row's
