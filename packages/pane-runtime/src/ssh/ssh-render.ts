@@ -215,3 +215,22 @@ export function buildSshConfigPath(dataDir: string, subshellId: string): string 
   if (!/^[a-zA-Z0-9_-]{1,64}$/.test(subshellId)) throw new Error("ssh config path: invalid subshellId");
   return `${dataDir}/ssh/${subshellId}/config`;
 }
+
+/**
+ * The relay agent-proxy socket path for a pane (spec 2026-10-08 §5.2): the
+ * SAME per-pane ssh dir the rendered config owns, with `agent.sock` beside
+ * `config`. It lives beside {@link buildSshConfigPath} for the same reason
+ * the config path does: BOTH ends derive it from (dataDir, paneId) and the
+ * byte-equality is the check - the node's B executor binds exactly this path,
+ * answers the open with it, and the plane's broker re-derives it (its own
+ * dataDir record for the node + the command's paneId) and refuses a single-
+ * byte mismatch before exporting anything as the pane's scoped
+ * `SSH_AUTH_SOCK`. A machine answer naming any other path therefore points
+ * the pane's ssh at nothing the plane agreed to. Same guards, same refusals
+ * (throws) as the config path.
+ */
+export function buildAgentSocketPath(dataDir: string, paneId: string): string {
+  if (!dataDir.startsWith("/")) throw new Error("ssh agent socket path: dataDir must be absolute POSIX");
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(paneId)) throw new Error("ssh agent socket path: invalid paneId");
+  return `${dataDir}/ssh/${paneId}/agent.sock`;
+}

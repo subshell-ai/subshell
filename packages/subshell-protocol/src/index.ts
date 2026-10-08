@@ -251,6 +251,8 @@ export {
   type SshErrorCode,
 } from "./ssh-errors.js";
 export {
+  isSshGrantFingerprints,
+  isSshPaneId,
   parseSshNodeCommandBody,
   SSH_COMMAND_TYPES,
   SSH_RELAY_CLOSE_REASONS,

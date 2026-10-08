@@ -24,7 +24,13 @@ import {
   parseNodeRuntimeReport,
   partPathOf,
 } from "../node-frames.js";
-import { SSH_COMMAND_TYPES, SSH_RELAY_CLOSE_REASONS, type SshRelayOpenCommand } from "../ssh-frames.js";
+import {
+  isSshGrantFingerprints,
+  isSshPaneId,
+  SSH_COMMAND_TYPES,
+  SSH_RELAY_CLOSE_REASONS,
+  type SshRelayOpenCommand,
+} from "../ssh-frames.js";
 import { SSH_CONFIG_FILE_MAX_BYTES, SSH_MAX_GRANT_FINGERPRINTS } from "../ssh-limits.js";
 import { MIN_NODE_VERSION } from "../versions.js";
 
@@ -62,6 +68,7 @@ const relayOpenCmd: SshRelayOpenCommand = {
   grantId: "grant-77",
   fingerprints: ["SHA256:AAAA", "SHA256:BBBB"],
   lifetimeMs: 30_000,
+  paneId: "11111111-2222-4333-8444-555555555555",
 };
 
 describe("parseNodeCommandBody", () => {
@@ -1028,6 +1035,7 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
       "grantId",
       "fingerprints",
       "lifetimeMs",
+      "paneId",
     ] as const) {
       const partial = structuredClone(relayOpenCmd) as unknown as Record<string, unknown>;
       delete partial[drop];
@@ -1106,6 +1114,49 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
     expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["SHA256:AAA\tBBB"] })).toBeNull(); // control char
     expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [`SHA256:${"A".repeat(129)}`] })).toBeNull(); // over the bound
     expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [`SHA256:${"a-_0".repeat(32)}`] })).not.toBeNull(); // alphabet, at bound
+  });
+
+  it("validates the paneId against the path-composition shape (Task 8 (b))", () => {
+    // The B-side proxy socket is `<dataDir>/ssh/<paneId>/agent.sock` and
+    // pane-runtime's own guard refuses anything outside
+    // `^[a-zA-Z0-9_-]{1,64}$`; the grammar names the SAME shape so a command
+    // that could only fail the node's guard fails here first, before the
+    // plane signs it. A uuid (the normal subshell id) is in the class.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "pane-42" })).toMatchObject({ paneId: "pane-42" });
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "A9_z-x" })).toMatchObject({ paneId: "A9_z-x" });
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "x".repeat(64) })).not.toBeNull(); // at bound
+    // Every refusal below is a shape the socket-path guard could not take:
+    // traversal, absolute paths, empty, over-bound, and whitespace/control.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "x".repeat(65) })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "../escape" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "a/b" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "/abs" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "a.b" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "a b" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "a\nb" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: 42 })).toBeNull();
+    // The exported predicate is the ONE spelling of the rule; the parse arm
+    // and the plane's openRelay consult it, so a drift here is a drift there.
+    expect(isSshPaneId("pane-42")).toBe(true);
+    expect(isSshPaneId("x".repeat(64))).toBe(true);
+    expect(isSshPaneId("x".repeat(65))).toBe(false);
+    expect(isSshPaneId("a/b")).toBe(false);
+    expect(isSshPaneId("")).toBe(false);
+    expect(isSshPaneId(7)).toBe(false);
+    expect(isSshPaneId(null)).toBe(false);
+  });
+
+  it("exposes the grant fingerprint-set predicate for the plane's pre-signing check", () => {
+    // The plane validates a grant's selection with the SAME rule its own
+    // parser enforces on receipt; one definition, two directions.
+    expect(isSshGrantFingerprints([])).toBe(true); // §5.4: empty names nothing, serves nothing
+    expect(isSshGrantFingerprints(["SHA256:AAAA"])).toBe(true);
+    expect(isSshGrantFingerprints(["SHA256:AAAA", "not-a-fingerprint"])).toBe(false);
+    expect(
+      isSshGrantFingerprints(Array.from({ length: SSH_MAX_GRANT_FINGERPRINTS + 1 }, (_, i) => `SHA256:${i}`)),
+    ).toBe(false);
+    expect(isSshGrantFingerprints("SHA256:AAAA")).toBe(false);
   });
 
   it("narrows the close: routing ref and a NAMED reason from the typed union, nothing else", () => {

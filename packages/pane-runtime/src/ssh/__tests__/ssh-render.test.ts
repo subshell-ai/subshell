@@ -1,7 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { buildSshConfigPath, renderSshConfigContents, sshDestinationToken, sshOptionTokens } from "../ssh-render.js";
+import { dirname, join } from "node:path";
+import {
+  buildAgentSocketPath,
+  buildSshConfigPath,
+  renderSshConfigContents,
+  sshDestinationToken,
+  sshOptionTokens,
+} from "../ssh-render.js";
 import { makeSnapshot } from "./helpers.js";
 
 /**
@@ -232,6 +238,27 @@ describe("buildSshConfigPath", () => {
     expect(() => buildSshConfigPath("/d", "../escape")).toThrow(/subshellId/);
     expect(() => buildSshConfigPath("/d", "a".repeat(65))).toThrow(/subshellId/);
     expect(buildSshConfigPath("/d", "a".repeat(64))).toBe(`/d/ssh/${"a".repeat(64)}/config`);
+  });
+});
+
+describe("buildAgentSocketPath", () => {
+  // Spec 2026-10-08 §5.2: the relay proxy socket lives in the SAME per-pane
+  // ssh dir the rendered config owns, so the pane's dir holds `config` and
+  // `agent.sock` side by side. It lives here because BOTH ends derive it -
+  // the node binds this exact path and the plane byte-checks the path the
+  // B open answers with - and one derivation is the only thing keeping the
+  // byte-check meaningful.
+  it("composes the socket beside the config, one dir", () => {
+    expect(buildAgentSocketPath("/data", "s1")).toBe("/data/ssh/s1/agent.sock");
+    expect(dirname(buildAgentSocketPath("/data", "s1"))).toBe(dirname(buildSshConfigPath("/data", "s1")));
+  });
+
+  it("runs the same guards as the config path", () => {
+    expect(() => buildAgentSocketPath("data", "s1")).toThrow(/absolute/);
+    expect(() => buildAgentSocketPath("/d", "")).toThrow(/paneId/);
+    expect(() => buildAgentSocketPath("/d", "../escape")).toThrow(/paneId/);
+    expect(() => buildAgentSocketPath("/d", "a".repeat(65))).toThrow(/paneId/);
+    expect(buildAgentSocketPath("/d", "a".repeat(64))).toBe(`/d/ssh/${"a".repeat(64)}/agent.sock`);
   });
 });
 
