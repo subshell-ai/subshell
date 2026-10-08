@@ -108,7 +108,7 @@ function setWhereAny(g: GLine[], keywords: readonly string[], unconfigured: read
  * versions (`LocalForward` vs the `locallyforward` echo, likewise remote) —
  * accepting both spellings means a version drift can only ever make us
  * REFUSE on a present directive, never miss one. Missing a forward would be
- * the silent-omission defect §2 names.
+ * the silent-omission defect (spec 2026-10-07 §5.2).
  */
 const FORWARD_LOCAL_KEYWORDS = ["localforward", "locallyforward"];
 const FORWARD_REMOTE_KEYWORDS = ["remoteforward", "remotelyforward"];
@@ -159,8 +159,8 @@ function blockMatchesAlias(block: SshHostBlock, alias: string): boolean {
 
 /**
  * Resolve one alias on this machine into the approved snapshot, or a refusal
- * naming WHY (§2: "refuse with a named limitation rather than silently
- * changing connection semantics"). A refusal is an ACCEPTED command answer
+ * naming WHY (ssh-config's refusal-by-name rule: "refuse with a named limitation
+ * rather than silently changing connection semantics"). A refusal is an ACCEPTED command answer
  * (it rides `accepted:false`, in-the-data) so the human can read which
  * setting blocked and go edit the config.
  *
@@ -254,7 +254,7 @@ export async function resolveSshAliasConfig(
     // Two blocks setting CONFLICTING destination facts cannot be reduced to
     // one route a human reviewed (first-obtained-wins makes -G deterministic,
     // but the ORDER that decided it is config-invisible noise the reviewer
-    // would never catch) — §2's config_ambiguous. One HostName plus one Port
+    // would never catch) — the grammar's config_ambiguous code. One HostName plus one Port
     // is NOT a conflict (measured on 10.2p1: the shared-set spelling refused
     // every `HostName x` + `Port n` block, the ordinary config shape) — each
     // family is counted on its own, and only a family with two different

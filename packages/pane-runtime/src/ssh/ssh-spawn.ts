@@ -38,7 +38,7 @@ export interface SshProcessResult {
  *
  * @param argv - the command; argv[0] must be an absolute path — the callers
  *   resolve `ssh` through the binary ladder BEFORE calling, and nothing here
- *   consults PATH to pick an executable (the §2 "explicit argv" rule).
+ *   consults PATH to pick an executable (the explicit-argv rule of this engine's contract).
  * @param env - the COMPLETE child environment; no inheritance, by design
  * @param timeoutMs - hard deadline; the child is terminated at it
  */
