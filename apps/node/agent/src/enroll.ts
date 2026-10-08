@@ -113,6 +113,9 @@ export async function runEnroll(opts: EnrollOptions): Promise<EnrollResult> {
     hostname: hostname(),
     agentVersion: NODE_VERSION,
     publicKey: identity.publicJwk,
+    // The ES256 relay signing half (spec 2026-10-08 §4.2): the public JWK
+    // only, registered beside the encryption key in the same node: record.
+    signingPublicKey: identity.signingPublicJwk,
     encryptPublicKey: link.publicKey,
   };
 

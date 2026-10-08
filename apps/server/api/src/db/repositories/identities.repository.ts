@@ -8,10 +8,17 @@ import type { IdentityTable } from "@/db/types/identities.db-types.js";
  * unreadable to that principal by design (documented in the spec).
  */
 export class IdentitiesRepository extends BaseRepository {
-  /** Inserts or rotates the principal's keypair registration. */
+  /**
+   * Inserts or rotates the principal's keypair registration. The
+   * `signingPublicKey` slot (the machine's ES256 relay half, spec
+   * 2026-10-08 §4.2) rotates WITH the encryption key in the same record, so a
+   * caller always states it explicitly: null where the principal has no
+   * signing identity (panes, users) or the agent has not reported one.
+   */
   async register(input: {
     principalId: string;
     publicKey: string;
+    signingPublicKey: string | null;
     displayName: string | null;
   }): Promise<IdentityTable> {
     await this.db
@@ -19,12 +26,14 @@ export class IdentitiesRepository extends BaseRepository {
       .values({
         principalId: input.principalId,
         publicKey: input.publicKey,
+        signingPublicKey: input.signingPublicKey,
         displayName: input.displayName,
         registeredAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
       })
       .onConflict((oc) =>
         oc.column("principalId").doUpdateSet({
           publicKey: input.publicKey,
+          signingPublicKey: input.signingPublicKey,
           displayName: input.displayName,
           registeredAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))`,
         }),

@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
@@ -123,7 +123,17 @@ test("enroll posts the route-shaped body, persists config at 0600, exits 0", asy
   // (measured: `-`/`_`, no padding) and its `from_base64` REFUSES the padded
   // standard spelling, so this is the alphabet that survives the round trip.
   expect(Object.keys(seen ?? {}).sort()).toEqual(
-    ["agentVersion", "arch", "encryptPublicKey", "hostname", "name", "os", "publicKey", "setupKey"].sort(),
+    [
+      "agentVersion",
+      "arch",
+      "encryptPublicKey",
+      "hostname",
+      "name",
+      "os",
+      "publicKey",
+      "setupKey",
+      "signingPublicKey",
+    ].sort(),
   );
   expect(String(seen?.encryptPublicKey)).toMatch(/^[A-Za-z0-9_-]{43,44}$/);
   expect((["linux", "darwin", "unknown"] as unknown[]).includes(seen?.os)).toBe(true);
@@ -135,6 +145,14 @@ test("enroll posts the route-shaped body, persists config at 0600, exits 0", asy
   const pub = JSON.parse(String(seen?.publicKey));
   expect(pub).toMatchObject({ kty: "EC", crv: "P-256" });
   expect("d" in pub).toBe(false);
+  // The relay signing key posted (spec 2026-10-08 §4.2) is the PUBLIC half of
+  // the persisted sibling file: the private half never leaves the machine,
+  // and what rides the wire is exactly the string identity generation stored.
+  const signing = JSON.parse(String(seen?.signingPublicKey));
+  expect(signing).toMatchObject({ kty: "EC", crv: "P-256" });
+  expect("d" in signing).toBe(false);
+  const signingFile = JSON.parse(readFileSync(join(dataDir, "node-signing-identity.json"), "utf8"));
+  expect(seen?.signingPublicKey).toBe(signingFile.publicJwk);
 
   const cfg = await loadConfig();
   // The link pair is FRESH per enroll, so it is asserted by pairing rather
