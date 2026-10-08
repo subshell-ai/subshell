@@ -129,6 +129,24 @@ function knownHostsLines(files: string[]): string[] {
 }
 
 /**
+ * The relay-mode render option (spec 2026-10-08 §9, Task 12): the path of the
+ * per-session pinned `known_hosts` file the B machine writes from the
+ * relay-open's delivered pin. It is deliberately a PATH and not the key
+ * line: the pin reaches B on the signed command and lands in that 0600 file,
+ * and the config only has to POINT the connection at it. A per-launch relay
+ * fact passed as an option, never smuggled through the frozen destination
+ * snapshot (which records what the operator approved, not which session
+ * carries it).
+ */
+export interface SshRelayRenderOption {
+  /** Absolute POSIX path of the session's pinned known_hosts file (the 0600 beside the config). */
+  hostPinPath: string;
+}
+
+/** The two spellings of the ONE host-key-checking line: the M1 posture and the relay block. */
+const HOST_KEY_CHECK: Record<"direct" | "relay", string> = { direct: "accept-new", relay: "yes" };
+
+/**
  * Render the runtime ssh_config FILE for one snapshot: the policy above,
  * every hop included, plus the snapshot's trust refs and identity refs under
  * the same `Host *` so jump children authenticate from the same approved
@@ -136,15 +154,47 @@ function knownHostsLines(files: string[]): string[] {
  * from the snapshot's own refs"). Contents are deterministic in the snapshot
  * — the same approval always renders the same file, which is what makes the
  * run's recorded config byte-checkable.
+ *
+ * Relay mode (the second argument, spec 2026-10-08 §9) changes EXACTLY two
+ * things, and pins the test suite to all of them: `StrictHostKeyChecking`
+ * says `yes` instead of `accept-new` (a changed D key is refused by OpenSSH
+ * naming D; nothing new is ever recorded), and `UserKnownHostsFile` is the
+ * session's pinned file and NOTHING ELSE - the snapshot's own trust refs are
+ * replaced, because on the relay path B's ambient known_hosts is not the
+ * authority, A's recorded key is. Absent the option (every M1 launch) the
+ * bytes are the accept-new posture byte-for-byte, untouched.
  */
-export function renderSshConfigContents(snapshot: SshConnectionSnapshotWire): string {
+export function renderSshConfigContents(snapshot: SshConnectionSnapshotWire, relay?: SshRelayRenderOption): string {
   assertRenderable(snapshot);
+  if (relay !== undefined) {
+    // The same path discipline `sshOptionTokens` applies to the config path:
+    // this value is interpolated into a file ssh reads verbatim, and a
+    // relative or oversized name is not a renderable trust file.
+    if (
+      relay.hostPinPath.length === 0 ||
+      !relay.hostPinPath.startsWith("/") ||
+      relay.hostPinPath.length > SSH_PATH_MAX_CHARS
+    ) {
+      throw new Error("relay host pin path must be absolute POSIX");
+    }
+  }
+  const checking = relay ? HOST_KEY_CHECK.relay : HOST_KEY_CHECK.direct;
   const lines = [
     "# Subshell managed SSH config - GENERATED, do not edit.",
     "# Mandatory runtime policy for the connection and every ProxyJump hop (spec 2026-10-07 §5.2).",
+    ...(relay
+      ? [
+          "# Relay mode: D is verified against the pinned host-key file only - no new keys are recorded (spec 2026-10-08 §9).",
+        ]
+      : []),
     "Host *",
-    ...MANDATORY_POLICY.map(([key, value]) => `    ${key} ${value}`),
-    ...knownHostsLines(snapshot.knownHostsFiles),
+    ...MANDATORY_POLICY.map(([key, value]) => `    ${key} ${key === "StrictHostKeyChecking" ? checking : value}`),
+    // Relay: the pinned file is the ONE trust source, the snapshot's own
+    // refs must not ride beside it. Direct: the M1 rule (silence IS the
+    // policy, the machine's default known_hosts is the trust store).
+    ...(relay
+      ? [`    UserKnownHostsFile ${configPathValue(relay.hostPinPath)}`]
+      : knownHostsLines(snapshot.knownHostsFiles)),
     ...snapshot.identityFiles.map((f) => `    IdentityFile ${configPathValue(f)}`),
     ...snapshot.certificateFiles.map((f) => `    CertificateFile ${configPathValue(f)}`),
     "",
@@ -233,4 +283,24 @@ export function buildAgentSocketPath(dataDir: string, paneId: string): string {
   if (!dataDir.startsWith("/")) throw new Error("ssh agent socket path: dataDir must be absolute POSIX");
   if (!/^[a-zA-Z0-9_-]{1,64}$/.test(paneId)) throw new Error("ssh agent socket path: invalid paneId");
   return `${dataDir}/ssh/${paneId}/agent.sock`;
+}
+
+/**
+ * The relay session's PINNED host-key file for a pane (spec 2026-10-08 §9,
+ * Task 12): `known_hosts` beside the config and the agent socket, in the one
+ * per-pane dir that is removed with the pane. Like {@link
+ * buildAgentSocketPath}, BOTH ends derive it from (dataDir, paneId) and the
+ * byte-equality is the check - but here the directions are the reverse of the
+ * socket's: the PLANE composes it into the relay-mode config it renders (the
+ * `UserKnownHostsFile` line the pane's ssh reads), and B's relay-open
+ * executor writes the delivered pin to its OWN derivation, never to a path
+ * named on the wire. A config pointing at a path B did not derive would
+ * point ssh at a file nothing wrote: with `StrictHostKeyChecking yes` that
+ * is a refusal naming D, which is the fail-closed half of the design. Same
+ * guards, same refusals (throws) as the config path.
+ */
+export function buildSshKnownHostsPath(dataDir: string, paneId: string): string {
+  if (!dataDir.startsWith("/")) throw new Error("ssh known-hosts path: dataDir must be absolute POSIX");
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(paneId)) throw new Error("ssh known-hosts path: invalid paneId");
+  return `${dataDir}/ssh/${paneId}/known_hosts`;
 }
