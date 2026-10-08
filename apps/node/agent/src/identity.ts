@@ -4,7 +4,7 @@
  * role (a node has no principal-per-file; it IS the principal). Deliberately a
  * copy: the dependency direction is agent -> packages, never agent -> backend.
  *
- * Two keypairs, one file each, from protocol 18 / spec 2026-10-08 §4.1: the
+ * Two keypairs, one file each, for the protocol-18 SSH relay (spec 2026-10-08 §4.1): the
  * ECDH-ES encryption pair in `identity.json` (sealed delivery) and the ES256
  * signing pair in the sibling `node-signing-identity.json` (SSH relay payloads,
  * M2). The signing pair is generated at the same moment and posture as the
