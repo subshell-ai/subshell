@@ -54,8 +54,11 @@ function useInvalidateSavedHosts(): () => Promise<void> {
 
 /**
  * `PUT /api/ssh/saved-hosts` — resolves the destination first, so a
- * refusal-shaped outcome answers 422 `{outcome}` and stores nothing; the
- * panel renders that, an `ApiError` with status 422.
+ * refusal-shaped outcome answers 422 `{outcome}` (an `ApiError` with status
+ * 422) and stores nothing. Both callers treat it best-effort: the connect
+ * panel's Remember act and the Recent-star act do not render that refusal,
+ * because a row already exists from the launch's server-side recency touch,
+ * so a failed save costs only the `savedAt` pin, never the destination.
  */
 export function useSaveSshHost() {
   const invalidate = useInvalidateSavedHosts();

@@ -377,6 +377,14 @@ nouns: destination, connecting machine, key source. The destination field is a
 `SearchableSelect` like the other launch pickers. Shipped copy follows the design
 system: role tokens only, at most two sentences, no em dashes.
 
+(Amendment, built. "SearchableSelect like the other launch pickers" holds for the
+connecting-machine picker, which is one. For the destination it contradicts "Pick or
+type a host" above: the pinned Base UI combobox (measured 2026-09-29, re-verified at
+1.7.0) wipes mid-typing input when its option set swaps and cannot commit a value
+outside its registered options, so a typed host would vanish - the silent-omission
+defect in the control itself. The destination ships as the working-directory field's
+controlled input-plus-panel posture: same role, same search, free text commitable.)
+
 ## 12. Failure modes and UX
 
 - A offline in relay mode: refuse before the handshake, name the remedy (bring the
