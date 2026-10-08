@@ -3,6 +3,8 @@
 "@internal/node": minor
 "@internal/subshell-protocol": minor
 "@internal/pane-runtime": minor
+"@internal/server-web": minor
+"@internal/mobile": minor
 ---
 
 SSH launcher tier: an enabled node can open interactive SSH-terminal panes at any
@@ -13,7 +15,10 @@ policy, host keys trusted `accept-new` in the connecting machine's own
 `known_hosts`); saved/recent hosts and a default connecting machine live on the
 plane keyed by the resolved destination. SSH-terminal panes accept input from their
 owner alone (sharees view). The per-node `ssh_enabled` gate from the previous tier
-refuses every one of these doors until the owner turns it on.
+refuses every one of these doors until the owner turns it on. A launch form with no
+prior choice still defaults to the plain Terminal rather than to SSH, whose bare
+launch has no destination to open; SSH stays pickable, and a preset names its own
+agent.
 
 Deployment: update the server before the nodes. The link gate is exact-match at
 protocol 17, so a lagging agent is held (offline for every purpose but update)

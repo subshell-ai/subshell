@@ -16,8 +16,8 @@ import type { SubshellView } from "@/types/subshell";
  * stays the backstop for the race.
  *
  * The order: the harness of the user's most recent subshell while usable →
- * the first usable plugin whose type IS `agent-harness` → anything usable →
- * null.
+ * the first usable plugin whose type IS `agent-harness` → the plain shell
+ * (id `terminal`) → anything usable → null.
  *
  * That middle tier is a positive test, not the old `!== "terminal"`. The
  * exclusion was right while two types existed and became wrong the moment a
@@ -25,6 +25,13 @@ import type { SubshellView } from "@/types/subshell";
  * have made one the headline default. A missing `type` (an older server) no
  * longer wins that tier; it still reaches the "anything usable" fallback, so
  * nothing becomes unpickable.
+ *
+ * The shell tier is the ssh plugin's doing, mirrored from web (CI e2e
+ * 2026-10-08): `ssh` is also type terminal and its binary is nearly always
+ * present, and the catalog arrives id-sorted, so anything-usable would land
+ * on a bare `ssh` that exits without a host. The plain shell runs presetless,
+ * so it is the fallback; it stays a preference, not a filter, so an
+ * ssh-only catalog still fills.
  *
  * @param plugins - the instance catalog (`GET /api/plugins`)
  * @param nodeHarnessInstalled - whether the SELECTED node reports this
@@ -49,7 +56,12 @@ export function defaultAgentId(
     if (recent && usable(recent)) return recent.id;
   }
   const usableAgents = plugins.filter(usable);
-  return usableAgents.find((p) => p.type === "agent-harness")?.id ?? usableAgents[0]?.id ?? null;
+  return (
+    usableAgents.find((p) => p.type === "agent-harness")?.id ??
+    usableAgents.find((p) => p.id === "terminal")?.id ??
+    usableAgents[0]?.id ??
+    null
+  );
 }
 
 /**

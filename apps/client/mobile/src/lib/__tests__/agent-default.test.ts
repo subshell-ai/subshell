@@ -47,6 +47,19 @@ describe("defaultAgentId", () => {
     expect(defaultAgentId([TERMINAL, CLAUDE, CODEX], ALL_INSTALLED, null)).toBe("claude-code");
   });
 
+  it("a second terminal-type plugin does not steal the shell default", () => {
+    // Web mirror (CI e2e 2026-10-08): the catalog arrives id-sorted, so
+    // `ssh` (also type terminal, binary nearly always present) stands before
+    // `terminal`; the last resort must still land on the plain shell, which
+    // runs presetless, not on a bare `ssh` that exits without a host.
+    const SSH = plugin({ id: "ssh", name: "SSH", type: "terminal" });
+    expect(defaultAgentId([SSH, TERMINAL], ALL_INSTALLED, null)).toBe("terminal");
+    // A declared agent still outranks the shell tier.
+    expect(defaultAgentId([SSH, TERMINAL, CLAUDE], ALL_INSTALLED, null)).toBe("claude-code");
+    // The shell tier is a preference, not a filter: ssh alone still fills.
+    expect(defaultAgentId([SSH], ALL_INSTALLED, null)).toBe("ssh");
+  });
+
   it("a missing type (older server) is still pickable, but no longer outranks a declared agent", () => {
     // The middle tier reads `=== "agent-harness"` rather than
     // `!== "terminal"` now, because a third type exists (network) and an

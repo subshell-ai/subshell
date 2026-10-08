@@ -97,12 +97,23 @@ export function buildAgentOptions(plugins: readonly LaunchAgent[], node: Node | 
   );
 }
 
+/** The built-in plain shell, by plugin id; the fallback tier's favorite. */
+const TERMINAL_PLUGIN_ID = "terminal";
+
 /**
  * The agent the picker should hold when the user has not chosen one: the most
  * recent subshell's agent when it is still usable, else the first usable
- * NON-terminal agent (a shell is a fallback, not the headline), else anything
- * usable, else null (nothing to fill — the picklist greys everything and the
- * dead-end hints carry the story).
+ * NON-terminal agent (a shell is a fallback, not the headline), else the
+ * plain shell, else anything usable, else null (nothing to fill — the
+ * picklist greys everything and the dead-end hints carry the story).
+ *
+ * The shell tier is not paranoia about order; it is the ssh plugin (CI e2e
+ * 2026-10-08): `ssh` is type `terminal`, its binary is on nearly every host,
+ * and the catalog arrives id-sorted, so on a clean machine `usable[0]` was
+ * SSH, not Terminal — a first launch defaulted to a bare `ssh` that exits
+ * without a destination. The wizard's own subtitle names the fallback ("A
+ * plain terminal is always available with nothing to install"), so the rule
+ * reads its id, the same named plugin.
  *
  * @param options - output of {@link buildAgentOptions} for the current pair
  * @param plugins - the plugin rows, for the terminal lookup by id
@@ -121,9 +132,15 @@ export function defaultAgentId(
   // wrong the moment a third did: a network plugin is not a slower agent, and
   // "not a terminal" would have made one the headline default. An absent
   // `type` (a payload older than the field) therefore no longer WINS the
-  // first tier — it still reaches the `usable[0]` fallback below, so nothing
-  // becomes unpickable, it just stops outranking a declared agent.
-  return (usable.find((o) => typeById.get(o.value) === "agent-harness") ?? usable[0])?.value ?? null;
+  // first tier — it still reaches the fallbacks below, so nothing becomes
+  // unpickable, it just stops outranking a declared agent.
+  return (
+    (
+      usable.find((o) => typeById.get(o.value) === "agent-harness") ??
+      usable.find((o) => o.value === TERMINAL_PLUGIN_ID) ??
+      usable[0]
+    )?.value ?? null
+  );
 }
 
 /**
