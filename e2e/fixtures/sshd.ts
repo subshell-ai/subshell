@@ -141,7 +141,7 @@ export async function startSshFixture(root: string, options: { envPath?: string 
   // node: in a container with no USER/LOGNAME env bun answers "unknown" while
   // sshd, matching the uid not the env, logs the real account ("root").
   // uid 0 is root on every supported OS; otherwise env, then the passwd
-  // lookup. The specs hand the agent `USER`/`LOGNAME` (see 22-ssh-runtime) so
+  // lookup. The specs hand the agent `USER`/`LOGNAME` (see 22-ssh-terminal) so
   // the daemon's own `connectingAccount` says the same thing everywhere.
   const user = process.getuid?.() === 0 ? "root" : (process.env.USER ?? process.env.LOGNAME ?? userInfo().username);
   const home = path.join(root, "home");

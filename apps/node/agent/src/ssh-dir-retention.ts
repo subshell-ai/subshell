@@ -22,8 +22,10 @@ import { isSubshellId, type SubshellMetaStore } from "./subshell-meta.js";
  *
  * - **Only immediate children of `<dataDir>/ssh` whose name passes
  *   `isSubshellId`.** Nothing else in the tree is ours; a name that is not
- *   a pane id is nobody's to remove. The regex also makes the join unable
- *   to escape the dir (no `/`, no `..`, no uppercase), and `pathAllowed`
+ *   a pane id is nobody's to remove. The gate is hex digits and hyphens
+ *   only (`/^[0-9a-fA-F-]{1,64}$/`, uppercase hex included), so a name
+ *   carries no separator and no dot: the join cannot escape the dir, and
+ *   `pathAllowed`
  *   re-checks anyway — the `remove_paths` rule, which is what refuses a
  *   symlinked `ssh` parent pointing outside the data dir.
  * - **Never follow a symlink** (`lstat` first: a leaf whose name looks like
