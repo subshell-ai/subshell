@@ -21,13 +21,10 @@ import { setFetchRouter } from "@/test-setup";
  * door); desktop shells keep their footer rows. The /Account:/ trigger name is
  * deliberately unchanged - the e2e specs sign out through it.
  *
- * Why the negative asserts are length-form (`querySelectorAll(...).length`
- * `toBe(0)`) and not `expect(el).toBeNull()`: measured under bun 1.4.2 +
- * happy-dom at several positions in this file, `expect(<element>).toBeNull()`
- * silently PASSED with the element present - a manual `if (el) throw` on the
- * same line threw, and `toBe(0)` on a length threw - so a single-element
- * null matcher here is not trustworthy evidence of absence. Every negative
- * DOM assert below was pinned live by a mutation probe during implementation.
+ * Negative DOM asserts in this file use the length-based forms
+ * (`querySelectorAll(...).length` / `queryAllByRole(...).length`) because they
+ * fail on presence by construction. The element-`toBeNull()` forms are sound
+ * generally; a rewrite back to them here is not wanted.
  */
 
 function stubFetch(opts: { admin: boolean; updateTo?: string }) {

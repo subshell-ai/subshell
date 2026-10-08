@@ -122,7 +122,11 @@ export function UserMenu({
         <div className="px-2 py-1.5">
           <p className="truncate font-strong text-sm">{name.trim() || (email ? "(no name)" : "Signed in")}</p>
           {email ? <p className="truncate text-detail text-muted-foreground">{email}</p> : null}
-          {versionLine !== "" && <p className="truncate text-detail text-muted-foreground">{versionLine}</p>}
+          {versionLine !== "" && (
+            <p className="truncate text-detail text-muted-foreground" title={versionLine}>
+              {versionLine}
+            </p>
+          )}
         </div>
         {updateNotice !== null && onOpenUpdates !== undefined && (
           <DropdownMenuItem onSelect={onOpenUpdates}>
