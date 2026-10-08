@@ -11,6 +11,7 @@ import { EditableText } from "@/components/editable-text";
 import { SubshellNotFoundCard } from "@/components/not-found-page";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { SplitSubshellButton } from "@/components/split-subshell-button";
+import { SshPaneLabels } from "@/components/ssh-pane-labels";
 import { StatusPill } from "@/components/status-pill";
 import { SubshellActionsMenu } from "@/components/subshell-actions-menu";
 import { SubshellDevices } from "@/components/subshell-devices";
@@ -310,6 +311,11 @@ function SubshellPage() {
                     about the pane stated where its own name is, worded the way
                     the rail's section labels it. */}
                 {subshell?.crossAgent && <span className="text-detail text-muted-foreground">Cross-agent comms</span>}
+                {/* What kind of pane this is, and for a non-owner why typing is
+                    off (spec 2026-10-07 §5.4). The badge is the label; the
+                    enforcement is the server's access downgrade the terminal
+                    already honours. */}
+                <SshPaneLabels subshell={subshell} />
                 {/* Permanent disclosure: whose machine this runs on, and who
                     else can read it. Never suppressible — see
                     components/trust-indicators.tsx. */}
