@@ -11,6 +11,8 @@ import {
   type NodeMaintenanceWire,
   type NodeRuntimeReport,
   type NodeSshEnabledWire,
+  parseRelayFrame,
+  relayFrameRefIfOverCap,
   SeqTracker,
   verifyCommand,
 } from "@internal/subshell-protocol";
@@ -24,6 +26,7 @@ import {
   seedMaintenanceMemo,
   seedSshEnabledMemo,
 } from "./commands/report.js";
+import { RelaySessions } from "./commands/ssh-relay.js";
 import { stopAllTails } from "./commands/tail.js";
 import { sweepStaleTransfers } from "./commands/transfer-sweep.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
@@ -205,6 +208,13 @@ export interface DaemonDeps {
    * "plaintext mode": spec §6 forbids a v14 socket ever running unsealed.
    */
   link?: (args: LinkNegotiatorArgs) => LinkNegotiator;
+  /**
+   * The relay-session registry the inbound `relay` frames route into (spec
+   * 2026-10-08 §5.1/§5.2; default: a fresh {@link RelaySessions}).
+   * @internal test seam: the daemon test injects a capturing registry to pin
+   * the routing decision; production runs on the one this call constructs.
+   */
+  relaySessions?: RelaySessions;
 }
 
 interface WsClose {
@@ -450,6 +460,13 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // from here (and so does execute(), should the LRU ever evict inside the TTL window) —
   // a jti that has run once NEVER runs twice.
   const idempotent = new Map<string, CommandResult>();
+
+  // The relay-session registry (spec 2026-10-08 §5.1/§5.2): PER-DAEMON, like
+  // the idempotence map: a relay session belongs to the pairing, not to the
+  // socket it first rode, and the plane re-pumps frames on the fresh link.
+  // Inbound `relay` frames route through it (see `onFrame`); B proxies (and
+  // from Task 7, the A responder) register into it by routing ref.
+  const relaySessions = deps.relaySessions ?? new RelaySessions();
 
   // PER-PROCESS executor context (spec §3.4/§7): built once, survives every
   // reconnect. `ws` is a STABLE wrapper routing to the CURRENT socket —
@@ -826,14 +843,34 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     return null;
   };
 
-  /** One ADMITTED frame: jws extraction → verify → execute (spec §4). */
+  /** One ADMITTED frame: relay routing (spec 2026-10-08 §5.1) OR jws → verify → execute (§4). */
   const onFrame = async (ws: WsLike, data: string): Promise<void> => {
-    let jws: unknown;
+    let parsed: unknown;
     try {
-      jws = (JSON.parse(data) as { jws?: unknown }).jws;
+      parsed = JSON.parse(data);
     } catch {
-      jws = undefined;
+      parsed = undefined;
     }
+    // The `relay` link frame is NOT a command (§5.1: no per-message signing,
+    // the link authenticates the machine, origin rides the inner ES256
+    // signature): it must never draw the command grammar's `verify: malformed`
+    // answer, which the plane reads as a command anomaly. Recognized by its
+    // `type` BEFORE the JWS path; a relay-shaped-but-malformed candidate is
+    // relay noise (dropped with a line; over-cap ones name their ref, the
+    // session's named close itself is the broker's), and every non-relay frame
+    // falls through to the untouched command path below.
+    if (typeof parsed === "object" && parsed !== null && (parsed as { type?: unknown }).type === "relay") {
+      const frame = parseRelayFrame(parsed as object);
+      if (frame !== null) relaySessions.onInboundRelayFrame(frame);
+      else {
+        const overCapRef = relayFrameRefIfOverCap(parsed);
+        if (overCapRef !== null)
+          log(`relay frame over the size cap for ref ${overCapRef}: refused (§5.1; the named close is the broker's)`);
+        else log("malformed relay frame dropped");
+      }
+      return;
+    }
+    const jws = (parsed as { jws?: unknown } | undefined)?.jws;
     if (typeof jws !== "string") {
       send(ws, { type: "error", code: "verify", message: "malformed" });
       return;
