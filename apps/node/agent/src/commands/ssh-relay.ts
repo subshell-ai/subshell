@@ -142,7 +142,13 @@ export interface BRelaySessionArgs {
   paneId: string;
   /** The verified `ssh_relay_open` body; its `role` MUST be "B". */
   cmd: SshRelayOpenCommand;
-  /** The link pump: one sealed B2A frame onto the current socket (drops are the daemon's). */
+  /**
+   * The link pump: one sealed B2A frame onto the current socket. Forwarded to
+   * the proxy unchanged, so it carries the proxy's DELIVER-OR-THROW contract:
+   * a dropped send must THROW here (Task-8 glue obligation), never log and
+   * return - the proxy fails the request's connection on a throw rather than
+   * parking a phantom reply that never comes.
+   */
   sendRelayFrame(frame: RelayFrame): void;
   /** Line sink (defaults to the agent logger); never sees keys or agent bytes. */
   log?: (line: string) => void;
