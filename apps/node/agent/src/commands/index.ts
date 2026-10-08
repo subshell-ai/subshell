@@ -30,6 +30,7 @@ import { execSetServerUrl } from "./set-server-url.js";
 import { execSetSshEnabled } from "./set-ssh-enabled.js";
 import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
 import { execSshRegisterIdentity } from "./ssh-identity.js";
+import { execSshRelayClose, execSshRelayOpen } from "./ssh-relay-exec.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
 import { execTransferWrite } from "./transfer-write.js";
 import { execTreeManifest } from "./tree-manifest.js";
@@ -54,9 +55,13 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * `set_ssh_enabled` (spec 2026-10-07 §4.3, protocol 16 — the SSH gate's plane-
  * to-machine write), the two SSH read arms `ssh_discover_aliases` and
  * `ssh_resolve_config` (spec 2026-10-07 §5, protocol 17 — both refuse on the
- * local gate mirror before any lookup or spawn), and the M2 §4.3 bootstrap
+ * local gate mirror before any lookup or spawn), the M2 §4.3 bootstrap
  * `ssh_register_identity` (spec 2026-10-08 §4.3 - the machine's own signing
- * PUBLIC key, ungated like `set_ssh_enabled`: registration is not an SSH act).
+ * PUBLIC key, ungated like `set_ssh_enabled`: registration is not an SSH act),
+ * and the brokered relay pair `ssh_relay_open` / `ssh_relay_close`
+ * (spec 2026-10-08 §5.1, protocol 18 - open consults the gate then drives the
+ * T6/T7 pairing branches by the command's own role; close is ungated teardown,
+ * because ending a session is not an SSH act).
  * Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
@@ -140,6 +145,10 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execSshResolveConfig(ctx, cmd);
       case "ssh_register_identity":
         return await execSshRegisterIdentity(ctx);
+      case "ssh_relay_open":
+        return await execSshRelayOpen(ctx, cmd);
+      case "ssh_relay_close":
+        return execSshRelayClose(ctx, cmd);
       case "set_server_url":
         return await execSetServerUrl(ctx, cmd);
       case "update":

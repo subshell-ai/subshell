@@ -28,15 +28,12 @@ import { startRelayResponder } from "../relay-responder.js";
  * pin; a pin that moved is a hard block naming the peer and §4.5's recovery,
  * never a silent overwrite) and only then binds the pane's agent socket.
  *
- * WHAT THE WIRE DOES NOT CARRY YET (handed to Task 8): the frozen
- * `ssh_relay_open` grammar names no pane. §5.2 puts the socket in the PANE's
- * ssh dir (`<dataDir>/ssh/<paneId>/agent.sock`), so {@link openBRelaySession}
- * takes the `paneId` as an explicit executor input - whoever delivers the
- * command must supply it (a grammar addition or a launch-side correlation;
- * the proxy refuses an id outside the path-composition shape either way, so
- * guessing is structurally impossible). No executor arm is registered on this
- * pass: `ssh_relay_open`/`ssh_relay_close` keep answering `unsupported` from
- * the dispatch switch until Task 8's delivery wires them.
+ * THE TASK-8 WIRING (landed): the `ssh_relay_open` grammar carries the pane
+ * (`cmd.paneId`, acceptance (b)), so {@link openBRelaySession} takes it from
+ * the command it serves and binds §5.2's `<dataDir>/ssh/<paneId>/agent.sock`;
+ * the executor arms live in `ssh-relay-exec.ts`, registered on the dispatch
+ * switch, and the pump they hand the branches is the daemon's
+ * deliver-or-throw `relay-send.ts` (acceptance (c)).
  */
 
 /** One local owner of a relay session's inbound frames (a B proxy, or Task 7's A responder). */
@@ -141,7 +138,7 @@ export interface BRelaySessionArgs {
   dataDir: string;
   /** This machine's node id (config.nodeId) - the open-as principal. */
   selfNodeId: string;
-  /** The pane whose ssh connects through the socket (see the module header's Task-8 note). */
+  /** The pane whose ssh connects through the socket: the command's `paneId` (grammar (b)). */
   paneId: string;
   /** The verified `ssh_relay_open` body; its `role` MUST be "B". */
   cmd: SshRelayOpenCommand;
