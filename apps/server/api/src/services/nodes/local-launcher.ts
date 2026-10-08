@@ -1,8 +1,10 @@
-import { chmodSync, existsSync, type FSWatcher, mkdirSync, unlinkSync, watch } from "node:fs";
+import { chmodSync, existsSync, type FSWatcher, mkdirSync, unlinkSync, watch, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname } from "node:path";
 import { stripAnsi } from "@internal/backend-errors";
 import {
   buildHarnessCommand,
+  enforceMode,
   exitHookFor,
   type HarnessPlugin,
   paneEnvFor,
@@ -13,7 +15,7 @@ import { probePaneLogLaunch } from "@/services/mcp-resolve.js";
 import { logger } from "@/utils/logger.js";
 import { readLogTailFrom, TAIL_POLL_MS } from "./log-tail.js";
 import type { LaunchPlan, NodeLauncher } from "./node-launcher.js";
-import { subshellLogDir, subshellLogPath } from "./subshell-paths.js";
+import { subshellLogDir, subshellLogPath, subshellSshConfigPath } from "./subshell-paths.js";
 
 /** Today's exact tmux/fs behavior behind the launcher seam (spec §6.3). */
 export class LocalLauncher implements NodeLauncher {
@@ -52,6 +54,16 @@ export class LocalLauncher implements NodeLauncher {
    * logged (debug) and swallowed, exactly like the pre-seam revive did.
    */
   async launch(plan: LaunchPlan): Promise<void> {
+    // SSH pane config (spec 2026-10-07 decision 4): whoever spawns the pane
+    // writes the file, and for a local row that is THIS process — under the
+    // SERVER's own dataDir, before the pane exists. The path is DERIVED, not
+    // trusted: a plan whose `configPath` is not byte-equal to
+    // `subshellSshConfigPath(id)` is a caller bug and throws before anything
+    // is composed or spawned (the same posture the agent's launch block
+    // refuses with). `SSH_AUTH_SOCK` needs no handling here: the pane's
+    // command IS the ssh process, so the service's merged `plan.subshellEnv`
+    // rides `buildHarnessCommand`'s env layers unchanged.
+    if (plan.ssh) await this.#writeSshConfig(plan.id, plan.ssh);
     const cmd = buildHarnessCommand(
       plan.harness,
       plan.binary,
@@ -105,6 +117,31 @@ export class LocalLauncher implements NodeLauncher {
       this.#ensureLogDir(logFile);
       this.#tmux.pipePane(plan.socket, plan.id, logFile, logChild);
     }
+  }
+
+  /**
+   * Materialize one ssh pane's rendered config on the SERVER's own disk:
+   * 0700 dir, 0600 file, {@link enforceMode} on both (mkdir's/writeFile's
+   * `mode` is clamped by the umask and applies only to segments actually
+   * created — the same re-tightening `ensureLogDirMode` and the agent's MCP
+   * block exist for). The path is this machine's OWN derivation; a plan
+   * naming anything else throws before any byte is written.
+   */
+  async #writeSshConfig(id: string, ssh: { configPath: string; fileContent: string }): Promise<void> {
+    const sshPath = subshellSshConfigPath(id);
+    if (ssh.configPath !== sshPath) {
+      // Byte-equality, same posture as the agent's launch block: the plane
+      // may name nothing else, and a mismatch here is a composition bug in
+      // the caller, not a user-reachable state.
+      throw new Error(
+        `ssh config path mismatch for ${id}: plan names ${JSON.stringify(ssh.configPath)}, the derived path is ${JSON.stringify(sshPath)}`,
+      );
+    }
+    const dir = dirname(sshPath);
+    mkdirSync(dir, { recursive: true });
+    await enforceMode(dir, 0o700);
+    writeFileSync(sshPath, ssh.fileContent, { mode: 0o600 });
+    await enforceMode(sshPath, 0o600);
   }
 
   /**
@@ -368,12 +405,23 @@ export class LocalLauncher implements NodeLauncher {
   }
 
   /**
-   * The local machine owns exactly one per-subshell file: the pipe-pane replay
-   * log (the MCP config under `subshellMcpConfigPath` is a control-plane file —
-   * `deleteSubshell` unlinks it directly for local and remote rows alike).
+   * The local machine owns the pipe-pane replay log, and — for an ssh pane
+   * only — the rendered config `launch` wrote under the server's dataDir
+   * (spec 2026-10-07 decision 4). The MCP config under `subshellMcpConfigPath`
+   * is a control-plane file — `deleteSubshell` unlinks it directly for local
+   * and remote rows alike.
+   *
+   * `sshPane` is the ROW's kind fact: only the caller that holds the row can
+   * say whether this pane owns a config to sweep. Every non-ssh caller gets
+   * the pre-ssh list unchanged. A natural death removes the whole per-pane
+   * ssh dir on a NODE (the agent's exit sweep); locally the death paths the
+   * control plane runs do not, so the delete sweep unlinks the config here
+   * and the empty dir is the residue `subshellArtifacts` deliberately does
+   * not name (removeArtifacts unlinks FILES; deleting a directory would be a
+   * new power on a path list that can also carry caller-supplied entries).
    */
-  subshellArtifacts(id: string): string[] {
-    return [this.logPath(id)];
+  subshellArtifacts(id: string, sshPane = false): string[] {
+    return sshPane ? [this.logPath(id), subshellSshConfigPath(id)] : [this.logPath(id)];
   }
 
   /** Best-effort unlink of artifact paths (absent files are not errors). */

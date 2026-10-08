@@ -21,6 +21,17 @@ export interface LaunchPlan {
   /** MCP registration (dialect computed control-side) */
   mcp?: McpRegistration;
   /**
+   * The ssh pane's rendered config (spec 2026-10-07 decision 4): content the
+   * ssh service composed from the approved snapshot, plus the path
+   * `buildSshConfigPath(<target dataDir>, id)` — derived, never chosen.
+   * `RemoteLauncher` ships the member verbatim on the launch frame; the agent
+   * re-derives the path from its OWN dataDir and refuses a byte-mismatch.
+   * `LocalLauncher` re-derives from the server's own dataDir, throws on a
+   * mismatch (a caller bug, the same posture), and writes the file (0600 in a
+   * 0700 dir) before spawning. Absent on every non-ssh pane.
+   */
+  ssh?: { configPath: string; fileContent: string };
+  /**
    * Absolute path ON THE TARGET machine where `RemoteLauncher` ships
    * `mcp.fileContent` — composed by the caller from the node's `ready.dataDir`
    * (spec §6.4). Additive phase-2 field; `LocalLauncher` ignores it, its file
@@ -189,8 +200,14 @@ export interface NodeLauncher {
    * The node-side files a subshell owns — what delete removes. `[]` when the
    * machine cannot answer: an agent with no live `ready` facts has no readable
    * layout to name paths from (its artifacts age out with the node, §5.6).
+   *
+   * `sshPane` is the row's kind fact (spec 2026-10-07 decision 4): the
+   * rendered ssh config lives at the machine-derived path
+   * `<dataDir>/ssh/<id>/config`, and ONLY a caller holding the row can say
+   * the pane owns one. Callers pass the row's truth; `false` (the default)
+   * yields exactly the pre-ssh list, so every existing caller is unchanged.
    */
-  subshellArtifacts(id: string): string[];
+  subshellArtifacts(id: string, sshPane?: boolean): string[];
   /** Best-effort deletion of artifact paths from {@link subshellArtifacts}. */
   removeArtifacts(paths: string[]): Promise<void>;
 }
