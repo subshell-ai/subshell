@@ -217,6 +217,16 @@ export enum BackendErrorCodes {
    * again from the launcher instead. Keyed to the `subshells.ssh` column.
    */
   SSH_NO_RESTART = "SSH_NO_RESTART",
+  /**
+   * A pane-input act (REST input, exec, MCP-via-REST, WS keystroke) on an
+   * ssh pane by a caller who is not the row's OWNER account, or by ANY
+   * machine credential (spec 2026-10-07 §5.4, decision 5: the far side of an
+   * ssh pane runs under the owner's own trust; the pane's key must not type
+   * into itself either). Keyed to the `subshells.ssh` column like the
+   * restart refusal; the WS door drops the frame rather than answering this
+   * code, exactly as it drops a `view` grantee's keystrokes.
+   */
+  SSH_OWNER_INPUT_ONLY = "SSH_OWNER_INPUT_ONLY",
 }
 
 export const BackendErrorCodeDefs = {
@@ -472,5 +482,9 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.SSH_NO_RESTART]: {
     message: "SSH panes are not restarted; launch again to reconnect",
     statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_OWNER_INPUT_ONLY]: {
+    message: "SSH panes accept input from their owner only",
+    statusCode: 403,
   },
 };

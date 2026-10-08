@@ -20,6 +20,7 @@ import type { PresetTable } from "@/db/types/presets.db-types.js";
 import type { SubshellSharePermission } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
 import { loadNodeAccess, type NodeAccessDeps, nodeCanLaunch, nodeCanLaunchOn } from "@/lib/node-access.js";
+import { paneInputAllowed } from "@/lib/ssh-pane-access.js";
 import { type Access, accessAtLeast, loadSubshellAccess, resolveSubshellAccess } from "@/lib/subshell-access.js";
 import { BaseService, type CommonServiceParams } from "@/services/base.service.js";
 import { publishLive } from "@/services/live-bus.js";
@@ -913,6 +914,29 @@ export class SubshellsService extends BaseService {
   }
 
   /**
+   * The ssh owner-only carve-out on an input act, applied AFTER the visibility
+   * + grant gate (so a stranger still gets the ordinary 404, and a `view`
+   * grantee the ordinary 403). An ssh pane runs a real shell under the OWNER's
+   * ssh identity on the far machine, so its input is the owner's alone: an
+   * `edit` grantee who is not the owner is refused, and so is any bearer
+   * machine credential (a pane must not type into itself). Ordinary panes
+   * (`ssh === null`) pass through untouched. The rule lives in
+   * {@link paneInputAllowed}, shared with the WS keystroke door (spec
+   * 2026-10-07 §5.4, decision 5).
+   * @throws ApiError 403 SSH_OWNER_INPUT_ONLY, before anything is typed.
+   */
+  #requireInputAuthority(row: SubshellTable, viewerId: string, actor: GuardActor): void {
+    // A bearer actor is a `subshell-key` OR a `system-key`; a human is `cookie`.
+    if (!paneInputAllowed(row, viewerId, actor !== "cookie")) {
+      throwApiError({
+        code: BackendErrorCodes.SSH_OWNER_INPUT_ONLY,
+        message: "SSH panes accept input from their owner only",
+        doNotLog: true,
+      });
+    }
+  }
+
+  /**
    * Types text into a RUNNING pane over REST (spec 2026-09-25 MCP DX), the
    * input the live attach socket already carries, given an HTTP door for
    * machine callers. Gated at `edit`, the level the posture assigns to
@@ -948,6 +972,9 @@ export class SubshellsService extends BaseService {
    *         nothing is typed into a row that is not there), and 409
    *         NODE_OFFLINE when its agent node has no live connection (the
    *         create/restart mapper again).
+   * @throws ApiError 403 SSH_OWNER_INPUT_ONLY when the pane is an ssh pane and
+   *         the caller is not its owner (or is a bearer credential), before the
+   *         launcher is resolved and nothing is typed.
    */
   async sendSubshellInput(
     viewerId: string,
@@ -957,6 +984,7 @@ export class SubshellsService extends BaseService {
     actor: GuardActor,
   ): Promise<{ ok: true }> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
+    this.#requireInputAuthority(row, viewerId, actor);
     // The TWO facts, both required — a lesson from the live incident
     // (2026-09-25): `status` is the lifecycle INTENT and a pane that exited
     // on its own parks at `status: "running"` with `alive: 0` (parked is what
@@ -1007,7 +1035,9 @@ export class SubshellsService extends BaseService {
    *         a terminal; 409 EXEC_IN_FLIGHT when another exec already holds the
    *         pane's lease; 409 EXEC_PANE_BUSY when the quiet probe finds the
    *         log growing. All four refuse before anything is typed, and any
-   *         launcher refusal maps through the create/restart mapper.
+   *         launcher refusal maps through the create/restart mapper. Exec on
+   *         an ssh pane also carries the input rule: a non-owner 403s
+   *         SSH_OWNER_INPUT_ONLY before even the first quiet probe (spec §5.4).
    */
   async execInTerminal(
     viewerId: string,
@@ -1017,6 +1047,10 @@ export class SubshellsService extends BaseService {
     actor: GuardActor,
   ): Promise<ExecAnswer> {
     const { row } = await this.#gate(viewerId, id, "edit", actor);
+    // The ssh carve-out precedes the running/harness/quiet checks: exec TYPES,
+    // so it carries the input rule verbatim, and a non-owner never reaches the
+    // first quiet probe (spec 2026-10-07 §5.4).
+    this.#requireInputAuthority(row, viewerId, actor);
     if (row.status !== "running" || row.alive !== 1) {
       throwApiError({
         code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
