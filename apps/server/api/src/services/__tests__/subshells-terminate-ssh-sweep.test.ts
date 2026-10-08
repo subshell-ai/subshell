@@ -5,9 +5,11 @@ import { join } from "node:path";
 import { buildSshConfigPath } from "@internal/pane-runtime";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { runMigrations } from "@/db/migrate.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
+import { SubshellManagerService } from "@/services/subshell-manager.service.js";
 import { SubshellsService } from "@/services/subshells.service.js";
 import { getLogger } from "@/utils/logger.js";
 
@@ -16,10 +18,14 @@ import { getLogger } from "@/utils/logger.js";
  * e2e spec-22 finding): terminate revokes the pane's token synchronously with
  * the kill, so the tmux `pane-died` hook's report can arrive 401 and its sweep
  * never runs. The terminate verb therefore sweeps itself, through the SAME
- * {@link sweepLocalSshDir} the exit report calls (one function, no drift).
+ * {@link sweepLocalSshDir} the exit report calls (one function, no drift) —
+ * and so does the maintenance kill, {@link SubshellManagerService.terminateForMaintenance},
+ * which reaches the same teardown through the manager (no REST verb involved)
+ * and raced the identical way: a maintenance window used to leave every local
+ * ssh config dir behind.
  *
  * The rows here carry no tmux socket: the manager's kill is skipped, which is
- * the point — the sweep is the verb's own act after the teardown, not the
+ * the point — the sweep is the killer's own act after the teardown, not the
  * pane's last breath.
  */
 
@@ -91,6 +97,46 @@ describe("the terminate verb sweeps the LOCAL ssh config dir", () => {
     await seedPaneRow({ id, nodeId: "node-remote-term", ssh: '{"host":"example.test"}' });
     makeConfigDir(id); // same NAME, not ours: the agent's watcher owns that disk
     expect(await service.terminateSubshell(OWNER, id, "cookie")).toEqual({ ok: true });
+    expect(existsSync(localDir(id))).toBe(true);
+    rmSync(localDir(id), { recursive: true, force: true });
+  });
+});
+
+/**
+ * The MAINTENANCE kill reaches the same teardown through the manager with no
+ * REST verb in the loop (the maintenance window and lockdown both call
+ * `terminateForMaintenance` per row), so the verb's sweep never runs for it.
+ * Same harness as the verb cases above: no tmux socket, so the kill is
+ * skipped and the sweep is the act under test.
+ */
+describe("the maintenance kill sweeps the LOCAL ssh config dir", () => {
+  const manager = new SubshellManagerService({
+    subshells: subshellsRepo,
+    presets: new PresetsRepository(getRequestlessContext().db),
+    audit: async () => {},
+    notify: async () => {},
+  });
+
+  it("terminateForMaintenance on a local ssh row removes <dataDir>/ssh/<id>", async () => {
+    const id = crypto.randomUUID();
+    await seedPaneRow({ id, nodeId: LOCAL_NODE_ID, ssh: '{"host":"example.test"}' });
+    makeConfigDir(id);
+    expect(existsSync(localDir(id))).toBe(true);
+    const row = await subshellsRepo.findById(id);
+    if (!row) throw new Error("seeded row vanished"); // the arg type is the full row
+    await manager.terminateForMaintenance(row);
+    expect(existsSync(localDir(id))).toBe(false); // file AND dir: the sweep is an rm -rf
+    const after = await subshellsRepo.findById(id);
+    expect(after?.status).toBe("terminated"); // the ordinary terminate still ran
+  });
+
+  it("terminateForMaintenance on an AGENT ssh row sweeps nothing on this host", async () => {
+    const id = crypto.randomUUID();
+    await seedPaneRow({ id, nodeId: "node-remote-maint", ssh: '{"host":"example.test"}' });
+    makeConfigDir(id); // same NAME, not ours: the agent's watcher owns that disk
+    const row = await subshellsRepo.findById(id);
+    if (!row) throw new Error("seeded row vanished"); // the arg type is the full row
+    await manager.terminateForMaintenance(row);
     expect(existsSync(localDir(id))).toBe(true);
     rmSync(localDir(id), { recursive: true, force: true });
   });
