@@ -9,6 +9,7 @@ import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
+import { type RelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
 import { SubshellManagerService } from "@/services/subshell-manager.service.js";
 import { SubshellsService } from "@/services/subshells.service.js";
 import { getLogger } from "@/utils/logger.js";
@@ -99,6 +100,41 @@ describe("the terminate verb sweeps the LOCAL ssh config dir", () => {
     expect(await service.terminateSubshell(OWNER, id, "cookie")).toEqual({ ok: true });
     expect(existsSync(localDir(id))).toBe(true);
     rmSync(localDir(id), { recursive: true, force: true });
+  });
+
+  it("(M2 §5.6 child-exit) terminate also cuts any relay session brokered for the pane", async () => {
+    // The kill hand is the sure thing: a brokered B-side relay must die with
+    // the pane even when the node's dying report never lands. The broker's
+    // pane lookup no-ops rows that never relayed, so this witness fires for
+    // every terminate.
+    const cuts: string[] = [];
+    const spy = {
+      openRelay: async () => {
+        throw new Error("unused");
+      },
+      routeRelayFrame: () => {},
+      closeRelay: async () => false,
+      closeForGrant: async () => 0,
+      closeForPane: async (paneId: string, reason: string) => {
+        cuts.push(`${paneId}:${reason}`);
+        return 0;
+      },
+      refuseOverCap: async () => false,
+      onNodeSocketClosed: async () => 0,
+      activeRelayCount: () => 0,
+      sessionInfo: () => null,
+      reset: () => {},
+    };
+    setRelayBrokerForTests(spy as unknown as RelayBroker);
+    try {
+      const id = crypto.randomUUID();
+      await seedPaneRow({ id, nodeId: "node-remote-term", ssh: '{"host":"example.test"}' });
+      expect(await service.terminateSubshell(OWNER, id, "cookie")).toEqual({ ok: true });
+      await new Promise((resolve) => setTimeout(resolve, 0)); // the sweep is fire-and-forget
+      expect(cuts).toEqual([`${id}:child-exit`]);
+    } finally {
+      setRelayBrokerForTests(null);
+    }
   });
 });
 
