@@ -105,7 +105,7 @@ export function ConnectPanel(): JSX.Element {
     reason: n.sshEnabled
       ? undefined
       : n.kind === "local"
-        ? "SSH is off here. An admin can switch it on in Server Settings."
+        ? "SSH is off here. An admin can switch it on from this machine's settings."
         : "SSH is off on this machine. Its owner can switch it on from this machine's settings.",
   }));
 

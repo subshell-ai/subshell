@@ -116,7 +116,12 @@ admitted here.
 - **Required input**: a gold `*` (`RequiredMark`) stands beside every
   REQUIRED label at rest, and the submit is disabled until the one schema is
   satisfied. When the caret LEAVES a field still empty, the sentence appears
-  under it in the same gold. Gold means "nothing typed yet".
+  under it in the same gold. Gold means "nothing typed yet". A REQUIRED
+  control with no caret-leave moment - a picker whose nothing-picked-yet state
+  itself disables the submit - wears the gold sentence at rest instead, once
+  its options have settled, since its emptiness is already the "nothing chosen
+  yet" fact and waiting for a blur that never comes would be the same silent
+  disabled button the ruling kills.
   *(The disabled button was honest but silent: an untouched dialog said
   nothing about what it demanded, and a live-tester dismissed a half-filled
   preset deciding the form "didn't want the name". Operator ruling,

@@ -46,7 +46,9 @@ fields. Name-length limits and historical specs aren't exceptions. Follow
 the [content guide](../../apps/docs/STYLE.md#product-copy-and-confirmations)
 for action labels, consequences, and examples.
 **A required input takes a gold `*` at rest and a gold caption once the caret
-leaves it empty; a hard error (a refused value, a server refusal) stays
+leaves it empty; a required control with no caret-leave moment (a picker whose
+nothing-picked state disables the submit) wears the gold caption at rest once
+its options settle; a hard error (a refused value, a server refusal) stays
 `text-destructive` red** (ruling 2026-09-30: gold says "nothing typed yet",
 red says "what you typed is wrong"; `fieldErrorToned` reads the split).
 **There is no 12px**: `detail` (13) is the floor, and `text-xs` /
