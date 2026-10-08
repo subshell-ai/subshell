@@ -150,6 +150,16 @@ export interface Node {
   /** Which end declared it; null when it has never been declared */
   maintenanceSource: MaintenanceSource | null;
   /**
+   * Whether this machine may be used for Subshell SSH (spec 2026-10-07).
+   *
+   * Opt-in per node, off by default on every row including the control-plane
+   * host; the SSH gate refuses launches, discovery and saves here while false,
+   * whoever asks. The server's schema requires the boolean, so it rides every
+   * node view — the launcher's machine disclosure reads it to keep a gated-off
+   * machine visible but disabled, never hidden.
+   */
+  sshEnabled: boolean;
+  /**
    * This node is connected but REFUSED — held open for exactly one
    * command and offline for every other purpose (spec 2026-09-15 §5.3).
    *

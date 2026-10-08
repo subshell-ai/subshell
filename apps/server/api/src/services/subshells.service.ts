@@ -54,6 +54,30 @@ import { logger } from "@/utils/logger.js";
 /** Subshell view shape returned by the manager (single source: toSubshellView). */
 type SubshellView = NonNullable<Awaited<ReturnType<SubshellManagerService["getSubshell"]>>>;
 
+/**
+ * The view-layer downgrade for ssh panes (spec 2026-10-07 §5.4, plan 3
+ * decision 1): a resolved `edit` on an ssh row reads as `view` to its holder,
+ * so the client's single truth (`readOnly = access === "view"`) already says
+ * what enforcement has said since tier 2: the input doors refuse every
+ * non-owner on an ssh pane (`paneInputAllowed`, unchanged here). Ordinary
+ * panes are untouched; `owner` and `view` pass through as resolved. No
+ * `viewerId` parameter is needed because the resolver returns `edit` only to
+ * non-owners (an owner resolves to `owner` before the boost and grants are
+ * ever consulted). The rule keys on the snapshot column's PRESENCE, never its
+ * content: the pane's kind fact, same as the input door.
+ *
+ * Both view paths apply it, so REST list/detail, the live snapshot and the
+ * MCP `list_subshells`/`get_subshell` reads all ride the one answer.
+ * Exported for test; consumers should go through the service methods.
+ */
+export function effectiveViewerAccess(
+  row: Pick<SubshellTable, "ssh" | "userId">,
+  access: Exclude<Access, "none">,
+): Exclude<Access, "none"> {
+  if (access === "edit" && row.ssh !== null) return "view";
+  return access;
+}
+
 /** A sharing grant as returned to the client, with the grantee label resolved. */
 interface SubshellShareView {
   /** Share row id */
@@ -667,7 +691,7 @@ export class SubshellsService extends BaseService {
     const accessBy = new Map<string, Exclude<Access, "none">>();
     for (const row of rows) {
       const access = resolveSubshellAccess(viewerId, isAdmin, row.userId, sharesBy.get(row.id) ?? []);
-      accessBy.set(row.id, access === "none" ? "view" : access);
+      accessBy.set(row.id, effectiveViewerAccess(row, access === "none" ? "view" : access));
     }
     const views = await this.#manager.toViews(rows, opts);
     return views.map((view) => ({
@@ -848,9 +872,15 @@ export class SubshellsService extends BaseService {
     if (!subshell) throw new SubshellError("not_found", "Subshell not found");
     // One extra read on a single-row path: the gate resolves access without
     // handing back the grants it looked at, and the disclosure warning needs
-    // the audience, not just the caller's own level.
+    // the audience, not just the caller's own level. The gate's resolver hands
+    // back the RAW level; the ssh view downgrade (plan 3 decision 1) rides the
+    // same helper the list applies, so both doors answer alike.
     const shares = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
-    return { ...subshell, access: access === "none" ? "view" : access, ...shareExposure(shares) };
+    return {
+      ...subshell,
+      access: effectiveViewerAccess(row, access === "none" ? "view" : access),
+      ...shareExposure(shares),
+    };
   }
 
   /**

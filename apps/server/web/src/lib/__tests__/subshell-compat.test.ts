@@ -31,6 +31,7 @@ function node(overrides: Partial<Node>): Node {
     maintenance: false,
     maintenanceAt: null,
     maintenanceSource: null,
+    sshEnabled: false,
     held: null,
     ...overrides,
   };

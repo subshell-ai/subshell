@@ -56,13 +56,40 @@ const underlyingFetch = globalThis.fetch.bind(globalThis) as (
   input: RequestInfo | URL,
   init?: RequestInit,
 ) => Promise<Response>;
-globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+const fetchDelegator = ((input: RequestInfo | URL, init?: RequestInit) =>
   (fetchRouter ?? underlyingFetch)(input, init)) as typeof globalThis.fetch;
+globalThis.fetch = fetchDelegator;
 
 /** Routes (or, with null, un-routes) the global fetch used by import-time binders. */
 export function setFetchRouter(router: FetchRouter): void {
   fetchRouter = router;
 }
+
+/**
+ * Park the global fetch back on the delegator after EVERY test, exactly as the
+ * `window.location` reset above does for the URL.
+ *
+ * The established per-file pattern swaps `globalThis.fetch` at a test's top and
+ * restores it inline at the bottom, with no `afterEach` (several suites do this,
+ * including the SSH Connect panel's). A mid-test throw skips that inline
+ * restore, so a mock is left on the global; a file evaluated after it that
+ * imports a fetch-time binder (better-auth captures whatever `globalThis.fetch`
+ * is at module evaluation, the reason the delegator lives here in the first
+ * place) then binds the leftover mock instead of the delegator. The poisoned
+ * global walks forward through the CI serial run until some later file's binder
+ * reaches the real network and dies as `ECONNREFUSED 127.0.0.1:80` — the
+ * `WINDOW_URL` this file registers the happy-dom window at, which is where a
+ * relative fetch lands — a victim file several positions down the same worker
+ * from whichever test leaked. The URL has carried this exact reset since 2026-09-17
+ * for the same cross-file reason; the delegator is installed for that reason
+ * too, so the reset belongs here, at the boundary, rather than chasing the one
+ * file whose ordering happened to trip it. A `beforeEach` that sets the global
+ * still wins (it runs after this, before the next test), and a file that swaps
+ * inside its own body is untouched until the boundary — which is the point.
+ */
+afterEach(() => {
+  globalThis.fetch = fetchDelegator;
+});
 
 const globals = globalThis as Record<string, unknown>;
 // `__BUILD_ID__` is a Vite `define`: the real build inlines it at compile

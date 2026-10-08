@@ -21,12 +21,22 @@ export class ApiError extends Error {
    * thing to quote when reporting a bug; undefined for legacy text failures.
    */
   readonly errId?: string;
-  constructor(status: number, body: string, meta: { code?: string; errId?: string } = {}) {
+  /**
+   * The parsed JSON body itself when the failure carried one — the machine-
+   * readable payload the display message cannot hold: the message is the
+   * raw text sliced to 200 chars, while a structured refusal (the SSH 422
+   * `{outcome}` with its `settings` list) can run longer than that. Readers
+   * that need the WHOLE answer (`err.body`) must not parse the message.
+   * Undefined for legacy plain-text bodies (nothing to keep).
+   */
+  readonly body?: unknown;
+  constructor(status: number, body: string, meta: { code?: string; errId?: string; body?: unknown } = {}) {
     super(`API ${status}: ${body.slice(0, 200)}`);
     this.name = "ApiError";
     this.status = status;
     this.code = meta.code;
     this.errId = meta.errId;
+    this.body = meta.body;
   }
 }
 
@@ -59,10 +69,14 @@ export function isAbortError(err: unknown): boolean {
 }
 
 /**
- * Splits a failed response body into the display message and the structured
- * fields. Every backend failure now carries `{errId, code, message, statusCode}`;
- * anything that is not that shape (a proxy error page, an older body) falls
- * back to the raw text so the `API <status>: <detail>` copy never changes form.
+ * Splits a failed response body into the display message, the structured
+ * fields, and the parsed body itself. Every backend failure now carries
+ * `{errId, code, message, statusCode}`; anything that is not that shape (a
+ * proxy error page, an older body) falls back to the raw text so the
+ * `API <status>: <detail>` copy never changes form. Any JSON OBJECT — the
+ * envelope or not — returns its parsed form as `body`, so a caller who needs
+ * the whole answer (the SSH 422 `{outcome}`) reads `body`, never the
+ * length-limited message.
  */
 /**
  * Exported for the one caller that cannot use {@link apiFetch}: the agent
@@ -70,7 +84,12 @@ export function isAbortError(err: unknown): boolean {
  * arrives as an ordinary status code with this body, and it should surface as
  * the same `ApiError` every other call produces.
  */
-export function parseErrorBody(raw: string): { message: string; code?: string; errId?: string } {
+export function parseErrorBody(raw: string): {
+  message: string;
+  code?: string;
+  errId?: string;
+  body?: unknown;
+} {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object") {
@@ -79,6 +98,10 @@ export function parseErrorBody(raw: string): { message: string; code?: string; e
         message: typeof message === "string" ? message : raw,
         code: typeof code === "string" ? code : undefined,
         errId: typeof errId === "string" ? errId : undefined,
+        // The whole parsed object rides along: `message` is a DISPLAY string
+        // sliced to 200 chars by ApiError, and a structured refusal body
+        // (the SSH 422 `{outcome}`) can be longer than the display allows.
+        body: parsed,
       };
     }
   } catch {
@@ -103,10 +126,14 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     throw new NetworkError(err);
   }
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    const { message, code, errId } = parseErrorBody(body);
-    throw new ApiError(res.status, message, { code, errId });
+    const raw = await res.text().catch(() => "");
+    const { message, code, errId, body } = parseErrorBody(raw);
+    throw new ApiError(res.status, message, { code, errId, body });
   }
+  // 204 may not carry a body (a `Response` constructed with one throws), and
+  // `res.json()` on an empty one throws too. The ssh saved-host DELETE is the
+  // first route to answer it; a body-less success resolves undefined.
+  if (res.status === 204) return undefined as unknown as T;
   return (await res.json()) as T;
 }
 

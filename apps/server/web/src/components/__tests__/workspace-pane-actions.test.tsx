@@ -32,6 +32,7 @@ function row(id: string, access: SubshellView["access"] = "owner"): SubshellView
     status: "running",
     alive: true,
     access,
+    ssh: false,
     nodeOffline: false,
     notify: false,
     activity: "idle",

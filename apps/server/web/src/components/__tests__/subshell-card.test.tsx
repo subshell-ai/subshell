@@ -45,6 +45,7 @@ function agent(overrides: Partial<Node> = {}): Node {
     maintenance: false,
     maintenanceAt: null,
     maintenanceSource: null,
+    sshEnabled: false,
     held: null,
     ...overrides,
   };
@@ -75,6 +76,7 @@ function makeSubshell(overrides: Partial<SubshellView> = {}): SubshellView {
     waitingSince: null,
     unseenPush: false,
     access: "owner",
+    ssh: false,
     ...overrides,
   };
 }
