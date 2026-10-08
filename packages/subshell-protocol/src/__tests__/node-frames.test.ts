@@ -318,7 +318,11 @@ describe("parseNodeCommandBody", () => {
     // bump is the load-bearing part: a pre-16 agent is wire-indistinguishable
     // from a 16 agent whose mirror says no, and a capability gate cannot live
     // with that ambiguity.
-    expect(NODE_PROTOCOL_VERSION).toBe(16);
+    // 17 is the ssh launcher tier (spec 2026-10-07 §4.3/§5): the launch frame's
+    // `ssh` block and the `ssh_discover_aliases` / `ssh_resolve_config` arms.
+    // A lagging agent ignores the launch block and spawns a bare `ssh` with no
+    // `-F` config, so it is HELD (update-only) until crossed, not approximated.
+    expect(NODE_PROTOCOL_VERSION).toBe(17);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
