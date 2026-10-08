@@ -5,13 +5,14 @@ import { ArrowUpCircle } from "lucide-react";
  * The sidebar footer's version line: what this is, and one amber dot when
  * something newer exists (operator's call, 2026-09-18).
  *
- * **One shape for two different facts**, which is the whole reason it is a
- * component rather than two hand-rolled rows. Inside Subshell Server the line
- * names the APP's own build, read over IPC from a check that runs once a day.
- * In a browser — and in Subshell Client's window, which is a browser for this
- * purpose — it names the SERVER this page is talking to, which
- * `GET /api/settings/public` hands every signed-in caller. Those are genuinely
- * different versions, and the route's own comment is why the second one is
+ * **One shape, one audience since spec 2026-10-07.** The only consumer is
+ * `DesktopAppUpdateRow` on the Server desktop rail: the line names the APP's
+ * own build, read over IPC from a check that runs once a day. It served two
+ * audiences before the move. In a browser, and in Subshell Client's window
+ * (a browser for this purpose), it named the SERVER this page is talking to,
+ * which `GET /api/settings/public` hands every signed-in caller; that fact
+ * folded into the header account card's menu line. The two were genuinely
+ * different versions, and the route's own comment is why the server one is
  * readable at all: "a version nobody can see without an admin session is a
  * version nobody quotes in a bug report."
  *
@@ -36,9 +37,10 @@ import { ArrowUpCircle } from "lucide-react";
  * `lint:design` refuses anything else.
  *
  * A row with no `onActivate` renders inert, which is the right answer for a
- * viewer who cannot act on what it says — a member in a browser can read the
- * server's version and can do nothing about it, and a control that refuses is
- * worse than a line that never offered.
+ * viewer who cannot act on what it says: a control that refuses is worse than
+ * a line that never offered. That was the browser's server-version row, whose
+ * member audience folded into the header card; the app row always offers an
+ * act, because replacing the app is not admin-only.
  */
 export function VersionRow({
   label,

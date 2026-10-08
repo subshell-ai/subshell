@@ -12,6 +12,7 @@ import { WorkspacesSection } from "@/components/sidebar/workspaces-section";
 import { UserMenu } from "@/components/user-menu";
 import { useClockTick } from "@/hooks/use-clock-tick";
 import { usePublicSettings } from "@/hooks/use-public-settings";
+import { useUpdates } from "@/hooks/use-updates";
 import { signOutAndRedirect, useCurrentUser } from "@/lib/auth";
 import { desktopInvoke, isDesktop, onDesktopAction } from "@/lib/desktop";
 import { readHiddenSections, revealHidden, toggleHidden, writeHiddenSections } from "@/lib/sidebar-section-hidden-pref";
@@ -58,8 +59,10 @@ export function AppSidebar({
    * dismiss the sheet so the dialog is never a second stacked modal. */
   onQuickAdd?: () => void;
   /**
-   * Rendered above the user menu, INSIDE the footer. The desktop shell puts
-   * its server pill here.
+   * Rendered as the footer's whole content (desktop server pill + app-update
+   * line); when absent, the footer div does not render. The account card left
+   * the footer for the header on spec 2026-10-07; the collapsed-width
+   * argument for the render-prop stands unchanged.
    *
    * A render prop rather than a node (unlike {@link headerEnd}) because
    * `collapsed` is private state: an outer wrapper cannot see it, and a footer
@@ -92,13 +95,22 @@ export function AppSidebar({
   const location = useLocation();
   const navigate = useNavigate();
   const quickAdd = useQuickAdd();
-  // Identity for the user menu (footer). "" fields while in flight — the
+  // Identity for the user menu (header). "" fields while in flight - the
   // menu renders its own "Signed in" placeholder (UserMenu owns that string).
   const { data: user } = useCurrentUser();
   // Admin-nav gate for the Server Settings group (spec 2026-09-02
   // settings-split §4) — the same cached query the emergency banner /
   // Add-node dialog use.
   const { data: publicSettings } = usePublicSettings();
+  // Admin-gated server-update read (spec 2026-10-07 §B): the one the deleted
+  // ServerVersionRow held. `=== true`, never truthiness: `undefined` is the
+  // read in flight, and counting it as admin fires a doomed 403. The header
+  // card is this rail's only consumer of the query; the Updates page runs its
+  // own use, which share-caches by key, keeping one request per document load.
+  const isAdmin = publicSettings?.viewerIsAdmin === true;
+  const { data: updates } = useUpdates(isAdmin);
+  const serverUpdate = updates?.server;
+  const updateNotice = serverUpdate?.updateAvailable === true ? (serverUpdate.latest?.version ?? null) : null;
   // The About dialog the user menu raises. Held here rather than in the menu
   // because choosing an item closes the menu, which would take the dialog
   // with it.
@@ -306,21 +318,33 @@ export function AppSidebar({
           </>
         )}
       </div>
-      {/* Which plane am I looking at? Only when expanded — the collapsed rail
-          has no room for text, and the wordmark alone is the brand, not the
-          instance. Server-resolved, so it is never blank. */}
-      {!collapsed && publicSettings?.instanceName && (
-        <p className="truncate px-3 pb-3 text-detail text-muted-foreground" title={publicSettings.instanceName}>
-          {publicSettings.instanceName}
-        </p>
-      )}
-      {collapsed && <div className="pb-3" />}
+      {/* The account card (spec 2026-10-07 §B): the footer's user menu moved
+          up into the slot the instance-name line used. Which plane this is
+          and what it runs now ride the menu's version line; an admin with a
+          newer server gets the dot on the avatar. Collapsed: the avatar
+          alone, centered under the mark that expands the rail. */}
+      <div className={collapsed ? "flex justify-center px-2 pb-2" : "px-2 pb-2"}>
+        <UserMenu
+          name={user?.name ?? ""}
+          email={user?.email ?? ""}
+          collapsed={collapsed}
+          serverVersion={publicSettings?.serverVersion ?? ""}
+          instanceName={publicSettings?.instanceName ?? ""}
+          updateNotice={updateNotice}
+          onOpenUpdates={isAdmin ? () => void navigate({ to: "/settings/updates" }) : undefined}
+          onPreferences={() => void navigate({ to: "/preferences" })}
+          onAccountSettings={() => void navigate({ to: "/account" })}
+          onAbout={() => setAboutOpen(true)}
+          onSignOut={() => void signOutAndRedirect()}
+        />
+      </div>
 
       {/* `min-h-0` is load-bearing, not tidying: a flex item's automatic minimum
           size is its CONTENT, so `flex-1` + `overflow-y-auto` alone still grows
-          past the container and pushes the footer below the fold instead of
-          scrolling. Invisible on a tall desktop rail; on the phone drawer it
-          took one extra nav item to surface (e2e 08, 2026-09-12). */}
+          past the container and pushes what follows the nav (the desktop
+          footer, where one exists) below the fold instead of scrolling.
+          Invisible on a tall desktop rail; on the phone drawer it took one
+          extra nav item to surface (e2e 08, 2026-09-12). */}
       <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-2" aria-label="Main">
         {visibleNavEntries(publicSettings?.viewerIsAdmin).map((entry) => {
           if (isNavGroup(entry)) {
@@ -336,7 +360,19 @@ export function AppSidebar({
                 </Fragment>
               );
             }
-            const childActive = entry.children.some((child) => location.pathname === child.to);
+            // Detail pages count: /nodes/local is inside the Nodes page, so
+            // the group that holds Nodes is open there (spec 2026-10-07 §A).
+            // Segment-aware on purpose: a bare startsWith would also match a
+            // sibling route that merely begins with the same letters.
+            // `/settings` is exact-only because General IS `/settings`
+            // itself, not a folder over its siblings; a personal page may one
+            // day live under `/settings/...`, and it should light itself, not
+            // General.
+            const childActive = entry.children.some(
+              (child) =>
+                location.pathname === child.to ||
+                (child.to !== "/settings" && location.pathname.startsWith(`${child.to}/`)),
+            );
             const open = groupOpen(overrides[entry.id], childActive);
             const listId = `nav-group-${entry.id}`;
             return (
@@ -482,8 +518,8 @@ export function AppSidebar({
 
             The path is the CURRENT route, search included, and Rust joins it
             onto the window's own origin — the page names no host. Last in the
-            rail because it leaves the app; the footer below is the account, and
-            this is not an account action. */}
+            rail because it leaves the app; the account card is up in the
+            header, and this is not an account action. */}
         {isDesktop() && (
           <button
             type="button"
@@ -510,25 +546,14 @@ export function AppSidebar({
         )}
       </nav>
 
-      <div className="border-border border-t p-2">
-        {footerEnd?.({ collapsed })}
-        <UserMenu
-          name={user?.name ?? ""}
-          email={user?.email ?? ""}
-          collapsed={collapsed}
-          onPreferences={() => void navigate({ to: "/preferences" })}
-          onAccountSettings={() => void navigate({ to: "/account" })}
-          onAbout={() => setAboutOpen(true)}
-          onSignOut={() => void signOutAndRedirect()}
-        />
-        {/* Beside the menu rather than inside it: choosing an item closes the
-            menu, and a dialog mounted in a closing menu goes with it. */}
-        <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
-        {/* Its trigger is the rail row above, not this footer — both
-            dialogs live here so neither is mounted inside something that
-            can close underneath it. */}
-        <MobileInstallDialog open={mobileOpen} onOpenChange={setMobileOpen} />
-      </div>
+      {/* The footer exists only for shells that supply rows (spec 2026-10-07
+          §C): the desktop server pill and app-update line. A browser passes
+          no footerEnd and gets no bordered block at all. */}
+      {footerEnd && <div className="border-border border-t p-2">{footerEnd({ collapsed })}</div>}
+      {/* Both dialogs mount at the rail root: choosing the menu item closes
+          the menu, and a dialog mounted in a closing menu goes with it. */}
+      <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
+      <MobileInstallDialog open={mobileOpen} onOpenChange={setMobileOpen} />
     </aside>
   );
 }

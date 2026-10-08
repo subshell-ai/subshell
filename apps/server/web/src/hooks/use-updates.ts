@@ -8,7 +8,8 @@ import { updatesPollMs } from "@/lib/updates-poll";
 import type { ServerUpdateView, UpdatesView } from "@/types/updates";
 
 /**
- * What the Updates page reads (`GET /api/admin/updates`), admin-only.
+ * What the Updates page reads (`GET /api/admin/updates`), admin-only. The
+ * rail's header account card is a second consumer, mounted on every page.
  *
  * ONE query for the whole Components table: the server's own view, the fleet
  * and the two desktop releases all come out of the SAME release index on the

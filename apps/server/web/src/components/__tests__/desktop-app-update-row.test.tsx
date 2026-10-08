@@ -1,6 +1,6 @@
 /**
  * The footer row that tells the person the APP has a newer build (spec
- * 2026-09-17 §5.3), and the four ways it stays out of the way:
+ * 2026-09-17 §5.3), and the five ways it stays out of the way:
  *
  * - **Only Subshell Server renders it.** `desktop_app_update` reports that
  *   app's own version and is granted to that app's window alone; Subshell
@@ -17,8 +17,9 @@
  *   own control opens the assistant, which stays the only surface allowed to
  *   install. The TRAY still raises the window directly, and must: it has to
  *   work with no session, when this page does not exist.
- * - **Admin-gated, because the page is.** A member gets an inert line rather
- *   than a press that lands on a route that will not render for them.
+ * - **The press follows the audience.** An admin lands on the admin-only
+ *   Updates page; a member's press is live too and opens the assistant, since
+ *   that page will not render for them.
  *
  * It is ONE line in both states since 2026-09-18 (operator's call): the
  * two-line block with an [Update] button and a dismiss × is gone, so the tests
@@ -76,9 +77,9 @@ function fakeTauri(answer: unknown): Invocation[] {
 }
 
 /**
- * `/api/settings/public`, which decides whether the row is a door: the Updates
- * page is admin-only, so a member gets an inert line rather than a press that
- * lands on a page that will not render for them.
+ * `/api/settings/public`, which decides where the row's press leads: the
+ * Updates page is admin-only, so a member's press opens the assistant instead
+ * of a page that will not render for them.
  */
 let restoreFetch: (() => void) | null = null;
 
@@ -262,8 +263,9 @@ describe("DesktopAppUpdateRow", () => {
     const { container } = renderRow();
     await waitFor(() => expect(screen.getByText("Subshell Server App 0.8.0")).toBeTruthy());
     // The slot is always in the layout for alignment; "no news" is the slot
-    // being `invisible`. Asserting `.bg-warning` here would now pass
-    // vacuously — that class no longer exists anywhere.
+    // being `invisible`. Asserting `.bg-warning` here would now pass vacuously
+    // for the wrong reason - the class exists elsewhere in the rail (the
+    // header card's avatar dot), just not in this row's markup.
     expect(container.querySelector("span[aria-hidden]")?.className).toContain("invisible");
     expect(screen.queryByText(/available/)).toBeNull();
   });

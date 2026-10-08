@@ -53,10 +53,12 @@ describe("visibleNavItems", () => {
 });
 
 describe("visibleNavEntries", () => {
-  it("carries exactly one group, gated as a whole", () => {
+  it("carries two groups; only the admin one is gated", () => {
     const groups = visibleNavEntries(true).filter(isNavGroup);
-    expect(groups.map((g) => g.label)).toEqual(["Server Settings"]);
-    expect(groups[0]?.requiresAdmin).toBe(true);
+    expect(groups.map((g) => [g.id, g.label, g.requiresAdmin])).toEqual([
+      ["personal-settings", "Settings", undefined],
+      ["server-settings", "Server Settings", true],
+    ]);
   });
 
   it("puts the gate on the group and nowhere else", () => {
@@ -67,8 +69,16 @@ describe("visibleNavEntries", () => {
     }
   });
 
-  it("drops the group whole while the flag is false or unknown", () => {
-    for (const flag of [false, undefined]) expect(visibleNavEntries(flag).filter(isNavGroup)).toEqual([]);
+  it("drops the admin group whole while the flag is false or unknown", () => {
+    // The personal Settings group is ungated: it holds pages every signed-in
+    // person reaches today (spec 2026-10-07 §A).
+    for (const flag of [false, undefined]) {
+      expect(
+        visibleNavEntries(flag)
+          .filter(isNavGroup)
+          .map((g) => g.id),
+      ).toEqual(["personal-settings"]);
+    }
   });
 });
 

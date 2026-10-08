@@ -67,7 +67,7 @@ function renderRail(initialPath: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute({ component: () => <AppSidebar /> });
   // Every path the rail links to must exist, or clicking a child throws.
-  const paths = ["/", "/workspaces", "/nodes", "/presets", "/settings"];
+  const paths = ["/", "/workspaces", "/nodes", "/nodes/local", "/presets", "/prompts", "/settings"];
   const children = paths.map((path) => createRoute({ getParentRoute: () => rootRoute, path, component: () => null }));
   for (const path of [
     "/settings/users",
@@ -194,5 +194,60 @@ describe("the Server Settings group's open/close wiring", () => {
       spy.mockRestore();
       restoreFetch();
     }
+  });
+});
+
+/**
+ * The personal Settings group (spec 2026-10-07 §A): ungated, route-opened,
+ * same machinery as the admin group - which is the point of reusing the
+ * header-by-name and child-by-aria-controls helpers.
+ */
+describe("the Settings group", () => {
+  // A getByRole string name is already exact-matched (this version's
+  // ByRoleOptions has no `exact` flag), so the admin's "Server Settings"
+  // header cannot answer for it.
+  const personalHeader = () => screen.getByRole("button", { name: "Settings" });
+  const personalList = () => {
+    const id = personalHeader().getAttribute("aria-controls");
+    const el = id ? document.getElementById(id) : null;
+    if (!el) throw new Error("the Settings header's aria-controls names no element");
+    return el;
+  };
+  const withPersonal = async (path: string, body: () => Promise<void> | void) => {
+    const restoreFetch = stubFetch(false); // NOT an admin: the group is ungated
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch: () => {},
+      openNewWorkspace: () => {},
+    });
+    try {
+      renderRail(path);
+      await waitFor(() => expect(personalHeader()).toBeTruthy());
+      await body();
+    } finally {
+      spy.mockRestore();
+      restoreFetch();
+    }
+  };
+
+  it("shows for a member and is open on a page inside it", async () => {
+    await withPersonal("/nodes", async () => {
+      expect(personalHeader().getAttribute("aria-expanded")).toBe("true");
+      expect(personalList().className).not.toContain("hidden");
+      expect(screen.getByRole("link", { name: "Prompts" })).toBeTruthy();
+    });
+  });
+
+  it("stays open on a detail page like /nodes/local", async () => {
+    await withPersonal("/nodes/local", async () => {
+      expect(personalHeader().getAttribute("aria-expanded")).toBe("true");
+    });
+  });
+
+  it("is shut on a page outside it, and a press opens it", async () => {
+    await withPersonal("/", async () => {
+      expect(personalHeader().getAttribute("aria-expanded")).toBe("false");
+      fireEvent.click(personalHeader());
+      await waitFor(() => expect(personalHeader().getAttribute("aria-expanded")).toBe("true"));
+    });
   });
 });

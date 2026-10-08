@@ -1,7 +1,7 @@
 import { ApiError, apiFetch, Button, cn } from "@internal/node-admin";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { createRootRoute, Navigate, Outlet, useLocation } from "@tanstack/react-router";
-import { useCallback, useMemo } from "react";
+import { useMemo } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppToaster } from "@/components/app-toaster";
 import { BackupPasswordRecovery } from "@/components/backup-password-recovery";
@@ -16,7 +16,6 @@ import { MobileTopBar } from "@/components/mobile-top-bar";
 import { OfflineBanner } from "@/components/offline-banner";
 import { QuickAddProvider } from "@/components/quick-add";
 import { RouteError } from "@/components/route-error";
-import { ServerVersionRow } from "@/components/sidebar/server-version-row";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { useDesktopShellReady } from "@/hooks/use-desktop-shell-ready";
 import { useHasSidebar } from "@/hooks/use-has-sidebar";
@@ -110,18 +109,6 @@ function Shell() {
   // lands on. Hooks run before the early returns, which is what makes this the
   // right home for it.
   useDesktopShellReady(desktop);
-  // The browser rail's footer carries the SERVER's version — and, for an
-  // admin, a dot when a newer one is published. NOT the app's:
-  // `DesktopAppUpdateRow` reports the bundle it runs inside, and a browser is
-  // inside no app, which is why this rail had no version line at all until
-  // 2026-09-18 — read as a missing feature, and really a missing row.
-  // Subshell Client's window takes this branch too, and should: it is pointed
-  // at somebody's control plane and has no authority over the server app's
-  // build.
-  const browserFooter = useCallback(
-    ({ collapsed }: { collapsed: boolean }) => <ServerVersionRow collapsed={collapsed} />,
-    [],
-  );
   const insets = useVisualViewportInsets();
   const { data: user, isLoading } = useCurrentUser();
   const {
@@ -273,9 +260,8 @@ function Shell() {
               once the rail would cost a third of the window. */}
             {/* `root-frame-guards.test.ts` finds the line that mounts each
                 session-only child and requires the check ON IT, so this stays
-                one line and `browserFooter` is hoisted above rather than
-                inlined. */}
-            {hasSidebar && !bare && (desktop ? <DesktopSidebar /> : <AppSidebar footerEnd={browserFooter} />)}
+                one line. */}
+            {hasSidebar && !bare && (desktop ? <DesktopSidebar /> : <AppSidebar />)}
             {/* The shell pads the home indicator for the pages that SCROLL.
               Pages whose bottom-most element is a key bar own that padding
               themselves (`routeOwnsBottomEdge`), and this padding on top of

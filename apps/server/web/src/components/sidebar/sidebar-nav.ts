@@ -16,6 +16,7 @@ import {
   Shield,
   SlidersHorizontal,
   TerminalSquare,
+  UserRoundCog,
   Users,
 } from "lucide-react";
 
@@ -57,10 +58,22 @@ const NAV_ENTRIES: NavEntry[] = [
   // not a grid (the grid icon belongs to the tiles/list view toggle).
   { to: "/", label: "Subshells", icon: TerminalSquare },
   { to: "/workspaces", label: "Workspaces", icon: LayoutDashboard, short: "Wksp" },
-  { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
-  { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
-  // Beside Presets: both are saved launch material, one is settings, one is text.
-  { to: "/prompts", label: "Prompts", icon: MessageSquareText, short: "Prompts" },
+  // Personal settings (spec 2026-10-07 §A): the pages this viewer always owns,
+  // grouped the way the admin's Server Settings group is. No gate: every
+  // signed-in person reaches these pages today, and the group is chrome.
+  // UserRoundCog (person-gear) keeps it distinct from General's plain gear
+  // and the admin group's ServerCog - the icons test pins global uniqueness.
+  {
+    id: "personal-settings",
+    label: "Settings",
+    icon: UserRoundCog,
+    children: [
+      { to: "/nodes", label: "Nodes", icon: Server, short: "Nodes" },
+      { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
+      // Beside Presets: both are saved launch material, one is settings, one is text.
+      { to: "/prompts", label: "Prompts", icon: MessageSquareText, short: "Prompts" },
+    ],
+  },
   // On the label (spec 2026-09-11 §2.1). The single entry here used to read
   // "Instance", not "Server", because the control-plane host's own NODE is
   // named Server by default and on /nodes an admin saw that word twice, on two

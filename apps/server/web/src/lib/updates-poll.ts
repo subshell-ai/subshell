@@ -47,8 +47,9 @@ export function updatesPollMs(view: UpdatesView | undefined, explicitMs: number 
   // answers with the terminal tracker entry. (Operator report 2026-09-30:
   // "why do I lose current update status when I refresh the page".)
   // The gate is deliberately nullish-tolerant like `isUpdateLive`, because
-  // hand-stubbed views (the sidebar's `ServerVersionRow` tests) can lack the
-  // field, or the `server` half, entirely.
+  // hand-stubbed views (the header account card's test stubs a `server`
+  // half with no `job`, spec 2026-10-07) can lack the field, or the
+  // `server` half, entirely.
   const job = view.server?.job;
   if (job != null && job.phase !== "failed") return ACTIVE_POLL_MS;
   if (isUpdateLive(view.serverUpdate)) return ACTIVE_POLL_MS;
