@@ -125,7 +125,7 @@ describe("discoverSshAliases", () => {
     expect(found.truncated).toBe(true);
   });
 
-  it("sees Match exec in the walk (the local-execution signal §2 refuses on)", () => {
+  it("sees Match exec in the walk (the local-execution signal spec 2026-10-07 §5.2 refuses by name at resolve)", () => {
     const config = fixtureConfig("matchexec", ["Match exec echo hi", "  User x", "Host m-alias"].join("\n"));
     const walk = walkSshConfig(config, root);
     expect(walk.matchExecSeen).toBe(true);

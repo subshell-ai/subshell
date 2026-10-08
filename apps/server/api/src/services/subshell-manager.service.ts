@@ -1012,12 +1012,12 @@ export class SubshellManagerService {
    * Terminate one subshell because its NODE entered maintenance
    * (spec 2026-09-14 §5.2).
    *
-   * {@link terminateSubshell} plus a push, and the push is the whole reason
-   * this exists as a second method rather than a flag: that path is
-   * deliberately silent because the operator clicked it, and here they did
-   * not. A node owner's window stops subshells belonging to everyone the node
-   * was shared with — people who cannot see the node, did not act, and would
-   * otherwise find a dead pane with no account of why.
+   * {@link terminateSubshell} plus a push and the local ssh config sweep, and
+   * the push is the whole reason this exists as a second method rather than a
+   * flag: that path is deliberately silent because the operator clicked it,
+   * and here they did not. A node owner's window stops subshells belonging to
+   * everyone the node was shared with — people who cannot see the node, did
+   * not act, and would otherwise find a dead pane with no account of why.
    *
    * The row's OWN `userId` is passed through, never an actor's: the terminate
    * path is owner-keyed and would silently skip every row but the caller's.
@@ -1035,10 +1035,20 @@ export class SubshellManagerService {
    * the claim too, which is right: nothing was running to stop, and its owner
    * heard about that death when it happened.
    *
+   * The sweep runs whether or not this call claimed the transition (it is an
+   * idempotent `rm -rf`, and the helper's guard no-ops every row that is not
+   * a LOCAL ssh pane): the kill inside {@link terminateSubshell} revokes the
+   * pane's token at the same moment, so the dying hook's report can arrive
+   * 401 and sweep nothing — exactly the race the terminate verb documented
+   * (e2e spec 22). The hand that kills removes the dir; without this, a
+   * maintenance window left every local ssh config dir behind.
+   *
    * @param row - the running row to stop, freshly read
    */
   async terminateForMaintenance(row: SubshellTable): Promise<void> {
-    if (await this.terminateSubshell(row.userId, row.id)) void this.#notify(row.id, "maintenance");
+    const stopped = await this.terminateSubshell(row.userId, row.id);
+    sweepLocalSshDir(row); // guard: local node ∧ snapshot; agent rows skip (their disk, their watcher)
+    if (stopped) void this.#notify(row.id, "maintenance");
   }
 
   /**

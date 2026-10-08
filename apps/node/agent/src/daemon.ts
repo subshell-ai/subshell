@@ -40,6 +40,7 @@ import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } 
 import { noteSweepScheduled } from "./retention-settings.js";
 import { collectRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
+import { sweepOrphanSshDirs } from "./ssh-dir-retention.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { completeUpdate, revertAfterRefusal } from "./update.js";
 import { NODE_VERSION } from "./version.js";
@@ -584,6 +585,26 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     }, deps.retentionMs ?? PANE_LOG_RETENTION_PASS_MS);
     retentionTimer.unref?.();
   }
+  // Orphaned per-pane ssh config dirs (spec 2026-10-07 decision 4's
+  // machine-side half): `remove_paths` unlinks FILES, so a delete-after-
+  // death removed `<ssh>/<id>/config` and left the DIR behind forever. The
+  // agent drops those dirs here — boot pass plus the same hourly beat as the
+  // retention timer above, unref'd and fire-and-forget like it (and like the
+  // transfer sweep), because a wedged fs probe must not cost the node its
+  // first connection. Deliberately NOT inside the `forever` gate above it:
+  // the pane-log keep-forever pair is an operator choice about TRANSCRIPTS,
+  // and it says nothing about a dead pane's empty config dir — that sweep's
+  // only grace is the one-hour launch-window floor inside the pass itself.
+  const sweepSshDirs = (): Promise<{ removed: number }> => sweepOrphanSshDirs(config.dataDir, ctx.meta, Date.now());
+  void sweepSshDirs().catch((err: unknown) => {
+    log(`ssh dir sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
+  const sshDirSweepTimer = setInterval(() => {
+    void sweepSshDirs().catch((err: unknown) => {
+      log(`ssh dir sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }, deps.retentionMs ?? PANE_LOG_RETENTION_PASS_MS);
+  sshDirSweepTimer.unref?.();
   // SERIAL command executor (spec §3.4): verified commands queue here so pane
   // effects land in arrival order across the whole daemon life — surviving
   // reconnects. A command verified pre-`seqTracker.reset` executing post-reset
