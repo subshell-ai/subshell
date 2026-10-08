@@ -963,16 +963,17 @@ describe("ssh command arms and the launch ssh block", () => {
       type: "ssh_register_identity",
     });
     expect(parseNodeCommandBody({ type: "ssh_register_identity" })).not.toBeNull();
-    // The family's census: exactly these five types, and the count is the
+    // The family's census: exactly these six types, and the count is the
     // tripwire - a further arm must show up here before it ships.
     expect([...SSH_COMMAND_TYPES].sort()).toEqual([
+      "ssh_agent_identities",
       "ssh_discover_aliases",
       "ssh_register_identity",
       "ssh_relay_close",
       "ssh_relay_open",
       "ssh_resolve_config",
     ]);
-    expect(SSH_COMMAND_TYPES).toHaveLength(5);
+    expect(SSH_COMMAND_TYPES).toHaveLength(6);
     // Every census type is a type the dispatcher actually narrows.
     for (const t of SSH_COMMAND_TYPES) {
       const body =
@@ -985,6 +986,18 @@ describe("ssh command arms and the launch ssh block", () => {
               : { type: t };
       expect(parseNodeCommandBody(body)).not.toBeNull();
     }
+  });
+
+  it("the ssh_agent_identities arm is its type alone (spec 2026-10-08 §5.4: the roster command asks the WHOLE roster)", () => {
+    expect(parseNodeCommandBody({ type: "ssh_agent_identities" })).toEqual({ type: "ssh_agent_identities" });
+    // Nothing beyond the type travels: the command enumerates A's entire public
+    // roster, so a plane-sent selection could only be a widening attempt.
+    expect(parseNodeCommandBody({ type: "ssh_agent_identities", fingerprints: ["x"] })).toEqual({
+      type: "ssh_agent_identities",
+    });
+    expect(parseNodeCommandBody({ type: "ssh_agent_identities", grantId: "g" })).toEqual({
+      type: "ssh_agent_identities",
+    });
   });
 
   it("launch accepts an ssh block and refuses malformed ones", () => {

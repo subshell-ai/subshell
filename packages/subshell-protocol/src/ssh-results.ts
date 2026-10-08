@@ -2,11 +2,12 @@ import type { SshConnectionSnapshotWire } from "./ssh-config.js";
 import type { SshErrorCode } from "./ssh-errors.js";
 
 /**
- * The SSH result ENVELOPE types - what the two surviving `ssh_*` discovery
- * commands' `result{data}` carries (the Gate A split from `ssh-frames.ts`;
- * exported NAMES unchanged). The test/run/control envelopes retired with the
- * destination product (design 2026-10-05 §7). Their `parse*` validators
- * (`parseNodeSshAliasList`, `parseNodeSshResolveOutcome`) live in
+ * The SSH result ENVELOPE types - what the `ssh_*` commands' `result{data}`
+ * carries (the Gate A split from `ssh-frames.ts`; exported NAMES unchanged).
+ * The test/run/control envelopes retired with the destination product (design
+ * 2026-10-05 §7); M2 added the identity report and the §5.4 roster. Their
+ * `parse*` validators (`parseNodeSshAliasList`, `parseNodeSshResolveOutcome`,
+ * `parseNodeSshIdentity`, `parseNodeSshAgentIdentities`) live in
  * `node-results.ts` beside every other result validator.
  *
  * Imports no `node:` builtin; lives in the Metro-safe barrel.
@@ -70,4 +71,30 @@ export type NodeSshResolveOutcomeWire =
 export interface NodeSshIdentityResult {
   /** JSON-serialized public JWK (P-256 / ES256) - never the private half. */
   signingPublicKey: string;
+}
+
+/**
+ * One entry of the `ssh_agent_identities` answer (spec 2026-10-08 §5.4,
+ * Task 11): the public identity A's agent carries, spelled so the operator's
+ * selection can round trip into a grant unchanged.
+ */
+export interface NodeSshAgentIdentity {
+  /** The OpenSSH display fingerprint: `SHA256:` + base64url over the agent WIRE encoding of the public blob (the grant grammar's shape, {@link isSshGrantFingerprint}). */
+  fingerprint: string;
+  /** OpenSSH's label for the key, passed through as text; the empty comment is legal. */
+  comment: string;
+}
+
+/**
+ * `ssh_agent_identities` answer (spec 2026-10-08 §5.4): A's agent's WHOLE
+ * public roster as fingerprints plus comments, with the key BLOBS withheld.
+ * The shape has no slot for key material by construction: the validator
+ * rebuilds each entry from its two checked fields, so a `blob` member a buggy
+ * or hostile node tried to ship is dropped at the grammar, and an empty
+ * roster from a live agent is a legal answer (distinct from the named error
+ * an offline or unparseable roster produces, which never reaches this shape).
+ */
+export interface NodeSshAgentIdentitiesResult {
+  /** Every public identity A's live agent carries; the approval screen's choice list. */
+  identities: NodeSshAgentIdentity[];
 }

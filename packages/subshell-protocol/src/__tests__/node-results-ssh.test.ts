@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { parseNodeSshAliasList, parseNodeSshIdentity, parseNodeSshResolveOutcome } from "../node-results.js";
+import {
+  parseNodeSshAgentIdentities,
+  parseNodeSshAliasList,
+  parseNodeSshIdentity,
+  parseNodeSshResolveOutcome,
+} from "../node-results.js";
 import { makeAliasList, makeResolveOk, makeResolveRefused } from "./fixtures/ssh-fixtures.js";
 
 /** A well-formed public-JWK STRING: the validator's whole job is that it is JSON and an object. */
@@ -46,6 +51,54 @@ describe("parseNodeSshResolveOutcome", () => {
       settings: ["ProxyCommand"],
     });
     expect(parseNodeSshResolveOutcome({ accepted: false, code: "not_a_code", settings: [] })).toBeNull();
+  });
+});
+
+describe("parseNodeSshAgentIdentities", () => {
+  /** A canonical grant-grammar fingerprint (SHA256: + base64url digest text). */
+  const FP_A = `SHA256:${"A".repeat(20)}${"b".repeat(20)}cd`;
+  const _FP_B = `SHA256:${"-_9".repeat(14)}x`;
+
+  test("narrows a well-formed roster answer", () => {
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: FP_A, comment: "laptop key" }] })).toEqual({
+      identities: [{ fingerprint: FP_A, comment: "laptop key" }],
+    });
+  });
+  test("an EMPTY roster is a legal answer (a live agent may carry zero keys)", () => {
+    expect(parseNodeSshAgentIdentities({ identities: [] })).toEqual({ identities: [] });
+  });
+  test("blob bytes are NOT representable: a wire `blob` member is dropped from the narrowed answer", () => {
+    // The grammar has no slot for key material, so even a (buggy or hostile)
+    // node that tried to ship one cannot get it past the rebuild.
+    const blob = Buffer.from("PRIVATE-WIRE-MATERIAL").toString("base64");
+    const parsed = parseNodeSshAgentIdentities({ identities: [{ fingerprint: FP_A, comment: "c", blob }] });
+    expect(parsed).toEqual({ identities: [{ fingerprint: FP_A, comment: "c" }] });
+    expect(JSON.stringify(parsed)).not.toContain("PRIVATE-WIRE-MATERIAL");
+    expect(JSON.stringify(parsed)).not.toContain(blob);
+  });
+  test("refuses fingerprints outside the canonical SHA256: grammar", () => {
+    // The roster's fingerprint must be a valid grant selection, the SAME
+    // grammar both directions (the approve error copy promises "exactly as
+    // the roster reports it"); anything else is a malformed answer, refused.
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: "MD5:aa:bb", comment: "c" }] })).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: "SHA256:", comment: "c" }] })).toBeNull();
+    expect(
+      parseNodeSshAgentIdentities({ identities: [{ fingerprint: "SHA256:with space", comment: "c" }] }),
+    ).toBeNull();
+    expect(
+      parseNodeSshAgentIdentities({ identities: [{ fingerprint: "SHA256:with/slash+plus=", comment: "c" }] }),
+    ).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: 7, comment: "c" }] })).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: FP_A }] })).toBeNull();
+  });
+  test("refuses malformed entries, non-string comments, and non-array shapes", () => {
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: FP_A, comment: 4 }] })).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: FP_A, comment: "x".repeat(254) }] })).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: "not an array" })).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: ["bare string"] })).toBeNull();
+    expect(parseNodeSshAgentIdentities({})).toBeNull();
+    expect(parseNodeSshAgentIdentities(null)).toBeNull();
+    expect(parseNodeSshAgentIdentities([])).toBeNull();
   });
 });
 

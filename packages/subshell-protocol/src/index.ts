@@ -151,6 +151,7 @@ export {
   parseNodePathExistsResult,
   parseNodeProbeEntries,
   parseNodePromptDeliver,
+  parseNodeSshAgentIdentities,
   parseNodeSshAliasList,
   parseNodeSshIdentity,
   parseNodeSshResolveOutcome,
@@ -251,11 +252,13 @@ export {
   type SshErrorCode,
 } from "./ssh-errors.js";
 export {
+  isSshGrantFingerprint,
   isSshGrantFingerprints,
   isSshPaneId,
   parseSshNodeCommandBody,
   SSH_COMMAND_TYPES,
   SSH_RELAY_CLOSE_REASONS,
+  type SshAgentIdentitiesCommand,
   type SshDiscoverAliasesCommand,
   type SshNodeCommandBody,
   type SshRegisterIdentityCommand,
@@ -307,6 +310,8 @@ export {
   verifyRelayEnvelope,
 } from "./ssh-relay.js";
 export type {
+  NodeSshAgentIdentitiesResult,
+  NodeSshAgentIdentity,
   NodeSshAliasListResult,
   NodeSshIdentityResult,
   NodeSshResolveOutcomeWire,
