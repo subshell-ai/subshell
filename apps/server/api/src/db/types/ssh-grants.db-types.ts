@@ -86,6 +86,17 @@ export interface SshGrantRequestTable {
   keyHomeNodeId: string;
   /** The resolved destination hostname the launch would have dialed (stored resolved, like the grant) */
   resolvedSelector: string;
+  /**
+   * The FULL canonical destination `user@host:port` the asking launch dialed
+   * (the `sshCanonicalDestination` spelling, migration 0051). The selector
+   * above is hostname-scoped (the grant's match key); the host-key PIN is
+   * keyed per this triple, and the approval that creates the grant captures
+   * the pin at exactly what was dialed - which requires the row to outlive
+   * the launch carrying it. NULL only on a row written before 0051 (the
+   * asking launch is gone, nothing to back-fill); approval refuses such a
+   * row by name rather than guess a port or a user.
+   */
+  destination: string | null;
   /** JSON array of pre-selected `SHA256:` fingerprints, or null when none rode the request (the approver picks) */
   requestedFingerprints: string | null;
   /** B's pane (subshell id) whose launch asked - what the approvals screen names as the requester */
@@ -115,7 +126,16 @@ export interface SshHostPinTable {
   ownerUserId: string;
   /** Canonical resolved destination `user@host:port` (the `sshCanonicalDestination` spelling) */
   destination: string;
-  /** The pinned public host key line (`<type> <base64>`, OpenSSH known_hosts spelling), never a secret */
+  /**
+   * The pinned public host-key entry, one OpenSSH `known_hosts` line: the
+   * destination's pattern, the key type, and the base64 key material (plus
+   * any comment A's own file carried) - stored VERBATIM from A's recorded
+   * trust so B's file carries exactly the bytes A matched, never a
+   * reconstruction that re-spells A's entry. Public material end to end
+   * (a known_hosts entry CHECKS a server, it is not a secret); the audit
+   * rows name the destination and this line's `SHA256:` fingerprint, never
+   * the bytes themselves.
+   */
   hostKey: string;
   /** ISO 8601 first capture (the TOFU moment) */
   createdAt: string;
