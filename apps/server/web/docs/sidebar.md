@@ -112,3 +112,14 @@ view can see (a capped or comms-led machine may order differently between
 the two, accepted, order is a scan hint). `Segmented`
 grew `tooltip` and `dense` as opt-ins with byte-identity pinned for every
 other caller; the ONE clock tick still lives in `AppSidebar`.
+
+**Two groups sit under the pages** (spec 2026-10-07): Nodes, Presets and
+Prompts live in a personal `Settings` group beside the admin-only `Server
+Settings` group. The grouping is chrome; routes and access rules did not
+move. The account card that used to sit in the rail's footer moved into the
+header, into the slot the instance-name line used: the browser rail renders
+no footer at all, and the server version plus instance name ride the menu's
+detail line. An admin with a newer server published gets an amber dot on the
+avatar and an "Update available" row leading to `/settings/updates`. The
+desktop shells keep their footer rows (server pill, app-update line),
+because those describe the app bundle rather than an account.
