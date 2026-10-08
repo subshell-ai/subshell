@@ -72,6 +72,10 @@ const KIND_COPY: Record<NotifyKind, string> = {
   crashed: "A subshell crashed, auto-restarting",
   crashed_final: "A subshell crashed",
   maintenance: "A subshell was stopped for node maintenance",
+  // Not a subshell: a first-use key-grant request waiting on the owner
+  // (spec 2026-10-08 §6.2). Fixed copy, names nothing - `sid` carries the
+  // opaque request id, never a destination or a fingerprint.
+  grant_approval: "A key grant needs your approval",
 };
 
 /**

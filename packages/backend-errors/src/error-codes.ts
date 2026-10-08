@@ -227,6 +227,41 @@ export enum BackendErrorCodes {
    * code, exactly as it drops a `view` grantee's keystrokes.
    */
   SSH_OWNER_INPUT_ONLY = "SSH_OWNER_INPUT_ONLY",
+  /**
+   * A relay launch the grant layer refused for lack of a standing grant
+   * (spec 2026-10-08 §6.2): a first-use approval was RECORDED and asked of
+   * the key home's owner, and the launch fails fast rather than hang a pane
+   * on a human. The message names the asking machine and the remedy (answer
+   * the approval, launch again); never the key or destination beyond what
+   * the pending row already discloses.
+   */
+  SSH_GRANT_APPROVAL_REQUIRED = "SSH_GRANT_APPROVAL_REQUIRED",
+  /**
+   * A grant approval selecting MORE than `SSH_MAX_GRANT_FINGERPRINTS` keys
+   * (spec 2026-10-08 §5.4): a hard, loud, named refusal on the grants
+   * surface, NEVER a silent truncation of the operator's selection. The cap
+   * is law.
+   */
+  SSH_GRANT_KEYS_OVER_LIMIT = "SSH_GRANT_KEYS_OVER_LIMIT",
+  /**
+   * A grant fingerprint outside the `SHA256:` display grammar (agent-wire
+   * base64; `isSshGrantFingerprints`). Refused before any write; the value
+   * itself is never echoed into the message.
+   */
+  SSH_GRANT_KEYS_INVALID = "SSH_GRANT_KEYS_INVALID",
+  /**
+   * The relay broker refused to open (spec 2026-10-08 §5.3): quota, gate,
+   * handshake, or a refused side. The pane was not launched; the message
+   * names which door. No grant was consumed and no session exists.
+   */
+  SSH_RELAY_OPEN_FAILED = "SSH_RELAY_OPEN_FAILED",
+  /**
+   * A relay launch aimed at a machine that has no registered relay identity
+   * (spec 2026-10-08 §4.2/§4.3: no `node:` record, or its signing slot is
+   * still empty). The remedy is on the machine: re-enroll, or let its next
+   * `ready` fill the slot.
+   */
+  SSH_RELAY_IDENTITY_MISSING = "SSH_RELAY_IDENTITY_MISSING",
 }
 
 export const BackendErrorCodeDefs = {
@@ -486,5 +521,25 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.SSH_OWNER_INPUT_ONLY]: {
     message: "SSH panes accept input from their owner only",
     statusCode: 403,
+  },
+  [BackendErrorCodes.SSH_GRANT_APPROVAL_REQUIRED]: {
+    message: "This connection needs a key-grant approval first",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_GRANT_KEYS_OVER_LIMIT]: {
+    message: "Too many keys selected for one grant",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.SSH_GRANT_KEYS_INVALID]: {
+    message: "That key fingerprint is not in the SHA256 form grants store",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.SSH_RELAY_OPEN_FAILED]: {
+    message: "The relay refused to open; the pane was not launched",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_RELAY_IDENTITY_MISSING]: {
+    message: "That machine has no registered relay identity yet",
+    statusCode: 409,
   },
 };
