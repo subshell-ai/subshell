@@ -324,6 +324,22 @@ describe("machine disclosure (contract 1)", () => {
     }
   });
 
+  it("omits server-specific guidance and settings actions", async () => {
+    const { restore } = await renderPanel({
+      nodes: [node({ id: "local", name: "Server", kind: "local", sshEnabled: false }), HOST_B],
+      settings: { viewerIsAdmin: true },
+    });
+    try {
+      expect(screen.getByText("No machine is ready for SSH")).toBeTruthy();
+      expect(screen.queryByText(/SSH is off here/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Open Server settings" })).toBeNull();
+      expect(screen.getByRole("button", { name: "Open studio settings" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Add a node" })).toBeTruthy();
+    } finally {
+      restore();
+    }
+  });
+
   it("opens an owned machine's SSH settings", async () => {
     const { restore, pathname } = await renderPanel({ nodes: [HOST_B] });
     try {
