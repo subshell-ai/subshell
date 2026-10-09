@@ -313,6 +313,73 @@ describe("ssh-grants.service", () => {
       expect(after.value.requestId).toBe(first.value.requestId);
       expect(notifyCalls).toHaveLength(0);
     });
+
+    it("normalizes case: a mixed-case ask stores the lowercased selector and dedupes across spellings", async () => {
+      const first = await requestFirstUse({
+        ownerUserId: owner,
+        aNodeId: NODE_A,
+        bNodeId: NODE_B,
+        resolvedSelector: "Git.Example.TEST",
+        destination: "Git.Example.TEST:22",
+        paneId: "p-case",
+      });
+      expect(first.ok).toBe(true);
+      if (!first.ok) return;
+      // The row is stored lowercased: the matcher compares against the
+      // lowercased resolved host, so an un-normalized row is a grant the
+      // matcher could never re-satisfy.
+      const row = await repo.getRequest(owner, first.value.requestId);
+      expect(row?.resolvedSelector).toBe(HOST);
+      clockMs += 60_000;
+      // A relaunch with the other case FINDS the pending row: no second
+      // question, no second notification (same no-double-request shape).
+      const again = await requestFirstUse({
+        ownerUserId: owner,
+        aNodeId: NODE_A,
+        bNodeId: NODE_B,
+        resolvedSelector: HOST,
+        destination: DEST,
+        paneId: "p-case-2",
+      });
+      expect(again.ok).toBe(true);
+      if (!again.ok) return;
+      expect(again.value.requestId).toBe(first.value.requestId);
+      expect(again.value.reused).toBe(true);
+      expect(notifyCalls).toHaveLength(1);
+      const rows = await db.selectFrom("sshGrantRequests").selectAll().execute();
+      expect(rows).toHaveLength(1);
+    });
+
+    it("IPv6-literal first use: the row stores the bracketed host lowercased, approve mints that exact grant, and it re-matches", async () => {
+      // The first-use door is not grammar-gated (PR #338 review round 5): the
+      // resolver's HOST_RE admits the bracketed spelling with uppercase hex,
+      // so this is the real shape of an IPv6 ask. Lowercasing is exactly what
+      // makes the minted grant re-match instead of re-asking forever.
+      const asked = await requestFirstUse({
+        ownerUserId: owner,
+        aNodeId: NODE_A,
+        bNodeId: NODE_B,
+        resolvedSelector: "[2001:DB8::1]",
+        destination: "[2001:DB8::1]:22",
+        paneId: "p-v6",
+      });
+      expect(asked.ok).toBe(true);
+      if (!asked.ok) return;
+      const row = await repo.getRequest(owner, asked.value.requestId);
+      expect(row?.resolvedSelector).toBe("[2001:db8::1]");
+      const approved = await approveGrant({
+        ownerUserId: owner,
+        requestId: asked.value.requestId,
+        fingerprints: FPS,
+      });
+      expect(approved.ok).toBe(true);
+      if (!approved.ok) return;
+      expect(approved.value.grant.resolvedSelector).toBe("[2001:db8::1]");
+      expect(approved.value.grant.createdVia).toBe("first-use");
+      // A subsequent matcher pass over the same destination is silent: the
+      // exact arm, against the lowercased host.
+      expect(sshGrantSelectorMatches(approved.value.grant.resolvedSelector, "[2001:db8::1]")).toBe(true);
+    });
   });
 
   describe("approval cap and shape", () => {
@@ -804,12 +871,19 @@ describe("ssh-grants.service", () => {
       expect(sshGrantSelectorMatches("git.*.test", "git.example.test")).toBe(true);
       expect(sshGrantSelectorMatches("git.example.test", "evilgit.example.test")).toBe(false);
       expect(sshGrantSelectorMatches("a.b", "axb")).toBe(false); // the DOT is literal, not the regex dot
-      // IPv6-literal shape, pinned (PR #338 review round 3): an exact selector can
-      // never NAME a bracketed IPv6 host, but `*` spans brackets and colons, so a
+      // IPv6-literal shape, pinned (PR #338 review rounds 3/5), by DOOR: the
+      // manual doors (create/edit, grammar-gated) refuse an exact selector
+      // naming a bracketed IPv6 host; the first-use door -> approve mints one
+      // (its request selector is lowercased exactly so the minted grant
+      // re-matches, the exact arm below); `*` spans brackets and colons, so a
       // wildcard still matches such a destination incidentally.
       expect(normalizeSshGrantSelector("[::1]")).toBeNull();
       expect(sshGrantSelectorMatches("*1*", "[::1]")).toBe(true);
       expect(sshGrantSelectorMatches("*.example.test", "[2001:db8::1]")).toBe(false);
+      // The first-use mint's spelling: lowercased bracketed host on the exact
+      // arm, and the host lowercasing keeps a later uppercase spelling too.
+      expect(sshGrantSelectorMatches("[2001:db8::1]", "[2001:db8::1]")).toBe(true);
+      expect(sshGrantSelectorMatches("[2001:db8::1]", "[2001:DB8::1]")).toBe(true);
     });
 
     it("update edits name and selector and audits the change (no fingerprint rewrite path exists)", async () => {
