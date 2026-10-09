@@ -103,6 +103,7 @@ function stubFetch() {
   // provider would mount two dialogs and their data, none of it under test.
   const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
     openLaunch: () => {},
+    openSshLaunch: () => {},
     openNewWorkspace: () => {},
   });
   return () => {

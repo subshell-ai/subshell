@@ -1,6 +1,7 @@
 import { apiPost, Button, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useState } from "react";
+import { ConnectPanel } from "@/components/connect/connect-panel";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
   canSubmit,
@@ -8,6 +9,7 @@ import {
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/launch-form-rules";
 import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
+import { type SubshellKind, SubshellKindPicker } from "@/components/subshell-picker/subshell-kind-picker";
 import {
   Dialog,
   DialogContent,
@@ -57,6 +59,7 @@ export function NewWorkspaceDialog({
   const { data: workspaces } = useWorkspaces();
   const create = useCreateSubshell();
 
+  const [kind, setKind] = useState<SubshellKind>("agent");
   const [mode, setMode] = useState<Mode>("existing");
   const [query, setQuery] = useState("");
   const [form, setForm] = useState<NewSubshellFormValue>(emptyNewSubshellForm());
@@ -71,6 +74,7 @@ export function NewWorkspaceDialog({
 
   function reset() {
     setMode("existing");
+    setKind("agent");
     setQuery("");
     setForm(emptyNewSubshellForm());
     setSelected([]);
@@ -165,7 +169,9 @@ export function NewWorkspaceDialog({
             { value: "new", label: "New subshell" },
           ]}
           value={mode}
-          onChange={setMode}
+          onChange={(next) => {
+            if (!launching) setMode(next);
+          }}
         />
 
         {createdId ? (
@@ -182,7 +188,21 @@ export function NewWorkspaceDialog({
             onToggle={toggle}
           />
         ) : (
-          <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
+          <div className="flex flex-col gap-4">
+            <SubshellKindPicker value={kind} onChange={setKind} disabled={launching} />
+            {kind === "ssh" ? (
+              <ConnectPanel
+                onPendingChange={setLaunching}
+                onLeave={() => onOpenChange(false)}
+                onCreated={(id) => {
+                  setSelected((prev) => [...prev, id]);
+                  setMode("existing");
+                }}
+              />
+            ) : (
+              <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
+            )}
+          </div>
         )}
 
         {error && <p className="text-destructive text-detail">{error}</p>}
@@ -200,7 +220,7 @@ export function NewWorkspaceDialog({
               <Button variant="outline" onClick={() => onOpenChange(false)} disabled={creating || launching}>
                 Cancel
               </Button>
-              {mode === "new" && (
+              {mode === "new" && kind === "agent" && (
                 <Button onClick={() => void launchAndAdd()} disabled={launching || !canSubmit(form)}>
                   {launching ? "Launching…" : "Launch & add"}
                 </Button>

@@ -54,16 +54,18 @@ export function DestinationField({
   // nothing.
   useEffect(() => {
     if (!open) return;
-    function onPointerDown(e: PointerEvent) {
+    function onOutsideClick(e: MouseEvent) {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
     }
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") setOpen(false);
     }
-    document.addEventListener("pointerdown", onPointerDown);
+    // Dismiss after the target receives its click. Removing these in-flow
+    // suggestions on pointerdown moves the target before pointerup.
+    document.addEventListener("click", onOutsideClick);
     document.addEventListener("keydown", onKeyDown);
     return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("click", onOutsideClick);
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);

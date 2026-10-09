@@ -154,3 +154,21 @@ Mobile's New
 screen does NOT mirror this tier (operator scope call: web only;
 `agent-default.ts` keeps its "change one, change both" for the AGENT rule
 only).
+
+## SSH subshells
+
+New subshell, Add/Split, and New workspace offer the same `SubshellKindPicker`:
+Agent or terminal, or SSH terminal. The SSH choice uses `ConnectPanel`, with
+callbacks that attach the created subshell to the caller's workspace instead
+of navigating away. Keep launch pending until that attachment finishes.
+
+The SSH destination accepts typed text directly; suggestions retain their
+canonical destination until edited. Explain the connecting machine beside its
+picker. Alternate key machines belong under Advanced SSH options. Approval
+runs inside the same dialog, scoped to the exact request, and returns to the
+form without launching automatically. This preserves workspace selections and
+split direction. Saved destination management lives in Settings → SSH.
+
+`/connect` is a compatibility redirect to `/new?kind=ssh`, preserving validated
+connection choices. The quick-add provider opens the shared dialog over the
+subshell list; there is no separate Connect navigation item or page.

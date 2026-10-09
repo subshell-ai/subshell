@@ -386,12 +386,13 @@ probe gates): read apps/server/web/docs/terminal-gotchas.md first.**
 
 ## SSH relay launch and setup
 
-Connect can use another owned node's loaded SSH-agent keys. The default omits
+The SSH terminal choice in New subshell can use another owned node's loaded SSH-agent keys. The default omits
 `keyHome` and uses the connecting machine's own keys. Never silently substitute
-keys when the chosen machine goes offline. Approval links preserve the launch
-choices and require a fresh Connect click; approval itself launches nothing.
+keys when the chosen machine goes offline. Inline approval preserves the launch choices and workspace/split context,
+and requires a fresh Start SSH subshell click; approval itself launches nothing.
 Approval return links bind the preserved choices to the exact request ID, never
 just the machine pair: several destinations can await approval on that pair.
+Old `/connect` links open the same subshell dialog through `/new?kind=ssh`.
 The pending-request view carries the exact destination account and port, and
 new requests have no pane yet, so the approvals list must not link a nonexistent
 pane. Failed settings reads must stay distinct from empty lists.

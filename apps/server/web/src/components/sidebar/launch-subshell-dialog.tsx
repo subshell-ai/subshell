@@ -1,12 +1,14 @@
 import { Button } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useState } from "react";
+import { ConnectPanel } from "@/components/connect/connect-panel";
 import {
   canSubmit,
   emptyNewSubshellForm,
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/launch-form-rules";
 import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
+import { type SubshellKind, SubshellKindPicker } from "@/components/subshell-picker/subshell-kind-picker";
 import {
   Dialog,
   DialogContent,
@@ -18,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { useCreateSubshell } from "@/hooks/use-create-subshell";
 import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
+import type { sshConnectSearch } from "@/lib/ssh-connect-search";
 
 /**
  * The rail's quick-launch dialog (spec 2026-09-03 sidebar-quickadd §4a), and
@@ -29,10 +32,14 @@ import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
 export function LaunchSubshellDialog({
   open,
   onOpenChange,
+  initialSsh,
 }: {
+  initialSsh?: ReturnType<typeof sshConnectSearch>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): JSX.Element {
+  const [sshPending, setSshPending] = useState(false);
+  const [kind, setKind] = useState<SubshellKind>(initialSsh ? "ssh" : "agent");
   const navigate = useNavigate();
   const create = useCreateSubshell();
   const [form, setForm] = useState<NewSubshellFormValue>(emptyNewSubshellForm);
@@ -41,6 +48,7 @@ export function LaunchSubshellDialog({
   function reset() {
     setForm(emptyNewSubshellForm());
     setError(null);
+    setKind("agent");
   }
 
   async function submit() {
@@ -73,18 +81,34 @@ export function LaunchSubshellDialog({
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>New subshell</DialogTitle>
-          <DialogDescription>Launch an agent in a working directory.</DialogDescription>
+          <DialogDescription>Start an agent, a terminal, or an SSH session in a subshell.</DialogDescription>
         </DialogHeader>
-        <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
-        {error && <p className="text-destructive text-detail">{error}</p>}
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={create.isPending}>
-            Cancel
-          </Button>
-          <Button onClick={() => void submit()} disabled={create.isPending || !canSubmit(form)}>
-            {create.isPending ? "Starting…" : "Start subshell"}
-          </Button>
-        </DialogFooter>
+        <SubshellKindPicker value={kind} onChange={setKind} disabled={sshPending || create.isPending} />
+        {kind === "ssh" ? (
+          <ConnectPanel
+            onPendingChange={setSshPending}
+            initial={initialSsh}
+            onLeave={() => onOpenChange(false)}
+            onCreated={(id) => {
+              onOpenChange(false);
+              reset();
+              void navigate({ to: "/subshells/$id", params: { id } });
+            }}
+          />
+        ) : (
+          <>
+            <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
+            {error && <p className="text-destructive text-detail">{error}</p>}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={create.isPending}>
+                Cancel
+              </Button>
+              <Button onClick={() => void submit()} disabled={create.isPending || !canSubmit(form)}>
+                {create.isPending ? "Starting…" : "Start subshell"}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { SavedHostsSection } from "@/components/connect/saved-hosts-section";
 import { PageHeader } from "@/components/page-header";
 import { GrantsScreen } from "@/components/ssh/grants-screen";
 import { HostPinsScreen } from "@/components/ssh/host-pins-screen";
@@ -35,6 +36,7 @@ export function SshSettingsPage({ connection }: { connection?: ReturnType<typeof
       <PendingApprovals connection={connection} />
       <GrantsScreen />
       <HostPinsScreen />
+      <SavedHostsSection />
     </main>
   );
 }
