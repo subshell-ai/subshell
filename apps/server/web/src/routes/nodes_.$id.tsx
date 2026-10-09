@@ -29,6 +29,7 @@ import { osLabel } from "@/components/nodes/node-row";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { NodeUpdateCard } from "@/components/nodes/node-update-card";
+import { SshTrustCard } from "@/components/ssh/trust-card";
 import { useDeleteNode, useRenameNode } from "@/hooks/use-nodes";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
@@ -243,6 +244,15 @@ function NodeDetailPage() {
           {n.kind === "agent" && <NodeReregister nodeId={n.id} nodeName={n.name} canManage={n.canManage} />}
 
           <NodeHarnessCard nodeId={n.id} />
+
+          {/* The §4.6 machine trust block (spec 2026-10-08): own and pinned
+              peers' key fingerprints, for the out-of-band compare each side
+              can verify against its own machine. The server serializes the
+              field only for owner/edit on agent nodes, so a `view` grantee
+              never receives it and the card renders nothing; the card's own
+              kind/access check is the belt. Live report while the machine is
+              connected, durable mirror marked stale when it is not. */}
+          {managesNodeSections(n) && <SshTrustCard node={n} />}
 
           {/* The node's RULES live on its page, not in a tab of one card:
               the allowlist gates launches on this machine including the

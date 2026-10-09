@@ -294,6 +294,37 @@ export interface NodeRuntime {
   tmuxPath: string | null;
   /** The node binary this process re-enters */
   binaryPath: string;
+  /**
+   * The §4.6 trust block as THIS report stated it (spec 2026-10-08): own and
+   * pinned-peer key fingerprints. Absent when the agent reported none. The
+   * detail view's `sshTrust` is the same fact with the one flag only the
+   * plane can state (whether it is live or the durable mirror); the runtime
+   * card renders nothing from this field, the trust card reads `sshTrust`.
+   */
+  sshFingerprint?: {
+    own: { signing: string; encryption: string };
+    peers: { nodeId: string; signing: string; encryption: string }[];
+  };
+}
+
+/**
+ * The §4.6 SSH trust card's payload (spec 2026-10-08), mirroring the plane's
+ * `SshTrustSchema`: this machine's own key fingerprints and every pinned
+ * peer's, as `SHA256:` display strings. Fingerprints are public identifiers
+ * of the trust the machine enforces as byte equality; the card's whole purpose
+ * is the out-of-band compare against what the PEER computes from its own keys.
+ */
+export interface NodeSshTrust {
+  /** This machine's both halves */
+  own: { signing: string; encryption: string };
+  /** Every pinned peer, id ascending; empty means nothing paired yet */
+  peers: { nodeId: string; signing: string; encryption: string }[];
+  /**
+   * true = the plane's durable MIRROR of the last report (the node is offline,
+   * or its live connection reported no block), so the card is last-known truth
+   * and says so; false = what this connection reported at connect.
+   */
+  stale: boolean;
 }
 
 /** `GET /api/nodes/:id` — the view plus the grant set, ONLY for config-capable viewers (then the key is absent, not null). */
@@ -333,6 +364,17 @@ export interface NodeDetail extends Node {
    * supports.
    */
   runningSubshells?: number;
+  /**
+   * The machine's SSH trust block (§4.6): its own and its pinned peers'
+   * fingerprints, live report when the node is connected, durable mirror
+   * (`stale: true`) when it is not.
+   *
+   * Present only for a config-capable viewer on an AGENT node, the same gate
+   * as `runtime` and for the same kind of reason: which machines this one has
+   * paired with is machine-relationship disclosure, not something a `view`
+   * grantee's launch needs. Absent, never null, for everyone else.
+   */
+  sshTrust?: NodeSshTrust;
 }
 
 /**
