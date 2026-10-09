@@ -804,4 +804,18 @@ describe("GET /api/ssh/grants/identities (the roster behind the create picker)",
     expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_GATE_OFF);
     expect(rosterCalls).toEqual([]);
   });
+
+  it("a missing or empty ?node= is the declared 400 INPUT_VALIDATION_ERROR, and no machine is asked", async () => {
+    // The route's schema pins node as required with minLength 1; the 400 arm
+    // is declared but nothing else on this describe exercises it. Absent and
+    // empty are the two spells of "nothing chosen", and both must answer as
+    // the error envelope, never reach a machine.
+    const missing = await sshFetch("/api/ssh/grants/identities", { cookie: ownerCookie });
+    expect(missing.status).toBe(400);
+    expect(((await missing.json()) as { code: string }).code).toBe(BackendErrorCodes.INPUT_VALIDATION_ERROR);
+    const empty = await sshFetch("/api/ssh/grants/identities?node=", { cookie: ownerCookie });
+    expect(empty.status).toBe(400);
+    expect(((await empty.json()) as { code: string }).code).toBe(BackendErrorCodes.INPUT_VALIDATION_ERROR);
+    expect(rosterCalls).toEqual([]);
+  });
 });

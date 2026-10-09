@@ -351,15 +351,31 @@ describe("GrantsScreen", () => {
     );
     renderScreen();
     await openCreateAndPickKeyHome(ROSTER_ONE);
-    for (const identity of nine) {
+    // The two text fields are filled FIRST (the create-flow test's own fills).
+    // With them empty the button is already disabled by form validation, and a
+    // disabled-at-9 assertion would pin the validator, not the cap: this test
+    // must isolate the cap as the SOLE gate. Filled, exactly 8 ticks leave the
+    // button ENABLED, so the 9th tick's disable can only be the cap.
+    fireEvent.change(screen.getByLabelText(/Grant name/), { target: { value: "by hand" } });
+    fireEvent.change(screen.getByLabelText(/Destination selector/), { target: { value: "*.git.example.test" } });
+    const createButton = () => screen.getByRole("button", { name: "Create" }) as HTMLButtonElement;
+    for (const identity of nine.slice(0, 8)) {
       fireEvent.click(screen.getByRole("checkbox", { name: identity.fingerprint }));
     }
+    // At exactly the cap the form says yes: name, selector and eight ticks are
+    // a complete draft. The generous timeout covers the async onChange
+    // validator under full-suite parallelism, never the cap's own flip.
+    await waitFor(() => expect(createButton().disabled).toBe(false), { timeout: 4000 });
+    const ninth = nine[8];
+    if (!ninth) throw new Error("the roster fixture lost its ninth entry");
+    fireEvent.click(screen.getByRole("checkbox", { name: ninth.fingerprint }));
+    // The cap bites: the red line names the limit, and the button falls back.
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("at most 8");
     expect(alert.className).toContain("text-destructive");
+    await waitFor(() => expect(createButton().disabled).toBe(true));
     // The button is swept and the guard behind it holds: nothing goes out.
-    expect((screen.getByRole("button", { name: "Create" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    fireEvent.click(createButton());
     expect(sent.some((s) => s.method === "POST" && s.path === "/api/ssh/grants")).toBe(false);
   });
 
