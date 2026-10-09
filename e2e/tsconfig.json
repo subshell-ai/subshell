@@ -1,7 +1,12 @@
 {
   "extends": "@internal/tsconfig/tsconfig.json",
   "include": ["**/*.ts"],
-  "exclude": ["node_modules", "test-results", "playwright-report"],
+  // relay-capture-preload.ts runs INSIDE the spec's backend child (bun
+  // --preload), so it deep-imports @internal/server source whose `@/` aliases
+  // resolve only under that package's tsconfig. Type-checking it from here
+  // would re-check the whole server graph through the wrong paths; bun loads
+  // it untyped and the server's own verify-types covers what it imports.
+  "exclude": ["node_modules", "test-results", "playwright-report", "stub/relay-capture-preload.ts"],
   "compilerOptions": {
     "types": ["node"],
     // In-page code passed to page.evaluate() references browser globals

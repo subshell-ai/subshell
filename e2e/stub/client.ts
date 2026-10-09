@@ -31,6 +31,14 @@ export interface StartNodeOptions {
   name: string;
   /** Control plane base URL (default: the e2e stack's). */
   server?: string;
+  /**
+   * Per-node env deltas (spec 23's relay pair): the ssh tier reads HOME for
+   * resolution and trust-file lookups and SSH_AUTH_SOCK for the relay
+   * responder, and the two machines of one test must answer differently to
+   * both. A value of `undefined` DELETES the inherited key (B "holds no
+   * agent" means the ambient SSH_AUTH_SOCK must not leak into its env).
+   */
+  env?: Record<string, string | undefined>;
 }
 
 /** A live `subshell run` daemon + its operator-facing surface. */
@@ -50,12 +58,19 @@ function nodeEnv(o: StartNodeOptions): NodeJS.ProcessEnv {
   // TMUX_TMPDIR redirects `-L` sockets into `tmuxBase` so the caller's
   // teardown can enumerate — and kill — every server this agent starts.
   const { TMUX: _tmux, TMUX_PANE: _pane, ...rest } = process.env;
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...rest,
     SUBSHELL_CONFIG_HOME: o.home,
     PI_PATH: STUB_PI,
     TMUX_TMPDIR: o.tmuxBase,
   };
+  // Per-node deltas (spec 23): a `string` sets, an explicit `undefined`
+  // DELETES the inherited key - how B comes to hold no agent socket at all.
+  for (const [key, value] of Object.entries(o.env ?? {})) {
+    if (value === undefined) delete env[key];
+    else env[key] = value;
+  }
+  return env;
 }
 
 /** Runs a one-shot agent invocation (enroll) to completion, output captured. */

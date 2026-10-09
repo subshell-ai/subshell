@@ -58,6 +58,15 @@ export const PORTS = {
   onboarding: envPort("E2E_PORT_ONBOARDING", 3200),
   ssh: envPort("E2E_PORT_SSH", 3201),
   connect: envPort("E2E_PORT_CONNECT", 3202),
+  /*
+   * `relay` belongs to spec 23-ssh-relay (milestone 2's crown jewel): a THIRD
+   * standalone backend, because the relay story spans two REAL enrolled agent
+   * nodes (A holds the key in its agent, B holds none) whose plane must see
+   * protocol 18 and whose data dirs the spec watches for the proxy sockets.
+   * It also carries the relay-capture preload's file path and the node
+   * artifact dir the "Set up Subshell here" install fetches from.
+   */
+  relay: envPort("E2E_PORT_RELAY", 3203),
 } as const;
 
 export const BASE_URL = `http://127.0.0.1:${PORTS.backend}`;
