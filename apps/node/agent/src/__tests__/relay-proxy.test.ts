@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -692,3 +692,37 @@ test("RelaySessions dispatches by ref to the owning role: registered, unknown, d
   relay.onInboundRelayFrame(frame("r-1")); // after closeAll nothing routes, nothing throws
   expect(seenA.length).toBe(1);
 });
+
+test.each(["a".repeat(120), "é".repeat(45)])(
+  "refuses an oversized agent socket path before creating files (%s)",
+  async (segment) => {
+    const root = mkdtempSync(join(tmpdir(), "proxy-length-"));
+    const dataDir = join(root, segment);
+    const [aKeys, bKeys] = await Promise.all([aKeysReady, bKeysReady]);
+    try {
+      await expect(
+        startAgentProxy({
+          dataDir,
+          paneId: "pane",
+          relayId: "relay",
+          ref: "ref",
+          peerNodeId: "a",
+          selfNodeId: "b",
+          peerSigningJwk: aKeys.signing.publicJwk,
+          peerEncryptionJwk: aKeys.encryption.publicJwk,
+          ownEncryptionPublicJwk: bKeys.encryption.publicJwk,
+          ownEncryptionPrivateJwk: bKeys.encryption.privateJwk,
+          ownSigningPrivateJwk: bKeys.signing.privateJwk,
+          seal: mcpSeal,
+          open: mcpOpen,
+          sendRelayFrame: () => {
+            throw new Error("must not send");
+          },
+        }),
+      ).rejects.toThrow("Use a shorter Subshell data directory on the connecting machine.");
+      expect(existsSync(dataDir)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);

@@ -1,6 +1,7 @@
 import { Button, errMessage } from "@internal/node-admin";
 import { type JSX, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
+import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
 import { DirectionSelect } from "@/components/subshell-picker/direction-select";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
@@ -76,6 +77,7 @@ export function AddSubshellDialog({
   const { data: subshells, isError: subshellsFailed, isLoading: subshellsLoading } = useSubshellsList();
   const create = useCreateSubshell();
 
+  const [sshDraft, setSshDraft] = useState(() => sshSessionDraft({ node: initialForm?.nodeId }));
   const [kind, setKind] = useState<SubshellKind>("agent");
   const [mode, setMode] = useState<Mode>("existing");
   const [direction, setDirection] = useState<SplitDirection>("right");
@@ -90,6 +92,7 @@ export function AddSubshellDialog({
 
   /** Resets everything the next open should not inherit. */
   function reset() {
+    setSshDraft(sshSessionDraft({ node: initialForm?.nodeId }));
     setMode("existing");
     setKind("agent");
     setQuery("");
@@ -156,6 +159,7 @@ export function AddSubshellDialog({
       // A half-filled launch form is not disposable (ruling 2026-09-30):
       // only a deliberate act closes this - X, Cancel, or a successful add.
       onOpenChange={formDialogOpenChange((next) => {
+        if (creating) return;
         onOpenChange(next);
         if (!next) reset();
       })}
@@ -167,18 +171,22 @@ export function AddSubshellDialog({
         </DialogHeader>
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Segmented
-            ariaLabel="What to add"
-            options={[
-              { value: "existing", label: "Existing subshell" },
-              { value: "new", label: "New subshell" },
-            ]}
-            value={mode}
-            onChange={(next) => {
-              if (!creating) setMode(next);
-            }}
-          />
-          <DirectionSelect value={direction} onChange={setDirection} />
+          <fieldset disabled={creating || busyId !== null}>
+            <Segmented
+              ariaLabel="What to add"
+              options={[
+                { value: "existing", label: "Existing subshell" },
+                { value: "new", label: "New subshell" },
+              ]}
+              value={mode}
+              onChange={(next) => {
+                if (!creating) setMode(next);
+              }}
+            />
+          </fieldset>
+          <fieldset disabled={creating || busyId !== null}>
+            <DirectionSelect value={direction} onChange={setDirection} />
+          </fieldset>
         </div>
 
         {mode === "existing" ? (
@@ -200,8 +208,10 @@ export function AddSubshellDialog({
         ) : (
           <div className="flex flex-col gap-4">
             <SubshellKindPicker value={kind} onChange={setKind} disabled={creating} />
-            {kind === "ssh" ? (
+            {kind === "ssh" && open ? (
               <ConnectPanel
+                draft={sshDraft}
+                onDraftChange={setSshDraft}
                 onPendingChange={setCreating}
                 initial={{ node: form.nodeId || undefined }}
                 onLeave={() => onOpenChange(false)}

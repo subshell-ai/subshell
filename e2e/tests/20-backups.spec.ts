@@ -16,7 +16,7 @@ test("an administrator downloads an encrypted instance archive and loads it into
 }) => {
   await page.goto("/settings/backups");
   await expect(page.getByRole("heading", { name: "Backups", exact: true })).toBeVisible();
-  await page.screenshot({ path: "/tmp/subshell-backups-settings.png", fullPage: true });
+  await page.screenshot({ path: test.info().outputPath("subshell-backups-settings.png"), fullPage: true });
 
   // Create an encrypted archive.
   await page.getByRole("switch", { name: "Encrypt the archive with a password" }).check();

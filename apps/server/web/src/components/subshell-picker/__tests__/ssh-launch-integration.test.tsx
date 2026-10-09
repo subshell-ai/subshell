@@ -7,7 +7,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { NewWorkspaceDialog } from "@/components/sidebar/new-workspace-dialog";
 import { AddSubshellDialog } from "@/components/subshell-picker/add-subshell-dialog";
@@ -105,11 +105,30 @@ async function mount(component: () => ReactNode) {
   );
 }
 
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+}
+
 async function launchSsh() {
   fireEvent.click(await screen.findByRole("button", { name: "New subshell" }));
   fireEvent.click(await screen.findByRole("button", { name: "SSH terminal" }));
   const field = await screen.findByLabelText("SSH destination");
   fireEvent.change(field, { target: { value: "deploy@example.com:2222" } });
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "SSH Wizard" }));
+  await settle();
+  fireEvent.click(await screen.findByRole("button", { name: "Connect to a destination" }));
+  await settle();
+  for (let step = 0; step < 2; step++) {
+    const next = await screen.findByRole("button", { name: "Continue" });
+    await waitFor(() => expect((next as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(next);
+    await settle();
+  }
+  fireEvent.click(await screen.findByRole("button", { name: "Use connecting machine’s own keys" }));
+  await settle();
   const start = screen.getByRole("button", { name: "Start SSH subshell" });
   await waitFor(() => expect((start as HTMLButtonElement).disabled).toBe(false));
   fireEvent.click(start);
@@ -137,11 +156,15 @@ it("adds the SSH result to the current split and blocks duplicate launches while
   ));
   await launchSsh();
   await waitFor(() => expect(adds).toEqual([["ssh-new", "right"]]));
-  const start = screen.getByRole("button", { name: "Connecting…" });
+  const start = screen.getByRole("button", { name: "Starting SSH subshell…" });
   expect((start as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(start);
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toHaveLength(1);
-  finish();
+  expect(screen.getByRole("button", { name: "Existing subshell" }).closest("fieldset[disabled]")).not.toBeNull();
+  expect(screen.getByRole("button", { name: "Split down" }).closest("fieldset[disabled]")).not.toBeNull();
+  await act(async () => {
+    finish();
+  });
   await waitFor(() => expect(closed).toBe(true));
 });
 

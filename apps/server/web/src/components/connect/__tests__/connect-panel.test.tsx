@@ -139,7 +139,7 @@ interface Rendered {
 
 async function renderPanel(
   opts: WireOpts,
-  initial?: { node?: string; keyHome?: string; destination?: string },
+  initial?: { node?: string; keyHome?: string; destination?: string; fingerprints?: string[] },
 ): Promise<Rendered> {
   const { calls, restore } = mockFetch(opts);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -311,7 +311,7 @@ describe("machine disclosure (contract 1)", () => {
         expect(screen.getByText("No machine is ready for SSH")).toBeTruthy();
         expect(screen.queryByRole("button", { name: "Start SSH subshell" })).toBeNull();
         expect(screen.queryByLabelText("SSH destination")).toBeNull();
-        expect(screen.getByRole("button", { name: "Add a node" })).toBeTruthy();
+        expect(screen.getByRole("button", { name: "SSH Wizard" })).toBeTruthy();
         expect(calls.some((c) => c.url.startsWith("/api/ssh/aliases"))).toBe(false);
         expect(calls.some((c) => c.url === "/api/ssh/launch")).toBe(false);
       } finally {
@@ -345,7 +345,11 @@ describe("machine disclosure (contract 1)", () => {
       settings: { viewerIsAdmin: false, allowNodeEnrollment: false },
     });
     try {
-      expect(screen.queryByRole("button", { name: "Add a node" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "SSH Wizard" }));
+      await settle();
+      fireEvent.click(screen.getByRole("button", { name: "Prepare a machine for SSH" }));
+      await settle();
+      expect((screen.getByRole("button", { name: "Add a machine" }) as HTMLButtonElement).disabled).toBe(true);
       expect(screen.getByText(/Adding nodes is turned off/)).toBeTruthy();
     } finally {
       restore();
@@ -360,20 +364,9 @@ describe("machine disclosure (contract 1)", () => {
     try {
       expect(screen.getByText("No machine is ready for SSH")).toBeTruthy();
       expect(screen.queryByText(/SSH is off here/)).toBeTruthy();
-      expect(screen.queryByRole("button", { name: "Open Server settings" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Open studio settings" })).toBeTruthy();
-      expect(screen.getByRole("button", { name: "Add a node" })).toBeTruthy();
-    } finally {
-      restore();
-    }
-  });
-
-  it("opens an owned machine's SSH settings", async () => {
-    const { restore, pathname } = await renderPanel({ nodes: [HOST_B] });
-    try {
-      expect(screen.getByText(/SSH is off on this machine/)).toBeTruthy();
-      fireEvent.click(screen.getByRole("button", { name: "Open studio settings" }));
-      await waitFor(() => expect(pathname()).toBe("/nodes/b1"));
+      expect(screen.queryByRole("button", { name: "Open Server settings" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Open studio settings" })).toBeNull();
+      expect(screen.getByRole("button", { name: "SSH Wizard" })).toBeTruthy();
     } finally {
       restore();
     }
@@ -673,7 +666,12 @@ describe("relay launch with current launch access", () => {
   it("sends the selected key machine and preserves the returned connection choices", async () => {
     const { calls, restore } = await renderPanel(
       { nodes: [HOST_A, HOST_C] },
-      { node: HOST_A.id, keyHome: HOST_C.id, destination: "theo@build.example.com:2222" },
+      {
+        node: HOST_A.id,
+        keyHome: HOST_C.id,
+        destination: "theo@build.example.com:2222",
+        fingerprints: ["SHA256:AAAA"],
+      },
     );
     try {
       await clickConnect();

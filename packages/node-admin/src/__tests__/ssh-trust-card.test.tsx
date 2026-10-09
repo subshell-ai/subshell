@@ -93,8 +93,20 @@ describe("SshTrustCard", () => {
     expect(belt.container.firstChild).toBeNull();
   });
 
-  it("never on `local`, not even with a block that must not have serialized", () => {
+  it("local is hidden unless the control plane explicitly opts an admin in", () => {
     const { container } = render(<NodeSshTrustCard node={node({ kind: "local", sshTrust: LIVE_TRUST })} />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("displays local trust for the opted-in control-plane manager", () => {
+    render(<NodeSshTrustCard node={node({ kind: "local", canManage: true, sshTrust: LIVE_TRUST })} allowLocal />);
+    expect(screen.getByText(FP_OWN_SIGN)).toBeDefined();
+  });
+
+  it("refuses local trust for a non-manager even when opted in", () => {
+    const { container } = render(
+      <NodeSshTrustCard node={node({ kind: "local", canManage: false, sshTrust: LIVE_TRUST })} allowLocal />,
+    );
     expect(container.firstChild).toBeNull();
   });
 

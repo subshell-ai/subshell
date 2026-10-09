@@ -53,7 +53,7 @@ if (file !== undefined && file !== "") {
     }
   };
   const wrapper: RelayBroker = {
-    openRelay: (input) => real.openRelay(input), // the input carries fingerprints + the pin; never recorded
+    ...real, // Preserve every broker operation, including identity repair and shutdown.
     routeRelayFrame: (nodeId, frame) => {
       record({ t: Date.now(), kind: "frame", nodeId, frame });
       real.routeRelayFrame(nodeId, frame);
@@ -62,13 +62,6 @@ if (file !== undefined && file !== "") {
       record({ t: Date.now(), kind: "close", ref, reason });
       return real.closeRelay(ref, reason);
     },
-    closeUnauthorizedForNode: (nodeId) => real.closeUnauthorizedForNode(nodeId),
-    closeForPane: (paneId, reason) => real.closeForPane(paneId, reason),
-    refuseOverCap: (ref) => real.refuseOverCap(ref),
-    onNodeSocketClosed: (nodeId) => real.onNodeSocketClosed(nodeId),
-    activeRelayCount: (nodeId) => real.activeRelayCount(nodeId),
-    sessionInfo: (ref) => real.sessionInfo(ref),
-    reset: () => real.reset(),
   };
   setRelayBrokerForTests(wrapper);
 }

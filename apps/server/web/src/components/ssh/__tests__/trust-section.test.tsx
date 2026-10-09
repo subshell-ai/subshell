@@ -73,7 +73,7 @@ afterEach(() => {
  * on the button), and every other call - the repair POST - is recorded and
  * answered with `mode`.
  */
-function renderSection(n: NodeDetail, mode: "ok" | "fail" = "ok") {
+function renderSection(n: NodeDetail, mode: "ok" | "fail" = "ok", admin = false) {
   const calls: RecordedCall[] = [];
   const original = globalThis.fetch;
   restores.push(() => {
@@ -82,6 +82,8 @@ function renderSection(n: NodeDetail, mode: "ok" | "fail" = "ok") {
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
     const method = (init?.method ?? "GET").toUpperCase();
+    if (method === "GET" && url.includes("/api/settings/public"))
+      return new Response(JSON.stringify({ viewerIsAdmin: admin }));
     if (method === "GET") {
       return new Response(JSON.stringify({ nodes: [{ id: PEER_ID, name: "desk" }] }), { status: 200 });
     }
@@ -114,6 +116,20 @@ describe("SshTrustSection", () => {
 
   it("renders nothing on local", () => {
     const { container } = renderSection(node({ kind: "local" }));
+    expect(container.firstChild).toBeNull();
+  });
+
+  it("lets an admin inspect and repair the server's peer pin store", async () => {
+    const { calls } = renderSection(node({ id: "local", kind: "local", access: "edit" }), "ok", true);
+    const button = await screen.findByRole("button", { name: "Re-pair desk" });
+    expect(screen.getByText("Machine trust")).toBeTruthy();
+    fireEvent.click(button);
+    await screen.findByText("Pin replaced for desk.");
+    expect(calls[0]?.url).toBe(`/api/nodes/local/machine-pins/${PEER_ID}/repair`);
+  });
+
+  it("keeps a member out of server pins even if their payload wrongly claims canManage", () => {
+    const { container } = renderSection(node({ id: "local", kind: "local", canManage: true }), "ok", false);
     expect(container.firstChild).toBeNull();
   });
 
