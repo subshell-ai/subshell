@@ -62,6 +62,8 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 interface WireOpts {
   nodes?: Node[];
+  nodesResponse?: () => Response;
+  settings?: unknown;
   ledger?: unknown;
   aliases?: string[];
   launch?: () => Response;
@@ -80,7 +82,8 @@ function mockFetch(opts: WireOpts = {}) {
       url: path + url.search,
       ...(typeof init?.body === "string" ? { body: JSON.parse(init.body) as unknown } : {}),
     });
-    if (path === "/api/nodes") return Promise.resolve(json({ nodes: opts.nodes ?? [] }));
+    if (path === "/api/settings/public") return Promise.resolve(json(opts.settings ?? {}));
+    if (path === "/api/nodes") return Promise.resolve(opts.nodesResponse?.() ?? json({ nodes: opts.nodes ?? [] }));
     if (path === "/api/ssh/saved-hosts" && method === "GET") {
       return Promise.resolve(json(opts.ledger ?? { saved: [], recent: [], defaultNodeId: null }));
     }
@@ -263,25 +266,92 @@ describe("machine disclosure (contract 1)", () => {
     }
   });
 
-  it("a stale default with NO enabled machine: the caption names the missing machine and Connect cannot fire", async () => {
-    // The honest dead end: the preference points at a row that is gone and
-    // nothing is SSH-enabled. The sentence names the ENVIRONMENT (gold, one
-    // line), and the disabled button means Connect can never be a silent
-    // no-op: a typed destination alone must not POST.
-    const { calls, restore } = await renderPanel({
-      nodes: [],
-      ledger: { saved: [], recent: [], defaultNodeId: "vanished-node" },
+  for (const unavailable of [
+    [],
+    [HOST_B],
+    [{ ...HOST_A, status: "offline" as const }],
+    [{ ...HOST_A, maintenance: true }],
+    [{ ...HOST_A, canLaunch: false }],
+    [{ ...HOST_A, canManage: false, access: "edit" as const }],
+  ]) {
+    it(`replaces the form when no machine can run SSH: ${JSON.stringify(unavailable)}`, async () => {
+      const { calls, restore } = await renderPanel({ nodes: unavailable }, { node: HOST_A.id, destination: "work" });
+      try {
+        expect(screen.getByText("No machine is ready for SSH")).toBeTruthy();
+        expect(screen.queryByRole("button", { name: "Start SSH subshell" })).toBeNull();
+        expect(screen.queryByLabelText("SSH destination")).toBeNull();
+        expect(screen.getByRole("link", { name: "Add a node" })).toBeTruthy();
+        expect(calls.some((c) => c.url.startsWith("/api/ssh/aliases"))).toBe(false);
+        expect(calls.some((c) => c.url === "/api/ssh/launch")).toBe(false);
+      } finally {
+        restore();
+      }
+    });
+  }
+
+  it("shows a retry instead of an empty state when machines cannot be loaded", async () => {
+    let failed = true;
+    const { restore } = await renderPanel({
+      nodesResponse: () => (failed ? json({}, 503) : json({ nodes: [HOST_A] })),
     });
     try {
-      expect(machineInput().value).toBe("");
-      const caption = screen.getByText("No SSH-enabled machine is available. Enable SSH on a machine first.");
-      expect(caption.className).toContain("text-amber-600"); // gold: nothing chosen, not a refused value
-      await commitTyped("box.example");
-      const button = screen.getByRole("button", { name: /^Start SSH subshell$/ }) as HTMLButtonElement;
-      expect(button.disabled).toBe(true); // the machine is in the disabled condition
+      expect(screen.getByText("Could not load connecting machines.")).toBeTruthy();
+      expect(screen.queryByText("No machine is ready for SSH")).toBeNull();
+      failed = false;
+      fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      await waitFor(() => expect(machineInput().value).toBe("mac mini"));
+    } finally {
+      restore();
+    }
+  });
+
+  it("offers the server-wide launch switch only to an admin", async () => {
+    const { restore } = await renderPanel({
+      nodes: [{ ...HOST_A, kind: "local", canLaunch: false }],
+      settings: { viewerIsAdmin: true, allowServerSubshells: false },
+    });
+    try {
+      expect(screen.getByRole("link", { name: "Allow server subshells in Server Settings" }).getAttribute("href")).toBe(
+        "/settings",
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("does not offer enrollment when the instance forbids it", async () => {
+    const { restore } = await renderPanel({
+      nodes: [],
+      settings: { viewerIsAdmin: false, allowNodeEnrollment: false },
+    });
+    try {
+      expect(screen.queryByRole("link", { name: "Add a node" })).toBeNull();
+      expect(screen.getByText(/Adding nodes is turned off/)).toBeTruthy();
+    } finally {
+      restore();
+    }
+  });
+
+  it("links directly to an owned machine's SSH settings", async () => {
+    const { restore } = await renderPanel({ nodes: [HOST_B] });
+    try {
+      expect(screen.getByRole("link", { name: "Open studio settings" }).getAttribute("href")).toBe("/nodes/b1");
+      expect(screen.getByText(/SSH is off on this machine/)).toBeTruthy();
+    } finally {
+      restore();
+    }
+  });
+
+  it("blocks a stale selected machine even when another machine is ready", async () => {
+    const { calls, restore } = await renderPanel(
+      { nodes: [{ ...HOST_A, status: "offline" }, HOST_C] },
+      { node: HOST_A.id, destination: "work" },
+    );
+    try {
+      expect((screen.getByRole("button", { name: "Start SSH subshell" }) as HTMLButtonElement).disabled).toBe(true);
       await clickConnect();
-      expect(calls.filter((c) => c.url === "/api/ssh/launch")).toEqual([]);
-      expect(screen.getByText("No SSH-enabled machine is available. Enable SSH on a machine first.")).toBeDefined();
+      expect(screen.getByText(/Choose another connecting machine to continue/)).toBeTruthy();
+      expect(calls.some((c) => c.url === "/api/ssh/launch")).toBe(false);
     } finally {
       restore();
     }

@@ -5,8 +5,10 @@ import { ChevronDown } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
 import { DestinationField } from "@/components/connect/destination-field";
 import { buildDestinationOptions, type DestinationCandidate } from "@/components/connect/destination-options";
+import { NoSshTargets } from "@/components/connect/no-ssh-targets";
 import { type SshRefusalCopy, sshLaunchRefusal } from "@/components/connect/ssh-refusal";
 import { PendingApprovals } from "@/components/ssh/pending-approvals";
+import { SshQueryStatus } from "@/components/ssh/query-status";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
 import { Field, FieldGroup } from "@/components/ui/field";
 import { RequiredMark } from "@/components/ui/required-mark";
@@ -15,6 +17,7 @@ import { useLaunchSsh, useSaveSshHost, useSetDefaultNode, useSshAliases, useSshS
 import { fieldErrorToned } from "@/lib/form";
 import { nodeOptionLabel } from "@/lib/node-label";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
+import { sshMachineBlocker } from "@/lib/ssh-machine-readiness";
 import { launchableNodes } from "@/lib/subshell-compat";
 
 /** Shared SSH launch form for new subshells, workspace additions and splits.
@@ -55,7 +58,8 @@ export function ConnectPanel({
   onPendingChange?: (pending: boolean) => void;
 }): JSX.Element {
   const navigate = useNavigate();
-  const { data: nodeData } = useNodes();
+  const nodesQuery = useNodes({ polling: true });
+  const { data: nodeData } = nodesQuery;
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
   const { data: ledger, isPending: ledgerPending } = useSshSavedHosts();
   const launch = useLaunchSsh();
@@ -83,7 +87,9 @@ export function ConnectPanel({
   const targets = launchableNodes(nodes ?? []);
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === nodeId) ?? null;
   const defaultNodeId = ledger?.defaultNodeId ?? null;
-  const enabledCount = targets.filter((n) => n.sshEnabled).length;
+  const enabledCount = targets.filter((n) => sshMachineBlocker(n) === null).length;
+  const machineReady = !nodesQuery.isError && selectedNode !== null && sshMachineBlocker(selectedNode) === null;
+  const selectedBlocker = selectedNode ? sshMachineBlocker(selectedNode) : "Choose an available connecting machine.";
   // "Settled" means both feeds have answered, so the pre-fill effect has had
   // its say: a stored default or the only usable machine has landed, or there
   // was nothing to land. From then on an empty machine IS the open question -
@@ -98,17 +104,13 @@ export function ConnectPanel({
   const machineOptions: ComboboxOption[] = targets.map((n) => ({
     value: n.id,
     label: nodeOptionLabel(n),
-    disabled: !n.sshEnabled,
-    reason: n.sshEnabled
-      ? undefined
-      : n.kind === "local"
-        ? "SSH is off here. An admin can switch it on from this machine's settings."
-        : "SSH is off on this machine. Its owner can switch it on from this machine's settings.",
+    disabled: sshMachineBlocker(n) !== null,
+    reason: sshMachineBlocker(n) ?? undefined,
   }));
 
   // Aliases are the MACHINE's config, asked only while a gate-ON machine is
   // picked (spec §7: discovery runs where it can answer).
-  const aliasesQ = useSshAliases(selectedNode?.sshEnabled ? selectedNode.id : null);
+  const aliasesQ = useSshAliases(machineReady && selectedNode ? selectedNode.id : null);
   const aliases = aliasesQ.data?.aliases ?? [];
 
   const { options: destinationOptions, candidates } = buildDestinationOptions({
@@ -126,7 +128,7 @@ export function ConnectPanel({
   // array every render).
   useEffect(() => {
     if (nodeId !== "" || nodes === null) return;
-    const usable = launchableNodes(nodes).filter((n) => n.sshEnabled);
+    const usable = launchableNodes(nodes).filter((n) => sshMachineBlocker(n) === null);
     if (defaultNodeId !== null && usable.some((n) => n.id === defaultNodeId)) {
       setNodeId(defaultNodeId);
     } else if (usable.length === 1) {
@@ -176,10 +178,12 @@ export function ConnectPanel({
     setDest({ pick: candidate, pickId: option.value, typed: option.label });
   }
 
+  const canSubmit = !submitting && machineReady && destination !== "" && keyReady;
+
   async function submit(): Promise<void> {
     // Belt over gate: the button's own disabled condition already holds both
     // fields, so this can only fire on a render race, never as a silent no-op.
-    if (submitting || nodeId === "" || destination === "" || !keyReady) return;
+    if (!canSubmit) return;
     setSubmitting(true);
     setRefusal(null);
     try {
@@ -229,6 +233,10 @@ export function ConnectPanel({
     [machineGap ? MACHINE_IDS.requirement : null, machineRefusal !== null ? MACHINE_IDS.refusal : null]
       .filter((id): id is string => id !== null)
       .join(" ") || undefined;
+
+  if (nodesQuery.isPending || nodesQuery.isError)
+    return <SshQueryStatus query={nodesQuery} label="connecting machines" />;
+  if (enabledCount === 0) return <NoSshTargets nodes={nodes ?? []} onLeave={onLeave} />;
 
   if (reviewApproval && refusal?.requestId)
     return (
@@ -296,10 +304,10 @@ export function ConnectPanel({
               ? `${selectedNode.name} runs SSH and must be able to reach the destination.`
               : "Choose a Subshell machine that can reach the destination. It runs SSH for this terminal."}
           </p>
-          {enabledCount === 0 && nodes !== null && (
-            <Link to="/nodes" onClick={onLeave} className="text-label underline">
-              Manage machines and enable SSH
-            </Link>
+          {nodeId !== "" && !machineReady && (
+            <p role="status" className="text-detail text-muted-foreground">
+              {selectedBlocker} Choose another connecting machine to continue.
+            </p>
           )}
           {machineGap && (
             <p id={MACHINE_IDS.requirement} className={REQUIREMENT_CAPTION_CLASS}>
@@ -391,7 +399,7 @@ export function ConnectPanel({
         </div>
 
         <p className="text-detail text-muted-foreground">{SSH_DISCLOSURE_COPY}</p>
-        <Button onClick={() => void submit()} disabled={submitting || destination === "" || nodeId === "" || !keyReady}>
+        <Button onClick={() => void submit()} disabled={!canSubmit}>
           {submitting ? "Connecting…" : "Start SSH subshell"}
         </Button>
       </FieldGroup>
