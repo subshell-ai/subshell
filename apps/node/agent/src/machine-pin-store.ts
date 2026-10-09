@@ -94,6 +94,20 @@ export class MachinePinStore {
   }
 
   /**
+   * Every pinned peer as `{ nodeId, pin }` pairs, id ascending: the source of
+   * the §4.6 trust block the `ready` report and the loopback dashboard render
+   * (fingerprints are computed from these raw strings by the caller, never
+   * stored). The empty array is the honest "no peers yet"; a corrupt file
+   * throws like every other read, it never lists as empty.
+   */
+  entries(): { nodeId: string; pin: MachinePin }[] {
+    const all = this.loadAll();
+    return Object.keys(all)
+      .sort()
+      .map((nodeId) => ({ nodeId, pin: { signing: all[nodeId].signing, encryption: all[nodeId].encryption } }));
+  }
+
+  /**
    * Compare a candidate against the stored pin, BYTE-FOR-BYTE on both raw
    * public strings (fingerprints are display, not trust). Any difference in
    * either half is `"changed"`, and so is a peer that has no pin at all: the

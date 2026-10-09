@@ -163,6 +163,30 @@ test("SUBSHELL_CHANNEL_PIN has NO effect on this store: it is always strict", ()
   }
 });
 
+test("entries() lists every pinned peer, id ascending (the §4.6 report's source)", () => {
+  const dir = freshDir();
+  const store = new MachinePinStore(dir);
+  // Empty store: the honest "no peers yet", not a missing method.
+  expect(store.entries()).toEqual([]);
+  // Insertion order deliberately unsorted; the list comes back sorted by id
+  // so the reported block (and its plane mirror) does not reshuffle on a
+  // re-pair of one peer.
+  store.pin("node-2", keyB);
+  store.pin("node-1", keyA);
+  expect(store.entries()).toEqual([
+    { nodeId: "node-1", pin: keyA },
+    { nodeId: "node-2", pin: keyB },
+  ]);
+  // An entry's pin is a copy of the stored pair, not a live handle into a
+  // later re-pin of the same peer.
+  const [first] = store.entries();
+  first.pin.signing = "mutated";
+  expect(store.get("node-1")).toEqual(keyA);
+  // Fail-closed like every other read: the corrupt file quarantines and throws.
+  writeFileSync(machinePinPath(dir), "[");
+  expect(() => store.entries()).toThrow();
+});
+
 test("the source never consults SUBSHELL_CHANNEL_PIN (code, not prose, is scanned)", () => {
   // The header comment NAMES the env var to say the store never reads it; the
   // load-bearing fact is that no CODE expression touches it. Comments stripped

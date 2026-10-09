@@ -45,6 +45,7 @@ import { noteSweepScheduled } from "./retention-settings.js";
 import { collectRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { sweepOrphanSshDirs } from "./ssh-dir-retention.js";
+import { buildSshFingerprintReport } from "./ssh-fingerprint-report.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { completeUpdate, revertAfterRefusal } from "./update.js";
 import { NODE_VERSION } from "./version.js";
@@ -453,6 +454,30 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // and the answer cannot change while the pid does not. A failed read
   // degrades to null — the `ready` simply carries no `runtime`.
   const runtime = deps.runtime === undefined ? await collectRuntime().catch(() => null) : deps.runtime;
+
+  // The `ready` frame's runtime, with the §4.6 trust block merged in when
+  // this machine can state it. Recomputed PER DIAL, unlike `runtime` itself:
+  // the process facts cannot change while the pid does not, but peers get
+  // paired (and re-paired) during a process's life, and a trust block frozen
+  // at boot would under-report the pin store the whole comparison is about.
+  let sshRuntime: NodeRuntimeReport | null = runtime;
+
+  /**
+   * The runtime report plus this machine's live trust block, or the bare
+   * report when the block cannot be built. A failure is logged once per dial
+   * and never costs the connection: a machine whose pin file is corrupt still
+   * comes online and keeps launching; only its trust card stays empty, on the
+   * plane and on its own dashboard alike.
+   */
+  async function withSshFingerprint(report: NodeRuntimeReport | null): Promise<NodeRuntimeReport | null> {
+    if (report === null) return null; // no runtime report to ride: no block, no key reads
+    try {
+      return { ...report, sshFingerprint: await buildSshFingerprintReport(config.dataDir) };
+    } catch (err) {
+      log(`ready: ssh trust block unavailable: ${err instanceof Error ? err.message : String(err)}`);
+      return report;
+    }
+  }
 
   // PER-PROCESS lifetimes (mixing these up is a security bug — see VerifyContext in node-signing):
   const jtiLru = new JtiLru(); // survives every reconnect: a replayed jti never gets a second evaluation
@@ -1070,7 +1095,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // The SSH mirror rides the same synchronous read + seed as the
         // maintenance one (spec 2026-10-07 §4.3): the value `ready` carries and
         // the memo that stops the first heartbeat repeating it are one read.
-        send(ws, readyEvent(config, runtime, seedMaintenanceMemo(ctx), seedSshEnabledMemo(ctx)));
+        send(ws, readyEvent(config, sshRuntime, seedMaintenanceMemo(ctx), seedSshEnabledMemo(ctx)));
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
@@ -1198,6 +1223,10 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       // backoff sleep exits 0 here — the first Ctrl-C never waits out a sleep or a dial.
       if (shuttingDown) stop(0);
       await provisioning; // §5: R7's provisioning close must not redial past its own key write
+      // Fresh block per dial, BEFORE the socket: `ready` is built synchronously
+      // in the open turn (the arm() comment argues the posture), so this is
+      // the last moment anything may await.
+      sshRuntime = await withSshFingerprint(runtime);
       const close = await runConnection();
       if (shuttingDown) stop(0); // graceful: the socket closed cleanly on our request
       if (close.code === NODE_CLOSE_SUPERSEDED) {
