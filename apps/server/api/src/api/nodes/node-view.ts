@@ -1,3 +1,4 @@
+import { type NodeSshFingerprintReport, parseNodeSshFingerprintReport } from "@internal/subshell-protocol";
 import { type Static, t } from "elysia";
 import { db } from "@/db/index.js";
 import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.repository.js";
@@ -256,6 +257,40 @@ export const NodeRuntimeSchema = t.Object({
   binaryPath: t.String({ description: "The node binary this process re-enters" }),
 });
 
+/** One machine's public relay halves as `SHA256:` fingerprints (spec 2026-10-08 §4.6). */
+const SshFingerprintPairSchema = t.Object({
+  signing: t.String({ description: "Fingerprint of the ES256 machine-signing public key" }),
+  encryption: t.String({ description: "Fingerprint of the ECDH-ES encryption public key" }),
+});
+
+/** One pinned relay peer of that machine, named by node id. */
+const SshFingerprintPeerSchema = t.Object({
+  nodeId: t.String({ description: "The pinned peer's node id" }),
+  signing: t.String({ description: "Fingerprint of that peer's signing key, as this machine pins it" }),
+  encryption: t.String({ description: "Fingerprint of that peer's encryption key, as this machine pins it" }),
+});
+
+/**
+ * The §4.6 trust card's payload: the protocol's fingerprint block plus ONE
+ * derived flag the node itself cannot honestly state about a future read.
+ *
+ * The fingerprints are public identifiers (display of the trust the node
+ * enforces as byte equality), never key material: they serialize under the
+ * SAME gate as the live `runtime` block they mostly come from (config-capable
+ * viewer, agent node), because a `view` grantee's business is launching a
+ * pane here, not auditing which machines this one has paired with.
+ */
+export const SshTrustSchema = t.Object({
+  own: SshFingerprintPairSchema,
+  peers: t.Array(SshFingerprintPeerSchema, {
+    description: "Every relay peer this machine pins, id ascending; empty means none paired yet",
+  }),
+  stale: t.Boolean({
+    description:
+      "true = the plane's durable MIRROR of this machine's last report (offline node, or one that reported no block), so the card is last-known truth, not current; false = what the live connection reported this connect",
+  }),
+});
+
 /** `GET /api/nodes/:id` — the view plus the grant set, ONLY when the viewer can configure. */
 export const GetNodeResponseSchema = t.Object({
   ...NodeViewSchema.properties,
@@ -264,6 +299,12 @@ export const GetNodeResponseSchema = t.Object({
     t.Object(NodeRuntimeSchema.properties, {
       description:
         "How the node runs, present only while the node is online, only for config-capable viewers, and only on agent nodes",
+    }),
+  ),
+  sshTrust: t.Optional(
+    t.Object(SshTrustSchema.properties, {
+      description:
+        "This machine's SSH trust block (own + pinned-peer fingerprints, spec 2026-10-08 §4.6): the live report's when the node is connected, else the durable mirror with `stale: true`. Same gate as `runtime`: config-capable viewers on agent nodes only, never `view`, never `local`",
     }),
   ),
   runningSubshells: t.Optional(
@@ -312,6 +353,39 @@ function parseCapabilities(json: string | null): string[] {
   } catch {
     return [];
   }
+}
+
+/** The stored `nodes.ssh_fingerprint` JSON → block, or null. Never throws. */
+function readMirrorBlock(json: string | null): NodeSshFingerprintReport | null {
+  if (!json) return null;
+  try {
+    return parseNodeSshFingerprintReport(JSON.parse(json));
+  } catch {
+    // A hand-edited or half-written column costs the trust card, never the
+    // node page: the view renders without the block rather than 500-ing on
+    // someone's stray bytes. (The same grammar the live report went through
+    // at ingest; re-running it here refuses whatever the column is not.)
+    return null;
+  }
+}
+
+/**
+ * The detail view's `sshTrust` (spec 2026-10-08 §4.6), under the caller's
+ * already-checked config gate. The live connection's block wins when it has
+ * one (`stale: false`); otherwise the durable mirror renders marked
+ * (`stale: true`), because the offline card an operator compares during an
+ * incident is worth its last-known truth and the word that says so. `local`
+ * answers null at the call site's kind gate, and an absent mirror/absent
+ * live block means the field is ABSENT on the view, not null.
+ */
+export function sshTrustView(
+  row: NodeTable,
+  liveBlock: NodeSshFingerprintReport | undefined,
+): Static<typeof SshTrustSchema> | null {
+  if (row.kind !== "agent") return null;
+  if (liveBlock) return { ...liveBlock, stale: false };
+  const mirror = readMirrorBlock(row.sshFingerprint);
+  return mirror ? { ...mirror, stale: true } : null;
 }
 
 /**

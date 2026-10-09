@@ -456,4 +456,86 @@ describe("/api/nodes service + runtime", () => {
       resetNodeRegistryForTests();
     }
   });
+
+  // ── GET /api/nodes/:id sshTrust (spec 2026-10-08 §4.6) ──────────────────
+
+  /** A canonical trust block: `SHA256:` + 43 unpadded base64url chars each. */
+  const TRUST_BLOCK = {
+    own: { signing: `SHA256:${"A".repeat(43)}`, encryption: `SHA256:${"B".repeat(43)}` },
+    peers: [
+      {
+        nodeId: "0f8e2c1a-0000-4000-8000-000000000001",
+        signing: `SHA256:${"C".repeat(43)}`,
+        encryption: `SHA256:${"D".repeat(43)}`,
+      },
+    ],
+  };
+
+  it("sshTrust serializes under the runtime gate: live for owner/edit, never for view", async () => {
+    const id = await mkNode();
+    await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "view" }], aliceId);
+    // The `view` grantee is refused even with a MIRROR on the row: the gate is
+    // about WHO, not whether the node is live (spec §4.6/§6).
+    await nodes.setSshFingerprint(id, JSON.stringify(TRUST_BLOCK));
+    const offline = (await (await req("GET", `/api/nodes/${id}`, { cookie: carolCookie })).json()) as Record<
+      string,
+      unknown
+    >;
+    expect("sshTrust" in offline).toBe(false);
+    goOnline(id, { ...runtime, sshFingerprint: TRUST_BLOCK });
+    try {
+      const asOwner = (await (await req("GET", `/api/nodes/${id}`, { cookie: aliceCookie })).json()) as {
+        sshTrust?: { own: unknown; peers: unknown; stale: boolean };
+      };
+      expect(asOwner.sshTrust).toEqual({ ...TRUST_BLOCK, stale: false });
+      const asViewer = (await (await req("GET", `/api/nodes/${id}`, { cookie: carolCookie })).json()) as Record<
+        string,
+        unknown
+      >;
+      expect("sshTrust" in asViewer).toBe(false);
+    } finally {
+      resetNodeRegistryForTests();
+    }
+  });
+
+  it("an offline agent shows the mirrored block STALE-marked, never as live", async () => {
+    const id = await mkNode();
+    await nodes.setSshFingerprint(id, JSON.stringify(TRUST_BLOCK));
+    const view = (await (await req("GET", `/api/nodes/${id}`, { cookie: aliceCookie })).json()) as {
+      sshTrust?: { own: unknown; peers: unknown; stale: boolean };
+    };
+    // The mirror IS the card's content offline, and it says so: `stale: true`
+    // is what separates "this machine last said" from "this socket says".
+    expect(view.sshTrust).toEqual({ ...TRUST_BLOCK, stale: true });
+  });
+
+  it("an online agent that reports no block falls back to the mirror, stale", async () => {
+    const id = await mkNode();
+    await nodes.setSshFingerprint(id, JSON.stringify(TRUST_BLOCK));
+    goOnline(id, runtime); // live connection, runtime WITHOUT a trust block
+    try {
+      const view = (await (await req("GET", `/api/nodes/${id}`, { cookie: aliceCookie })).json()) as {
+        sshTrust?: { stale: boolean };
+      };
+      expect(view.sshTrust?.stale).toBe(true);
+    } finally {
+      resetNodeRegistryForTests();
+    }
+  });
+
+  it("sshTrust is never serialized for `local`, not even with a mirror set on the row", async () => {
+    // The control-plane host runs no relay agent and reports no block; a
+    // hand-set column must still not reach a view. `alice` holds the seeded
+    // Everyone/`edit` grant on `local`, so this is the config-capable case.
+    await nodes.setSshFingerprint("local", JSON.stringify(TRUST_BLOCK));
+    try {
+      const view = (await (await req("GET", "/api/nodes/local", { cookie: aliceCookie })).json()) as Record<
+        string,
+        unknown
+      >;
+      expect("sshTrust" in view).toBe(false);
+    } finally {
+      await nodes.setSshFingerprint("local", null);
+    }
+  });
 });

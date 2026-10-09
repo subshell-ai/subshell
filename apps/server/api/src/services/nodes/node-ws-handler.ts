@@ -185,7 +185,7 @@ export interface NodeVerifiedKey {
 /** Repository slice the socket touches (full `NodesRepository` satisfies it). */
 export type NodeWsNodesRepo = Pick<
   NodesRepository,
-  "findById" | "applyReady" | "applyInventory" | "touch" | "setStatus"
+  "findById" | "applyReady" | "applyInventory" | "touch" | "setStatus" | "setSshFingerprint"
 >;
 
 /** Everything the handler reaches outside its own module. */
@@ -878,6 +878,17 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
           // detail view reads as "no Runtime card", not present-and-undefined.
           ...(event.runtime ? { runtime: event.runtime } : {}),
         };
+      }
+      // Mirror the §4.6 trust block the report carried onto the row (spec
+      // 2026-10-08 §4.5/§4.6) — the durable copy behind the offline,
+      // STALE-marked card, written on the same "record FIRST" posture as the
+      // facts stash above and on the same surviving-socket rule (the stillLive
+      // probe already returned for a disowned one). A ready WITHOUT a block
+      // — an agent that predates M2, or one whose block the grammar refused —
+      // writes NOTHING: absence is not evidence the machine's keys are gone,
+      // and only a fresh true report may move the plane's copy.
+      if (event.runtime?.sshFingerprint) {
+        await deps.nodes.setSshFingerprint(nodeId, JSON.stringify(event.runtime.sshFingerprint));
       }
       // The floor FIRST, because its refusal is the one a person can act on:
       // it names the version to install and the version found, where a bare
