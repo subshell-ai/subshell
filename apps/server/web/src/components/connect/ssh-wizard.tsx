@@ -69,6 +69,7 @@ export function SshWizard({
     mayAdd,
     machine,
     keyMachine,
+    keySourceProblem,
     remote,
     fingerprints,
     roster,
@@ -112,6 +113,23 @@ export function SshWizard({
         </p>
       </div>
       <SshQueryStatus query={readiness} label="connecting machines" />
+      {keySourceProblem && intent !== "prepare" && current !== "intent" && (
+        <div className="flex flex-col items-start gap-2">
+          <p role="alert" className="text-destructive text-detail">
+            {keySourceProblem}
+          </p>
+          {["keys", "review", "readiness"].includes(current) && (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setCurrent(intent === "connect" ? "key-choice" : "key-source")}
+            >
+              Change key source
+            </Button>
+          )}
+        </div>
+      )}
       {current === "intent" && (
         <div className="flex flex-col gap-2">
           <Button type="button" variant="outline" onClick={() => selectIntent("connect")}>
@@ -198,7 +216,7 @@ export function SshWizard({
       {current === "key-setup" && <SshMachineSetup machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />}
       {current === "keys" && (
         <SshKeyStep
-          nodeId={keyMachine?.canConnect ? draft.keyHome : null}
+          nodeId={!keySourceProblem && keyMachine?.canConnect ? draft.keyHome : null}
           fingerprints={fingerprints}
           onChange={(selection) => patch({ selections: { ...draft.selections, [draft.keyHome]: selection } })}
         />
@@ -216,8 +234,8 @@ export function SshWizard({
                 Keys from {keyMachine?.node.name ?? "unavailable machine"}: {fingerprints.join(", ")}
               </p>
               <SshMachineSetup machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />
-              <SshQueryStatus query={roster} label="SSH agent keys" />
-              {sshKeySelectionProblem(fingerprints, roster.data?.identities) && (
+              {!keySourceProblem && <SshQueryStatus query={roster} label="SSH agent keys" />}
+              {!keySourceProblem && sshKeySelectionProblem(fingerprints, roster.data?.identities) && (
                 <p role="alert" className="text-destructive text-detail">
                   {sshKeySelectionProblem(fingerprints, roster.data?.identities)}
                 </p>

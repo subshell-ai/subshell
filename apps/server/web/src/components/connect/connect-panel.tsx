@@ -15,6 +15,7 @@ import {
   sshDestination,
   sshDraftProblems,
   sshKeySelectionProblem,
+  sshKeySourceProblem,
   sshSessionDraft,
 } from "@/components/connect/ssh-session-draft";
 import { SshWizard } from "@/components/connect/ssh-wizard";
@@ -159,20 +160,21 @@ export function ConnectPanel({
   const keyOptions: ComboboxOption[] = [
     { value: "connecting", label: "Connecting machine’s own keys" },
     ...(nodes ?? [])
-      .filter((n) => n.id !== nodeId)
+      .filter((n) => n.id !== nodeId || n.id === keyHome)
       .map((n) => ({
         value: n.id,
         label: n.name,
-        disabled: !machineCanConnect(n.id),
-        reason: machineBlocker(n.id) ?? undefined,
+        disabled: n.id === nodeId || !machineCanConnect(n.id),
+        reason:
+          n.id === nodeId ? "Choose own keys explicitly or another key machine." : (machineBlocker(n.id) ?? undefined),
       })),
   ];
-  const effectiveKeyHome = keyHome === nodeId ? "" : keyHome;
-  const keyReady = !effectiveKeyHome || keyOptions.some((o) => o.value === effectiveKeyHome && !o.disabled);
-  const roster = useSshNodeRoster(effectiveKeyHome && keyReady ? effectiveKeyHome : null, !wizard);
-  const fingerprints = draft.selections[effectiveKeyHome] ?? [];
+  const keySourceProblem = sshKeySourceProblem(draft);
+  const keyReady = !keyHome || keyOptions.some((o) => o.value === keyHome && !o.disabled);
+  const roster = useSshNodeRoster(keyHome && keyReady ? keyHome : null, !wizard);
+  const fingerprints = draft.selections[keyHome] ?? [];
   const selectionError = sshKeySelectionProblem(fingerprints, roster.data?.identities);
-  const rosterReady = !effectiveKeyHome || (!roster.isPending && !roster.isError && selectionError === null);
+  const rosterReady = !keyHome || (!roster.isPending && !roster.isError && selectionError === null);
   const destination = sshDestination(draft);
   // A committed row's label is the field's text; while that echo stands the
   // list is UNFILTERED (the whole ledger again), because the echo is display,
@@ -226,7 +228,7 @@ export function ConnectPanel({
       const created = await launch.mutateAsync({
         node: nodeId,
         destination,
-        ...(effectiveKeyHome ? { keyHome: effectiveKeyHome, fingerprints } : {}),
+        ...(keyHome ? { keyHome, fingerprints } : {}),
       });
       launchedId = created.subshell.id;
       setCreatedId(launchedId);
@@ -400,20 +402,20 @@ export function ConnectPanel({
         <div>
           <Button
             variant="ghost"
-            aria-expanded={advanced || refusal?.field === "keys"}
+            aria-expanded={advanced || !!keySourceProblem || refusal?.field === "keys"}
             aria-controls="ssh-advanced-options"
             onClick={() => setAdvanced((value) => !value)}
           >
             Advanced SSH options
             <ChevronDown data-icon="inline-end" aria-hidden="true" />
           </Button>
-          <div id="ssh-advanced-options" hidden={!advanced && refusal?.field !== "keys"}>
+          <div id="ssh-advanced-options" hidden={!advanced && !keySourceProblem && refusal?.field !== "keys"}>
             <Field className="mt-3">
               <Label htmlFor="connect-key-home">Use SSH keys from</Label>
               <SearchableSelect
                 id="connect-key-home"
                 placeholder="Choose a key machine"
-                value={effectiveKeyHome || "connecting"}
+                value={keyHome || "connecting"}
                 options={keyOptions}
                 onValueChange={(id) => {
                   setKeyHome(id === "connecting" ? "" : id);
@@ -425,7 +427,12 @@ export function ConnectPanel({
                 Choose another machine to use keys loaded in its SSH agent. Keys stay on that machine; it must be online
                 and have SSH enabled.
               </p>
-              {!keyReady && (
+              {keySourceProblem && (
+                <p role="alert" className="text-destructive text-detail">
+                  {keySourceProblem}
+                </p>
+              )}
+              {!keyReady && !keySourceProblem && (
                 <p role="status" className="text-detail text-muted-foreground">
                   The selected key machine is unavailable. Bring it online with SSH enabled, or choose another.
                 </p>
@@ -435,12 +442,12 @@ export function ConnectPanel({
                   {refusal.text}
                 </p>
               )}
-              {effectiveKeyHome && keyReady && (
+              {keyHome && keyReady && (
                 <SshKeyStep
-                  nodeId={keyReady ? effectiveKeyHome : null}
+                  nodeId={keyHome}
                   fingerprints={fingerprints}
                   onChange={(fingerprints) =>
-                    setDraft({ ...draft, selections: { ...draft.selections, [effectiveKeyHome]: fingerprints } })
+                    setDraft({ ...draft, selections: { ...draft.selections, [keyHome]: fingerprints } })
                   }
                 />
               )}

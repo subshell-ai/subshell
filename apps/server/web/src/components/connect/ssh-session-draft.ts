@@ -8,7 +8,7 @@ export type SshInitialChoices = { node?: string; destination?: string; keyHome?:
 export interface SshSessionDraft {
   /** Machine that runs SSH. Empty means no deliberate choice yet. */
   nodeId: string;
-  /** Optional remote agent machine. Empty means normal local SSH identities. */
+  /** Explicit key machine; retain it even if the connecting machine changes to this id. Empty means own keys. */
   keyHome: string;
   /** Explicit selections, separately scoped to each key machine. */
   selections: Record<string, string[]>;
@@ -45,13 +45,18 @@ export function sshKeySelectionProblem(fingerprints: string[], identities?: SshA
   return null;
 }
 
+export function sshKeySourceProblem(draft: SshSessionDraft): string | null {
+  return draft.keyHome && draft.keyHome === draft.nodeId
+    ? "The selected key machine is also the connecting machine. Explicitly choose the connecting machine’s own keys or another key machine to continue. Your selected fingerprints are preserved."
+    : null;
+}
+
 export function sshDraftProblems(draft: SshSessionDraft): Record<string, string> {
   if (!draft.nodeId) return { node: "Choose a connecting machine first." };
   if (!sshDestination(draft)) return { destination: "Enter an SSH destination." };
   const error =
-    draft.keyHome && draft.keyHome !== draft.nodeId
-      ? sshKeySelectionProblem(draft.selections[draft.keyHome] ?? [])
-      : null;
+    sshKeySourceProblem(draft) ||
+    (draft.keyHome ? sshKeySelectionProblem(draft.selections[draft.keyHome] ?? []) : null);
   return error ? { keys: error } : {};
 }
 

@@ -28,11 +28,13 @@ export function SshMachineStep({
           value={value}
           placeholder="Choose a machine"
           options={machines
-            .filter((m) => m.node.id !== exclude)
+            .filter((m) => m.node.id !== exclude || m.node.id === value)
             .map((m) => ({
               value: m.node.id,
               label: m.node.name,
-              reason: m.blockers.map((b) => b.message).join(" "),
+              disabled: m.node.id === exclude,
+              reason:
+                m.node.id === exclude ? "Choose a different key machine." : m.blockers.map((b) => b.message).join(" "),
             }))}
           onValueChange={(id) => id && onChange(id)}
         />
