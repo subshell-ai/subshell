@@ -2214,6 +2214,14 @@ Audit events are written, grouped by family:
   the routing ref, and the fingerprint COUNT; close names the one
   `reason` word from the grammar - the plane's broker rows, `actorUserId:
   null`, because the human's act is the launch/grant trail),
+  `node.ssh_upgrade.run` (spec §7, Task 14: one row per "Set up Subshell
+  here" act, naming the pane, B, A and the grant on a relay run, the
+  canonical destination, the act's exec id, and the OUTCOME with a STAGE
+  word chosen by the service; the minted setup key appears nowhere - never
+  the metadata, never a refusal's copy, and no installer output at all:
+  the act parses the machine's redacted capture into the stage verb and
+  keeps nothing else; the single-use key row is the only durable record of
+  the credential, matching the `setup_key.create` no-metadata precedent),
   `node.logging.update`, `node.update`,
   `node.update.unknown`, `node.shares_set`, `node.local_share_changed`, and
   `node.service` (with `{ verb: "restart", forced }` metadata; the restart
