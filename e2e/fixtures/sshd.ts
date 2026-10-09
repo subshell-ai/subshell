@@ -29,8 +29,12 @@ export const SSH_FIXTURE_ALIAS = "e2edest";
 /** sshd's known install locations beyond PATH (probe fallbacks, the ladder's shape). */
 const SSHD_KNOWN_PATHS = ["/usr/sbin/sshd"];
 
-/** PATH probe (the Node stand-in for `Bun.which`); sshd also checks the known install paths and honors `E2E_SSHD_BIN`. */
-function which(bin: string, extraPaths: readonly string[] = []): string | null {
+/**
+ * PATH probe (the Node stand-in for `Bun.which`); sshd also checks the known
+ * install paths and honors `E2E_SSHD_BIN`. Exported for the relay fixture
+ * (sshd-relay.ts), which stands up a second machine on the same rules.
+ */
+export function which(bin: string, extraPaths: readonly string[] = []): string | null {
   const override = bin === "sshd" ? process.env["E2E_SSHD_BIN"] : undefined;
   if (override !== undefined && override !== "") return override;
   const dirs = (process.env.PATH ?? "").split(path.delimiter).filter((d) => d !== "");
@@ -51,6 +55,12 @@ export function missingSshBins(): string[] {
   if (which("ssh") === null) missing.push("ssh");
   if (which("ssh-keygen") === null) missing.push("ssh-keygen");
   if (which("sshd", SSHD_KNOWN_PATHS) === null) missing.push("sshd");
+  // The relay crown jewel (spec 23) authenticates through a REAL ssh-agent,
+  // the arbiter of the probed wire numbering. Every OpenSSH install that
+  // carries the four above carries these two; they join the gate so a host
+  // that lacks the agent SKIPS LOUDLY instead of faking a pass.
+  if (which("ssh-agent") === null) missing.push("ssh-agent");
+  if (which("ssh-add") === null) missing.push("ssh-add");
   return missing;
 }
 
@@ -128,8 +138,17 @@ process.on("exit", () => {
  * remote command), so a destination that must find a scratch binary on PATH
  * needs the daemon to hand it out. Absent, the fixture is exactly the
  * default-PATH world it has always been.
+ *
+ * `setEnv` (spec 23-ssh-relay, the "Set up Subshell here" sandbox) adds
+ * arbitrary `SetEnv NAME=value` lines - one token, no spaces each. The relay
+ * fixture hands D's session env the scratch config/data paths and
+ * `SUBSHELL_NO_SERVICE=1` so the REAL installer act runs for real but writes
+ * only under the temp root, never the developer's home.
  */
-export async function startSshFixture(root: string, options: { envPath?: string } = {}): Promise<SshFixture> {
+export async function startSshFixture(
+  root: string,
+  options: { envPath?: string; setEnv?: Record<string, string> } = {},
+): Promise<SshFixture> {
   const sshBin = which("ssh");
   const keygenBin = which("ssh-keygen");
   const sshdBin = which("sshd", SSHD_KNOWN_PATHS);
@@ -225,10 +244,31 @@ export async function startSshFixture(root: string, options: { envPath?: string 
       "PermitUserEnvironment no",
       "PrintMotd no",
       "LogLevel VERBOSE",
-      // The spec-23 seam: a session PATH the daemon hands out (the default
-      // login PATH would otherwise hide any scratch binary). One token, no
-      // spaces: sshd's SetEnv value grammar.
-      ...(options.envPath !== undefined && options.envPath !== "" ? [`SetEnv PATH=${options.envPath}`] : []),
+      // SetEnv assignments - the spec-23 PATH seam (a session PATH the daemon
+      // hands out; the default login PATH would otherwise hide any scratch
+      // binary) and the spec-23-ssh-relay sandbox (scratch config/data paths,
+      // no-service) - as ONE combined `SetEnv` line. Measured on
+      // OpenSSH_10.2p1: repeated SetEnv keyword lines do NOT accumulate - only
+      // the FIRST line reaches the session - so every assignment shares one
+      // line, PATH first. Each value is a single token; a space-bearing value
+      // is refused HERE rather than silently dropped by sshd's parser.
+      ...(() => {
+        const assignments: [string, string][] = [];
+        if (options.envPath !== undefined && options.envPath !== "") assignments.push(["PATH", options.envPath]);
+        for (const [name, value] of Object.entries(options.setEnv ?? {})) {
+          if (name === "PATH" && options.envPath !== undefined && options.envPath !== "") {
+            throw new Error("SetEnv PATH supplied twice (envPath option and setEnv map)");
+          }
+          assignments.push([name, value]);
+        }
+        if (assignments.length === 0) return [];
+        for (const [name, value] of assignments) {
+          if (/\s/.test(value) || value === "") {
+            throw new Error(`SetEnv ${name}: value must be one non-empty token (sshd grammar)`);
+          }
+        }
+        return [`SetEnv ${assignments.map(([name, value]) => `${name}=${value}`).join(" ")}`];
+      })(),
     ].join("\n"),
   );
   // sshd's privilege-separation directory is compiled in (/run/sshd; no

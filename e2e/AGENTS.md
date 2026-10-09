@@ -51,9 +51,9 @@ runs discovery against this fake), and no spec ever dials a real IdP.
 
 Every fixed port in `ports.ts` takes an env override (`E2E_PORT_BACKEND`,
 `E2E_PORT_FAKE_REGISTRY`, `E2E_PORT_FAKE_IDP`, `E2E_PORT_ONBOARDING`,
-`E2E_PORT_SSH`, `E2E_PORT_CONNECT`) with the committed defaults unchanged, the
-escape hatch for two suites running side by side on one machine, which the
-defaults collide on.
+`E2E_PORT_SSH`, `E2E_PORT_CONNECT`, `E2E_PORT_RELAY`) with the committed
+defaults unchanged, the escape hatch for two suites running side by side on one
+machine, which the defaults collide on.
 
 Spec `22` boots its own backend too (port 3201) for a reason the shared stack
 cannot serve: the ssh tier reads the connecting account's HOME and bun caches
