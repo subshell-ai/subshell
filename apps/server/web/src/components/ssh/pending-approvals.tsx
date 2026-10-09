@@ -35,8 +35,12 @@ import { grantSelectionError, type SshGrantRequest } from "@/lib/ssh";
  * The roster loads with the card because it is what the answer is made of:
  * an offline or refusing key home answers a named error and the request stays
  * pending, so the card shows that sentence rather than an empty picker that
- * would invite a yes against nothing. A denial needs no confirm: it writes
- * only the audit row, and a later relaunch simply asks again.
+ * would invite a yes against nothing, and Approve waits for the roster to
+ * arrive. A pre-selection the roster no longer carries renders as a visibly
+ * DISABLED row that says why: the server validates the selection's shape, not
+ * its roster membership, so this screen is the fence that keeps an invisible
+ * fingerprint out of the grant. A denial needs no confirm: it writes only the
+ * audit row, and a later relaunch simply asks again.
  */
 export function PendingApprovals() {
   const { data: view } = useSshGrantRequests();
@@ -79,7 +83,16 @@ function ApprovalCard({ request }: { request: SshGrantRequest }) {
     (Array.isArray(nodeData?.nodes) ? nodeData.nodes : []).find((n) => n.id === id)?.name ?? id;
   const paneName = (Array.isArray(panes) ? panes : []).find((p) => p.id === request.paneId)?.name ?? request.paneId;
 
-  const selectionError = grantSelectionError(selected);
+  // Once the roster has landed it is the WHOLE candidate set: a pre-selected
+  // fingerprint the agent no longer holds is in no checkbox row, so the server
+  // would accept it unseen (it validates shape and cap, not membership).
+  // `submitted` is the intersection the approve body may carry, and `stale`
+  // the part made visible as a disabled row instead.
+  const rosterHeld = roster.data ? new Set(roster.data.identities.map((identity) => identity.fingerprint)) : null;
+  const submitted = rosterHeld ? selected.filter((fingerprint) => rosterHeld.has(fingerprint)) : selected;
+  const stale = rosterHeld ? (request.requestedFingerprints ?? []).filter((f) => !rosterHeld.has(f)) : [];
+
+  const selectionError = grantSelectionError(submitted);
   const toggle = (fingerprint: string) =>
     setSelected((prev) =>
       prev.includes(fingerprint) ? prev.filter((f) => f !== fingerprint) : [...prev, fingerprint],
@@ -88,8 +101,8 @@ function ApprovalCard({ request }: { request: SshGrantRequest }) {
   function answerYes() {
     // The guard behind the gate (substrate contract): Enter-path submits and
     // render races land here even though the button is swept.
-    if (selectionError || selected.length === 0) return;
-    approve.mutate({ requestId: request.id, fingerprints: selected, name: name.trim() || undefined });
+    if (!roster.data || selectionError || submitted.length === 0) return;
+    approve.mutate({ requestId: request.id, fingerprints: submitted, name: name.trim() || undefined });
   }
 
   return (
@@ -107,7 +120,8 @@ function ApprovalCard({ request }: { request: SshGrantRequest }) {
         </Fact>
       </dl>
       <p className="text-detail text-muted-foreground">
-        Expires {request.expiresAt.slice(0, 16).replace("T", " ")}. If this destination is trusted under an SSH
+        {/* Localized like the sibling house queue (pending-users-table): the deadline the operator acts before is a wall-clock moment, not a UTC stamp to mentally convert. */}
+        Expires {new Date(request.expiresAt).toLocaleString()}. If this destination is trusted under an SSH
         HostKeyAlias, add its host-key pin under Destination trust first; the key home cannot capture that one itself.
       </p>
       <div>
@@ -143,6 +157,22 @@ function ApprovalCard({ request }: { request: SshGrantRequest }) {
             ))}
           </ul>
         )}
+        {/* A pre-selected key the roster no longer carries: shown, disabled, and named. Its fingerprint is absent from `submitted`, so it can never be approved unseen. */}
+        {roster.data && stale.length > 0 && (
+          <ul className="mt-2 space-y-2">
+            {stale.map((fingerprint) => (
+              <li key={fingerprint} className="flex items-start gap-3">
+                <Checkbox className="mt-1" aria-label={fingerprint} disabled checked={false} />
+                <div className="min-w-0">
+                  <div className="break-all font-mono text-detail text-muted-foreground">{fingerprint}</div>
+                  <div className="text-detail text-muted-foreground">
+                    {`No longer present in ${machineName(request.keyHomeNodeId)}'s agent, so it cannot be approved.`}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
         {selectionError && (
           <p role="alert" className="mt-2 text-destructive text-detail">
             {selectionError}
@@ -170,7 +200,11 @@ function ApprovalCard({ request }: { request: SshGrantRequest }) {
         </p>
       )}
       <div className="flex items-center gap-2">
-        <Button onClick={answerYes} disabled={!!selectionError || selected.length === 0 || approve.isPending}>
+        {/* Approve waits for the roster: until the key home has answered there is nothing visible to answer with, and a yes made against an unrendered candidate set is the invisible approval this gate exists to prevent. */}
+        <Button
+          onClick={answerYes}
+          disabled={!!selectionError || submitted.length === 0 || !roster.data || approve.isPending}
+        >
           Approve
         </Button>
         <Button variant="outline" onClick={() => deny.mutate(request.id)} disabled={deny.isPending}>

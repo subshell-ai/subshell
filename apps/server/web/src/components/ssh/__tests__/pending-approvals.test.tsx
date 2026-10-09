@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, spyOn } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -16,11 +16,15 @@ import { PendingApprovals } from "@/components/ssh/pending-approvals";
  * operator pick the grant's key set FROM the key home's live roster. The cap
  * is the load-bearing case: more than SSH_MAX_GRANT_FINGERPRINTS is a RED
  * hard error (a refused selection, not a silent truncation) and Approve stays
- * gated until the selection is legal.
+ * gated until the selection is legal. A pre-selection the roster no longer
+ * carries is surfaced as a disabled row and never rides the approve POST (the
+ * server validates shape, not roster membership; this screen is the fence).
+ * The 24 h deadline renders localized, like the sibling house queue.
  */
 
 const fp = (i: number) => `SHA256:${i.toString().padStart(43, "0")}`;
 const PRE = fp(1);
+const STALE = `SHA256:${"9".repeat(43)}`;
 
 const REQUEST = {
   id: "req1",
@@ -42,22 +46,31 @@ interface Sent {
   body: unknown;
 }
 
-function stubFetch(restore: (undo: () => void) => void): Sent[] {
+interface StubOptions {
+  /** Override the agent roster (the stale-key case: the roster no longer carries a pre-selected fingerprint) */
+  identities?: { fingerprint: string; comment: string }[];
+  /** Override the queued request (e.g. a requestedFingerprints entry missing from the roster) */
+  request?: Partial<typeof REQUEST>;
+}
+
+function stubFetch(restore: (undo: () => void) => void, opts: StubOptions = {}): Sent[] {
   const sent: Sent[] = [];
   const original = globalThis.fetch;
   restore(() => {
     globalThis.fetch = original;
   });
+  const request = { ...REQUEST, ...opts.request };
+  const identities = opts.identities ?? ROSTER;
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const method = init?.method ?? "GET";
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     sent.push({ method, path: url.pathname, body });
     if (url.pathname === "/api/ssh/grant-requests") {
-      return new Response(JSON.stringify({ requests: [REQUEST] }), { status: 200 });
+      return new Response(JSON.stringify({ requests: [request] }), { status: 200 });
     }
     if (url.pathname === "/api/ssh/grant-requests/req1/identities") {
-      return new Response(JSON.stringify({ identities: ROSTER }), { status: 200 });
+      return new Response(JSON.stringify({ identities }), { status: 200 });
     }
     if (url.pathname === "/api/ssh/grant-requests/req1/approve") {
       return new Response(JSON.stringify({ grant: { id: "g1" } }), { status: 200 });
@@ -139,6 +152,50 @@ describe("PendingApprovals", () => {
     expect(boxes.length).toBe(10);
     const pre = screen.getByRole("checkbox", { name: PRE });
     expect(pre.getAttribute("data-checked")).not.toBeNull();
+  });
+
+  it("surfaces a pre-selected key the agent no longer holds and never sends it", async () => {
+    const sent = stubFetch(
+      (undo) => {
+        restores.push(undo);
+      },
+      {
+        // The request pre-selected STALE, but the key home's live roster no longer carries it.
+        request: { requestedFingerprints: [STALE, PRE] },
+        identities: [
+          { fingerprint: PRE, comment: "key 1" },
+          { fingerprint: fp(2), comment: "key 2" },
+        ],
+      },
+    );
+    renderScreen();
+    // The stale pre-selection is VISIBLE, as a disabled row that says what happened:
+    // it can be neither seen past nor ticked back on.
+    expect(await screen.findByText(STALE)).toBeDefined();
+    expect(await screen.findByText(/No longer present in vault/)).toBeDefined();
+    // The row's checkbox is visibly disabled (Base UI's data-disabled, the attribute its opacity style binds to).
+    expect(screen.getByRole("checkbox", { name: STALE }).hasAttribute("data-disabled")).toBe(true);
+    // And the approve body carries only the key the operator can actually see:
+    // the server validates shape, not roster membership, so this screen is the fence.
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    await waitFor(() => expect(sent.some((s) => s.path.endsWith("/approve"))).toBe(true));
+    const approve = sent.find((s) => s.path.endsWith("/approve"));
+    expect(approve?.body).toEqual({ fingerprints: [PRE] });
+  });
+
+  it("renders the 24 h deadline localized, like the sibling house queue", async () => {
+    stubFetch((undo) => {
+      restores.push(undo);
+    });
+    // Same precedent as pending-users-table: `new Date(...).toLocaleString()`.
+    const stamp = "10/9/2026, 10:00:00 AM";
+    const timeSpy = spyOn(Date.prototype, "toLocaleString").mockReturnValue(stamp);
+    restores.push(() => timeSpy.mockRestore());
+    renderScreen();
+    const line = await screen.findByText(/^Expires/);
+    expect(line.textContent).toContain(stamp);
+    // The raw UTC ISO spelling must not remain on the card.
+    expect(line.textContent).not.toContain("2026-10-09");
   });
 
   it("refuses an over-cap selection as a RED hard error and gates Approve", async () => {
