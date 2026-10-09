@@ -445,8 +445,11 @@ describe("the cookie doctrine over the grant doors", () => {
     for (const res of [
       await sshFetch("/api/ssh/grants", { cookie: "" }),
       await sshFetch("/api/ssh/grant-requests", { cookie: "" }),
+      // Task 18's roster-by-node read answers the same doctrine.
+      await sshFetch(`/api/ssh/grants/identities?node=${NODE_A}`, { cookie: "" }),
       await sshFetch("/api/ssh/grants", { bearer: key }),
       await sshFetch("/api/ssh/grant-requests", { bearer: key }),
+      await sshFetch(`/api/ssh/grants/identities?node=${NODE_A}`, { bearer: key }),
       await sshFetch("/api/ssh/launch", {
         method: "POST",
         bearer: key,
@@ -732,6 +735,73 @@ describe("GET /api/ssh/grant-requests/:id/identities (the roster behind the appr
     expect((await sshFetch(`/api/ssh/grant-requests/${requestId}/identities`, { cookie: "" })).status).toBe(401);
     const foreign = await sshFetch(`/api/ssh/grant-requests/${requestId}/identities`, { cookie: otherCookie });
     expect(foreign.status).toBe(404);
+    expect(rosterCalls).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* GET /api/ssh/grants/identities?node= (Task 18: the roster-by-node)   */
+/* ------------------------------------------------------------------ */
+
+describe("GET /api/ssh/grants/identities (the roster behind the create picker)", () => {
+  beforeEach(() => {
+    installFakeDeps(); // reset the scripted roster RPC and its call log between cases
+    rosterCalls = [];
+  });
+
+  it("reads the key home's roster with NO pending request: the roster rides home and nothing is written", async () => {
+    // The service suite pins this on a clean tier (no request row at all);
+    // this route's tier is shared with the queue describes, so the write
+    // silence is pinned as a before/after count: NO audit row, and no
+    // request row created or answered by the read.
+    const auditsBefore = (await db.selectFrom("auditEvents").select("id").execute()).length;
+    const pendingBefore = (
+      await db.selectFrom("sshGrantRequests").select("id").where("status", "=", "pending").execute()
+    ).length;
+    rosterAnswer = () => ({ identities: [{ fingerprint: `SHA256:${"D".repeat(43)}`, comment: "work laptop" }] });
+    const res = await sshFetch(`/api/ssh/grants/identities?node=${NODE_A}`, { cookie: ownerCookie });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { identities: Record<string, string>[] };
+    expect(body.identities).toEqual([{ fingerprint: `SHA256:${"D".repeat(43)}`, comment: "work laptop" }]);
+    // The entry shape is exactly the two public fields (T11's guarantee carried here too).
+    for (const entry of body.identities) expect(Object.keys(entry).sort()).toEqual(["comment", "fingerprint"]);
+    expect(rosterCalls).toEqual([NODE_A]); // the KEY HOME asked, exactly once
+    expect((await db.selectFrom("auditEvents").select("id").execute()).length).toBe(auditsBefore);
+    expect(
+      (await db.selectFrom("sshGrantRequests").select("id").where("status", "=", "pending").execute()).length,
+    ).toBe(pendingBefore);
+  });
+
+  it("an honest empty from a live agent is a 200 empty list; an offline key home is the named 409 with NO identities arm", async () => {
+    rosterAnswer = () => ({ identities: [] });
+    const empty = await sshFetch(`/api/ssh/grants/identities?node=${NODE_A}`, { cookie: ownerCookie });
+    expect(empty.status).toBe(200);
+    expect(((await empty.json()) as { identities: unknown[] }).identities).toEqual([]);
+
+    rosterAnswer = () => {
+      throw new SshRpcError("offline", "node has no live connection", NODE_A);
+    };
+    const offline = await sshFetch(`/api/ssh/grants/identities?node=${NODE_A}`, { cookie: ownerCookie });
+    expect(offline.status).toBe(409);
+    const body = (await offline.json()) as Record<string, unknown>;
+    expect(body.code).toBe(BackendErrorCodes.NODE_OFFLINE);
+    // The offline answer is an error envelope, never an `identities: []` the
+    // picker could misread as "A holds no keys" (T11's fabrication rule).
+    expect(body.identities).toBeUndefined();
+  });
+
+  it("a foreign viewer and a vanished node collapse to the same 404, and the machine is never asked", async () => {
+    const foreign = await sshFetch(`/api/ssh/grants/identities?node=${NODE_A}`, { cookie: otherCookie });
+    expect(foreign.status).toBe(404);
+    const ghost = await sshFetch(`/api/ssh/grants/identities?node=node-does-not-exist`, { cookie: ownerCookie });
+    expect(ghost.status).toBe(404);
+    expect(rosterCalls).toEqual([]);
+  });
+
+  it("a key home with SSH switched off answers the gate's 403 before anything is asked", async () => {
+    const res = await sshFetch(`/api/ssh/grants/identities?node=${NODE_OFF}`, { cookie: ownerCookie });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_GATE_OFF);
     expect(rosterCalls).toEqual([]);
   });
 });

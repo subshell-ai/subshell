@@ -1,11 +1,11 @@
 import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { SshGrantViewSchema, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
+import { SshAgentIdentityViewSchema, SshGrantViewSchema, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { listGrants, revokeGrant, updateGrant } from "@/services/ssh-grants.service.js";
-import { sshCreateGrant } from "@/services/ssh-launch.service.js";
+import { listNodeAgentIdentities, sshCreateGrant } from "@/services/ssh-launch.service.js";
 
 /**
  * `GET|POST /api/ssh/grants`, `PATCH|DELETE /api/ssh/grants/:id` - the grants
@@ -30,6 +30,14 @@ import { sshCreateGrant } from "@/services/ssh-launch.service.js";
  * durable record of the operator's selection. Everywhere else the trail names
  * the COUNT only, no fingerprint value rides a log line or a notification,
  * and no row carries key material (docs/security.md §10).
+ *
+ * `GET /grants/identities?node=` is the roster-BY-NODE read (spec §8, Task
+ * 18): the create picker's candidate list, the same §5.4 roster command the
+ * approval screen asks, taken against a directly-chosen key home with NO
+ * pending request standing. It writes nothing (not even an audit row), gates
+ * through the key home's own gate before the machine is asked, and fails
+ * closed by name when the key home is unreachable - an empty list means the
+ * live agent holds nothing, never "we could not ask".
  */
 export const sshGrantsRoutes = new Elysia()
   .use(authGuard)
@@ -53,6 +61,43 @@ export const sshGrantsRoutes = new Elysia()
         tags: ["ssh"],
         description:
           "Lists the caller's key grants: which key home may sign for which destinations, and which selected agent identities carry that authorization",
+      },
+    },
+  )
+  .get(
+    "/grants/identities",
+    async ({ query, user, actor }) => {
+      requireCookieActor(actor, "SSH key grants are restricted to browser sessions");
+      const answer = await listNodeAgentIdentities({ viewerId: user.id, aNodeId: query.node });
+      if (!answer.ok) return throwCodedRefusal(answer.refusal);
+      return { identities: answer.value.identities };
+    },
+    {
+      query: t.Object({
+        node: t.String({
+          minLength: 1,
+          description: "Key home machine whose live agent roster to read (an agent node you own, SSH switched on)",
+        }),
+      }),
+      response: {
+        200: t.Object({
+          identities: t.Array(SshAgentIdentityViewSchema, {
+            description:
+              "The key home's WHOLE public roster with the key blobs withheld; the picker selects the grant's subset (cap enforced on create, never by truncating this list)",
+          }),
+        }),
+        400: "ApiErrorResponse",
+        401: "ApiErrorResponse",
+        403: "ApiErrorResponse",
+        404: "ApiErrorResponse",
+        409: "ApiErrorResponse",
+        502: "ApiErrorResponse",
+      },
+      detail: {
+        operationId: "listSshNodeAgentIdentities",
+        tags: ["ssh"],
+        description:
+          "Enumerates a chosen key home's live agent identities for the create picker (fingerprints plus comments, blobs withheld, no pending request needed); an offline or refusing key home answers a named error, never a fabricated empty roster, and the read writes no audit row",
       },
     },
   )

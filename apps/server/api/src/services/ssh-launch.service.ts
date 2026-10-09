@@ -14,6 +14,7 @@ import {
   sshOptionTokens,
 } from "@internal/pane-runtime";
 import {
+  type NodeSshAgentIdentity,
   type NodeSshAliasListResult,
   type NodeSshResolveOutcomeWire,
   parseNodeSshAliasList,
@@ -36,7 +37,13 @@ import { getHeld, getLive } from "@/services/nodes/node-registry.js";
 import { SshRpcError, sshDiscover, sshResolve } from "@/services/nodes/ssh-rpc.js";
 import { subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
-import { createGrant, prepareRelayLeg, type SshGrantAnswer, type SshGrantView } from "@/services/ssh-grants.service.js";
+import {
+  createGrant,
+  fetchAgentRoster,
+  prepareRelayLeg,
+  type SshGrantAnswer,
+  type SshGrantView,
+} from "@/services/ssh-grants.service.js";
 import { closeRelayForPaneExit, sshRelayPaneEnv } from "@/services/ssh-relay.service.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
@@ -599,23 +606,18 @@ export async function sshRemoveSavedHost(viewerId: string, id: string): Promise<
 }
 
 /**
- * `POST /api/ssh/grants` - create a standing grant from the screen (spec
- * 2026-10-08 §8). The gate here is the key home's: a grant authorizes the key
+ * The key home's gate, shared by BOTH grant doors (Task 18): the create below
+ * and the roster-by-node read behind its picker. A grant authorizes the key
  * home's agent to sign, so A must be an agent node this caller may SSH
  * through, switched on and unheld - the same `gateSshNode` a relay launch
- * runs, run at creation so the screen cannot store an authorization pointed
- * at a machine the caller has no say over. `local` is never a key home (acceptance (d)); the
- * refusal names that door with the open-failure code because it is exactly
- * what the broker would have refused, refused before anything was stored.
+ * runs, run BEFORE anything is stored or asked so the screen cannot point an
+ * authorization (or a machine ask) at a machine the caller has no say over.
+ * `local` is never a key home (acceptance (d)); the refusal names that door
+ * with the open-failure code because it is exactly what the broker would have
+ * refused, refused before anything was stored or fetched.
  */
-export async function sshCreateGrant(args: {
-  viewerId: string;
-  aNodeId: string;
-  name: string;
-  selector: string;
-  fingerprints: readonly string[];
-}): Promise<SshGrantAnswer<{ grant: SshGrantView }>> {
-  const gate = await gateSshNode(args.viewerId, args.aNodeId);
+async function gateKeyHome(viewerId: string, aNodeId: string): Promise<SshGrantAnswer<NodeGate>> {
+  const gate = await gateSshNode(viewerId, aNodeId);
   if (!gate.ok) {
     // gateSshNode only ever carries the CODED arm (its refusal is a gate
     // verdict, never a resolve outcome); the 422 type-arm is unreachable,
@@ -645,6 +647,22 @@ export async function sshCreateGrant(args: {
       },
     };
   }
+  return { ok: true, value: gate.value };
+}
+
+/**
+ * `POST /api/ssh/grants` - create a standing grant from the screen (spec
+ * 2026-10-08 §8), gated through {@link gateKeyHome} first.
+ */
+export async function sshCreateGrant(args: {
+  viewerId: string;
+  aNodeId: string;
+  name: string;
+  selector: string;
+  fingerprints: readonly string[];
+}): Promise<SshGrantAnswer<{ grant: SshGrantView }>> {
+  const gate = await gateKeyHome(args.viewerId, args.aNodeId);
+  if (!gate.ok) return { ok: false, refusal: gate.refusal };
   return await createGrant({
     ownerUserId: args.viewerId,
     aNodeId: args.aNodeId,
@@ -652,6 +670,27 @@ export async function sshCreateGrant(args: {
     selector: args.selector,
     fingerprints: args.fingerprints,
   });
+}
+
+/**
+ * `GET /api/ssh/grants/identities?node=` - the roster-by-node read behind the
+ * grants screen's CREATE picker (spec 2026-10-08 §8, Task 18): the same
+ * T11 roster command and the same fail-closed doors as the approval screen's
+ * request-scoped read, taken against a directly-chosen key home so an
+ * operator can build a grant WITHOUT a pending first-use request standing.
+ * The gate runs before the machine is asked (a machine the caller may not
+ * SSH through never sees a frame), and like every roster read this is a
+ * question, not an answer: NO audit row is written, no row changes, an
+ * offline or refusing key home answers the named error rather than the
+ * empty roster a live agent honestly reports.
+ */
+export async function listNodeAgentIdentities(args: {
+  viewerId: string;
+  aNodeId: string;
+}): Promise<SshGrantAnswer<{ identities: NodeSshAgentIdentity[] }>> {
+  const gate = await gateKeyHome(args.viewerId, args.aNodeId);
+  if (!gate.ok) return { ok: false, refusal: gate.refusal };
+  return await fetchAgentRoster(args.aNodeId);
 }
 
 /** The GET payload of the launcher screen: the owner's rows plus their default machine. */

@@ -1,7 +1,12 @@
 import { normalizeLabel } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
-import { SshGrantRequestViewSchema, SshGrantViewSchema, throwCodedRefusal } from "@/api/ssh/ssh-views.js";
+import {
+  SshAgentIdentityViewSchema,
+  SshGrantRequestViewSchema,
+  SshGrantViewSchema,
+  throwCodedRefusal,
+} from "@/api/ssh/ssh-views.js";
 import { apiModels } from "@/schema/index.js";
 import {
   approveGrant,
@@ -66,19 +71,10 @@ export const sshGrantRequestsRoutes = new Elysia()
       params: t.Object({ id: t.String({ description: "Request row id" }) }),
       response: {
         200: t.Object({
-          identities: t.Array(
-            t.Object({
-              fingerprint: t.String({
-                description:
-                  "Public agent identity in the canonical SHA256: notation (the approval body sends these back verbatim)",
-              }),
-              comment: t.String({ description: "OpenSSH's label for the key, as the agent reports it (display only)" }),
-            }),
-            {
-              description:
-                "The key home's WHOLE public roster with the key blobs withheld; the operator selects the grant's subset (cap enforced at approval, never by truncating this list)",
-            },
-          ),
+          identities: t.Array(SshAgentIdentityViewSchema, {
+            description:
+              "The key home's WHOLE public roster with the key blobs withheld; the operator selects the grant's subset (cap enforced at approval, never by truncating this list)",
+          }),
         }),
         401: "ApiErrorResponse",
         403: "ApiErrorResponse",

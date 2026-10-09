@@ -618,7 +618,8 @@ export async function listGrantRequests(args: {
 }
 
 /* ------------------------------------------------------------------ */
-/* the roster fetch: the approval screen's choice list (§5.4, Task 11) */
+/* the roster fetch: the choice list behind BOTH grant doors (§5.4,    */
+/* Task 11's approval screen; Task 18's create picker reads it by node) */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -642,9 +643,22 @@ export async function listRequestAgentIdentities(args: {
   const row = await repo.getRequest(args.ownerUserId, args.requestId);
   if (!row) return refused(NOT_FOUND_REQUEST);
   if (row.status !== "pending") return refused(ALREADY_ANSWERED);
+  return await fetchAgentRoster(row.keyHomeNodeId);
+}
+
+/**
+ * Fetch one machine's public roster over the node link and map every failure
+ * to the grant-surface refusal (Task 18: the shared half of BOTH roster
+ * reads - the request-scoped one above and the roster-by-node read behind
+ * the create picker, which reaches it with a directly-chosen key home and no
+ * request row at all). Same command, same grammar, same fail-closed doors.
+ */
+export async function fetchAgentRoster(
+  aNodeId: string,
+): Promise<SshGrantAnswer<{ identities: NodeSshAgentIdentity[] }>> {
   try {
     const fetcher = grantsDeps().fetchAgentIdentities ?? sshAgentIdentities; // the `??` is the production wiring
-    const roster = await fetcher(row.keyHomeNodeId);
+    const roster = await fetcher(aNodeId);
     return granted({ identities: roster.identities });
   } catch (err) {
     if (err instanceof SshRpcError) return refused(rosterRpcRefusal(err));

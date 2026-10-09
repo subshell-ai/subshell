@@ -124,12 +124,65 @@ export const SSH_GRANT_REQUESTS_QUERY_KEY = ["ssh-grant-requests"] as const;
 export const SSH_HOST_PINS_QUERY_KEY = ["ssh-host-pins"] as const;
 /** The roster is per-request: the key home answers live, so no two cards share an entry. */
 export const sshRosterQueryKey = (requestId: string) => ["ssh-grant-roster", requestId] as const;
+/** The create picker's roster is per-NODE (Task 18): the key home answers live each time it is asked. */
+export const sshNodeRosterQueryKey = (nodeId: string) => ["ssh-node-roster", nodeId] as const;
 
 /** The owner's standing key grants, newest first. */
 export function useSshGrants() {
   return useQuery({
     queryKey: SSH_GRANTS_QUERY_KEY,
     queryFn: () => apiFetch<{ grants: SshGrant[] }>("/api/ssh/grants"),
+  });
+}
+
+/**
+ * `GET /api/ssh/grants/identities?node=` - the roster-BY-NODE read (spec §8,
+ * Task 18): the chosen key home's live agent roster for the CREATE picker,
+ * with no pending request standing. Same doctrine as the approval roster:
+ * fetched on demand (the picker gates on an actual pick), and an offline or
+ * refusing key home answers a named error rather than the empty list an
+ * honest live agent reports.
+ */
+export function useSshNodeRoster(nodeId: string | null) {
+  return useQuery({
+    queryKey: sshNodeRosterQueryKey(nodeId ?? ""),
+    queryFn: () =>
+      apiFetch<{ identities: SshAgentIdentity[] }>(
+        `/api/ssh/grants/identities?node=${encodeURIComponent(nodeId ?? "")}`,
+      ),
+    enabled: nodeId !== null && nodeId !== "",
+  });
+}
+
+/** The create body, exactly the route's contract: key home, name, selector, the selected keys. */
+export interface SshGrantCreate {
+  /** Key home machine whose agent will sign (an agent node the caller owns) */
+  nodeId: string;
+  /** Display name for the grant (required by the route) */
+  name: string;
+  /** Destination selector: a concrete hostname or a '*' host pattern */
+  selector: string;
+  /** The selected public identities; over-cap is a hard error, never a truncation */
+  fingerprints: string[];
+}
+
+/**
+ * `POST /api/ssh/grants` - the §8 manual create, the SAME row the approved
+ * first use writes (`createdVia: "manual"` here). The ledger invalidates on
+ * success; an over-cap or off-grammar selection is the server's hard refusal,
+ * echoed back red.
+ */
+export function useCreateSshGrant() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (draft: SshGrantCreate) =>
+      apiPost<{ grant: SshGrant }>("/api/ssh/grants", {
+        node: draft.nodeId,
+        name: draft.name,
+        selector: draft.selector,
+        fingerprints: draft.fingerprints,
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: SSH_GRANTS_QUERY_KEY }),
   });
 }
 
