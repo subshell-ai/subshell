@@ -1,5 +1,13 @@
 # @internal/desktop-server
 
+## 1.4.2
+
+### Patch Changes
+
+- [#335](https://github.com/subshell-ai/subshell/pull/335) [`16dd6f5`](https://github.com/subshell-ai/subshell/commit/16dd6f5eddd6602ecdf729925a0f5a9b46059131) Thanks [@theogravity](https://github.com/theogravity)! - Move Nodes, Presets, and Prompts into a Settings navigation group, and move the account menu from the sidebar footer into the header: the browser rail carries no footer card anymore, the server version and instance name ride the account menu's detail line, and an admin with a newer server published gets an amber dot on the avatar plus an Update available row.
+- Updated dependencies [[`ee778bd`](https://github.com/subshell-ai/subshell/commit/ee778bd798bf3cb0ccee988c3618e165258acdc7), [`ee778bd`](https://github.com/subshell-ai/subshell/commit/ee778bd798bf3cb0ccee988c3618e165258acdc7), [`4f3e318`](https://github.com/subshell-ai/subshell/commit/4f3e3182734cff5b53ac10441bfe0d94130d6ff2), [`438f952`](https://github.com/subshell-ai/subshell/commit/438f952014f2b9886b849253c3c5f3f3c2946951), [`a82309b`](https://github.com/subshell-ai/subshell/commit/a82309b55cc738c0f61824621a24acf737a5f366), [`ee778bd`](https://github.com/subshell-ai/subshell/commit/ee778bd798bf3cb0ccee988c3618e165258acdc7), [`16dd6f5`](https://github.com/subshell-ai/subshell/commit/16dd6f5eddd6602ecdf729925a0f5a9b46059131)]:
+  - @internal/server@1.10.0
+
 ## 1.4.1
 
 ### Patch Changes

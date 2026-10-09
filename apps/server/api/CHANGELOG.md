@@ -1,5 +1,25 @@
 # @internal/server
 
+## 1.10.0
+
+### Minor Changes
+
+- [#347](https://github.com/subshell-ai/subshell/pull/347) [`ee778bd`](https://github.com/subshell-ai/subshell/commit/ee778bd798bf3cb0ccee988c3618e165258acdc7) Thanks [@theogravity](https://github.com/theogravity)! - Admin accounts no longer see or operate agent panes belonging to other accounts. The list, the single-pane reads, the terminal and the live feed now resolve from ownership and shares alone, for every role alike, so a foreign unshared pane is absent and answers "not found" to an admin exactly as it does to anyone else; admins keep running the instance itself (accounts, settings, plugins, nodes). This reverses the earlier design where admin meant effective read and drive of every pane (operator ruling 2026-10-09). A machine group the node list cannot name now headers "node you can't see" rather than "unknown node", which is what it always meant: a revoked or never-granted share, not a vanished machine.
+
+- [#319](https://github.com/subshell-ai/subshell/pull/319) [`4f3e318`](https://github.com/subshell-ai/subshell/commit/4f3e3182734cff5b53ac10441bfe0d94130d6ff2) Thanks [@theogravity](https://github.com/theogravity)! - Agents can run one shell command in a terminal pane and get its exit code back: the MCP tool exec_in_terminal and the POST /api/subshells/:id/exec verb it rides type a command plus a sentinel line into a quiet terminal pane, wait, and answer completed with the shell's status or timed_out after touching nothing; every refusal (busy pane, agent-harness pane, a second exec on the same pane) types nothing.
+
+- [#328](https://github.com/subshell-ai/subshell/pull/328) [`438f952`](https://github.com/subshell-ai/subshell/commit/438f952014f2b9886b849253c3c5f3f3c2946951) Thanks [@theogravity](https://github.com/theogravity)! - Agents can open plain terminal sessions on their machines: MCP create_subshell launches the built-in terminal harness with no preset (agent harnesses still require one), an omitted working directory starts the shell in the node's home, and read_subshell_log gained a byte cursor (from_byte/nextByte) so a pane can send commands and read each new line exactly once.
+
+- [#317](https://github.com/subshell-ai/subshell/pull/317) [`a82309b`](https://github.com/subshell-ai/subshell/commit/a82309b55cc738c0f61824621a24acf737a5f366) Thanks [@theogravity](https://github.com/theogravity)! - Nodes can hand trees of files to each other: a new MCP tool transfer_files copies or diff-syncs a directory between two agent nodes, relayed as one streamed archive through the server, with no tar or rsync needed on either machine. The node protocol becomes 15 to carry the five archive commands, so update the server before the nodes: a lagging agent is held and crosses the bump on the update command. Endpoints must be nodes the caller owns and that are out of maintenance, each node's operator directory allowlist gates its side, and extraction is additive: matching files are overwritten and nothing is deleted.
+
+### Patch Changes
+
+- [#347](https://github.com/subshell-ai/subshell/pull/347) [`ee778bd`](https://github.com/subshell-ai/subshell/commit/ee778bd798bf3cb0ccee988c3618e165258acdc7) Thanks [@theogravity](https://github.com/theogravity)! - Fixed the node installer's `curl ... | bash` one-liner stalling silently at a real terminal: it no longer moves the script's own standard input onto the terminal, which used to strand the still-unread tail in the pipe and end the run with the binary installed but the node never enrolled. A re-run after a failed install also no longer re-fetches the roughly 100 MB binary when the already-installed one matches the server's announced checksum; it says so and goes straight to enrollment. Any problem with that probe falls through to the normal download path.
+
+- [#347](https://github.com/subshell-ai/subshell/pull/347) [`ee778bd`](https://github.com/subshell-ai/subshell/commit/ee778bd798bf3cb0ccee988c3618e165258acdc7) Thanks [@theogravity](https://github.com/theogravity)! - The auth provider dialog no longer closes when you click outside it, so a half-typed issuer or client id survives a stray click (it joins the other form dialogs behind the shared close-only-on-deliberate-act guard, so Escape keeps it open too). It also no longer draws a second scrollbar inside the dialog: the extra height cap and overflow on the panel stacked one bar atop the shared dialog's own scroller.
+
+- [#335](https://github.com/subshell-ai/subshell/pull/335) [`16dd6f5`](https://github.com/subshell-ai/subshell/commit/16dd6f5eddd6602ecdf729925a0f5a9b46059131) Thanks [@theogravity](https://github.com/theogravity)! - Move Nodes, Presets, and Prompts into a Settings navigation group, and move the account menu from the sidebar footer into the header: the browser rail carries no footer card anymore, the server version and instance name ride the account menu's detail line, and an admin with a newer server published gets an amber dot on the avatar plus an Update available row.
+
 ## 1.9.1
 
 ### Patch Changes
