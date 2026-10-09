@@ -88,6 +88,7 @@ export type {
   NodeKind,
   NodeRuntime,
   NodeShare,
+  NodeSshTrust,
   NodeStatus,
   RotatedNodeKey,
   SetupKeyRow,
