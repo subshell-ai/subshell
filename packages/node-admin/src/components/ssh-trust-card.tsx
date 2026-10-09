@@ -1,5 +1,5 @@
-import type { JSX } from "react";
-import type { NodeDetail } from "../types/node";
+import type { JSX, ReactNode } from "react";
+import type { NodeDetail, NodeSshTrustPeer } from "../types/node";
 import { Badge } from "../ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
 import { CopyableValue } from "../ui/copyable-value";
@@ -33,8 +33,20 @@ import { CopyableValue } from "../ui/copyable-value";
  * says so plainly, because comparing last-known fingerprints during an
  * incident is exactly when the card earns its keep and exactly when reading a
  * stale value as current would mislead.
+ *
+ * `renderPeerAction` is the plane's slot (Task 15): the re-pair act belongs
+ * to the control plane's owner gate, not to the card, so the CARD stays a
+ * pure display and the node's own dashboard renders no action by never
+ * passing the prop. It renders inside the peer's row, so the act sits on the
+ * facts it acts on.
  */
-export function NodeSshTrustCard({ node }: { node: NodeDetail }): JSX.Element | null {
+export function NodeSshTrustCard({
+  node,
+  renderPeerAction,
+}: {
+  node: NodeDetail;
+  renderPeerAction?: (peer: NodeSshTrustPeer) => ReactNode;
+}): JSX.Element | null {
   if (node.kind !== "agent" || (node.access !== "owner" && node.access !== "edit")) return null;
   const trust = node.sshTrust;
   if (!trust) return null;
@@ -76,6 +88,7 @@ export function NodeSshTrustCard({ node }: { node: NodeDetail }): JSX.Element | 
                   <FingerprintValue value={peer.signing} copyLabel={`Peer ${peer.nodeId} signing fingerprint`} />
                   <FingerprintValue value={peer.encryption} copyLabel={`Peer ${peer.nodeId} encryption fingerprint`} />
                 </dd>
+                {renderPeerAction && <div className="mt-2">{renderPeerAction(peer)}</div>}
               </div>
             ))
           )}
