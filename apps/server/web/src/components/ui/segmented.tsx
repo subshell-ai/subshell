@@ -1,4 +1,5 @@
 import { Button, cn } from "@internal/node-admin";
+import { Check } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -44,8 +45,6 @@ export interface SegmentedProps<T extends string> {
    * design-system.md "Tab groups are content-sized").
    */
   fill?: boolean;
-  /** Stronger selection for launch-type choices, distinct from keyboard focus. */
-  selectedVariant?: "secondary" | "default";
   /**
    * Opt-in vertical density: merges `h-6` onto every option button.
    *
@@ -62,7 +61,7 @@ export interface SegmentedProps<T extends string> {
 
 /**
  * A row of mutually exclusive choices — a bordered pill group where the
- * active option gets the `secondary` fill and every option carries
+ * active option gets the primary fill and every option carries
  * `aria-pressed`. Two shapes by `fill`: the default shares the width EQUALLY,
  * so a switch inside a bounded row reads as one control; `fill={false}` sizes
  * the group to its words, which is the shape a PAGE-level tab strip takes —
@@ -81,7 +80,6 @@ export function Segmented<T extends string>({
   onChange,
   className,
   fill = true,
-  selectedVariant = "secondary",
   dense = false,
 }: SegmentedProps<T>) {
   return (
@@ -102,14 +100,21 @@ export function Segmented<T extends string>({
           // the sm height for the rail's 24px (twMerge resolves it against
           // the variant's h-8; horizontal px stays — see the prop's JSDoc).
           className: cn("min-w-0", fill && "flex-1", dense && "h-6"),
-          variant: value === option.value ? selectedVariant : "ghost",
+          variant: value === option.value ? "default" : "ghost",
           "aria-pressed": value === option.value,
           "aria-label": option.ariaLabel,
           onClick: () => onChange(option.value),
         } as const;
         const content = (
           <>
-            {option.icon}
+            {option.icon ??
+              (typeof option.label === "string" && option.label !== "" ? (
+                <Check
+                  data-icon="inline-start"
+                  aria-hidden="true"
+                  className={value === option.value ? undefined : "invisible"}
+                />
+              ) : null)}
             {option.label}
           </>
         );

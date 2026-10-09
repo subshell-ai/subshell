@@ -157,6 +157,11 @@ admitted here.
   *(A disabled control's explanation floated over the whole row until it grew
   the tip; the rail's rows needed the same arrow a day earlier. Operator rule,
   2026-09-25.)*
+- **Selected segments**: `Segmented` uses the primary button fill for its
+  selected option, separate from keyboard focus. Text-only choices also have
+  a checkmark, with its space reserved on unselected choices to prevent
+  shifting. Options with their own icon retain it; icon-only controls gain
+  the highlight without an extra checkmark.
 - **Tab group**: a page's tab strip is CONTENT-SIZED (`Segmented fill={false}`),
   never stretched across the container: two tab labels sharing the page's full
   width read as data columns rather than as choices, and the stretch grows the
