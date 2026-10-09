@@ -57,9 +57,12 @@ import { logger } from "@/utils/logger.js";
  *    the registry's `agent` facts appear only when `ready` lands). Success
  *    is that fact, not the installer's own cheer line.
  *
- * Every exit writes ONE `node.ssh_upgrade.run` audit row naming ids, the
- * destination, the grant, and the OUTCOME/stage - never the key, never the
- * installer's words.
+ * Every exit AFTER THE KEY EXISTS writes ONE `node.ssh_upgrade.run` audit
+ * row naming ids, the destination, the grant, and the OUTCOME/stage - never
+ * the key, never the installer's words; an unexpected internal throw records
+ * its own `internal-error` stage on the way out (best effort) before
+ * propagating. Refusals raised by the gates write no row - there is no key
+ * or session to account for there.
  */
 
 /** How long B's ssh child may run before the node-side deadline ends it. An installer pulls a ~100 MB binary; this is minutes, honestly. */
@@ -118,6 +121,26 @@ export function setSshSetupHereDepsForTests(deps: SshSetupHereDeps | null): void
 
 function coded(status: 400 | 403 | 404 | 409 | 502, code: BackendErrorCodes, message: string): SshAnswer<never> {
   return { ok: false, refusal: { status, code, message } };
+}
+
+/**
+ * Does this failed-install answer say "D could not reach the plane" (§7's
+ * NAMED egress stage)? Two shapes carry that fact, and both matter: the
+ * rendered installer's own sentence (it was running and a fetch failed
+ * mid-way), and curl's own connect/DNS failure - the act's FIRST fetch is
+ * install.sh itself, so a DARK destination never prints a script line at
+ * all; its answer is curl's stderr and curl's exit code alone (6 resolve,
+ * 7 connect, 28 timeout). A key or artifact failure never looks like this:
+ * those answer an HTTP status (curl 22, or the script's own advice), not a
+ * failed connect, and the belt arm keys on the missing `==>` banner, which
+ * only the pre-script curl failure lacks.
+ */
+function couldNotReachPlane(output: string, code: number | null): boolean {
+  if (output.includes("could not reach") || output.includes("could not fetch the checksum")) return true;
+  if (/\bcurl: \((6|7|28)\)/.test(output)) return true;
+  const lower = output.toLowerCase();
+  if (lower.includes("could not resolve host") || /\bfailed( to)? connect\b/.test(lower)) return true;
+  return (code === 6 || code === 7) && !output.includes("==>");
 }
 
 /** What a completed act answers: the enrolled node's id, learned from `ready`. */
@@ -277,6 +300,18 @@ export async function setupHere(args: { viewerId: string; paneId: string }): Pro
       logger.withError(err).warn(`setup-here: could not revoke the unspent key for pane ${pane.id}`);
     }
   };
+  /**
+   * The post-mint invariant: even an unexpected internal throw (not the
+   * machine refusing, something HERE failing) leaves its terminal row.
+   * Best-effort: the audit system must never replace the original error.
+   */
+  const auditInternalFailure = async (): Promise<void> => {
+    try {
+      await runAudit("refused", "internal-error");
+    } catch (auditErr) {
+      logger.withError(auditErr).warn(`setup-here: could not audit the internal failure for pane ${pane.id}`);
+    }
+  };
   /** Close the exec's own relay pairing (the act's child is gone; the socket should be). */
   const closeExecRelay = async (): Promise<void> => {
     if (grantId === null) return;
@@ -308,6 +343,7 @@ export async function setupHere(args: { viewerId: string; paneId: string }): Pro
       await runAudit("refused", `exec-${err.kind}`);
       return r;
     }
+    await auditInternalFailure();
     throw err;
   }
 
@@ -325,6 +361,7 @@ export async function setupHere(args: { viewerId: string; paneId: string }): Pro
         await runAudit("refused", `exec-lost-${err.kind}`);
         return rpcRefusal(err);
       }
+      await auditInternalFailure();
       throw err;
     }
     if (terminal.state === "done") break;
@@ -368,8 +405,9 @@ export async function setupHere(args: { viewerId: string; paneId: string }): Pro
       );
     }
     // The named causes, each from a phrase the rendered installer prints (the
-    // script's OWN words are the parser's contract; none of them is echoed).
-    if (output.includes("could not reach") || output.includes("could not fetch the checksum")) {
+    // script's OWN words are the parser's contract; none of them is echoed),
+    // or from curl's own connect-failure shape when the script never ran.
+    if (couldNotReachPlane(output, terminal.code)) {
       // §7's egress refusal: its own code, distinct from any key error, and
       // the pane keeps running untouched.
       return await fail(

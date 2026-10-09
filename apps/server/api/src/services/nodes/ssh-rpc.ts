@@ -231,7 +231,13 @@ export async function sshExec(
 export async function sshExecStatus(nodeId: string, execId: string): Promise<NodeSshExecStatusResult> {
   let data: unknown;
   try {
-    data = await sendCommand(nodeId, { type: "ssh_exec_status", execId });
+    // 30 s, not the 10 s default: the ANSWER is cheap (the run itself is
+    // off-chain by design) but the frame rides the node's serial command
+    // chain, so a slow earlier command can park this poll behind it. A
+    // timed-out poll costs more than a late one: the caller names
+    // exec-lost-timeout, revokes the unspent setup key, and reports a live
+    // install as lost. The headroom is the whole honest mitigation.
+    data = await sendCommand(nodeId, { type: "ssh_exec_status", execId }, { timeoutMs: 30_000 });
   } catch (err) {
     if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
     throw err;

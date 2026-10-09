@@ -5,6 +5,7 @@ import type { SshConnectionSnapshotWire, SshExecCommand } from "@internal/subshe
 import { hashPassword } from "better-auth/crypto";
 import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { deleteUserByEmailOrId, setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
+import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
@@ -555,6 +556,85 @@ describe("setupHere direct mode (B's own keys, no relay)", () => {
       expect(closeCalls).toHaveLength(0);
       seenD()?.handle.detach();
       await nodes.deleteById(seenD()?.id ?? "").catch(() => {});
+    } finally {
+      await clearUpgradeRows();
+      pair.b.detach();
+    }
+  });
+
+  // The dominant no-egress shape (spec §7/§13): a DARK destination never
+  // runs install.sh, so none of the script's sentences exist in the answer;
+  // the act's FIRST curl is what fails, and the named cause must come from
+  // curl's own words/exit codes, not the generic install-exit stage.
+  const darkD = (code: number, stderr: string) => ({
+    state: "done" as const,
+    code,
+    timedOut: false,
+    stdout: "",
+    stderr,
+  });
+
+  it("a dark destination (DNS failure on the first fetch) answers the NAMED egress cause, not install-exit", async () => {
+    await clearUpgradeRows();
+    const paneId = await mkPane({ keyHome: false });
+    const keysBefore = (await keys.listByUser(owner)).length;
+    const pair = attachPair({
+      withA: false,
+      status: () => darkD(6, "curl: (6) Could not resolve host: plane.invalid\n"),
+    });
+    try {
+      const res = await setupHere({ viewerId: owner, paneId });
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      const refusal = coded(res.refusal);
+      expect(refusal.code).toBe(BackendErrorCodes.SSH_UPGRADE_EGRESS);
+      expect(refusal.message).toContain("could not reach");
+      expect(refusal.message).toContain(APP_BASE_URL);
+      const audits = await upgradeRows();
+      expect(audits).toHaveLength(1);
+      expect(audits[0]?.metadataJson).toContain('"cause":"egress"');
+      expect(audits[0]?.metadataJson).not.toContain("install-exit");
+      expect((await keys.listByUser(owner)).length).toBe(keysBefore);
+      expect(pair.b.cmdTypes()).toEqual(["ssh_exec", "ssh_exec_status"]);
+    } finally {
+      await clearUpgradeRows();
+      pair.b.detach();
+    }
+  });
+
+  it("a dark destination (refused TCP connect) answers the egress cause", async () => {
+    await clearUpgradeRows();
+    const paneId = await mkPane({ keyHome: false });
+    const pair = attachPair({
+      withA: false,
+      status: () => darkD(7, "curl: (7) Failed to connect to 10.9.9.9 port 80 after 3004 ms: Connection refused\n"),
+    });
+    try {
+      const res = await setupHere({ viewerId: owner, paneId });
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(coded(res.refusal).code).toBe(BackendErrorCodes.SSH_UPGRADE_EGRESS);
+      const audits = await upgradeRows();
+      expect(audits[0]?.metadataJson).toContain('"cause":"egress"');
+      expect(audits[0]?.metadataJson).not.toContain("install-exit");
+    } finally {
+      await clearUpgradeRows();
+      pair.b.detach();
+    }
+  });
+
+  it("curl's connect-failure exit codes classify without curl's sentence (belt: no installer banner)", async () => {
+    await clearUpgradeRows();
+    const paneId = await mkPane({ keyHome: false });
+    // The belt arm: an older or stripped curl that exits 6/7 but words
+    // nothing. No `==>` banner means install.sh never ran, so the only
+    // network actor that failed is the act's first curl.
+    const pair = attachPair({ withA: false, status: () => darkD(7, "") });
+    try {
+      const res = await setupHere({ viewerId: owner, paneId });
+      expect(res.ok).toBe(false);
+      if (res.ok) return;
+      expect(coded(res.refusal).code).toBe(BackendErrorCodes.SSH_UPGRADE_EGRESS);
     } finally {
       await clearUpgradeRows();
       pair.b.detach();
