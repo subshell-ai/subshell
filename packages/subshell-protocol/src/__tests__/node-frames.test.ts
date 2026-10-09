@@ -32,6 +32,7 @@ import {
   SSH_COMMAND_TYPES,
   SSH_RELAY_CLOSE_REASONS,
   type SshExecCommand,
+  type SshMachinePinRepairCommand,
   type SshRelayOpenCommand,
 } from "../ssh-frames.js";
 import {
@@ -82,6 +83,19 @@ const relayOpenCmd: SshRelayOpenCommand = {
   // captured at grant creation). Required: a relay-open without it is a
   // relay grant with no pin, which is exactly what the grammar refuses.
   hostPin: "git.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000",
+};
+
+/**
+ * A complete §4.5 re-pair (Task 17): the plane re-delivers ONE peer's
+ * registered pair (the SAME peer-key carriage the relay-open uses) to the
+ * machine whose pin store is repaired. Three fields, all required; one
+ * fixture serves the accept path and the refusals below.
+ */
+const repairCmd: SshMachinePinRepairCommand = {
+  type: "ssh_machine_pin_repair",
+  peerNodeId: "node-b",
+  peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB"}',
+  peerEncryptPublicKey: "SGVsbG9Xb3JsZEhlcmVJc1RoaXJ0eXR3b0J5dGVzMTI=",
 };
 
 describe("parseNodeCommandBody", () => {
@@ -1077,7 +1091,7 @@ describe("ssh command arms and the launch ssh block", () => {
       type: "ssh_register_identity",
     });
     expect(parseNodeCommandBody({ type: "ssh_register_identity" })).not.toBeNull();
-    // The family's census: exactly these nine types, and the count is the
+    // The family's census: exactly these ten types, and the count is the
     // tripwire - a further arm must show up here before it ships.
     expect([...SSH_COMMAND_TYPES].sort()).toEqual([
       "ssh_agent_identities",
@@ -1085,12 +1099,13 @@ describe("ssh command arms and the launch ssh block", () => {
       "ssh_exec",
       "ssh_exec_status",
       "ssh_host_key",
+      "ssh_machine_pin_repair",
       "ssh_register_identity",
       "ssh_relay_close",
       "ssh_relay_open",
       "ssh_resolve_config",
     ]);
-    expect(SSH_COMMAND_TYPES).toHaveLength(9);
+    expect(SSH_COMMAND_TYPES).toHaveLength(10);
     // Every census type is a type the dispatcher actually narrows.
     for (const t of SSH_COMMAND_TYPES) {
       const body =
@@ -1106,7 +1121,9 @@ describe("ssh command arms and the launch ssh block", () => {
                   ? execCmdFixture()
                   : t === "ssh_exec_status"
                     ? { type: t, execId: EXEC_ID }
-                    : { type: t };
+                    : t === "ssh_machine_pin_repair"
+                      ? repairCmd
+                      : { type: t };
       expect(parseNodeCommandBody(body)).not.toBeNull();
     }
   });
@@ -1395,6 +1412,64 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
       ref: "r-1",
       reason: "a-dropped",
     });
+  });
+});
+
+describe("ssh_machine_pin_repair arm (spec 2026-10-08 §4.5, Task 17)", () => {
+  it("narrows a complete re-pair, every field carried through", () => {
+    expect(parseNodeCommandBody(structuredClone(repairCmd))).toEqual(structuredClone(repairCmd));
+    expect(parseNodeCommandBody(JSON.stringify(repairCmd))).toEqual(repairCmd);
+  });
+
+  it("refuses a repair missing any half of the delivered pair", () => {
+    // The command IS the re-delivery: peer + signing + encryption. A partial
+    // one could only make the node guess which key to replace (§4.5 writes
+    // BOTH halves, the same pair §4.4 pins), so every field is required.
+    for (const drop of ["peerNodeId", "peerSigningPublicKey", "peerEncryptPublicKey"] as const) {
+      const partial = structuredClone(repairCmd);
+      delete partial[drop];
+      expect(parseNodeCommandBody(partial)).toBeNull();
+    }
+  });
+
+  it("refuses malformed re-pair fields, the relay-open carriage rules restated", () => {
+    expect(parseNodeCommandBody({ ...repairCmd, peerNodeId: "" })).toBeNull(); // ids are non-empty
+    expect(parseNodeCommandBody({ ...repairCmd, peerNodeId: 42 })).toBeNull();
+    // The signing half must PARSE to a plain record (same gate as the
+    // relay-open's): bare words, scalars, and arrays are malformed, not junk
+    // the pin store sorts out.
+    expect(parseNodeCommandBody({ ...repairCmd, peerSigningPublicKey: "not json" })).toBeNull();
+    expect(parseNodeCommandBody({ ...repairCmd, peerSigningPublicKey: "hello" })).toBeNull();
+    expect(parseNodeCommandBody({ ...repairCmd, peerSigningPublicKey: "null" })).toBeNull();
+    expect(parseNodeCommandBody({ ...repairCmd, peerSigningPublicKey: "[1,2]" })).toBeNull();
+    // A serialized PRIVATE JWK is refused by name: re-pair re-delivers the
+    // peer's REGISTERED public halves; private material has no path onto this
+    // command or into the pin store.
+    expect(
+      parseNodeCommandBody({
+        ...repairCmd,
+        peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB","d":"pr1v4t3"}',
+      }),
+    ).toBeNull();
+    // The encryption half keeps the base64 spelling the relay-open carries;
+    // undecodable junk is refused at the grammar.
+    expect(parseNodeCommandBody({ ...repairCmd, peerEncryptPublicKey: "!!!" })).toBeNull();
+    expect(parseNodeCommandBody({ ...repairCmd, peerEncryptPublicKey: "" })).toBeNull();
+    // A public JWK with extra PUBLIC members still parses (shape gate only;
+    // deep validity is `bytesOfJwk` on the node, beside the import).
+    expect(
+      parseNodeCommandBody({
+        ...repairCmd,
+        peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB","use":"sig"}',
+      }),
+    ).not.toBeNull();
+  });
+
+  it("rebuilds the repair from validated fields; stray wire members do not ride", () => {
+    const parsed = parseNodeCommandBody({ ...repairCmd, sneaky: { should: "not pass" } });
+    expect(parsed).not.toBeNull();
+    expect(parsed).not.toHaveProperty("sneaky");
+    expect(parsed).toEqual(repairCmd);
   });
 });
 

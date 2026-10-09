@@ -32,6 +32,7 @@ import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
 import { execSshExec, execSshExecStatus } from "./ssh-exec.js";
 import { execSshHostKey } from "./ssh-host-key.js";
 import { execSshAgentIdentities, execSshRegisterIdentity } from "./ssh-identity.js";
+import { execSshMachinePinRepair } from "./ssh-machine-pin-repair.js";
 import { execSshRelayClose, execSshRelayOpen } from "./ssh-relay-exec.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
 import { execTransferWrite } from "./transfer-write.js";
@@ -74,7 +75,13 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * because ending a session is not an SSH act), and the non-interactive setup
  * pair `ssh_exec` / `ssh_exec_status` (spec 2026-10-08 §7, Task 14 - the
  * "Set up Subshell here" install runs on its own short-lived ssh, off the
- * command chain, its captured output `nsk_`-redacted before it is kept).
+ * command chain, its captured output `nsk_`-redacted before it is kept),
+ * and the §4.5 recovery `ssh_machine_pin_repair` (Task 17 - replaces ONE
+ * peer's stored machine pin with the peer's registered public pair the plane
+ * re-delivers; deliberately UNGATED like `ssh_register_identity`, because it
+ * is a trust-record act on this machine's own store and the recovery must
+ * reach a machine whose pairing is blocked; deep public-only key validation
+ * before any write, audit stays plane-side).
  * Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
@@ -170,6 +177,8 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execSshExec(ctx, cmd);
       case "ssh_exec_status":
         return await execSshExecStatus(ctx, cmd);
+      case "ssh_machine_pin_repair":
+        return execSshMachinePinRepair(ctx, cmd);
       case "set_server_url":
         return await execSetServerUrl(ctx, cmd);
       case "update":

@@ -1998,6 +1998,7 @@ export function parseNodeCommandBody(value: unknown): NodeCommandBody | null {
     case "ssh_relay_close":
     case "ssh_exec":
     case "ssh_exec_status":
+    case "ssh_machine_pin_repair":
       // Delegation, not a second parser: the SSH grammar (all arms, one
       // file) lives in ssh-frames.ts beside the commands it narrows.
       return parseSshNodeCommandBody(value);

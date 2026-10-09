@@ -1,4 +1,4 @@
-import { apiFetch, apiPost } from "@internal/node-admin";
+import { apiFetch, apiPost, NODE_QUERY_KEY, NODES_QUERY_KEY } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   SshAgentIdentity,
@@ -282,5 +282,30 @@ export function useDeleteSshHostPin() {
     mutationFn: (destination: string) =>
       apiFetch<{ deleted: boolean }>(`/api/ssh/host-pins/${encodeURIComponent(destination)}`, { method: "DELETE" }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: SSH_HOST_PINS_QUERY_KEY }),
+  });
+}
+
+/**
+ * `POST /api/nodes/:id/machine-pins/:peerNodeId/repair` - the §4.5 machine
+ * trust re-pair (spec 2026-10-08 §4.5, Task 17): the OWNER of one machine
+ * replaces ONE peer's stored pin with that peer's current registered public
+ * pair, which the plane re-delivers over the machine's live link. The route
+ * answers 409 while the machine is offline and 502 when the machine itself
+ * refuses; on success the act has already landed in the machine's store, so
+ * the invalidation only re-reads what the node's next report mirrors.
+ * Both ids ride the path encoded; there is no body to lie with.
+ */
+export function useRepairSshMachinePin(nodeId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (peerNodeId: string) =>
+      apiFetch<{ repaired: boolean }>(
+        `/api/nodes/${encodeURIComponent(nodeId)}/machine-pins/${encodeURIComponent(peerNodeId)}/repair`,
+        { method: "POST" },
+      ),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, nodeId] });
+      void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
+    },
   });
 }

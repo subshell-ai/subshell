@@ -151,3 +151,20 @@ export type NodeSshExecStatusResult =
       /** Captured stderr, redacted and tail-truncated ({@link SSH_EXEC_RETAIN_BYTES}). */
       stderr: string;
     };
+
+/**
+ * The ack of a §4.5 re-pair (spec 2026-10-08 §4.5, Task 17): the machine
+ * replaced (or added) the named peer's stored pin. `repaired: true` is the
+ * ONLY legal value, the exec-kick rule restated: a store that refused the
+ * write answers `ok:false` with the named cause, never a soft no in a
+ * success envelope. The peer id echoes back so the plane matches the ack to
+ * its act by equality - and it is the WHOLE answer: no key bytes, no
+ * fingerprints, no old-vs-new statement. The durable record of the act is
+ * the plane's `node.ssh_machine_pin.repair` audit row, which names ids only.
+ */
+export interface NodeSshMachinePinRepairResult {
+  /** True is the ONLY legal value: a refused repair answers `ok:false`, not this shape. */
+  repaired: true;
+  /** The peer whose entry was replaced, echoed back so the plane matches by equality. */
+  peerNodeId: string;
+}

@@ -4,6 +4,7 @@ import {
   type NodeSshExecKickResult,
   type NodeSshExecStatusResult,
   type NodeSshHostKeyResult,
+  type NodeSshMachinePinRepairResult,
   type NodeSshResolveOutcomeWire,
   parseNodeSshAgentIdentities,
   parseNodeSshAliasList,
@@ -11,7 +12,9 @@ import {
   parseNodeSshExecStatus,
   parseNodeSshHostKey,
   parseNodeSshIdentity,
+  parseNodeSshMachinePinRepair,
   parseNodeSshResolveOutcome,
+  type SshMachinePinRepairCommand,
 } from "@internal/subshell-protocol";
 import { NodeRpcError, sendCommand } from "@/services/nodes/node-rpc.js";
 
@@ -245,6 +248,35 @@ export async function sshExecStatus(nodeId: string, execId: string): Promise<Nod
   const parsed = parseNodeSshExecStatus(data);
   if (!parsed) {
     throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed exec status`, nodeId);
+  }
+  return parsed;
+}
+
+/**
+ * Re-deliver ONE peer's registered public pair to a machine and have it
+ * replace that peer's stored pin (spec 2026-10-08 §4.5, Task 17). The command
+ * is the re-pair; the ack is `{repaired: true, peerNodeId}` - the plane's
+ * service matches the echo by equality and treats every other shape as the
+ * `malformed` refusal. The peer-key pair is sent as READ from the identities
+ * store (the registered public halves); this layer adds the transport, the
+ * signature, and the grammar's `d`-refusal on receipt - it does not
+ * reinterpret the pair.
+ * @throws {SshRpcError} on any transport/wire failure, per the kinds above
+ */
+export async function sshMachinePinRepair(
+  nodeId: string,
+  cmd: SshMachinePinRepairCommand,
+): Promise<NodeSshMachinePinRepairResult> {
+  let data: unknown;
+  try {
+    data = await sendCommand(nodeId, cmd);
+  } catch (err) {
+    if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
+    throw err;
+  }
+  const parsed = parseNodeSshMachinePinRepair(data);
+  if (!parsed) {
+    throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed pin-repair ack`, nodeId);
   }
   return parsed;
 }
