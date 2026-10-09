@@ -60,6 +60,28 @@ function api() {
                     : path.endsWith("/panes")
                       ? { id: "pane-new" }
                       : {};
+    if (path === "/api/ssh/readiness")
+      return new Response(
+        JSON.stringify({
+          machines: [
+            {
+              node: {
+                id: "local",
+                name: "Server",
+                kind: "local",
+                sshEnabled: true,
+                canLaunch: true,
+                canManage: true,
+                status: "online",
+                harnesses: [],
+              },
+              canConnect: true,
+              canConfigure: true,
+              blockers: [],
+            },
+          ],
+        }),
+      );
     return new Response(JSON.stringify(value));
   }) as typeof fetch;
   return calls;

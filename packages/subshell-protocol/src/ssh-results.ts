@@ -76,10 +76,10 @@ export interface NodeSshIdentityResult {
 /**
  * One entry of the `ssh_agent_identities` answer (spec 2026-10-08 §5.4,
  * Task 11): the public identity A's agent carries, spelled so the operator's
- * selection can round trip into a grant unchanged.
+ * selection can round trip into a connection unchanged.
  */
 export interface NodeSshAgentIdentity {
-  /** The OpenSSH display fingerprint: `SHA256:` + base64url over the agent WIRE encoding of the public blob (the grant grammar's shape, {@link isSshGrantFingerprint}). */
+  /** The OpenSSH display fingerprint: `SHA256:` + base64url over the agent WIRE encoding of the public blob (the fingerprint grammar’s shape, {@link isSshFingerprint}). */
   fingerprint: string;
   /** OpenSSH's label for the key, passed through as text; the empty comment is legal. */
   comment: string;
@@ -95,7 +95,7 @@ export interface NodeSshAgentIdentity {
  * an offline or unparseable roster produces, which never reaches this shape).
  */
 export interface NodeSshAgentIdentitiesResult {
-  /** Every public identity A's live agent carries; the approval screen's choice list. */
+  /** Every public identity A's live agent carries; the key picker's choice list. */
   identities: NodeSshAgentIdentity[];
 }
 
@@ -106,8 +106,8 @@ export interface NodeSshAgentIdentitiesResult {
  * material, optional comment), verbatim. An EMPTY list is the honest fact "A
  * has recorded nothing for this destination" - a distinct answer from the
  * named error an unreadable file or a missing tool produces, and the capture
- * service fails the grant creation closed on exactly this empty answer
- * (a relay grant must carry a pin). The key material here is PUBLIC by
+ * service refuses the connection on exactly this empty answer
+ * (a relay connection must carry a pin). The key material here is PUBLIC by
  * nature (a known_hosts entry is what a client uses to CHECK a server), and
  * it is what becomes the pin; the audit rows name only the destination and
  * the entry's `SHA256:` fingerprint, never these bytes.

@@ -19,9 +19,9 @@ import {
  * Task 12): LIST the caller's host-key pins, SUPPLY an explicit pin (the §9
  * "or an explicit pin" door: the operator's key for a destination the key
  * home has not connected to yet), and DELETE one - the recovery's first half,
- * whose second half is the fresh grant-creation TOFU the next capture runs.
+ * whose second half is the fresh connection TOFU the next capture runs.
  *
- * The row model is the saved-hosts/grants posture verbatim: per-owner reads,
+ * The row model is the saved-hosts posture verbatim: per-owner reads,
  * a foreign id the SAME 404 an absent row is, and the cookie doctrine of
  * every ssh sibling (deciding which key authenticates a destination is a
  * browser-session act). What the screen NEVER sees is the key bytes: the

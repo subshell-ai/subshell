@@ -15,7 +15,7 @@ import { sshResolveDestination } from "@/services/ssh-launch.service.js";
  * (`/launch`, saved-hosts PUT) is where a refusal-shaped outcome becomes a
  * 422; here nothing is launched and nothing is stored.
  *
- * Same gate as every ssh surface (row + owner, before any command), and the
+ * Same gate as every ssh surface (launch access and readiness, before any command), and the
  * destination takes the wire-grammar shape check FIRST: an unsafe token is
  * 400 and never reaches the machine.
  */

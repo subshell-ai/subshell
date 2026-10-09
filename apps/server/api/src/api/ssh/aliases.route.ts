@@ -7,7 +7,7 @@ import { sshListAliases } from "@/services/ssh-launch.service.js";
 /**
  * `GET /api/ssh/aliases?node=<id>` — the NAMES of the machine's usable SSH
  * aliases (spec 2026-10-07 §5: discovery returns names, never config file
- * contents). Cookie-only; the gate (`nodeCanSsh` over the plane's row) and
+ * contents). Cookie-only; the gate (current launch access and readiness) and
  * the held-machine refusal run BEFORE the machine is asked anything, so a
  * machine the caller may not SSH through never sees a frame.
  *

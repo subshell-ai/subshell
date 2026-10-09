@@ -338,7 +338,6 @@ async function openFixture(
     bNodeId: "b-node",
     peerSigningPublicKey: bKeys.signing.publicJwk,
     peerEncryptPublicKey: Buffer.from(bKeys.encryption.publicJwk, "utf8").toString("base64"),
-    grantId: "grant-1",
     fingerprints: [fp(KEY_IN)],
     lifetimeMs: 30_000,
     paneId: "pane-a-test", // grammar (b): the command names the pane
@@ -1035,7 +1034,6 @@ test("openARelaySession refuses a command that does not name this machine in its
     role: "A",
     aNodeId: "a-node",
     bNodeId: "b-node",
-    grantId: "grant-1",
     fingerprints: [],
     lifetimeMs: 30_000,
     paneId: "pane-a-test",
@@ -1106,7 +1104,6 @@ test("openARelaySession enforces §4.4 byte-equality on B's pin and the duplicat
       role: "A",
       aNodeId: "a-node",
       bNodeId: "b-node",
-      grantId: "grant-1",
       fingerprints: [],
       lifetimeMs: 30_000,
       paneId: "pane-a-test",
@@ -1170,7 +1167,6 @@ test("a pinned peer key that is not a usable public P-256 JWK rejects the sessio
         bNodeId: "b-node",
         peerSigningPublicKey: bKeys.signing.privateJwk,
         peerEncryptPublicKey: Buffer.from(bKeys.encryption.publicJwk, "utf8").toString("base64"),
-        grantId: "grant-1",
         fingerprints: [],
         lifetimeMs: 30_000,
         paneId: "pane-a-test",
@@ -1187,7 +1183,7 @@ test("relay.close tears the responder down: later frames produce nothing", async
   const f = await openFixture();
   try {
     expect(f.relay.has("r-1")).toBe(true);
-    expect(f.relay.close("r-1", "grant-revoked")).toBe(true);
+    expect(f.relay.close("r-1", "access-revoked")).toBe(true);
     expect(f.relay.has("r-1")).toBe(false);
     const nB = newNonce();
     const req = await sealRequest(f, { agentBytes: Buffer.from([11]), seq: 0, nB });
@@ -1283,7 +1279,6 @@ async function refusalCmd(over: Partial<SshRelayOpenCommand>): Promise<SshRelayO
     bNodeId: "b-node",
     peerSigningPublicKey: bKeys.signing.publicJwk,
     peerEncryptPublicKey: Buffer.from(bKeys.encryption.publicJwk, "utf8").toString("base64"),
-    grantId: "grant-1",
     fingerprints: [],
     lifetimeMs: 30_000,
     paneId: "pane-refusal",
@@ -1441,7 +1436,6 @@ test("openBRelaySession writes the delivered pin to the pane's 0600 known_hosts 
     bNodeId: "b-node", // selfNodeId below matches: this machine is B
     peerSigningPublicKey: aKeys.signing.publicJwk,
     peerEncryptPublicKey: Buffer.from(aKeys.encryption.publicJwk, "utf8").toString("base64"),
-    grantId: "grant-1",
     fingerprints: [fp(KEY_IN)],
     lifetimeMs: 30_000,
     paneId: "pane-b-test",
@@ -1482,7 +1476,6 @@ test("openBRelaySession refuses a malformed host pin WITHOUT writing a file", as
     bNodeId: "b-node",
     peerSigningPublicKey: aKeys.signing.publicJwk,
     peerEncryptPublicKey: Buffer.from(aKeys.encryption.publicJwk, "utf8").toString("base64"),
-    grantId: "grant-1",
     fingerprints: [fp(KEY_IN)],
     lifetimeMs: 30_000,
     paneId: "pane-bad",

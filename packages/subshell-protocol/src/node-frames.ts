@@ -158,7 +158,7 @@ import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTE
  * spawn a bare `ssh` pane with no `-F` config (§4.3's gate doctrine refuses to
  * live with that).
  *
- * **17 -> 18 (this tier):** the sealed agent relay
+ * **17 -> 18:** the sealed agent relay
  * (docs/superpowers/specs/2026-10-08-ssh-agent-relay-design.md §5.1). The
  * `relay` link frame - a NEW frame kind on the established link, carrying one
  * sealed envelope keyed by the opaque routing ref, with no per-message
@@ -167,8 +167,13 @@ import { SSH_CONFIG_FILE_MAX_BYTES, SSH_PATH_MAX_CHARS, SSH_RELAY_FRAME_MAX_BYTE
  * tier-17 agent understands no `relay` frame at all, and the exact-match
  * gate is what refuses pairing BEFORE any relay command is sent (§5.1's own
  * bump argument, §11's never-half-relay rule). Server first, as always.
+ *
+ * **18 -> 19 (this tier):** relay-open carries the per-connection key
+ * selection without a standing grant id. `access-revoked` replaces the
+ * old grant-specific close reason. Exact protocol matching keeps both
+ * relay endpoints on this authorization contract.
  */
-export const NODE_PROTOCOL_VERSION = 18;
+export const NODE_PROTOCOL_VERSION = 19;
 
 /**
  * The FIRST protocol whose agents verify the publisher signature on an

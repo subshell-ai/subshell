@@ -12,7 +12,6 @@ import { sshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js"
 import { audit } from "@/services/audit.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { SshRpcError, sshExec, sshExecStatus } from "@/services/nodes/ssh-rpc.js";
-import { prepareRelayLeg } from "@/services/ssh-grants.service.js";
 import {
   composeSshLaunch,
   gateSshNode,
@@ -22,6 +21,7 @@ import {
   targetDataDir,
 } from "@/services/ssh-launch.service.js";
 import { getRelayBroker, type RelayBroker } from "@/services/ssh-relay.service.js";
+import { prepareRelayLeg } from "@/services/ssh-relay-launch.service.js";
 import type { SshSetupStage } from "@/services/ssh-setup-progress.js";
 import { logger } from "@/utils/logger.js";
 
@@ -60,7 +60,7 @@ import { logger } from "@/utils/logger.js";
  *    is that fact, not the installer's own cheer line.
  *
  * Every exit AFTER THE KEY EXISTS writes ONE `node.ssh_upgrade.run` audit
- * row naming ids, the destination, the grant, and the OUTCOME/stage - never
+ * row naming ids, the destination, the relay session, and the OUTCOME/stage - never
  * the key, never the installer's words; an unexpected internal throw records
  * its own `internal-error` stage on the way out (best effort) before
  * propagating. Refusals raised by the gates write no row - there is no key
@@ -217,7 +217,7 @@ export async function setupHere(args: {
   // pane's id - the pane's config and socket stay exactly as they are.
   const execId = crypto.randomUUID();
 
-  let grantId: string | null = null;
+  let relayRef: string | null = null;
   let aNodeId: string | null = null;
   const keyHome = pane.keyHomeNodeId;
   if (keyHome !== null && keyHome !== undefined) {
@@ -244,7 +244,6 @@ export async function setupHere(args: {
       viewerId: args.viewerId,
       aNode: { id: gateA.value.row.id, name: gateA.value.row.name },
       bNodeId: pane.nodeId,
-      resolvedHost: snapshot.host,
       destination,
       // The pairing serves the EXEC, so the ephemeral id is its paneId: the
       // proxy socket and the delivered host pin land in the exec's own
@@ -252,7 +251,7 @@ export async function setupHere(args: {
       paneId: execId,
     });
     if (!leg.ok) return leg;
-    grantId = leg.value.grantId;
+    relayRef = leg.value.ref;
   }
 
   // The single-use key, minted only once every door above has opened.
@@ -263,7 +262,7 @@ export async function setupHere(args: {
     snapshot,
     targetDataDir: dataDirB,
     subshellId: execId,
-    ...(grantId !== null ? { hostPinPath: buildSshKnownHostsPath(dataDirB, execId) } : {}),
+    ...(relayRef !== null ? { hostPinPath: buildSshKnownHostsPath(dataDirB, execId) } : {}),
   });
   // BatchMode first: the exec must never fall back to a password or a
   // host-key PROMPT - auth failure or pin mismatch is a fast refusal, an
@@ -292,7 +291,7 @@ export async function setupHere(args: {
         paneId: pane.id,
         bNodeId: pane.nodeId,
         ...(aNodeId !== null ? { aNodeId } : {}),
-        ...(grantId !== null ? { grantId } : {}),
+        ...(relayRef !== null ? { relayRef } : {}),
         destination,
         execId,
         outcome,
@@ -334,7 +333,7 @@ export async function setupHere(args: {
   };
   /** Close the exec's own relay pairing (the act's child is gone; the socket should be). */
   const closeExecRelay = async (): Promise<void> => {
-    if (grantId === null) return;
+    if (relayRef === null) return;
     try {
       await deps.broker().closeForPane(execId, "child-exit");
     } catch (err) {
@@ -353,8 +352,8 @@ export async function setupHere(args: {
       fileContent: composed.fileContent,
       presetFlags,
       command: remoteCommand,
-      relay: grantId !== null,
-      agentSocketPath: grantId === null ? snapshot.authAgentSocket : null,
+      relay: relayRef !== null,
+      agentSocketPath: relayRef === null ? snapshot.authAgentSocket : null,
       timeoutMs: deps.execTimeoutMs,
     });
   } catch (err) {

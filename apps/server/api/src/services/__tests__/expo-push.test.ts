@@ -36,30 +36,6 @@ describe("buildExpoMessages", () => {
     expect(m._channelId).toBe("subshell-subshells"); // legacy twin, always the same value
   });
 
-  it("grant_approval names the action-free category: its sid is a request, not a pane", () => {
-    // The `subshell` category advertises Silence bell, which PATCHes a
-    // subshell, meaningless for a grant_approval whose sid is the grant
-    // REQUEST uuid. `subshell-plain` (registered beside it in the app) shows
-    // plain Open; the app routes that tap to settings (PR #338 review,
-    // Important 1). The payload already carried `kind`; the tap handler reads it.
-    const [m] = buildExpoMessages(["ExponentPushToken[a]"], "req-1", "grant_approval", 0);
-    expect(m.categoryId).toBe("subshell-plain");
-    expect(m.data.kind).toBe("grant_approval");
-    expect(m.data.sid).toBe("req-1");
-    // Every pane-attached kind keeps the full-action category, byte-for-byte.
-    for (const kind of [
-      "turn_complete",
-      "needs_attention",
-      "exited",
-      "crashed",
-      "crashed_final",
-      "maintenance",
-    ] as const) {
-      const [k] = buildExpoMessages(["t"], "s", kind, 0);
-      expect(k.categoryId).toBe("subshell");
-    }
-  });
-
   it("builds one opaque message per token — never a name, path or operator text", () => {
     const msgs = buildExpoMessages(["ExponentPushToken[a]", "ExponentPushToken[b"], "sess-1", "needs_attention", 4);
     expect(msgs).toHaveLength(2);

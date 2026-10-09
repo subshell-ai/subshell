@@ -77,7 +77,6 @@ function openCmd(over: Partial<SshRelayOpenCommand> = {}): SshRelayOpenCommand {
     bNodeId: "node-peer",
     peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AX","y":"AY"}',
     peerEncryptPublicKey: Buffer.from('{"kty":"EC","crv":"P-256","x":"BX","y":"BY"}', "utf8").toString("base64"),
-    grantId: "grant-1",
     fingerprints: ["SHA256:AAAA"],
     lifetimeMs: 30_000,
     paneId: PANE,
@@ -131,7 +130,7 @@ describe("the gate (mirror first, spec §4.3)", () => {
 
   it("ssh_relay_close is NOT gated: teardown answers even while the machine is switched off", async () => {
     const { ctx } = makeCtx("gate-off-close", { gateOn: false });
-    const res = await execSshRelayClose(ctx, { type: "ssh_relay_close", ref: "r-x", reason: "grant-revoked" });
+    const res = await execSshRelayClose(ctx, { type: "ssh_relay_close", ref: "r-x", reason: "access-revoked" });
     expect(res).toEqual({ ok: true, data: { ref: "r-x", closed: false } });
   });
 });
@@ -286,13 +285,13 @@ describe("RelaySessions close tombstones (fix round T8 MAJOR 2)", () => {
     let now = 0;
     const lines: string[] = [];
     const relay = new RelaySessions((line) => lines.push(line), { nowMs: () => now, tombstoneMs: 100 });
-    for (let i = 0; i < 50; i += 1) expect(relay.close(`r-${i}`, "grant-revoked")).toBe(false);
+    for (let i = 0; i < 50; i += 1) expect(relay.close(`r-${i}`, "access-revoked")).toBe(false);
     now += 101; // every tombstone is now past its TTL
     expect(relay.register("sweep-probe", handler)).toBe(true); // the sweep ran at register
     for (let i = 0; i < 50; i += 1) expect(relay.isTombstoned(`r-${i}`)).toBe(false);
     // The remembered close is observable in the log (ids and the named
     // reason only - the same refusal vocabulary every relay line keeps).
-    expect(lines.some((l) => l.includes("r-0") && l.includes("grant-revoked"))).toBe(true);
+    expect(lines.some((l) => l.includes("r-0") && l.includes("access-revoked"))).toBe(true);
   });
 });
 

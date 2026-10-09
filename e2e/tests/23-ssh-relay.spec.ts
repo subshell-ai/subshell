@@ -58,21 +58,21 @@ import {
  *  2. The plane-side capture shows ONLY opaque envelopes + plaintext routing
  *     ids: every recorded frame's blob is base64 of a JWE (General) JSON with
  *     ciphertext/iv/tag, and A's key material, the signature bytes, the
- *     agent wire, the grant fingerprints, and the typed markers appear
+ *     agent wire, the selected fingerprints, and the typed markers appear
  *     NOWHERE in the capture file.
  *  3. The REAL OpenSSH agent numbering is honored end to end: the responder's
  *     probe ran against the actual ssh-agent (10.x: identities 11 / answer 12
  *     / sign 13 / sign-response 14 + the RFC 9987 extended grammar), a raw
  *     identities request over B's proxy socket answers with the agent's own
- *     12 and the FILTERED roster, a raw sign for the granted blob comes back
+ *     12 and the FILTERED roster, a raw sign for the selected blob comes back
  *     as a real 14-signature that VERIFIES against A's public key, and the
  *     colliding bytes (classic-13-as-roster, classic-15, SSH1-era, mutation
  *     codes) answer FAILURE without ever reaching the agent. This is the
  *     arbiter the hand-spelled stub agents could not settle.
- *  4. A grant revoke between the relay handshake and D stops signing: on a
+ *  4. A launch-share revoke between the relay handshake and D stops signing: on a
  *     pane whose ssh sits in the banner wait against a never-answers
- *     listener, the proxy answers identities, the grant is revoked, and the
- *     socket is gone (the plane's close audit names `grant-revoked`).
+ *     listener, the proxy answers identities, launch access is revoked, and the
+ *     socket is gone (the plane's close audit names `access-revoked`).
  *  5. "Set up Subshell here" turns D into an enrolled node through the REAL
  *     install pipeline (spec §7) - and the minted setup key appears nowhere
  *     in B's pane log. D's session env is pinned by sshd `SetEnv` to scratch
@@ -296,7 +296,7 @@ test.describe("ssh relay crown jewel (spec 2026-10-08 §13)", () => {
       // ── Stage 1: the roster comes from the REAL agent (SSH2_AGENTC_REQUEST_
       // IDENTITIES 11 answered 12 through the signed ssh_agent_identities
       // command), with blobs withheld and the agent's OWN comments attached.
-      const roster = await admin.get(`/api/ssh/grants/identities?node=${A.id}`);
+      const roster = await admin.get(`/api/ssh/identities?node=${A.id}`);
       expect(roster.ok(), `[stage 1] roster: ${await roster.text()}`).toBe(true);
       const identities = ((await roster.json()) as { identities: { fingerprint: string; comment: string }[] })
         .identities;
@@ -310,47 +310,18 @@ test.describe("ssh relay crown jewel (spec 2026-10-08 §13)", () => {
       );
 
       stage("stage 1 roster ok");
-      // ── Stage 2: first use ASKS. The launch fails fast; a durable pending
-      // row stands; the approval selects only A's granted key.
-      const firstTry = await admin.post("/api/ssh/launch", {
-        data: { node: B.id, destination: SSH_FIXTURE_ALIAS, name: `e2e-relay-ask-${nonce}`, keyHome: A.id },
-      });
-      expect(firstTry.status(), `[stage 2] first-use must refuse with 409: ${await firstTry.text()}`).toBe(409);
-      expect(((await firstTry.json()) as { code: string }).code).toBe("SSH_GRANT_APPROVAL_REQUIRED");
-
-      const requests = (await (await admin.get("/api/ssh/grant-requests")).json()) as {
-        requests: { id: string; status: string; resolvedSelector: string; keyHomeNodeId: string; bNodeId: string }[];
-      };
-      const pending = requests.requests.find((r) => r.status === "pending");
-      expect(pending, `[stage 2] pending request row: ${JSON.stringify(requests)}`).toBeDefined();
-      expect(pending?.resolvedSelector, "the ask names the resolved destination host").toBe("127.0.0.1");
-      expect(pending?.keyHomeNodeId, "the ask names A as the key home").toBe(A.id);
-      expect(pending?.bNodeId, "the ask names B as the connecting machine").toBe(B.id);
-
-      const approve = await admin.post(`/api/ssh/grant-requests/${pending?.id}/approve`, {
-        data: { fingerprints: [fpA], name: `e2e-grant-${nonce}` },
-      });
-      expect(approve.ok(), `[stage 2] approve: ${await approve.text()}`).toBe(true);
-      const grantId = ((await approve.json()) as { grant: { id: string } }).grant.id;
-      // Approval captured the host pin from A's known_hosts over the signed
-      // ssh_host_key command (the §9 capture door; a capture failure would
-      // have left the 200 unwritten).
-      const pins = (await (await admin.get("/api/ssh/host-pins")).json()) as {
-        pins: { destination: string; fingerprint: string }[];
-      };
-      // The canonical destination omits the user when it equals the connecting
-      // account (ssh-resolve's deliberate null-user rule), so the pin row is
-      // keyed `host:port` here - asserted, not assumed.
-      expect(
-        pins.pins.find((p) => p.destination === `127.0.0.1:${D.port}`),
-        `[stage 2] the grant's pin row stands: ${JSON.stringify(pins)}`,
-      ).toBeDefined();
-
-      stage("stage 2 grant+pin");
+      // Stage 2: relay authorization is existing launch access, with an explicit key choice.
+      stage("stage 2 launch access and roster ready");
       // ── Stage 3: the relay launch. The pane is B's ssh with NO key of its
       // own, pointed at B's proxy socket.
       const launch = await admin.post("/api/ssh/launch", {
-        data: { node: B.id, destination: SSH_FIXTURE_ALIAS, name: `e2e-relay-pane-${nonce}`, keyHome: A.id },
+        data: {
+          node: B.id,
+          destination: SSH_FIXTURE_ALIAS,
+          name: `e2e-relay-pane-${nonce}`,
+          keyHome: A.id,
+          fingerprints: [fpA],
+        },
       });
       expect(launch.status(), `[stage 3] relay launch: ${await launch.text()}`).toBe(201);
       const paneId = ((await launch.json()) as { subshell: { id: string } }).subshell.id;
@@ -389,7 +360,9 @@ test.describe("ssh relay crown jewel (spec 2026-10-08 §13)", () => {
         },
       );
       const rosterViaProxy = parseIdentitiesAnswer(filtered);
-      expect(rosterViaProxy, "the relayed roster is scoped to the grant: exactly the granted key").toHaveLength(1);
+      expect(rosterViaProxy, "the relayed roster is scoped to the selected keys: exactly the granted key").toHaveLength(
+        1,
+      );
       expect(rosterViaProxy[0]?.blob.equals(blobA), "the relayed roster carries A's granted blob").toBe(true);
       expect(rosterViaProxy[0]?.comment, "the scoped entry carries the agent's own comment").toBe(D.keyAComment);
       expect(fingerprint(rosterViaProxy[0]?.blob as Buffer)).toBe(fpA);
@@ -402,7 +375,7 @@ test.describe("ssh relay crown jewel (spec 2026-10-08 §13)", () => {
       assertValidSignature(classicBody, blobA, signData); // the classic body shape is legal under 10.x too
 
       const ungranted = await agentRoundTrip(sockPath, buildSignRequest(blobA2, Buffer.from("nope"), true));
-      expect(ungranted[0], "a SIGN_REQUEST outside the grant set never reaches the agent").toBe(AGENT_FAILURE);
+      expect(ungranted[0], "a SIGN_REQUEST outside the selected key set never reaches the agent").toBe(AGENT_FAILURE);
 
       // The colliding bytes, refused under the RESOLVED scheme without ever
       // touching the agent (the ruling's whole point): classic-13-as-roster
@@ -693,12 +666,39 @@ test.describe("ssh relay crown jewel (spec 2026-10-08 §13)", () => {
       }
 
       stage("stage 7 D enrolled");
-      // ── Stage 8: grant revoke between the relay handshake and D. The
+      // ── Stage 8: launch-share revoke between the relay handshake and D. The
       // destination is the never-answers listener: the pane's ssh sits in the
       // banner wait, so the relay is still the ONLY thing that could ever
       // sign, and the revoke lands strictly BEFORE any D-side auth.
-      const hangLaunch = await admin.post("/api/ssh/launch", {
-        data: { node: B.id, destination: RELAY_HANG_ALIAS, name: `e2e-relay-hang-${nonce}`, keyHome: A.id },
+      const memberEmail = `relay-member-${nonce}@subshell.test`;
+      const memberPassword = "e2e-relay-member-pass-1";
+      const createdMember = await admin.post("/api/users", {
+        data: { email: memberEmail, name: memberEmail, password: memberPassword, role: "user" },
+      });
+      expect(createdMember.ok(), await createdMember.text()).toBe(true);
+      const memberId = ((await createdMember.json()) as { id: string }).id;
+      const member = await freshCtx(playwright);
+      cleanup("member ctx", () => member.dispose());
+      expect(
+        (await member.post("/api/auth/sign-in/email", { data: { email: memberEmail, password: memberPassword } })).ok(),
+      ).toBe(true);
+      for (const nodeId of [A.id, B.id]) {
+        expect(
+          (
+            await admin.put(`/api/nodes/${nodeId}/shares`, {
+              data: { shares: [{ granteeUserId: memberId, permission: "view" }] },
+            })
+          ).ok(),
+        ).toBe(true);
+      }
+      const hangLaunch = await member.post("/api/ssh/launch", {
+        data: {
+          node: B.id,
+          destination: RELAY_HANG_ALIAS,
+          name: `e2e-relay-hang-${nonce}`,
+          keyHome: A.id,
+          fingerprints: [fpA],
+        },
       });
       expect(hangLaunch.status(), `[stage 8] hang-pane launch: ${await hangLaunch.text()}`).toBe(201);
       const hangPaneId = ((await hangLaunch.json()) as { subshell: { id: string } }).subshell.id;
@@ -706,12 +706,12 @@ test.describe("ssh relay crown jewel (spec 2026-10-08 §13)", () => {
       const hangSock = path.join(B.dataDir, "ssh", hangPaneId, "agent.sock");
       await pollUntil(`[stage 8] the hang pane's proxy socket never bound`, () => existsSync(hangSock));
       const preRevoke = await agentRoundTrip(hangSock, Buffer.from([TEN_X.identities]));
-      expect(preRevoke[0], "[stage 8] signing works while the grant stands").toBe(TEN_X.answer);
+      expect(preRevoke[0], "[stage 8] signing works while launch access stands").toBe(TEN_X.answer);
 
-      const revoke = await admin.delete(`/api/ssh/grants/${grantId}`);
+      const revoke = await admin.put(`/api/nodes/${A.id}/shares`, { data: { shares: [] } });
       expect(revoke.ok(), `[stage 8] revoke: ${await revoke.text()}`).toBe(true);
       await pollUntil(
-        `[stage 8] the proxy socket outlived the grant (signing did not stop)`,
+        `[stage 8] the proxy socket outlived launch access (signing did not stop)`,
         () => !existsSync(hangSock),
       );
       const refused = await agentRoundTrip(hangSock, Buffer.from([TEN_X.identities])).then(
@@ -722,40 +722,33 @@ test.describe("ssh relay crown jewel (spec 2026-10-08 §13)", () => {
         refused === "answered" ? "ANSWERED - SIGNING DID NOT STOP" : refused,
         "[stage 8] after revoke the agent socket is gone; nothing can sign toward D",
       ).toMatch(/ENOENT|ECONNREFUSED/);
-      await pollUntil(`[stage 8] the plane never audited the grant-revoked close`, async () => {
+      await pollUntil(`[stage 8] the plane never audited the access-revoked close`, async () => {
         const res = await api.get("/api/audit?limit=300");
         if (!res.ok()) return false;
         const rows = (await res.json()) as { action: string; metadata: { reason?: string; paneId?: string } | null }[];
         return rows.some(
           (r) =>
             r.action === "node.ssh_relay.close" &&
-            r.metadata?.reason === "grant-revoked" &&
+            r.metadata?.reason === "access-revoked" &&
             r.metadata?.paneId === hangPaneId,
         );
       });
-      await retire(admin, hangPaneId);
+      await retire(member, hangPaneId);
 
       stage("stage 8 revoke cut");
       // ── Stage 9: a CHANGED D host key is the hard block, and TOFU recovery
       // is delete + fresh capture (the operator re-trusting D on A).
       const { knownHostsLine } = await D.rotateHostKey();
-      // Re-ask (the grant is gone), approve (the standing K1 pin satisfies the
-      // approval's pin door without consulting A), launch: the pane's ssh
-      // verifies the NEW host key against the PINNED old one and refuses.
-      const ask2 = await admin.post("/api/ssh/launch", {
-        data: { node: B.id, destination: SSH_FIXTURE_ALIAS, name: `e2e-relay-changed-${nonce}`, keyHome: A.id },
-      });
-      expect(ask2.status(), `[stage 9] post-revoke launch must ask: ${await ask2.text()}`).toBe(409);
-      const reqs2 = (await (await admin.get("/api/ssh/grant-requests")).json()) as {
-        requests: { id: string; status: string }[];
-      };
-      const pend2 = reqs2.requests.find((r) => r.status === "pending");
-      const approve2 = await admin.post(`/api/ssh/grant-requests/${pend2?.id}/approve`, {
-        data: { fingerprints: [fpA], name: `e2e-grant2-${nonce}` },
-      });
-      expect(approve2.ok(), `[stage 9] approve2: ${await approve2.text()}`).toBe(true);
+      // Admin launch access survives a member's revocation. The stored pin still
+      // checks the destination against its old key until explicitly reset.
       const changedLaunch = await admin.post("/api/ssh/launch", {
-        data: { node: B.id, destination: SSH_FIXTURE_ALIAS, name: `e2e-relay-blocked-${nonce}`, keyHome: A.id },
+        data: {
+          node: B.id,
+          destination: SSH_FIXTURE_ALIAS,
+          name: `e2e-relay-blocked-${nonce}`,
+          keyHome: A.id,
+          fingerprints: [fpA],
+        },
       });
       expect(
         changedLaunch.status(),
@@ -780,7 +773,13 @@ test.describe("ssh relay crown jewel (spec 2026-10-08 §13)", () => {
       expect(delPin.ok(), `[stage 9] delete pin: ${await delPin.text()}`).toBe(true);
       D.setKnownHostsLineD(knownHostsLine);
       const recovered = await admin.post("/api/ssh/launch", {
-        data: { node: B.id, destination: SSH_FIXTURE_ALIAS, name: `e2e-relay-recovered-${nonce}`, keyHome: A.id },
+        data: {
+          node: B.id,
+          destination: SSH_FIXTURE_ALIAS,
+          name: `e2e-relay-recovered-${nonce}`,
+          keyHome: A.id,
+          fingerprints: [fpA],
+        },
       });
       expect(recovered.status(), `[stage 9] recovery launch: ${await recovered.text()}`).toBe(201);
       const recPaneId = ((await recovered.json()) as { subshell: { id: string } }).subshell.id;

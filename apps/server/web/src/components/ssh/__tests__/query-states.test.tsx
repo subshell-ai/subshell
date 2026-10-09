@@ -42,15 +42,11 @@ test("loading and failed reads never claim an empty SSH settings ledger; retry r
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  expect(await screen.findByText("Loading pending approvals…")).toBeTruthy();
+  expect(await screen.findByText("Loading destination trust…")).toBeTruthy();
   expect(screen.queryByText("Nothing is waiting for an answer.")).toBeNull();
   respond();
-  expect(await screen.findByText("Could not load pending approvals.")).toBeTruthy();
-  expect(await screen.findByText("Could not load key grants.")).toBeTruthy();
   expect(await screen.findByText("Could not load destination trust.")).toBeTruthy();
   failing = false;
   for (const button of screen.getAllByRole("button", { name: "Retry" })) fireEvent.click(button);
-  expect(await screen.findByText("Nothing is waiting for an answer.")).toBeTruthy();
-  expect(await screen.findByText(/No key grants yet/)).toBeTruthy();
   expect(await screen.findByText(/No pinned destinations yet/)).toBeTruthy();
 });

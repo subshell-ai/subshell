@@ -62,7 +62,7 @@ if (file !== undefined && file !== "") {
       record({ t: Date.now(), kind: "close", ref, reason });
       return real.closeRelay(ref, reason);
     },
-    closeForGrant: (grantId, reason) => real.closeForGrant(grantId, reason),
+    closeUnauthorizedForNode: (nodeId) => real.closeUnauthorizedForNode(nodeId),
     closeForPane: (paneId, reason) => real.closeForPane(paneId, reason),
     refuseOverCap: (ref) => real.refuseOverCap(ref),
     onNodeSocketClosed: (nodeId) => real.onNodeSocketClosed(nodeId),

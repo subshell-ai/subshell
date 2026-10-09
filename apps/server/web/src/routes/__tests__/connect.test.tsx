@@ -25,6 +25,5 @@ it("redirects old Connect links into the subshell launcher with choices preserve
     node: "desk",
     destination: "deploy@box:2222",
     keyHome: "laptop",
-    requestId: "req",
   });
 });

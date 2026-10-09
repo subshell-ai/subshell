@@ -72,6 +72,7 @@ function makeHarness(
     rows?: Record<string, { kind: "agent" | "local"; sshEnabled: number | null } | null>;
     dataDir?: string | null;
     ack?: (nodeId: string, cmd: NodeCommandBody) => unknown | Promise<unknown>;
+    authorize?: (userId: string, nodeId: string) => Promise<boolean>;
     relaySend?: (nodeId: string, frame: RelayFrame) => void;
   } = {},
 ) {
@@ -97,6 +98,7 @@ function makeHarness(
         : { ok: true };
 
   const broker: RelayBroker = createRelayBroker({
+    authorize: opts.authorize ?? (async () => true),
     async sendCommand(nodeId, cmd) {
       commands.push({ nodeId, cmd });
       return (opts.ack ?? defaultAck)(nodeId, cmd);
@@ -156,7 +158,7 @@ function makeHarness(
     },
     open: (over: Partial<Parameters<RelayBroker["openRelay"]>[0]> = {}) =>
       broker.openRelay({
-        grantId: "grant-1",
+        userId: "grant-1",
         fingerprints: FINGERPRINTS,
         paneId: PANE,
         aNode: "a",
@@ -211,7 +213,7 @@ describe("openRelay (spec §5.1/§5.3, Task 8 (a)(b)(d)(g)(h))", () => {
     expect(toB?.paneId).toBe(PANE);
     // (a) the grant's selected fingerprints are delivered for A's responder.
     expect(toA?.fingerprints).toEqual(FINGERPRINTS);
-    expect(toA?.grantId).toBe("grant-1");
+    expect(toA).not.toHaveProperty("userId");
     // Task 12 (spec §9): the destination's pinned host-key line rides the
     // signed open to BOTH sides (B writes it beside the socket it binds); the
     // audit still names only ids, never the pin bytes.
@@ -223,7 +225,7 @@ describe("openRelay (spec §5.1/§5.3, Task 8 (a)(b)(d)(g)(h))", () => {
     expect(h.audits[0]?.meta).toEqual({
       relayId: r.relayId,
       ref: r.ref,
-      grantId: "grant-1",
+      userId: "grant-1",
       paneId: PANE,
       aNodeId: "a",
       bNodeId: "b",
@@ -310,12 +312,12 @@ describe("openRelay (spec §5.1/§5.3, Task 8 (a)(b)(d)(g)(h))", () => {
       },
     });
     for (let i = 0; i < SSH_RELAY_MAX_PER_NODE; i += 1) {
-      await h.open({ paneId: `pane-${i}`, grantId: `grant-${i}` });
+      await h.open({ paneId: `pane-${i}`, userId: `grant-${i}` });
     }
     expect(h.broker.activeRelayCount("b")).toBe(SSH_RELAY_MAX_PER_NODE);
     const auditsBefore = h.audits.length;
     const commandsBefore = h.commands.length;
-    await expect(h.open({ paneId: "pane-over", grantId: "grant-over" })).rejects.toMatchObject({
+    await expect(h.open({ paneId: "pane-over", userId: "grant-over" })).rejects.toMatchObject({
       code: "quota",
       nodeId: "a",
     });
@@ -323,13 +325,13 @@ describe("openRelay (spec §5.1/§5.3, Task 8 (a)(b)(d)(g)(h))", () => {
     expect(h.commands).toHaveLength(commandsBefore); // no half-delivered command
     // The cap counts each of A and B: a node at the cap cannot join even as A.
     await expect(
-      h.open({ paneId: "pane-as-a", grantId: "grant-as-a", aNode: "b", bNode: "fresh-b" }),
+      h.open({ paneId: "pane-as-a", userId: "grant-as-a", aNode: "b", bNode: "fresh-b" }),
     ).rejects.toMatchObject({ code: "quota", nodeId: "b" });
     // A closed slot frees room (the count is LIVE sessions, not history).
     const first = h.broker.sessionInfo(h.audits[0]?.meta.ref as string);
     expect(first).not.toBeNull();
     await h.broker.closeRelay(first?.ref as string, "lifetime-expiry");
-    await expect(h.open({ paneId: "pane-over", grantId: "grant-over" })).resolves.toMatchObject({});
+    await expect(h.open({ paneId: "pane-over", userId: "grant-over" })).resolves.toMatchObject({});
   });
 
   it("arms the lifetime and the grace on the INJECTED timers only (no real 30 s waits)", async () => {
@@ -358,7 +360,7 @@ describe("routeRelayFrame (spec §5.5, Task 8 (c))", () => {
     // blob slot at any point in its life (§5.5), and never gained one.
     const info = h.broker.sessionInfo(r.ref);
     expect(Object.keys(info ?? {}).sort()).toEqual(
-      ["aNode", "aOpened", "bNode", "bOpened", "expiresAt", "grantId", "paneId", "ref", "relayId", "socketPath"].sort(),
+      ["aNode", "aOpened", "bNode", "bOpened", "expiresAt", "userId", "paneId", "ref", "relayId", "socketPath"].sort(),
     );
     // ...and the session view never holds the blob, encoded or decoded.
     expect(JSON.stringify(info)).not.toContain(f.blob);
@@ -471,17 +473,19 @@ describe("teardown (spec §5.6, Task 8 (f))", () => {
     if (firstClose?.cmd.type === "ssh_relay_close") expect(firstClose.cmd.reason).toBe("handshake-grace");
   });
 
-  it("grant revoke closes every session of the grant with grant-revoked (hook entry; the revoke route is T10)", async () => {
-    const h = makeHarness({ relaySend: () => {} });
-    const r1 = await h.open({ paneId: "p1", grantId: "g-target" });
-    const r2 = await h.open({ paneId: "p2", grantId: "g-keep" });
-    const n = await h.broker.closeForGrant("g-target", "grant-revoked");
+  it("share revocation closes only sessions whose user loses launch access", async () => {
+    let revoked = false;
+    const h = makeHarness({ relaySend: () => {}, authorize: async (userId) => !revoked || userId !== "g-target" });
+    const r1 = await h.open({ paneId: "p1", userId: "g-target" });
+    const r2 = await h.open({ paneId: "p2", userId: "g-keep" });
+    revoked = true;
+    const n = await h.broker.closeUnauthorizedForNode("a");
     expect(n).toBe(1);
     expect(h.broker.sessionInfo(r1.ref)).toBeNull();
     expect(h.broker.sessionInfo(r2.ref)).not.toBeNull();
     const closes = h.commands.filter((c) => c.cmd.type === "ssh_relay_close");
     expect(closes).toHaveLength(2);
-    for (const c of closes) expect(c.cmd).toEqual({ type: "ssh_relay_close", ref: r1.ref, reason: "grant-revoked" });
+    for (const c of closes) expect(c.cmd).toEqual({ type: "ssh_relay_close", ref: r1.ref, reason: "access-revoked" });
     expect(h.audits.filter((a) => a.action === "node.ssh_relay.close")).toHaveLength(1);
   });
 
@@ -565,7 +569,7 @@ describe("teardown (spec §5.6, Task 8 (f))", () => {
       },
     });
     const r = await h.open();
-    await expect(h.broker.closeRelay(r.ref, "grant-revoked")).resolves.toBe(true);
+    await expect(h.broker.closeRelay(r.ref, "access-revoked")).resolves.toBe(true);
     expect(h.broker.sessionInfo(r.ref)).toBeNull();
   });
 });
@@ -650,9 +654,9 @@ describe("sendRelayFrameOverNodeSocket (the plane's throw-on-drop glue, acceptan
 });
 
 describe("grammar/version posture", () => {
-  it("relays a protocol-18-only world: the constant is pinned here as the broker's precondition", () => {
+  it("relays a protocol-19-only world: the constant is pinned here as the broker's precondition", () => {
     // The handler refuses every relay frame from a pre-18 agent upstream;
     // this tripwire documents the dependency at the broker.
-    expect(NODE_PROTOCOL_VERSION).toBe(18);
+    expect(NODE_PROTOCOL_VERSION).toBe(19);
   });
 });

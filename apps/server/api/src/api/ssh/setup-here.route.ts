@@ -75,7 +75,7 @@ export const sshSetupHereRoute = new Elysia()
         if (r.status === 422) {
           // Unreachable: no arm of this act carries a resolve outcome (the
           // destination was approved when the pane opened). An unreachable
-          // arm is answered loudly, never swallowed - the grants create's
+          // arm is answered loudly, never swallowed - the connection's
           // posture restated.
           return throwCodedRefusal({
             status: 502,

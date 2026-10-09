@@ -17,7 +17,7 @@ import type { PromptStackItemTable, PromptStackTable } from "@/db/types/prompt-s
 import type { PromptTable } from "@/db/types/prompts.db-types.js";
 import type { RecentPathTable } from "@/db/types/recent-paths.db-types.js";
 import type { SettingTable } from "@/db/types/settings.db-types.js";
-import type { SshGrantRequestTable, SshHostPinTable, SshKeyGrantTable } from "@/db/types/ssh-grants.db-types.js";
+import type { SshHostPinTable } from "@/db/types/ssh-host-pins.db-types.js";
 import type { SshSavedHostTable } from "@/db/types/ssh-saved-hosts.db-types.js";
 import type { SubshellShareTable } from "@/db/types/subshell-shares.db-types.js";
 import type { SubshellTable } from "@/db/types/subshells.db-types.js";
@@ -60,7 +60,5 @@ export interface Database {
   notificationsSubscriptions: NotificationSubscriptionTable;
   deviceTokens: DeviceTokenTable;
   sshSavedHosts: SshSavedHostTable;
-  sshKeyGrants: SshKeyGrantTable;
-  sshGrantRequests: SshGrantRequestTable;
   sshHostPins: SshHostPinTable;
 }

@@ -313,7 +313,7 @@ test("5. a full exchange leaves no plaintext anywhere the plane can see: wire ca
     expect(close).toBeDefined();
     expect(open?.metadata.fingerprintCount).toBe(1);
     expect(Object.keys(open?.metadata ?? {}).sort()).toEqual(
-      ["aNodeId", "bNodeId", "fingerprintCount", "grantId", "lifetimeMs", "paneId", "ref", "relayId"].sort(),
+      ["aNodeId", "bNodeId", "fingerprintCount", "userId", "lifetimeMs", "paneId", "ref", "relayId"].sort(),
     );
     expect(close?.metadata.reason).toBe("child-exit");
     for (const a of s.audits) {
@@ -399,7 +399,6 @@ test("6. a captured envelope is INERT replayed inside the lifetime and inert rep
       bNodeId: "b-node",
       peerSigningPublicKey: role === "A" ? s.bId.signingPublicJwk : s.aId.signingPublicJwk,
       peerEncryptPublicKey: b64Jwk(role === "A" ? s.bId.publicJwk : s.aId.publicJwk),
-      grantId: "grant-1",
       fingerprints: [fp(KEY_IN)],
       lifetimeMs: SSH_RELAY_LIFETIME_MS,
       paneId: PANE_ID,

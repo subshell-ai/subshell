@@ -3,8 +3,8 @@ import { ADMIN_STATE } from "./helpers";
 
 test.use({ storageState: ADMIN_STATE });
 
-/** Browser interaction around relay approval; transport cryptography is covered by spec 23. */
-test("choose remote keys, approve, and return to the same destination without auto-launching", async ({ page }) => {
+/** Browser interaction around per-launch key selection; transport cryptography is covered by spec 23. */
+test("choose remote keys and send an explicit key selection without approvals", async ({ page }) => {
   const destination = "theo@build.example.com:2222";
   const fingerprint = `SHA256:${"A".repeat(43)}`;
   const nodes = [
@@ -27,12 +27,15 @@ test("choose remote keys, approve, and return to the same destination without au
     allowedDirs: [],
     capabilities: [],
   }));
-  let approved = false;
   const launches: unknown[] = [];
   await page.route("**/api/nodes", (route) => route.fulfill({ json: { nodes } }));
   await page.route("**/api/ssh/**", async (route) => {
     const request = route.request();
     const path = new URL(request.url()).pathname;
+    if (path.endsWith("/readiness"))
+      return route.fulfill({
+        json: { machines: nodes.map((node) => ({ node, canConnect: true, canConfigure: true, blockers: [] })) },
+      });
     if (path.endsWith("/saved-hosts")) return route.fulfill({ json: { saved: [], recent: [], defaultNodeId: "desk" } });
     if (path.endsWith("/aliases"))
       return route.fulfill({ json: { aliases: [], includeCycle: false, truncated: false } });
@@ -40,37 +43,11 @@ test("choose remote keys, approve, and return to the same destination without au
       launches.push(request.postDataJSON());
       return route.fulfill({
         status: 409,
-        json: { code: "SSH_GRANT_APPROVAL_REQUIRED", message: "Approval needed.", metadata: { requestId: "request" } },
+        json: { code: "SSH_RELAY_OPEN_FAILED", message: "Test connection stopped before launch." },
       });
     }
-    if (path.endsWith("/grant-requests"))
-      return route.fulfill({
-        json: {
-          requests: approved
-            ? []
-            : [
-                {
-                  id: "request",
-                  keyHomeNodeId: "keys",
-                  bNodeId: "desk",
-                  paneId: "not-created",
-                  destination,
-                  resolvedSelector: "build.example.com",
-                  requestedFingerprints: [fingerprint],
-                  status: "pending",
-                  createdAt: new Date().toISOString(),
-                  expiresAt: new Date(Date.now() + 86400000).toISOString(),
-                },
-              ],
-        },
-      });
     if (path.endsWith("/identities"))
       return route.fulfill({ json: { identities: [{ fingerprint, comment: "Work key" }] } });
-    if (path.endsWith("/approve")) {
-      approved = true;
-      return route.fulfill({ json: { grant: { id: "grant" } } });
-    }
-    if (path.endsWith("/grants")) return route.fulfill({ json: { grants: [] } });
     if (path.endsWith("/host-pins")) return route.fulfill({ json: { pins: [] } });
     return route.continue();
   });
@@ -87,16 +64,9 @@ test("choose remote keys, approve, and return to the same destination without au
   await page.getByRole("combobox", { name: "Use SSH keys from" }).click();
   await page.getByRole("option", { name: "Key laptop", exact: true }).click();
   await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
-  expect(launches).toEqual([{ node: "desk", keyHome: "keys", destination }]);
-  await page.getByRole("button", { name: "Review SSH approval" }).click();
-  await expect(page.getByRole("dialog", { name: "New subshell" })).toBeVisible();
-  await expect(page.getByText("New SSH connection (not started)")).toBeVisible();
-  await page.getByRole("button", { name: "Approve", exact: true }).click();
-  await expect(page.getByText(/Keys approved. Start the SSH subshell/)).toBeVisible();
+  expect(launches).toEqual([{ node: "desk", keyHome: "keys", fingerprints: [fingerprint], destination }]);
+  await expect(page.getByRole("button", { name: "Review SSH approval" })).toHaveCount(0);
   await expect(page.getByPlaceholder("user@hostname:22 or an SSH alias")).toHaveValue(destination);
-  await expect(page.getByRole("combobox", { name: "Use SSH keys from" })).toHaveValue("Key laptop");
+  await expect(page.getByText("Test connection stopped before launch.")).toBeVisible();
   expect(launches).toHaveLength(1);
-  await page.screenshot({ path: "/tmp/ssh-m2-ux-connect.png", fullPage: true });
-  await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
-  expect(launches).toHaveLength(2);
 });

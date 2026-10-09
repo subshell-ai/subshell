@@ -3,7 +3,6 @@ export function sshConnectSearch(search: Record<string, unknown>): {
   node?: string;
   destination?: string;
   keyHome?: string;
-  requestId?: string;
 } {
   const text = (key: string, limit: number) =>
     typeof search[key] === "string" && search[key].length <= limit ? search[key] : undefined;
@@ -11,6 +10,5 @@ export function sshConnectSearch(search: Record<string, unknown>): {
     node: text("node", 64),
     destination: text("destination", 253),
     keyHome: text("keyHome", 64),
-    requestId: text("requestId", 64),
   };
 }

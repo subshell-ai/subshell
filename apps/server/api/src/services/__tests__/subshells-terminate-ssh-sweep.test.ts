@@ -114,7 +114,7 @@ describe("the terminate verb sweeps the LOCAL ssh config dir", () => {
       },
       routeRelayFrame: () => {},
       closeRelay: async () => false,
-      closeForGrant: async () => 0,
+      closeUnauthorizedForNode: async () => 0,
       closeForPane: async (paneId: string, reason: string) => {
         cuts.push(`${paneId}:${reason}`);
         return 0;

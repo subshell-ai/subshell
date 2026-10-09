@@ -25,10 +25,7 @@ import { useSubshell } from "@/providers/subshell-provider";
  *   route itself is the biometric gate, §Security notes), "Silence bell" →
  *   one PATCH against the ORIGIN's client + list refresh, without
  *   foregrounding. An origin this phone no longer knows (forgotten instance)
- *   is ignored rather than opened on the wrong server. A `grant_approval`
- *   push switches instances the same way but lands on the settings tab, and
- *   its Silence action is ignored (its sid names a grant request, not a pane;
- *   PR 338 review, Important 1).
+ *   is ignored rather than opened on the wrong server.
  *
  * The response listener mounts ONCE and reads the registry via
  * `useApp.getState()` at call time: an earlier version kept activeId/instances
@@ -58,8 +55,6 @@ export function PushBridge() {
       const origin = data.origin && data.origin !== activeId ? data.origin : null;
       if (origin && !instances.some((i) => i.id === origin)) return; // unknown/forgotten instance
       // The helper decides (pure, pinned in src/lib/push-routing.ts); this
-      // closure only performs. A `grant_approval` push routes to settings and
-      // ignores the Silence bell: its sid is a grant request, not a pane.
       const action = decidePushAction(data, response.actionIdentifier);
       if (action.action === "ignore") return;
       // The action belongs to the ORIGIN's instance, whatever is active now.

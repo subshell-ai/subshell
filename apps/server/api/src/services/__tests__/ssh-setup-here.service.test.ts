@@ -10,7 +10,6 @@ import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { SshGrantsRepository } from "@/db/repositories/ssh-grants.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
@@ -79,13 +78,13 @@ const NODE_A = "setup-node-a";
 const NODE_B = "setup-node-b";
 
 /** The relay broker fake: opens recorded, closes recorded, socket answer derived. */
-let openCalls: { paneId: string; aNode: string; bNode: string; grantId: string; hostPin: string }[] = [];
+let openCalls: { paneId: string; aNode: string; bNode: string; userId: string; hostPin: string }[] = [];
 let closeCalls: { paneId: string; reason: string }[] = [];
 let fakeBroker: RelayBroker;
 
 function makeFakeBroker(): RelayBroker {
   return {
-    openRelay: async (input: { paneId: string; aNode: string; bNode: string; grantId: string; hostPin: string }) => {
+    openRelay: async (input: { paneId: string; aNode: string; bNode: string; userId: string; hostPin: string }) => {
       openCalls.push(input);
       return {
         relayId: `relay-${openCalls.length}`,
@@ -151,17 +150,6 @@ async function mkPane(opts: { keyHome: boolean; ssh?: string | null }): Promise<
 /** The standing grant + pin + identities every relay leg reads (fixture, once). */
 async function authorizeRelay(): Promise<void> {
   const now = new Date().toISOString();
-  await new SshGrantsRepository(db).insertGrant({
-    id: crypto.randomUUID(),
-    ownerUserId: owner,
-    name: HOST,
-    keyHomeNodeId: NODE_A,
-    resolvedSelector: HOST,
-    fingerprints: JSON.stringify(["SHA256:AAAA"]),
-    createdVia: "manual",
-    createdAt: now,
-    updatedAt: now,
-  });
   await db
     .insertInto("sshHostPins")
     .values({
@@ -219,7 +207,11 @@ function attachPair(impl: {
   withA: boolean;
 }): { b: ScriptedNode; a: ScriptedNode | null; kick: () => SshExecCommand | undefined } {
   let seen: SshExecCommand | undefined;
-  const a = impl.withA ? attachScriptedNode(NODE_A, {}) : null;
+  const a = impl.withA
+    ? attachScriptedNode(NODE_A, {
+        ssh_agent_identities: () => ({ identities: [{ fingerprint: "SHA256:AAAA", comment: "test key" }] }),
+      })
+    : null;
   const b = attachScriptedNode(NODE_B, {
     ssh_exec: async (cmd) => {
       if (cmd.type !== "ssh_exec") throw new Error("wrong arm");
@@ -272,8 +264,6 @@ afterAll(async () => {
   resetNodeRegistryForTests();
   for (const id of createdPanes) await new SubshellsRepository(db).delete(id).catch(() => {});
   await db.deleteFrom("sshHostPins").execute();
-  await db.deleteFrom("sshKeyGrants").execute();
-  await db.deleteFrom("sshGrantRequests").execute();
   await db.deleteFrom("identities").execute();
   await db.deleteFrom("nodeSetupKeys").execute();
   await db.deleteFrom("auditEvents").where("action", "=", "node.ssh_upgrade.run").execute();
@@ -397,8 +387,7 @@ describe("setupHere relay mode", () => {
       expect(res.ok).toBe(false);
       if (res.ok) return;
       const refusal = coded(res.refusal);
-      expect(refusal.code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
-      expect(refusal.message).toContain(NODE_A);
+      expect(refusal.code).toBe(BackendErrorCodes.NODE_OFFLINE);
       expect(refusal.message).toMatch(/online/i);
       expect(openCalls).toHaveLength(0); // never re-opened
       expect(pair.b.cmdTypes()).toEqual([]); // B was never even asked to exec

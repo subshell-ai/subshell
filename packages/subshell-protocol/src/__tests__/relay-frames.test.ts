@@ -32,12 +32,12 @@ const good = {
   blob: b64OfRawLength(1024),
 } as const;
 
-describe("NODE_PROTOCOL_VERSION 18 (spec 2026-10-08 §5.1)", () => {
-  it("18 is the relay tier: relay frames + the open/close commands", () => {
+describe("NODE_PROTOCOL_VERSION 19 (spec 2026-10-08 §5.1)", () => {
+  it("19 carries user-authorized relay selections: relay frames + the open/close commands", () => {
     // The bump is load-bearing: a tier-17 agent (M1) understands no relay
     // frame, and the exact-match gate is what refuses it BEFORE any frame is
     // accepted. Never half-relay.
-    expect(NODE_PROTOCOL_VERSION).toBe(18);
+    expect(NODE_PROTOCOL_VERSION).toBe(19);
   });
 });
 

@@ -1,6 +1,6 @@
 import { buildAgentSocketPath } from "@internal/pane-runtime";
 import {
-  isSshGrantFingerprints,
+  isSshFingerprints,
   isSshKnownHostsPinLine,
   isSshPaneId,
   NODE_MAX_FRAME_BYTES,
@@ -19,71 +19,13 @@ import { getRequestlessContext } from "@/lib/context.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { binaryPayload, sendCommand } from "@/services/nodes/node-rpc.js";
+import { gateSshNode } from "@/services/ssh-policy.service.js";
 import { logger } from "@/utils/logger.js";
 
-/**
- * The plane relay broker (spec 2026-10-08 §5.3, Task 8): the pairing machine
- * for the sealed agent relay. `openRelay` brokers a session between A (the
- * key home) and B (the connecting machine) - gate, quota, mint, audit, then
- * the two signed `ssh_relay_open` commands carrying the WHOLE pairing: both
- * node ids with roles, the peer's registered signing key (JSON public JWK)
- * and encryption key (base64 of the UTF-8 JSON public JWK - the one canonical
- * spelling, acceptance (h)), the grant's fingerprint set, the lifetime, and
- * the pane (acceptance (b)). From then on the plane's only job is §5.5:
- * route `relay` frames by their opaque ref, blob byte-for-byte unopened.
- *
- * **The blindness is the posture.** No session record holds a blob, a key,
- * a fingerprint, or a payload; `routeRelayFrame` copies the frame object it
- * was handed to the peer's socket and never reads `blob` (§5.5: an unopened
- * byte copy is the whole forwarding job). Durably, the plane writes only the
- * two audit rows - `node.ssh_relay.open` / `node.ssh_relay.close`, ids, hosts
- * and the named reason, never secrets (Global Constraints, docs/security.md
- * §10).
- *
- * **Teardown is by named reason only** (§5.1/§5.6). The grammar's six words
- * are the whole vocabulary, and every cut below maps to exactly one:
- * lifetime expiry, the handshake grace elapsed without both sides, A's link
- * dropping, a grant revoke, the pane's child exiting, and an over-cap frame.
- * Each cut sends the named-reason `ssh_relay_close` to BOTH sides and writes
- * the close audit. A B-side link loss deliberately names no new reason: the
- * grammar has no `b-dropped` word, §5.6 does not name B-dropping as a cut,
- * and the task-7 handoff is explicit that phantom state ends at Task 8's
- * timers - so an undeliverable reply to a gone B loses the ONE frame and the
- * session dies at its lifetime cap, child exit, or revoke, never at a
- * misnamed reason.
- *
- * **The per-node send glue throws on drop** (acceptance (c), mirroring the
- * T6/T7 deliver-or-throw contract at the endpoints): {@link
- * sendRelayFrameOverNodeSocket} refuses LOUDLY when the peer has no live
- * socket, its record is closing or superseded, its encrypted link is not
- * established, or the write itself fails. A silent-return pump reintroduces
- * the phantom-request hang, so a routed frame whose peer socket is dead
- * tears the session down (`a-dropped`) instead of leaving it spinning.
- *
- * **The machine answer about the socket is never trusted** (acceptance (e)):
- * B's open answers with the proxy socket path it bound, and the plane
- * re-derives the same path (`buildAgentSocketPath`, the shared pane-runtime
- * helper the node itself binds) from ITS record of B's dataDir and the
- * command's paneId, refusing a single-byte mismatch before the launch
- * exports anything. `SSH_AUTH_SOCK` then leaves through
- * {@link sshRelayPaneEnv} as the one-key scoped exception - the exact channel
- * `ssh-launch.service.ts`'s `composeSshLaunch` uses for the ssh invocation
- * env (`createSubshell`'s `extraPaneEnv` member) - never the whole-pane env.
- *
- * Both relay roles require a switched-on AGENT node (acceptance (d)): the
- * plane's own `ssh_enabled` row must read 1 (default off fails closed, and a
- * missing row refuses too) and `kind` must be `agent` - `local` is never an
- * A or B. Both checks run before any session exists, any command leaves, or
- * any audit row is written, as does the quota (acceptance (g)): a 9th live
- * session on either node is a loud `SshRelayRefusal("quota")` that touched
- * nothing.
- *
- * Everything outside the module is a {@link RelayBrokerDeps} seam (the
- * `getNodeWsDeps` pattern): the command transport, the per-node relay pump,
- * the node rows, the audit sink, and a clock/scheduler so the 30 s lifetime
- * and the 5 s grace are testable without waiting. The production wiring is
- * the default at the bottom of this file; the singleton is the seam
- * `nodes/relay-frames.ts` and the pane-death sweeps route through.
+/** Encrypted relay broker: pair two machines for one user's launch, forward opaque
+ * frames, enforce quotas, strict host pins, peer identities and bounded lifetime.
+ * Current SSH launch policy is checked before opening and share revocation cuts
+ * affected sessions. The broker retains no key material or frame payloads.
  */
 
 /** The peer's registered relay keys, as the identities store holds them (public halves only). */
@@ -100,6 +42,7 @@ export interface RelayPeerKeys {
 
 /** Why an `openRelay` refused. Each code names its own door; the message says more. */
 export type SshRelayRefusalCode =
+  | "access-denied"
   | "bad-pane-id"
   | "bad-fingerprints"
   | "bad-host-pin"
@@ -145,7 +88,7 @@ export class RelaySendError extends Error {
 export interface RelaySessionInfo {
   relayId: string;
   ref: string;
-  grantId: string;
+  userId: string;
   paneId: string;
   aNode: string;
   bNode: string;
@@ -157,11 +100,11 @@ export interface RelaySessionInfo {
   bOpened: boolean;
 }
 
-/** Inputs to {@link RelayBroker.openRelay}. A grant's id and selection are T10's; they arrive as inputs here. */
+/** Inputs to one user-scoped relay session. */
 export interface OpenRelayInput {
-  /** The live grant this session runs under (revoke cuts the session, §6.3). */
-  grantId: string;
-  /** The grant's selected fingerprints (§5.4); validated with the grammar's own predicate before signing. */
+  /** The user whose current launch access authorizes both machines. */
+  userId: string;
+  /** Selected current agent fingerprints, checked before signing. */
   fingerprints: readonly string[];
   /** The B-side pane the pairing serves (grammar (b)); pre-minted subshell id. */
   paneId: string;
@@ -207,6 +150,8 @@ export interface RelayBrokerDeps {
   nodeRow(nodeId: string): Promise<{ kind: NodeKind; sshEnabled: number | null } | null | undefined>;
   /** The node's dataDir from its live `ready` facts, or null (not fully connected). */
   nodeDataDir(nodeId: string): string | null;
+  /** Current launch/SSH policy for this user on both machines. */
+  authorize(userId: string, nodeId: string): Promise<boolean>;
   /** The audit sink (best-effort by contract, never throws). */
   audit(event: AuditEventInput): Promise<void>;
   nowMs(): number;
@@ -218,14 +163,14 @@ export interface RelayBrokerDeps {
 
 /** The broker surface: open, route, the named cuts, and the census views. */
 export interface RelayBroker {
-  /** Broker A+B for one pane under one grant; throws {@link SshRelayRefusal} loudly. */
+  /** Broker A+B for one pane for one user; throws {@link SshRelayRefusal} loudly. */
   openRelay(input: OpenRelayInput): Promise<OpenRelayResult>;
   /** Route one grammar-parsed relay frame from `nodeId` BLIND to its peer (§5.5). */
   routeRelayFrame(nodeId: string, frame: RelayFrame): void;
   /** The single teardown entry: named reason to BOTH sides + the close audit. Idempotent. */
   closeRelay(ref: string, reason: SshRelayCloseReason): Promise<boolean>;
-  /** Grant-revoke hook (§6.3; the revoke route lands in T10). Returns sessions closed. */
-  closeForGrant(grantId: string, reason: SshRelayCloseReason): Promise<number>;
+  /** Close sessions touching this machine whose users lost SSH launch access. */
+  closeUnauthorizedForNode(nodeId: string): Promise<number>;
   /** Pane-death hook (the §5.6 child-exit cut; wired at the sweep sites). Returns sessions closed. */
   closeForPane(paneId: string, reason: SshRelayCloseReason): Promise<number>;
   /** §5.1's over-cap refusal: close the named ref with reason `over-cap`. */
@@ -244,7 +189,7 @@ export interface RelayBroker {
 interface Session {
   relayId: string;
   ref: string;
-  grantId: string;
+  userId: string;
   paneId: string;
   aNode: string;
   bNode: string;
@@ -278,7 +223,6 @@ function openCmd(input: OpenRelayInput, role: "A" | "B", ref: string, relayId: s
     bNodeId: input.bNode,
     peerSigningPublicKey: peer.signingPublicKey,
     peerEncryptPublicKey: base64OfJwk(peer.encryptionPublicJwk),
-    grantId: input.grantId,
     fingerprints: [...input.fingerprints],
     lifetimeMs: SSH_RELAY_LIFETIME_MS,
     paneId: input.paneId,
@@ -294,7 +238,7 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
   const infoOf = (s: Session): RelaySessionInfo => ({
     relayId: s.relayId,
     ref: s.ref,
-    grantId: s.grantId,
+    userId: s.userId,
     paneId: s.paneId,
     aNode: s.aNode,
     bNode: s.bNode,
@@ -332,7 +276,7 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
     deps.cancel(s.graceTimer);
     await closeSends(s, reason);
     await deps.audit({
-      actorUserId: null, // the plane brokered it; the human's act is the launch/grant audit
+      actorUserId: null, // the plane brokered it; the human's act is the launch audit
       action: "node.ssh_relay.close",
       targetType: "node",
       targetId: s.aNode,
@@ -341,7 +285,7 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
       metadataJson: JSON.stringify({
         relayId: s.relayId,
         ref: s.ref,
-        grantId: s.grantId,
+        userId: s.userId,
         paneId: s.paneId,
         aNodeId: s.aNode,
         bNodeId: s.bNode,
@@ -359,16 +303,16 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
     if (!isSshPaneId(input.paneId)) {
       throw new SshRelayRefusal("bad-pane-id", `relay open refused: paneId "${input.paneId}" is not a path id`);
     }
-    if (!isSshGrantFingerprints(input.fingerprints)) {
+    if (!isSshFingerprints(input.fingerprints)) {
       throw new SshRelayRefusal(
         "bad-fingerprints",
-        "relay open refused: the grant's fingerprint set is malformed or over SSH_MAX_GRANT_FINGERPRINTS",
+        "relay open refused: the selected fingerprint set is malformed or over SSH_MAX_SELECTED_FINGERPRINTS",
       );
     }
     // Task 12 (spec §9): the destination's pin travels on the open, and the
     // grammar's own line predicate is the broker's check too - a relay
     // session with no pin (or with a multi-line smuggle) is refused BEFORE
-    // anything is signed or sent, so "the relay grant carries a pin" is
+    // anything is signed or sent, so "the relay carries a pin" is
     // enforced at the mint, not hoped for at the endpoints.
     if (!isSshKnownHostsPinLine(input.hostPin)) {
       throw new SshRelayRefusal(
@@ -392,6 +336,11 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
       }
       if (row.sshEnabled !== 1) {
         throw new SshRelayRefusal("node-off", `relay open refused: SSH is not enabled on "${nodeId}"`, nodeId);
+      }
+    }
+    for (const nodeId of [input.aNode, input.bNode]) {
+      if (!(await deps.authorize(input.userId, nodeId))) {
+        throw new SshRelayRefusal("access-denied", "SSH launch access is no longer available", nodeId);
       }
     }
     // The socket-path byte-check needs B's dataDir; without `ready` facts the
@@ -423,7 +372,7 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
     const s: Session = {
       relayId,
       ref,
-      grantId: input.grantId,
+      userId: input.userId,
       paneId: input.paneId,
       aNode: input.aNode,
       bNode: input.bNode,
@@ -448,7 +397,7 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
       metadataJson: JSON.stringify({
         relayId,
         ref,
-        grantId: input.grantId,
+        userId: input.userId,
         paneId: input.paneId,
         aNodeId: input.aNode,
         bNodeId: input.bNode,
@@ -548,9 +497,13 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
     openRelay,
     routeRelayFrame,
     closeRelay,
-    async closeForGrant(grantId, reason) {
+    async closeUnauthorizedForNode(nodeId) {
       let n = 0;
-      for (const s of forEach((x) => x.grantId === grantId)) if (await closeRelay(s.ref, reason)) n += 1;
+      for (const s of forEach((x) => x.aNode === nodeId || x.bNode === nodeId)) {
+        if (!(await deps.authorize(s.userId, s.aNode)) || !(await deps.authorize(s.userId, s.bNode))) {
+          if (await closeRelay(s.ref, "access-revoked")) n += 1;
+        }
+      }
       return n;
     },
     async closeForPane(paneId, reason) {
@@ -668,6 +621,7 @@ function productionDeps(): RelayBrokerDeps {
       return row ? { kind: row.kind, sshEnabled: row.sshEnabled } : null;
     },
     nodeDataDir: (nodeId) => getLive(nodeId)?.agent?.dataDir ?? null,
+    authorize: async (userId, nodeId) => (await gateSshNode(userId, nodeId)).ok,
     audit,
     nowMs: () => Date.now(),
     schedule: (fn, ms) => {

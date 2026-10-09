@@ -137,7 +137,7 @@ function sshString(bytes: Buffer): Buffer {
  * RAW SSH wire encoding (the agent-answer blob bytes), spelled `SHA256:` +
  * base64url without padding - the same scheme `fingerprintJwk` established
  * (§4.5: "Agent keys hash their agent wire encoding"; §5.4), which is also
- * the only spelling the grant grammar's `GRANT_FINGERPRINT_RE` accepts.
+ * the only spelling the grant grammar's `SSH_FINGERPRINT_RE` accepts.
  *
  * The base64url spelling is DELIBERATELY internal and differs from what
  * `ssh-keygen -l` prints (standard base64: different alphabet, padding):

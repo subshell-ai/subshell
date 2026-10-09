@@ -156,7 +156,7 @@ export const SSH_RELAY_MAX_PER_NODE = 8;
  * Hard ceiling on a relay session's life (spec §5.6). Modeled on
  * {@link SSH_SESSION_OPEN_DEADLINE_MS}: the relay exists only for the
  * handshake window, and the lifetime is the last-resort cut beneath the
- * earlier ones (grace elapsed, child exit, A drop, grant revoke).
+ * earlier ones (grace elapsed, child exit, A drop, access revocation).
  */
 export const SSH_RELAY_LIFETIME_MS = 30_000;
 
@@ -169,13 +169,13 @@ export const SSH_RELAY_LIFETIME_MS = 30_000;
 export const SSH_RELAY_TEARDOWN_GRACE_MS = 5_000;
 
 /**
- * Key fingerprints one grant may select (spec §5.4). Deliberately
+ * Key fingerprints one connection may select (spec §5.4). Deliberately
  * DISTINCT from {@link SSH_MAX_IDENTITY_REFS}, which bounds snapshot
- * identity PATHS, not grant selections; an approval selecting more is a
+ * identity PATHS, not connection selections; selecting more is a
  * hard refusal, never a silent truncation. Public data end to end:
  * `SHA256:` base64 fingerprints, never key material.
  */
-export const SSH_MAX_GRANT_FINGERPRINTS = 8;
+export const SSH_MAX_SELECTED_FINGERPRINTS = 8;
 
 /**
  * Longest single OpenSSH `known_hosts` line the wire may carry, in EITHER
@@ -198,8 +198,8 @@ export const SSH_MAX_HOST_KEY_LINES = 32;
 /**
  * Identities one live agent may report in one `ssh_agent_identities` roster
  * read (spec 2026-10-08 §5.4; PR #338 review round 2). A generous
- * display/selection bound: the roster feeds the approval picker and the
- * grant's ≤ {@link SSH_MAX_GRANT_FINGERPRINTS}-key selection, and no honest
+ * display/selection bound: the roster feeds the key picker and the
+ * connection’s ≤ {@link SSH_MAX_SELECTED_FINGERPRINTS}-key selection, and no honest
  * agent holds this many keys. An agent reporting MORE is refused by name at
  * the node and refused as malformed at the validator, never truncated down
  * to this number: a roster the code quietly cut would read to the operator

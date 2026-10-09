@@ -164,13 +164,3 @@ describe("sshLaunchRefusal", () => {
     expect(isSshResolveRefusal("outcome")).toBe(false);
   });
 });
-
-for (const field of ["metadata", "metadataSafe"]) {
-  it(`preserves the approval request ID from ${field}`, () => {
-    const err = new ApiError(409, "Approval", {
-      code: "SSH_GRANT_APPROVAL_REQUIRED",
-      body: { [field]: { requestId: "req1" } },
-    });
-    expect(sshLaunchRefusal(err, null)?.requestId).toBe("req1");
-  });
-}
