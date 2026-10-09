@@ -310,11 +310,21 @@ export interface NodeRuntime {
  * of the trust the machine enforces as byte equality; the card's whole purpose
  * is the out-of-band compare against what the PEER computes from its own keys.
  */
+/** One pinned peer's two halves, as this machine stores them (§4.4/§4.5). */
+export interface NodeSshTrustPeer {
+  /** The peer's node id (the same registry entry, not a bare hostname) */
+  nodeId: string;
+  /** Fingerprint of that peer's signing key, as this machine pins it */
+  signing: string;
+  /** Fingerprint of that peer's encryption key, as this machine pins it */
+  encryption: string;
+}
+
 export interface NodeSshTrust {
   /** This machine's both halves */
   own: { signing: string; encryption: string };
   /** Every pinned peer, id ascending; empty means nothing paired yet */
-  peers: { nodeId: string; signing: string; encryption: string }[];
+  peers: NodeSshTrustPeer[];
   /**
    * true = the plane's durable MIRROR of the last report (the node is offline,
    * or its live connection reported no block), so the card is last-known truth

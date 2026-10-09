@@ -6,7 +6,6 @@ import {
   NodeAllowedDirs,
   NodeMaintenanceCard,
   NodeServerUrlCard,
-  NodeSshTrustCard,
   relativeElapsed,
   useNode,
 } from "@internal/node-admin";
@@ -30,6 +29,7 @@ import { osLabel } from "@/components/nodes/node-row";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { NodeUpdateCard } from "@/components/nodes/node-update-card";
+import { SshTrustSection } from "@/components/ssh/trust-section";
 import { useDeleteNode, useRenameNode } from "@/hooks/use-nodes";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
@@ -251,8 +251,11 @@ function NodeDetailPage() {
               field only for owner/edit on agent nodes, so a `view` grantee
               never receives it and the card renders nothing; the card's own
               kind/access check is the belt. Live report while the machine is
-              connected, durable mirror marked stale when it is not. */}
-          {managesNodeSections(n) && <NodeSshTrustCard node={n} />}
+              connected, durable mirror marked stale when it is not. The
+              section adds the plane-only halves: the "display only" honesty
+              line (§4.6: this rendering proves nothing, the two dashboards
+              do) and the owner-only re-pair act on each peer (§4.5). */}
+          {managesNodeSections(n) && <SshTrustSection node={n} />}
 
           {/* The node's RULES live on its page, not in a tab of one card:
               the allowlist gates launches on this machine including the
