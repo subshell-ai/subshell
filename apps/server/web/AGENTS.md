@@ -386,16 +386,22 @@ probe gates): read apps/server/web/docs/terminal-gotchas.md first.**
 
 ## SSH relay launch and setup
 
-The SSH terminal choice in New subshell can use another owned node's loaded SSH-agent keys. The default omits
-`keyHome` and uses the connecting machine's own keys. Never silently substitute
-keys when the chosen machine goes offline. Inline approval preserves the launch choices and workspace/split context,
-and requires a fresh Start SSH subshell click; approval itself launches nothing.
-Approval return links bind the preserved choices to the exact request ID, never
-just the machine pair: several destinations can await approval on that pair.
-Old `/connect` links open the same subshell dialog through `/new?kind=ssh`.
-The pending-request view carries the exact destination account and port, and
-new requests have no pane yet, so the approvals list must not link a nonexistent
-pane. Failed settings reads must stay distinct from empty lists.
+The SSH terminal choice in New subshell can use loaded SSH-agent keys from
+another machine the user can launch on. Both the connecting machine and key
+source follow existing machine launch access; configuration stays owner/admin.
+There are no separate SSH grants or approvals. The default omits `keyHome`
+and uses the connecting machine's own keys. A relay launch carries explicit
+fingerprints, retained for “Set up Subshell here”; never silently substitute or
+widen the selection when keys disappear or a machine goes offline.
+
+The reusable SSH wizard lives inside the existing dialog and preserves the
+launch choices and workspace/split context. Its intents cover connecting,
+preparing a machine, and selecting another machine's keys. Finishing setup
+returns to the form and requires a fresh Start SSH subshell click. Settings
+and machine pages open the same wizard. Old `/connect` links open the same
+subshell dialog through `/new?kind=ssh`. Failed reads must stay distinct from
+empty lists, with retry actions. Read `docs/launch-form-picker.md` for the
+shared draft, readiness, enrollment, and launch-callback contracts.
 
 “Set up Subshell here” can be dismissed while running. Its owner-scoped status
 read observes stages selected by the server, never installer output. Reopening
