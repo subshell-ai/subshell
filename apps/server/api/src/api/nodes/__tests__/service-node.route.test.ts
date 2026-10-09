@@ -493,6 +493,14 @@ describe("/api/nodes service + runtime", () => {
         unknown
       >;
       expect("sshTrust" in asViewer).toBe(false);
+      // The named gate has THREE actors: owner (above), `view` (above), and
+      // the `edit` grantee, who configures this machine and so sees the same
+      // disclosure the owner does, live (the same gate as `runtime`).
+      await nodeShares.replaceForNode(id, [{ granteeUserId: carolId, permission: "edit" }], aliceId);
+      const asEditor = (await (await req("GET", `/api/nodes/${id}`, { cookie: carolCookie })).json()) as {
+        sshTrust?: { own: unknown; peers: unknown; stale: boolean };
+      };
+      expect(asEditor.sshTrust).toEqual({ ...TRUST_BLOCK, stale: false });
     } finally {
       resetNodeRegistryForTests();
     }

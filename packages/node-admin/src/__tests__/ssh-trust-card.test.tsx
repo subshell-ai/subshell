@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import type { NodeDetail } from "@internal/node-admin";
 import { cleanup, render, screen } from "@testing-library/react";
-import { SshTrustCard } from "@/components/ssh/trust-card";
+import { NodeSshTrustCard } from "../components/ssh-trust-card";
+import type { NodeDetail } from "../types/node";
 
 /**
- * The node page's §4.6 machine trust card (spec 2026-10-08). The card is
- * pure prop rendering: the GATE lives on the server (the field is absent for
- * a `view` grantee and on `local`, never null), and the card's own check is
- * belt-not-control - a payload that arrived against the rule must still not
- * render. The fingerprints are public display of the trust the machines
- * enforce as byte equality; the card exists for the out-of-band compare
- * against what the PEER machine prints about itself.
+ * The §4.6 machine trust card (spec 2026-10-08), shared by the plane's node
+ * page and the node's own dashboard. The card is pure prop rendering: the
+ * GATE lives on the server (the field is absent for a `view` grantee and on
+ * `local`, never null), and the card's own check is belt-not-control - a
+ * payload that arrived against the rule must still not render. The
+ * fingerprints are public display of the trust the machines enforce as byte
+ * equality; the card exists for the out-of-band compare against what the PEER
+ * machine prints about itself.
  */
 
 const FP_OWN_SIGN = `SHA256:${"A".repeat(43)}`;
@@ -57,7 +58,7 @@ afterEach(cleanup);
 
 describe("SshTrustCard", () => {
   it("owner with a live block: own and peer fingerprints, no stale marking", () => {
-    const { container } = render(<SshTrustCard node={node({ sshTrust: LIVE_TRUST })} />);
+    const { container } = render(<NodeSshTrustCard node={node({ sshTrust: LIVE_TRUST })} />);
     expect(container.firstChild).not.toBeNull();
     expect(screen.getByText("Machine trust")).toBeDefined();
     expect(screen.getByText(FP_OWN_SIGN)).toBeDefined();
@@ -69,12 +70,12 @@ describe("SshTrustCard", () => {
   });
 
   it("an edit grantee sees the same card the owner sees", () => {
-    render(<SshTrustCard node={node({ access: "edit", canManage: false, sshTrust: LIVE_TRUST })} />);
+    render(<NodeSshTrustCard node={node({ access: "edit", canManage: false, sshTrust: LIVE_TRUST })} />);
     expect(screen.getByText(FP_OWN_SIGN)).toBeDefined();
   });
 
   it("the stale mirror renders STALE-marked, distinguishable from live", () => {
-    render(<SshTrustCard node={node({ status: "offline", sshTrust: { ...LIVE_TRUST, stale: true } })} />);
+    render(<NodeSshTrustCard node={node({ status: "offline", sshTrust: { ...LIVE_TRUST, stale: true } })} />);
     // The flag carries both a badge and its own sentence: the §4.6 compare is
     // exactly the thing a reader must not do against a last-known value
     // thinking it current.
@@ -86,24 +87,24 @@ describe("SshTrustCard", () => {
     // The server's gate leaves the field OFF the payload for this viewer; the
     // card's own kind/access check is the belt, pinned here so a future
     // refactor of the route's gate cannot silently widen what this renders.
-    const { container } = render(<SshTrustCard node={node({ access: "view", canManage: false })} />);
+    const { container } = render(<NodeSshTrustCard node={node({ access: "view", canManage: false })} />);
     expect(container.firstChild).toBeNull();
-    const belt = render(<SshTrustCard node={node({ access: "view", canManage: false, sshTrust: LIVE_TRUST })} />);
+    const belt = render(<NodeSshTrustCard node={node({ access: "view", canManage: false, sshTrust: LIVE_TRUST })} />);
     expect(belt.container.firstChild).toBeNull();
   });
 
   it("never on `local`, not even with a block that must not have serialized", () => {
-    const { container } = render(<SshTrustCard node={node({ kind: "local", sshTrust: LIVE_TRUST })} />);
+    const { container } = render(<NodeSshTrustCard node={node({ kind: "local", sshTrust: LIVE_TRUST })} />);
     expect(container.firstChild).toBeNull();
   });
 
   it("no block on the view means no card (older agent, nothing reported yet)", () => {
-    const { container } = render(<SshTrustCard node={node()} />);
+    const { container } = render(<NodeSshTrustCard node={node()} />);
     expect(container.firstChild).toBeNull();
   });
 
   it("an empty peer set says so plainly instead of rendering a lone header", () => {
-    render(<SshTrustCard node={node({ sshTrust: { ...LIVE_TRUST, peers: [] } })} />);
+    render(<NodeSshTrustCard node={node({ sshTrust: { ...LIVE_TRUST, peers: [] } })} />);
     expect(screen.getByText(FP_OWN_SIGN)).toBeDefined();
     expect(screen.getByText(/no ssh relay peers pinned yet/i)).toBeDefined();
   });
