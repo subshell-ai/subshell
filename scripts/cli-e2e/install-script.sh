@@ -112,6 +112,12 @@ ok "a nameless one-liner refuses with the usage error, naming both fixes"
 curl -s -b "$JAR" "$BASE/api/nodes/setup-keys" | grep -q '"usedAt":null' || fail "the nameless attempt spent the key"
 ok "the spent-by-nobody key is still unused"
 
+# The nameless run above still COMPLETED the download and chmod before refusing
+# the question it cannot ask (that ordering predates this note). Remove the
+# staged binary, or the named run below would take the already-installed
+# shortcut and this scenario would silently stop exercising the checksum.
+rm -f "$HOME/.local/bin/subshell"
+
 set +e
 # The assignment sits on the BASH side on purpose: `VAR=… curl … | bash` would
 # export it to curl, which has no use for it, and the installer would run nameless.
@@ -138,6 +144,28 @@ ok "the node is enrolled on the control plane"
 curl -s -b "$JAR" "$BASE/api/nodes" | grep -q '"name":"e2e one-liner"' \
   || fail "SUBSHELL_NODE_NAME did not reach the node row intact"
 ok "SUBSHELL_NODE_NAME named the node, spaces intact"
+
+# The already-installed shortcut, against the REAL artifact: with the binary
+# now sitting in ~/.local/bin, a fresh key's run must ask the server for the
+# digest, match it, and skip the ~100 MB download on its way to enrollment.
+# A fresh SUBSHELL_CONFIG_HOME gives the rerun its own node identity (a second
+# row), so this pins the installer's probe, not the agent's re-enroll refusal.
+KEY2=$(curl -s -b "$JAR" -X POST "$BASE/api/nodes/setup-keys" | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')
+[ -n "$KEY2" ] || fail "no second setup key for the rerun"
+set +e
+curl -fsSL "$BASE/install.sh?setup_key=$KEY2" \
+  | SUBSHELL_NODE_NAME="e2e rerun" SUBSHELL_CONFIG_HOME="$W/fakehome/.config/subshell-rerun" bash \
+  > "$W/rerun.out" 2>&1
+RC=$?
+set -e
+cat "$W/rerun.out"
+[ $RC -eq 0 ] || fail "the rerun exited $RC"
+grep -q "already installed (checksum matches); skipping download" "$W/rerun.out" \
+  || fail "the rerun re-downloaded a checksum-matching binary"
+grep -q "==> downloading subshell" "$W/rerun.out" && fail "the rerun fetched the artifact anyway"
+curl -s -b "$JAR" "$BASE/api/nodes" | grep -q '"name":"e2e rerun"' \
+  || fail "the rerun never enrolled"
+ok "a checksum-matching rerun skips the download and still enrolls"
 
 echo
 echo "INSTALL.SH E2E PASSED"

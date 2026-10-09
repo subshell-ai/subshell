@@ -558,7 +558,12 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain("--progress-bar");
     expect(body).not.toContain("curl --silent"); // only the sha256 sidecar fetch keeps --silent
     expect(body).toContain("==> verifying the download");
-    expect(body.indexOf("==> verifying the download")).toBeLessThan(body.indexOf("$TARGET.sha256"));
+    // The §3 already-installed probe legitimately fetches the sidecar BEFORE
+    // the download, so this pin reads the VERIFY step's own fetch - it still
+    // must come after the progress-bar story, not before it.
+    expect(body.indexOf("==> verifying the download")).toBeLessThan(
+      body.indexOf("$TARGET.sha256", body.indexOf("==> verifying the download")),
+    );
     // The offer's own headless-safety: the tty OPEN probe (not the [ -r ]
     // permission test alone) and a prompt/read that cannot abort set -e.
     expect(body).toContain("(exec >/dev/tty) 2>/dev/null");
@@ -575,23 +580,53 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     const guardAt = body.indexOf("subshell: setup requires");
     expect(guardAt).toBeGreaterThan(-1);
     expect(body.indexOf('"$DEST" setup')).toBeGreaterThan(guardAt);
-    expect(body.indexOf("exec </dev/tty")).toBeLessThan(guardAt);
+    // The guard READS the tty probe, so the probe block must sit above it.
+    expect(body.indexOf('CAN_PROMPT=""')).toBeLessThan(guardAt);
     const guardBlock = body.slice(guardAt, body.indexOf("exit 2", guardAt));
     expect(guardBlock).toContain("--name <n>");
     expect(guardBlock).toContain("no terminal");
     expect(guardBlock).toContain("SUBSHELL_NODE_NAME");
+    // Nothing can answer = no /dev/tty AND fd 0 is not an inherited tty
+    // either (setup reads an fd-0 terminal directly; that cell must stay
+    // nameable, exactly as the old post-swap [ ! -t 0 ] test left it).
+    expect(body).toContain('[ -z "$NODE_NAME_SET" ] && [ -z "$CAN_PROMPT" ] && [ ! -t 0 ]');
   });
 
-  it("install.sh reattaches /dev/tty so a piped install can answer setup's question", async () => {
+  it("install.sh hands /dev/tty to setup as a per-command redirect and never swaps the script's own stdin", async () => {
     const body = await (await install(await mkKey())).text();
-    // `curl … | bash` leaves stdin on a pipe that is already at EOF, so the
-    // service question would silently take its default with nobody able to
-    // say otherwise. The guard matters as much as the exec: a CI pipe has no
-    // /dev/tty, and under `set -e` an `&&` chain whose first test fails would
-    // abort the whole install — hence the `if` form.
-    expect(body).toContain("exec </dev/tty");
-    expect(body).toContain("if [ -t 1 ] && [ -r /dev/tty ]; then");
-    expect(body.indexOf("exec </dev/tty")).toBeLessThan(body.indexOf('"$DEST" setup'));
+    // The 2026-10-09 stall: the old `exec </dev/tty` reattach stranded the
+    // still-unread tail of a piped script in the pipe - under a real terminal
+    // every human run exited 0 after the chmod, binary installed and NOTHING
+    // enrolled. The tty now reaches only the command that asks questions, as
+    // a redirect on its own invocation (the EXEC pipe-under-pty test pins the
+    // behavior; this pins that the text never regresses to the swap).
+    expect(body).not.toContain("exec </dev/tty");
+    expect(body).toContain("CAN_PROMPT=1");
+    expect(body).toContain("run_setup < /dev/tty");
+    // The probe lands before the call it enables, the call before the banner.
+    expect(body.indexOf('CAN_PROMPT=""')).toBeLessThan(body.indexOf("run_setup < /dev/tty"));
+    expect(body.indexOf("run_setup < /dev/tty")).toBeLessThan(body.indexOf('echo "==> done."'));
+  });
+
+  it("install.sh reuses a checksum-matching binary instead of re-fetching ~100 MB", async () => {
+    const body = await (await install(await mkKey())).text();
+    // The probe asks the SAME key-gated route as the binary (`peekValid` is
+    // consumption-free; enrollment spends the key). Its answer must be a
+    // bare 64-hex before ANY comparison: a body shaped like HTML or an error
+    // line is a miss, and an empty-vs-empty match must never skip.
+    expect(body).toContain('SKIP_DOWNLOAD=""');
+    expect(body).toContain('$TARGET.sha256?setup_key=$KEY" 2>/dev/null');
+    expect(body).toContain('|| EXPECTED_SHA=""');
+    expect(body).toContain("*[!0-9a-fA-F]*");
+    // The tool is UNQUOTED as the command word: quoted, "shasum -a 256" is
+    // one command name (127, empty stdout, missed probe, silent re-download
+    // on every shasum-only box). The EXEC shasum-only case runs the behavior.
+    expect(body).toContain('if [ "$($SHA_TOOL "$DEST" 2>/dev/null | cut -d \' \' -f 1)"');
+    // A match says so and the download block is skipped; the digest tool is
+    // chosen ONCE for probe and verify (no second ladder to drift).
+    expect(body).toContain("already installed (checksum matches); skipping download");
+    expect(body.indexOf("SKIP_DOWNLOAD=1")).toBeLessThan(body.indexOf("==> downloading subshell"));
+    expect(body.match(/command -v sha256sum/g)).toHaveLength(1);
   });
 
   it("install.sh forwards SUBSHELL_NO_SERVICE as --no-service, and passes nothing when it is unset", async () => {
@@ -760,6 +795,68 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   // three fds), propagating the child's exit code through the wrapper.
   const PTY_PY = Bun.which("python3");
 
+  /**
+   * Stubs shared by the EXEC cases: a `curl` that serves the zero-digest and
+   * a fake agent logging its argv (and the HTTP code the binary leg reads),
+   * a fixed `uname`, hash tools that ANSWER the announced digest outside
+   * `-c` mode - so the §3 already-installed probe can genuinely match a
+   * planted binary - and pass any `-c` check, and a no-op `tmux` shadowing
+   * the host's so the install-offer's read cannot block a test. A run with
+   * the DEFAULT bin resolves `sha256sum`; the shasum-only cell below builds
+   * a PATH whose sole hash tool is `shasum -a 256` (the `$3` output arm),
+   * so BOTH ladder spellings are executed, not just the one the host owns.
+   */
+  function makeInstallStubs(work: string): string {
+    const bin = join(work, "bin");
+    mkdirSync(bin);
+    writeFileSync(
+      join(bin, "curl"),
+      [
+        "#!/usr/bin/env bash",
+        'out=""',
+        'prev=""',
+        'for a in "$@"; do',
+        '  [ "$prev" = "--output" ] && out="$a"',
+        '  prev="$a"',
+        "done",
+        'if [ -n "$out" ]; then',
+        '  printf \'%s\\n\' \'#!/usr/bin/env bash\' \'for a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\' > "$out"',
+        "  printf 200", // the binary leg reads the HTTP code off stdout
+        "else",
+        "  printf '%s\\n' \"$(printf '0%.0s' $(seq 1 64))\"", // 64 zeros; the verifier is stubbed too
+        "fi",
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(bin, "uname"),
+      '#!/usr/bin/env bash\ncase "$1" in\n  -s) echo Linux ;;\n  -m) echo x86_64 ;;\nesac\n',
+    );
+    writeFileSync(
+      join(bin, "sha256sum"),
+      [
+        "#!/usr/bin/env bash",
+        'for a in "$@"; do [ "$a" = "-c" ] && exit 0; done',
+        "printf '%s  %s\\n' \"$(printf '0%.0s' $(seq 1 64))\" \"$1\"",
+      ].join("\n"),
+    );
+    writeFileSync(
+      join(bin, "shasum"),
+      [
+        "#!/usr/bin/env bash",
+        'for a in "$@"; do [ "$a" = "-c" ] && exit 0; done',
+        "printf '%s  %s\\n' \"$(printf '0%.0s' $(seq 1 64))\" \"$3\"",
+      ].join("\n"),
+    );
+    // A no-op tmux SHADOWS the host's under the prepended bin: without it,
+    // a host without tmux reaches the install-offer and the pty read
+    // blocks forever (and an interactive runner would see a stray "y"
+    // install packages from a test). Determinism over environment luck.
+    writeFileSync(join(bin, "tmux"), "#!/usr/bin/env bash\nexit 0\n");
+    for (const tool of ["curl", "uname", "sha256sum", "shasum", "tmux"]) chmodSync(join(bin, tool), 0o755);
+    return bin;
+  }
+
   it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC || !PTY_PY)(
     "install.sh EXECUTED end-to-end with stub curl/uname: default → ~/.local/bin/subshell and setup WITHOUT --data-dir or --name; SUBSHELL_DATA_DIR → relocated dest + --data-dir; SUBSHELL_NO_SERVICE → --no-service; SUBSHELL_NODE_NAME → --name",
     async () => {
@@ -774,40 +871,9 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
       const bodyFile = join(work, "install-body.sh");
       writeFileSync(bodyFile, body);
       try {
-        const bin = join(work, "bin");
-        mkdirSync(bin);
-        writeFileSync(
-          join(bin, "curl"),
-          [
-            "#!/usr/bin/env bash",
-            'out=""',
-            'prev=""',
-            'for a in "$@"; do',
-            '  [ "$prev" = "--output" ] && out="$a"',
-            '  prev="$a"',
-            "done",
-            'if [ -n "$out" ]; then',
-            '  printf \'%s\\n\' \'#!/usr/bin/env bash\' \'for a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\' > "$out"',
-            "  printf 200", // the binary leg reads the HTTP code off stdout
-            "else",
-            "  printf '%s\\n' \"$(printf '0%.0s' $(seq 1 64))\"", // 64 zeros; the verifier is stubbed too
-            "fi",
-            "",
-          ].join("\n"),
-        );
-        writeFileSync(
-          join(bin, "uname"),
-          '#!/usr/bin/env bash\ncase "$1" in\n  -s) echo Linux ;;\n  -m) echo x86_64 ;;\nesac\n',
-        );
-        for (const tool of ["sha256sum", "shasum"]) writeFileSync(join(bin, tool), "#!/usr/bin/env bash\nexit 0\n");
-        // A no-op tmux SHADOWS the host's under the prepended bin: without it,
-        // a host without tmux reaches the install-offer and the pty read
-        // blocks forever (and an interactive runner would see a stray "y"
-        // install packages from a test). Determinism over environment luck.
-        writeFileSync(join(bin, "tmux"), "#!/usr/bin/env bash\nexit 0\n");
-        for (const tool of ["curl", "uname", "sha256sum", "shasum", "tmux"]) chmodSync(join(bin, tool), 0o755);
+        const bin = makeInstallStubs(work);
 
-        function runBranch(cwd: string, extraEnv: Record<string, string>) {
+        function runBranch(cwd: string, extraEnv: Record<string, string>, pathOverride?: string) {
           mkdirSync(cwd, { recursive: true });
           const logPath = join(work, `enroll-${cwd.split("/").pop()}.log`);
           // Every run gets its OWN throwaway HOME: the default branch installs
@@ -817,7 +883,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           const env: Record<string, string> = {
             ...(process.env as Record<string, string>),
             HOME: home,
-            PATH: `${bin}:${process.env.PATH ?? ""}`,
+            PATH: pathOverride ?? `${bin}:${process.env.PATH ?? ""}`,
             ENROLL_LOG: logPath,
             ...extraEnv,
           };
@@ -842,6 +908,9 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
           return {
             home,
             exitCode: proc.exitCode,
+            // pty.spawn mirrors the child's pty onto the wrapper's stdout, so
+            // the script's own banners land here.
+            stdout: proc.stdout.toString(),
             stderr: proc.stderr.toString(),
             args: existsSync(logPath) ? readFileSync(logPath, "utf8").trimEnd().split("\n") : [],
           };
@@ -895,6 +964,136 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
         expect(named.args[0]).toBe("setup");
         expect(named.args).toContain("--name");
         expect(named.args[named.args.indexOf("--name") + 1]).toBe("mac mini 42");
+
+        // ── §3: a planted checksum-matching binary is NOT re-fetched ──
+        // The stub hash tool answers the announced 64 zeros for ANY file and
+        // the stub curl announces 64 zeros, so the probe's compare is real
+        // code over stubbed data: what this case pins is the SKIP (no
+        // download happened) and enrollment through the PLANTED binary.
+        const cwdSkip = join(work, "cwd-skip");
+        const skipDestDir = join(work, "home-cwd-skip", ".local", "bin");
+        mkdirSync(skipDestDir, { recursive: true });
+        const planted = join(skipDestDir, "subshell");
+        writeFileSync(
+          planted,
+          '#!/usr/bin/env bash\n# PREPLANTED\nfor a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\n',
+        );
+        chmodSync(planted, 0o755);
+        const skip = runBranch(cwdSkip, {});
+        expect(skip.exitCode).toBe(0);
+        expect(skip.stdout).toContain("already installed (checksum matches)");
+        expect(skip.stdout).not.toContain("==> downloading subshell"); // the ~100 MB was never fetched
+        expect(skip.args[0]).toBe("setup"); // enrolled THROUGH the planted binary
+        expect(readFileSync(planted, "utf8")).toContain("PREPLANTED"); // byte-intact, not replaced
+
+        // ── the shasum-only Darwin cell: the multi-word SHA_TOOL word-splits ──
+        // A Darwin box without sha256sum resolves SHA_TOOL="shasum -a 256".
+        // Used QUOTED ("$SHA_TOOL") that is ONE command name: "shasum -a 256:
+        // command not found" (exit 127, empty stdout - and the 127 is swallowed
+        // inside the [ ... ] test), the probe misses, and the ~100 MB
+        // silently re-downloads. Nothing else in the suite reaches that arm:
+        // command -v resolves the host's sha256sum first, so this PATH is
+        // built to hold NO directory containing one.
+        // PATH must hold NO DIRECTORY containing sha256sum - not even the
+        // host's - or `command -v` resolves it first and the cell silently
+        // re-runs the sha256 arm. The shebangs resolve /usr/bin/env by
+        // ABSOLUTE path (the kernel never consults PATH for them), so env
+        // belongs in no PATH dir here. The paired sha256-only cell makes the
+        // SINGLE-word arm explicit too, instead of leaving it to PATH order
+        // inside the full-PATH cells.
+        const binShasum = join(work, "bin-shasum");
+        const binSha256 = join(work, "bin-sha256only");
+        mkdirSync(binShasum);
+        mkdirSync(binSha256);
+        for (const t of ["curl", "uname", "tmux", "shasum"]) symlinkSync(join(bin, t), join(binShasum, t));
+        for (const t of ["curl", "uname", "tmux", "sha256sum"]) symlinkSync(join(bin, t), join(binSha256, t));
+        // The few externals the script and stubs genuinely exec, symlinked
+        // one by one (same discipline as the headless case).
+        for (const t of ["id", "rm", "mv", "chmod", "tr", "cut", "mkdir", "seq", "bash", "perl"]) {
+          const src = ["/usr/bin", "/bin"].map((d) => join(d, t)).find(existsSync) ?? Bun.which(t);
+          if (src) {
+            symlinkSync(src, join(binShasum, t));
+            symlinkSync(src, join(binSha256, t));
+          }
+        }
+        // A planted matching binary in each cell's throwaway HOME (the name
+        // is derived from the cwd, which is what names the home dirs too).
+        const shPlanted = join(work, "home-cwd-shasum-only", ".local", "bin", "subshell");
+        const saPlanted = join(work, "home-cwd-sha256-only", ".local", "bin", "subshell");
+        for (const p of [shPlanted, saPlanted]) {
+          mkdirSync(p.replace(/\/subshell$/, ""), { recursive: true });
+          writeFileSync(
+            p,
+            '#!/usr/bin/env bash\n# PREPLANTED\nfor a in "$@"; do printf "%s\\n" "$a" >> "$ENROLL_LOG"; done\n',
+          );
+          chmodSync(p, 0o755);
+        }
+        for (const [cwdName, onlyBin] of [
+          ["cwd-shasum-only", binShasum],
+          ["cwd-sha256-only", binSha256],
+        ] as const) {
+          const cell = runBranch(join(work, cwdName), {}, onlyBin);
+          expect(cell.exitCode).toBe(0);
+          expect(cell.stdout).toContain("already installed (checksum matches)"); // the tool word-split AND matched
+          expect(cell.stdout).not.toContain("==> downloading subshell");
+          expect(cell.args[0]).toBe("setup"); // enrolled THROUGH the planted binary
+        }
+        expect(readFileSync(shPlanted, "utf8")).toContain("PREPLANTED");
+        expect(readFileSync(saPlanted, "utf8")).toContain("PREPLANTED");
+      } finally {
+        rmSync(work, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(!BASH || !HASH_TOOL || !FILE_EXEC || !PTY_PY)(
+    "install.sh EXECUTED through a pipe while the terminal is a pty: the script tail survives (the 2026-10-09 stall regression pin)",
+    async () => {
+      // The missing matrix cell: the pty suite ran the body from a FILE
+      // (a form that cannot truncate) and the cli-e2e pipe had NO tty (the
+      // old stdin swap never fired). A human's `curl … | bash` at a terminal
+      // is BOTH at once, and the old swap died there silently after the
+      // chmod: exit 0, binary installed, nothing enrolled. Today this must
+      // reach the enrollment banner and run the stub setup; against the old
+      // template it hangs and fails on the time budget.
+      const key = await mkKey();
+      const body = await (await install(key)).text();
+      const work = mkdtempSync(join(tmpdir(), "subshell-pipe-pty-"));
+      try {
+        const bin = makeInstallStubs(work);
+        const bodyFile = join(work, "install-body.sh");
+        writeFileSync(bodyFile, body);
+        const logPath = join(work, "enroll.log");
+        const env: Record<string, string> = {
+          ...(process.env as Record<string, string>),
+          HOME: join(work, "home"),
+          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          ENROLL_LOG: logPath,
+        };
+        for (const knob of ["SUBSHELL_DATA_DIR", "SUBSHELL_NO_SERVICE", "SUBSHELL_NODE_NAME"]) delete env[knob];
+        // pty.spawn gives the child a real terminal on every fd; the
+        // pipeline then REPLACES bash's stdin with the pipe, exactly the
+        // one-liner's shape: script on a pipe, questions answerable.
+        const proc = Bun.spawnSync(
+          [
+            PTY_PY as string,
+            "-c",
+            "import os,pty,sys; sys.exit(os.waitstatus_to_exitcode(pty.spawn(sys.argv[1:])))",
+            "bash",
+            "-c",
+            'cat "$1" | bash',
+            "x",
+            bodyFile,
+          ],
+          { cwd: work, env },
+        );
+        const out = proc.stdout.toString();
+        expect(proc.exitCode).toBe(0);
+        expect(out).toContain("==> downloading subshell");
+        expect(out).toContain("==> enrolling with"); // the stranded tail RAN
+        expect(out).toContain("==> done.");
+        expect(existsSync(logPath)).toBe(true);
+        expect(readFileSync(logPath, "utf8")).toContain("setup");
       } finally {
         rmSync(work, { recursive: true, force: true });
       }

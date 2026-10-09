@@ -101,8 +101,12 @@ function resolveBakedServer(raw: string | undefined): string {
  * service, and `SUBSHELL_NODE_NAME` forwards `--name` so a script can name the
  * node. Unset, the name is not guessed here — `setup` ASKS on the machine
  * (the node-setup revamp moved naming off the mint dialog and onto the box
- * that knows its own hostname), which is why the script reattaches `/dev/tty`
- * before the last line and why `--name` is what a nameless pipe must pass.
+ * that knows its own hostname), which is why the script hands `/dev/tty` to
+ * `setup`'s stdin and why `--name` is what a nameless pipe must pass. The
+ * hand-off is per-COMMAND, never an `exec </dev/tty` swap of fd 0: while the
+ * script itself arrives through `curl … | bash`, the swap strands the tail
+ * still sitting in the pipe (measured under a real pty, 2026-10-09, §2 of
+ * the install-stall handoff).
  *
  * The script ends at ONE CLI verb, `setup` (spec 2026-09-15 §4.5), which is
  * where every question lives. It used to end at `enroll` plus a printed
@@ -180,6 +184,44 @@ case "$OS/$ARCH" in
     ;;
 esac
 
+# The digest tool, chosen ONCE: the already-installed probe below and the
+# verify step after a download both need it. Empty means this machine has
+# neither; only the download path turns that into a refusal (the probe treats
+# it as a plain miss), because a machine that cannot hash can still be told
+# what to fetch. Never quote the later uses: "shasum -a 256" must word-split
+# into argv.
+SHA_TOOL=""
+if command -v sha256sum >/dev/null 2>&1; then
+  SHA_TOOL="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+  SHA_TOOL="shasum -a 256"
+fi
+
+# A re-run after a failed install must not re-fetch the ~100 MB binary that
+# is already sitting there working: ask the server (the SAME key-gated route
+# as the binary; the key is only spent by enrollment) what digest the current
+# release carries, and if $DEST answers to it, skip straight to enrollment.
+# Every failure here is a MISS that falls through to today's download path:
+# no $DEST yet, no hash tool, server unreachable, key refused, or a body that
+# is not a bare 64-hex (whatever stands in front of this server may answer
+# 200 with a login page; the shape check is the belt). The probe is never
+# fatal, and it never skips on an empty-vs-empty comparison.
+SKIP_DOWNLOAD=""
+EXPECTED_SHA=""
+if [ -f "$DEST" ] && [ -n "$SHA_TOOL" ]; then
+  EXPECTED_SHA="$(curl --fail --silent --location \\
+    "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" 2>/dev/null | tr -d '[:space:]')" || EXPECTED_SHA=""
+  case "$EXPECTED_SHA" in
+    '' | *[!0-9a-fA-F]*) EXPECTED_SHA="" ;;
+    *) [ "\${#EXPECTED_SHA}" = "64" ] || EXPECTED_SHA="" ;;
+  esac
+  if [ -n "$EXPECTED_SHA" ]; then
+    if [ "$($SHA_TOOL "$DEST" 2>/dev/null | cut -d ' ' -f 1)" = "$EXPECTED_SHA" ]; then
+      SKIP_DOWNLOAD=1
+    fi
+  fi
+fi
+
 # tmux BEFORE the download, and a warning rather than a refusal. A node cannot
 # run a single subshell without it, and the old path let you find that out from
 # a launch that failed an hour later - the enroll preflight refuses correctly,
@@ -253,95 +295,106 @@ if ! command -v tmux >/dev/null 2>&1; then
   esac
 fi
 
-echo "==> downloading subshell ($TARGET) from $SERVER"
-# Download to a temp path and only REPLACE $DEST after verification: curl
-# --fail leaves an existing output file byte-intact, so the historical
-# fetch-straight-into-$DEST made a failed re-run in an installed node's
-# directory a clobber-or-delete of a WORKING binary. The HTTP code is
-# inspected rather than curl's exit status alone — "404, this server has no
-# artifact" and "401, your key is spent" need different advice (bare curl(22)
-# said neither, and an exit-status-only guard says 404 for both, and for
-# every network failure too). The progress bar is on the wire because this
-# fetch is ~100 MB and --silent made minutes of healthy transfer indistinguishable from a hang.
-TMP="$DEST.part"
-if ! HTTP="$(curl --show-error --location --progress-bar \\
-  "$SERVER/api/downloads/node/$TARGET?setup_key=$KEY" \\
-  --output "$TMP" --write-out '%{http_code}')"; then
-  rm -f "$TMP" 2>/dev/null || true
-  echo "subshell: could not reach $SERVER; nothing was installed ($DEST untouched)." >&2
-  exit 1
-fi
-case "$HTTP" in
-  200) ;;
-  401)
-    rm -f "$TMP" 2>/dev/null || true
-    echo "subshell: the setup key was rejected: invalid, expired, or already used." >&2
-    echo "    Mint a fresh one (Nodes → Add node in the web UI) and rerun the install command." >&2
-    exit 1
-    ;;
-  404)
-    rm -f "$TMP" 2>/dev/null || true
-    echo "subshell: this server could not provide a $TARGET node binary." >&2
-    echo "    It serves what is in its node-artifacts dir, and downloads a missing build from the" >&2
-    echo "    project's own cli-node-vX.Y.Z release on first use, so this usually means the server" >&2
-    echo "    cannot reach that release (no outbound network, or SUBSHELL_RELEASE_URL is" >&2
-    echo "    empty). Check the server's log for the reason. To supply it by hand instead, run" >&2
-    echo "    'bun run release:cli-node' from a checkout on the server host, or copy the" >&2
-    echo "    'subshell-node-cli-$TARGET' asset from a cli-node-vX.Y.Z GitHub Release into that dir." >&2
-    echo "    Or install the node for this machine another way and run setup directly:" >&2
-    echo "      subshell setup --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
-    exit 1
-    ;;
-  *)
-    rm -f "$TMP" 2>/dev/null || true
-    echo "subshell: server answered HTTP $HTTP for the node download; nothing installed ($DEST untouched)." >&2
-    exit 1
-    ;;
-esac
-
-echo "==> verifying the download" >&2
-# Verify the digest on the temp file BEFORE it can be executed or replace
-# $DEST. The endpoint answers with the bare 64-hex; sha256sum -c /
-# shasum -a 256 -c both take the "<hash>  <file>" spelling. A mismatch is a
-# corrupt download or a server serving a stale sidecar — either way the old
-# $DEST survives.
-if ! EXPECTED="$(curl --fail --silent --show-error --location \\
-  "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" | tr -d '[:space:]')"; then
-  rm -f "$TMP" 2>/dev/null || true
-  echo "subshell: could not fetch the checksum; nothing was installed ($DEST untouched)." >&2
-  exit 1
-fi
-printf '%s  %s\\n' "$EXPECTED" "$TMP" > "$TMP.sha256"
-if command -v sha256sum >/dev/null 2>&1; then
-  VERIFY="sha256sum -c"
-elif command -v shasum >/dev/null 2>&1; then
-  VERIFY="shasum -a 256 -c"
+if [ -n "$SKIP_DOWNLOAD" ]; then
+  echo "==> subshell $TARGET already installed (checksum matches); skipping download"
 else
-  rm -f "$TMP" "$TMP.sha256" 2>/dev/null || true
-  echo "subshell: need sha256sum or shasum to verify the download" >&2
-  exit 1
-fi
-if ! $VERIFY "$TMP.sha256"; then
-  rm -f "$TMP" "$TMP.sha256" 2>/dev/null || true
-  echo "subshell: checksum mismatch: corrupt download or inconsistent server artifacts;" >&2
-  echo "    nothing was installed ($DEST untouched)." >&2
-  exit 1
-fi
-rm -f "$TMP.sha256"
-mv -f "$TMP" "$DEST"
+  echo "==> downloading subshell ($TARGET) from $SERVER"
+  # Download to a temp path and only REPLACE $DEST after verification: curl
+  # --fail leaves an existing output file byte-intact, so the historical
+  # fetch-straight-into-$DEST made a failed re-run in an installed node's
+  # directory a clobber-or-delete of a WORKING binary. The HTTP code is
+  # inspected rather than curl's exit status alone — "404, this server has no
+  # artifact" and "401, your key is spent" need different advice (bare curl(22)
+  # said neither, and an exit-status-only guard says 404 for both, and for
+  # every network failure too). The progress bar is on the wire because this
+  # fetch is ~100 MB and --silent made minutes of healthy transfer indistinguishable from a hang.
+  TMP="$DEST.part"
+  if ! HTTP="$(curl --show-error --location --progress-bar \\
+    "$SERVER/api/downloads/node/$TARGET?setup_key=$KEY" \\
+    --output "$TMP" --write-out '%{http_code}')"; then
+    rm -f "$TMP" 2>/dev/null || true
+    echo "subshell: could not reach $SERVER; nothing was installed ($DEST untouched)." >&2
+    exit 1
+  fi
+  case "$HTTP" in
+    200) ;;
+    401)
+      rm -f "$TMP" 2>/dev/null || true
+      echo "subshell: the setup key was rejected: invalid, expired, or already used." >&2
+      echo "    Mint a fresh one (Nodes → Add node in the web UI) and rerun the install command." >&2
+      exit 1
+      ;;
+    404)
+      rm -f "$TMP" 2>/dev/null || true
+      echo "subshell: this server could not provide a $TARGET node binary." >&2
+      echo "    It serves what is in its node-artifacts dir, and downloads a missing build from the" >&2
+      echo "    project's own cli-node-vX.Y.Z release on first use, so this usually means the server" >&2
+      echo "    cannot reach that release (no outbound network, or SUBSHELL_RELEASE_URL is" >&2
+      echo "    empty). Check the server's log for the reason. To supply it by hand instead, run" >&2
+      echo "    'bun run release:cli-node' from a checkout on the server host, or copy the" >&2
+      echo "    'subshell-node-cli-$TARGET' asset from a cli-node-vX.Y.Z GitHub Release into that dir." >&2
+      echo "    Or install the node for this machine another way and run setup directly:" >&2
+      echo "      subshell setup --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
+      exit 1
+      ;;
+    *)
+      rm -f "$TMP" 2>/dev/null || true
+      echo "subshell: server answered HTTP $HTTP for the node download; nothing installed ($DEST untouched)." >&2
+      exit 1
+      ;;
+  esac
 
+  echo "==> verifying the download" >&2
+  # Verify the digest on the temp file BEFORE it can be executed or replace
+  # $DEST. The endpoint answers with the bare 64-hex; sha256sum -c /
+  # shasum -a 256 -c both take the "<hash>  <file>" spelling. A mismatch is a
+  # corrupt download or a server serving a stale sidecar — either way the old
+  # $DEST survives.
+  if ! EXPECTED="$(curl --fail --silent --show-error --location \\
+    "$SERVER/api/downloads/node/$TARGET.sha256?setup_key=$KEY" | tr -d '[:space:]')"; then
+    rm -f "$TMP" 2>/dev/null || true
+    echo "subshell: could not fetch the checksum; nothing was installed ($DEST untouched)." >&2
+    exit 1
+  fi
+  printf '%s  %s\\n' "$EXPECTED" "$TMP" > "$TMP.sha256"
+  if [ -z "$SHA_TOOL" ]; then
+    rm -f "$TMP" "$TMP.sha256" 2>/dev/null || true
+    echo "subshell: need sha256sum or shasum to verify the download" >&2
+    exit 1
+  fi
+  if ! $SHA_TOOL -c "$TMP.sha256"; then
+    rm -f "$TMP" "$TMP.sha256" 2>/dev/null || true
+    echo "subshell: checksum mismatch: corrupt download or inconsistent server artifacts;" >&2
+    echo "    nothing was installed ($DEST untouched)." >&2
+    exit 1
+  fi
+  rm -f "$TMP.sha256"
+  mv -f "$TMP" "$DEST"
+fi
+
+# Either the freshly verified file or the pre-existing one the probe matched:
+# both are made executable here, so a skip cannot strand a +x-less binary the
+# download path would have fixed up.
 chmod +x "$DEST"
 
-# Reattach the controlling terminal. \`curl … | bash\` leaves stdin on the pipe,
-# which is at EOF by the time setup asks whether to install a background
-# service — so the question would be answered by nobody and take its default
-# with the operator watching. Written as an \`if\` rather than an "&&" chain
-# because a short-circuited chain leaves the statement's exit status at 1,
-# which matters when it is the last thing a branch runs; \`set -e\` itself does
-# NOT abort on one (measured: bash, sh and dash all continue). Guarded on
-# /dev/tty because a CI pipe has none.
-if [ -t 1 ] && [ -r /dev/tty ]; then
-  exec </dev/tty
+# The controlling terminal goes to setup's stdin as a per-command redirect,
+# NEVER as a global swap of the script's own stdin onto the tty. When the
+# script itself arrived through a pipe, the swap stranded the bytes still
+# sitting between bash's parse point and the pipe's end: bash then hit EOF on
+# the tty mid-script and exited 0, silently - the 2026-10-09 stall where
+# every human run "completed"
+# after the chmod without ever enrolling (measured: a pipe+pty harness dies
+# with the old shape and prints the whole tail with the new one). A redirect
+# on the one command that asks questions costs the same interactivity and
+# leaves bash's own stdin where its script lives. The probe is the tmux
+# offer's open-the-tty test: \`[ -r ]\` alone passes with no controlling
+# terminal at all, and the redirect would then fail ENXIO under \`set -e\`.
+# Written as an \`if\` rather than an "&&" chain because a short-circuited
+# chain leaves the statement's exit status at 1; \`set -e\` itself does NOT
+# abort on one (measured: bash, sh and dash all continue).
+CAN_PROMPT=""
+if [ -r /dev/tty ] && (exec >/dev/tty) 2>/dev/null; then
+  CAN_PROMPT=1
 fi
 
 # The scripted opt-out (\`curl … | SUBSHELL_NO_SERVICE=1 bash\`), for anyone who
@@ -358,7 +411,8 @@ if [ "\${SUBSHELL_NO_SERVICE:-}" = "1" ]; then
 fi
 
 # The scripted name. Unset, the array stays empty and setup asks for one on the
-# controlling terminal — reattached just above this block; set, nothing is asked. Same
+# controlling terminal — handed to setup's stdin at the call below; set,
+# nothing is asked. Same
 # empty-array guard as the data-dir args, and the VALUE is never expanded into
 # this script — it is read at runtime and quoted, so a name with spaces in the
 # operator's own environment cannot rewrite the command. (No backticks in this
@@ -375,16 +429,30 @@ fi
 # operator piping this into tee saw eighty help lines for one missing name.
 # Refuse here instead in two lines that name both fixes; exit 2 stays the same
 # usage code, and the key is untouched either way, so this is a rerun, not a
-# redo. (\`exec <\` above only succeeded when a tty existed, so the fd-0 test
-# after the reattach block is the whole question.)
-if [ -z "$NODE_NAME_SET" ] && [ ! -t 0 ]; then
+# redo. (CAN_PROMPT is the whole question: fd 0 stays wherever the script
+# came from for the entire run, so it is not a test of "someone can answer"
+# the way it was under the old swap. The one answerable case that survives
+# WITHOUT /dev/tty is an inherited tty on fd 0 itself, which \`setup\` reads
+# directly; that is why [ ! -t 0 ] stays in the condition.)
+if [ -z "$NODE_NAME_SET" ] && [ -z "$CAN_PROMPT" ] && [ ! -t 0 ]; then
   echo "subshell: setup requires --name <n> when nothing can be asked: this shell has no terminal to prompt on." >&2
   echo "    re-run naming the node: SUBSHELL_NODE_NAME=\\"my-box\\" curl -fsSL <this-url> | bash" >&2
   exit 2
 fi
 
 echo "==> enrolling with $SERVER"
-"$DEST" setup --server "$SERVER" --key "$KEY" \${SETUP_DATA_DIR_ARGS[@]+"\${SETUP_DATA_DIR_ARGS[@]}"} \${SETUP_SERVICE_ARGS[@]+"\${SETUP_SERVICE_ARGS[@]}"} \${SETUP_NAME_ARGS[@]+"\${SETUP_NAME_ARGS[@]}"}
+# One verb, two stdin shapes. The function keeps the guarded empty-array
+# expansions a single source; the ONLY difference is who answers setup's
+# questions. set -e still aborts on a failed setup: it sits in an if-BRANCH,
+# not in a condition (measured posture the old \`exec\` comment pinned).
+run_setup() {
+  "$DEST" setup --server "$SERVER" --key "$KEY" \${SETUP_DATA_DIR_ARGS[@]+"\${SETUP_DATA_DIR_ARGS[@]}"} \${SETUP_SERVICE_ARGS[@]+"\${SETUP_SERVICE_ARGS[@]}"} \${SETUP_NAME_ARGS[@]+"\${SETUP_NAME_ARGS[@]}"}
+}
+if [ -n "$CAN_PROMPT" ]; then
+  run_setup < /dev/tty
+else
+  run_setup
+fi
 
 echo "==> done."
 echo "    the node runs as the invoking user; no sudo needed (data lives in \${DATA_DIR:-the default node data dir})."
