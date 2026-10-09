@@ -6,7 +6,9 @@ import { hashPassword } from "better-auth/crypto";
 import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { deleteUserByEmailOrId, setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
 import { db } from "@/db/index.js";
+import { SshHostPinsRepository } from "@/db/repositories/ssh-host-pins.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import type { SshHostPinTable } from "@/db/types/ssh-grants.db-types.js";
 import { SshRpcError } from "@/services/nodes/ssh-rpc.js";
 import {
   captureHostPin,
@@ -254,6 +256,85 @@ describe("capture", () => {
     );
     expect(hostPinRefusal(refused)).toMatchObject({ status: 502, code: BackendErrorCodes.SSH_NODE_REFUSED });
     expect(await hostPinFor({ ownerUserId: owner, destination: DEST })).toBeNull();
+  });
+});
+
+describe("the concurrent-first-capture race (the UNIQUE index decides, never a raw error)", () => {
+  /**
+   * Simulate the interleaving deterministically without a second connection:
+   * blind the service's FIRST getPin (the read every serialized capture made
+   * before its rival committed) while the real UNIQUE(owner_user_id,
+   * destination) index stays live, so the loser's insert collides for real
+   * and the re-read sees the winner. Every later read answers truthfully.
+   */
+  async function withBlindedFirstRead<T>(fn: () => Promise<T>): Promise<T> {
+    const proto = SshHostPinsRepository.prototype as {
+      getPin: (ownerUserId: string, destination: string) => Promise<SshHostPinTable | null>;
+    };
+    const realGetPin = proto.getPin;
+    let blinded = false;
+    proto.getPin = async function (this: SshHostPinsRepository, o: string, d: string) {
+      if (!blinded) {
+        blinded = true;
+        return null;
+      }
+      return await realGetPin.call(this, o, d);
+    };
+    try {
+      return await fn();
+    } finally {
+      proto.getPin = realGetPin;
+    }
+  }
+
+  async function pinRowCount(): Promise<number> {
+    const rows = await db.selectFrom("sshHostPins").select("id").execute();
+    return rows.length;
+  }
+
+  async function createAuditCount(): Promise<number> {
+    const rows = await db
+      .selectFrom("auditEvents")
+      .select("id")
+      .where("action", "=", "node.ssh_host_pin.create")
+      .execute();
+    return rows.length;
+  }
+
+  it("two concurrent FIRST captures at the SAME key: no raw error, one row, one create row, both answer the winner's pin", async () => {
+    // This is what the unguarded get-then-insert surfaced as a raw
+    // SqliteError (a 500 on the grant path): the collision must resolve to
+    // the serialized path's outcome - idempotent success, touched stamp.
+    const [a, b] = await withBlindedFirstRead(async () => {
+      return await Promise.all([
+        captureHostPin({ ownerUserId: owner, aNodeId: "node-a", destination: DEST }),
+        captureHostPin({ ownerUserId: owner, aNodeId: "node-a", destination: DEST }),
+      ]);
+    });
+    expect(a.hostKey).toBe(LINE);
+    expect(b.hostKey).toBe(LINE);
+    expect(a.id).toBe(b.id); // both answered the SAME standing row
+    expect(await pinRowCount()).toBe(1);
+    expect(await createAuditCount()).toBe(1); // the winner created; the loser only touched
+  });
+
+  it("a FIRST capture colliding with a DIFFERENT key is the changed block through the race path too, the winner's row standing", async () => {
+    // The winner's LINE stands; the loser (blinded initial read) races in
+    // with OTHER_LINE, hits the index, and must read back and refuse exactly
+    // as the serialized path does - not crash, not overwrite.
+    await captureHostPin({ ownerUserId: owner, aNodeId: "node-a", destination: DEST }); // the winner
+    fetchAnswer = () => ({ lines: [OTHER_LINE] });
+    const err = await withBlindedFirstRead(async () => {
+      return await expectPinError(
+        () => captureHostPin({ ownerUserId: owner, aNodeId: "node-a", destination: DEST }),
+        "changed",
+      );
+    });
+    expect(hostPinRefusal(err).code).toBe(BackendErrorCodes.SSH_HOST_PIN_CHANGED);
+    const standing = await hostPinFor({ ownerUserId: owner, destination: DEST });
+    expect(standing?.hostKey).toBe(LINE);
+    expect(await pinRowCount()).toBe(1);
+    expect(await createAuditCount()).toBe(1);
   });
 });
 

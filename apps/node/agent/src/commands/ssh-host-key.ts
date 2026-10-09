@@ -77,7 +77,8 @@ export function sshHostKeyCandidates({ host, port, user }: SshHostKeyCommand): s
  * not, and both are dropped here. Non-zero exit with no output is OpenSSH's
  * spelling of "this candidate matched nothing" (and of an unreadable file -
  * the caller distinguishes those by whether ANY candidate produced bytes
- * and by the stderr it logs); non-zero with output still yields its entries.
+ * and by the stderr it reports); non-zero with output still yields its
+ * entries.
  */
 function entryLines(stdout: string): string[] {
   const lines: string[] = [];
@@ -127,8 +128,9 @@ export async function execSshHostKey(
       // Non-zero AND silent: "no match" (normal, keep looking) is
       // indistinguishable from "cannot read the file" only by stderr, and
       // the file's readability was not claimed - so an unreadable file must
-      // not read as "A recorded nothing". One line to the log (names never
-      // key bytes); the refusal goes to the plane as the named error.
+      // not read as "A recorded nothing". No log line is written here: the
+      // refusal below names the cause to the plane, which is the whole
+      // record this arm keeps.
       sawReadFailure = sawReadFailure || run.stderr.trim() !== "";
       continue;
     }

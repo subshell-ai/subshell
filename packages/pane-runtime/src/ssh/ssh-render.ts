@@ -155,14 +155,18 @@ const HOST_KEY_CHECK: Record<"direct" | "relay", string> = { direct: "accept-new
  * — the same approval always renders the same file, which is what makes the
  * run's recorded config byte-checkable.
  *
- * Relay mode (the second argument, spec 2026-10-08 §9) changes EXACTLY two
+ * Relay mode (the second argument, spec 2026-10-08 §9) changes EXACTLY three
  * things, and pins the test suite to all of them: `StrictHostKeyChecking`
  * says `yes` instead of `accept-new` (a changed D key is refused by OpenSSH
- * naming D; nothing new is ever recorded), and `UserKnownHostsFile` is the
+ * naming D; nothing new is ever recorded); `UserKnownHostsFile` is the
  * session's pinned file and NOTHING ELSE - the snapshot's own trust refs are
  * replaced, because on the relay path B's ambient known_hosts is not the
- * authority, A's recorded key is. Absent the option (every M1 launch) the
- * bytes are the accept-new posture byte-for-byte, untouched.
+ * authority, A's recorded key is; and `GlobalKnownHostsFile` becomes
+ * `/dev/null`, because OpenSSH consults the system-wide file ALONGSIDE the
+ * user file and a match there satisfies `yes` - a planted or stale entry in
+ * B's `/etc/ssh/ssh_known_hosts` must not authenticate D either. Absent the
+ * option (every M1 launch) the bytes are the accept-new posture
+ * byte-for-byte, untouched: the direct branch never names the global file.
  */
 export function renderSshConfigContents(snapshot: SshConnectionSnapshotWire, relay?: SshRelayRenderOption): string {
   assertRenderable(snapshot);
@@ -189,11 +193,13 @@ export function renderSshConfigContents(snapshot: SshConnectionSnapshotWire, rel
       : []),
     "Host *",
     ...MANDATORY_POLICY.map(([key, value]) => `    ${key} ${key === "StrictHostKeyChecking" ? checking : value}`),
-    // Relay: the pinned file is the ONE trust source, the snapshot's own
-    // refs must not ride beside it. Direct: the M1 rule (silence IS the
+    // Relay: the pinned file is the ONE trust source - the snapshot's own
+    // refs must not ride beside it, and neither may the system-wide DB
+    // (`yes` consults GlobalKnownHostsFile too, so it is /dev/null'd; one
+    // site names both trust refs). Direct: the M1 rule (silence IS the
     // policy, the machine's default known_hosts is the trust store).
     ...(relay
-      ? [`    UserKnownHostsFile ${configPathValue(relay.hostPinPath)}`]
+      ? [`    UserKnownHostsFile ${configPathValue(relay.hostPinPath)}`, "    GlobalKnownHostsFile /dev/null"]
       : knownHostsLines(snapshot.knownHostsFiles)),
     ...snapshot.identityFiles.map((f) => `    IdentityFile ${configPathValue(f)}`),
     ...snapshot.certificateFiles.map((f) => `    CertificateFile ${configPathValue(f)}`),
