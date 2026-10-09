@@ -3,8 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   SshAgentIdentity,
   SshAliasesView,
-  SshGrant,
-  SshGrantRequest,
   SshHostPin,
   SshLaunchRequest,
   SshLaunchResponse,
@@ -115,188 +113,22 @@ export function useLaunchSsh() {
 }
 
 /* ------------------------------------------------------------------ */
-/* key grants, first-use approvals, destination host-key pins          */
+/* live key identities and destination host-key pins          */
 /* (spec 2026-10-08 §6, §8-§9; the operator screens of Task 15)         */
 /* ------------------------------------------------------------------ */
 
-export const SSH_GRANTS_QUERY_KEY = ["ssh-grants"] as const;
-export const SSH_GRANT_REQUESTS_QUERY_KEY = ["ssh-grant-requests"] as const;
 export const SSH_HOST_PINS_QUERY_KEY = ["ssh-host-pins"] as const;
-/** The roster is per-request: the key home answers live, so no two cards share an entry. */
-export const sshRosterQueryKey = (requestId: string) => ["ssh-grant-roster", requestId] as const;
-/** The create picker's roster is per-NODE (Task 18): the key home answers live each time it is asked. */
 export const sshNodeRosterQueryKey = (nodeId: string) => ["ssh-node-roster", nodeId] as const;
 
-/** The owner's standing key grants, newest first. */
-export function useSshGrants() {
-  return useQuery({
-    queryKey: SSH_GRANTS_QUERY_KEY,
-    queryFn: () => apiFetch<{ grants: SshGrant[] }>("/api/ssh/grants"),
-  });
-}
-
-/**
- * `GET /api/ssh/grants/identities?node=` - the roster-BY-NODE read (spec §8,
- * Task 18): the chosen key home's live agent roster for the CREATE picker,
- * with no pending request standing. Same doctrine as the approval roster:
- * fetched on demand (the picker gates on an actual pick), and an offline or
- * refusing key home answers a named error rather than the empty list an
- * honest live agent reports.
- */
 export function useSshNodeRoster(nodeId: string | null) {
   return useQuery({
     queryKey: sshNodeRosterQueryKey(nodeId ?? ""),
     queryFn: () =>
-      apiFetch<{ identities: SshAgentIdentity[] }>(
-        `/api/ssh/grants/identities?node=${encodeURIComponent(nodeId ?? "")}`,
-      ),
+      apiFetch<{ identities: SshAgentIdentity[] }>(`/api/ssh/identities?node=${encodeURIComponent(nodeId ?? "")}`),
     enabled: nodeId !== null && nodeId !== "",
   });
 }
 
-/** The create body, exactly the route's contract: key home, name, selector, the selected keys. */
-export interface SshGrantCreate {
-  /** Key home machine whose agent will sign (an agent node the caller owns) */
-  nodeId: string;
-  /** Display name for the grant (required by the route) */
-  name: string;
-  /** Destination selector: a concrete hostname or a '*' host pattern */
-  selector: string;
-  /** The selected public identities; over-cap is a hard error, never a truncation */
-  fingerprints: string[];
-}
-
-/**
- * `POST /api/ssh/grants` - the §8 manual create, the SAME row the approved
- * first use writes (`createdVia: "manual"` here). The ledger invalidates on
- * success; an over-cap or off-grammar selection is the server's hard refusal,
- * echoed back red.
- */
-export function useCreateSshGrant() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (draft: SshGrantCreate) =>
-      apiPost<{ grant: SshGrant }>("/api/ssh/grants", {
-        node: draft.nodeId,
-        name: draft.name,
-        selector: draft.selector,
-        fingerprints: draft.fingerprints,
-      }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: SSH_GRANTS_QUERY_KEY }),
-  });
-}
-
-/** The edit body (§8's "edit the selector/name"): the two fields PATCH accepts. */
-export interface SshGrantEdit {
-  grantId: string;
-  /** New display name */
-  name: string;
-  /** New destination selector (a concrete hostname or a '*' host pattern) */
-  selector: string;
-}
-
-/**
- * `PATCH /api/ssh/grants/:id` - the §8 name/selector edit. The body can only
- * ever carry those two fields: which keys serve is IMMUTABLE server-side
- * (widening a standing selection is a revoke plus a fresh grant), and this
- * mutation gives the fingerprint set no way onto the wire.
- */
-export function useUpdateSshGrant() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (draft: SshGrantEdit) =>
-      apiFetch<{ grant: SshGrant }>(`/api/ssh/grants/${encodeURIComponent(draft.grantId)}`, {
-        method: "PATCH",
-        body: JSON.stringify({ name: draft.name, selector: draft.selector }),
-      }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: SSH_GRANTS_QUERY_KEY }),
-  });
-}
-
-/**
- * `DELETE /api/ssh/grants/:id` - the instant both-ways cut: the row goes and
- * every live relay that ran under it is torn down server-side. 204 no body;
- * a foreign row is the same 404 as an absent one.
- */
-export function useRevokeSshGrant() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (id: string) => apiFetch(`/api/ssh/grants/${encodeURIComponent(id)}`, { method: "DELETE" }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: SSH_GRANTS_QUERY_KEY }),
-  });
-}
-
-/** The owner's outstanding first-use approvals, newest first (the GET sweeps expired rows first). */
-export function useSshGrantRequests() {
-  return useQuery({
-    queryKey: SSH_GRANT_REQUESTS_QUERY_KEY,
-    queryFn: () => apiFetch<{ requests: SshGrantRequest[] }>("/api/ssh/grant-requests"),
-    refetchInterval: 5000,
-  });
-}
-
-/**
- * The key home's live agent roster to approve FROM. `enabled` gates on the
- * card actually being open: an offline or refusing key home answers a named
- * error and the request stays pending, never a fabricated empty roster, so
- * the roster is fetched on demand rather than for every queued question.
- */
-export function useSshGrantRoster(requestId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: sshRosterQueryKey(requestId),
-    queryFn: () =>
-      apiFetch<{ identities: SshAgentIdentity[] }>(
-        `/api/ssh/grant-requests/${encodeURIComponent(requestId)}/identities`,
-      ),
-    enabled,
-  });
-}
-
-/** The approve body: the selected fingerprints, and an optional display name for the new grant. */
-export interface SshGrantApproval {
-  requestId: string;
-  fingerprints: string[];
-  /** Display name override; absent keeps the server's default naming */
-  name?: string;
-}
-
-/**
- * `POST /api/ssh/grant-requests/:id/approve` - answers YES and writes the
- * standing grant. Both lists move: the row leaves the queue, the grant joins
- * the ledger. An over-cap selection is a hard refusal server-side, never a
- * truncation; the screen shows the same sentence before sending.
- */
-export function useApproveSshGrantRequest() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (draft: SshGrantApproval) =>
-      apiPost<{ grant: SshGrant }>(`/api/ssh/grant-requests/${encodeURIComponent(draft.requestId)}/approve`, {
-        fingerprints: draft.fingerprints,
-        ...(draft.name ? { name: draft.name } : {}),
-      }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: SSH_GRANT_REQUESTS_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: SSH_GRANTS_QUERY_KEY });
-      void queryClient.invalidateQueries({ queryKey: SSH_HOST_PINS_QUERY_KEY });
-    },
-  });
-}
-
-/**
- * `POST /api/ssh/grant-requests/:id/deny` - answers NO. No grant and no pin
- * exists for a denial; a later relaunch simply asks again, so denying needs
- * no confirm.
- */
-export function useDenySshGrantRequest() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (requestId: string) =>
-      apiPost<{ requestId: string }>(`/api/ssh/grant-requests/${encodeURIComponent(requestId)}/deny`, {}),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: SSH_GRANT_REQUESTS_QUERY_KEY }),
-  });
-}
-
-/** The owner's destination host-key pins, newest first (key bytes are display-excluded by construction). */
 export function useSshHostPins() {
   return useQuery({
     queryKey: SSH_HOST_PINS_QUERY_KEY,
@@ -362,5 +194,13 @@ export function useRepairSshMachinePin(nodeId: string) {
       void queryClient.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, nodeId] });
       void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
     },
+  });
+}
+
+export function useSshReadiness() {
+  return useQuery({
+    queryKey: ["ssh-readiness"],
+    queryFn: () => apiFetch<{ machines: import("@/lib/ssh").SshMachineReadiness[] }>("/api/ssh/readiness"),
+    refetchInterval: 5000,
   });
 }

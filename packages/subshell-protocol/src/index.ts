@@ -260,8 +260,8 @@ export {
   type SshErrorCode,
 } from "./ssh-errors.js";
 export {
-  isSshGrantFingerprint,
-  isSshGrantFingerprints,
+  isSshFingerprint,
+  isSshFingerprints,
   isSshKnownHostsPinLine,
   isSshPaneId,
   isSshPeerEncryptJwkB64Str,
@@ -292,10 +292,10 @@ export {
   SSH_EXEC_RETAIN_BYTES,
   SSH_EXEC_TIMEOUT_MAX_MS,
   SSH_MAX_DISCOVERED_ALIASES,
-  SSH_MAX_GRANT_FINGERPRINTS,
   SSH_MAX_HOST_KEY_LINES,
   SSH_MAX_HOST_PIN_LINE_CHARS,
   SSH_MAX_PROXY_HOPS,
+  SSH_MAX_SELECTED_FINGERPRINTS,
   SSH_NAME_MAX_CHARS,
   SSH_PATH_MAX_CHARS,
   SSH_PROBE_DEADLINE_MS,

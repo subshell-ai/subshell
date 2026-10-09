@@ -10,33 +10,23 @@ import {
 import { cleanup, render, screen } from "@testing-library/react";
 import { Route, SshSettingsPage } from "../settings_.ssh";
 
-/**
- * The SSH settings page opens on its three per-owner surfaces (spec
- * 2026-10-08 §8): the approval queue, the standing grants, and destination
- * trust. The cards' own behaviors are pinned in `components/ssh/`; this is
- * the page contract: heading, the three sections, and no admin gate anywhere
- * (the ledger is the caller's, every signed-in person has one).
- */
+/** Personal SSH settings expose destination trust and saved destinations. */
 afterEach(cleanup);
 
 it("declares the route with a component (the path binds in the generated tree)", () => {
   expect(typeof Route.options.component).toBe("function");
 });
 
-it("opens on the SSH heading over the three sections", async () => {
+it("opens on the SSH heading and destination trust", async () => {
   const original = globalThis.fetch;
   globalThis.fetch = (async (input: unknown) => {
     const path = new URL(String(input), "http://localhost").pathname;
     const body =
-      path === "/api/ssh/grants"
-        ? { grants: [] }
-        : path === "/api/ssh/grant-requests"
-          ? { requests: [] }
-          : path === "/api/ssh/host-pins"
-            ? { pins: [] }
-            : path === "/api/nodes"
-              ? { nodes: [] }
-              : [];
+      path === "/api/ssh/host-pins"
+        ? { pins: [] }
+        : path === "/api/ssh/saved-hosts"
+          ? { saved: [], recent: [], defaultNodeId: null }
+          : [];
     return new Response(JSON.stringify(body), { status: 200 });
   }) as typeof globalThis.fetch;
   try {
@@ -59,8 +49,6 @@ it("opens on the SSH heading over the three sections", async () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByRole("heading", { name: "SSH" })).toBeDefined();
-    expect(screen.getByText("Pending approvals")).toBeDefined();
-    expect(screen.getByText("Key grants")).toBeDefined();
     expect(screen.getByText("Destination trust")).toBeDefined();
   } finally {
     globalThis.fetch = original;

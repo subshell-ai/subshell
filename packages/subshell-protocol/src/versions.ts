@@ -107,8 +107,12 @@ export function semverLt(a: string, b: string): boolean {
  * in the same commit. An agent below this speaks no handshake, and the whole
  * point of this bump is that no such agent may put a plaintext frame on the
  * link the encrypted one is meant to carry.
+ *
+ * Raised to 1.5.0 with protocol 19: relay authorization follows current
+ * machine launch access and relay-open carries selected keys without a grant id.
+ * `apps/node/agent/package.json` is raised to the same floor in this commit.
  */
-export const MIN_NODE_VERSION = "0.17.0";
+export const MIN_NODE_VERSION = "1.5.0";
 
 /**
  * Whether an agent reporting `version` may connect.

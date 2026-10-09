@@ -23,7 +23,7 @@ import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray, isStringMap } fr
 import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 import { parseSshConnectionSnapshot } from "./ssh-config.js";
 import { isSshErrorCode } from "./ssh-errors.js";
-import { isSshGrantFingerprint, isSshKnownHostsPinLine, isSshPaneId } from "./ssh-frames.js";
+import { isSshFingerprint, isSshKnownHostsPinLine, isSshPaneId } from "./ssh-frames.js";
 import {
   SSH_EXEC_RESULT_MAX_CHARS,
   SSH_MAX_DISCOVERED_ALIASES,
@@ -608,7 +608,7 @@ export function parseNodeSshResolveOutcome(data: unknown): NodeSshResolveOutcome
  * construction: each entry is REBUILT from its two checked fields, so a
  * `blob` member a buggy or hostile node tried to ship drops here and the
  * narrowed answer has nowhere to hold key material. Fingerprints must be in
- * the grant grammar's own spelling (one predicate, both directions: the
+ * the fingerprint grammar’s own spelling (one predicate, both directions: the
  * approve surface takes roster values verbatim); comments are OpenSSH's
  * labels, passed through as bounded text, never parsed. The entry COUNT is
  * capped at {@link SSH_ROSTER_MAX_IDENTITIES} rather than truncated (the
@@ -623,7 +623,7 @@ export function parseNodeSshAgentIdentities(data: unknown): NodeSshAgentIdentiti
   if (data.identities.length > SSH_ROSTER_MAX_IDENTITIES) return null;
   const identities: NodeSshAgentIdentity[] = [];
   for (const entry of data.identities as unknown[]) {
-    if (!isRecord(entry) || !isSshGrantFingerprint(entry.fingerprint)) return null;
+    if (!isRecord(entry) || !isSshFingerprint(entry.fingerprint)) return null;
     if (!isStr(entry.comment) || entry.comment.length > SSH_NAME_MAX_CHARS) return null;
     identities.push({ fingerprint: entry.fingerprint, comment: entry.comment });
   }

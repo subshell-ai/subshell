@@ -26,7 +26,7 @@ import {
   partPathOf,
 } from "../node-frames.js";
 import {
-  isSshGrantFingerprints,
+  isSshFingerprints,
   isSshPaneId,
   redactSshSetupKeyLines,
   SSH_COMMAND_TYPES,
@@ -40,7 +40,7 @@ import {
   SSH_EXEC_COMMAND_MAX_CHARS,
   SSH_EXEC_MAX_PRESET_FLAGS,
   SSH_EXEC_TIMEOUT_MAX_MS,
-  SSH_MAX_GRANT_FINGERPRINTS,
+  SSH_MAX_SELECTED_FINGERPRINTS,
 } from "../ssh-limits.js";
 import { MIN_NODE_VERSION } from "../versions.js";
 
@@ -75,7 +75,6 @@ const relayOpenCmd: SshRelayOpenCommand = {
   bNodeId: "node-b",
   peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB"}',
   peerEncryptPublicKey: "SGVsbG9Xb3JsZEhlcmVJc1RoaXJ0eXR3b0J5dGVzMTI=",
-  grantId: "grant-77",
   fingerprints: ["SHA256:AAAA", "SHA256:BBBB"],
   lifetimeMs: 30_000,
   paneId: "11111111-2222-4333-8444-555555555555",
@@ -381,7 +380,7 @@ describe("parseNodeCommandBody", () => {
     // / `ssh_relay_close` signed commands. A tier-17 agent understands no relay
     // frame, and the exact-match gate refuses it BEFORE any relay command
     // (spec §11: never half-relaying).
-    expect(NODE_PROTOCOL_VERSION).toBe(18);
+    expect(NODE_PROTOCOL_VERSION).toBe(19);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -1218,7 +1217,6 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
       "bNodeId",
       "peerSigningPublicKey",
       "peerEncryptPublicKey",
-      "grantId",
       "fingerprints",
       "lifetimeMs",
       "paneId",
@@ -1233,21 +1231,21 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
   it("refuses malformed open fields", () => {
     expect(parseNodeCommandBody({ ...relayOpenCmd, role: "C" })).toBeNull(); // only A or B
     expect(parseNodeCommandBody({ ...relayOpenCmd, relayId: "" })).toBeNull(); // ids are non-empty
-    expect(parseNodeCommandBody({ ...relayOpenCmd, grantId: 42 })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, grantId: 42 })).not.toHaveProperty("grantId");
     expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: "SHA256:AAAA" })).toBeNull(); // array, not string
     expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["ok", 7] })).toBeNull();
-    // The grant's selection is capped by SSH_MAX_GRANT_FINGERPRINTS, and the
+    // The grant's selection is capped by SSH_MAX_SELECTED_FINGERPRINTS, and the
     // refusal is hard - never a silent truncation (§5.4).
     expect(
       parseNodeCommandBody({
         ...relayOpenCmd,
-        fingerprints: Array.from({ length: SSH_MAX_GRANT_FINGERPRINTS + 1 }, (_, i) => `SHA256:${i}`),
+        fingerprints: Array.from({ length: SSH_MAX_SELECTED_FINGERPRINTS + 1 }, (_, i) => `SHA256:${i}`),
       }),
     ).toBeNull();
     expect(
       parseNodeCommandBody({
         ...relayOpenCmd,
-        fingerprints: Array.from({ length: SSH_MAX_GRANT_FINGERPRINTS }, (_, i) => `SHA256:${i}`),
+        fingerprints: Array.from({ length: SSH_MAX_SELECTED_FINGERPRINTS }, (_, i) => `SHA256:${i}`),
       }),
     ).not.toBeNull();
     expect(parseNodeCommandBody({ ...relayOpenCmd, lifetimeMs: 0 })).toBeNull(); // positive or refuse
@@ -1372,13 +1370,13 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
   it("exposes the grant fingerprint-set predicate for the plane's pre-signing check", () => {
     // The plane validates a grant's selection with the SAME rule its own
     // parser enforces on receipt; one definition, two directions.
-    expect(isSshGrantFingerprints([])).toBe(true); // §5.4: empty names nothing, serves nothing
-    expect(isSshGrantFingerprints(["SHA256:AAAA"])).toBe(true);
-    expect(isSshGrantFingerprints(["SHA256:AAAA", "not-a-fingerprint"])).toBe(false);
-    expect(
-      isSshGrantFingerprints(Array.from({ length: SSH_MAX_GRANT_FINGERPRINTS + 1 }, (_, i) => `SHA256:${i}`)),
-    ).toBe(false);
-    expect(isSshGrantFingerprints("SHA256:AAAA")).toBe(false);
+    expect(isSshFingerprints([])).toBe(true); // §5.4: empty names nothing, serves nothing
+    expect(isSshFingerprints(["SHA256:AAAA"])).toBe(true);
+    expect(isSshFingerprints(["SHA256:AAAA", "not-a-fingerprint"])).toBe(false);
+    expect(isSshFingerprints(Array.from({ length: SSH_MAX_SELECTED_FINGERPRINTS + 1 }, (_, i) => `SHA256:${i}`))).toBe(
+      false,
+    );
+    expect(isSshFingerprints("SHA256:AAAA")).toBe(false);
   });
 
   it("narrows the close: routing ref and a NAMED reason from the typed union, nothing else", () => {
@@ -1390,10 +1388,10 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
         reason,
       });
     }
-    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason: "grant-revoked" })).toEqual({
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason: "access-revoked" })).toEqual({
       type: "ssh_relay_close",
       ref: "r-4f2a",
-      reason: "grant-revoked",
+      reason: "access-revoked",
     });
     // An unknown reason is a malformed close: §5.1's "closed with a named
     // reason" cannot hold if the grammar accepts any string.

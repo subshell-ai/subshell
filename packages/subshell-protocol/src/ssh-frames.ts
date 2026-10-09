@@ -12,7 +12,7 @@
  * refused. The sealed agent-relay milestone (M2) adds five commands here:
  * `ssh_register_identity` (§4.3 bootstrap: a pre-M2 node's signing key reaches
  * the plane inside a signed command on the existing node link), the roster
- * read `ssh_agent_identities` (§5.4: the approval screen asks A's agent for
+ * read `ssh_agent_identities` (§5.4: the key picker asks A's agent for
  * its public identities, fingerprints plus comments, blobs withheld), the
  * host-key capture `ssh_host_key` (§9, Task 12: the plane asks A's
  * `known_hosts` for one resolved destination's entries, and the answer
@@ -48,8 +48,8 @@ import {
   SSH_EXEC_COMMAND_MAX_CHARS,
   SSH_EXEC_MAX_PRESET_FLAGS,
   SSH_EXEC_TIMEOUT_MAX_MS,
-  SSH_MAX_GRANT_FINGERPRINTS,
   SSH_MAX_HOST_PIN_LINE_CHARS,
+  SSH_MAX_SELECTED_FINGERPRINTS,
   SSH_NAME_MAX_CHARS,
   SSH_PATH_MAX_CHARS,
 } from "./ssh-limits.js";
@@ -86,12 +86,12 @@ export interface SshRegisterIdentityCommand {
 }
 
 /**
- * Enumerate the key home's LIVE agent identities for the first-use approval
+ * Enumerate the key home's LIVE agent identities for the key selection
  * screen (spec 2026-10-08 §5.4, Task 11): the plane asks A's agent for its
  * WHOLE public roster, and the answer is fingerprints plus comments with the
  * blobs withheld. No input beyond the type: the command asks the roster, so a
  * plane-sent selection field could only be a narrowing or widening attempt at
- * what A's own agent reports. It is answered with no grant outstanding and no
+ * what A's own agent reports. It is answered without an open connection or
  * relay session, like `detect` and `ssh_register_identity`, and it writes no
  * audit row on either side.
  */
@@ -108,9 +108,9 @@ export interface SshAgentIdentitiesCommand {
  * the connecting `user` (null when the snapshot named none) are the three
  * facts the lookup's candidate spellings are built from, and each is sent in
  * its resolved form so a later `~/.ssh/config` edit cannot retarget the ask
- * (the same store-resolved rule §6.1 applies to the grant selector).
+ * (the same store-resolved rule §6.1 applies to the selected fingerprints).
  *
- * Answered with NO grant and no relay session, like `detect`,
+ * Answered without a relay session, like `detect`,
  * `ssh_register_identity`, and `ssh_agent_identities`; it writes no audit row
  * on either side (the durable record of a pin is `node.ssh_host_pin.create`,
  * written by the capture ACT, not by the question), and an unreachable or
@@ -136,9 +136,8 @@ export type SshRelayRole = "A" | "B";
  * The brokered OPEN (spec §5.1): the plane hands one machine the WHOLE
  * pairing in this one signed command - relay-session id, opaque routing ref,
  * both node ids with their roles, the peer's registered signing AND
- * encryption public keys to pin (§4.4), the grant id with its selected
- * key-fingerprint set (§5.4, delivered so the responder enforces it without
- * a REST call it cannot make), the lifetime, and the pane the pairing serves.
+ * encryption public keys to pin (§4.4), the selected key-fingerprint set
+ * (§5.4, delivered so the responder enforces it without a REST call it cannot make), the lifetime, and the pane the pairing serves.
  * Every field is REQUIRED: a partial pairing names no session the endpoint
  * could honor, so the grammar refuses it rather than let an executor guess a
  * half.
@@ -163,8 +162,8 @@ export type SshRelayRole = "A" | "B";
  * before the plane signs it.
  *
  * `hostPin` (Task 12, spec 2026-10-08 §9): the destination's pinned
- * `known_hosts` line, captured from A at grant creation and REQUIRED. A
- * relay-open without it is a relay grant with no pin, and the invariant says
+ * `known_hosts` line, captured from A during connection setup and REQUIRED. A
+ * relay-open without it is a relay without a pin, and the invariant says
  * such a thing does not exist: B must never fall back to its own ambient
  * TOFU, so the grammar refuses the pinless open rather than let the launch
  * render an `accept-new` config against an untrusted machine's file. The B
@@ -191,9 +190,7 @@ export interface SshRelayOpenCommand {
   peerSigningPublicKey: string;
   /** Base64 of the UTF-8 bytes of the peer's JSON-serialized encryption public JWK, to pin. */
   peerEncryptPublicKey: string;
-  /** The live grant this session runs under (revoke cuts the session, §6.3). */
-  grantId: string;
-  /** The grant's selected key fingerprints, at most SSH_MAX_GRANT_FINGERPRINTS. */
+  /** The selected key fingerprints, at most SSH_MAX_SELECTED_FINGERPRINTS. */
   fingerprints: string[];
   /** Session ceiling in ms; SSH_RELAY_LIFETIME_MS is what the plane sends. */
   lifetimeMs: number;
@@ -214,7 +211,7 @@ export interface SshRelayOpenCommand {
  * - `child-exit`: the B-side pane's `ssh` child died; the session ends with it.
  * - `lifetime-expiry`: SSH_RELAY_LIFETIME_MS ran out.
  * - `a-dropped`: A's link dropped and no re-pair restored it.
- * - `grant-revoked`: the grant underneath the session was revoked (§6.3).
+ * - `access-revoked`: launch access underneath the session was revoked (§6.3).
  * - `over-cap`: a frame over SSH_RELAY_FRAME_MAX_BYTES arrived (§5.1: cap
  *   is law; the refusal closes the session by name rather than silently).
  */
@@ -223,7 +220,7 @@ export const SSH_RELAY_CLOSE_REASONS = [
   "child-exit",
   "lifetime-expiry",
   "a-dropped",
-  "grant-revoked",
+  "access-revoked",
   "over-cap",
 ] as const;
 
@@ -405,25 +402,25 @@ function isIdStr(value: unknown): value is string {
 }
 
 /**
- * The OpenSSH display notation the grant stores: the `SHA256:` prefix over
+ * The OpenSSH display notation the connection carries: the `SHA256:` prefix over
  * base64url digest text (43 chars in practice; bounded generously at 128).
  * Shape, not truth - whether the digest matches a key is the responder's
  * §5.4 enforcement. The alphabet rule is also what stops control characters
  * reaching a future audit row through a field that promises to be a
  * fingerprint.
  */
-const GRANT_FINGERPRINT_RE = /^SHA256:[A-Za-z0-9_-]{1,128}$/;
+const SSH_FINGERPRINT_RE = /^SHA256:[A-Za-z0-9_-]{1,128}$/;
 
 /**
  * Whether `value` is ONE fingerprint in the canonical display grammar. This is
  * the roster answer's grammar too, deliberately the SAME predicate: the
  * approve surface promises selections "exactly as the roster reports them",
- * so a fingerprint the roster may carry and a grant may not select would be
+ * so a fingerprint the roster may carry and a connection may not select would be
  * one broken round trip invented by drift. Exported for `node-results.ts`'s
  * roster validator.
  */
-export function isSshGrantFingerprint(value: unknown): value is string {
-  return isStr(value) && GRANT_FINGERPRINT_RE.test(value);
+export function isSshFingerprint(value: unknown): value is string {
+  return isStr(value) && SSH_FINGERPRINT_RE.test(value);
 }
 
 /**
@@ -446,17 +443,17 @@ export function isSshPaneId(value: unknown): value is string {
 }
 
 /**
- * The grant's selected fingerprint set: strings, every one in the `SHA256:`
+ * The selected fingerprint set: strings, every one in the `SHA256:`
  * display form (an empty or free-text entry matches no key yet would ride a
- * grant as a silent never-serve line), and at most
- * {@link SSH_MAX_GRANT_FINGERPRINTS} - over-cap is a refusal at the grammar
+ * selection as a silent never-serve line), and at most
+ * {@link SSH_MAX_SELECTED_FINGERPRINTS} - over-cap is a refusal at the grammar
  * so the truncation nobody may silently perform is impossible by construction
  * (§5.4). An EMPTY set parses: §5.4's "names no fingerprint, serves nothing"
  * is a decision, not a defect. Exported for the plane's pre-signing check
- * (one definition of the grant-selection law, both directions).
+ * (one definition of the key-selection law, both directions).
  */
-export function isSshGrantFingerprints(value: unknown): value is string[] {
-  return isStrArray(value) && value.every(isSshGrantFingerprint) && value.length <= SSH_MAX_GRANT_FINGERPRINTS;
+export function isSshFingerprints(value: unknown): value is string[] {
+  return isStrArray(value) && value.every(isSshFingerprint) && value.length <= SSH_MAX_SELECTED_FINGERPRINTS;
 }
 
 /**
@@ -534,13 +531,7 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       // (whose key to pin) or safety (which fingerprints to serve). The
       // role is only "A" or "B" - there is no third machine in this design.
       if (value.role !== "A" && value.role !== "B") return null;
-      if (
-        !isIdStr(value.relayId) ||
-        !isIdStr(value.ref) ||
-        !isIdStr(value.aNodeId) ||
-        !isIdStr(value.bNodeId) ||
-        !isIdStr(value.grantId)
-      ) {
+      if (!isIdStr(value.relayId) || !isIdStr(value.ref) || !isIdStr(value.aNodeId) || !isIdStr(value.bNodeId)) {
         return null;
       }
       // The signing half is a JSON public JWK and the encryption half its
@@ -551,7 +542,7 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       // at `bytesOfJwk` on the node (Task 6), which is beside the one import.
       if (!isSshPeerSigningJwkStr(value.peerSigningPublicKey)) return null;
       if (!isSshPeerEncryptJwkB64Str(value.peerEncryptPublicKey)) return null;
-      if (!isSshGrantFingerprints(value.fingerprints)) return null;
+      if (!isSshFingerprints(value.fingerprints)) return null;
       // Positive whole milliseconds; the VALUE's lawfulness (SSH_RELAY_LIFETIME_MS
       // as the ceiling the broker sends) is the broker's, this is the shape.
       if (!isInt(value.lifetimeMs) || (value.lifetimeMs as number) <= 0) return null;
@@ -560,7 +551,7 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       // node's socket bind runs, applied before anything is signed.
       if (!isSshPaneId(value.paneId)) return null;
       // Task 12 (spec §9): the destination's pinned host-key line, REQUIRED.
-      // A relay-open with no pin is a relay grant with no pin, and B must
+      // A relay-open with no pin is a relay without a pin, and B must
       // never ambient-TOFU a destination it does not already trust: the
       // refusal is the grammar's, before the plane signs and before either
       // endpoint runs. Shape only here ({@link isSshKnownHostsPinLine});
@@ -577,7 +568,6 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
         bNodeId: value.bNodeId,
         peerSigningPublicKey: value.peerSigningPublicKey,
         peerEncryptPublicKey: value.peerEncryptPublicKey,
-        grantId: value.grantId,
         fingerprints: [...value.fingerprints],
         lifetimeMs: value.lifetimeMs as number,
         paneId: value.paneId,

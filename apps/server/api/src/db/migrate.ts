@@ -52,6 +52,7 @@ import * as sshRelayIdentityMigration from "@/db/migrations/0049-ssh-relay-ident
 import * as sshGrantsMigration from "@/db/migrations/0050-ssh-grants.js";
 import * as sshRequestDestinationMigration from "@/db/migrations/0051-ssh-request-destination.js";
 import * as subshellKeyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
+import * as dropSshGrantsMigration from "./migrations/0053-drop-ssh-grants.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -159,6 +160,7 @@ export async function runMigrations(): Promise<void> {
           // here" re-opens the pairing that authorized the pane, so the row
           // carries the A it launched with.
           "0052-subshell-key-home": subshellKeyHomeMigration,
+          "0053-drop-ssh-grants": dropSshGrantsMigration,
         };
       },
     },

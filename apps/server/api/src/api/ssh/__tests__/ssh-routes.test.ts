@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import {
+  buildAgentSocketPath,
   buildSshConfigPath,
   renderSshConfigContents,
   sshDestinationToken,
@@ -12,16 +13,23 @@ import {
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "@/api/__tests__/helpers/auth-tables.js";
+import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
 import { sshRoutes } from "@/api/ssh/index.js";
 import { db } from "@/db/index.js";
+import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
+import { SettingsRepository } from "@/db/repositories/settings.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { audit } from "@/services/audit.js";
 import { getHeld, holdConnection, releaseHeld, resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
+import { sendCommand } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
+import { gateSshNode } from "@/services/ssh-policy.service.js";
+import { createRelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { attachScriptedNode, ok, SCRIPTED_DATA_DIR, statDirEcho } from "@/test-helpers/scripted-node.js";
 
@@ -252,16 +260,16 @@ describe("/api/ssh gate order (row + nodeCanSsh BEFORE any sendCommand)", () => 
     }
   });
 
-  it("the machine's owner acts; an edit grantee is 403 (visible, not theirs), a stranger is 404 (never a leak)", async () => {
+  it("owners, launch grantees and admins use SSH; invisible machines stay 404", async () => {
     const scripted = silentScript(NODE_ON);
     try {
       // Row ON, but SSH USE is owner-only: the grantee sees the node (it is on
       // their screen) and is refused, not hidden.
-      expect((await aliases(NODE_ON, editorCookie)).status).toBe(403);
-      expect((await resolve(NODE_ON, "work", editorCookie)).status).toBe(403);
+      expect((await aliases(NODE_ON, editorCookie)).status).toBe(200);
+      expect((await resolve(NODE_ON, "work", editorCookie)).status).toBe(200);
       // The admin boost is instance-wide EDIT, never ownership — SSH use stays
       // with the machine's owner (spec §4.3: broker an OS account's keys).
-      expect((await aliases(NODE_ON, adminCookie)).status).toBe(403);
+      expect((await aliases(NODE_ON, adminCookie)).status).toBe(200);
       expect((await aliases(NODE_ON, otherCookie)).status).toBe(404);
       expect((await launch({ node: NODE_ON, destination: "work" }, otherCookie)).status).toBe(404);
       // An unknown id answers the same 404 a foreign one did (no existence oracle).
@@ -359,6 +367,21 @@ describe("/api/ssh/resolve (refusal rides IN THE DATA)", () => {
 });
 
 describe("POST /api/ssh/launch", () => {
+  it("refuses fingerprints without a key home before resolving a destination", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const response = await launch(
+        { node: NODE_ON, destination: "work", fingerprints: [`SHA256:${"A".repeat(43)}`] },
+        ownerCookie,
+      );
+      expect(response.status).toBe(400);
+      expect(((await response.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_KEYS_INVALID);
+      expect(scripted.cmdTypes()).toEqual([]);
+    } finally {
+      scripted.detach();
+    }
+  });
+
   it("refuses a refusal-shaped outcome with 422 carrying {outcome}, and launches nothing", async () => {
     const scripted = silentScript(NODE_ON);
     const rowsBefore = (await db.selectFrom("subshells").select("id").execute()).length;
@@ -669,27 +692,12 @@ describe("the local node answers in-process (no agent socket exists to reach)", 
     expect(body.includeCycle).toBe(false);
     expect(body.truncated).toBe(false);
     // A member holds Everyone/edit on `local` — visibility, never SSH use.
-    expect((await aliases(LOCAL_NODE_ID, otherCookie)).status).toBe(403);
+    expect((await aliases(LOCAL_NODE_ID, otherCookie)).status).toBe(200);
   });
 
-  it("`local` is never a key home (acceptance (d)): the create names the door with the code's canonical 409, and stores nothing", async () => {
-    await nodes.setSshEnabled(LOCAL_NODE_ID, { on: true, changedAt: "2026-10-07T09:00:00.000Z" });
-    const res = await sshFetch("/api/ssh/grants", {
-      method: "POST",
-      cookie: adminCookie,
-      body: {
-        node: LOCAL_NODE_ID,
-        name: "server keys",
-        selector: "git.example.test",
-        fingerprints: [`SHA256:${"c".repeat(43)}`],
-      },
-    });
-    // 409 is what the OPEN-FAILURE code renders (the declared arm rides the
-    // code, not the service's own number); the server host is refused exactly
-    // as the broker would refuse it, BEFORE anything is stored.
-    expect(res.status).toBe(409);
-    expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
-    expect(await db.selectFrom("sshKeyGrants").selectAll().execute()).toHaveLength(0);
+  it("the removed grants endpoint cannot create SSH permissions", async () => {
+    const res = await sshFetch("/api/ssh/grants", { method: "POST", cookie: adminCookie, body: {} });
+    expect(res.status).toBe(404);
   });
 
   it("the roster-by-node read (Task 18) refuses `local` at the SAME door as the create: the 409 before anything is asked", async () => {
@@ -697,7 +705,7 @@ describe("the local node answers in-process (no agent socket exists to reach)", 
     // No roster seam is installed in this suite: reaching the fetch would run
     // the production RPC against `local`, which has no node link at all. The
     // kind check must land first, so this 409 is also the proof nothing asked.
-    const res = await sshFetch(`/api/ssh/grants/identities?node=${LOCAL_NODE_ID}`, { cookie: adminCookie });
+    const res = await sshFetch(`/api/ssh/identities?node=${LOCAL_NODE_ID}`, { cookie: adminCookie });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
   });
@@ -717,5 +725,130 @@ describe("the local node answers in-process (no agent socket exists to reach)", 
     expect(body.snapshot?.user).toBe("stubuser");
     expect(body.snapshot?.alias).toBe("verify.example");
     expect(body.connectingAccount).toBeDefined();
+  });
+});
+
+describe("SSH readiness and grantless relay authorization", () => {
+  it("readiness reports only visible machines, shared launch permission and separate configuration rights without an RPC", async () => {
+    const scripted = silentScript(NODE_ON);
+    try {
+      const response = await sshFetch("/api/ssh/readiness", { cookie: editorCookie });
+      expect(response.status).toBe(200);
+      const { machines } = (await response.json()) as {
+        machines: { node: { id: string }; canConnect: boolean; canConfigure: boolean; blockers: unknown[] }[];
+      };
+      expect(machines.find((machine) => machine.node.id === NODE_ON)).toMatchObject({
+        canConnect: true,
+        canConfigure: false,
+        blockers: [],
+      });
+      expect(machines.some((machine) => machine.node.id === NODE_OFF)).toBe(false);
+      expect(scripted.cmdTypes()).toEqual([]);
+      await new SettingsRepository(db).set("lockdown", true);
+      expect((await aliases(NODE_ON, editorCookie)).status).toBe(403);
+      expect((await resolve(NODE_ON, "work", editorCookie)).status).toBe(403);
+      expect((await sshFetch(`/api/ssh/identities?node=${NODE_ON}`, { cookie: editorCookie })).status).toBe(403);
+      expect((await launch({ node: NODE_ON, destination: "work" }, editorCookie)).status).toBe(403);
+      expect(scripted.cmdTypes()).toEqual([]);
+    } finally {
+      await new SettingsRepository(db).set("lockdown", false);
+      scripted.detach();
+    }
+  });
+
+  it("launches with an explicit live key selection and strict host pin without grant tables; revoking the node share cuts its session", async () => {
+    const keyNodeId = `ssh-key-source-${crypto.randomUUID()}`;
+    await mkNode(keyNodeId, true);
+    createdNodeIds.push(keyNodeId);
+    await new NodeSharesRepository(db).replaceForNode(
+      keyNodeId,
+      [{ granteeUserId: editorId, permission: "view" }],
+      ownerId,
+    );
+    for (const id of [keyNodeId, NODE_ON]) {
+      const key = JSON.stringify({ kty: "EC", crv: "P-256", x: "AAA", y: "AAA" });
+      await new IdentitiesRepository(db).register({
+        principalId: `node:${id}`,
+        publicKey: key,
+        signingPublicKey: key,
+        displayName: id,
+      });
+    }
+    await db
+      .insertInto("sshHostPins")
+      .values({
+        id: crypto.randomUUID(),
+        ownerUserId: editorId,
+        destination: CANON,
+        hostKey: `example.test ssh-ed25519 ${"A".repeat(51)}`,
+        createdAt: "now",
+        updatedAt: "now",
+      })
+      .execute();
+    const a = attachScriptedNode(keyNodeId, {
+      ssh_agent_identities: () => ({
+        identities: [
+          { fingerprint: "SHA256:AAAA", comment: "Selected" },
+          { fingerprint: "SHA256:BBBB", comment: "Other" },
+        ],
+      }),
+      ssh_relay_open: (cmd) => (cmd.type === "ssh_relay_open" ? { role: "A", relayId: cmd.relayId } : {}),
+      ssh_relay_close: ok,
+    });
+    const b = attachScriptedNode(NODE_ON, {
+      ssh_resolve_config: () => ({ accepted: true, snapshot: ACCEPTED }),
+      ssh_relay_open: (cmd) =>
+        cmd.type === "ssh_relay_open"
+          ? { role: "B", relayId: cmd.relayId, socketPath: buildAgentSocketPath(SCRIPTED_DATA_DIR, cmd.paneId) }
+          : {},
+      ssh_relay_close: ok,
+      launch: ok,
+      stat_dir: statDirEcho,
+    });
+    const broker = createRelayBroker({
+      sendCommand,
+      sendRelayFrame: () => {},
+      nodeRow: (id) => nodes.findById(id),
+      nodeDataDir: () => SCRIPTED_DATA_DIR,
+      authorize: async (userId, nodeId) => (await gateSshNode(userId, nodeId)).ok,
+      audit,
+      nowMs: () => Date.now(),
+      schedule: () => null,
+      cancel: () => {},
+      log: () => {},
+    });
+    setRelayBrokerForTests(broker);
+    try {
+      const res = await launch(
+        { node: NODE_ON, destination: "work", keyHome: keyNodeId, fingerprints: ["SHA256:AAAA"] },
+        editorCookie,
+      );
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { subshell: { id: string } };
+      createdSubshellIds.push(body.subshell.id);
+      expect(a.cmdsOf("ssh_relay_open")[0]?.fingerprints).toEqual(["SHA256:AAAA"]);
+      expect(a.cmdsOf("ssh_relay_open")[0]).not.toHaveProperty("grantId");
+      expect(b.cmdsOf("launch")[0]?.ssh?.fileContent).toContain("StrictHostKeyChecking yes");
+      expect(broker.activeRelayCount(keyNodeId)).toBe(1);
+      const sharesApp = new Elysia()
+        .use(errorHandlerPlugin)
+        .use(new Elysia({ prefix: "/api/nodes" }).use(setNodeSharesRoute));
+      const revoked = await sharesApp.fetch(
+        new Request(`http://localhost:3099/api/nodes/${keyNodeId}/shares`, {
+          method: "PUT",
+          headers: { "content-type": "application/json", cookie: `better-auth.session_token=${ownerCookie}` },
+          body: JSON.stringify({ shares: [] }),
+        }),
+      );
+      expect(revoked.status).toBe(200);
+      expect(broker.activeRelayCount(keyNodeId)).toBe(0);
+      expect(a.cmdsOf("ssh_relay_close")[0]?.reason).toBe("access-revoked");
+      expect((await sshFetch(`/api/ssh/identities?node=${keyNodeId}`, { cookie: editorCookie })).status).toBe(404);
+    } finally {
+      broker.reset();
+      setRelayBrokerForTests(null);
+      a.detach();
+      b.detach();
+    }
   });
 });

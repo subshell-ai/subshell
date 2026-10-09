@@ -83,7 +83,33 @@ function mockFetch(opts: WireOpts = {}) {
       ...(typeof init?.body === "string" ? { body: JSON.parse(init.body) as unknown } : {}),
     });
     if (path === "/api/settings/public") return Promise.resolve(json(opts.settings ?? {}));
-    if (path === "/api/nodes") return Promise.resolve(opts.nodesResponse?.() ?? json({ nodes: opts.nodes ?? [] }));
+    if (path === "/api/ssh/readiness")
+      return Promise.resolve(
+        opts.nodesResponse?.() ??
+          json({
+            machines: (opts.nodes ?? []).map((node) => ({
+              node,
+              canConnect:
+                node.canLaunch && node.sshEnabled && !node.held && !node.maintenance && node.status === "online",
+              canConfigure: node.canManage,
+              blockers: !node.sshEnabled
+                ? [
+                    {
+                      code: "SSH_GATE_OFF",
+                      message:
+                        node.kind === "local"
+                          ? "SSH is off here. An admin can switch it on from this machine's settings."
+                          : "SSH is off on this machine. Its owner can switch it on from this machine's settings.",
+                    },
+                  ]
+                : node.status !== "online"
+                  ? [{ code: "NODE_OFFLINE", message: "Start Subshell on this machine to bring it online." }]
+                  : [],
+            })),
+          }),
+      );
+    if (path === "/api/ssh/identities")
+      return Promise.resolve(json({ identities: [{ fingerprint: "SHA256:AAAA", comment: "Work key" }] }));
     if (path === "/api/ssh/saved-hosts" && method === "GET") {
       return Promise.resolve(json(opts.ledger ?? { saved: [], recent: [], defaultNodeId: null }));
     }
@@ -278,7 +304,6 @@ describe("machine disclosure (contract 1)", () => {
     [{ ...HOST_A, status: "offline" as const }],
     [{ ...HOST_A, maintenance: true }],
     [{ ...HOST_A, canLaunch: false }],
-    [{ ...HOST_A, canManage: false, access: "edit" as const }],
   ]) {
     it(`replaces the form when no machine can run SSH: ${JSON.stringify(unavailable)}`, async () => {
       const { calls, restore } = await renderPanel({ nodes: unavailable }, { node: HOST_A.id, destination: "work" });
@@ -298,7 +323,10 @@ describe("machine disclosure (contract 1)", () => {
   it("shows a retry instead of an empty state when machines cannot be loaded", async () => {
     let failed = true;
     const { restore } = await renderPanel({
-      nodesResponse: () => (failed ? json({}, 503) : json({ nodes: [HOST_A] })),
+      nodesResponse: () =>
+        failed
+          ? json({}, 503)
+          : json({ machines: [{ node: HOST_A, canConnect: true, canConfigure: true, blockers: [] }] }),
     });
     try {
       expect(screen.getByText("Could not load connecting machines.")).toBeTruthy();
@@ -324,15 +352,15 @@ describe("machine disclosure (contract 1)", () => {
     }
   });
 
-  it("omits server-specific guidance and settings actions", async () => {
+  it("shows server-derived management actions for the server host", async () => {
     const { restore } = await renderPanel({
       nodes: [node({ id: "local", name: "Server", kind: "local", sshEnabled: false }), HOST_B],
       settings: { viewerIsAdmin: true },
     });
     try {
       expect(screen.getByText("No machine is ready for SSH")).toBeTruthy();
-      expect(screen.queryByText(/SSH is off here/)).toBeNull();
-      expect(screen.queryByRole("button", { name: "Open Server settings" })).toBeNull();
+      expect(screen.queryByText(/SSH is off here/)).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Open Server settings" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Open studio settings" })).toBeTruthy();
       expect(screen.getByRole("button", { name: "Add a node" })).toBeTruthy();
     } finally {
@@ -492,7 +520,10 @@ describe("connect and the ledger (contracts 3, 6)", () => {
     globalThis.fetch = ((input: unknown, _init?: RequestInit) => {
       const url = new URL(String(input), "http://localhost");
       if (url.pathname === "/api/ssh/launch") return gate.then(() => json({ subshell: { id: "s-9" } }, 201));
-      if (url.pathname === "/api/nodes") return Promise.resolve(json({ nodes: [HOST_A] }));
+      if (url.pathname === "/api/ssh/readiness")
+        return Promise.resolve(
+          json({ machines: [{ node: HOST_A, canConnect: true, canConfigure: true, blockers: [] }] }),
+        );
       if (url.pathname === "/api/ssh/saved-hosts")
         return Promise.resolve(json({ saved: [], recent: [], defaultNodeId: null }));
       return Promise.resolve(json({}));
@@ -638,7 +669,7 @@ describe("refusals and disclosure (contracts 4, 5)", () => {
   });
 });
 
-describe("relay launch and approval recovery", () => {
+describe("relay launch with current launch access", () => {
   it("sends the selected key machine and preserves the returned connection choices", async () => {
     const { calls, restore } = await renderPanel(
       { nodes: [HOST_A, HOST_C] },
@@ -649,28 +680,9 @@ describe("relay launch and approval recovery", () => {
       expect(calls.find((c) => c.url === "/api/ssh/launch")?.body).toEqual({
         node: HOST_A.id,
         keyHome: HOST_C.id,
+        fingerprints: ["SHA256:AAAA"],
         destination: "theo@build.example.com:2222",
       });
-    } finally {
-      restore();
-    }
-  });
-  it("offers approval instead of incorrectly reporting the connecting machine offline", async () => {
-    const { restore } = await renderPanel(
-      {
-        nodes: [HOST_A, HOST_C],
-        launch: () =>
-          json(
-            { code: "SSH_GRANT_APPROVAL_REQUIRED", message: "Approve first.", metadata: { requestId: "req1" } },
-            409,
-          ),
-      },
-      { node: HOST_A.id, keyHome: HOST_C.id, destination: "work" },
-    );
-    try {
-      await clickConnect();
-      expect(screen.getByRole("button", { name: "Review SSH approval" })).toBeTruthy();
-      expect(screen.queryByText(/has no live connection/)).toBeNull();
     } finally {
       restore();
     }
