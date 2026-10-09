@@ -116,14 +116,16 @@ export function setSshGrantsDepsForTests(deps: SshGrantsDeps | null): void {
  * host or a host glob matched against the resolved destination hostname, as
  * policy only, unrelated to the wildcard patterns discovery drops.
  *
- * KNOWN LIMITATION (PR #338 review round 2, documented not fixed): the
+ * KNOWN LIMITATION (PR #338 review rounds 2/3, documented not fixed): the
  * alphabet has no `:` or bracket, so an IPv6-literal destination (the
- * bracketed spelling OpenSSH itself uses, `[::1]:22`) can never be named by
- * a selector and can therefore never hold a standing grant. The consequence
- * is fail-closed by construction - every launch to such a destination
- * re-asks through first-use approval and nothing is ever over-granted.
- * Widening the grammar to colons and brackets is a design decision (it
- * changes what a stored grant line can match), not a bug fix.
+ * bracketed spelling OpenSSH itself uses, `[::1]:22`) can never be NAMED by
+ * an exact selector: storing or approving one is refused, so first-use
+ * approval cannot mint a grant specific to such a destination. A WILDCARD
+ * selector still matches it incidentally (`*` spans any run of characters,
+ * brackets and colons included), so an IPv6-literal launch rides a matching
+ * wildcard grant silently. Widening the grammar to colons and brackets is a
+ * design decision (it changes what a stored grant line can match), not a bug
+ * fix; the pinning test lives in the matcher suite.
  *
  * @returns the normalized selector, or null for anything the grammar refuses.
  */
