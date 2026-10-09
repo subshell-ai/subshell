@@ -44,6 +44,8 @@ export interface SegmentedProps<T extends string> {
    * design-system.md "Tab groups are content-sized").
    */
   fill?: boolean;
+  /** Stronger selection for launch-type choices, distinct from keyboard focus. */
+  selectedVariant?: "secondary" | "default";
   /**
    * Opt-in vertical density: merges `h-6` onto every option button.
    *
@@ -79,6 +81,7 @@ export function Segmented<T extends string>({
   onChange,
   className,
   fill = true,
+  selectedVariant = "secondary",
   dense = false,
 }: SegmentedProps<T>) {
   return (
@@ -99,7 +102,7 @@ export function Segmented<T extends string>({
           // the sm height for the rail's 24px (twMerge resolves it against
           // the variant's h-8; horizontal px stays — see the prop's JSDoc).
           className: cn("min-w-0", fill && "flex-1", dense && "h-6"),
-          variant: value === option.value ? "secondary" : "ghost",
+          variant: value === option.value ? selectedVariant : "ghost",
           "aria-pressed": value === option.value,
           "aria-label": option.ariaLabel,
           onClick: () => onChange(option.value),

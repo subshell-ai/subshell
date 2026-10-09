@@ -74,7 +74,11 @@ test("choose remote keys, approve, and return to the same destination without au
     if (path.endsWith("/host-pins")) return route.fulfill({ json: { pins: [] } });
     return route.continue();
   });
-  await page.goto("/new");
+  await page.goto("/connect");
+  await expect(page.getByRole("button", { name: "SSH terminal", exact: true })).toBeFocused();
+  await expect(page.getByRole("button", { name: "SSH terminal", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.screenshot({ path: "/tmp/ssh-selected-focus.png", fullPage: true });
+  await page.getByRole("button", { name: "Agent or terminal", exact: true }).click();
   await page.getByRole("button", { name: "SSH terminal", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "New subshell" })).toBeVisible();
   await page.getByPlaceholder("user@hostname:22 or an SSH alias").fill(destination);

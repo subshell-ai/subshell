@@ -203,7 +203,15 @@ describe("ssh_exec kick + status", () => {
     expect(await execSshExecStatus(ctx, statusCmd(), seams)).toEqual({ ok: true, data: { state: "running" } });
 
     finish({ code: 0, stdout: "==> downloading subshell\n==> done.\n", stderr: "" });
-    await new Promise((r) => setTimeout(r, 5)); // let the off-chain completion land
+    // Completion schedules asynchronous file removal; a fixed 5 ms sleep
+    // races filesystem work under parallel suite load.
+    for (
+      let attempt = 0;
+      attempt < 100 && (existsSync(configPath) || existsSync(buildSshKnownHostsPath(ctx.config.dataDir, EXEC_ID)));
+      attempt++
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
     expect(await execSshExecStatus(ctx, statusCmd(), seams)).toEqual({
       ok: true,
       data: { state: "done", code: 0, timedOut: false, stdout: "==> downloading subshell\n==> done.\n", stderr: "" },

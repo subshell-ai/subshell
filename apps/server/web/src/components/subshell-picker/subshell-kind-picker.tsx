@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import { Segmented } from "@/components/ui/segmented";
 
 export type SubshellKind = "agent" | "ssh";
@@ -16,11 +17,16 @@ export function SubshellKindPicker({
     <fieldset disabled={disabled}>
       <Segmented
         ariaLabel="Subshell type"
+        selectedVariant="default"
         value={value}
         onChange={onChange}
         options={[
-          { value: "agent", label: "Agent or terminal" },
-          { value: "ssh", label: "SSH terminal" },
+          {
+            value: "agent",
+            label: "Agent or terminal",
+            icon: value === "agent" ? <Check aria-hidden="true" /> : undefined,
+          },
+          { value: "ssh", label: "SSH terminal", icon: value === "ssh" ? <Check aria-hidden="true" /> : undefined },
         ]}
       />
     </fieldset>

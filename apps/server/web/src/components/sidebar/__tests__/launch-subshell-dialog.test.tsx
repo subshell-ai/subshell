@@ -18,7 +18,7 @@ import { LaunchSubshellDialog } from "@/components/sidebar/launch-subshell-dialo
  */
 afterEach(cleanup);
 
-async function renderDialog() {
+async function renderDialog(initialSsh?: { destination?: string }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();
   // The dialog rides a route component: RouterProvider renders its `children`
@@ -26,7 +26,7 @@ async function renderDialog() {
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <LaunchSubshellDialog open onOpenChange={() => {}} />,
+    component: () => <LaunchSubshellDialog open onOpenChange={() => {}} initialSsh={initialSsh} />,
   });
   const subshellRoute = createRoute({
     getParentRoute: () => rootRoute,
@@ -60,4 +60,12 @@ describe("LaunchSubshellDialog", () => {
     const start = screen.getByRole("button", { name: /Start subshell/i });
     expect(start.hasAttribute("disabled")).toBe(true);
   });
+});
+
+it("focuses the selected SSH type when a link opens the SSH form", async () => {
+  await renderDialog({ destination: "deploy@host:22" });
+  const ssh = screen.getByRole("button", { name: "SSH terminal" });
+  expect(ssh.getAttribute("aria-pressed")).toBe("true");
+  expect(document.activeElement).toBe(ssh);
+  expect(screen.getByRole("button", { name: "Agent or terminal" }).getAttribute("aria-pressed")).toBe("false");
 });
