@@ -233,6 +233,13 @@ export interface NodeShare {
  * Facts about a process, never about the machine: the control plane holds
  * the report on the live socket and drops it when that goes, so a value here
  * is always current or absent.
+ *
+ * One deliberate narrowing from the protocol's report: the §4.6
+ * `sshFingerprint` block is NOT mirrored here, because no view carries it.
+ * The plane's route serializes `runtime` through a schema that does not
+ * declare it, and the node's own dashboard passes its pre-merge report (the
+ * trust block goes to the SPA as the top-level `sshTrust`, which is where
+ * `NodeSshTrustCard` reads it).
  */
 export interface NodeRuntime {
   /** ISO 8601 start time of this node process */
@@ -294,17 +301,6 @@ export interface NodeRuntime {
   tmuxPath: string | null;
   /** The node binary this process re-enters */
   binaryPath: string;
-  /**
-   * The §4.6 trust block as THIS report stated it (spec 2026-10-08): own and
-   * pinned-peer key fingerprints. Absent when the agent reported none. The
-   * detail view's `sshTrust` is the same fact with the one flag only the
-   * plane can state (whether it is live or the durable mirror); the runtime
-   * card renders nothing from this field, the trust card reads `sshTrust`.
-   */
-  sshFingerprint?: {
-    own: { signing: string; encryption: string };
-    peers: { nodeId: string; signing: string; encryption: string }[];
-  };
 }
 
 /**

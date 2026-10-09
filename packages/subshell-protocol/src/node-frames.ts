@@ -550,11 +550,13 @@ function isSshFingerprint(value: unknown): value is string {
 }
 
 /**
- * Node ids as the plane mints them: uuid text (hex and hyphens). `isNodeSubshellId`'s
- * shape, reused because a peer id reaching the block is the same registry id.
+ * Node ids as the plane mints them: uuid text (hex and hyphens). THE guard,
+ * called, not copied: a peer id reaching the block is the same registry id
+ * the path-interpolation policy admits, and one regex must not drift from the
+ * other.
  */
 function isPeerNodeId(value: unknown): value is string {
-  return typeof value === "string" && /^[0-9a-fA-F-]{1,64}$/.test(value);
+  return typeof value === "string" && isNodeSubshellId(value);
 }
 
 /** The `{ signing, encryption }` pair, or null when either half is off. */

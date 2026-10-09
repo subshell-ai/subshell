@@ -1,5 +1,8 @@
-import { Badge, Card, CardContent, CardHeader, CardTitle, CopyableValue, type NodeDetail } from "@internal/node-admin";
 import type { JSX } from "react";
+import type { NodeDetail } from "../types/node";
+import { Badge } from "../ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card";
+import { CopyableValue } from "../ui/copyable-value";
 
 /**
  * The machine trust card (spec 2026-10-08 §4.6): this machine's own SSH relay
@@ -7,22 +10,31 @@ import type { JSX } from "react";
  *
  * The check this serves is deliberately NOT a green tick: the only honest
  * reading is a person comparing these strings against what the OTHER machine
- * prints about the SAME keys on its own surface (the node dashboard side, fed
- * from the machine's key files). Fingerprints are public display of the trust
- * the machines enforce as byte equality; nothing here is key material, and
- * nothing here proves anything until both machines have been read.
+ * prints about the SAME keys on its own surface. That is why this card lives
+ * in the shared package: the §4.6 compare happens on the TWO MACHINES' OWN
+ * loopback dashboards, where the page is fed from the machine's own key
+ * files, and the plane shows the same card as a convenience copy of what a
+ * connected (or last-connected) agent reported. Fingerprints are public
+ * display of the trust the machines enforce as byte equality; nothing here is
+ * key material, and nothing here proves anything until both machines have
+ * been read.
  *
  * Gated twice over, on purpose. The server omits `sshTrust` for a `view`
  * grantee and on `local` entirely (it is machine-relationship disclosure, the
  * same class as the runtime block), and this component refuses the same two
- * cases so a payload that arrived against the rule still renders nothing.
+ * cases so a payload that arrived against the rule still renders nothing. On
+ * the node's own dashboard the view says `kind: "agent"`, `access: "owner"`
+ * (there is no viewer identity at loopback, and the human here holds the CLI
+ * that outranks any web grant), and `stale: false` by construction: this page
+ * is the machine answering about itself, never a mirror of a departed
+ * connection.
  *
  * Staleness is not the gate: an OFFLINE agent renders the durable mirror, and
  * says so plainly, because comparing last-known fingerprints during an
  * incident is exactly when the card earns its keep and exactly when reading a
  * stale value as current would mislead.
  */
-export function SshTrustCard({ node }: { node: NodeDetail }): JSX.Element | null {
+export function NodeSshTrustCard({ node }: { node: NodeDetail }): JSX.Element | null {
   if (node.kind !== "agent" || (node.access !== "owner" && node.access !== "edit")) return null;
   const trust = node.sshTrust;
   if (!trust) return null;

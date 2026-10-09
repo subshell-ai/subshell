@@ -6,6 +6,7 @@ import {
   NodeAllowedDirs,
   NodeMaintenanceCard,
   NodeServerUrlCard,
+  NodeSshTrustCard,
   relativeElapsed,
   useNode,
 } from "@internal/node-admin";
@@ -29,7 +30,6 @@ import { osLabel } from "@/components/nodes/node-row";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { NodeUpdateCard } from "@/components/nodes/node-update-card";
-import { SshTrustCard } from "@/components/ssh/trust-card";
 import { useDeleteNode, useRenameNode } from "@/hooks/use-nodes";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
@@ -252,7 +252,7 @@ function NodeDetailPage() {
               never receives it and the card renders nothing; the card's own
               kind/access check is the belt. Live report while the machine is
               connected, durable mirror marked stale when it is not. */}
-          {managesNodeSections(n) && <SshTrustCard node={n} />}
+          {managesNodeSections(n) && <NodeSshTrustCard node={n} />}
 
           {/* The node's RULES live on its page, not in a tab of one card:
               the allowlist gates launches on this machine including the

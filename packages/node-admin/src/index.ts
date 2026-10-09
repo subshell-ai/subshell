@@ -1,11 +1,11 @@
 /**
  * `@internal/node-admin` — the shared admin UI for operating a Subshell node.
  *
- * One copy of the six node cards (runtime, service, log, maintenance, control
- * plane, allowed directories), the hooks and types they speak, and the UI
- * primitives they render, so the control plane's Nodes pages and the node's
- * OWN loopback dashboard show the same machine in the same words and answer
- * to the same `/api/nodes/:id/*` contract from two backends.
+ * One copy of the node cards (runtime, service, log, maintenance, control
+ * plane, allowed directories, machine trust), the hooks and types they speak,
+ * and the UI primitives they render, so the control plane's Nodes pages and
+ * the node's OWN loopback dashboard show the same machine in the same words
+ * and answer to the same `/api/nodes/:id/*` contract from two backends.
  *
  * ## The relicensing this package is
  *
@@ -41,6 +41,7 @@ export { NodeMaintenanceCard } from "./components/node-maintenance-card";
 export { NodeRuntimeCard, supervisionLine } from "./components/node-runtime-card";
 export { NodeServerUrlCard } from "./components/node-server-url-card";
 export { NodeServiceCard } from "./components/node-service-card";
+export { NodeSshTrustCard } from "./components/ssh-trust-card";
 export {
   nodeDetailQuery,
   useNode,

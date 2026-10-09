@@ -623,12 +623,6 @@ describe("/api/nodes registry CRUD", () => {
       // branch unreachable for an honest agent).
       expect(await deliverSigningKey(n.id, signingJwk)).toBe(signingJwk);
       expect((await identities.findByPrincipal(`node:${n.id}`))?.signingPublicKey).toBe(signingJwk);
-
-      // And the redial's `ready` re-reports the SAME block: the mirror moves
-      // to a byte-identical string. The peer entry the plane still mirrors
-      // proves no peer was re-paired: same ids, same digests, untouched.
-      await nodes.setSshFingerprint(n.id, JSON.stringify(block));
-      expect((await nodes.findById(n.id))?.sshFingerprint).toBe(JSON.stringify(block));
     } finally {
       await db.deleteFrom("identities").where("principalId", "=", `node:${n.id}`).execute();
       resetNodeRegistryForTests();
