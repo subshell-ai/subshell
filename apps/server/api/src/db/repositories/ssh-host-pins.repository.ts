@@ -1,5 +1,5 @@
 import { BaseRepository } from "@/db/repositories/base.repository.js";
-import type { SshHostPinTable } from "@/db/types/ssh-grants.db-types.js";
+import type { SshHostPinTable } from "@/db/types/ssh-host-pins.db-types.js";
 
 /**
  * Repository for the M2 host-key TOFU store (spec 2026-10-08 §9; the table

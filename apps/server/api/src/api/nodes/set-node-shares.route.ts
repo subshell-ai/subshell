@@ -10,6 +10,7 @@ import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
+import { getRelayBroker } from "@/services/ssh-relay.service.js";
 
 /**
  * `PUT /api/nodes/:id/shares` `{shares:[{granteeUserId, permission}]}` —
@@ -18,9 +19,8 @@ import { audit } from "@/services/audit.js";
  * or ADMIN for `local` — where the route accepts any valid list (the UI only
  * ever toggles Everyone/edit, but the API stays the honest superset).
  *
- * Revoking a grant takes effect on the next request (access is resolved from
- * these rows per request); no key is invalidated, so no socket teardown is
- * needed here.
+ * Access is resolved from these rows on each request. After replacement,
+ * close relay sessions whose users no longer have launch access to both ends.
  */
 export const setNodeSharesRoute = new Elysia()
   .use(authGuard)
@@ -48,6 +48,7 @@ export const setNodeSharesRoute = new Elysia()
         }
       }
       const rows = await new NodeSharesRepository(db).replaceForNode(gate.row.id, entries, user.id);
+      await getRelayBroker().closeUnauthorizedForNode(gate.row.id);
       await audit({
         actorUserId: user.id,
         // Spec §9 names only `node.local_share_changed` (the local-launch

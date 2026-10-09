@@ -4,17 +4,10 @@
  * handler share a shape.
  */
 export interface SubshellNotifData {
-  /** Subshell uuid (a `grant_approval` push carries the grant REQUEST uuid) */
+  /** Subshell uuid */
   sid?: string;
   /** Event class driving the generic body copy and the tap's destination (the server's NotifyKind, spelled here) */
-  kind?:
-    | "turn_complete"
-    | "needs_attention"
-    | "exited"
-    | "crashed"
-    | "crashed_final"
-    | "maintenance"
-    | "grant_approval";
+  kind?: "turn_complete" | "needs_attention" | "exited" | "crashed" | "crashed_final" | "maintenance";
   /** Origin that sent it — future multi-instance routing hint */
   origin?: string;
 }

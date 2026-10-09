@@ -165,5 +165,5 @@ describe("ssh_discover_aliases / ssh_resolve_config arms (gate ON)", () => {
 
 /** The bump M2's relay tier owns: the relay link frame + the open/close commands (spec 2026-10-08 §5.1). */
 it("NODE_PROTOCOL_VERSION is 18 (relay frames + ssh_relay_open/close on the wire)", () => {
-  expect(NODE_PROTOCOL_VERSION).toBe(18);
+  expect(NODE_PROTOCOL_VERSION).toBe(19);
 });

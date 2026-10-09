@@ -386,6 +386,7 @@ export async function openStack(opts: StackOptions = {}): Promise<Stack> {
   };
 
   const broker = createRelayBroker({
+    authorize: async () => true,
     sendCommand,
     sendRelayFrame: deliverToNode,
     async nodeRow(nodeId) {
@@ -409,7 +410,7 @@ export async function openStack(opts: StackOptions = {}): Promise<Stack> {
   });
 
   const result = await broker.openRelay({
-    grantId: "grant-1",
+    userId: "user-1",
     fingerprints,
     paneId: PANE_ID,
     // Task 12: the pin is REQUIRED on the open; B's branch writes it beside

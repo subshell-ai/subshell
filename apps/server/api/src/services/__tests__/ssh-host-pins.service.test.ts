@@ -8,7 +8,7 @@ import { deleteUserByEmailOrId, setupAuthTables } from "@/api/__tests__/helpers/
 import { db } from "@/db/index.js";
 import { SshHostPinsRepository } from "@/db/repositories/ssh-host-pins.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
-import type { SshHostPinTable } from "@/db/types/ssh-grants.db-types.js";
+import type { SshHostPinTable } from "@/db/types/ssh-host-pins.db-types.js";
 import { SshRpcError } from "@/services/nodes/ssh-rpc.js";
 import {
   captureHostPin,

@@ -184,8 +184,8 @@ export enum BackendErrorCodes {
   NETWORK_UNCONFIGURED = "NETWORK_UNCONFIGURED",
   /**
    * A `/api/ssh` act on a machine SSH is not open for, or not open for THIS
-   * caller: the node row's flag is off, or the acting viewer is not the
-   * machine's owner (`nodeCanSsh`, spec 2026-10-07 §4.3). One code for both
+   * caller: SSH is off, launch access is missing, or instance policy
+   * disables launches. One code for these
    * causes; the message names the true one, because naming WHY is the
    * surface's job (spec §12) and the code is the machine-readable half.
    */
@@ -228,31 +228,21 @@ export enum BackendErrorCodes {
    */
   SSH_OWNER_INPUT_ONLY = "SSH_OWNER_INPUT_ONLY",
   /**
-   * A relay launch the grant layer refused for lack of a standing grant
-   * (spec 2026-10-08 §6.2): a first-use approval was RECORDED and asked of
-   * the key home's owner, and the launch fails fast rather than hang a pane
-   * on a human. The message names the asking machine and the remedy (answer
-   * the approval, launch again); never the key or destination beyond what
-   * the pending row already discloses.
+   * A connection selecting MORE than `SSH_MAX_SELECTED_FINGERPRINTS` keys
+   * (spec 2026-10-08 §5.4): a named refusal before opening the relay,
+   * never a silent truncation of the operator's selection.
    */
-  SSH_GRANT_APPROVAL_REQUIRED = "SSH_GRANT_APPROVAL_REQUIRED",
+  SSH_KEYS_OVER_LIMIT = "SSH_KEYS_OVER_LIMIT",
   /**
-   * A grant approval selecting MORE than `SSH_MAX_GRANT_FINGERPRINTS` keys
-   * (spec 2026-10-08 §5.4): a hard, loud, named refusal on the grants
-   * surface, NEVER a silent truncation of the operator's selection. The cap
-   * is law.
-   */
-  SSH_GRANT_KEYS_OVER_LIMIT = "SSH_GRANT_KEYS_OVER_LIMIT",
-  /**
-   * A grant fingerprint outside the `SHA256:` display grammar (agent-wire
-   * base64; `isSshGrantFingerprints`). Refused before any write; the value
+   * A selected fingerprint outside the `SHA256:` display grammar (agent-wire
+   * base64; `isSshFingerprints`). Refused before any write; the value
    * itself is never echoed into the message.
    */
-  SSH_GRANT_KEYS_INVALID = "SSH_GRANT_KEYS_INVALID",
+  SSH_KEYS_INVALID = "SSH_KEYS_INVALID",
   /**
    * The relay broker refused to open (spec 2026-10-08 §5.3): quota, gate,
    * handshake, or a refused side. The pane was not launched; the message
-   * names which door. No grant was consumed and no session exists.
+   * names which door. No session exists.
    */
   SSH_RELAY_OPEN_FAILED = "SSH_RELAY_OPEN_FAILED",
   /**
@@ -263,27 +253,9 @@ export enum BackendErrorCodes {
    */
   SSH_RELAY_IDENTITY_MISSING = "SSH_RELAY_IDENTITY_MISSING",
   /**
-   * A grant destination selector the grammar refuses: blank, over 253
-   * characters, leading `-`/`.`, doubled `*`, control characters or
-   * whitespace. A selector is a hostname pattern (concrete host or `*`
-   * globs) matched against resolved destination hostnames; it is refused
-   * before anything is stored.
-   */
-  SSH_GRANT_SELECTOR_INVALID = "SSH_GRANT_SELECTOR_INVALID",
-  /**
-   * An approval question already answered (or already expired) when someone
-   * tried to answer it: the queue is compare-and-set, so a second approver or
-   * the sweep wins and this is the loud no the screen shows (spec 2026-10-08
-   * §6.2 - the row records the whole lifecycle, the answer does not rewrite
-   * history).
-   */
-  SSH_GRANT_ALREADY_ANSWERED = "SSH_GRANT_ALREADY_ANSWERED",
-  /**
-   * A relay grant creation the host-key capture refused because the key home
-   * has no `known_hosts` entry for the destination (spec 2026-10-08 §9,
-   * Task 12). A relay grant must carry a pin - B verifies D against A's
-   * recorded key, never its own ambient TOFU - so the grant is NOT created
-   * and the approval stays pending. The remedy the message names: connect to
+   * A relay connection refused because the key home has no recorded host
+   * key for the destination. The connecting machine requires a pin from
+   * the key home and cannot fall back to its own ambient TOFU. The remedy the message names: connect to
    * the destination once from the key home, or supply the key on the trust
    * screen.
    */
@@ -292,8 +264,7 @@ export enum BackendErrorCodes {
    * The host-key capture found the destination pinned to a DIFFERENT key
    * (spec 2026-10-08 §9): the TOFU hard block at the plane's edge, the mirror
    * of the block OpenSSH itself raises on B. Nothing is overwritten; recovery
-   * is delete the pin (trust screen) plus a fresh grant-creation TOFU, no
-   * separate rotate act.
+   * is verify the new key, delete the old pin on the trust screen and retry.
    */
   SSH_HOST_PIN_CHANGED = "SSH_HOST_PIN_CHANGED",
   /**
@@ -578,16 +549,12 @@ export const BackendErrorCodeDefs = {
     message: "SSH panes accept input from their owner only",
     statusCode: 403,
   },
-  [BackendErrorCodes.SSH_GRANT_APPROVAL_REQUIRED]: {
-    message: "This connection needs a key-grant approval first",
-    statusCode: 409,
-  },
-  [BackendErrorCodes.SSH_GRANT_KEYS_OVER_LIMIT]: {
-    message: "Too many keys selected for one grant",
+  [BackendErrorCodes.SSH_KEYS_OVER_LIMIT]: {
+    message: "Too many SSH keys selected",
     statusCode: 400,
   },
-  [BackendErrorCodes.SSH_GRANT_KEYS_INVALID]: {
-    message: "That key fingerprint is not in the SHA256 form grants store",
+  [BackendErrorCodes.SSH_KEYS_INVALID]: {
+    message: "That SSH key selection is invalid",
     statusCode: 400,
   },
   [BackendErrorCodes.SSH_RELAY_OPEN_FAILED]: {
@@ -596,14 +563,6 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.SSH_RELAY_IDENTITY_MISSING]: {
     message: "That machine has no registered relay identity yet",
-    statusCode: 409,
-  },
-  [BackendErrorCodes.SSH_GRANT_SELECTOR_INVALID]: {
-    message: "That grant selector is not a hostname pattern",
-    statusCode: 400,
-  },
-  [BackendErrorCodes.SSH_GRANT_ALREADY_ANSWERED]: {
-    message: "That grant request has already been answered",
     statusCode: 409,
   },
   [BackendErrorCodes.SSH_HOST_PIN_MISSING]: {

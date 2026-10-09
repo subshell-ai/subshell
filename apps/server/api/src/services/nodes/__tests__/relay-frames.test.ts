@@ -44,7 +44,7 @@ function spyBroker(overrides: Partial<RelayBroker> = {}) {
       calls.route.push([nodeId, f]);
     },
     closeRelay: noop(),
-    closeForGrant: async () => 0,
+    closeUnauthorizedForNode: async () => 0,
     closeForPane: async () => 0,
     refuseOverCap: async (ref) => {
       calls.overCap.push(ref);

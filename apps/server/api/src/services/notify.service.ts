@@ -33,20 +33,8 @@ import { logger } from "@/utils/logger.js";
  * `/attention` route's body union — hooks can only report
  * `turn_complete`/`needs_attention`.
  */
-/**
- * What happened. `grant_approval` is the ONE kind not attached to a subshell:
- * a first-use key-grant request is waiting on the owner's answer (spec
- * 2026-10-08 §6.2), delivered through {@link NotifyService.notifyGrantApprovalOwner}
- * rather than `notifySubshell`, and it never reads or writes any subshell row.
- */
-export type NotifyKind =
-  | "turn_complete"
-  | "needs_attention"
-  | "exited"
-  | "crashed"
-  | "crashed_final"
-  | "maintenance"
-  | "grant_approval";
+/** Subshell lifecycle notifications. */
+export type NotifyKind = "turn_complete" | "needs_attention" | "exited" | "crashed" | "crashed_final" | "maintenance";
 
 const BODY: Record<NotifyKind, string> = {
   turn_complete: "Done, waiting for you",
@@ -55,10 +43,6 @@ const BODY: Record<NotifyKind, string> = {
   crashed: "Crashed, auto-restarting",
   crashed_final: "Crashed",
   maintenance: "Stopped for node maintenance",
-  // Fixed text, named per the brief; carries no destination, no key, no
-  // fingerprint - only the opaque request id rides the tag/url (Global
-  // Constraints, spec 2026-10-08 §6.2).
-  grant_approval: "A key grant needs your approval",
 };
 
 /**
@@ -66,9 +50,6 @@ const BODY: Record<NotifyKind, string> = {
  * pane's follow-ups until the owner opens the pane, and only an event that
  * strictly OUTRANKS the unseen one rings through. `crashed_final` tops it —
  * the restart loop giving up is news even behind an unseen `crashed`.
- * `grant_approval` sits beside `needs_attention`: it is not consulted by the
- * grant send (no subshell row carries the ladder state), and the value exists
- * to keep the Record total, exactly as the mobile copy table does.
  */
 const PUSH_URGENCY: Record<NotifyKind, number> = {
   turn_complete: 1,
@@ -77,7 +58,6 @@ const PUSH_URGENCY: Record<NotifyKind, number> = {
   crashed: 3,
   maintenance: 3,
   crashed_final: 4,
-  grant_approval: 2,
 };
 
 /**
@@ -88,17 +68,6 @@ const PUSH_URGENCY: Record<NotifyKind, number> = {
  */
 export function buildNotificationPayload(row: { id: string; name: string }, kind: NotifyKind) {
   return { title: row.name, body: BODY[kind], url: `/subshells/${row.id}`, tag: row.id };
-}
-
-/**
- * The web-push payload for a first-use key-grant request (spec 2026-10-08
- * §6.2). FIXED text naming only the act, the app name as title, and the
- * opaque request id as the tag - no destination, no key, no fingerprint, and
- * nothing derived from the pending row beyond its own id (Global
- * Constraints). The URL is the grants/approvals screen under SSH settings.
- */
-export function buildGrantApprovalPayload(requestId: string) {
-  return { title: "Subshell", body: BODY.grant_approval, url: "/settings/ssh", tag: requestId };
 }
 
 /**
@@ -168,11 +137,6 @@ export function createNotifyService(deps: NotifyServiceDeps) {
    * built without the device transport behaves exactly as it did before the
    * mobile app existed (invariant 2).
    *
-   * Shaped by USER + SUBJECT id, not by a subshell row, because the one
-   * non-subshell kind (a first-use `grant_approval`, spec 2026-10-08 §6.2)
-   * rides the SAME device-token machinery: its subject is the opaque request
-   * id and it has no waiting-stamp (`waitingSince: null` reads as "not
-   * stamped", which `badgeCount` already spells).
    */
   /** @returns the number of relay-usable device tokens this fan-out targeted */
   async function fanOutExpo(
@@ -306,34 +270,6 @@ export function createNotifyService(deps: NotifyServiceDeps) {
       } catch (err) {
         // Notifications must never break the caller (sweep / hook route).
         logger.withError(err).warn(`notifySubshell(${subshellId}, ${kind}) failed`);
-      }
-    },
-    /**
-     * Ring the OWNER's devices about one outstanding first-use key-grant
-     * request (spec 2026-10-08 §6.2, the owner-addressed sibling of
-     * `notifySubshell` whose surface is subshell-row-shaped). The subject is
-     * the opaque request id; the copy is FIXED text naming the act, and the
-     * message carries no destination, no key, and no fingerprint (Global
-     * Constraints). The per-user master switch still gates it (a user who
-     * muted all pushes stays muted); there is no per-pane bell to consult,
-     * and the unseen gate does not apply (no subshell row carries the state).
-     * Best-effort by the same contract as `notifySubshell`: a failed push is
-     * one log line, the durable pending row is the real record.
-     */
-    async notifyGrantApprovalOwner(ownerUserId: string, requestId: string): Promise<void> {
-      try {
-        if (!(await userMetaRepo.getNotifyEnabled(ownerUserId))) return;
-        // Same parallel-transport posture as notifySubshell (efficiency #6).
-        const deviceDelivery = fanOutExpo(ownerUserId, requestId, "grant_approval", null);
-        const attempted = await fanOutWebPush(ownerUserId, buildGrantApprovalPayload(requestId));
-        const liveDevices = await deviceDelivery;
-        if (attempted === 0 && liveDevices === 0) {
-          // No targets at all: nothing was attempted. The approvals queue is
-          // the delivery that cannot be missed; the log only notes silence.
-          logger.debug(`grant_approval notify: no push targets for the owner of request ${requestId}`);
-        }
-      } catch (err) {
-        logger.withError(err).warn(`notifyGrantApprovalOwner(${requestId}) failed`);
       }
     },
   };

@@ -3,44 +3,19 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import { isSshKnownHostsPinLine, type NodeSshHostKeyResult } from "@internal/subshell-protocol";
 import { db } from "@/db/index.js";
 import { SshHostPinsRepository } from "@/db/repositories/ssh-host-pins.repository.js";
-import type { SshHostPinTable } from "@/db/types/ssh-grants.db-types.js";
+import type { SshHostPinTable } from "@/db/types/ssh-host-pins.db-types.js";
 import { parseSshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { SshRpcError, sshHostKey } from "@/services/nodes/ssh-rpc.js";
 import { logger } from "@/utils/logger.js";
 
 /**
- * The host-key pin store (spec 2026-10-08 §9, Task 12): the M2 TOFU record
- * that tells a relay WHERE D's identity comes from. Trust for a destination
- * follows the key home, not the connecting box: the pin is captured from A's
- * own `~/.ssh/known_hosts` at grant creation (or supplied explicitly by the
- * operator), stored owner-scoped per canonical `user@host:port`, delivered to
- * B on the signed relay-open, and rendered into the session as
- * `UserKnownHostsFile <pinned>` + `StrictHostKeyChecking yes`. A changed D
- * key is then refused by OpenSSH itself, naming D; the plane never overwrites
- * a stored pin (a differing capture is the §9 hard block), and recovery is
- * delete-the-pin plus a fresh grant-creation TOFU - no separate rotate act.
- *
- * **The fail-closed rules this module keeps:**
- * - A capture that finds nothing fails with the named `no-pin` cause. A
- *   relay launch refuses on it (`prepareRelayLeg`): B never ambient-TOFUs a
- *   destination, and a grant approval refuses on it too, so no grant ever
- *   stands without its destination's pin.
- * - A capture that finds MULTIPLE distinct keys for the destination is
- *   `ambiguous`, refused rather than "pick one" - the pin must name A's one
- *   recorded key, not a coin flip over A's file.
- * - A capture whose key differs from the stored pin is `changed`: nothing is
- *   written, nothing is deleted; the operator verifies out of band, deletes
- *   the pin, and re-creates the grant to re-decide TOFU.
- * - Transport truth is the machine's, not this module's: offline / outdated /
- *   timeout / refused / malformed each leave as the named cause, and the
- *   grant approval stays PENDING through all of them (the ask can be retried;
- *   a fabricated pin could not be un-fabricated).
- * - The audit rows (`node.ssh_host_pin.create|delete`) name the destination
- *   and the pinned key's `SHA256:` fingerprint ONLY - a host-key fingerprint
- *   is a public identifier (docs/security.md §10) - never the line's bytes,
- *   and no log line or notification this module writes carries a key. The
- *   capture COMMAND writes no row at all; the row belongs to the capture ACT.
+ * Destination trust follows the key home. Capture its known_hosts entry or
+ * accept an explicit operator pin, store it per owner and canonical destination,
+ * then deliver it to the connecting machine for strict host-key checking.
+ * Missing or ambiguous captures refuse the connection. A changed key never
+ * overwrites an existing pin: verify it separately, delete the old pin and retry.
+ * Audit records contain public fingerprints, never key bytes.
  */
 
 /** Why a capture refused; each code names its own door (the routes render the copy). */
@@ -380,7 +355,7 @@ export async function listHostPins(args: { ownerUserId: string }): Promise<SshHo
 /* refusal mapping: the RPC's kinds and the capture's own doors        */
 /* ------------------------------------------------------------------ */
 
-/** The grant-surface refusal shape (identical arms to `ssh-grants`'s narrow type). */
+/** The coded refusal shape shared by trust and connection operations. */
 export type SshHostPinRefusal = { status: 400 | 403 | 404 | 409 | 502; code: BackendErrorCodes; message: string };
 
 /** Map the capture's own error onto the coded refusal its caller renders. */
@@ -405,7 +380,7 @@ export function hostPinRefusal(err: SshHostPinError): SshHostPinRefusal {
         status: 409,
         code: BackendErrorCodes.SSH_HOST_PIN_CHANGED,
         message:
-          "The key home now reports a different host key for that destination than the stored pin. Verify out of band, delete the pin, and create the grant again to re-trust.",
+          "The key home now reports a different host key for that destination than the stored pin. Verify out of band, delete the pin, and retry the connection to trust the verified key.",
       };
     case "invalid-line":
       return { status: 400, code: BackendErrorCodes.SSH_HOST_PIN_INVALID, message: err.message };
@@ -461,4 +436,15 @@ function pinAudit(
     metadataJson: JSON.stringify(metadata),
   };
   return audit(event);
+}
+
+/** Read the stored destination pin, capturing from the key home's trust on first use. */
+export async function ensureDestinationPin(args: {
+  ownerUserId: string;
+  aNodeId: string;
+  destination: string;
+}): Promise<{ line: string }> {
+  const existing = await hostPinFor({ ownerUserId: args.ownerUserId, destination: args.destination });
+  if (existing !== null) return { line: existing.hostKey };
+  return { line: (await captureHostPin(args)).hostKey };
 }

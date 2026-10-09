@@ -686,8 +686,8 @@ test("RelaySessions dispatches by ref to the owning role: registered, unknown, d
   relay.onInboundRelayFrame(frame("unknown-ref")); // never throws into the frame chain
   relay.onInboundRelayFrame(frame("r-2")); // a throwing owner is contained, not rethrown
 
-  relay.closeAll("grant-revoked");
-  expect(closedWith).toBe("grant-revoked");
+  relay.closeAll("access-revoked");
+  expect(closedWith).toBe("access-revoked");
   expect(relay.size).toBe(0);
   relay.onInboundRelayFrame(frame("r-1")); // after closeAll nothing routes, nothing throws
   expect(seenA.length).toBe(1);

@@ -8,7 +8,7 @@
  * other mirror type in this app.
  */
 
-import { SSH_MAX_GRANT_FINGERPRINTS } from "@internal/subshell-protocol";
+import { SSH_MAX_SELECTED_FINGERPRINTS } from "@internal/subshell-protocol";
 
 /** One ProxyJump hop as the frozen snapshot spells it. */
 export interface SshHop {
@@ -143,6 +143,7 @@ export interface SshSaveHostRequest {
 export interface SshLaunchRequest {
   /** Optional machine whose SSH agent supplies keys; absent uses the connecting machine. */
   keyHome?: string;
+  fingerprints?: string[];
   /** Connecting machine ('local' = the control-plane host) */
   node: string;
   /** Destination token (1..253), resolved on the machine before anything launches */
@@ -160,58 +161,9 @@ export interface SshLaunchResponse {
   subshell: { id: string };
 }
 
-/**
- * One standing key grant as the grants screen reads it (spec 2026-10-08 §6.1,
- * §8). The fingerprint set is public `SHA256:` identifiers and it is
- * deliberately on this wire: the screen is the owner's own, and "which keys
- * serve" is exactly what the owner manages.
- */
-export interface SshGrant {
-  /** Grant row id (uuid) */
-  id: string;
-  /** Display name the operator gave the grant */
-  name: string;
-  /** Key home machine: its ssh-agent signs for this grant */
-  keyHomeNodeId: string;
-  /** Destination selector, stored RESOLVED: a concrete hostname or a '*' host pattern */
-  resolvedSelector: string;
-  /** The selected public identities (at most SSH_MAX_GRANT_FINGERPRINTS); an empty set serves nothing */
-  fingerprints: string[];
-  /** Which door created the row: an approved first use, or the grants screen */
-  createdVia: "first-use" | "manual";
-  /** ISO 8601 creation stamp (the match tie-break: oldest wins) */
-  createdAt: string;
-  /** ISO 8601 of the last operator edit */
-  updatedAt: string;
-}
-
-/** One first-use approval request as the queue reads it (spec 2026-10-08 §6.2). */
-export interface SshGrantRequest {
-  /** Exact resolved account, host and port; absent on older servers. */
-  destination?: string | null;
-  /** Request row id (uuid) - the opaque ref the refusal and the notification name */
-  id: string;
-  /** The key home whose approval is asked */
-  keyHomeNodeId: string;
-  /** The resolved destination hostname the launch would have dialed */
-  resolvedSelector: string;
-  /** Pre-selection riding the request, or null (the approver picks) */
-  requestedFingerprints: string[] | null;
-  /** The asking pane's id (the requester the screen names) */
-  paneId: string;
-  /** The connecting machine of the asking launch */
-  bNodeId: string;
-  /** ISO 8601 deadline (24 h); past it the sweep answers the row expired */
-  expiresAt: string;
-  /** Lifecycle state; only pending can be answered */
-  status: "pending" | "approved" | "denied" | "expired";
-  /** ISO 8601 creation stamp */
-  createdAt: string;
-}
-
-/** One key home agent identity from the approval roster (blobs are withheld by construction). */
+/** One key home agent identity from the live agent roster (blobs are withheld by construction). */
 export interface SshAgentIdentity {
-  /** Public agent identity in the canonical SHA256: notation (the approval sends it back verbatim) */
+  /** Public agent identity in the canonical SHA256: notation (sent verbatim when connecting) */
   fingerprint: string;
   /** OpenSSH's label for the key, as the agent reports it (display only) */
   comment: string;
@@ -234,10 +186,17 @@ export interface SshHostPin {
 /**
  * The client-side spelling of the server's hard selection cap (spec
  * 2026-10-08 §5.4): the same sentence the refusing service answers
- * (`ssh-grants.service.ts`), so the red line on the card and a refused POST
+ * (`ssh-relay-launch.service.ts`), so the red line on the card and a refused POST
  * read identically.
  */
-export function grantSelectionError(fingerprints: readonly string[]): string | null {
-  if (fingerprints.length <= SSH_MAX_GRANT_FINGERPRINTS) return null;
-  return `A grant can carry at most ${SSH_MAX_GRANT_FINGERPRINTS} keys. Deselect some and try again; nothing was truncated.`;
+export function sshSelectionError(fingerprints: readonly string[]): string | null {
+  if (fingerprints.length <= SSH_MAX_SELECTED_FINGERPRINTS) return null;
+  return `Select at most ${SSH_MAX_SELECTED_FINGERPRINTS} SSH keys before connecting.`;
+}
+
+export interface SshMachineReadiness {
+  node: import("@internal/node-admin").Node;
+  canConnect: boolean;
+  canConfigure: boolean;
+  blockers: { code: string; message: string }[];
 }

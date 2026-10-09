@@ -1473,7 +1473,7 @@ describe("handleNodeClose (superseded-close hygiene, spec §5.3)", () => {
       },
       routeRelayFrame: () => {},
       closeRelay: async () => false,
-      closeForGrant: async () => 0,
+      closeUnauthorizedForNode: async () => 0,
       closeForPane: async () => 0,
       refuseOverCap: async () => false,
       onNodeSocketClosed: async (nodeId) => {

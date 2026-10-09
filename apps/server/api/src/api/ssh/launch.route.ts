@@ -1,4 +1,4 @@
-import { normalizeLabel } from "@internal/subshell-protocol";
+import { normalizeLabel, SSH_ROSTER_MAX_IDENTITIES } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { authGuard, requireCookieActor } from "@/api/auth-guard.js";
 import { SubshellSchema } from "@/api/models.js";
@@ -9,7 +9,7 @@ import { sshLaunch } from "@/services/ssh-launch.service.js";
 
 /**
  * `POST /api/ssh/launch` `{node, destination, name?}` — open an interactive
- * SSH pane to one destination (spec 2026-10-07 §5): gate (row + owner, before
+ * SSH pane to one destination (spec 2026-10-07 §5): gate (current launch access and readiness, before
  * anything), resolve the destination on the machine (the SAME path a discovery
  * answer takes; an unsafe token 400s first), refuse a refusal-shaped outcome
  * with **422 `{outcome}`** (the endpoint that acts does not carry a refusal in
@@ -37,11 +37,8 @@ export const sshLaunchRoute = new Elysia()
         // The same label rule every human-chosen name takes (idempotent
         // through the manager's choke-point re-normalization).
         name: body.name === undefined ? undefined : normalizeLabel(body.name, 120),
-        // RELAY MODE (spec 2026-10-08 §6): the key home whose agent signs,
-        // gated and grant-matched inside the service. Absent = the M1 direct
-        // launch. A first-use refusal answers 409 SSH_GRANT_APPROVAL_REQUIRED
-        // and launches nothing (a durable approval row now stands).
         keyHomeNodeId: body.keyHome,
+        fingerprints: body.fingerprints,
         subshells: ctx.services.subshells,
       });
       if (!answer.ok) {
@@ -60,6 +57,9 @@ export const sshLaunchRoute = new Elysia()
         node: t.String({ minLength: 1, description: "Connecting machine ('local' = the control-plane host)" }),
         destination: SshDestinationField,
         name: t.Optional(t.String({ minLength: 1, maxLength: 120, description: "Pane display name" })),
+        fingerprints: t.Optional(
+          t.Array(t.String({ minLength: 1, maxLength: 135 }), { maxItems: SSH_ROSTER_MAX_IDENTITIES }),
+        ),
         keyHome: t.Optional(
           t.String({
             minLength: 1,
@@ -86,7 +86,7 @@ export const sshLaunchRoute = new Elysia()
         operationId: "sshLaunchPane",
         tags: ["ssh"],
         description:
-          "Opens an interactive SSH pane from the connecting machine to one approved destination. Owner-only and off by default; a destination whose resolution refused answers 422 carrying the outcome and launches nothing. Resolution evaluates the account's own SSH config with `ssh -G`; a `Match exec` hidden from the bounded config walk can run a local command during that evaluation, so approving a destination also approves running its resolution",
+          "Opens an interactive SSH pane from the connecting machine to one approved destination. Requires machine launch access and SSH enabled; a destination whose resolution refused answers 422 carrying the outcome and launches nothing. Resolution evaluates the account's own SSH config with `ssh -G`; a `Match exec` hidden from the bounded config walk can run a local command during that evaluation, so approving a destination also approves running its resolution",
       },
     },
   );

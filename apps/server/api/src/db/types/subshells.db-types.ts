@@ -81,8 +81,9 @@ export interface SubshellTable {
   /**
    * an SSH-terminal pane carries its approved snapshot here; the value's
    * presence is the owner-only-input rule's trigger (spec §5.4). JSON-encoded
-   * `SshConnectionSnapshotWire`; never serialized to clients, the launch
-   * answer included. See migration 0048.
+   * `SshConnectionSnapshotWire` plus optional `relayFingerprints: string[]`
+   * recording the exact selected keys for relay panes. Never serialized to
+   * clients, the launch answer included. See migration 0048.
    */
   ssh: string | null;
   /**

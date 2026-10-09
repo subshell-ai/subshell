@@ -10,14 +10,13 @@ import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
-import { SshGrantsRepository } from "@/db/repositories/ssh-grants.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { sshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import type { SshRefusal } from "@/services/ssh-launch.service.js";
-import { type RelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
+import { type OpenRelayInput, type RelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
 import { setSshSetupHereDepsForTests, setupHere } from "@/services/ssh-setup-here.service.js";
 import { attachScriptedNode, SCRIPTED_DATA_DIR, type ScriptedNode } from "@/test-helpers/scripted-node.js";
 
@@ -38,7 +37,7 @@ import { attachScriptedNode, SCRIPTED_DATA_DIR, type ScriptedNode } from "@/test
  *
  * B answers over the REAL sendCommand chain through the scripted node (the
  * emitted frames pass the real wire grammar); the relay broker is the fake
- * the grants suite uses; every wait runs on injected seams. The key the test
+ * this suite records; every wait runs on injected seams. The key the test
  * recovers from the exec command string is the mint's plaintext - which is
  * what makes the leak assertions mean something.
  */
@@ -79,13 +78,13 @@ const NODE_A = "setup-node-a";
 const NODE_B = "setup-node-b";
 
 /** The relay broker fake: opens recorded, closes recorded, socket answer derived. */
-let openCalls: { paneId: string; aNode: string; bNode: string; grantId: string; hostPin: string }[] = [];
+let openCalls: OpenRelayInput[] = [];
 let closeCalls: { paneId: string; reason: string }[] = [];
 let fakeBroker: RelayBroker;
 
 function makeFakeBroker(): RelayBroker {
   return {
-    openRelay: async (input: { paneId: string; aNode: string; bNode: string; grantId: string; hostPin: string }) => {
+    openRelay: async (input: OpenRelayInput) => {
       openCalls.push(input);
       return {
         relayId: `relay-${openCalls.length}`,
@@ -130,7 +129,11 @@ async function mkNode(id: string): Promise<NodeTable> {
   return (await nodes.findById(id)) as NodeTable;
 }
 
-async function mkPane(opts: { keyHome: boolean; ssh?: string | null }): Promise<string> {
+async function mkPane(opts: {
+  keyHome: boolean;
+  ssh?: string | null;
+  fingerprints?: string[] | null;
+}): Promise<string> {
   const id = crypto.randomUUID();
   await new SubshellsRepository(db).create({
     id,
@@ -141,27 +144,24 @@ async function mkPane(opts: { keyHome: boolean; ssh?: string | null }): Promise<
     tmuxSocket: null,
     nodeId: NODE_B,
     // `??` would read a deliberate null as absent; the test's null IS the value.
-    ssh: opts.ssh === undefined ? JSON.stringify(SNAP()) : opts.ssh,
+    ssh:
+      opts.ssh === undefined
+        ? JSON.stringify({
+            ...SNAP(),
+            ...(opts.keyHome && opts.fingerprints !== null
+              ? { relayFingerprints: opts.fingerprints ?? ["SHA256:AAAA"] }
+              : {}),
+          })
+        : opts.ssh,
     keyHomeNodeId: opts.keyHome ? NODE_A : null,
   });
   createdPanes.push(id);
   return id;
 }
 
-/** The standing grant + pin + identities every relay leg reads (fixture, once). */
+/** The destination pin and identities every relay leg reads (fixture, once). */
 async function authorizeRelay(): Promise<void> {
   const now = new Date().toISOString();
-  await new SshGrantsRepository(db).insertGrant({
-    id: crypto.randomUUID(),
-    ownerUserId: owner,
-    name: HOST,
-    keyHomeNodeId: NODE_A,
-    resolvedSelector: HOST,
-    fingerprints: JSON.stringify(["SHA256:AAAA"]),
-    createdVia: "manual",
-    createdAt: now,
-    updatedAt: now,
-  });
   await db
     .insertInto("sshHostPins")
     .values({
@@ -217,9 +217,19 @@ function attachPair(impl: {
   onKick?: (cmd: SshExecCommand) => void | Promise<void>;
   status: (kick: SshExecCommand | undefined) => unknown;
   withA: boolean;
+  fingerprints?: string[];
 }): { b: ScriptedNode; a: ScriptedNode | null; kick: () => SshExecCommand | undefined } {
   let seen: SshExecCommand | undefined;
-  const a = impl.withA ? attachScriptedNode(NODE_A, {}) : null;
+  const a = impl.withA
+    ? attachScriptedNode(NODE_A, {
+        ssh_agent_identities: () => ({
+          identities: (impl.fingerprints ?? ["SHA256:AAAA"]).map((fingerprint) => ({
+            fingerprint,
+            comment: "test key",
+          })),
+        }),
+      })
+    : null;
   const b = attachScriptedNode(NODE_B, {
     ssh_exec: async (cmd) => {
       if (cmd.type !== "ssh_exec") throw new Error("wrong arm");
@@ -272,8 +282,6 @@ afterAll(async () => {
   resetNodeRegistryForTests();
   for (const id of createdPanes) await new SubshellsRepository(db).delete(id).catch(() => {});
   await db.deleteFrom("sshHostPins").execute();
-  await db.deleteFrom("sshKeyGrants").execute();
-  await db.deleteFrom("sshGrantRequests").execute();
   await db.deleteFrom("identities").execute();
   await db.deleteFrom("nodeSetupKeys").execute();
   await db.deleteFrom("auditEvents").where("action", "=", "node.ssh_upgrade.run").execute();
@@ -317,6 +325,78 @@ describe("setupHere door order (pane first, gates before any key)", () => {
 });
 
 describe("setupHere relay mode", () => {
+  for (const rosterSize of [2, 9]) {
+    it(`reuses only the saved selected key from a current roster of ${rosterSize} keys`, async () => {
+      const selected = "SHA256:AAAA";
+      const paneId = await mkPane({ keyHome: true, fingerprints: [selected] });
+      let enrolled: { id: string; handle: ScriptedNode } | null = null;
+      const pair = attachPair({
+        withA: true,
+        fingerprints: [selected, ...Array.from({ length: rosterSize - 1 }, (_, i) => `SHA256:extra${i}`)],
+        onKick: async (cmd) => {
+          enrolled = await enrollD(mintedKey(cmd));
+        },
+        status: () => DONE_OK,
+      });
+      try {
+        const result = await setupHere({ viewerId: owner, paneId });
+        expect(result.ok).toBe(true);
+        expect(openCalls).toHaveLength(1);
+        expect(openCalls[0]?.fingerprints).toEqual([selected]);
+        const stored = await db
+          .selectFrom("subshells")
+          .select("ssh")
+          .where("id", "=", paneId)
+          .executeTakeFirstOrThrow();
+        expect(JSON.parse(stored.ssh ?? "{}").relayFingerprints).toEqual([selected]);
+      } finally {
+        pair.a?.detach();
+        pair.b.detach();
+        const destination = enrolled as { id: string; handle: ScriptedNode } | null;
+        destination?.handle.detach();
+        if (destination) await nodes.deleteById(destination.id);
+      }
+    });
+  }
+
+  it("refuses when a saved selected key disappears without replacing it with another live key", async () => {
+    const paneId = await mkPane({ keyHome: true, fingerprints: ["SHA256:AAAA"] });
+    const pair = attachPair({ withA: true, fingerprints: ["SHA256:BBBB"], status: () => DONE_OK });
+    const keysBefore = (await keys.listByUser(owner)).length;
+    try {
+      const result = await setupHere({ viewerId: owner, paneId });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(coded(result.refusal).code).toBe(BackendErrorCodes.SSH_KEYS_INVALID);
+      expect(openCalls).toHaveLength(0);
+      expect(pair.b.cmdTypes()).toEqual([]);
+      expect((await keys.listByUser(owner)).length).toBe(keysBefore);
+    } finally {
+      pair.a?.detach();
+      pair.b.detach();
+    }
+  });
+
+  it("requires relaunching legacy relay panes without a saved key selection", async () => {
+    const paneId = await mkPane({ keyHome: true, fingerprints: null });
+    const pair = attachPair({ withA: true, status: () => DONE_OK });
+    const keysBefore = (await keys.listByUser(owner)).length;
+    try {
+      const result = await setupHere({ viewerId: owner, paneId });
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(coded(result.refusal).code).toBe(BackendErrorCodes.SSH_UPGRADE_FAILED);
+        expect(coded(result.refusal).message).toMatch(/relaunch.*choose.*keys/i);
+      }
+      expect(openCalls).toHaveLength(0);
+      expect(pair.a?.cmdTypes()).toEqual([]);
+      expect(pair.b.cmdTypes()).toEqual([]);
+      expect((await keys.listByUser(owner)).length).toBe(keysBefore);
+    } finally {
+      pair.a?.detach();
+      pair.b.detach();
+    }
+  });
+
   it("refuses jump or aliased host trust before creating a relay or setup key", async () => {
     const pair = attachPair({ withA: true, status: () => DONE_OK });
     const keysBefore = (await keys.listByUser(owner)).length;
@@ -397,8 +477,7 @@ describe("setupHere relay mode", () => {
       expect(res.ok).toBe(false);
       if (res.ok) return;
       const refusal = coded(res.refusal);
-      expect(refusal.code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
-      expect(refusal.message).toContain(NODE_A);
+      expect(refusal.code).toBe(BackendErrorCodes.NODE_OFFLINE);
       expect(refusal.message).toMatch(/online/i);
       expect(openCalls).toHaveLength(0); // never re-opened
       expect(pair.b.cmdTypes()).toEqual([]); // B was never even asked to exec

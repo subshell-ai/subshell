@@ -1,24 +1,30 @@
 import type { Node } from "@internal/node-admin";
 import { Button, Label } from "@internal/node-admin";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
 import { DestinationField } from "@/components/connect/destination-field";
 import { buildDestinationOptions, type DestinationCandidate } from "@/components/connect/destination-options";
 import { NoSshTargets } from "@/components/connect/no-ssh-targets";
 import { type SshRefusalCopy, sshLaunchRefusal } from "@/components/connect/ssh-refusal";
-import { PendingApprovals } from "@/components/ssh/pending-approvals";
 import { SshQueryStatus } from "@/components/ssh/query-status";
+import { Checkbox } from "@/components/ui/checkbox";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
-import { Field, FieldGroup } from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { RequiredMark } from "@/components/ui/required-mark";
-import { useNodes } from "@/hooks/use-nodes";
-import { useLaunchSsh, useSaveSshHost, useSetDefaultNode, useSshAliases, useSshSavedHosts } from "@/hooks/use-ssh";
+import {
+  useLaunchSsh,
+  useSaveSshHost,
+  useSetDefaultNode,
+  useSshAliases,
+  useSshNodeRoster,
+  useSshReadiness,
+  useSshSavedHosts,
+} from "@/hooks/use-ssh";
 import { fieldErrorToned } from "@/lib/form";
 import { nodeOptionLabel } from "@/lib/node-label";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
-import { sshMachineBlocker } from "@/lib/ssh-machine-readiness";
-import { launchableNodes } from "@/lib/subshell-compat";
+import { sshSelectionError } from "@/lib/ssh";
 
 /** Shared SSH launch form for new subshells, workspace additions and splits.
  * A picked suggestion retains its canonical destination; editing it submits
@@ -58,9 +64,14 @@ export function ConnectPanel({
   onPendingChange?: (pending: boolean) => void;
 }): JSX.Element {
   const navigate = useNavigate();
-  const nodesQuery = useNodes({ polling: true });
+  const nodesQuery = useSshReadiness();
   const { data: nodeData } = nodesQuery;
-  const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
+  const machines = nodeData?.machines ?? null;
+  const nodes = machines?.map((machine) => machine.node) ?? null;
+  const machineBlocker = (id: string) =>
+    machines?.find((machine) => machine.node.id === id)?.blockers[0]?.message ?? null;
+  const machineCanConnect = (id: string) =>
+    machines?.some((machine) => machine.node.id === id && machine.canConnect) ?? false;
   const { data: ledger, isPending: ledgerPending } = useSshSavedHosts();
   const launch = useLaunchSsh();
   const [submitting, setSubmitting] = useState(false);
@@ -79,17 +90,16 @@ export function ConnectPanel({
     typed: initial?.destination ?? "",
   });
   const [advanced, setAdvanced] = useState(!!initial?.keyHome);
-  const [reviewApproval, setReviewApproval] = useState(false);
-  const [keysApproved, setKeysApproved] = useState(false);
+  const [selection, setSelection] = useState<{ node: string; fingerprints: string[] } | null>(null);
   const [remember, setRemember] = useState(false);
   const [refusal, setRefusal] = useState<SshRefusalCopy | null>(null);
 
-  const targets = launchableNodes(nodes ?? []);
+  const targets = nodes ?? [];
   const selectedNode: Node | null = (nodes ?? []).find((n) => n.id === nodeId) ?? null;
   const defaultNodeId = ledger?.defaultNodeId ?? null;
-  const enabledCount = targets.filter((n) => sshMachineBlocker(n) === null).length;
-  const machineReady = !nodesQuery.isError && selectedNode !== null && sshMachineBlocker(selectedNode) === null;
-  const selectedBlocker = selectedNode ? sshMachineBlocker(selectedNode) : "Choose an available connecting machine.";
+  const enabledCount = targets.filter((n) => machineCanConnect(n.id)).length;
+  const machineReady = !nodesQuery.isError && selectedNode !== null && machineCanConnect(selectedNode.id);
+  const selectedBlocker = selectedNode ? machineBlocker(selectedNode.id) : "Choose an available connecting machine.";
   // "Settled" means both feeds have answered, so the pre-fill effect has had
   // its say: a stored default or the only usable machine has landed, or there
   // was nothing to land. From then on an empty machine IS the open question -
@@ -104,8 +114,8 @@ export function ConnectPanel({
   const machineOptions: ComboboxOption[] = targets.map((n) => ({
     value: n.id,
     label: nodeOptionLabel(n),
-    disabled: sshMachineBlocker(n) !== null,
-    reason: sshMachineBlocker(n) ?? undefined,
+    disabled: !machineCanConnect(n.id),
+    reason: machineBlocker(n.id) ?? undefined,
   }));
 
   // Aliases are the MACHINE's config, asked only while a gate-ON machine is
@@ -127,37 +137,35 @@ export function ConnectPanel({
   // (decision 2). Keyed on the loaded node list, never on `targets` (a new
   // array every render).
   useEffect(() => {
-    if (nodeId !== "" || nodes === null) return;
-    const usable = launchableNodes(nodes).filter((n) => sshMachineBlocker(n) === null);
-    if (defaultNodeId !== null && usable.some((n) => n.id === defaultNodeId)) {
-      setNodeId(defaultNodeId);
-    } else if (usable.length === 1) {
-      setNodeId(usable[0].id);
-    }
-  }, [nodeId, nodes, defaultNodeId]);
+    if (nodeId !== "" || machines === null) return;
+    const usable = machines.filter((machine) => machine.canConnect).map((machine) => machine.node);
+    if (defaultNodeId !== null && usable.some((n) => n.id === defaultNodeId)) setNodeId(defaultNodeId);
+    else if (usable.length === 1) setNodeId(usable[0].id);
+  }, [nodeId, machines, defaultNodeId]);
 
   const keyOptions: ComboboxOption[] = [
     { value: "connecting", label: "Connecting machine’s own keys" },
     ...(nodes ?? [])
-      .filter((n) => n.kind === "agent" && n.access === "owner" && n.id !== nodeId)
+      .filter((n) => n.kind === "agent" && n.id !== nodeId)
       .map((n) => ({
         value: n.id,
         label: n.name,
-        disabled: selectedNode?.kind !== "agent" || !n.sshEnabled || n.status !== "online" || n.maintenance,
+        disabled: selectedNode?.kind !== "agent" || !machineCanConnect(n.id),
         reason:
           selectedNode?.kind !== "agent"
             ? "Choose a node as the connecting machine first"
-            : !n.sshEnabled
-              ? "Enable SSH on this machine first"
-              : n.status !== "online"
-                ? "Bring this machine online first"
-                : n.maintenance
-                  ? "In maintenance"
-                  : undefined,
+            : (machineBlocker(n.id) ?? undefined),
       })),
   ];
   const effectiveKeyHome = keyHome === nodeId ? "" : keyHome;
   const keyReady = !effectiveKeyHome || keyOptions.some((o) => o.value === effectiveKeyHome && !o.disabled);
+  const roster = useSshNodeRoster(effectiveKeyHome && keyReady ? effectiveKeyHome : null);
+  const fingerprints =
+    selection?.node === effectiveKeyHome
+      ? selection.fingerprints
+      : (roster.data?.identities.map((key) => key.fingerprint) ?? []);
+  const selectionError = sshSelectionError(fingerprints);
+  const rosterReady = !effectiveKeyHome || (!roster.isPending && !roster.isError && selectionError === null);
   const destination = dest.pick?.destination ?? dest.typed.trim();
   // A committed row's label is the field's text; while that echo stands the
   // list is UNFILTERED (the whole ledger again), because the echo is display,
@@ -178,7 +186,7 @@ export function ConnectPanel({
     setDest({ pick: candidate, pickId: option.value, typed: option.label });
   }
 
-  const canSubmit = !submitting && machineReady && destination !== "" && keyReady;
+  const canSubmit = !submitting && machineReady && destination !== "" && keyReady && rosterReady;
 
   async function submit(): Promise<void> {
     // Belt over gate: the button's own disabled condition already holds both
@@ -190,7 +198,7 @@ export function ConnectPanel({
       const created = await launch.mutateAsync({
         node: nodeId,
         destination,
-        ...(effectiveKeyHome ? { keyHome: effectiveKeyHome } : {}),
+        ...(effectiveKeyHome ? { keyHome: effectiveKeyHome, fingerprints } : {}),
       });
       if (remember) {
         // The alias rides ONLY for a config-list pick (an alias token); saved
@@ -236,32 +244,10 @@ export function ConnectPanel({
 
   if (nodesQuery.isPending || nodesQuery.isError)
     return <SshQueryStatus query={nodesQuery} label="connecting machines" />;
-  if (enabledCount === 0) return <NoSshTargets nodes={nodes ?? []} onLeave={onLeave} />;
-
-  if (reviewApproval && refusal?.requestId)
-    return (
-      <div className="flex flex-col gap-4">
-        <PendingApprovals
-          onlyRequestId={refusal.requestId}
-          onApproved={() => {
-            setReviewApproval(false);
-            setRefusal(null);
-            setKeysApproved(true);
-          }}
-        />
-        <Button variant="outline" onClick={() => setReviewApproval(false)}>
-          Back to SSH subshell
-        </Button>
-      </div>
-    );
+  if (enabledCount === 0) return <NoSshTargets machines={machines ?? []} onLeave={onLeave} />;
 
   return (
     <div className="flex flex-col gap-4">
-      {keysApproved && (
-        <p role="status" className="text-detail">
-          Keys approved. Start the SSH subshell when you are ready.
-        </p>
-      )}
       <FieldGroup className="gap-4">
         <Field>
           <Label htmlFor={DESTINATION_IDS.field}>SSH destination</Label>
@@ -368,21 +354,43 @@ export function ConnectPanel({
                   {refusal.text}
                 </p>
               )}
-              {refusal?.approval &&
-                (refusal.requestId ? (
-                  <Button variant="outline" onClick={() => setReviewApproval(true)}>
-                    Review SSH approval
-                  </Button>
-                ) : (
-                  <Link
-                    to="/settings/ssh"
-                    onClick={onLeave}
-                    search={{ ...launch.variables }}
-                    className="text-label underline"
-                  >
-                    Review SSH approval
-                  </Link>
-                ))}
+              {effectiveKeyHome && (
+                <>
+                  <SshQueryStatus query={roster} label="SSH agent keys" />
+                  {roster.data && (
+                    <fieldset className="flex flex-col gap-2">
+                      <legend className="text-label">SSH agent keys</legend>
+                      {roster.data.identities.map((key, index) => (
+                        <Field key={key.fingerprint}>
+                          <Checkbox
+                            id={`ssh-key-${index}`}
+                            checked={fingerprints.includes(key.fingerprint)}
+                            onCheckedChange={(checked) =>
+                              setSelection({
+                                node: effectiveKeyHome,
+                                fingerprints: checked
+                                  ? [...fingerprints, key.fingerprint]
+                                  : fingerprints.filter((value) => value !== key.fingerprint),
+                              })
+                            }
+                          />
+                          <FieldLabel htmlFor={`ssh-key-${index}`}>{key.comment || key.fingerprint}</FieldLabel>
+                        </Field>
+                      ))}
+                      {roster.data.identities.length === 0 && (
+                        <p className="text-detail text-muted-foreground">
+                          No keys are loaded in this machine's SSH agent.
+                        </p>
+                      )}
+                      {selectionError && (
+                        <p role="alert" className="text-destructive text-detail">
+                          {selectionError}
+                        </p>
+                      )}
+                    </fieldset>
+                  )}
+                </>
+              )}
             </Field>
           </div>
         </div>
