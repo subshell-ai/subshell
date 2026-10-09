@@ -393,13 +393,26 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     await page.goto("/new");
     await pickAgent(page.getByPlaceholder("Choose an agent"), "pi");
     await page.getByPlaceholder("Choose a node").click();
+    const remoteRecent = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/api/files/recent" && url.searchParams.get("node") === nodeId && response.ok();
+    });
     await nodeOption.click();
-    await page.fill("#picker-working-dir", workingDir);
+    const defaults = (await (await remoteRecent).json()) as { paths: { path: string }[]; home: string | null };
+    const directory = page.locator("#picker-working-dir");
+    // A node switch clears the old path, then asynchronously seeds this
+    // node's recent path/home. Wait for the rendered seed: Playwright fill
+    // selects the old text before inserting, so a seed landing between those
+    // operations can prepend home to an otherwise absolute fixture path.
+    await expect(directory).toHaveValue(defaults.paths[0]?.path ?? defaults.home ?? "");
+    await directory.fill(workingDir);
+    await expect(directory).toHaveValue(workingDir);
     // The directory-picker panel opens on focus and covers the fields below;
     // a click on the dialog's heading is what closes it without closing the
     // dialog (spec 06's note). The Escape above is right for the COMBOBOX
     // popup, which is a different overlay with the opposite answer.
     await dismissDirectoryPanel(page);
+    await expect(directory).toHaveValue(workingDir);
 
     const tokenRes = page.waitForResponse((r) => r.url().includes("/api/auth/ws-token") && r.status() === 200, {
       timeout: SPAWN_TIMEOUT,
@@ -408,7 +421,11 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
       predicate: (w) => w.url().includes("/ws?subshell="),
       timeout: SPAWN_TIMEOUT,
     });
+    const launchRequest = page.waitForRequest(
+      (outgoing) => new URL(outgoing.url()).pathname === "/api/subshells" && outgoing.method() === "POST",
+    );
     await page.getByRole("button", { name: "Start subshell" }).click();
+    expect((await launchRequest).postDataJSON()).toMatchObject({ nodeId, workingDir });
     await expect(page).toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });
     subshellId = new URL(page.url()).pathname.split("/").pop() as string;
     await tokenRes;
