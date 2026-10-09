@@ -1,5 +1,15 @@
 # @internal/docs
 
+## 0.7.0
+
+### Minor Changes
+
+- [#319](https://github.com/subshell-ai/subshell/pull/319) [`4f3e318`](https://github.com/subshell-ai/subshell/commit/4f3e3182734cff5b53ac10441bfe0d94130d6ff2) Thanks [@theogravity](https://github.com/theogravity)! - MCP tools reference gained exec_in_terminal: the one-call single-command run with its exit code, the refusal codes, and the timeout contract. The Terminal sessions guide gained the paragraph steering single commands to it and multi-command sessions to the manual loop, and the stale "no exit code" bullet now names exec_in_terminal as the answer.
+
+- [#328](https://github.com/subshell-ai/subshell/pull/328) [`438f952`](https://github.com/subshell-ai/subshell/commit/438f952014f2b9886b849253c3c5f3f3c2946951) Thanks [@theogravity](https://github.com/theogravity)! - New MCP guide page "Terminal sessions" (presetless shell launches and the send/read cursor loop); tools reference and preset docs updated for the presetless terminal shape and the log cursor.
+
+- [#317](https://github.com/subshell-ai/subshell/pull/317) [`a82309b`](https://github.com/subshell-ai/subshell/commit/a82309b55cc738c0f61824621a24acf737a5f366) Thanks [@theogravity](https://github.com/theogravity)! - Node protocol reference updated for protocol 15: the archive transfer command family, the relay window and archive caps, and the longer command deadlines. The MCP tool reference gained transfer_files.
+
 ## 0.6.3
 
 ### Patch Changes
