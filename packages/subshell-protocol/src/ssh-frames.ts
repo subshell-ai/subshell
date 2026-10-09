@@ -207,7 +207,10 @@ export interface SshRelayOpenCommand {
  * Every reason a relay session may be closed with (spec 2026-10-08 §5.1/§5.6):
  * §5.1's "closed with a named reason" is only kept if the grammar knows every
  * name, so a close carrying anything else is malformed, not a fresh idea.
- * - `handshake-grace`: the pairing's handshake window elapsed unanswered.
+ * - `handshake-grace`: the pairing's handshake window elapsed unanswered, or
+ *   a delivered open was REFUSED (or threw) before the session established
+ *   (ssh-relay.service.ts closes with this reason on both spellings; the
+ *   grammar names every way the broker actually says it).
  * - `child-exit`: the B-side pane's `ssh` child died; the session ends with it.
  * - `lifetime-expiry`: SSH_RELAY_LIFETIME_MS ran out.
  * - `a-dropped`: A's link dropped and no re-pair restored it.

@@ -138,6 +138,15 @@ function sshString(bytes: Buffer): Buffer {
  * base64url without padding - the same scheme `fingerprintJwk` established
  * (§4.5: "Agent keys hash their agent wire encoding"; §5.4), which is also
  * the only spelling the grant grammar's `GRANT_FINGERPRINT_RE` accepts.
+ *
+ * The base64url spelling is DELIBERATELY internal and differs from what
+ * `ssh-keygen -l` prints (standard base64: different alphabet, padding):
+ * these fingerprints are compared ONLY against this spelling (grant rows,
+ * roster answers, selection scoping), never against ssh-keygen output, and
+ * the UI never invites that cross-comparison (the out-of-band comparison
+ * story is about machine keys on the trust card, §4.6). Do NOT "normalize"
+ * this to standard base64: stored grant fingerprints are these strings, and
+ * a silent alphabet swap would invalidate every standing grant.
  */
 export function fingerprintAgentBlob(blob: Uint8Array): string {
   return `SHA256:${createHash("sha256").update(blob).digest("base64url")}`;
