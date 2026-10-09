@@ -23,7 +23,7 @@ export type PushAction =
  * their tap lands on the settings tab (the real surface) and their silence
  * action is ignored (there is no subshell bell to PATCH). Every other kind
  * behaves exactly as it always has: tap to `/subshell/<sid>`, silence to the
- * PATCH (PR #338 review, Important 1).
+ * PATCH (PR 338 review, Important 1).
  * @param data - The opaque payload (sid + kind + origin)
  * @param actionIdentifier - The response's action id; only "silence" acts
  */

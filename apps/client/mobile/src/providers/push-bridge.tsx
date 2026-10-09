@@ -28,7 +28,7 @@ import { useSubshell } from "@/providers/subshell-provider";
  *   is ignored rather than opened on the wrong server. A `grant_approval`
  *   push switches instances the same way but lands on the settings tab, and
  *   its Silence action is ignored (its sid names a grant request, not a pane;
- *   PR #338 review, Important 1).
+ *   PR 338 review, Important 1).
  *
  * The response listener mounts ONCE and reads the registry via
  * `useApp.getState()` at call time: an earlier version kept activeId/instances
