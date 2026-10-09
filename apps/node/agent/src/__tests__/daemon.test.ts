@@ -2294,15 +2294,22 @@ describe("restart command (spec 2026-09-12 § 6.3)", () => {
     const dir = mkdtempSync(join(tmpdir(), "subshell-daemon-sshfp-corrupt-"));
     daemonDirs.push(dir);
     writeFileSync(join(dir, "ssh-machine-pins.json"), "}{");
-    const h = await startDaemon({ runtime: supervised, config: { dataDir: dir } });
-    const ready = await waitForReady(h);
-    expect(ready.type).toBe("ready");
-    if (ready.type !== "ready") return;
-    expect(ready.runtime).toBeDefined();
-    expect(
-      ready.runtime && "sshFingerprint" in ready.runtime ? ready.runtime.sshFingerprint : undefined,
-    ).toBeUndefined();
-    expect(h.plane.unparsed).toEqual([]);
+    const logs = captureLogs();
+    try {
+      const h = await startDaemon({ runtime: supervised, config: { dataDir: dir } });
+      const ready = await waitForReady(h);
+      expect(ready.type).toBe("ready");
+      if (ready.type !== "ready") return;
+      expect(ready.runtime).toBeDefined();
+      expect(
+        ready.runtime && "sshFingerprint" in ready.runtime ? ready.runtime.sshFingerprint : undefined,
+      ).toBeUndefined();
+      expect(h.plane.unparsed).toEqual([]);
+      expect(logs.lines.join("\n")).toContain("ready: ssh trust block unavailable");
+      expect(logs.lines.join("\n")).toContain("restore the verified pin file from backup");
+    } finally {
+      logs.restore();
+    }
   });
 
   // The ORDER is the contract: the daemon is the only sender of `result`, so

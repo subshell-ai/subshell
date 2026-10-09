@@ -171,7 +171,7 @@ test("a corrupt pin file is quarantined and throws; it is never read as an empty
   // Fail closed on FIRST read: an unreadable pin set must not silently become
   // "no pins" (the pin-store.ts / identity.ts doctrine). The unreadable file
   // is moved aside, its bytes preserved for the operator.
-  expect(() => store.get("node-1")).toThrow();
+  expect(() => store.get("node-1")).toThrow("restore the verified pin file from backup");
   const quarantined = readdirSync(dir).filter((f) => f.includes("corrupt"));
   expect(quarantined.length).toBe(1);
   expect(readFileSync(join(dir, quarantined[0]), "utf8")).toContain("definitely not json");

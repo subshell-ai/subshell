@@ -10,7 +10,7 @@ import {
   readLocalRelayIdentity,
   resetLocalRelayIdentity,
 } from "@/services/ssh-local-identity.js";
-import { getRelayBroker } from "@/services/ssh-relay.service.js";
+import { getRelayBroker, SshRelayRefusal } from "@/services/ssh-relay.service.js";
 
 const FingerprintsSchema = t.Object({
   signing: t.String({ description: "Verified server relay signing fingerprint" }),
@@ -62,14 +62,21 @@ export const localSshIdentityRoute = new Elysia()
         body.encryption !== (await fingerprintJwk(identity.publicJwk))
       )
         throw new HttpError(409, "The server SSH identity changed; verify both fingerprints again.");
-      await getRelayBroker().closeForNodeIdentityRepair("local");
-      await new IdentitiesRepository(db).register({
-        principalId: "node:local",
-        publicKey: identity.publicJwk,
-        signingPublicKey: identity.signingPublicJwk,
-        displayName: null,
-      });
-      resetLocalRelayIdentity();
+      try {
+        await getRelayBroker().withNodeIdentityRepair("local", async () => {
+          await new IdentitiesRepository(db).register({
+            principalId: "node:local",
+            publicKey: identity.publicJwk,
+            signingPublicKey: identity.signingPublicJwk,
+            displayName: null,
+          });
+          resetLocalRelayIdentity();
+        });
+      } catch (err) {
+        if (err instanceof SshRelayRefusal && err.code === "identity-repair")
+          throw new HttpError(409, "The server SSH identity is already being repaired. Retry when it finishes.");
+        throw err;
+      }
       await audit({
         actorUserId: user.id,
         action: "node.ssh_identity.repair",

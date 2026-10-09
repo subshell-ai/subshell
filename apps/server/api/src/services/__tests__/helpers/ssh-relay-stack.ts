@@ -410,6 +410,7 @@ export async function openStack(opts: StackOptions = {}): Promise<Stack> {
   });
 
   const result = await broker.openRelay({
+    identityGenerations: { a: broker.identityGeneration("a-node"), b: broker.identityGeneration("b-node") },
     userId: "user-1",
     fingerprints,
     paneId: PANE_ID,

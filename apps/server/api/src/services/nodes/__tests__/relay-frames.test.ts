@@ -57,7 +57,10 @@ function spyBroker(overrides: Partial<RelayBroker> = {}) {
     activeRelayCount: () => 0,
     sessionInfo: () => null,
     shutdown: async () => {},
-    closeForNodeIdentityRepair: async () => {},
+    identityGeneration: () => 0,
+    withNodeIdentityRepair: async (_nodeId, repair) => {
+      await repair();
+    },
     reset: () => {},
     ...overrides,
   };

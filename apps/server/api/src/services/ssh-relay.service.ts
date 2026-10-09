@@ -45,6 +45,7 @@ export interface RelayPeerKeys {
 
 /** Why an `openRelay` refused. Each code names its own door; the message says more. */
 export type SshRelayRefusalCode =
+  | "identity-repair"
   | "access-denied"
   | "bad-pane-id"
   | "bad-fingerprints"
@@ -126,6 +127,8 @@ export interface OpenRelayInput {
    * and bad-fingerprints doors beside it.
    */
   hostPin: string;
+  /** Epochs captured before identity preparation; stale prepared keys must not cross a repair. */
+  identityGenerations: { a: number; b: number };
 }
 
 /** What a successful `openRelay` answers: the pairing, plus the socket the pane's scoped env must point at. */
@@ -187,8 +190,10 @@ export interface RelayBroker {
   reset(): void;
   /** Close all sessions and their endpoints during process shutdown. */
   shutdown(): Promise<void>;
-  /** Close both roles before explicit identity recovery. */
-  closeForNodeIdentityRepair(nodeId: string): Promise<void>;
+  /** Capture before reading registered keys; changes invalidate prepared and in-flight opens. */
+  identityGeneration(nodeId: string): number;
+  /** Exclude opens while draining both roles and applying registration/cache changes. */
+  withNodeIdentityRepair(nodeId: string, repair: () => Promise<void>): Promise<void>;
 }
 
 /** One brokered pairing, in memory only (§5.3: durable life is the audit rows). */
@@ -240,6 +245,13 @@ function openCmd(input: OpenRelayInput, role: "A" | "B", ref: string, relayId: s
 export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
   /** The ONE map: opaque ref -> session (§5.3). A ref nothing brokered is refused, never guessed. */
   const byRef = new Map<string, Session>();
+  const draining = new Map<string, { session: Session; done: Promise<void> }>();
+  const repairing = new Set<string>();
+  const identityGenerations = new Map<string, number>();
+  const identityGeneration = (nodeId: string): number => identityGenerations.get(nodeId) ?? 0;
+  const advanceIdentityGeneration = (nodeId: string): void => {
+    identityGenerations.set(nodeId, identityGeneration(nodeId) + 1);
+  };
 
   const infoOf = (s: Session): RelaySessionInfo => ({
     relayId: s.relayId,
@@ -280,30 +292,49 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
     byRef.delete(ref);
     deps.cancel(s.lifetimeTimer);
     deps.cancel(s.graceTimer);
-    await closeSends(s, reason);
-    await deps.audit({
-      actorUserId: null, // the plane brokered it; the human's act is the launch audit
-      action: "node.ssh_relay.close",
-      targetType: "node",
-      targetId: s.aNode,
-      // ids, hosts, reason - never keys, fingerprints, sockets, or payloads
-      // (Global Constraints; docs/security.md §10).
-      metadataJson: JSON.stringify({
-        relayId: s.relayId,
-        ref: s.ref,
-        userId: s.userId,
-        paneId: s.paneId,
-        aNodeId: s.aNode,
-        bNodeId: s.bNode,
-        reason,
-      }),
-    });
+    const done = Promise.withResolvers<void>();
+    draining.set(ref, { session: s, done: done.promise });
+    try {
+      await closeSends(s, reason);
+      await deps.audit({
+        actorUserId: null, // the plane brokered it; the human's act is the launch audit
+        action: "node.ssh_relay.close",
+        targetType: "node",
+        targetId: s.aNode,
+        // ids, hosts, reason - never keys, fingerprints, sockets, or payloads
+        // (Global Constraints; docs/security.md §10).
+        metadataJson: JSON.stringify({
+          relayId: s.relayId,
+          ref: s.ref,
+          userId: s.userId,
+          paneId: s.paneId,
+          aNodeId: s.aNode,
+          bNodeId: s.bNode,
+          reason,
+        }),
+      });
+    } finally {
+      draining.delete(ref);
+      done.resolve();
+    }
     return true;
   };
 
   const forEach = (match: (s: Session) => boolean): Session[] => [...byRef.values()].filter(match);
 
   const openRelay = async (input: OpenRelayInput): Promise<OpenRelayResult> => {
+    const generations = input.identityGenerations;
+    const identityChanged = (): boolean =>
+      repairing.has(input.aNode) ||
+      repairing.has(input.bNode) ||
+      generations.a !== identityGeneration(input.aNode) ||
+      generations.b !== identityGeneration(input.bNode);
+    const repairRefusal = () =>
+      new SshRelayRefusal(
+        "identity-repair",
+        "Relay identity repair interrupted this open; retry with the current registered identities",
+      );
+    if (identityChanged()) throw repairRefusal();
     // Validation FIRST: a malformed input is refused before a row is read, a
     // session exists, or a byte is audited.
     if (!isSshPaneId(input.paneId)) {
@@ -370,6 +401,7 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
       }
     }
 
+    if (identityChanged()) throw repairRefusal();
     const relayId = crypto.randomUUID();
     const ref = crypto.randomUUID(); // opaque pairing key; entropy is minted, never negotiated
     const expiresAt = deps.nowMs() + SSH_RELAY_LIFETIME_MS;
@@ -410,6 +442,10 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
       }),
     });
 
+    if (identityChanged()) {
+      await closeRelay(ref, "access-revoked");
+      throw repairRefusal();
+    }
     // Deliver the pairing. Both opens go out now; the acks complete the
     // handshake the grace timer watches. The open command's transport
     // deadline is the grace itself - past that window the session is already
@@ -419,6 +455,10 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
       deps.sendCommand(input.aNode, openCmd(input, "A", ref, relayId), { timeoutMs: SSH_RELAY_TEARDOWN_GRACE_MS }),
       deps.sendCommand(input.bNode, openCmd(input, "B", ref, relayId), { timeoutMs: SSH_RELAY_TEARDOWN_GRACE_MS }),
     ]);
+    if (identityChanged()) {
+      await closeRelay(ref, "access-revoked");
+      throw repairRefusal();
+    }
     if (resA.status === "fulfilled") s.aOpened = true;
     if (resB.status === "fulfilled") s.bOpened = true;
 
@@ -539,10 +579,27 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
       const s = byRef.get(ref);
       return s ? infoOf(s) : null;
     },
-    async closeForNodeIdentityRepair(nodeId) {
-      await Promise.all(
-        forEach((s) => s.aNode === nodeId || s.bNode === nodeId).map((s) => closeRelay(s.ref, "access-revoked")),
-      );
+    identityGeneration,
+    async withNodeIdentityRepair(nodeId, repair) {
+      if (repairing.has(nodeId))
+        throw new SshRelayRefusal("identity-repair", "This machine's relay identity is already being repaired", nodeId);
+      repairing.add(nodeId);
+      advanceIdentityGeneration(nodeId);
+      try {
+        const touchesNode = (s: Session) => s.aNode === nodeId || s.bNode === nodeId;
+        // A close removes its routable session before awaiting transport. Also
+        // drain those already-closing participants before replacing their keys.
+        const alreadyClosing = [...draining.values()].filter(({ session }) => touchesNode(session));
+        await Promise.all([
+          ...alreadyClosing.map(({ done }) => done),
+          ...forEach(touchesNode).map((s) => closeRelay(s.ref, "access-revoked")),
+        ]);
+        await repair();
+      } finally {
+        // Invalidate preparation begun during repair, including a failed repair.
+        advanceIdentityGeneration(nodeId);
+        repairing.delete(nodeId);
+      }
     },
     async shutdown() {
       await Promise.all([...byRef.keys()].map((ref) => closeRelay(ref, "child-exit")));

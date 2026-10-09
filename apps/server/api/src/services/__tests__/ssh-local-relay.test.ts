@@ -100,6 +100,7 @@ for (const localRole of ["A", "B"] as const)
         encryptionPublicJwk: keys.publicJwk,
       });
       const opened = await broker.openRelay({
+        identityGenerations: { a: broker.identityGeneration(aNode), b: broker.identityGeneration(bNode) },
         userId: "test-user",
         aNode,
         bNode,
@@ -119,7 +120,8 @@ for (const localRole of ["A", "B"] as const)
       expect(await requestLiveAgent(opened.socketPath, buildSignRequestTenX(KEY_OUT))).toEqual(Buffer.from([5]));
       expect(agent.received.length).toBe(before);
       expect((await requestLiveAgent(opened.socketPath, buildSignRequestTenX(KEY_IN)))[0]).toBe(14);
-      const request = frames.find((frame) => frame.direction === "B2A")!;
+      const request = frames.find((frame) => frame.direction === "B2A");
+      if (!request) throw new Error("missing sealed agent request");
       broker.routeRelayFrame("outsider", request);
       broker.routeRelayFrame(bNode, { ...request, direction: "A2B" });
       broker.routeRelayFrame(bNode, request); // valid envelope replay is refused by the receiver sequence gate

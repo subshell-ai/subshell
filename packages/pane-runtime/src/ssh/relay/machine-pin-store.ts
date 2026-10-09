@@ -226,7 +226,7 @@ export class MachinePinStore {
     throw new Error(
       `machine pin file is corrupt (${cause instanceof Error ? cause.message : String(cause)}); ` +
         `refusing to treat the pin set as empty. The file (${aside}) was NOT reset; ` +
-        "restore it by hand or re-pair each peer after verifying out-of-band.",
+        "restore the verified pin file from backup before pairing again. Peer repair cannot recover a quarantined store.",
     );
   }
 }

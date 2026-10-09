@@ -158,6 +158,10 @@ function makeHarness(
     },
     open: (over: Partial<Parameters<RelayBroker["openRelay"]>[0]> = {}) =>
       broker.openRelay({
+        identityGenerations: {
+          a: broker.identityGeneration(over.aNode ?? "a"),
+          b: broker.identityGeneration(over.bNode ?? "b"),
+        },
         userId: "grant-1",
         fingerprints: FINGERPRINTS,
         paneId: PANE,
@@ -657,5 +661,134 @@ describe("grammar/version posture", () => {
     // The handler refuses every relay frame from a pre-18 agent upstream;
     // this tripwire documents the dependency at the broker.
     expect(NODE_PROTOCOL_VERSION).toBe(19);
+  });
+});
+
+describe("identity repair excludes concurrent and stale opens", () => {
+  it("holds the barrier through deferred closes and registration/cache replacement", async () => {
+    const closing = Promise.withResolvers<void>();
+    const closeAck = Promise.withResolvers<void>();
+    const replacing = Promise.withResolvers<void>();
+    const replacement = Promise.withResolvers<void>();
+    const h = makeHarness({
+      ack: async (_nodeId, cmd) => {
+        if (cmd.type === "ssh_relay_close") {
+          closing.resolve();
+          await closeAck.promise;
+        }
+        return cmd.type === "ssh_relay_open" && cmd.role === "B"
+          ? { socketPath: buildAgentSocketPath("/data/b", cmd.paneId) }
+          : { ok: true };
+      },
+    });
+    const stale = { a: h.broker.identityGeneration("a"), b: h.broker.identityGeneration("b") };
+    const session = await h.open();
+    const repair = h.broker.withNodeIdentityRepair("a", async () => {
+      replacing.resolve();
+      await replacement.promise;
+    });
+    await closing.promise;
+    await expect(h.open()).rejects.toMatchObject({ code: "identity-repair" });
+    await expect(h.broker.withNodeIdentityRepair("a", async () => {})).rejects.toMatchObject({
+      code: "identity-repair",
+    });
+    closeAck.resolve();
+    await replacing.promise;
+    const during = { a: h.broker.identityGeneration("a"), b: h.broker.identityGeneration("b") };
+    await expect(h.open()).rejects.toMatchObject({ code: "identity-repair" });
+    replacement.resolve();
+    await repair;
+    expect(h.broker.sessionInfo(session.ref)).toBeNull();
+    expect(h.broker.activeRelayCount("a")).toBe(0);
+    await expect(h.open({ identityGenerations: stale })).rejects.toMatchObject({ code: "identity-repair" });
+    await expect(h.open({ identityGenerations: during })).rejects.toMatchObject({ code: "identity-repair" });
+    await h.open();
+    expect(h.broker.activeRelayCount("a")).toBe(1);
+    await h.broker.shutdown();
+  });
+
+  it("waits for a close already draining outside the routable session map", async () => {
+    const closing = Promise.withResolvers<void>();
+    const closeAck = Promise.withResolvers<void>();
+    const h = makeHarness({
+      ack: async (_nodeId, cmd) => {
+        if (cmd.type === "ssh_relay_close") {
+          closing.resolve();
+          await closeAck.promise;
+        }
+        return cmd.type === "ssh_relay_open" && cmd.role === "B"
+          ? { socketPath: buildAgentSocketPath("/data/b", cmd.paneId) }
+          : { ok: true };
+      },
+    });
+    const opened = await h.open();
+    const close = h.broker.closeRelay(opened.ref, "child-exit");
+    await closing.promise;
+    let replaced = false;
+    const repair = h.broker.withNodeIdentityRepair("a", async () => {
+      replaced = true;
+    });
+    await expect(h.open()).rejects.toMatchObject({ code: "identity-repair" });
+    expect(replaced).toBe(false);
+    closeAck.resolve();
+    await Promise.all([close, repair]);
+    expect(replaced).toBe(true);
+    expect(h.broker.activeRelayCount("a")).toBe(0);
+  });
+
+  it("invalidates an open still awaiting authorization before it creates a session", async () => {
+    const entered = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<boolean>();
+    const h = makeHarness({
+      authorize: async () => {
+        entered.resolve();
+        return gate.promise;
+      },
+    });
+    const opening = h.open();
+    await entered.promise;
+    await h.broker.withNodeIdentityRepair("b", async () => {});
+    gate.resolve(true);
+    await expect(opening).rejects.toMatchObject({ code: "identity-repair" });
+    expect(h.commands).toEqual([]);
+    expect(h.broker.activeRelayCount("a")).toBe(0);
+  });
+
+  it("cuts pending handshakes and refuses their late open acknowledgments", async () => {
+    const entered = Promise.withResolvers<void>();
+    const openAck = Promise.withResolvers<void>();
+    const participants = new Set<string>();
+    const h = makeHarness({
+      ack: async (nodeId, cmd) => {
+        if (cmd.type === "ssh_relay_open") {
+          participants.add(nodeId);
+          entered.resolve();
+          await openAck.promise;
+          return cmd.role === "B" ? { socketPath: buildAgentSocketPath("/data/b", cmd.paneId) } : { ok: true };
+        }
+        if (cmd.type === "ssh_relay_close") participants.delete(nodeId);
+        return { ok: true };
+      },
+    });
+    const opening = h.open();
+    await entered.promise;
+    await h.broker.withNodeIdentityRepair("a", async () => {});
+    expect(participants.size).toBe(0);
+    openAck.resolve();
+    await expect(opening).rejects.toMatchObject({ code: "identity-repair" });
+    expect(h.broker.activeRelayCount("a")).toBe(0);
+  });
+
+  it("releases the barrier after a failed replacement while invalidating prepared keys", async () => {
+    const h = makeHarness();
+    const stale = { a: h.broker.identityGeneration("a"), b: h.broker.identityGeneration("b") };
+    await expect(
+      h.broker.withNodeIdentityRepair("a", async () => {
+        throw new Error("registration failed");
+      }),
+    ).rejects.toThrow("registration failed");
+    await expect(h.open({ identityGenerations: stale })).rejects.toMatchObject({ code: "identity-repair" });
+    await h.open();
+    await h.broker.shutdown();
   });
 });

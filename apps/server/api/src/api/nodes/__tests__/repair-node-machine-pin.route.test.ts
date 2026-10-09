@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
-import { MachinePinStore } from "@internal/pane-runtime";
+import { buildAgentSocketPath, MachinePinStore } from "@internal/pane-runtime";
 import { fingerprintJwk } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { nodesRoutes } from "@/api/nodes/index.js";
@@ -16,6 +16,7 @@ import {
   resetLocalRelayIdentity,
 } from "@/services/ssh-local-identity.js";
 import { setSshMachinePinsDepsForTests } from "@/services/ssh-machine-pins.service.js";
+import { createRelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
@@ -290,7 +291,43 @@ describe("server relay identity recovery", () => {
     const pins = new MachinePinStore(localRelayIdentityDir());
     pins.repair("peer-recovery-test", { signing: identity.signingPublicJwk, encryption: identity.publicJwk });
     const before = pins.entries();
+    const closeStarted = Promise.withResolvers<void>();
+    const closeAck = Promise.withResolvers<void>();
+    const broker = createRelayBroker({
+      authorize: async () => true,
+      nodeRow: async (nodeId) => ({ kind: nodeId === "local" ? "local" : "agent", sshEnabled: 1 }),
+      nodeDataDir: () => "/data/peer",
+      sendCommand: async (_nodeId, cmd) => {
+        if (cmd.type === "ssh_relay_close") {
+          closeStarted.resolve();
+          await closeAck.promise;
+        }
+        return cmd.type === "ssh_relay_open" && cmd.role === "B"
+          ? { socketPath: buildAgentSocketPath("/data/peer", cmd.paneId) }
+          : { ok: true };
+      },
+      sendRelayFrame: () => {},
+      audit: async () => {},
+      nowMs: Date.now,
+      schedule: () => 0,
+      cancel: () => {},
+      log: () => {},
+    });
+    const peer = { signingPublicKey: identity.signingPublicJwk, encryptionPublicJwk: identity.publicJwk };
+    const opening = {
+      userId: ownerId,
+      paneId: crypto.randomUUID(),
+      aNode: "local",
+      bNode: PEER_B,
+      aPeer: peer,
+      bPeer: peer,
+      fingerprints: ["SHA256:AAAA"],
+      hostPin: `example.test ssh-ed25519 ${"A".repeat(51)}`,
+      identityGenerations: { a: broker.identityGeneration("local"), b: broker.identityGeneration(PEER_B) },
+    };
+    setRelayBrokerForTests(broker);
     try {
+      await broker.openRelay(opening);
       await repo.register({ ...original, signingPublicKey: identity.publicJwk });
       expect((await call("GET", ownerCookie)).status).toBe(403);
       expect((await call("POST", ownerCookie, own)).status).toBe(403);
@@ -299,10 +336,24 @@ describe("server relay identity recovery", () => {
       expect(((await status.json()) as { matches: boolean }).matches).toBe(false);
       expect((await call("POST", adminCookie, { ...own, signing: "wrong" })).status).toBe(409);
       expect((await repo.findByPrincipal("node:local"))?.signingPublicKey).toBe(identity.publicJwk);
-      expect((await call("POST", adminCookie, own)).status).toBe(200);
+      const repairing = call("POST", adminCookie, own);
+      await closeStarted.promise;
+      // Registration remains old until teardown completes; neither a new open
+      // nor prepared old keys can get a participant past the repair barrier.
+      expect((await repo.findByPrincipal("node:local"))?.signingPublicKey).toBe(identity.publicJwk);
+      await expect(broker.openRelay(opening)).rejects.toMatchObject({ code: "identity-repair" });
+      expect((await call("POST", adminCookie, own)).status).toBe(409);
+      closeAck.resolve();
+      expect((await repairing).status).toBe(200);
+      expect(broker.activeRelayCount("local")).toBe(0);
+      await expect(broker.openRelay(opening)).rejects.toMatchObject({ code: "identity-repair" });
+      expect((await ensureLocalRelayIdentity()).signingPublicJwk).toBe(identity.signingPublicJwk);
       expect((await repo.findByPrincipal("node:local"))?.signingPublicKey).toBe(identity.signingPublicJwk);
       expect(pins.entries()).toEqual(before);
     } finally {
+      closeAck.resolve();
+      broker.reset();
+      setRelayBrokerForTests(null);
       await repo.register(original);
       resetLocalRelayIdentity();
     }
