@@ -1,12 +1,14 @@
 import type { Node } from "@internal/node-admin";
 import { Button, Label } from "@internal/node-admin";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { ChevronDown } from "lucide-react";
 import { type JSX, useEffect, useState } from "react";
 import { DestinationField } from "@/components/connect/destination-field";
 import { buildDestinationOptions, type DestinationCandidate } from "@/components/connect/destination-options";
-import { SavedHostsSection } from "@/components/connect/saved-hosts-section";
 import { type SshRefusalCopy, sshLaunchRefusal } from "@/components/connect/ssh-refusal";
+import { PendingApprovals } from "@/components/ssh/pending-approvals";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
+import { Field, FieldGroup } from "@/components/ui/field";
 import { RequiredMark } from "@/components/ui/required-mark";
 import { useNodes } from "@/hooks/use-nodes";
 import { useLaunchSsh, useSaveSshHost, useSetDefaultNode, useSshAliases, useSshSavedHosts } from "@/hooks/use-ssh";
@@ -15,37 +17,9 @@ import { nodeOptionLabel } from "@/lib/node-label";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import { launchableNodes } from "@/lib/subshell-compat";
 
-/**
- * The destination-first Connect flow (spec 2026-10-07 §7, decision 2): the
- * destination leads, the connecting machine follows as a disclosure line,
- * and one POST opens the pane - the SERVER resolves, so selecting a row is
- * display, never a pre-resolve step. Three nouns only (the §11 vocabulary):
- * destination, connecting machine. The key-source picker adds M2 relay access while keeping direct SSH the default.
- *
- * A machine whose SSH is off stays VISIBLE and disabled with its reason and
- * remedy - greying explains, hiding does not (decision 3). Once both feeds
- * have answered, an empty picker IS the open question: the gold `*` and the
- * gold sentence stand under it and Connect stays disabled, never a silent
- * no-op (a stored default or the only usable machine pre-selects honestly and
- * clears them; when no machine is enabled the sentence names that). The
- * disclosure sentence (the
- * `Match exec` note, decision 6) ships verbatim under the destination field,
- * before the button, because approving a destination approves running its
- * resolution.
- *
- * The destination is one COMMITTED candidate: a picked row's meaning, or
- * nothing. Typed text becomes a candidate through the mirror row the list
- * offers (free text accepted, §7), and the commitment releases under any
- * later edit, so the field's text and the launch's truth cannot drift.
- * The field is the working-directory field's input-plus-panel posture
- * (`destination-field.tsx`), not the shared combobox: the list must swap on
- * every keystroke, which is exactly what Base UI's held input cannot keep.
- * Refusals render on the field they belong to, in red, from
- * `ssh-refusal.ts`; the 422's settings list comes from the parsed body,
- * because the display message is sliced. Remembering is explicit: every
- * launch is already recent server-side; the checkbox PUTs the saved row only
- * when checked, sending the alias only for a pick from the machine's own
- * config list (§7's alias-is-display rule).
+/** Shared SSH launch form for new subshells, workspace additions and splits.
+ * A picked suggestion retains its canonical destination; editing it submits
+ * the new text directly. Alternate key machines are an advanced choice.
  */
 const DESTINATION_IDS = { field: "connect-destination", disclosure: "connect-destination-disclosure" };
 const MACHINE_IDS = {
@@ -56,7 +30,7 @@ const MACHINE_IDS = {
 
 /** The disclosure every ssh surface owes before the button (decision 6, verbatim). */
 export const SSH_DISCLOSURE_COPY =
-  "Resolving asks the connecting machine to read its SSH config. A hidden Match exec in that config can run a local command while it resolves.";
+  "Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.";
 
 /** The destination field's committed state, held as ONE value so a pick and
  *  the text echo that follows it cannot interleave into a stale pair. */
@@ -71,14 +45,25 @@ interface DestinationState {
 
 export function ConnectPanel({
   initial,
+  onCreated,
+  onLeave,
+  onPendingChange,
 }: {
   initial?: { node?: string; destination?: string; keyHome?: string };
+  onCreated?: (id: string) => Promise<void> | void;
+  onLeave?: () => void;
+  onPendingChange?: (pending: boolean) => void;
 }): JSX.Element {
   const navigate = useNavigate();
   const { data: nodeData } = useNodes();
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
   const { data: ledger, isPending: ledgerPending } = useSshSavedHosts();
   const launch = useLaunchSsh();
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    onPendingChange?.(submitting);
+    return () => onPendingChange?.(false);
+  }, [submitting, onPendingChange]);
   const save = useSaveSshHost();
   const setDefault = useSetDefaultNode();
 
@@ -89,6 +74,9 @@ export function ConnectPanel({
     pickId: null,
     typed: initial?.destination ?? "",
   });
+  const [advanced, setAdvanced] = useState(!!initial?.keyHome);
+  const [reviewApproval, setReviewApproval] = useState(false);
+  const [keysApproved, setKeysApproved] = useState(false);
   const [remember, setRemember] = useState(false);
   const [refusal, setRefusal] = useState<SshRefusalCopy | null>(null);
 
@@ -168,16 +156,14 @@ export function ConnectPanel({
   ];
   const effectiveKeyHome = keyHome === nodeId ? "" : keyHome;
   const keyReady = !effectiveKeyHome || keyOptions.some((o) => o.value === effectiveKeyHome && !o.disabled);
-  const destination = dest.pick?.destination ?? "";
+  const destination = dest.pick?.destination ?? dest.typed.trim();
   // A committed row's label is the field's text; while that echo stands the
   // list is UNFILTERED (the whole ledger again), because the echo is display,
   // not a search. Any keystroke releases the pick, and text becomes query.
   const pickLabel = dest.pickId !== null ? destinationOptions.find((o) => o.value === dest.pickId)?.label : undefined;
   const destinationQuery = dest.pick !== null && dest.typed === pickLabel ? "" : dest.typed;
 
-  // Typing is only typing here (the field reports keystrokes, never echoes),
-  // so an edit always releases the commitment: what the field shows is what
-  // the launch would carry, never a stale pick under new text.
+  // Editing a suggestion releases its canonical value before another launch.
   function onDestinationText(text: string): void {
     setDest({ pick: null, pickId: null, typed: text });
   }
@@ -193,7 +179,8 @@ export function ConnectPanel({
   async function submit(): Promise<void> {
     // Belt over gate: the button's own disabled condition already holds both
     // fields, so this can only fire on a render race, never as a silent no-op.
-    if (nodeId === "" || destination === "" || !keyReady) return;
+    if (submitting || nodeId === "" || destination === "" || !keyReady) return;
+    setSubmitting(true);
     setRefusal(null);
     try {
       const created = await launch.mutateAsync({
@@ -210,9 +197,12 @@ export function ConnectPanel({
           ...(dest.pick?.aliasToken !== undefined ? { alias: dest.pick.aliasToken } : {}),
         });
       }
-      void navigate({ to: "/subshells/$id", params: { id: created.subshell.id } });
+      if (onCreated) await onCreated(created.subshell.id);
+      else void navigate({ to: "/subshells/$id", params: { id: created.subshell.id } });
     } catch (err) {
       setRefusal(sshLaunchRefusal(err, selectedNode));
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -240,15 +230,37 @@ export function ConnectPanel({
       .filter((id): id is string => id !== null)
       .join(" ") || undefined;
 
+  if (reviewApproval && refusal?.requestId)
+    return (
+      <div className="flex flex-col gap-4">
+        <PendingApprovals
+          onlyRequestId={refusal.requestId}
+          onApproved={() => {
+            setReviewApproval(false);
+            setRefusal(null);
+            setKeysApproved(true);
+          }}
+        />
+        <Button variant="outline" onClick={() => setReviewApproval(false)}>
+          Back to SSH subshell
+        </Button>
+      </div>
+    );
+
   return (
-    <div className="max-w-xl space-y-6">
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor={DESTINATION_IDS.field}>Destination</Label>
+    <div className="flex flex-col gap-4">
+      {keysApproved && (
+        <p role="status" className="text-detail">
+          Keys approved. Start the SSH subshell when you are ready.
+        </p>
+      )}
+      <FieldGroup className="gap-4">
+        <Field>
+          <Label htmlFor={DESTINATION_IDS.field}>SSH destination</Label>
           <DestinationField
             id={DESTINATION_IDS.field}
             describedBy={DESTINATION_IDS.disclosure}
-            placeholder="Choose or type a destination"
+            placeholder="user@hostname:22 or an SSH alias"
             typed={dest.typed}
             query={destinationQuery}
             options={destinationOptions}
@@ -261,13 +273,14 @@ export function ConnectPanel({
             </p>
           )}
           <p id={DESTINATION_IDS.disclosure} className="text-detail text-muted-foreground">
-            {SSH_DISCLOSURE_COPY}
+            Enter the machine you want to access, for example deploy@example.com:22. Saved destinations and SSH aliases
+            appear as suggestions.
           </p>
-        </div>
+        </Field>
 
-        <div className="space-y-2">
+        <Field>
           <Label htmlFor={MACHINE_IDS.field}>
-            Connect from
+            Connect through
             {machineRequired && <RequiredMark />}
           </Label>
           <SearchableSelect
@@ -278,6 +291,16 @@ export function ConnectPanel({
             onValueChange={(id) => id !== "" && setNodeId(id)}
             describedBy={machineDescribedBy}
           />
+          <p className="text-detail text-muted-foreground">
+            {selectedNode
+              ? `${selectedNode.name} runs SSH and must be able to reach the destination.`
+              : "Choose a Subshell machine that can reach the destination. It runs SSH for this terminal."}
+          </p>
+          {enabledCount === 0 && nodes !== null && (
+            <Link to="/nodes" onClick={onLeave} className="text-label underline">
+              Manage machines and enable SSH
+            </Link>
+          )}
           {machineGap && (
             <p id={MACHINE_IDS.requirement} className={REQUIREMENT_CAPTION_CLASS}>
               {machineGap.text}
@@ -297,44 +320,63 @@ export function ConnectPanel({
               Use by default
             </button>
           )}
-        </div>
+        </Field>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="connect-key-home">Use SSH keys from</Label>
-          <SearchableSelect
-            id="connect-key-home"
-            placeholder="Choose a key machine"
-            value={effectiveKeyHome || "connecting"}
-            options={keyOptions}
-            onValueChange={(id) => {
-              setKeyHome(id === "connecting" ? "" : id);
-              setRefusal(null);
-            }}
-            describedBy="connect-key-help"
-          />
-          <p id="connect-key-help" className="text-detail text-muted-foreground">
-            Choose another machine to use keys loaded in its SSH agent. Keys stay on that machine; it must be online and
-            have SSH enabled.
-          </p>
-          {!keyReady && (
-            <p role="status" className="text-detail text-muted-foreground">
-              The selected key machine is unavailable. Bring it online with SSH enabled, or choose another.
-            </p>
-          )}
-          {refusal?.field === "keys" && (
-            <p role="alert" className="text-destructive text-detail">
-              {refusal.text}
-            </p>
-          )}
-          {refusal?.approval && (
-            <Link
-              to="/settings/ssh"
-              search={{ ...launch.variables, requestId: refusal.requestId }}
-              className="text-label underline"
-            >
-              Review SSH approval
-            </Link>
-          )}
+        <div>
+          <Button
+            variant="ghost"
+            aria-expanded={advanced || refusal?.field === "keys"}
+            aria-controls="ssh-advanced-options"
+            onClick={() => setAdvanced((value) => !value)}
+          >
+            Advanced SSH options
+            <ChevronDown data-icon="inline-end" aria-hidden="true" />
+          </Button>
+          <div id="ssh-advanced-options" hidden={!advanced && refusal?.field !== "keys"}>
+            <Field className="mt-3">
+              <Label htmlFor="connect-key-home">Use SSH keys from</Label>
+              <SearchableSelect
+                id="connect-key-home"
+                placeholder="Choose a key machine"
+                value={effectiveKeyHome || "connecting"}
+                options={keyOptions}
+                onValueChange={(id) => {
+                  setKeyHome(id === "connecting" ? "" : id);
+                  setRefusal(null);
+                }}
+                describedBy="connect-key-help"
+              />
+              <p id="connect-key-help" className="text-detail text-muted-foreground">
+                Choose another machine to use keys loaded in its SSH agent. Keys stay on that machine; it must be online
+                and have SSH enabled.
+              </p>
+              {!keyReady && (
+                <p role="status" className="text-detail text-muted-foreground">
+                  The selected key machine is unavailable. Bring it online with SSH enabled, or choose another.
+                </p>
+              )}
+              {refusal?.field === "keys" && (
+                <p role="alert" className="text-destructive text-detail">
+                  {refusal.text}
+                </p>
+              )}
+              {refusal?.approval &&
+                (refusal.requestId ? (
+                  <Button variant="outline" onClick={() => setReviewApproval(true)}>
+                    Review SSH approval
+                  </Button>
+                ) : (
+                  <Link
+                    to="/settings/ssh"
+                    onClick={onLeave}
+                    search={{ ...launch.variables }}
+                    className="text-label underline"
+                  >
+                    Review SSH approval
+                  </Link>
+                ))}
+            </Field>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -348,15 +390,11 @@ export function ConnectPanel({
           <Label htmlFor="connect-remember">Remember this destination</Label>
         </div>
 
-        <Button
-          onClick={() => void submit()}
-          disabled={launch.isPending || destination === "" || nodeId === "" || !keyReady}
-        >
-          {launch.isPending ? "Connecting…" : "Connect"}
+        <p className="text-detail text-muted-foreground">{SSH_DISCLOSURE_COPY}</p>
+        <Button onClick={() => void submit()} disabled={submitting || destination === "" || nodeId === "" || !keyReady}>
+          {submitting ? "Connecting…" : "Start SSH subshell"}
         </Button>
-      </div>
-
-      <SavedHostsSection />
+      </FieldGroup>
     </div>
   );
 }

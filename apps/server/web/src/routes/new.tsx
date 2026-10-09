@@ -1,9 +1,14 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { useQuickAdd } from "@/components/quick-add";
+import { sshConnectSearch } from "@/lib/ssh-connect-search";
 
 export const Route = createFileRoute("/new")({
   component: NewSubshellRoute,
+  validateSearch: (search: Record<string, unknown>) => ({
+    ...sshConnectSearch(search),
+    kind: search.kind === "ssh" ? ("ssh" as const) : undefined,
+  }),
 });
 
 /**
@@ -23,13 +28,15 @@ export const Route = createFileRoute("/new")({
  * navigation) and hand the page under it to the list.
  */
 function NewSubshellRoute() {
-  const { openLaunch } = useQuickAdd();
+  const { openLaunch, openSshLaunch } = useQuickAdd();
+  const search = Route.useSearch();
   const navigate = useNavigate();
   useEffect(() => {
-    openLaunch();
+    if (search.kind === "ssh") openSshLaunch(search);
+    else openLaunch();
     // `replace`, so Back from the list does not bounce through here and
     // re-open the dialog the person just dismissed.
     void navigate({ to: "/", replace: true });
-  }, [openLaunch, navigate]);
+  }, [openLaunch, openSshLaunch, search, navigate]);
   return null;
 }

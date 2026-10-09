@@ -162,7 +162,7 @@ function machineInput(): HTMLInputElement {
 }
 
 function destinationInput(): HTMLInputElement {
-  return screen.getByPlaceholderText("Choose or type a destination") as HTMLInputElement;
+  return screen.getByPlaceholderText("user@hostname:22 or an SSH alias") as HTMLInputElement;
 }
 
 /** The destination field opens on focus (the working-directory posture). */
@@ -181,7 +181,7 @@ async function commitTyped(text: string): Promise<void> {
 }
 
 async function clickConnect(): Promise<void> {
-  fireEvent.click(screen.getByRole("button", { name: /^Connect$/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^Start SSH subshell$/ }));
   await settle();
 }
 
@@ -277,7 +277,7 @@ describe("machine disclosure (contract 1)", () => {
       const caption = screen.getByText("No SSH-enabled machine is available. Enable SSH on a machine first.");
       expect(caption.className).toContain("text-amber-600"); // gold: nothing chosen, not a refused value
       await commitTyped("box.example");
-      const button = screen.getByRole("button", { name: /^Connect$/ }) as HTMLButtonElement;
+      const button = screen.getByRole("button", { name: /^Start SSH subshell$/ }) as HTMLButtonElement;
       expect(button.disabled).toBe(true); // the machine is in the disabled condition
       await clickConnect();
       expect(calls.filter((c) => c.url === "/api/ssh/launch")).toEqual([]);
@@ -370,10 +370,10 @@ describe("destination field (contract 2)", () => {
     }
   });
 
-  it("accepts a host typed that no list carries: the mirror row commits it", async () => {
+  it("accepts a typed host directly without requiring a suggestion click", async () => {
     const { calls, restore } = await renderPanel({ nodes: [HOST_A] });
     try {
-      await commitTyped("box.example");
+      fireEvent.change(destinationInput(), { target: { value: "box.example" } });
       expect(destinationInput().value).toBe("box.example"); // the held echo is what will launch
       await clickConnect();
       const post = calls.find((c) => c.url === "/api/ssh/launch");
@@ -437,7 +437,7 @@ describe("connect and the ledger (contracts 3, 6)", () => {
     await settle();
     try {
       await commitTyped("box.example");
-      fireEvent.click(screen.getByRole("button", { name: /^Connect$/ }));
+      fireEvent.click(screen.getByRole("button", { name: /^Start SSH subshell$/ }));
       await settle();
       const button = screen.getByRole("button", { name: /Connecting/ }); // no spinner: the button owns the wait
       expect((button as HTMLButtonElement).disabled).toBe(true);
@@ -530,7 +530,7 @@ describe("refusals and disclosure (contracts 4, 5)", () => {
     }
   });
 
-  it("ships the two-sentence disclosure under the destination field, wired as its description", async () => {
+  it("explains the destination format and discloses SSH config execution before launch", async () => {
     const { restore } = await renderPanel({ nodes: [HOST_A] });
     try {
       const line = await screen.findByText(SSH_DISCLOSURE_COPY);
@@ -538,7 +538,7 @@ describe("refusals and disclosure (contracts 4, 5)", () => {
       expect(destinationInput().getAttribute("aria-describedby")).toBe("connect-destination-disclosure");
       // The exact sentences (decision 6), dash-free.
       expect(SSH_DISCLOSURE_COPY).toBe(
-        "Resolving asks the connecting machine to read its SSH config. A hidden Match exec in that config can run a local command while it resolves.",
+        "Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.",
       );
     } finally {
       restore();
@@ -590,10 +590,7 @@ describe("relay launch and approval recovery", () => {
     );
     try {
       await clickConnect();
-      const link = screen.getByRole("link", { name: "Review SSH approval" }) as HTMLAnchorElement;
-      expect(new URL(link.href).searchParams.get("requestId")).toBe("req1");
-      expect(link.href).toContain("/settings/ssh");
-      expect(link.href).toContain("keyHome");
+      expect(screen.getByRole("button", { name: "Review SSH approval" })).toBeTruthy();
       expect(screen.queryByText(/has no live connection/)).toBeNull();
     } finally {
       restore();
@@ -605,7 +602,7 @@ describe("relay launch and approval recovery", () => {
       { node: HOST_A.id, keyHome: HOST_C.id, destination: "work" },
     );
     try {
-      expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole("button", { name: "Start SSH subshell" }) as HTMLButtonElement).disabled).toBe(true);
       expect(screen.getByText(/selected key machine is unavailable/)).toBeTruthy();
       expect(calls.some((c) => c.url === "/api/ssh/launch")).toBe(false);
     } finally {

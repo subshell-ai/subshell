@@ -73,6 +73,7 @@ function mount(subshells: SubshellView[], entry = "/"): () => void {
   });
   const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
     openLaunch: () => {},
+    openSshLaunch: () => {},
     openNewWorkspace: () => {},
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

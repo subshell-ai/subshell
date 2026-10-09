@@ -290,7 +290,7 @@ it("approval explains the required retry and provides a return path", async () =
   await renderWithRoster();
   fireEvent.click(screen.getByRole("button", { name: "Approve" }));
   expect(await screen.findByText(/original connection did not start/)).toBeTruthy();
-  expect(screen.getByRole("link", { name: "Return to Connect" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Return to SSH subshell" })).toBeTruthy();
 });
 
 for (const matched of [true, false]) {
@@ -299,7 +299,7 @@ for (const matched of [true, false]) {
     renderScreen({ node: "nodeB", keyHome: "nodeA", destination: "other-alias", requestId: matched ? "req1" : "req2" });
     await screen.findAllByRole("checkbox");
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-    const link = (await screen.findByRole("link", { name: "Return to Connect" })) as HTMLAnchorElement;
+    const link = (await screen.findByRole("link", { name: "Return to SSH subshell" })) as HTMLAnchorElement;
     const search = new URL(link.href, "http://localhost").searchParams;
     expect(search.get("destination")).toBe(matched ? "other-alias" : REQUEST.destination);
   });
