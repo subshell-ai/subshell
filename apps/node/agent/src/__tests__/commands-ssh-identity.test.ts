@@ -3,7 +3,11 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseNodeSshAgentIdentities, parseNodeSshIdentity } from "@internal/subshell-protocol";
+import {
+  parseNodeSshAgentIdentities,
+  parseNodeSshIdentity,
+  SSH_ROSTER_MAX_IDENTITIES,
+} from "@internal/subshell-protocol";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { execSshAgentIdentities } from "../commands/ssh-identity.js";
@@ -286,6 +290,47 @@ describe("ssh_agent_identities", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toInclude("did not parse");
+  });
+
+  it("a roster past SSH_ROSTER_MAX_IDENTITIES is refused by name, never truncated; the bound itself answers", async () => {
+    // PR #338 review round 2: the parse takes whatever count the agent
+    // declares, so the COMMAND refuses an oversized roster. The no-silent-
+    // truncation law: cutting the list to fit would show the operator a
+    // partial roster as the whole truth. The refusal names the cause and
+    // carries no fingerprint, comment, or blob data.
+    const many = (n: number) =>
+      Array.from({ length: n }, (_, i) => ({
+        blob: Buffer.concat([sshStr("ssh-ed25519"), sshStr(`OVER-BLOB-${i}`)]),
+        comment: `over-comment-${i}`,
+      }));
+    // Classic scheme: the probe's positive confirmation and the roster read
+    // are the same byte-13 ask, so every ask gets the scripted answer.
+    const oversized = scriptedAgent(() => identitiesAnswer(CLASSIC_SCHEME, many(SSH_ROSTER_MAX_IDENTITIES + 1)));
+    const result = await execSshAgentIdentities(makeCtx(gatedDir("oversized")), {
+      resolveAgentSocket: () => "/fake/agent.sock",
+      requestAgent: oversized.requestAgent,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      // The COMMAND's own named refusal, not the generic malformed-answer
+      // path: the operator-facing cause is an oversized roster.
+      expect(result.error).toInclude("oversized");
+      expect(result.error).not.toInclude("malformed");
+      expect(result.error).not.toInclude("over-comment-0");
+      expect(result.error).not.toInclude("OVER-BLOB-0");
+      expect(result.error).not.toInclude("SHA256:");
+    }
+    // Boundary: exactly at the bound, the roster answers UNCHANGED.
+    const atBound = many(SSH_ROSTER_MAX_IDENTITIES);
+    const boundAgent = scriptedAgent(() => identitiesAnswer(CLASSIC_SCHEME, atBound));
+    const bounded = await execSshAgentIdentities(makeCtx(gatedDir("at-bound")), {
+      resolveAgentSocket: () => "/fake/agent.sock",
+      requestAgent: boundAgent.requestAgent,
+    });
+    expect(bounded.ok).toBe(true);
+    const parsed = parseNodeSshAgentIdentities(bounded.ok ? bounded.data : null);
+    expect(parsed?.identities).toHaveLength(SSH_ROSTER_MAX_IDENTITIES);
+    expect(parsed?.identities[3]).toEqual({ fingerprint: fp(atBound[3].blob), comment: "over-comment-3" });
   });
 
   it("dispatch routes the arm: a gate-ON machine with no SSH_AUTH_SOCK answers the handler's own named error, not `unsupported`", async () => {

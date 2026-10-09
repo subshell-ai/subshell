@@ -84,14 +84,20 @@ export class MachinePinStore {
   }
 
   /**
-   * Store a peer's pin at first pairing (spec 2026-10-08 §4.4: the
-   * plane-delivered keys become the pin). Delegates the write to
-   * {@link repair} - the store has exactly one write path, and this one is
-   * reached ONLY where no prior entry exists (both relay branches `pin` on
-   * the null-pinned case and hard-block on a moved one, so a pairing can
-   * never replace through here in practice).
+   * Store a peer's pin at FIRST pairing (spec 2026-10-08 §4.4: the
+   * plane-delivered keys become the pin). Refuses when an entry for that
+   * peer already exists: a changed peer is a block, not a re-pin, and §4.5
+   * makes {@link repair} the ONLY sanctioned replace route. The two relay
+   * branches already check the null-pinned case before calling this (and
+   * hard-block on a moved one); the refusal here is the structural guard
+   * beneath that call-site discipline, so no ordering bug can ever
+   * silently overwrite a pinned peer. The error names the peer id and the
+   * cause, never key bytes.
    */
   pin(nodeId: string, pin: MachinePin): void {
+    if (this.loadAll()[nodeId] !== undefined) {
+      throw new Error(`machine pin exists for ${nodeId}: a changed peer is a block, not a re-pin`);
+    }
     this.repair(nodeId, pin);
   }
 
