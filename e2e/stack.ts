@@ -38,7 +38,7 @@ interface Stack {
  * stay in the regular scratch dir where their length does not matter.
  */
 export function shortTmuxBase(): string {
-  const base = mkdtempSync(path.join(realpathSync("/tmp"), "ss-e2e-"));
+  const base = mkdtempSync(path.join(realpathSync(process.env.E2E_TMUX_TMPDIR ?? "/tmp"), "ss-e2e-"));
   return path.join(base, "t");
 }
 

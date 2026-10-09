@@ -223,12 +223,12 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   // which is exactly what this test minted and what the teardown below matches.
   const subshellName = `e2e-remote-${nonce}`;
 
-  // ── 1. API truth: the server's own address is loopback under the e2e stack,
-  // which is what makes the address dropdown carry exactly one row (step 2):
-  // nothing else is reachable, and the old amber warning is gone.
+  // The configured base is loopback, but host discovery may add a trusted
+  // LAN address on developer machines. The selected command must match a
+  // current trusted origin, independently of which row comes first.
   const pub = await request.get("/api/settings/public");
   expect(pub.ok(), await pub.text()).toBe(true);
-  const { appBaseUrl } = (await pub.json()) as { appBaseUrl: string };
+  const { appBaseUrl, trustedOrigins } = (await pub.json()) as { appBaseUrl: string; trustedOrigins: string[] };
   expect(appBaseUrl).toBe(BASE_URL); // Task 3: appBaseUrl ≡ APP_BASE_URL ≡ the stack's origin
 
   // ── 2. Add-node dialog mints the key the agent will redeem; the rendered
@@ -248,13 +248,13 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   await expect(command).toContainText(/setup_key=nsk_/);
   const setupKey = (((await command.textContent()) ?? "").match(/setup_key=(nsk_[^"&\s]+)/)?.[1] ?? "").trim();
   expect(setupKey, "plaintext key rides the command").toMatch(/^nsk_/);
-  await expect(command).toContainText(`${BASE_URL}/install.sh?setup_key=${setupKey}`);
-  // The dropdown stands where the amber loopback paragraph used to be. Its
-  // one row is the base URL (a loopback-only stack knows no reachable
-  // address), and the command carries no `&server=` — the selection IS
-  // APP_BASE_URL, and a deviation is the only thing worth carrying.
-  await expect(dialog.locator('[data-slot="select-trigger"]')).toBeVisible();
-  await expect(command).not.toContainText("&server=");
+  const renderedCommand = (await command.textContent()) ?? "";
+  const installUrl = new URL(renderedCommand.match(/"(https?:[^"\s]+)"/)?.[1] ?? "");
+  expect(trustedOrigins).toContain(installUrl.origin);
+  expect(installUrl.pathname).toBe("/install.sh");
+  expect(installUrl.searchParams.get("setup_key")).toBe(setupKey);
+  await expect(dialog.locator('[data-slot="select-trigger"]')).toContainText(installUrl.origin);
+  expect(installUrl.searchParams.get("server")).toBe(installUrl.origin === BASE_URL ? null : installUrl.origin);
   await dialog.getByRole("button", { name: "Done" }).click();
 
   // ── 3. The install script AS SERVED by this instance (Task 4 pins, through
@@ -275,12 +275,11 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   expect(script).toContain(`SERVER="${BASE_URL}"`);
   // The `server` param the address dropdown carries, asserted on the LIVE
   // route (the bun test stages it through a plugin seam; this proves the
-  // production registry answers the same way). localhost:3199 is the other
+  // production registry answers the same way). localhost is the other
   // spelling of this stack's own origin; evil is nobody's origin.
-  const baked = await request.get(
-    `/install.sh?setup_key=${setupKey}&server=${encodeURIComponent("http://localhost:3199")}`,
-  );
-  expect(await baked.text()).toContain('SERVER="http://localhost:3199"');
+  const loopbackAlias = BASE_URL.replace("127.0.0.1", "localhost");
+  const baked = await request.get(`/install.sh?setup_key=${setupKey}&server=${encodeURIComponent(loopbackAlias)}`);
+  expect(await baked.text()).toContain(`SERVER="${loopbackAlias}"`);
   const refused = await request.get(
     `/install.sh?setup_key=${setupKey}&server=${encodeURIComponent("http://evil.invalid:3199")}`,
   );
