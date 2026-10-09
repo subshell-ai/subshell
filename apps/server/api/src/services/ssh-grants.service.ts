@@ -116,16 +116,16 @@ export function setSshGrantsDepsForTests(deps: SshGrantsDeps | null): void {
  * host or a host glob matched against the resolved destination hostname, as
  * policy only, unrelated to the wildcard patterns discovery drops.
  *
- * KNOWN LIMITATION (PR #338 review rounds 2/3, documented not fixed): the
- * alphabet has no `:` or bracket, so an IPv6-literal destination (the
- * bracketed spelling OpenSSH itself uses, `[::1]:22`) can never be NAMED by
- * an exact selector: storing or approving one is refused, so first-use
- * approval cannot mint a grant specific to such a destination. A WILDCARD
- * selector still matches it incidentally (`*` spans any run of characters,
- * brackets and colons included), so an IPv6-literal launch rides a matching
- * wildcard grant silently. Widening the grammar to colons and brackets is a
- * design decision (it changes what a stored grant line can match), not a bug
- * fix; the pinning test lives in the matcher suite.
+ * KNOWN LIMITATION (PR #338 review rounds 2/3/5, documented not fixed): by
+ * DOOR. The MANUAL doors (create/update, through this function) refuse an
+ * exact IPv6-literal selector - no `:` or bracket in the grammar, so the
+ * grants screen cannot type one. The FIRST-USE door is not grammar-gated: it
+ * records the bracketed host lowercased ({@link requestFirstUse}) and
+ * approval mints that exact standing grant, which then re-matches the same
+ * destination silently; a wildcard also matches IPv6 hosts incidentally
+ * (`*` spans brackets and colons). Widening the grammar to colons and
+ * brackets is a design decision (it changes what a stored grant line can
+ * match), not a bug fix; the pinning test lives in the matcher suite.
  *
  * @returns the normalized selector, or null for anything the grammar refuses.
  */
@@ -315,13 +315,21 @@ export async function requestFirstUse(args: {
 }): Promise<SshGrantAnswer<{ requestId: string; reused: boolean }>> {
   const now = grantsDeps().nowIso();
   await repo.sweepExpiredRequests(now);
-  const existing = await repo.findPendingRequest(args.ownerUserId, args.aNodeId, args.resolvedSelector, now);
+  // Lowercase the selector for BOTH the dedupe lookup and the stored row:
+  // the matcher compares against the lowercased resolved host, and the manual
+  // doors lowercase through normalizeSshGrantSelector. An un-normalized row
+  // (e.g. the uppercase-hex bracketed IPv6 spelling the resolver's grammar
+  // admits) would mint a grant the matcher can never re-satisfy, so every
+  // later launch re-asks forever. Hostnames are case-insensitive; bracketed
+  // IPv6 hex case carries no meaning.
+  const selector = args.resolvedSelector.toLowerCase();
+  const existing = await repo.findPendingRequest(args.ownerUserId, args.aNodeId, selector, now);
   if (existing) return granted({ requestId: existing.id, reused: true });
   const request: NewSshGrantRequest = {
     id: crypto.randomUUID(),
     ownerUserId: args.ownerUserId,
     keyHomeNodeId: args.aNodeId,
-    resolvedSelector: args.resolvedSelector,
+    resolvedSelector: selector,
     destination: args.destination,
     requestedFingerprints: null, // the approver selects; the asking pane proposes nothing (spec §6.2)
     paneId: args.paneId,
@@ -336,7 +344,7 @@ export async function requestFirstUse(args: {
     paneId: args.paneId,
     aNodeId: args.aNodeId,
     bNodeId: args.bNodeId,
-    destination: args.resolvedSelector,
+    destination: selector, // the same normalized value the row and the minted grant carry
   });
   grantsDeps().notifyGrantApproval(args.ownerUserId, request.id);
   return granted({ requestId: request.id, reused: false });
