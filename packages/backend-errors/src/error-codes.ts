@@ -302,6 +302,22 @@ export enum BackendErrorCodes {
    * smuggled newline. Refused before any write (spec 2026-10-08 §9).
    */
   SSH_HOST_PIN_INVALID = "SSH_HOST_PIN_INVALID",
+  /**
+   * The "Set up Subshell here" act's named EGRESS refusal (spec 2026-10-08
+   * §7): the destination cannot reach the plane URL, so the install cannot
+   * run and no key was ever spent on an enrollment. Deliberately a code of
+   * its own: the spec requires this cause to read differently from any key
+   * error, and the working pane is untouched either way.
+   */
+  SSH_UPGRADE_EGRESS = "SSH_UPGRADE_EGRESS",
+  /**
+   * The "Set up Subshell here" act stopped at a NAMED stage short of an
+   * enrolled, connected node (spec 2026-10-08 §7): the install failed, the
+   * enrollment was refused, or the new node never reported `ready` within
+   * the bounded wait. The message names which stage; the setup key is
+   * nowhere in it, and the interactive pane is untouched.
+   */
+  SSH_UPGRADE_FAILED = "SSH_UPGRADE_FAILED",
 }
 
 export const BackendErrorCodeDefs = {
@@ -601,5 +617,13 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.SSH_HOST_PIN_INVALID]: {
     message: "That host-key entry is not a valid known_hosts line",
     statusCode: 400,
+  },
+  [BackendErrorCodes.SSH_UPGRADE_EGRESS]: {
+    message: "The destination cannot reach this server, so it cannot install Subshell",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_UPGRADE_FAILED]: {
+    message: "Setting up Subshell here did not finish",
+    statusCode: 409,
   },
 };

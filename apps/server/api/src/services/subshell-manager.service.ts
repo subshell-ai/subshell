@@ -146,6 +146,13 @@ export interface SshLaunchPlumbing {
   fileContent: string;
   /** The snapshot the resolver approved (grammar-validated at each boundary already). */
   snapshot: SshConnectionSnapshotWire;
+  /**
+   * RELAY MODE (spec 2026-10-08 §7): the key home whose agent signed the
+   * connection, stored on the row (migration 0052) so "Set up Subshell here"
+   * can re-open the pairing after the relay session's own memory is gone.
+   * Absent on every direct launch.
+   */
+  keyHomeNodeId?: string;
 }
 
 /**
@@ -493,6 +500,9 @@ export class SubshellManagerService {
       // read its presence. NULL for every pane this call did not compose from
       // an approved snapshot.
       ssh: ssh ? JSON.stringify(ssh.snapshot) : null,
+      // The relay pane's key home, recorded with the row (migration 0052):
+      // immutable thereafter, and no direct pane carries it.
+      keyHomeNodeId: ssh?.keyHomeNodeId ?? null,
     });
 
     // The token is minted AFTER the row exists (issueSubshellToken writes the

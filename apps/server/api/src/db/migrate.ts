@@ -51,6 +51,7 @@ import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-h
 import * as sshRelayIdentityMigration from "@/db/migrations/0049-ssh-relay-identity.js";
 import * as sshGrantsMigration from "@/db/migrations/0050-ssh-grants.js";
 import * as sshRequestDestinationMigration from "@/db/migrations/0051-ssh-request-destination.js";
+import * as subshellKeyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -154,6 +155,10 @@ export async function runMigrations(): Promise<void> {
           // approval that creates the grant can capture the host-key pin at the
           // exact `user@host:port` the launch dialed (spec 2026-10-08 §9).
           "0051-ssh-request-destination": sshRequestDestinationMigration,
+          // The relay pane's key home (spec 2026-10-08 §7): "Set up Subshell
+          // here" re-opens the pairing that authorized the pane, so the row
+          // carries the A it launched with.
+          "0052-subshell-key-home": subshellKeyHomeMigration,
         };
       },
     },

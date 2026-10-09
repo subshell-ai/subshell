@@ -53,7 +53,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const id of keyIds) await repo.deleteById(id, userId).catch(() => {});
-  await deleteUserByEmailOrId({ email }).catch(() => {});
+  await deleteUserByEmailOrId(email).catch(() => {});
 });
 
 describe("install.sh 404 advice branch (spec 2026-10-08 §7)", () => {

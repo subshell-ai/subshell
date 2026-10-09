@@ -1,10 +1,14 @@
 import {
   type NodeSshAgentIdentitiesResult,
   type NodeSshAliasListResult,
+  type NodeSshExecKickResult,
+  type NodeSshExecStatusResult,
   type NodeSshHostKeyResult,
   type NodeSshResolveOutcomeWire,
   parseNodeSshAgentIdentities,
   parseNodeSshAliasList,
+  parseNodeSshExecKick,
+  parseNodeSshExecStatus,
   parseNodeSshHostKey,
   parseNodeSshIdentity,
   parseNodeSshResolveOutcome,
@@ -177,6 +181,64 @@ export async function sshAgentIdentities(nodeId: string): Promise<NodeSshAgentId
   const parsed = parseNodeSshAgentIdentities(data);
   if (!parsed) {
     throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed agent roster`, nodeId);
+  }
+  return parsed;
+}
+
+/**
+ * Kick one machine's non-interactive setup run (spec 2026-10-08 §7, Task 14):
+ * the `ssh_exec` command carries the rendered config, the composed flag tail,
+ * and the installer one-liner - the SETUP KEY rides inside `command`, and
+ * this layer is the only place it exists plane-side. The ack says the run
+ * started; nothing here retains or re-speaks the command.
+ * @throws {SshRpcError} on any transport/wire failure, per the kinds above
+ */
+export async function sshExec(
+  nodeId: string,
+  args: {
+    execId: string;
+    configPath: string;
+    fileContent: string;
+    presetFlags: string[];
+    command: string;
+    relay: boolean;
+    agentSocketPath: string | null;
+    timeoutMs: number;
+  },
+): Promise<NodeSshExecKickResult> {
+  let data: unknown;
+  try {
+    data = await sendCommand(nodeId, { type: "ssh_exec", ...args }, { timeoutMs: 30_000 });
+  } catch (err) {
+    if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
+    throw err;
+  }
+  const parsed = parseNodeSshExecKick(data);
+  if (!parsed) {
+    throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed exec ack`, nodeId);
+  }
+  return parsed;
+}
+
+/**
+ * Poll one machine for the state of a kicked setup run. The answer's streams
+ * are the machine's OWN redacted capture (Task 14's node-side rule); the
+ * CALLER redacts again before keeping or speaking a word of them - a machine
+ * answer about its own hygiene is never trusted (the socket-path doctrine,
+ * applied to output).
+ * @throws {SshRpcError} on any transport/wire failure, per the kinds above
+ */
+export async function sshExecStatus(nodeId: string, execId: string): Promise<NodeSshExecStatusResult> {
+  let data: unknown;
+  try {
+    data = await sendCommand(nodeId, { type: "ssh_exec_status", execId });
+  } catch (err) {
+    if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
+    throw err;
+  }
+  const parsed = parseNodeSshExecStatus(data);
+  if (!parsed) {
+    throw new SshRpcError("malformed", `node "${nodeId}" answered a malformed exec status`, nodeId);
   }
   return parsed;
 }
