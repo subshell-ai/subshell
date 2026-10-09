@@ -86,6 +86,15 @@ export interface SubshellTable {
    */
   ssh: string | null;
   /**
+   * For a relay-mode ssh pane: the key home whose agent signed the
+   * connection, chosen at launch and IMMUTABLE after (spec 2026-10-08 §7,
+   * migration 0052). "Set up Subshell here" re-opens that pairing to reach
+   * the destination again, and the 30 s relay session itself is plane-memory
+   * by then - this column is the pane's only durable word on which A
+   * authorized it. NULL on every direct (M1) pane.
+   */
+  keyHomeNodeId: string | null;
+  /**
    * DEPRECATED (spec 2026-09-03): the terminal history cap moved per-USER
    * (`user_meta.terminal_replay_lines`, migration 0020). This column is
    * read and written by nothing; it stays so a rollback finds its data.
@@ -121,6 +130,7 @@ export type NewSubshell = Omit<
   | "nodeId"
   | "crossAgent"
   | "ssh"
+  | "keyHomeNodeId"
   | "terminalReplayLines"
 > & {
   /** Preset launched with; omitted = NULL (presetless launch). Defaults on insert. */
@@ -131,6 +141,8 @@ export type NewSubshell = Omit<
   crossAgent?: number;
   /** SSH snapshot JSON for an ssh pane; omitted = NULL = not an ssh pane (migration 0048) */
   ssh?: string | null;
+  /** Relay pane's key home; omitted = NULL = direct (migration 0052) */
+  keyHomeNodeId?: string | null;
   /** Per-subshell terminal replay cap; omitted = NULL = instance default */
   terminalReplayLines?: number | null;
   harnessSessionId?: string | null;
@@ -158,4 +170,4 @@ export type NewSubshell = Omit<
  * the restart refusal's trigger, and the delete sweep's pointer. No later
  * act may rewrite or clear it, so no update can name it.
  */
-export type SubshellUpdate = Partial<Omit<SubshellTable, "id" | "userId" | "crossAgent" | "ssh">>;
+export type SubshellUpdate = Partial<Omit<SubshellTable, "id" | "userId" | "crossAgent" | "ssh" | "keyHomeNodeId">>;

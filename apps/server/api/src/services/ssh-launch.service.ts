@@ -216,8 +216,13 @@ export function sweepLocalSshDir(row: Pick<SubshellTable, "id" | "nodeId" | "ssh
 /* any command; naming WHY is this surface's copy, per §12)            */
 /* ------------------------------------------------------------------ */
 
-/** The acting user's SSH-usable gate on one node, or the refusal that closes the request. */
-async function gateSshNode(viewerId: string, nodeId: string): Promise<SshAnswer<NodeGate>> {
+/**
+ * The acting user's SSH-usable gate on one node, or the refusal that closes
+ * the request. Exported because the §7 setup-here act re-runs EXACTLY this
+ * door (B and A alike) before it touches either machine - one gate, one
+ * spelling of every cause.
+ */
+export async function gateSshNode(viewerId: string, nodeId: string): Promise<SshAnswer<NodeGate>> {
   // Invisible and absent collapse to one 404 (the node-gate doctrine: an
   // invisible node must never answer 403, so ids cannot be probed).
   const gate = await loadNodeGate(viewerId, nodeId);
@@ -256,8 +261,13 @@ function gateCause(row: NodeTable, serverAccountEnabled: boolean): string {
   return `Subshell SSH on ${machine} is reserved to its owner; a shared machine stays the owner's to SSH from.`;
 }
 
-/** The machine refused or could not answer; the code family, never the agent's own text. */
-function rpcRefusal(err: SshRpcError): SshAnswer<never> {
+/**
+ * The machine refused or could not answer; the code family, never the
+ * agent's own text. Exported for the §7 setup-here act, whose ssh_exec RPCs
+ * must map failures through the SAME doors (spec §12's naming doctrine: one
+ * cause, one sentence, wherever it was reached).
+ */
+export function rpcRefusal(err: SshRpcError): SshAnswer<never> {
   if (err.kind === "offline") {
     return codedRefusal(
       409,
@@ -339,8 +349,8 @@ async function nodeResolve(row: NodeTable, destination: string): Promise<SshAnsw
   }
 }
 
-/** The node's dataDir at the compose instant, or null (the offline class). */
-function targetDataDir(row: NodeTable): string | null {
+/** The node's dataDir at the compose instant, or null (the offline class). Exported with the gate. */
+export function targetDataDir(row: NodeTable): string | null {
   // local: the server's own dir (LocalLauncher byte-checks this exact
   // derivation); agent: the ready-reported `dataDir`, which the AGENT
   // re-derives from itself and refuses a byte-mismatch on.
@@ -501,7 +511,14 @@ export async function sshLaunch(args: {
       machineActor: false, // the routes are cookie-only (requireCookieActor)
       crossAgent: false,
       subshellId,
-      ssh: { configPath: composed.configPath, fileContent: composed.fileContent, snapshot },
+      ssh: {
+        configPath: composed.configPath,
+        fileContent: composed.fileContent,
+        snapshot,
+        // A relay pane remembers its A on the row (migration 0052); the act
+        // that RE-OPENS the pairing later reads only this.
+        ...(relay ? { keyHomeNodeId: args.keyHomeNodeId as string } : {}),
+      },
       presetFlags: composed.presetFlags,
       ...(composed.extraPaneEnv ? { extraPaneEnv: composed.extraPaneEnv } : {}),
     });
