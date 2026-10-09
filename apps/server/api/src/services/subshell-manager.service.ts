@@ -134,8 +134,8 @@ const defaultNotify: (subshellId: string, kind: NotifyKind) => Promise<void> = a
 /**
  * The composed half of an ssh-pane launch (spec 2026-10-07 decision 4, Task 7
  * plumbing): the derived config path, the rendered bytes, and the APPROVED
- * snapshot the row keeps. `subshells.ssh` = `JSON.stringify(snapshot)` is
- * written by `createSubshell`; the LaunchPlan member carries only
+ * snapshot and relay selection the row keeps. `createSubshell` serializes
+ * both into `subshells.ssh`; the LaunchPlan member carries only
  * `configPath`/`fileContent` (the snapshot never rides the wire — the
  * launcher re-derives the path and the renderer produced the bytes).
  */
@@ -153,6 +153,8 @@ export interface SshLaunchPlumbing {
    * Absent on every direct launch.
    */
   keyHomeNodeId?: string;
+  /** Exact keys used by the relay, retained for later acts without widening. */
+  relayFingerprints?: readonly string[];
 }
 
 /**
@@ -499,7 +501,12 @@ export class SubshellManagerService {
       // owner-only input rule, the restart refusal and the delete sweep all
       // read its presence. NULL for every pane this call did not compose from
       // an approved snapshot.
-      ssh: ssh ? JSON.stringify(ssh.snapshot) : null,
+      ssh: ssh
+        ? JSON.stringify({
+            ...ssh.snapshot,
+            ...(ssh.relayFingerprints !== undefined ? { relayFingerprints: ssh.relayFingerprints } : {}),
+          })
+        : null,
       // The relay pane's key home, recorded with the row (migration 0052):
       // immutable thereafter, and no direct pane carries it.
       keyHomeNodeId: ssh?.keyHomeNodeId ?? null,

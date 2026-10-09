@@ -789,7 +789,7 @@ describe("SSH readiness and grantless relay authorization", () => {
       ssh_agent_identities: () => ({
         identities: [
           { fingerprint: "SHA256:AAAA", comment: "Selected" },
-          { fingerprint: "SHA256:BBBB", comment: "Other" },
+          ...Array.from({ length: 8 }, (_, index) => ({ fingerprint: `SHA256:other${index}`, comment: "Other" })),
         ],
       }),
       ssh_relay_open: (cmd) => (cmd.type === "ssh_relay_open" ? { role: "A", relayId: cmd.relayId } : {}),
@@ -826,6 +826,12 @@ describe("SSH readiness and grantless relay authorization", () => {
       expect(res.status).toBe(201);
       const body = (await res.json()) as { subshell: { id: string } };
       createdSubshellIds.push(body.subshell.id);
+      const pane = await db
+        .selectFrom("subshells")
+        .select("ssh")
+        .where("id", "=", body.subshell.id)
+        .executeTakeFirstOrThrow();
+      expect(JSON.parse(pane.ssh ?? "{}").relayFingerprints).toEqual(["SHA256:AAAA"]);
       expect(a.cmdsOf("ssh_relay_open")[0]?.fingerprints).toEqual(["SHA256:AAAA"]);
       expect(a.cmdsOf("ssh_relay_open")[0]).not.toHaveProperty("grantId");
       expect(b.cmdsOf("launch")[0]?.ssh?.fileContent).toContain("StrictHostKeyChecking yes");

@@ -48,7 +48,7 @@ export async function prepareRelayLeg(args: {
   destination: string;
   paneId: string;
   fingerprints?: readonly string[];
-}): Promise<SshAnswer<{ socketPath: string; ref: string }>> {
+}): Promise<SshAnswer<{ socketPath: string; ref: string; fingerprints: string[] }>> {
   for (const nodeId of [args.aNode.id, args.bNodeId]) {
     const gate = await gateSshNode(args.viewerId, nodeId);
     if (!gate.ok) return gate;
@@ -128,7 +128,7 @@ export async function prepareRelayLeg(args: {
       return gate;
     }
   }
-  return { ok: true, value: { socketPath, ref } };
+  return { ok: true, value: { socketPath, ref, fingerprints: selected } };
 }
 /** Human copy per broker refusal code; ids only, never key material or sockets. */
 function relayRefusalCopy(code: SshRelayRefusal["code"]): string {

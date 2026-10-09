@@ -1,6 +1,7 @@
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { buildSshKnownHostsPath, shellQuote } from "@internal/pane-runtime";
 import {
+  isSshFingerprints,
   parseSshConnectionSnapshot,
   redactSshSetupKeyLines,
   type SshConnectionSnapshotWire,
@@ -175,8 +176,18 @@ export async function setupHere(args: {
     );
   }
   let snapshot: SshConnectionSnapshotWire | null = null;
+  let relayFingerprints: string[] | null = null;
   try {
-    snapshot = parseSshConnectionSnapshot(JSON.parse(pane.ssh) as unknown);
+    const stored: unknown = JSON.parse(pane.ssh);
+    snapshot = parseSshConnectionSnapshot(stored);
+    if (
+      stored &&
+      typeof stored === "object" &&
+      "relayFingerprints" in stored &&
+      isSshFingerprints(stored.relayFingerprints)
+    ) {
+      relayFingerprints = stored.relayFingerprints;
+    }
   } catch {
     snapshot = null;
   }
@@ -223,6 +234,13 @@ export async function setupHere(args: {
   if (keyHome !== null && keyHome !== undefined) {
     const unsupported = relaySnapshotRefusal(snapshot);
     if (unsupported) return unsupported;
+    if (relayFingerprints === null) {
+      return coded(
+        409,
+        BackendErrorCodes.SSH_UPGRADE_FAILED,
+        "This pane has no valid saved SSH key selection. Relaunch the SSH connection and choose its keys before setting up Subshell here.",
+      );
+    }
     aNodeId = keyHome;
     const gateA = await gateSshNode(args.viewerId, keyHome);
     if (!gateA.ok) return gateA;
@@ -244,6 +262,7 @@ export async function setupHere(args: {
       viewerId: args.viewerId,
       aNode: { id: gateA.value.row.id, name: gateA.value.row.name },
       bNodeId: pane.nodeId,
+      fingerprints: relayFingerprints,
       destination,
       // The pairing serves the EXEC, so the ephemeral id is its paneId: the
       // proxy socket and the delivered host pin land in the exec's own

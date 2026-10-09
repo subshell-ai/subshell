@@ -412,7 +412,7 @@ export async function sshLaunch(args: {
   const subshellId = crypto.randomUUID();
   // Open the relay before creating the pane. Access, the selected live keys,
   // destination trust and both relay endpoints must all succeed first.
-  let relay: { socketPath: string; ref: string } | null = null;
+  let relay: { socketPath: string; ref: string; fingerprints: string[] } | null = null;
   if (args.keyHomeNodeId !== undefined) {
     const gateA = await gateSshNode(args.viewerId, args.keyHomeNodeId);
     if (!gateA.ok) return gateA;
@@ -479,9 +479,9 @@ export async function sshLaunch(args: {
         configPath: composed.configPath,
         fileContent: composed.fileContent,
         snapshot,
-        // A relay pane remembers its A on the row (migration 0052); the act
-        // that RE-OPENS the pairing later reads only this.
-        ...(relay ? { keyHomeNodeId: args.keyHomeNodeId as string } : {}),
+        // Preserve the actual selected keys, including the complete roster
+        // resolved for callers that omitted selection. Later acts cannot widen it.
+        ...(relay ? { keyHomeNodeId: args.keyHomeNodeId as string, relayFingerprints: relay.fingerprints } : {}),
       },
       presetFlags: composed.presetFlags,
       ...(composed.extraPaneEnv ? { extraPaneEnv: composed.extraPaneEnv } : {}),
