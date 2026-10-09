@@ -157,6 +157,16 @@ interface OutstandingSlot {
 export async function startAgentProxy(args: AgentProxyArgs): Promise<AgentProxyHandle> {
   const say = args.log ?? (() => {});
   const socketPath = buildAgentSocketPath(args.dataDir, args.paneId);
+  // Check on the connecting machine: the server may run a different OS. Bun
+  // can bind an oversized name that OpenSSH cannot represent in sockaddr_un.
+  const maxSocketBytes = process.platform === "darwin" ? 103 : 107;
+  const socketBytes = Buffer.byteLength(socketPath);
+  if (socketBytes > maxSocketBytes) {
+    throw new Error(
+      `SSH relay socket path is too long (${socketBytes} bytes; this machine supports ${maxSocketBytes}). ` +
+        "Use a shorter Subshell data directory on the connecting machine.",
+    );
+  }
 
   // Pin sanity BEFORE binding: both peer halves must be public P-256 JWKs
   // (bytesOfJwk throws on a `d` member, a foreign curve, or junk - and it
