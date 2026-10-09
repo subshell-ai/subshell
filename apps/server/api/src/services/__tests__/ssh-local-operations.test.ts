@@ -52,24 +52,30 @@ test("server setup execution runs in-process, validates its path, redacts secret
   }
 });
 
-test("server host-key capture uses the service account's exact port-specific trust entry", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "local-ssh-host-"));
-  const previous = process.env.SUBSHELL_SSH_KNOWN_HOSTS;
-  const previousBinary = process.env.SUBSHELL_SSH_KEYGEN_PATH;
-  const file = join(directory, "known_hosts");
-  // Capture delegates matching to OpenSSH; the public blob is opaque to -F.
-  await writeFile(file, "example.test ssh-ed25519 AAAA\n[example.test]:2222 ssh-ed25519 BBBB\n");
-  process.env.SUBSHELL_SSH_KNOWN_HOSTS = file;
-  process.env.SUBSHELL_SSH_KEYGEN_PATH = "/usr/bin/ssh-keygen";
-  try {
-    expect(await sshHostKey("local", { host: "example.test", port: 2222, user: null })).toEqual({
-      lines: ["[example.test]:2222 ssh-ed25519 BBBB"],
-    });
-  } finally {
-    if (previous === undefined) delete process.env.SUBSHELL_SSH_KNOWN_HOSTS;
-    else process.env.SUBSHELL_SSH_KNOWN_HOSTS = previous;
-    if (previousBinary === undefined) delete process.env.SUBSHELL_SSH_KEYGEN_PATH;
-    else process.env.SUBSHELL_SSH_KEYGEN_PATH = previousBinary;
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+// OpenSSH is optional in the unit-test image; the SSH e2e image installs it.
+const keygen = Bun.which("ssh-keygen");
+test.skipIf(keygen === null)(
+  "server host-key capture uses the service account's exact port-specific trust entry",
+  async () => {
+    if (keygen === null) throw new Error("ssh-keygen is required for this integration check");
+    const directory = await mkdtemp(join(tmpdir(), "local-ssh-host-"));
+    const previous = process.env.SUBSHELL_SSH_KNOWN_HOSTS;
+    const previousBinary = process.env.SUBSHELL_SSH_KEYGEN_PATH;
+    const file = join(directory, "known_hosts");
+    // Capture delegates matching to OpenSSH; the public blob is opaque to -F.
+    await writeFile(file, "example.test ssh-ed25519 AAAA\n[example.test]:2222 ssh-ed25519 BBBB\n");
+    process.env.SUBSHELL_SSH_KNOWN_HOSTS = file;
+    process.env.SUBSHELL_SSH_KEYGEN_PATH = keygen;
+    try {
+      expect(await sshHostKey("local", { host: "example.test", port: 2222, user: null })).toEqual({
+        lines: ["[example.test]:2222 ssh-ed25519 BBBB"],
+      });
+    } finally {
+      if (previous === undefined) delete process.env.SUBSHELL_SSH_KNOWN_HOSTS;
+      else process.env.SUBSHELL_SSH_KNOWN_HOSTS = previous;
+      if (previousBinary === undefined) delete process.env.SUBSHELL_SSH_KEYGEN_PATH;
+      else process.env.SUBSHELL_SSH_KEYGEN_PATH = previousBinary;
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
