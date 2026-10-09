@@ -161,6 +161,7 @@ export {
   parseNodeSshExecStatus,
   parseNodeSshHostKey,
   parseNodeSshIdentity,
+  parseNodeSshMachinePinRepair,
   parseNodeSshResolveOutcome,
   parseNodeStatDirResult,
   parseNodeTreeManifestPage,
@@ -263,6 +264,8 @@ export {
   isSshGrantFingerprints,
   isSshKnownHostsPinLine,
   isSshPaneId,
+  isSshPeerEncryptJwkB64Str,
+  isSshPeerSigningJwkStr,
   parseSshNodeCommandBody,
   redactSshSetupKeyLines,
   SSH_COMMAND_TYPES,
@@ -272,6 +275,7 @@ export {
   type SshExecCommand,
   type SshExecStatusCommand,
   type SshHostKeyCommand,
+  type SshMachinePinRepairCommand,
   type SshNodeCommandBody,
   type SshRegisterIdentityCommand,
   type SshRelayCloseCommand,
@@ -336,6 +340,7 @@ export type {
   NodeSshExecStatusResult,
   NodeSshHostKeyResult,
   NodeSshIdentityResult,
+  NodeSshMachinePinRepairResult,
   NodeSshResolveOutcomeWire,
 } from "./ssh-results.js";
 export { MAX_UPLOAD_BYTES } from "./uploads.js";

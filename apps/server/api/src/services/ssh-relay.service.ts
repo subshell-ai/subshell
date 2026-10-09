@@ -256,9 +256,14 @@ interface Session {
   graceTimer: TimerHandle;
 }
 
-function base64OfJwk(jwkJson: string): string {
-  // Acceptance (h): base64 of the UTF-8 bytes of the JSON public JWK - the
-  // spelling the node decodes back into the byte-equal pin string.
+/**
+ * Acceptance (h): base64 of the UTF-8 bytes of the JSON public JWK - the ONE
+ * spelling the node decodes back into the byte-equal pin string. Exported for
+ * the §4.5 re-pair service, which re-delivers the same pair in the same
+ * carriage (ssh-machine-pins.service.ts); two carriers of one canonical
+ * spelling must not be two implementations of it.
+ */
+export function base64OfJwk(jwkJson: string): string {
   return Buffer.from(jwkJson, "utf8").toString("base64");
 }
 

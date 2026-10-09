@@ -6,6 +6,7 @@ import {
   parseNodeSshExecStatus,
   parseNodeSshHostKey,
   parseNodeSshIdentity,
+  parseNodeSshMachinePinRepair,
   parseNodeSshResolveOutcome,
 } from "../node-results.js";
 import { SSH_EXEC_RESULT_MAX_CHARS, SSH_MAX_HOST_KEY_LINES } from "../ssh-limits.js";
@@ -209,5 +210,30 @@ describe("parseNodeSshExecKick / parseNodeSshExecStatus (spec 2026-10-08 §7, Ta
     });
     expect(parsed).not.toHaveProperty("nodeKey");
     expect(parsed).toEqual({ state: "done", code: 1, timedOut: false, stdout: "s", stderr: "e" });
+  });
+});
+
+describe("parseNodeSshMachinePinRepair (spec 2026-10-08 §4.5, Task 17)", () => {
+  test("narrows the repair ack: repaired true plus the echoed peer id", () => {
+    expect(parseNodeSshMachinePinRepair({ repaired: true, peerNodeId: "node-b" })).toEqual({
+      repaired: true,
+      peerNodeId: "node-b",
+    });
+  });
+  test("refuses anything the node did not confirm", () => {
+    // `repaired: true` is the ONLY legal value (the exec-kick rule restated):
+    // a store that refused answers ok:false, never a soft no.
+    expect(parseNodeSshMachinePinRepair({ repaired: false, peerNodeId: "node-b" })).toBeNull();
+    expect(parseNodeSshMachinePinRepair({ repaired: "true", peerNodeId: "node-b" })).toBeNull();
+    expect(parseNodeSshMachinePinRepair({ repaired: true })).toBeNull(); // no echo to match
+    expect(parseNodeSshMachinePinRepair({ repaired: true, peerNodeId: "" })).toBeNull();
+    expect(parseNodeSshMachinePinRepair({ repaired: true, peerNodeId: 7 })).toBeNull();
+    expect(parseNodeSshMachinePinRepair(null)).toBeNull();
+    expect(parseNodeSshMachinePinRepair("node-b")).toBeNull();
+  });
+  test("rebuilds the ack (a stray answer member does not ride)", () => {
+    const parsed = parseNodeSshMachinePinRepair({ repaired: true, peerNodeId: "node-b", nodeKey: "leak?" });
+    expect(parsed).not.toHaveProperty("nodeKey");
+    expect(parsed).toEqual({ repaired: true, peerNodeId: "node-b" });
   });
 });

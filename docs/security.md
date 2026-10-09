@@ -2191,6 +2191,13 @@ Audit events are written, grouped by family:
   and nothing else in the metadata - never the key value; the idempotent
   re-report of the same bytes and the refused different-bytes report write
   no row),
+  `node.ssh_machine_pin.repair` (spec §4.5, Task 17: the machine trust
+  re-pair - the owner of A re-delivers one peer's registered public pair to
+  replace that peer's stored pin, the ONLY sanctioned way a pinned entry
+  changes; metadata names A and the peer by NODE ID ONLY, never key bytes or
+  fingerprints, and the row lands only when A's own ack confirmed the write -
+  an offline or refusing A audits nothing, every other actor and every
+  refusal writes no row),
   `node.ssh_grant.request|create|update|delete|approve|deny` (spec §6/§9/§10,
   migration 0050: the ask names the pane, the two machines, and the resolved
   destination; approve/create name the grant, the destination, and the CHOSEN

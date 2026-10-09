@@ -197,3 +197,55 @@ test("the source never consults SUBSHELL_CHANNEL_PIN (code, not prose, is scanne
   expect(source).not.toMatch(/SUBSHELL_CHANNEL_PIN/);
   expect(source).not.toMatch(/process\.env/);
 });
+
+test("§4.5 keystone: repair replaces a blocked peer's entry and the block clears; an UN-repaired peer's block persists", () => {
+  // The design's whole recovery story in one test (spec 2026-10-08 §4.5,
+  // Task 17): after a peer's key genuinely rotated, byte-strict check()
+  // BLOCKS forever unless the owner re-pairs. `repair` is the only sanctioned
+  // replacement - and it touches exactly ONE peer's entry.
+  const dir = freshDir();
+  const store = new MachinePinStore(dir);
+  store.pin("node-1", keyA);
+  store.pin("node-2", keyA);
+  // The blocked state: both peers now present the rotated keyB; check refuses.
+  expect(store.check("node-1", keyB)).toBe("changed");
+  expect(store.check("node-2", keyB)).toBe("changed");
+  // The owner re-pairs peer node-1 only.
+  store.repair("node-1", keyB);
+  // ...whose block clears: the new key now checks ok, byte-equal.
+  expect(store.check("node-1", keyB)).toBe("ok");
+  expect(store.get("node-1")).toEqual(keyB);
+  // ...and the UN-repaired peer's block PERSISTS: recovery is per-peer, and
+  // nothing here re-authorizes a peer the owner did not act on.
+  expect(store.check("node-2", keyB)).toBe("changed");
+  expect(store.get("node-2")).toEqual(keyA);
+});
+
+test("repair adds an entry when the store holds none for that peer (a repair after a lost store)", () => {
+  const dir = freshDir();
+  const store = new MachinePinStore(dir);
+  expect(store.get("node-9")).toBe(null);
+  store.repair("node-9", keyB);
+  expect(store.get("node-9")).toEqual(keyB);
+  expect(store.check("node-9", keyB)).toBe("ok");
+});
+
+test("repair keeps the file discipline: 0600, other peers untouched, durable across instances, corrupt file fail-closed", () => {
+  const dir = freshDir();
+  const store = new MachinePinStore(dir);
+  store.pin("node-1", keyA);
+  store.pin("node-2", keyA);
+  chmodSync(machinePinPath(dir), 0o644);
+  store.repair("node-1", keyB);
+  expect(statSync(machinePinPath(dir)).mode & 0o777).toBe(0o600);
+  expect(new MachinePinStore(dir).get("node-1")).toEqual(keyB);
+  expect(new MachinePinStore(dir).get("node-2")).toEqual(keyA);
+  // Fail closed like every other read: an unreadable pin set is quarantined,
+  // never silently rewritten by a repair.
+  writeFileSync(machinePinPath(dir), "{ nope");
+  expect(() => store.repair("node-1", keyA)).toThrow();
+  // Inherited Object members stay ordinary data (the emptyPinMap rule).
+  const reopened = new MachinePinStore(freshDir());
+  reopened.repair("toString", keyB);
+  expect(reopened.get("toString")).toEqual(keyB);
+});

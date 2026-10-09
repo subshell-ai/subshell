@@ -38,6 +38,7 @@ import type {
   NodeSshExecStatusResult,
   NodeSshHostKeyResult,
   NodeSshIdentityResult,
+  NodeSshMachinePinRepairResult,
   NodeSshResolveOutcomeWire,
 } from "./ssh-results.js";
 
@@ -667,6 +668,24 @@ export function parseNodeSshIdentity(data: unknown): NodeSshIdentityResult | nul
     return null;
   }
   return { signingPublicKey: data.signingPublicKey };
+}
+
+/**
+ * Validates and narrows the ack of an `ssh_machine_pin_repair` (spec
+ * 2026-10-08 §4.5, Task 17). Two fields and no opinion: `repaired: true` is
+ * the ONLY legal value (a machine that refused the write answers `ok:false`
+ * with the named cause, the exec-kick posture restated), and the peer id is
+ * the echo the plane matches its act against by equality. Nothing else may
+ * ride it - the answer structurally has no slot for key material, and the
+ * durable record of the act is the plane's ids-only audit row, not this ack.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed ack, or null when malformed
+ */
+export function parseNodeSshMachinePinRepair(data: unknown): NodeSshMachinePinRepairResult | null {
+  if (!isRecord(data)) return null;
+  if (data.repaired !== true) return null;
+  if (!isNonEmptyStr(data.peerNodeId)) return null;
+  return { repaired: true, peerNodeId: data.peerNodeId };
 }
 
 /**

@@ -16,14 +16,16 @@
  * its public identities, fingerprints plus comments, blobs withheld), the
  * host-key capture `ssh_host_key` (§9, Task 12: the plane asks A's
  * `known_hosts` for one resolved destination's entries, and the answer
- * becomes the pin the relay-open carries to B), and the brokered pair
+ * becomes the pin the relay-open carries to B), the brokered pair
  * `ssh_relay_open` / `ssh_relay_close` (§5.1: the plane's OPEN hands one
  * machine the whole pairing plus the destination's host-key pin, the CLOSE
- * names why it ends), and the non-interactive setup-exec pair `ssh_exec` /
+ * names why it ends), the non-interactive setup-exec pair `ssh_exec` /
  * `ssh_exec_status` (spec 2026-10-08 §7, Task 14: the "Set up Subshell here"
  * act runs the rendered installer over its own short-lived `ssh` connection,
  * never the pane, and the answer carries output only through the setup-key
- * redactor). What
+ * redactor), and the §4.5 recovery `ssh_machine_pin_repair` (Task 17: the
+ * owner of A re-delivers ONE peer's registered public pair to replace that
+ * peer's stored pin - the only sanctioned way a pinned entry changes). What
  * rides the link AFTER an open - the sealed blobs themselves - is not a
  * command at all: it is the `relay` link frame in `node-frames.ts`, which
  * carries no per-message signing because the link already authenticates.
@@ -226,6 +228,67 @@ export const SSH_RELAY_CLOSE_REASONS = [
 export type SshRelayCloseReason = (typeof SSH_RELAY_CLOSE_REASONS)[number];
 
 /**
+ * The peer's registered ES256 signing key as the ONE public-JWK string the
+ * relay-open and the §4.5 re-pair both carry: non-empty, parses to a plain
+ * record, and refuses the shallow private-material tell (a top-level `d`
+ * member). Deep validity (importability, curve, non-top-level private
+ * members) stays `bytesOfJwk` on the node, beside the one import - this gate
+ * keeps obvious nonsense out of a command the plane is about to SIGN.
+ * Exported so the re-delivery sites and this grammar share one definition of
+ * "a public signing JWK on the wire".
+ */
+export function isSshPeerSigningJwkStr(value: unknown): value is string {
+  if (!isIdStr(value)) return false;
+  let jwk: unknown;
+  try {
+    jwk = JSON.parse(value);
+  } catch {
+    return false;
+  }
+  return isRecord(jwk) && !("d" in jwk);
+}
+
+/**
+ * The peer's registered ECDH-ES encryption key in its transport spelling:
+ * base64 (standard, padded) of the UTF-8 bytes of the JSON-serialized public
+ * JWK - the one canonical carriage both the relay-open and the §4.5 re-pair
+ * use, so a node decodes back the exact string its machine pin store holds.
+ * Base64 SHAPE only here (decodability and deep public-only validity are the
+ * node's `bytesOfJwk` gate, beside the import).
+ */
+export function isSshPeerEncryptJwkB64Str(value: unknown): value is string {
+  return isIdStr(value) && BASE64_RE.test(value);
+}
+
+/**
+ * The §4.5 re-pair (spec 2026-10-08 §4.5, Task 17): the plane re-delivers
+ * ONE peer's registered public pair to the machine whose machine pin store
+ * must replace that peer's entry - the sanctioned recovery when a peer's
+ * machine key genuinely changed (a re-enroll or a replaced data dir, §4.2).
+ * This is the ONLY way a pinned entry may change: byte-equality still governs
+ * every NORMAL pairing check (§4.4), and nothing here softens it. The peer
+ * keys travel in the SAME carriage the relay-open uses ({@link
+ * isSshPeerSigningJwkStr} / {@link isSshPeerEncryptJwkB64Str}, private `d`
+ * refused at the grammar), because re-pairing the wrong shape is exactly as
+ * dangerous as pairing with it.
+ *
+ * The command names only the PEER: which machine repairs its store is the
+ * transport's business (the signed command targets it the way every other
+ * arm's does, and the owner-of-A gate on the plane is what authorizes the
+ * act). A re-pair writes BOTH halves for that peer - replacing one half and
+ * leaving the other stale would pin a key pair no machine has ever held.
+ */
+export interface SshMachinePinRepairCommand {
+  type: "ssh_machine_pin_repair";
+  /** The peer whose stored entry is replaced (or added, after a lost store). */
+  peerNodeId: string;
+  /** The peer's registered ES256 signing public key (JSON public JWK). */
+  peerSigningPublicKey: string;
+  /** Base64 of the UTF-8 bytes of the peer's registered JSON encryption public JWK. */
+  peerEncryptPublicKey: string;
+}
+
+/**
  * The brokered TEARDOWN (spec §5.1/§5.6): stop the session named by the
  * routing ref and say why, in the open. The reason is a NAMED cause drawn
  * from {@link SSH_RELAY_CLOSE_REASONS} because §5.1's "closed with a named
@@ -301,7 +364,8 @@ export type SshNodeCommandBody =
   | SshRelayOpenCommand
   | SshRelayCloseCommand
   | SshExecCommand
-  | SshExecStatusCommand;
+  | SshExecStatusCommand
+  | SshMachinePinRepairCommand;
 
 /** Every SSH command `type`, for census tests and dispatch tables. */
 export const SSH_COMMAND_TYPES = [
@@ -314,6 +378,7 @@ export const SSH_COMMAND_TYPES = [
   "ssh_relay_close",
   "ssh_exec",
   "ssh_exec_status",
+  "ssh_machine_pin_repair",
 ] as const;
 
 /* ------------------------------------------------------------------ */
@@ -475,27 +540,14 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       ) {
         return null;
       }
-      // The signing half is a JSON public JWK. The shape gate mirrors
-      // `parseNodeSshIdentity` (node-results.ts) for the enroll answer: a
-      // non-empty string AND `JSON.parse` yielding a plain record - and it
-      // also refuses the shallow private-material tell (a top-level `d`
-      // member), so "hello", a JSON scalar/array, and a serialized PRIVATE
-      // JWK all read as malformed here. Deep private-material and key-validity
-      // refusal stays at `bytesOfJwk` on the node (Task 6), which is beside
-      // the one import; this gate keeps obvious nonsense out of the signed
-      // command's narrowed body.
-      if (!isIdStr(value.peerSigningPublicKey)) return null;
-      let peerSigningJwk: unknown;
-      try {
-        peerSigningJwk = JSON.parse(value.peerSigningPublicKey);
-      } catch {
-        return null;
-      }
-      if (!isRecord(peerSigningJwk) || "d" in peerSigningJwk) return null;
-      // The encryption half is base64 of the UTF-8 JSON public JWK (the one
-      // canonical spelling, see the command's doc); a present-but-undecodable
-      // one is malformed, not "the pin sorts it out".
-      if (!isIdStr(value.peerEncryptPublicKey) || !BASE64_RE.test(value.peerEncryptPublicKey)) return null;
+      // The signing half is a JSON public JWK and the encryption half its
+      // base64 twin - the shared peer carriage (see {@link
+      // isSshPeerSigningJwkStr} / {@link isSshPeerEncryptJwkB64Str}), so the
+      // relay-open and the §4.5 re-pair gate the delivered pair with exactly
+      // one definition. Deep private-material and key-validity refusal stays
+      // at `bytesOfJwk` on the node (Task 6), which is beside the one import.
+      if (!isSshPeerSigningJwkStr(value.peerSigningPublicKey)) return null;
+      if (!isSshPeerEncryptJwkB64Str(value.peerEncryptPublicKey)) return null;
       if (!isSshGrantFingerprints(value.fingerprints)) return null;
       // Positive whole milliseconds; the VALUE's lawfulness (SSH_RELAY_LIFETIME_MS
       // as the ceiling the broker sends) is the broker's, this is the shape.
@@ -589,6 +641,22 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       // `node-results.ts`'s business, and a stray member drops here.
       if (!isSshPaneId(value.execId)) return null;
       return { type: "ssh_exec_status", execId: value.execId };
+    }
+    case "ssh_machine_pin_repair": {
+      // §4.5's re-delivery: the peer id plus BOTH registered public halves,
+      // every field required (a half-repair is a contradiction: the store
+      // pins the pair), the pair gated by the SAME carriage predicates the
+      // relay-open uses - including the private-`d` refusal, which matters
+      // most here because this command WRITES a trust store.
+      if (!isIdStr(value.peerNodeId)) return null;
+      if (!isSshPeerSigningJwkStr(value.peerSigningPublicKey)) return null;
+      if (!isSshPeerEncryptJwkB64Str(value.peerEncryptPublicKey)) return null;
+      return {
+        type: "ssh_machine_pin_repair",
+        peerNodeId: value.peerNodeId,
+        peerSigningPublicKey: value.peerSigningPublicKey,
+        peerEncryptPublicKey: value.peerEncryptPublicKey,
+      };
     }
     default:
       return null;

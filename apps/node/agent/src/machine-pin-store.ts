@@ -84,10 +84,32 @@ export class MachinePinStore {
   }
 
   /**
-   * Store (or REPLACE) a peer's pin - the write of a first pairing and of
-   * §4.5's re-pair alike. Other peers' entries ride through untouched.
+   * Store a peer's pin at first pairing (spec 2026-10-08 §4.4: the
+   * plane-delivered keys become the pin). Delegates the write to
+   * {@link repair} - the store has exactly one write path, and this one is
+   * reached ONLY where no prior entry exists (both relay branches `pin` on
+   * the null-pinned case and hard-block on a moved one, so a pairing can
+   * never replace through here in practice).
    */
   pin(nodeId: string, pin: MachinePin): void {
+    this.repair(nodeId, pin);
+  }
+
+  /**
+   * §4.5's re-pair write: replace the stored entry for THAT peer byte-for-byte
+   * with the delivered pair - the ONLY sanctioned way a pinned entry ever
+   * changes. Normal pairing checks stay byte-strict ({@link check}): nothing
+   * here relaxes or consults a comparison, and an UN-repaired peer's block
+   * persists until its owner acts. When the store holds no entry for the peer
+   * the write adds one (a re-pair after a lost store is the same act). Other
+   * peers' entries ride through untouched; the atomic tmp+rename 0600
+   * discipline and the corrupt-file fail-closed read are the store's own,
+   * unchanged. Validating the delivered JWKs (public-only, no `d`) is the
+   * CALLER's duty before this write - the `ssh_machine_pin_repair` handler
+   * re-runs `bytesOfJwk` on both halves - which keeps the store's job one
+   * thing: byte-faithful persistence.
+   */
+  repair(nodeId: string, pin: MachinePin): void {
     const all = this.loadAll();
     all[nodeId] = { signing: pin.signing, encryption: pin.encryption };
     this.saveAll(all);

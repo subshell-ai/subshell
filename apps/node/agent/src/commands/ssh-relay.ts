@@ -17,6 +17,7 @@ import { type AgentScheme, probeAgentScheme } from "../relay-agent-scheme.js";
 import { liveAgentSocketPath, requestLiveAgent } from "../relay-agent-socket.js";
 import { startAgentProxy } from "../relay-proxy.js";
 import { startRelayResponder } from "../relay-responder.js";
+import { decodePeerEncryptionJwk } from "./ssh-shared.js";
 
 /**
  * The node-side relay session registry (spec 2026-10-08 §5.1/§5.2) and the B
@@ -240,20 +241,6 @@ export interface BRelaySessionArgs {
   sendRelayFrame(frame: RelayFrame): void;
   /** Line sink (defaults to the agent logger); never sees keys or agent bytes. */
   log?: (line: string) => void;
-}
-
-/**
- * Decode the command's base64 spelling of the peer's registered ECDH-ES public
- * key into the raw public JWK string the pin store holds (the §4.2 registration
- * spelling; the grammar's `BASE64_RE` gate already proved the outer layer).
- */
-function decodePeerEncryptionJwk(b64: string): string {
-  const jwk = Buffer.from(b64, "base64").toString("utf8");
-  // The pin's encryption half must be a PUBLIC P-256 JWK - the same deep
-  // refusal `bytesOfJwk` gives the signing half (private material, foreign
-  // curve, junk all throw; the grammar's shallow `d` gate stops at top level).
-  bytesOfJwk(jwk);
-  return jwk;
 }
 
 /**
