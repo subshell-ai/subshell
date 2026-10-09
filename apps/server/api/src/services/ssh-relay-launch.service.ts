@@ -50,6 +50,11 @@ export async function prepareRelayLeg(args: {
   paneId: string;
   fingerprints?: readonly string[];
 }): Promise<SshAnswer<{ socketPath: string; ref: string; fingerprints: string[] }>> {
+  const broker = getRelayBroker();
+  const identityGenerations = {
+    a: broker.identityGeneration(args.aNode.id),
+    b: broker.identityGeneration(args.bNodeId),
+  };
   for (const nodeId of [args.aNode.id, args.bNodeId]) {
     const gate = await gateSshNode(args.viewerId, nodeId);
     if (!gate.ok) return gate;
@@ -108,12 +113,12 @@ export async function prepareRelayLeg(args: {
     if (err instanceof SshHostPinError) return refused(hostPinRefusal(err));
     throw err;
   }
-  const broker = getRelayBroker();
   let socketPath: string;
   let ref: string;
   try {
     const opened = await broker.openRelay({
       userId: args.viewerId,
+      identityGenerations,
       fingerprints: selected,
       paneId: args.paneId,
       aNode: args.aNode.id,
@@ -146,6 +151,8 @@ export async function prepareRelayLeg(args: {
 /** Human copy per broker refusal code; ids only, never key material or sockets. */
 function relayRefusalCopy(code: SshRelayRefusal["code"]): string {
   switch (code) {
+    case "identity-repair":
+      return "A machine relay identity is being repaired or changed while connecting. Retry after its identity repair finishes.";
     case "access-denied":
       return "SSH launch access changed while the connection was opening. Check access to both machines and retry.";
     case "quota":

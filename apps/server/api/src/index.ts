@@ -1,4 +1,3 @@
-import { shutdownRelayBroker } from "@/services/ssh-relay.service.js";
 // LOAD-BEARING IMPORT ORDER — do not re-sort this block. The entry prelude
 // must be the FIRST import in the graph: it applies the config.env layer
 // before `@/constants.js` runs dotenvx (which only fills unset keys — this
@@ -66,6 +65,7 @@ import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
 import { sweepExpiredPaneLogs, tightenPaneLogModes } from "@/services/pane-log-hygiene.js";
 import { expirePendingApprovals, remarkUnmarkedArrivals } from "@/services/pending-approvals.js";
 import { hasAnyUser } from "@/services/registration-gate.js";
+import { shutdownRelayBroker } from "@/services/ssh-relay.service.js";
 import { SubshellManagerService } from "@/services/subshell-manager.service.js";
 import { completeUpdate, readPending, recordFailure, revertUpdate } from "@/services/update-transaction.js";
 import { BANNER_GROUP, getLogger } from "@/utils/logger.js";

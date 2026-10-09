@@ -6,6 +6,7 @@ import { type JsonValue, NODE_PROTOCOL_VERSION, type NodeCommandBody } from "@in
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
 import { writeSshEnabled } from "../ssh-enabled.js";
+import { captureLogs } from "./helpers/capture-logs.js";
 
 /**
  * The two SSH read arms of the launcher tier (spec 2026-10-07 §4.3/§7), driven
@@ -120,16 +121,23 @@ describe("ssh gate: discovery and resolve refuse before anything runs", () => {
   });
 
   it("an unreadable mirror fails CLOSED (refuses) with the same words", async () => {
-    const res = await dispatchCommand(makeCtx(dataDir("gate-unreadable", "unreadable")), {
-      type: "ssh_discover_aliases",
-    } satisfies NodeCommandBody);
-    expect(res).toEqual({ ok: false, error: GATE_REFUSAL });
-    // The same classifier gates the resolve arm; pin the pairing, not just one side.
-    const res2 = await dispatchCommand(makeCtx(dataDir("gate-unreadable", "unreadable")), {
-      type: "ssh_resolve_config",
-      alias: "app02",
-    } satisfies NodeCommandBody);
-    expect(res2).toEqual({ ok: false, error: GATE_REFUSAL });
+    const logs = captureLogs();
+    try {
+      const res = await dispatchCommand(makeCtx(dataDir("gate-unreadable", "unreadable")), {
+        type: "ssh_discover_aliases",
+      } satisfies NodeCommandBody);
+      expect(res).toEqual({ ok: false, error: GATE_REFUSAL });
+      // The same classifier gates the resolve arm; pin the pairing, not just one side.
+      const res2 = await dispatchCommand(makeCtx(dataDir("gate-unreadable", "unreadable")), {
+        type: "ssh_resolve_config",
+        alias: "app02",
+      } satisfies NodeCommandBody);
+      expect(res2).toEqual({ ok: false, error: GATE_REFUSAL });
+      expect(logs.lines.join("\n")).toContain("SSH-DISABLED");
+      expect(logs.lines.join("\n")).toContain("unreadable");
+    } finally {
+      logs.restore();
+    }
   });
 });
 
