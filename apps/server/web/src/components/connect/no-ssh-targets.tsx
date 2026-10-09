@@ -13,7 +13,7 @@ export function NoSshTargets({ nodes, onLeave }: { nodes: Node[]; onLeave?: () =
   }
   const { data: settings } = usePublicSettings();
   const mayAdd = canAddNode(settings);
-  const manageable = nodes.filter((node) => node.canManage);
+  const manageable = nodes.filter((node) => node.kind === "agent" && node.canManage);
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-dashed p-6">
       <CardTitle>No machine is ready for SSH</CardTitle>
