@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { BackendErrorCodes } from "@internal/backend-errors";
-import { SSH_MAX_GRANT_FINGERPRINTS } from "@internal/subshell-protocol";
+import { type NodeSshAgentIdentitiesResult, SSH_MAX_GRANT_FINGERPRINTS } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { ensureMigratedTestDb } from "@/__tests__/helpers/test-database.js";
 import { deleteUserByEmailOrId, setupAuthTables } from "@/api/__tests__/helpers/auth-tables.js";
@@ -9,6 +9,7 @@ import { IdentitiesRepository } from "@/db/repositories/identities.repository.js
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SshGrantsRepository } from "@/db/repositories/ssh-grants.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { SshRpcError } from "@/services/nodes/ssh-rpc.js";
 import {
   approveGrant,
   createGrant,
@@ -26,6 +27,7 @@ import {
   updateGrant,
 } from "@/services/ssh-grants.service.js";
 import { captureHostPin, hostKeyFingerprints, setSshHostPinsDepsForTests } from "@/services/ssh-host-pins.service.js";
+import { listNodeAgentIdentities } from "@/services/ssh-launch.service.js";
 import { type RelayBroker, SshRelayRefusal } from "@/services/ssh-relay.service.js";
 import { logger } from "@/utils/logger.js";
 
@@ -77,6 +79,8 @@ let owner: string;
 let stranger: string;
 const NODE_A = "gsvc-node-a";
 const NODE_B = "gsvc-node-b";
+/** SSH switched OFF on this one: the key-home gate's negative fixture (Task 18 roster read). */
+const NODE_OFF = "gsvc-node-off";
 const nodes = new NodesRepository(db);
 
 /** The one destination this suite routes through, and its canonical triple. */
@@ -99,9 +103,13 @@ interface FakeCall {
 let openCalls: unknown[] = [];
 let closeGrantCalls: FakeCall[] = [];
 let notifyCalls: { ownerUserId: string; requestId: string }[] = [];
+/** Scripted roster RPC (Task 11 seam, Task 18 caller): a canned answer, plus the call log. */
+let rosterAnswer: () => NodeSshAgentIdentitiesResult = () => ({ identities: [] });
+let rosterCalls: string[] = [];
 
 function installFakeDeps(brokerOverrides: Partial<RelayBroker> = {}) {
   pinFetchCalls = [];
+  rosterCalls = [];
   setSshHostPinsDepsForTests({
     nowIso,
     fetchHostKey: async (nodeId, triple) => {
@@ -131,6 +139,10 @@ function installFakeDeps(brokerOverrides: Partial<RelayBroker> = {}) {
     notifyGrantApproval: (ownerUserId, requestId) => {
       notifyCalls.push({ ownerUserId, requestId });
     },
+    fetchAgentIdentities: async (nodeId: string) => {
+      rosterCalls.push(nodeId);
+      return rosterAnswer();
+    },
   });
 }
 
@@ -146,6 +158,8 @@ beforeAll(async () => {
   await nodes.setSshEnabled(NODE_A, { on: true, changedAt: nowIso() });
   await nodes.create({ id: NODE_B, ownerUserId: owner, name: "connector", kind: "agent", status: "offline" });
   await nodes.setSshEnabled(NODE_B, { on: true, changedAt: nowIso() });
+  // Task 18's gate negative: an owned agent whose SSH mirror is OFF (the default).
+  await nodes.create({ id: NODE_OFF, ownerUserId: owner, name: "ssh off", kind: "agent", status: "offline" });
   const identities = new IdentitiesRepository(db);
   await identities.register({
     principalId: `node:${NODE_A}`,
@@ -169,7 +183,7 @@ afterAll(async () => {
   await db.deleteFrom("sshKeyGrants").execute();
   await db.deleteFrom("auditEvents").execute();
   await db.deleteFrom("identities").execute();
-  for (const id of [NODE_A, NODE_B]) await nodes.deleteById(id).catch(() => {});
+  for (const id of [NODE_A, NODE_B, NODE_OFF]) await nodes.deleteById(id).catch(() => {});
   for (const mail of emails) await deleteUserByEmailOrId(mail);
 });
 
@@ -178,6 +192,7 @@ beforeEach(() => {
   openCalls = [];
   closeGrantCalls = [];
   notifyCalls = [];
+  rosterAnswer = () => ({ identities: [] });
   installFakeDeps();
 });
 
@@ -859,6 +874,77 @@ describe("ssh-grants.service", () => {
       });
       expect((await listGrantRequests({ ownerUserId: owner })).length).toBe(1);
       expect((await listGrantRequests({ ownerUserId: stranger })).length).toBe(0);
+    });
+  });
+
+  describe("listNodeAgentIdentities (the roster-by-node read, Task 18)", () => {
+    it("an owner reads A's live roster with NO pending request: the roster rides home and nothing is written", async () => {
+      // The whole point of T18: the create picker needs the roster BEFORE any
+      // first-use question exists. No request row stands, and none is created.
+      rosterAnswer = () => ({
+        identities: [
+          { fingerprint: FP(1), comment: "work laptop" },
+          { fingerprint: FP(2), comment: "" },
+        ],
+      });
+      const answer = await listNodeAgentIdentities({ viewerId: owner, aNodeId: NODE_A });
+      expect(answer.ok).toBe(true);
+      if (!answer.ok) return;
+      expect(answer.value.identities).toEqual([
+        { fingerprint: FP(1), comment: "work laptop" },
+        { fingerprint: FP(2), comment: "" },
+      ]);
+      expect(rosterCalls).toEqual([NODE_A]); // the KEY HOME asked, exactly once
+      // A question, not an answer: no request, no grant, no audit row anywhere.
+      expect(await db.selectFrom("sshGrantRequests").selectAll().execute()).toHaveLength(0);
+      expect(await db.selectFrom("sshKeyGrants").selectAll().execute()).toHaveLength(0);
+      expect(await db.selectFrom("auditEvents").selectAll().execute()).toHaveLength(0);
+    });
+
+    it("an empty roster from a LIVE agent is the honest answer, kept distinct from every failure", async () => {
+      rosterAnswer = () => ({ identities: [] });
+      const answer = await listNodeAgentIdentities({ viewerId: owner, aNodeId: NODE_A });
+      expect(answer.ok).toBe(true);
+      if (!answer.ok) return;
+      expect(answer.value.identities).toEqual([]);
+    });
+
+    it("a foreign viewer is the invisible-node 404 and the machine is never asked", async () => {
+      rosterAnswer = () => {
+        throw new Error("a foreign read must not reach the machine");
+      };
+      const answer = await listNodeAgentIdentities({ viewerId: stranger, aNodeId: NODE_A });
+      expect(answer.ok).toBe(false);
+      if (answer.ok) return;
+      expect(answer.refusal.status).toBe(404);
+      expect(rosterCalls).toEqual([]);
+    });
+
+    it("an absent node is the same 404, no id oracle between the two", async () => {
+      const answer = await listNodeAgentIdentities({ viewerId: owner, aNodeId: "node-does-not-exist" });
+      expect(answer.ok).toBe(false);
+      if (answer.ok) return;
+      expect(answer.refusal.status).toBe(404);
+      expect(rosterCalls).toEqual([]);
+    });
+
+    it("an offline key home answers the named NODE_OFFLINE 409, never a fabricated empty roster, and writes no audit row", async () => {
+      rosterAnswer = () => {
+        throw new SshRpcError("offline", "node has no live connection", NODE_A);
+      };
+      const answer = await listNodeAgentIdentities({ viewerId: owner, aNodeId: NODE_A });
+      expect(answer.ok).toBe(false); // NOT an ok-with-empty-identities: fabrication is the failure mode
+      if (answer.ok) return;
+      expect(answer.refusal).toMatchObject({ status: 409, code: BackendErrorCodes.NODE_OFFLINE });
+      expect(await db.selectFrom("auditEvents").selectAll().execute()).toHaveLength(0);
+    });
+
+    it("a key home whose SSH is switched off is the gate's 403 BEFORE the machine is asked", async () => {
+      const answer = await listNodeAgentIdentities({ viewerId: owner, aNodeId: NODE_OFF });
+      expect(answer.ok).toBe(false);
+      if (answer.ok) return;
+      expect(answer.refusal).toMatchObject({ status: 403, code: BackendErrorCodes.SSH_GATE_OFF });
+      expect(rosterCalls).toEqual([]);
     });
   });
 });

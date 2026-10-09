@@ -153,6 +153,22 @@ export const SshGrantViewSchema = t.Object({
   updatedAt: t.String({ description: "ISO 8601 of the last operator edit" }),
 });
 
+/**
+ * One public agent identity from the key home's live roster (spec 2026-10-08
+ * §5.4, Tasks 11/18): the shape BOTH roster reads answer with - the
+ * request-scoped one behind the approval screen and the roster-by-node read
+ * behind the create picker. The two fields are the whole of it, by
+ * construction: the key BLOBS are withheld on the machine, and this schema is
+ * where the wire restates that there is nowhere for one to ride.
+ */
+export const SshAgentIdentityViewSchema = t.Object({
+  fingerprint: t.String({
+    description:
+      "Public agent identity in the canonical SHA256: notation (the approval body sends these back verbatim)",
+  }),
+  comment: t.String({ description: "OpenSSH's label for the key, as the agent reports it (display only)" }),
+});
+
 /** One first-use approval request as the queue reads it (spec 2026-10-08 §6.2). */
 export const SshGrantRequestViewSchema = t.Object({
   id: t.String({ description: "Request row id (uuid) - the opaque ref the refusal and the notification name" }),
