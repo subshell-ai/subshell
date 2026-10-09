@@ -21,6 +21,9 @@ import { makeForm, useSubmitDisabled } from "@/lib/form";
 type IdentityPair = { signing: string; encryption: string };
 type IdentityInspection = { own: IdentityPair; registered: IdentityPair | null; matches: boolean };
 const IDENTITY_QUERY_KEY = ["server-ssh-identity"] as const;
+function samePair(left: IdentityPair | null, right?: IdentityPair) {
+  return !!left && !!right && left.signing === right.signing && left.encryption === right.encryption;
+}
 
 /** Admin recovery stays reachable when normal node detail refuses an identity mismatch. It never changes peer pins. */
 export function ServerIdentityRecovery() {
@@ -43,13 +46,23 @@ export function ServerIdentityRecovery() {
     },
   });
   const form = makeForm({
-    defaultValues: { verified: false },
+    defaultValues: { verified: null as IdentityPair | null },
     validator: ({ verified }): Record<string, string> =>
       verified ? {} : { verified: "Verify both disk fingerprints before repairing registration." },
     onSubmit: async ({ verified }) => {
-      if (!verified || !identity.data || identity.data.matches || repair.isPending) return;
+      // Read the cache synchronously too: a refetch may finish before React renders/reset effects run.
+      const current = client.getQueryData<IdentityInspection>(IDENTITY_QUERY_KEY);
+      if (
+        !verified ||
+        !current ||
+        !samePair(verified, current.own) ||
+        current.matches ||
+        identity.isError ||
+        repair.isPending
+      )
+        return;
       try {
-        await repair.mutateAsync(identity.data.own);
+        await repair.mutateAsync({ ...verified });
       } catch {
         /* The mutation's refusal remains inline; 409 can be retried. */
       }
@@ -57,13 +70,21 @@ export function ServerIdentityRecovery() {
   });
   const disabled = useSubmitDisabled(
     form,
-    identity.isPending || identity.isError || !identity.data || identity.data.matches || repair.isPending,
+    identity.isPending ||
+      identity.isError ||
+      !identity.data ||
+      identity.data.matches ||
+      !samePair(form.state.values.verified, identity.data.own) ||
+      repair.isPending,
   );
-  const _signing = identity.data?.own.signing;
-  const _encryption = identity.data?.own.encryption;
+  const signing = identity.data?.own.signing;
+  const encryption = identity.data?.own.encryption;
   useEffect(() => {
-    form.setFieldValue("verified", false);
-  }, [form]);
+    const verified = form.state.values.verified;
+    if (verified && (verified.signing !== signing || verified.encryption !== encryption)) {
+      form.setFieldValue("verified", null);
+    }
+  }, [form, signing, encryption]);
   if (settings?.viewerIsAdmin !== true || (identity.data?.matches && !repair.isSuccess)) return null;
   return (
     <Card>
@@ -99,8 +120,10 @@ export function ServerIdentityRecovery() {
                     <div className="flex items-center gap-2">
                       <Checkbox
                         id="ssh-identity-verified"
-                        checked={field.state.value}
-                        onCheckedChange={(checked) => field.handleChange(checked === true)}
+                        checked={samePair(field.state.value, identity.data?.own)}
+                        onCheckedChange={(checked) =>
+                          field.handleChange(checked === true && identity.data ? { ...identity.data.own } : null)
+                        }
                       />
                       <FieldLabel htmlFor="ssh-identity-verified">
                         I verified both disk fingerprints through a trusted channel
