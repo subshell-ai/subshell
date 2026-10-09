@@ -15,6 +15,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { sshCanonicalDestination } from "@/db/types/ssh-saved-hosts.db-types.js";
 import { resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
+import type { SshRefusal } from "@/services/ssh-launch.service.js";
 import { type RelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
 import { setSshSetupHereDepsForTests, setupHere } from "@/services/ssh-setup-here.service.js";
 import { attachScriptedNode, SCRIPTED_DATA_DIR, type ScriptedNode } from "@/test-helpers/scripted-node.js";
@@ -192,6 +193,12 @@ function mintedKey(cmd: SshExecCommand | undefined): string {
   return m[1];
 }
 
+/** The refusal's coded facts; the 422 outcome arm is not an answer this act ever gives. */
+function coded(refusal: SshRefusal): { status: number; code: BackendErrorCodes; message: string } {
+  if (refusal.status === 422) throw new Error(`unexpected outcome refusal: ${JSON.stringify(refusal)}`);
+  return refusal;
+}
+
 async function upgradeRows(): Promise<{ action: string; metadataJson: string | null }[]> {
   return await db
     .selectFrom("auditEvents")
@@ -304,7 +311,7 @@ describe("setupHere door order (pane first, gates before any key)", () => {
     const res = await setupHere({ viewerId: owner, paneId });
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(res.refusal.message).toContain("SSH-terminal pane");
+    expect(coded(res.refusal).message).toContain("SSH-terminal pane");
   });
 });
 
@@ -328,11 +335,11 @@ describe("setupHere relay mode", () => {
       const res = await setupHere({ viewerId: owner, paneId });
       expect(res.ok).toBe(false);
       if (res.ok) return;
-      expect(res.refusal.status).toBe(409);
-      if (res.refusal.status !== 409) return;
-      expect(res.refusal.code).toBe(BackendErrorCodes.SSH_UPGRADE_EGRESS);
-      expect(res.refusal.message).toContain("could not reach");
-      expect(res.refusal.message).toContain("untouched");
+      const refusal = coded(res.refusal);
+      expect(refusal.status).toBe(409);
+      expect(refusal.code).toBe(BackendErrorCodes.SSH_UPGRADE_EGRESS);
+      expect(refusal.message).toContain("could not reach");
+      expect(refusal.message).toContain("untouched");
       // The working pane: the row is unchanged, and B saw ONLY the exec arms
       // - no input, no terminate, no launch, no touch of any kind.
       const row = await new SubshellsRepository(db).findById(paneId);
@@ -340,8 +347,10 @@ describe("setupHere relay mode", () => {
       expect(row?.status).toBe("running");
       expect(pair.b.cmdTypes()).toEqual(["ssh_exec", "ssh_exec_status"]);
       // The relay was opened once and closed with the named child-exit word.
+      const exec = pair.kick();
+      if (!exec) throw new Error("the act never kicked an exec");
       expect(openCalls).toHaveLength(1);
-      expect(closeCalls).toEqual([{ paneId: pair.kick()?.execId, reason: "child-exit" }]);
+      expect(closeCalls).toEqual([{ paneId: exec.execId, reason: "child-exit" }]);
       // The unspent key is revoked on the way out; the trail names the cause.
       expect((await keys.listByUser(owner)).length).toBe(keysBefore);
       const audits = await upgradeRows();
@@ -364,9 +373,10 @@ describe("setupHere relay mode", () => {
       const res = await setupHere({ viewerId: owner, paneId });
       expect(res.ok).toBe(false);
       if (res.ok) return;
-      expect(res.refusal.code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
-      expect(res.refusal.message).toContain(NODE_A);
-      expect(res.refusal.message).toMatch(/online/i);
+      const refusal = coded(res.refusal);
+      expect(refusal.code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
+      expect(refusal.message).toContain(NODE_A);
+      expect(refusal.message).toMatch(/online/i);
       expect(openCalls).toHaveLength(0); // never re-opened
       expect(pair.b.cmdTypes()).toEqual([]); // B was never even asked to exec
       expect((await keys.listByUser(owner)).length).toBe(keysBefore); // no key minted
@@ -397,18 +407,23 @@ describe("setupHere relay mode", () => {
         return DONE_OK;
       },
     });
+    // `d` is filled by the onKick closure; the accessor re-widens what flow
+    // analysis narrows at the declaration.
+    const seenD = () => d as { id: string; handle: ScriptedNode } | null;
     try {
       const res = await setupHere({ viewerId: owner, paneId });
       expect(res.ok).toBe(true);
       if (!res.ok) return;
-      const nodeId = (d as { id: string; handle: ScriptedNode } | null)?.id ?? "";
+      const machine = seenD();
+      const nodeId = machine?.id ?? "";
       expect(nodeId).not.toBe("");
       expect(res.value).toEqual({ nodeId });
       // The relay was RE-OPENED for this act, keyed to the exec's ephemeral
       // id (never the pane's), carrying the destination's pin; closed with
       // the named word once the exec's child was gone.
-      const execId = pair.kick()?.execId;
-      expect(execId).toBeDefined();
+      const kick = pair.kick();
+      if (!kick) throw new Error("the act never kicked an exec");
+      const execId = kick.execId;
       expect(execId).not.toBe(paneId);
       expect(openCalls).toHaveLength(1);
       expect(openCalls[0]?.paneId).toBe(execId);
@@ -418,15 +433,14 @@ describe("setupHere relay mode", () => {
       expect(closeCalls).toEqual([{ paneId: execId, reason: "child-exit" }]);
       // The composed run: the exec's OWN config dir, BatchMode first, the
       // installer one-liner with the destination host as the scripted name.
-      const kick = pair.kick();
-      expect(kick?.configPath).toBe(buildSshConfigPath(SCRIPTED_DATA_DIR, kick.execId));
-      expect(kick?.presetFlags.slice(0, 2)).toEqual(["-o", "BatchMode=yes"]);
-      expect(kick?.presetFlags).toContain("--");
-      expect(kick?.relay).toBe(true);
-      expect(kick?.agentSocketPath).toBeNull();
-      expect(kick?.command).toContain(`install.sh?setup_key=${mintedKey(kick)}`);
-      expect(kick?.command).toContain("SUBSHELL_NODE_NAME=");
-      expect(kick?.command).toContain(HOST);
+      expect(kick.configPath).toBe(buildSshConfigPath(SCRIPTED_DATA_DIR, execId));
+      expect(kick.presetFlags.slice(0, 2)).toEqual(["-o", "BatchMode=yes"]);
+      expect(kick.presetFlags).toContain("--");
+      expect(kick.relay).toBe(true);
+      expect(kick.agentSocketPath).toBeNull();
+      expect(kick.command).toContain(`install.sh?setup_key=${mintedKey(kick)}`);
+      expect(kick.command).toContain("SUBSHELL_NODE_NAME=");
+      expect(kick.command).toContain(HOST);
       expect(polls).toBeGreaterThanOrEqual(3);
       // Audit: exactly one enrolled row naming ids, never the key.
       const audits = await upgradeRows();
@@ -443,10 +457,10 @@ describe("setupHere relay mode", () => {
       });
       expect(audits[0]?.metadataJson).not.toContain("nsk_");
       expect(JSON.stringify(res)).not.toContain("nsk_");
-      d?.handle.detach();
+      seenD()?.handle.detach();
       await nodes.deleteById(nodeId).catch(() => {});
     } finally {
-      d?.handle.detach();
+      seenD()?.handle.detach();
       pair.a?.detach();
       pair.b.detach();
     }
@@ -495,8 +509,9 @@ describe("setupHere relay mode", () => {
       const res = await setupHere({ viewerId: owner, paneId });
       expect(res.ok).toBe(false);
       if (res.ok) return;
-      expect(res.refusal.code).toBe(BackendErrorCodes.SSH_UPGRADE_FAILED);
-      expect(res.refusal.message).toContain("without enrolling");
+      const refusal = coded(res.refusal);
+      expect(refusal.code).toBe(BackendErrorCodes.SSH_UPGRADE_FAILED);
+      expect(refusal.message).toContain("without enrolling");
       expect((await keys.listByUser(owner)).length).toBe(keysBefore);
     } finally {
       await clearUpgradeRows();
@@ -523,20 +538,23 @@ describe("setupHere direct mode (B's own keys, no relay)", () => {
       },
       status: () => DONE_OK,
     });
+    // Same closure-filled `d`: the accessor re-widens the declaration's flow type.
+    const seenD = () => d as { id: string; handle: ScriptedNode } | null;
     try {
       const res = await setupHere({ viewerId: owner, paneId });
       expect(res.ok).toBe(true);
       if (!res.ok) return;
       const kick = pair.kick();
-      expect(kick?.relay).toBe(false);
-      expect(kick?.agentSocketPath).toBe("/run/user/700/agent.sock");
-      expect(kick?.configPath).toBe(buildSshConfigPath(SCRIPTED_DATA_DIR, kick.execId));
+      if (!kick) throw new Error("the act never kicked an exec");
+      expect(kick.relay).toBe(false);
+      expect(kick.agentSocketPath).toBe("/run/user/700/agent.sock");
+      expect(kick.configPath).toBe(buildSshConfigPath(SCRIPTED_DATA_DIR, kick.execId));
       // The direct pane's exec never touched the relay broker, and A's live
       // absence was irrelevant to it (no key-home gate was walked).
       expect(openCalls).toHaveLength(0);
       expect(closeCalls).toHaveLength(0);
-      d?.handle.detach();
-      await nodes.deleteById(d?.id ?? "").catch(() => {});
+      seenD()?.handle.detach();
+      await nodes.deleteById(seenD()?.id ?? "").catch(() => {});
     } finally {
       await clearUpgradeRows();
       pair.b.detach();

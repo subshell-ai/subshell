@@ -102,7 +102,7 @@ function fakeRun(
   finish: (r?: Partial<SshProcessResult>) => void;
 } {
   const calls: { argv: readonly string[]; env: Record<string, string>; timeoutMs: number }[] = [];
-  let settle: ((r: SshProcessResult) => void) | null = null;
+  let settle: ((r: Partial<SshProcessResult>) => void) | null = null;
   const seams: SshExecSeams = {
     resolveSshBin: async () => "/usr/bin/fake-ssh",
     runProcess: ((argv, env, timeoutMs) => {
@@ -110,7 +110,7 @@ function fakeRun(
       const full: SshProcessResult = { code: 0, stdout: "", stderr: "", timedOut: false, spawnError: false, ...result };
       if (opts.defer) {
         return new Promise<SshProcessResult>((resolve) => {
-          settle = (r) => resolve({ ...full, ...r });
+          settle = (r) => resolve({ ...full, ...r } as SshProcessResult);
         });
       }
       return Promise.resolve(full);
