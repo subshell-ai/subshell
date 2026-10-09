@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { decodeFrame } from "@internal/subshell-protocol/wire";
 import { expect, test } from "@playwright/test";
 import { ADMIN_STATE, dismissDirectoryPanel, pickAgent, renameSubshell } from "./helpers";
@@ -95,7 +96,7 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   await armWsRecorder(p1);
   await p1.goto("/new");
   await pickAgent(p1.getByPlaceholder("Choose an agent"), "pi");
-  await p1.fill("#picker-working-dir", "/tmp");
+  await p1.fill("#picker-working-dir", tmpdir());
   await dismissDirectoryPanel(p1);
   await p1.getByRole("button", { name: "Start subshell" }).click();
   await expect(p1).toHaveURL(/\/subshells\/.+/, { timeout: 60_000 });
