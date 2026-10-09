@@ -320,6 +320,9 @@ admitted here.
   (`text-warning`), including directory rules and stopping or uninstalling a
   node service. On touch-only surfaces, keep the reason visible or available
   on tap; hover mustn't be the only way to discover it.
+- **Selected segments**: `Segmented` uses the primary button fill for its
+  selected option, separate from keyboard focus. Keep each option's original
+  icon when present; do not add checkmarks or other selection icons.
 - **Tab group**: a page's tab strip is CONTENT-SIZED (`Segmented fill={false}`),
   never stretched across the container: two tab labels sharing the page's full
   width read as data columns rather than as choices, and the stretch grows the
