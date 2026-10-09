@@ -18,12 +18,9 @@ import type { SubshellView } from "@/types/subshell";
  * node. The server runs the ordinary enrollment install over a separate
  * non-interactive connection - the pane keeps running, and the enrollment
  * key never enters it. The dialog asks once, retains server-side status through the
- * install (minutes are possible and the request answers only when the new
- * node is ONLINE), then says which of the two happened in the server's own
- * named words: the machine's id and page on success, the refusal's sentence
- * on failure. Every stage the server can name (no egress, tmux missing,
- * the key home offline, no ready) is a refusal sentence, so the dialog
- * never needs its own failure taxonomy.
+ * install (minutes are possible), then links to the enrolled machine or
+ * explains the failure. Enrollment without a confirmed connection is a
+ * distinct outcome: open the node page rather than reinstalling.
  *
  * Owner-only by the menu's gate (an SSH pane is input-reserved to its
  * owner, and this act enrolls a machine on the owner's account); the server
@@ -41,7 +38,9 @@ export function SetupHereDialog({
   onOpenChange: (open: boolean) => void;
 }): JSX.Element {
   const { upgrade, status, operation, pending } = useSshSetup(subshell.id);
-  const enrolled = operation?.nodeId ? { nodeId: operation.nodeId } : upgrade.data;
+  const enrolled = operation?.nodeId
+    ? { nodeId: operation.nodeId, connected: operation.stage === "complete" }
+    : upgrade.data;
   const error = operation?.error ?? (upgrade.error as Error | null)?.message;
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -104,8 +103,10 @@ export function SetupHereDialog({
           </p>
         )}
         {enrolled && (
-          <p className="text-detail text-success">
-            The machine enrolled and connected.{" "}
+          <p className="text-detail">
+            {enrolled.connected === false
+              ? "The machine enrolled, but its connection has not been confirmed. "
+              : "The machine enrolled and connected. "}
             <Link
               to="/nodes/$id"
               params={{ id: enrolled.nodeId }}
@@ -114,7 +115,9 @@ export function SetupHereDialog({
             >
               Open its page
             </Link>{" "}
-            to see what it can launch.
+            {enrolled.connected === false
+              ? "to check its status. If it stays offline, check the Subshell service on the destination before installing again."
+              : "to see what it can launch."}
           </p>
         )}
         <DialogFooter>

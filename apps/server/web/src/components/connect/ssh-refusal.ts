@@ -31,6 +31,7 @@ export interface SshRefusalCopy {
   text: string;
   field: RefusalField;
   approval?: boolean;
+  requestId?: string;
 }
 
 /** What the panel knows about the connecting machine at submit time. */
@@ -54,12 +55,19 @@ function refusalFromOutcome(outcome: Extract<SshResolveOutcome, { accepted: fals
 export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null): SshRefusalCopy | null {
   if (isNetworkError(err)) return null;
   if (err instanceof ApiError) {
-    if (err.code === "SSH_GRANT_APPROVAL_REQUIRED")
+    if (err.code === "SSH_GRANT_APPROVAL_REQUIRED") {
+      const body = err.body as
+        | { metadata?: { requestId?: unknown }; metadataSafe?: { requestId?: unknown } }
+        | undefined;
+      // Development errors use toJSON; production uses toJSONSafe.
+      const metadata = body?.metadataSafe ?? body?.metadata;
       return {
         field: "keys",
         approval: true,
+        ...(typeof metadata?.requestId === "string" ? { requestId: metadata.requestId } : {}),
         text: "Approval is needed to use these keys. Review the request in SSH settings, then return here and connect again.",
       };
+    }
     if (err.code?.startsWith("SSH_RELAY_") || err.code?.startsWith("SSH_HOST_PIN_"))
       return { field: "keys", text: err.message };
     switch (err.status) {

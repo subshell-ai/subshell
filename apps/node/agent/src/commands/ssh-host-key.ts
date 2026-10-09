@@ -12,11 +12,11 @@ import { knownHostsPath, resolveSshKeygenBin, SSH_GATE_REFUSAL } from "./ssh-sha
  * relay-open to B.
  *
  * The evaluator is OpenSSH's own `ssh-keygen -F`, not a hand-rolled parse.
- * known_hosts matching (pattern globs, the `[host]:port` and `user@host`
- * spellings, hashed entries) is OpenSSH's own logic; anything less is the
- * loose re-parse the design refuses. One `-F` run per candidate spelling
- * covers the forms a file may carry, and the union is deduped by line - the
- * answer is A's recorded trust, verbatim, never a reconstruction of it.
+ * known_hosts matching (pattern globs, the `[host]:port`
+ * spelling, hashed entries) is OpenSSH's own logic; anything less is the
+ * loose re-parse the design refuses. The `-F` query uses the destination
+ * port's exact lookup name, and the answer is deduped by line - A's
+ * recorded trust, verbatim, never a reconstruction of it.
  *
  * The three rules this arm keeps, shared with the roster read:
  * - **The gate speaks first.** Reading the account's trust file is an SSH
@@ -48,26 +48,14 @@ export interface HostKeySeams {
 }
 
 /**
- * The candidate spellings `ssh-keygen -F` must be asked with to cover how a
- * destination may appear in known_hosts: OpenSSH looks a connection up under
- * `[user@host]:port`, `[host]:port`, `user@host`, and the bare `host`, and
- * the same set is what capture asks with. An honest superset (the bracketed
- * spelling is asked at the default port too) costs nothing: a pattern only
- * matches a candidate it actually spells, and any line this returns is a
- * line A recorded for THIS destination's host/user/port triple.
- *
- * The bracket rule is OpenSSH's own spelling: an IPv6 literal carries its
- * brackets in known_hosts already (`[::1]:2222`, and `[::1]` for the
- * default-port entry), so a host spelled with brackets is NOT wrapped again.
- * A resolved snapshot's host is either a plain name or a bracketed literal -
- * the grammar keeps the brackets in (the ssh-render doc says so) - so this
- * one rule reproduces the exact bytes ssh wrote.
+ * OpenSSH records host trust independently of the login account. Port 22
+ * uses the bare hostname (unbracketed IPv6); other ports use `[host]:port`.
+ * Looking up the bare host as well at a non-default port can capture another
+ * sshd's key or reject two valid services as ambiguous.
  */
-export function sshHostKeyCandidates({ host, port, user }: SshHostKeyCommand): string[] {
-  const bracket = (h: string): string => (h.startsWith("[") ? h : `[${h}]`);
-  const out = [`${bracket(host)}:${port}`, host];
-  if (user !== null) out.push(`${bracket(`${user}@${host}`)}:${port}`, `${user}@${host}`);
-  return [...new Set(out)];
+export function sshHostKeyCandidates({ host, port }: SshHostKeyCommand): string[] {
+  const hostname = host.startsWith("[") && host.endsWith("]") ? host.slice(1, -1) : host;
+  return [port === 22 ? hostname : `[${hostname}]:${port}`];
 }
 
 /**

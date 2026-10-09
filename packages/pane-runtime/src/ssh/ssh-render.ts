@@ -119,13 +119,13 @@ function configPathValue(path: string): string {
   return `"${path.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
-/** One config line for each known-hosts ref the snapshot names; absent names render nothing. */
+/** OpenSSH takes the first UserKnownHostsFile directive, with all refs on that line. */
 function knownHostsLines(files: string[]): string[] {
   // absent renders nothing: ssh's own default `~/.ssh/known_hosts` is the M1
   // trust store (spec 2026-10-07 §9) - the tier's product wrote /dev/null because its
   // BatchMode posture made silence fail closed; here silence IS the policy.
   if (files.length === 0) return [];
-  return files.map((f) => `    UserKnownHostsFile ${configPathValue(f)}`);
+  return [`    UserKnownHostsFile ${files.map(configPathValue).join(" ")}`];
 }
 
 /**

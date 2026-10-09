@@ -396,7 +396,8 @@ describe("Settings backup workflows", () => {
     await confirmReview();
     await screen.findByText("Restoring your server");
     expect((screen.getByRole("button", { name: "Restoring…" }) as HTMLButtonElement).disabled).toBe(true);
-    await screen.findByText("Restore finished");
+    // The first failed poll retries after one second; allow the retry to finish.
+    await screen.findByText("Restore finished", {}, { timeout: 3000 });
     expect(screen.queryByText("Restore Complete")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByText("Your server is ready");

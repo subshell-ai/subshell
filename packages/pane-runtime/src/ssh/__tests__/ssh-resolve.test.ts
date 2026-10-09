@@ -244,16 +244,75 @@ describe("resolveSshAliasConfig", () => {
     expect(out).toEqual({ accepted: false, code: "proxy_chain_too_long", settings: [] });
   });
 
-  it("normalizes a bounded ProxyJump chain into approved hops", async () => {
-    const { out } = await resolveWith("app02", `${CLEAN_G}\nproxyjump ops@jump.example.com:2222,bastion`);
+  it.skipIf(!Bun.which("ssh"))("resolves each jump alias with its own account and port", async () => {
+    const cfg = gConfig(
+      "Host app02\n HostName target.example\n User deploy\n ProxyJump ops@jump:2222,bastion\n" +
+        "Host jump\n HostName jump.example.com\n User ignored\n Port 2200\n" +
+        "Host bastion\n HostName bastion.example.com\n User gateway\n Port 2201\n",
+    );
+    const out = await resolveSshAliasConfig("app02", { ...cfg, sshBin: Bun.which("ssh") as string, env: {} });
     expect(out.accepted).toBe(true);
     if (out.accepted) {
       expect(out.snapshot.proxyJumps).toEqual([
         { host: "jump.example.com", user: "ops", port: 2222 },
-        { host: "bastion", user: "deploy", port: 22 },
+        { host: "bastion.example.com", user: "gateway", port: 2201 },
       ]);
     }
   });
+
+  it.skipIf(!Bun.which("ssh"))("preserves scalar identity, certificate and agent paths containing spaces", async () => {
+    const cfg = gConfig(
+      'Host app02\n HostName target.example\n IdentityFile "/tmp/my key"\n CertificateFile "/tmp/my cert"\n IdentityAgent "/tmp/my agent"\n',
+    );
+    const out = await resolveSshAliasConfig("app02", { ...cfg, sshBin: Bun.which("ssh") as string, env: {} });
+    expect(out.accepted).toBe(true);
+    if (out.accepted) {
+      expect(out.snapshot.identityFiles).toEqual(["/tmp/my key"]);
+      expect(out.snapshot.certificateFiles).toEqual(["/tmp/my cert"]);
+      expect(out.snapshot.authAgentSocket).toBe("/tmp/my agent");
+    }
+  });
+
+  it.skipIf(!Bun.which("ssh"))("resolves canonical saved destinations as structured user, host and port", async () => {
+    const cfg = gConfig("");
+    for (const [token, host] of [
+      ["deploy@host.example:2222", "host.example"],
+      ["deploy@[::1]:2222", "[::1]"],
+    ]) {
+      const out = await resolveSshAliasConfig(token as string, { ...cfg, sshBin: Bun.which("ssh") as string, env: {} });
+      expect(out.accepted).toBe(true);
+      if (out.accepted) {
+        expect(out.snapshot).toMatchObject({ alias: token, host, user: "deploy", port: 2222 });
+      }
+    }
+  });
+
+  it.skipIf(!Bun.which("ssh"))("does not inherit the destination user for an unqualified jump", async () => {
+    const cfg = gConfig("Host target\n HostName target.example\n User deploy\n ProxyJump jump.example\n");
+    const out = await resolveSshAliasConfig("target", { ...cfg, sshBin: Bun.which("ssh") as string, env: {} });
+    expect(out.accepted).toBe(true);
+    if (out.accepted) expect(out.snapshot.proxyJumps).toEqual([{ host: "jump.example", user: null, port: 22 }]);
+  });
+
+  it.skipIf(!Bun.which("ssh"))(
+    "refuses jump-specific authentication and nested routes the hop shape cannot preserve",
+    async () => {
+      for (const [directive, setting] of [
+        ["IdentityFile /tmp/jump-key", "ProxyJump IdentityFile"],
+        ["ProxyJump other", "ProxyJump on a jump host"],
+      ]) {
+        const cfg = gConfig(
+          `Host target\n HostName target.example\n ProxyJump jump\nHost jump\n HostName jump.example\n ${directive}\n`,
+        );
+        const out = await resolveSshAliasConfig("target", { ...cfg, sshBin: Bun.which("ssh") as string, env: {} });
+        expect(out.accepted).toBe(false);
+        if (!out.accepted) {
+          expect(out.code).toBe("unsupported_setting");
+          expect(out.settings).toContain(setting as string);
+        }
+      }
+    },
+  );
 
   it("treats a token that is not in the config as a manual destination only when -G echoes it as the host", async () => {
     const manual = await resolveWith(

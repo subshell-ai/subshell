@@ -103,24 +103,11 @@ function seamsFor(trust: string, run: HostKeySeams["runProcess"]): HostKeySeams 
 }
 
 describe("ssh_host_key candidates (OpenSSH's lookup spellings)", () => {
-  it("a default-port ask without a user asks the bare host and the bracketed-port spelling", () => {
-    expect(sshHostKeyCandidates(cmd())).toEqual(["[git.example.test]:22", "git.example.test"]);
-  });
-  it("a user and a non-default port cover all four spellings, deduped", () => {
-    expect(sshHostKeyCandidates(cmd({ port: 2222, user: "deploy" }))).toEqual([
-      "[git.example.test]:2222",
-      "git.example.test",
-      "[deploy@git.example.test]:2222",
-      "deploy@git.example.test",
-    ]);
-    // A host already spelled with brackets is not re-bracketed: OpenSSH
-    // writes known_hosts entries for `[::1]:2222` exactly once spelled.
-    expect(sshHostKeyCandidates(cmd({ host: "[::1]", port: 2222, user: "deploy" }))).toEqual([
-      "[::1]:2222",
-      "[::1]",
-      "[deploy@[::1]]:2222",
-      "deploy@[::1]",
-    ]);
+  it("uses the destination port and excludes the login account", () => {
+    expect(sshHostKeyCandidates(cmd())).toEqual(["git.example.test"]);
+    expect(sshHostKeyCandidates(cmd({ port: 2222, user: "deploy" }))).toEqual(["[git.example.test]:2222"]);
+    expect(sshHostKeyCandidates(cmd({ host: "[::1]", port: 2222 }))).toEqual(["[::1]:2222"]);
+    expect(sshHostKeyCandidates(cmd({ host: "[::1]" }))).toEqual(["::1"]);
   });
 });
 
@@ -168,21 +155,20 @@ describe("ssh_host_key arm (gate ON)", () => {
     expect((res as { data: JsonValue }).data).toEqual({ lines: [LINE_A] });
     // The ask spells the file target with `-f` (never a HOME-relative read)
     // and each candidate as its own argv element - no shell string anywhere.
-    expect(fake.calls.map((c) => c.candidate)).toEqual(["[git.example.test]:22", "git.example.test"]);
-    expect(fake.calls[1]?.argv.slice(0, 4)).toEqual(["/usr/bin/ssh-keygen", "-f", trust, "-F"]);
+    expect(fake.calls.map((c) => c.candidate)).toEqual(["git.example.test"]);
+    expect(fake.calls[0]?.argv.slice(0, 4)).toEqual(["/usr/bin/ssh-keygen", "-f", trust, "-F"]);
   });
 
-  it("dedups a line matched under several candidate spellings", async () => {
-    const trust = trustFile("dedup", `${LINE_A}\n`);
+  it("captures only the requested sshd when one host serves different keys on different ports", async () => {
+    const alternate = LINE_A.replace("git.example.test", "[git.example.test]:2222").replace("AAAAI000", "AAAAI111");
+    const trust = trustFile("separate-ports", `${LINE_A}\n${alternate}\n`);
     const fake = fakeRun({
-      "[git.example.test]:22": { stdout: `${LINE_A}\n` },
       "git.example.test": { stdout: `${LINE_A}\n` },
-      "deploy@git.example.test": { stdout: `${LINE_A}\n` },
-      "[deploy@git.example.test]:22": { code: 1, stdout: "", stderr: "" },
+      "[git.example.test]:2222": { stdout: `${alternate}\n` },
     });
-    const res = await execSshHostKey(makeCtx("dedup"), cmd({ user: "deploy" }), seamsFor(trust, fake.run));
-    if (!res.ok) throw new Error(`expected ok:true, got ${JSON.stringify(res)}`);
-    expect((res.data as { lines: string[] }).lines).toEqual([LINE_A]);
+    const res = await execSshHostKey(makeCtx("separate-ports"), cmd({ port: 2222 }), seamsFor(trust, fake.run));
+    expect(res).toEqual({ ok: true, data: { lines: [alternate] } });
+    expect(fake.calls.map((call) => call.candidate)).toEqual(["[git.example.test]:2222"]);
   });
 
   it("a silent non-zero run with stderr is the named unreadable-file refusal, never the empty fact", async () => {
@@ -198,11 +184,11 @@ describe("ssh_host_key arm (gate ON)", () => {
 
   it("a timeout and a spawn failure each refuse by name", async () => {
     const trust = trustFile("failures", `${LINE_A}\n`);
-    const timeout = fakeRun({ "[git.example.test]:22": { timedOut: true } });
+    const timeout = fakeRun({ "git.example.test": { timedOut: true } });
     const t = await execSshHostKey(makeCtx("failures"), cmd(), seamsFor(trust, timeout.run));
     expect(t.ok).toBe(false);
     expect(String((t as { error?: string }).error)).toInclude("deadline");
-    const spawn = fakeRun({ "[git.example.test]:22": { spawnError: true } });
+    const spawn = fakeRun({ "git.example.test": { spawnError: true } });
     const s = await execSshHostKey(makeCtx("failures"), cmd(), seamsFor(trust, spawn.run));
     expect(s.ok).toBe(false);
     expect(String((s as { error?: string }).error)).toInclude("could not be started");

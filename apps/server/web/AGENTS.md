@@ -390,6 +390,8 @@ Connect can use another owned node's loaded SSH-agent keys. The default omits
 `keyHome` and uses the connecting machine's own keys. Never silently substitute
 keys when the chosen machine goes offline. Approval links preserve the launch
 choices and require a fresh Connect click; approval itself launches nothing.
+Approval return links bind the preserved choices to the exact request ID, never
+just the machine pair: several destinations can await approval on that pair.
 The pending-request view carries the exact destination account and port, and
 new requests have no pane yet, so the approvals list must not link a nonexistent
 pane. Failed settings reads must stay distinct from empty lists.
@@ -401,3 +403,7 @@ Completed results remain for one hour in the running server process. This is
 not a durable job across server restarts: after a restart, check Nodes and the
 destination before retrying an interrupted install. Keep that limitation honest
 in any future recovery UI.
+
+Enrollment without a confirmed connection is terminal status `enrolled`, with
+the node id retained. Link to that node and its service recovery; do not offer
+another install or describe it as connected.

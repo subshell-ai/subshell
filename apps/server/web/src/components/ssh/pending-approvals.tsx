@@ -68,7 +68,7 @@ export function PendingApprovals({ connection }: { connection?: ReturnType<typeo
             <Link
               to="/connect"
               search={
-                connection?.node === approved.bNodeId && connection?.keyHome === approved.keyHomeNodeId
+                connection?.requestId === approved.id && connection?.keyHome === approved.keyHomeNodeId
                   ? connection
                   : {
                       node: approved.bNodeId,

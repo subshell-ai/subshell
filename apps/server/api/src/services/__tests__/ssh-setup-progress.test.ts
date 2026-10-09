@@ -51,3 +51,17 @@ test("completed status expires after an hour", async () => {
   now = 3_600_001;
   expect(tracker.read("o", "p")).toBeNull();
 });
+
+test("enrolled but disconnected is terminal and reopening does not reinstall", async () => {
+  const tracker = createSshSetupTracker();
+  let calls = 0;
+  const run = () =>
+    tracker.run("o", "p", async () => {
+      calls++;
+      return { ok: true, value: { nodeId: "n", connected: false } };
+    });
+  await run();
+  expect(tracker.read("o", "p")).toMatchObject({ stage: "enrolled", nodeId: "n", error: null });
+  await run();
+  expect(calls).toBe(1);
+});

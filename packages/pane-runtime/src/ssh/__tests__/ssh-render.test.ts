@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
   buildAgentSocketPath,
@@ -9,7 +9,7 @@ import {
   sshDestinationToken,
   sshOptionTokens,
 } from "../ssh-render.js";
-import { makeSnapshot } from "./helpers.js";
+import { cleanup, makeSnapshot, tempRoot } from "./helpers.js";
 
 /**
  * The renderer is where the M1 every-hop policy becomes bytes (spec
@@ -104,8 +104,24 @@ describe("renderSshConfigContents", () => {
     // double quotes with backslash escapes — that IS the quoting accepted.
     expect(rendered).toContain('    IdentityFile "/home/deploy/my keys/id_ed25519"');
     expect(rendered).toContain('    CertificateFile "/opt/we\\"ird/cert.pub"');
-    expect(rendered).toContain('    UserKnownHostsFile "/home/deploy/my hosts/known_hosts"');
-    expect(rendered).toContain("    UserKnownHostsFile /plain/path"); // no churn for bytes that need none
+    expect(rendered).toContain('    UserKnownHostsFile "/home/deploy/my hosts/known_hosts" /plain/path');
+  });
+
+  it.skipIf(!Bun.which("ssh"))("OpenSSH reads every approved known-hosts file", async () => {
+    const root = tempRoot("ssh-render-trust-");
+    try {
+      const path = join(root, "config");
+      writeFileSync(path, renderSshConfigContents(baseSnapshot({ knownHostsFiles: ["/tmp/first", "/tmp/second"] })));
+      const child = Bun.spawn([Bun.which("ssh") as string, "-G", "-F", path, "target.example"], {
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const output = await new Response(child.stdout).text();
+      expect(await child.exited).toBe(0);
+      expect(output.split("\n")).toContain("userknownhostsfile /tmp/first /tmp/second");
+    } finally {
+      cleanup(root);
+    }
   });
 
   it("ships its header with no em dash (the voice rule covers generated strings)", () => {

@@ -277,6 +277,7 @@ export function useApproveSshGrantRequest() {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: SSH_GRANT_REQUESTS_QUERY_KEY });
       void queryClient.invalidateQueries({ queryKey: SSH_GRANTS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: SSH_HOST_PINS_QUERY_KEY });
     },
   });
 }

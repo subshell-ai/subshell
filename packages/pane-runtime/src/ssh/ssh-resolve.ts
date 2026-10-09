@@ -172,12 +172,26 @@ export async function resolveSshAliasConfig(
   alias: string,
   deps: SshResolutionDeps,
 ): Promise<NodeSshResolveOutcomeWire> {
+  return resolveConfig(alias, deps, false, Date.now() + (deps.timeoutMs ?? SSH_PROBE_DEADLINE_MS));
+}
+
+async function resolveConfig(
+  alias: string,
+  deps: SshResolutionDeps,
+  resolvingHop: boolean,
+  deadline: number,
+): Promise<NodeSshResolveOutcomeWire> {
   // Shape gate FIRST (defense-in-depth beside the wire parser): this string
   // reaches `ssh -G` as an argv tail — an option-like or control-bearing
   // token must die here, not at getopt.
   if (alias.length === 0 || alias.length > 253 || alias.startsWith("-") || /\s|\p{Cc}/u.test(alias)) {
     return refuse("config_missing");
   }
+  // Saved destinations use [user@]host:port. Pass its fields as separate
+  // argv options; OpenSSH does not interpret a colon suffix as a port.
+  const target = parseProxyHop(alias, null);
+  if (!target || target.host.startsWith("-")) return refuse("config_missing");
+  const explicitPort = /(?:\]|[^:]):[0-9]+$/.test(alias);
   const configPath = deps.configPath ?? defaultSshConfigPath(deps.homeDir);
   const env = deps.env ?? (process.env as Record<string, string | undefined>);
   const connectingAccount = deps.connectingAccount ?? safeUsername();
@@ -191,7 +205,9 @@ export async function resolveSshAliasConfig(
 
   const argv = [deps.sshBin, "-G"];
   if (existsSync(configPath)) argv.push("-F", configPath);
-  argv.push(alias);
+  if (target.user !== null) argv.push("-l", target.user);
+  if (explicitPort) argv.push("-p", String(target.port));
+  argv.push("--", target.host);
   const childEnv: Record<string, string> = {
     PATH: await sshChildPath(),
     HOME: deps.homeDir,
@@ -200,7 +216,11 @@ export async function resolveSshAliasConfig(
     ...(env.SSH_AUTH_SOCK ? { SSH_AUTH_SOCK: env.SSH_AUTH_SOCK } : {}),
   };
   for (const [k, v] of Object.entries(env)) if (k.startsWith("LC_") && v) childEnv[k] = v;
-  const run = await runSshProcess(argv, childEnv, deps.timeoutMs ?? SSH_PROBE_DEADLINE_MS);
+  // All hop evaluations share the original deadline; a four-hop route must
+  // not multiply the machine RPC's maximum evaluation time.
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) return refuse("config_ambiguous", ["ssh -G evaluation deadline exceeded"]);
+  const run = await runSshProcess(argv, childEnv, remainingMs);
   if (run.timedOut || run.spawnError || run.code !== 0) {
     // The evaluator could not be brought to answer: the destination cannot be
     // reduced to one reviewable route. `config_ambiguous` is the frozen code
@@ -242,14 +262,15 @@ export async function resolveSshAliasConfig(
   // --- destination facts ---
   const hostValues = valuesOf(g, "hostname");
   const hostLine = valuesOf(g, "host")[0] ?? alias;
-  const host = hostValues[0] ?? hostLine;
-  const matchedBlocks = walk.hostBlocks.filter((b) => blockMatchesAlias(b, alias));
+  const rawHost = hostValues[0] ?? hostLine;
+  const host = rawHost.includes(":") && !rawHost.startsWith("[") ? `[${rawHost}]` : rawHost;
+  const matchedBlocks = walk.hostBlocks.filter((b) => blockMatchesAlias(b, target.host));
   const inConfig = matchedBlocks.length > 0;
   if (!inConfig) {
     // Manual-alias path: only legitimate when OpenSSH itself treated the
     // token as the hostname (no config rewrite happened). Anything else means
     // the token is neither an alias nor a destination the account can reach.
-    if (host.toLowerCase() !== alias.toLowerCase()) return refuse("config_missing");
+    if (host.toLowerCase() !== target.host.toLowerCase()) return refuse("config_missing");
   } else {
     // Two blocks setting CONFLICTING destination facts cannot be reduced to
     // one route a human reviewed (first-obtained-wins makes -G deterministic,
@@ -283,7 +304,12 @@ export async function resolveSshAliasConfig(
   // `~user/...` does not expand: the parser refuses the ref whole, which is
   // fail-closed, not a silent route change.
   const refPaths = (keyword: string): string[] =>
-    valuesOf(g, keyword)
+    // IdentityFile and CertificateFile each print one unquoted path per
+    // line, including embedded spaces. UserKnownHostsFile is a list.
+    (keyword === "userknownhostsfile"
+      ? valuesOf(g, keyword)
+      : g.filter((line) => line.keyword === keyword).map((line) => line.value)
+    )
       .filter((v) => v !== "" && v !== "none")
       .map((v) => expandTilde(v, deps.homeDir));
   const identityFiles = refPaths("identityfile");
@@ -294,7 +320,7 @@ export async function resolveSshAliasConfig(
 
   // --- agent: ONLY an absolute socket from the account's trusted setup (an
   // explicit IdentityAgent path, else the account's own SSH_AUTH_SOCK) ---
-  const identityAgent = valuesOf(g, "identityagent")[0] ?? null;
+  const identityAgent = g.find((line) => line.keyword === "identityagent")?.value ?? null;
   let authAgentSocket: string | null = null;
   if (identityAgent?.startsWith("/")) {
     authAgentSocket = identityAgent;
@@ -308,19 +334,38 @@ export async function resolveSshAliasConfig(
     authAgentSocket = env.SSH_AUTH_SOCK;
   }
 
-  // --- jump chain: comma-separated per directive, all directives concatenated in config order ---
+  // A jump alias is evaluated separately by OpenSSH. Its defaults come
+  // from the connecting account, not the destination's User directive.
+  const hopTokens = g
+    .filter((line) => line.keyword === "proxyjump" && line.value !== "none")
+    .flatMap((line) =>
+      line.value
+        .split(",")
+        .map((token) => token.trim())
+        .filter(Boolean),
+    );
+  if (hopTokens.length > SSH_MAX_PROXY_HOPS) return refuse("proxy_chain_too_long");
+  if (resolvingHop && hopTokens.length > 0) return refuse("unsupported_setting", ["ProxyJump on a jump host"]);
   const hops: SshHopWire[] = [];
-  for (const line of g.filter((l) => l.keyword === "proxyjump")) {
-    for (const token of line.value
-      .split(",")
-      .map((t) => t.trim())
-      .filter((t) => t !== "")) {
-      const hop = parseProxyHop(token, user);
-      if (!hop) return refuse("config_ambiguous", ["ProxyJump"]);
-      hops.push(hop);
+  for (const token of hopTokens) {
+    const resolvedHop = await resolveConfig(token, deps, true, deadline);
+    if (!resolvedHop.accepted) return resolvedHop;
+    const hop = resolvedHop.snapshot;
+    // The frozen hop shape carries route facts only. Auth/trust refs apply
+    // to every hop in the rendered file, so refuse differences by name.
+    const unsupported: string[] = [];
+    for (const [name, expected, actual] of [
+      ["IdentityFile", identityFiles, hop.identityFiles],
+      ["CertificateFile", certificateFiles, hop.certificateFiles],
+      ["UserKnownHostsFile", knownHostsFiles, hop.knownHostsFiles],
+      ["IdentityAgent", authAgentSocket, hop.authAgentSocket],
+    ] as const) {
+      if (JSON.stringify(expected) !== JSON.stringify(actual)) unsupported.push(`ProxyJump ${name}`);
     }
+    if (hop.hostKeyAlias !== null) unsupported.push("ProxyJump HostKeyAlias");
+    if (unsupported.length > 0) return refuse("unsupported_setting", unsupported);
+    hops.push({ host: hop.host, user: hop.user, port: hop.port });
   }
-  if (hops.length > SSH_MAX_PROXY_HOPS) return refuse("proxy_chain_too_long");
 
   const candidate = {
     alias,
