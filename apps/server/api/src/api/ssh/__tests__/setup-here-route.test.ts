@@ -26,7 +26,7 @@ import { issueSubshellToken } from "@/services/subshell-tokens.js";
 const app = new Elysia().use(errorHandlerPlugin).use(sshRoutes);
 const port = "api/ssh/setup-here" as const;
 
-function post(body: unknown, opts: { cookie?: string; bearer?: string } = {}): Promise<Response> {
+function post(body: unknown, opts: { cookie?: string; bearer?: string } = {}) {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (opts.cookie) headers.cookie = `better-auth.session_token=${opts.cookie}`;
   if (opts.bearer) headers.authorization = `Bearer ${opts.bearer}`;

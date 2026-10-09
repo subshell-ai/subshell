@@ -52,7 +52,7 @@ describe("SetupHereDialog", () => {
     globalThis.fetch = ((input: unknown, init?: RequestInit) => {
       const url = new URL(String(input), "http://localhost");
       calls.push({ url: url.pathname, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
-      return Promise.resolve(new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 })) as never;
+      return Promise.resolve(new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 }));
     }) as typeof fetch;
     return { calls, restore: () => (globalThis.fetch = original) };
   }
