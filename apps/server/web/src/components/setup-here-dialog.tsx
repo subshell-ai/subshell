@@ -1,7 +1,6 @@
-import { apiFetch, Button, NODES_QUERY_KEY } from "@internal/node-admin";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Button } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
-import type { JSX } from "react";
+import { type JSX, useEffect, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,6 +9,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useSshSetup } from "@/hooks/use-ssh-setup";
 import type { SubshellView } from "@/types/subshell";
 
 /**
@@ -17,7 +17,7 @@ import type { SubshellView } from "@/types/subshell";
  * on an open SSH-terminal pane that turns its destination into an enrolled
  * node. The server runs the ordinary enrollment install over a separate
  * non-interactive connection - the pane keeps running, and the enrollment
- * key never enters it. The dialog asks once, holds itself open through the
+ * key never enters it. The dialog asks once, retains server-side status through the
  * install (minutes are possible and the request answers only when the new
  * node is ONLINE), then says which of the two happened in the server's own
  * named words: the machine's id and page on success, the refusal's sentence
@@ -40,39 +40,69 @@ export function SetupHereDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): JSX.Element {
-  const queryClient = useQueryClient();
-  const upgrade = useMutation({
-    mutationFn: () =>
-      apiFetch<{ nodeId: string }>("/api/ssh/setup-here", {
-        method: "POST",
-        body: JSON.stringify({ paneId: subshell.id }),
-      }),
-    onSuccess: () => {
-      // The new row belongs to the machine list; the panes queries are
-      // untouched because the act never writes the pane.
-      void queryClient.invalidateQueries({ queryKey: NODES_QUERY_KEY });
-    },
-  });
-  const enrolled = upgrade.data;
+  const { upgrade, status, operation, pending } = useSshSetup(subshell.id);
+  const enrolled = operation?.nodeId ? { nodeId: operation.nodeId } : upgrade.data;
+  const error = operation?.error ?? (upgrade.error as Error | null)?.message;
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!pending) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [pending]);
+  const elapsed = Math.max(
+    0,
+    Math.floor((now - (operation ? Date.parse(operation.startedAt) : upgrade.submittedAt)) / 1000),
+  );
+  const stage =
+    operation?.stage === "connecting"
+      ? "Installed. Waiting for the destination to connect to this server…"
+      : operation?.stage === "checking"
+        ? "Checking access and preparing installation…"
+        : "Installing on the destination; the download can take a few minutes.";
 
   return (
-    <Dialog open={open} onOpenChange={(next) => !upgrade.isPending && onOpenChange(next)}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent onClick={(e) => e.stopPropagation()}>
         <DialogHeader>
           <DialogTitle>Set up Subshell here?</DialogTitle>
-          {!enrolled && !upgrade.error && (
+          {!enrolled && !error && (
             <DialogDescription>
               Runs the Subshell installer on the connected machine using this pane's authorization. It enrolls as a node
               you own; the connection and this pane keep running.
             </DialogDescription>
           )}
         </DialogHeader>
-        {upgrade.isPending && (
-          <p className="text-detail text-muted-foreground">
-            Installing on the destination; the download can take a few minutes.
+        {pending && (
+          <div className="flex flex-col gap-2">
+            <p role="status" className="text-detail text-muted-foreground">
+              {stage}
+            </p>
+            <p className="text-detail text-muted-foreground">
+              Elapsed: {Math.floor(elapsed / 60)}m {elapsed % 60}s. You can close this dialog and keep working. Reopen
+              “Set up Subshell here” on this pane to check progress.
+            </p>
+          </div>
+        )}
+        {status.isPending && !pending && (
+          <p role="status" className="text-detail">
+            Checking setup status…
           </p>
         )}
-        {upgrade.error && <p className="text-destructive text-detail">{(upgrade.error as Error).message}</p>}
+        {status.isError && (
+          <div role="alert" className="flex flex-col gap-2">
+            <p className="text-destructive text-detail">
+              Could not check setup status. Check again before starting another installation.
+            </p>
+            <Button variant="outline" onClick={() => void status.refetch()}>
+              Check status
+            </Button>
+          </div>
+        )}
+        {error && !pending && (
+          <p role="alert" className="text-destructive text-detail">
+            {error}
+          </p>
+        )}
         {enrolled && (
           <p className="text-detail text-success">
             The machine enrolled and connected.{" "}
@@ -88,12 +118,12 @@ export function SetupHereDialog({
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" disabled={upgrade.isPending} onClick={() => onOpenChange(false)}>
-            {enrolled ? "Done" : "Cancel"}
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            {pending ? "Continue working" : enrolled ? "Done" : "Cancel"}
           </Button>
           {!enrolled && (
-            <Button disabled={upgrade.isPending} onClick={() => void upgrade.mutate()}>
-              {upgrade.isPending ? "Setting up…" : "Set up Subshell"}
+            <Button disabled={pending || status.isPending || status.isError} onClick={() => void upgrade.mutate()}>
+              {pending ? "Setting up…" : "Set up Subshell"}
             </Button>
           )}
         </DialogFooter>

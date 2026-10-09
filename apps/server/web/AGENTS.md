@@ -383,3 +383,21 @@ tap-only strip never takes draggable tabs off a window holding a mouse.
 **Working on the terminal, dockview, touch/swipe handling, or shared-grid
 sizing, and before ANY `dockview-react` upgrade (which a standing hand-run
 probe gates): read apps/server/web/docs/terminal-gotchas.md first.**
+
+## SSH relay launch and setup
+
+Connect can use another owned node's loaded SSH-agent keys. The default omits
+`keyHome` and uses the connecting machine's own keys. Never silently substitute
+keys when the chosen machine goes offline. Approval links preserve the launch
+choices and require a fresh Connect click; approval itself launches nothing.
+The pending-request view carries the exact destination account and port, and
+new requests have no pane yet, so the approvals list must not link a nonexistent
+pane. Failed settings reads must stay distinct from empty lists.
+
+“Set up Subshell here” can be dismissed while running. Its owner-scoped status
+read observes stages selected by the server, never installer output. Reopening
+or refreshing joins the same running operation; a duplicate POST also joins it.
+Completed results remain for one hour in the running server process. This is
+not a durable job across server restarts: after a restart, check Nodes and the
+destination before retrying an interrupted install. Keep that limitation honest
+in any future recovery UI.

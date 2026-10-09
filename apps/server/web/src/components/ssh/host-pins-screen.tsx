@@ -14,6 +14,7 @@ import {
 import { Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
+import { SshQueryStatus } from "@/components/ssh/query-status";
 import {
   Dialog,
   DialogContent,
@@ -45,7 +46,8 @@ import type { SshHostPin } from "@/lib/ssh";
  * (F2/T12): the operator supplies the known_hosts line themselves.
  */
 export function HostPinsScreen() {
-  const { data: view } = useSshHostPins();
+  const query = useSshHostPins();
+  const view = query.data;
   const pins = view?.pins ?? [];
   const [addOpen, setAddOpen] = useState(false);
   return (
@@ -54,8 +56,8 @@ export function HostPinsScreen() {
         <div className="space-y-1.5">
           <CardTitle>Destination trust</CardTitle>
           <CardDescription>
-            The host key each destination was first seen with. Removing a pin makes the next connection re-decide trust
-            on first sight.
+            A saved host key (a “pin”) identifies the destination, helping detect an unexpected server change. Verify a
+            replacement key with the destination’s administrator before removing its pin.
           </CardDescription>
         </div>
         <Button variant="outline" size="sm" onClick={() => setAddOpen(true)}>
@@ -63,9 +65,12 @@ export function HostPinsScreen() {
         </Button>
       </CardHeader>
       <CardContent>
-        {pins.length === 0 ? (
+        {query.isPending || query.isError ? (
+          <SshQueryStatus query={query} label="destination trust" />
+        ) : pins.length === 0 ? (
           <p className="text-detail text-muted-foreground">
-            No pinned destinations yet. A pin is captured the first time a granted key connects.
+            No pinned destinations yet. Subshell saves the destination’s verified host key when permission is approved
+            or first used.
           </p>
         ) : (
           <ul className="space-y-4">
@@ -88,7 +93,7 @@ function PinRow({ pin }: { pin: SshHostPin }) {
     const ok = await confirmAction({
       // Static title; the destination rides the body (ruling 2026-09-30).
       title: "Remove this pin?",
-      description: `"${pin.destination}" is no longer trusted. The next connection to it re-decides on first sight.`,
+      description: `"${pin.destination}" will need its host key verified again. Confirm the replacement with the destination’s administrator before reconnecting.`,
       confirmLabel: "Remove",
       danger: true,
     });

@@ -162,6 +162,6 @@ describe("HostPinsScreen", () => {
       restores.push(undo);
     });
     renderScreen();
-    expect(await screen.findByText(/re-decide/)).toBeDefined();
+    expect(await screen.findByText(/Verify a replacement key/)).toBeDefined();
   });
 });

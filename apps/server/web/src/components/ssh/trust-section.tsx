@@ -55,12 +55,14 @@ export function SshTrustSection({ node }: { node: NodeDetail }) {
         }
       />
       <p className="text-detail text-muted-foreground">
-        These values are rendered by the plane, for display only. The out-of-band check happens on the two machines' own
-        dashboards, each speaking about its own keys.
+        These fingerprints are reported through this server, for display only. To verify them independently
+        (out-of-band), open each machine’s own dashboard and compare its fingerprints with the saved copy on the other
+        machine.
       </p>
       {isOwner && node.sshTrust.peers.length > 0 && (
         <p className="text-detail text-muted-foreground">
-          A re-pair replaces the stored pin for one peer. The record names the peer.
+          A re-pair replaces the stored pin (saved identity) for one peer machine. Verify both machines’ fingerprints
+          first. The record names the peer.
         </p>
       )}
     </div>

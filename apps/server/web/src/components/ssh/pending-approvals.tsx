@@ -12,6 +12,7 @@ import {
 } from "@internal/node-admin";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { SshQueryStatus } from "@/components/ssh/query-status";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useNodes } from "@/hooks/use-nodes";
 import {
@@ -22,6 +23,7 @@ import {
 } from "@/hooks/use-ssh";
 import { useSubshellsList } from "@/hooks/use-subshells";
 import { grantSelectionError, type SshGrantRequest } from "@/lib/ssh";
+import type { sshConnectSearch } from "@/lib/ssh-connect-search";
 
 /**
  * The first-use approval queue (spec 2026-10-08 §6.2): every pending question
@@ -42,8 +44,10 @@ import { grantSelectionError, type SshGrantRequest } from "@/lib/ssh";
  * fingerprint out of the grant. A denial needs no confirm: it writes only the
  * audit row, and a later relaunch simply asks again.
  */
-export function PendingApprovals() {
-  const { data: view } = useSshGrantRequests();
+export function PendingApprovals({ connection }: { connection?: ReturnType<typeof sshConnectSearch> }) {
+  const [approved, setApproved] = useState<SshGrantRequest | null>(null);
+  const query = useSshGrantRequests();
+  const view = query.data;
   const requests = (view?.requests ?? []).filter((r) => r.status === "pending");
   return (
     <Card>
@@ -55,12 +59,37 @@ export function PendingApprovals() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {requests.length === 0 ? (
+        {approved && (
+          <div role="status" className="mb-4 flex flex-col gap-2">
+            <p className="text-detail">
+              Keys approved for {approved.resolvedSelector}. The original connection did not start. Return to Connect
+              and try again.
+            </p>
+            <Link
+              to="/connect"
+              search={
+                connection?.node === approved.bNodeId && connection?.keyHome === approved.keyHomeNodeId
+                  ? connection
+                  : {
+                      node: approved.bNodeId,
+                      keyHome: approved.keyHomeNodeId,
+                      destination: approved.destination ?? undefined,
+                    }
+              }
+              className="text-label underline"
+            >
+              Return to Connect
+            </Link>
+          </div>
+        )}
+        {query.isPending || query.isError ? (
+          <SshQueryStatus query={query} label="pending approvals" />
+        ) : requests.length === 0 ? (
           <p className="text-detail text-muted-foreground">Nothing is waiting for an answer.</p>
         ) : (
           <div className="space-y-6">
             {requests.map((request) => (
-              <ApprovalCard key={request.id} request={request} />
+              <ApprovalCard key={request.id} request={request} onApproved={() => setApproved(request)} />
             ))}
           </div>
         )}
@@ -70,7 +99,7 @@ export function PendingApprovals() {
 }
 
 /** One pending question and the act that answers it. */
-function ApprovalCard({ request }: { request: SshGrantRequest }) {
+function ApprovalCard({ request, onApproved }: { request: SshGrantRequest; onApproved: () => void }) {
   const { data: nodeData } = useNodes();
   const { data: panes } = useSubshellsList();
   const roster = useSshGrantRoster(request.id, true);
@@ -102,21 +131,28 @@ function ApprovalCard({ request }: { request: SshGrantRequest }) {
     // The guard behind the gate (substrate contract): Enter-path submits and
     // render races land here even though the button is swept.
     if (!roster.data || selectionError || submitted.length === 0) return;
-    approve.mutate({ requestId: request.id, fingerprints: submitted, name: name.trim() || undefined });
+    approve.mutate(
+      { requestId: request.id, fingerprints: submitted, name: name.trim() || undefined },
+      { onSuccess: onApproved },
+    );
   }
 
   return (
     <div className="space-y-3 rounded-lg border p-4">
       <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
         <Fact label="Requesting pane">
-          <Link to="/subshells/$id" params={{ id: request.paneId }} className="underline">
-            {paneName}
-          </Link>
+          {paneName === request.paneId ? (
+            <span>New SSH connection (not started)</span>
+          ) : (
+            <Link to="/subshells/$id" params={{ id: request.paneId }} className="underline">
+              {paneName}
+            </Link>
+          )}
         </Fact>
         <Fact label="Connecting machine">{machineName(request.bNodeId)}</Fact>
-        <Fact label="Key home">{machineName(request.keyHomeNodeId)}</Fact>
+        <Fact label="SSH keys from">{machineName(request.keyHomeNodeId)}</Fact>
         <Fact label="Destination" mono wide>
-          {request.resolvedSelector}
+          {request.destination ?? request.resolvedSelector}
         </Fact>
       </dl>
       <p className="text-detail text-muted-foreground">
@@ -125,7 +161,7 @@ function ApprovalCard({ request }: { request: SshGrantRequest }) {
         HostKeyAlias, add its host-key pin under Destination trust first; the key home cannot capture that one itself.
       </p>
       <div>
-        <Label>Choose the keys this grant may serve</Label>
+        <Label>Choose the keys allowed for this destination</Label>
         {roster.isPending && (
           <p className="mt-1 text-detail text-muted-foreground">Asking the key home&apos;s agent…</p>
         )}
@@ -135,7 +171,9 @@ function ApprovalCard({ request }: { request: SshGrantRequest }) {
           </p>
         )}
         {roster.data && roster.data.identities.length === 0 && (
-          <p className="mt-1 text-detail text-muted-foreground">The key home&apos;s agent holds no keys right now.</p>
+          <p className="mt-1 text-detail text-muted-foreground">
+            No SSH keys are loaded on this machine. Load a key with ssh-add there, then refresh the key list.
+          </p>
         )}
         {roster.data && roster.data.identities.length > 0 && (
           <ul className="mt-2 space-y-2">
@@ -178,6 +216,9 @@ function ApprovalCard({ request }: { request: SshGrantRequest }) {
             {selectionError}
           </p>
         )}
+        <Button variant="outline" size="sm" disabled={roster.isFetching} onClick={() => void roster.refetch()}>
+          Refresh keys
+        </Button>
       </div>
       <div className="space-y-2">
         <Label htmlFor={`grant-name-${request.id}`}>Grant name</Label>
@@ -203,11 +244,15 @@ function ApprovalCard({ request }: { request: SshGrantRequest }) {
         {/* Approve waits for the roster: until the key home has answered there is nothing visible to answer with, and a yes made against an unrendered candidate set is the invisible approval this gate exists to prevent. */}
         <Button
           onClick={answerYes}
-          disabled={!!selectionError || submitted.length === 0 || !roster.data || approve.isPending}
+          disabled={!!selectionError || submitted.length === 0 || !roster.data || approve.isPending || deny.isPending}
         >
           Approve
         </Button>
-        <Button variant="outline" onClick={() => deny.mutate(request.id)} disabled={deny.isPending}>
+        <Button
+          variant="outline"
+          onClick={() => deny.mutate(request.id)}
+          disabled={deny.isPending || approve.isPending}
+        >
           Deny
         </Button>
       </div>

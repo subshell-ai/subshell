@@ -108,11 +108,18 @@ interface Rendered {
   restore: () => void;
 }
 
-async function renderPanel(opts: WireOpts): Promise<Rendered> {
+async function renderPanel(
+  opts: WireOpts,
+  initial?: { node?: string; keyHome?: string; destination?: string },
+): Promise<Rendered> {
   const { calls, restore } = mockFetch(opts);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();
-  const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: ConnectPanel });
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/",
+    component: () => <ConnectPanel initial={initial} />,
+  });
   const paneRoute = createRoute({ getParentRoute: () => rootRoute, path: "/subshells/$id", component: () => null });
   const router = createRouter({
     routeTree: rootRoute.addChildren([indexRoute, paneRoute]),
@@ -546,6 +553,56 @@ describe("refusals and disclosure (contracts 4, 5)", () => {
     try {
       await waitFor(() => expect(document.getElementById("connect-machine-requirement")).not.toBeNull());
       expect(machineInput().getAttribute("aria-describedby")).toContain("connect-machine-requirement");
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("relay launch and approval recovery", () => {
+  it("sends the selected key machine and preserves the returned connection choices", async () => {
+    const { calls, restore } = await renderPanel(
+      { nodes: [HOST_A, HOST_C] },
+      { node: HOST_A.id, keyHome: HOST_C.id, destination: "theo@build.example.com:2222" },
+    );
+    try {
+      await clickConnect();
+      expect(calls.find((c) => c.url === "/api/ssh/launch")?.body).toEqual({
+        node: HOST_A.id,
+        keyHome: HOST_C.id,
+        destination: "theo@build.example.com:2222",
+      });
+    } finally {
+      restore();
+    }
+  });
+  it("offers approval instead of incorrectly reporting the connecting machine offline", async () => {
+    const { restore } = await renderPanel(
+      {
+        nodes: [HOST_A, HOST_C],
+        launch: () => json({ code: "SSH_GRANT_APPROVAL_REQUIRED", message: "Approve first." }, 409),
+      },
+      { node: HOST_A.id, keyHome: HOST_C.id, destination: "work" },
+    );
+    try {
+      await clickConnect();
+      const link = screen.getByRole("link", { name: "Review SSH approval" }) as HTMLAnchorElement;
+      expect(link.href).toContain("/settings/ssh");
+      expect(link.href).toContain("keyHome");
+      expect(screen.queryByText(/has no live connection/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+  it("blocks a stale key-machine choice instead of silently using another machine's keys", async () => {
+    const { calls, restore } = await renderPanel(
+      { nodes: [HOST_A, { ...HOST_C, status: "offline" }] },
+      { node: HOST_A.id, keyHome: HOST_C.id, destination: "work" },
+    );
+    try {
+      expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(screen.getByText(/selected key machine is unavailable/)).toBeTruthy();
+      expect(calls.some((c) => c.url === "/api/ssh/launch")).toBe(false);
     } finally {
       restore();
     }

@@ -247,9 +247,13 @@ describe("GrantsScreen", () => {
     expect(screen.getByRole("dialog").textContent).toContain("prod keys");
     // The fields open pre-filled with what the row shows.
     expect((screen.getByLabelText(/Grant name/) as HTMLInputElement).value).toBe("prod keys");
-    expect((screen.getByLabelText(/Destination selector/) as HTMLInputElement).value).toBe("*.prod.example.com");
+    expect((screen.getByLabelText(/Destination hostname or pattern/) as HTMLInputElement).value).toBe(
+      "*.prod.example.com",
+    );
     fireEvent.change(screen.getByLabelText(/Grant name/), { target: { value: "staging keys" } });
-    fireEvent.change(screen.getByLabelText(/Destination selector/), { target: { value: "*.staging.example.com" } });
+    fireEvent.change(screen.getByLabelText(/Destination hostname or pattern/), {
+      target: { value: "*.staging.example.com" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() => expect(sent.some((s) => s.method === "PATCH" && s.path === "/api/ssh/grants/g1")).toBe(true));
     const patch = sent.find((s) => s.method === "PATCH");
@@ -281,7 +285,7 @@ describe("GrantsScreen", () => {
   /** Opens the create dialog and picks `vault`; returns once a row named `first` rendered. */
   async function openCreateAndPickKeyHome(first: string): Promise<void> {
     fireEvent.click(await screen.findByRole("button", { name: "Create grant" }));
-    const combo = screen.getByRole("combobox", { name: /Key home/ });
+    const combo = screen.getByRole("combobox", { name: /SSH keys from/ });
     fireEvent.mouseDown(combo);
     fireEvent.click(combo);
     const option = await screen.findByRole("option", { name: /vault/ });
@@ -302,7 +306,7 @@ describe("GrantsScreen", () => {
     expect(await screen.findByRole("heading", { name: "Create grant" })).toBeDefined();
     // The picker offers ONLY machines the create gate will accept: agent + SSH on
     // + owner. The control host, the SSH-off machine, and the shared one stay out.
-    const combo = screen.getByRole("combobox", { name: /Key home/ });
+    const combo = screen.getByRole("combobox", { name: /SSH keys from/ });
     fireEvent.mouseDown(combo);
     fireEvent.click(combo);
     const options = await screen.findAllByRole("option");
@@ -321,7 +325,9 @@ describe("GrantsScreen", () => {
 
     fireEvent.click(screen.getByRole("checkbox", { name: ROSTER_ONE }));
     fireEvent.change(screen.getByLabelText(/Grant name/), { target: { value: "by hand" } });
-    fireEvent.change(screen.getByLabelText(/Destination selector/), { target: { value: "*.git.example.test" } });
+    fireEvent.change(screen.getByLabelText(/Destination hostname or pattern/), {
+      target: { value: "*.git.example.test" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(sent.some((s) => s.method === "POST" && s.path === "/api/ssh/grants")).toBe(true));
     // The body is exactly the existing create contract (grants.route.ts POST /grants).
@@ -357,7 +363,9 @@ describe("GrantsScreen", () => {
     // must isolate the cap as the SOLE gate. Filled, exactly 8 ticks leave the
     // button ENABLED, so the 9th tick's disable can only be the cap.
     fireEvent.change(screen.getByLabelText(/Grant name/), { target: { value: "by hand" } });
-    fireEvent.change(screen.getByLabelText(/Destination selector/), { target: { value: "*.git.example.test" } });
+    fireEvent.change(screen.getByLabelText(/Destination hostname or pattern/), {
+      target: { value: "*.git.example.test" },
+    });
     const createButton = () => screen.getByRole("button", { name: "Create" }) as HTMLButtonElement;
     for (const identity of nine.slice(0, 8)) {
       fireEvent.click(screen.getByRole("checkbox", { name: identity.fingerprint }));
@@ -391,7 +399,7 @@ describe("GrantsScreen", () => {
     );
     renderScreen();
     fireEvent.click(await screen.findByRole("button", { name: "Create grant" }));
-    const combo = screen.getByRole("combobox", { name: /Key home/ });
+    const combo = screen.getByRole("combobox", { name: /SSH keys from/ });
     fireEvent.mouseDown(combo);
     fireEvent.click(combo);
     const option = await screen.findByRole("option", { name: /vault/ });
@@ -414,7 +422,7 @@ describe("GrantsScreen", () => {
     );
     renderScreen();
     fireEvent.click(await screen.findByRole("button", { name: "Create grant" }));
-    const combo = screen.getByRole("combobox", { name: /Key home/ });
+    const combo = screen.getByRole("combobox", { name: /SSH keys from/ });
     fireEvent.mouseDown(combo);
     fireEvent.click(combo);
     const option = await screen.findByRole("option", { name: /vault/ });
