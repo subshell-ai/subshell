@@ -1,6 +1,6 @@
 import type { Node } from "@internal/node-admin";
 import { Button, Label } from "@internal/node-admin";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { type JSX, useEffect, useState } from "react";
 import { DestinationField } from "@/components/connect/destination-field";
 import { buildDestinationOptions, type DestinationCandidate } from "@/components/connect/destination-options";
@@ -20,7 +20,7 @@ import { launchableNodes } from "@/lib/subshell-compat";
  * destination leads, the connecting machine follows as a disclosure line,
  * and one POST opens the pane - the SERVER resolves, so selecting a row is
  * display, never a pre-resolve step. Three nouns only (the §11 vocabulary):
- * destination, connecting machine. No key-source affordance (that is M2).
+ * destination, connecting machine. The key-source picker adds M2 relay access while keeping direct SSH the default.
  *
  * A machine whose SSH is off stays VISIBLE and disabled with its reason and
  * remedy - greying explains, hiding does not (decision 3). Once both feeds
@@ -69,7 +69,11 @@ interface DestinationState {
   typed: string;
 }
 
-export function ConnectPanel(): JSX.Element {
+export function ConnectPanel({
+  initial,
+}: {
+  initial?: { node?: string; destination?: string; keyHome?: string };
+}): JSX.Element {
   const navigate = useNavigate();
   const { data: nodeData } = useNodes();
   const nodes = Array.isArray(nodeData?.nodes) ? nodeData.nodes : null;
@@ -78,8 +82,13 @@ export function ConnectPanel(): JSX.Element {
   const save = useSaveSshHost();
   const setDefault = useSetDefaultNode();
 
-  const [nodeId, setNodeId] = useState("");
-  const [dest, setDest] = useState<DestinationState>({ pick: null, pickId: null, typed: "" });
+  const [nodeId, setNodeId] = useState(initial?.node ?? "");
+  const [keyHome, setKeyHome] = useState(initial?.keyHome ?? "");
+  const [dest, setDest] = useState<DestinationState>({
+    pick: initial?.destination ? { destination: initial.destination } : null,
+    pickId: null,
+    typed: initial?.destination ?? "",
+  });
   const [remember, setRemember] = useState(false);
   const [refusal, setRefusal] = useState<SshRefusalCopy | null>(null);
 
@@ -137,6 +146,28 @@ export function ConnectPanel(): JSX.Element {
     }
   }, [nodeId, nodes, defaultNodeId]);
 
+  const keyOptions: ComboboxOption[] = [
+    { value: "connecting", label: "Connecting machine’s own keys" },
+    ...(nodes ?? [])
+      .filter((n) => n.kind === "agent" && n.access === "owner" && n.id !== nodeId)
+      .map((n) => ({
+        value: n.id,
+        label: n.name,
+        disabled: selectedNode?.kind !== "agent" || !n.sshEnabled || n.status !== "online" || n.maintenance,
+        reason:
+          selectedNode?.kind !== "agent"
+            ? "Choose a node as the connecting machine first"
+            : !n.sshEnabled
+              ? "Enable SSH on this machine first"
+              : n.status !== "online"
+                ? "Bring this machine online first"
+                : n.maintenance
+                  ? "In maintenance"
+                  : undefined,
+      })),
+  ];
+  const effectiveKeyHome = keyHome === nodeId ? "" : keyHome;
+  const keyReady = !effectiveKeyHome || keyOptions.some((o) => o.value === effectiveKeyHome && !o.disabled);
   const destination = dest.pick?.destination ?? "";
   // A committed row's label is the field's text; while that echo stands the
   // list is UNFILTERED (the whole ledger again), because the echo is display,
@@ -162,10 +193,14 @@ export function ConnectPanel(): JSX.Element {
   async function submit(): Promise<void> {
     // Belt over gate: the button's own disabled condition already holds both
     // fields, so this can only fire on a render race, never as a silent no-op.
-    if (nodeId === "" || destination === "") return;
+    if (nodeId === "" || destination === "" || !keyReady) return;
     setRefusal(null);
     try {
-      const created = await launch.mutateAsync({ node: nodeId, destination });
+      const created = await launch.mutateAsync({
+        node: nodeId,
+        destination,
+        ...(effectiveKeyHome ? { keyHome: effectiveKeyHome } : {}),
+      });
       if (remember) {
         // The alias rides ONLY for a config-list pick (an alias token); saved
         // and recent rows already carry their own.
@@ -264,6 +299,44 @@ export function ConnectPanel(): JSX.Element {
           )}
         </div>
 
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="connect-key-home">Use SSH keys from</Label>
+          <SearchableSelect
+            id="connect-key-home"
+            placeholder="Choose a key machine"
+            value={effectiveKeyHome || "connecting"}
+            options={keyOptions}
+            onValueChange={(id) => {
+              setKeyHome(id === "connecting" ? "" : id);
+              setRefusal(null);
+            }}
+            describedBy="connect-key-help"
+          />
+          <p id="connect-key-help" className="text-detail text-muted-foreground">
+            Choose another machine to use keys loaded in its SSH agent. Keys stay on that machine; it must be online and
+            have SSH enabled.
+          </p>
+          {!keyReady && (
+            <p role="status" className="text-detail text-muted-foreground">
+              The selected key machine is unavailable. Bring it online with SSH enabled, or choose another.
+            </p>
+          )}
+          {refusal?.field === "keys" && (
+            <p role="alert" className="text-destructive text-detail">
+              {refusal.text}
+            </p>
+          )}
+          {refusal?.approval && (
+            <Link
+              to="/settings/ssh"
+              search={{ node: nodeId, destination, keyHome: effectiveKeyHome }}
+              className="text-label underline"
+            >
+              Review SSH approval
+            </Link>
+          )}
+        </div>
+
         <div className="flex items-center gap-3">
           <input
             type="checkbox"
@@ -275,7 +348,10 @@ export function ConnectPanel(): JSX.Element {
           <Label htmlFor="connect-remember">Remember this destination</Label>
         </div>
 
-        <Button onClick={() => void submit()} disabled={launch.isPending || destination === "" || nodeId === ""}>
+        <Button
+          onClick={() => void submit()}
+          disabled={launch.isPending || destination === "" || nodeId === "" || !keyReady}
+        >
           {launch.isPending ? "Connecting…" : "Connect"}
         </Button>
       </div>

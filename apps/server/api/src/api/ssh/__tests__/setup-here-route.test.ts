@@ -11,6 +11,7 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
+import { sshSetupTracker } from "@/services/ssh-setup-progress.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 
 /**
@@ -122,4 +123,25 @@ describe("POST /api/ssh/setup-here doors", () => {
     const body = (await res.json()) as { code?: string; message?: string };
     expect(body.message).toContain("SSH-terminal pane");
   });
+});
+
+it("setup status survives a new request and remains cookie-only and owner-scoped", async () => {
+  const paneId = crypto.randomUUID();
+  await sshSetupTracker.run(owner, paneId, async () => ({ ok: true, value: { nodeId: "new-node" } }));
+  const get = (cookie?: string, bearer?: string) =>
+    app.fetch(
+      new Request(`http://localhost:3099/${port}/${paneId}`, {
+        headers: {
+          ...(cookie ? { cookie: `better-auth.session_token=${cookie}` } : {}),
+          ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+        },
+      }),
+    );
+  expect((await get()).status).toBe(401);
+  const own = await get(ownerCookie);
+  expect(own.status).toBe(200);
+  expect(await own.json()).toMatchObject({ operation: { stage: "complete", nodeId: "new-node" } });
+  expect(await (await get(otherCookie)).json()).toEqual({ operation: null });
+  const token = await issueSubshellToken(await mkPane(owner), owner);
+  expect((await get(undefined, token)).status).toBe(403);
 });

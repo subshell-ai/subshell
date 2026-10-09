@@ -231,6 +231,7 @@ export function useSshGrantRequests() {
   return useQuery({
     queryKey: SSH_GRANT_REQUESTS_QUERY_KEY,
     queryFn: () => apiFetch<{ requests: SshGrantRequest[] }>("/api/ssh/grant-requests"),
+    refetchInterval: 5000,
   });
 }
 

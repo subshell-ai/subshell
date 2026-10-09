@@ -5,6 +5,7 @@ import { throwCodedRefusal } from "@/api/ssh/ssh-views.js";
 import { contextPlugin } from "@/plugins/context.plugin.js";
 import { apiModels } from "@/schema/index.js";
 import { setupHere } from "@/services/ssh-setup-here.service.js";
+import { sshSetupTracker } from "@/services/ssh-setup-progress.js";
 
 /**
  * `POST /api/ssh/setup-here` `{paneId}` - "Set up Subshell here" (spec
@@ -23,11 +24,52 @@ export const sshSetupHereRoute = new Elysia()
   .use(contextPlugin)
   .use(authGuard)
   .use(apiModels)
+  .get(
+    "/setup-here/:paneId",
+    ({ user, actor, params }) => {
+      requireCookieActor(actor, "SSH setup status is restricted to browser sessions");
+      return { operation: sshSetupTracker.read(user.id, params.paneId) };
+    },
+    {
+      params: t.Object({
+        paneId: t.String({ minLength: 1, maxLength: 64, description: "Pane whose setup status to read" }),
+      }),
+      response: {
+        200: t.Object({
+          operation: t.Nullable(
+            t.Object({
+              stage: t.Union(
+                [
+                  t.Literal("checking"),
+                  t.Literal("installing"),
+                  t.Literal("connecting"),
+                  t.Literal("complete"),
+                  t.Literal("failed"),
+                ],
+                { description: "Current server-observed setup stage" },
+              ),
+              startedAt: t.String({ description: "ISO timestamp when setup began" }),
+              nodeId: t.Nullable(t.String({ description: "Enrolled node after it connects" })),
+              error: t.Nullable(t.String({ description: "Safe failure explanation, never installer output" })),
+            }),
+          ),
+        }),
+      },
+      detail: {
+        operationId: "sshSetupHereStatus",
+        tags: ["ssh"],
+        description:
+          "Owner-scoped setup progress, retained for one hour after completion while this server process runs",
+      },
+    },
+  )
   .post(
     "/setup-here",
     async ({ body, user, actor }) => {
       requireCookieActor(actor, "SSH setup acts are restricted to browser sessions");
-      const answer = await setupHere({ viewerId: user.id, paneId: body.paneId });
+      const answer = await sshSetupTracker.run(user.id, body.paneId, (onProgress) =>
+        setupHere({ viewerId: user.id, paneId: body.paneId, onProgress }),
+      );
       if (!answer.ok) {
         const r = answer.refusal;
         if (r.status === 422) {

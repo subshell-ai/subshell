@@ -21,6 +21,7 @@ import {
   targetDataDir,
 } from "@/services/ssh-launch.service.js";
 import { getRelayBroker, type RelayBroker } from "@/services/ssh-relay.service.js";
+import type { SshSetupStage } from "@/services/ssh-setup-progress.js";
 import { logger } from "@/utils/logger.js";
 
 /**
@@ -153,7 +154,11 @@ export interface SetupHereResult {
  * a foreign or absent pane is one 404, the ordinary invisibility). Refusals
  * name their stage; the key never rides one.
  */
-export async function setupHere(args: { viewerId: string; paneId: string }): Promise<SshAnswer<SetupHereResult>> {
+export async function setupHere(args: {
+  viewerId: string;
+  paneId: string;
+  onProgress?: (stage: SshSetupStage) => void;
+}): Promise<SshAnswer<SetupHereResult>> {
   const deps = setupDeps();
   const pane = await db.selectFrom("subshells").selectAll().where("id", "=", args.paneId).executeTakeFirst();
   if (!pane || pane.userId !== args.viewerId) {
@@ -322,6 +327,8 @@ export async function setupHere(args: { viewerId: string; paneId: string }): Pro
     }
   };
 
+  args.onProgress?.("installing");
+
   // KICK. A refusal here has minted a key and opened a relay and must leave
   // both as it found them (revoke the unspent key, cut the fresh session).
   try {
@@ -472,6 +479,7 @@ export async function setupHere(args: { viewerId: string; paneId: string }): Pro
   // Success is the new node's `ready`, not the installer's cheer. The setup
   // key's row learns the node id enrollment spent it for; the registry's
   // agent facts appear exactly when that node's `ready` frame lands.
+  args.onProgress?.("connecting");
   const readyDeadline = deps.nowMs() + deps.readyBudgetMs;
   for (;;) {
     const spent = await keys.findById(keyRow.id);
