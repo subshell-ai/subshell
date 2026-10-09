@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 import type { TmuxRunner } from "@internal/pane-runtime";
 import {
   type ControlKeyPair,
+  fingerprintJwk,
   generateControlKeys,
   HARNESS_BINARY_PLACEHOLDER,
   NODE_CLOSE_HANDSHAKE_REQUIRED,
@@ -51,6 +52,7 @@ import {
   wsUrlFor,
 } from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
+import { MachinePinStore } from "../machine-pin-store.js";
 import { maintenancePath, writeMaintenance } from "../maintenance.js";
 import { sweepIsScheduled } from "../retention-settings.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
@@ -2231,6 +2233,75 @@ describe("restart command (spec 2026-09-12 § 6.3)", () => {
     const h = await startDaemon({ runtime: supervised });
     const ready = await waitForReady(h);
     expect(ready).toMatchObject({ type: "ready", runtime: supervised });
+    expect(h.plane.unparsed).toEqual([]);
+  });
+
+  /**
+   * A public EC P-256 JWK whose coordinates are 32 bytes of zero and of four:
+   * canonical unpadded base64url, so `fingerprintJwk` digests it, and no key
+   * VALUE the relay could seal to. Pin fixtures for the §4.6 block.
+   */
+  const peerJwk = `{"kty":"EC","crv":"P-256","x":"${"A".repeat(43)}","y":"${"E".repeat(43)}"}`;
+  const peerJwk2 = `{"kty":"EC","crv":"P-256","x":"${"E".repeat(43)}","y":"${"A".repeat(43)}"}`;
+
+  test("ready carries the ssh trust block computed from this machine's key files (spec §4.6)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "subshell-daemon-sshfp-"));
+    daemonDirs.push(dir);
+    new MachinePinStore(dir).pin("f0000000-0000-4000-8000-000000000001", {
+      signing: peerJwk,
+      encryption: peerJwk2,
+    });
+    const h = await startDaemon({ runtime: supervised, config: { dataDir: dir } });
+    const ready = await waitForReady(h);
+    expect(ready.type).toBe("ready");
+    if (ready.type !== "ready") return;
+    const block = ready.runtime?.sshFingerprint;
+    expect(block).toBeDefined();
+    // Own halves come from the identity files the daemon just generated, the
+    // peer half from the pin file seeded above, all through `fingerprintJwk`.
+    const sig = (JSON.parse(readFileSync(join(dir, "node-signing-identity.json"), "utf8")) as { publicJwk: string })
+      .publicJwk;
+    const enc = (JSON.parse(readFileSync(join(dir, "identity.json"), "utf8")) as { publicJwk: string }).publicJwk;
+    expect(block?.own).toEqual({ signing: await fingerprintJwk(sig), encryption: await fingerprintJwk(enc) });
+    expect(block?.peers).toEqual([
+      {
+        nodeId: "f0000000-0000-4000-8000-000000000001",
+        signing: await fingerprintJwk(peerJwk),
+        encryption: await fingerprintJwk(peerJwk2),
+      },
+    ]);
+    // And the frame SURVIVES the real parser on the way in (the fake plane
+    // parses every outbound frame with `parseNodeEvent`): a block the plane's
+    // grammar would drop is a block that never reaches the trust card.
+    expect(h.plane.unparsed).toEqual([]);
+  });
+
+  test("no runtime report means no trust block and no key reads (the block rides the runtime report)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "subshell-daemon-sshfp-null-"));
+    daemonDirs.push(dir);
+    const h = await startDaemon({ runtime: null, config: { dataDir: dir } });
+    const ready = await waitForReady(h);
+    expect(ready.type).toBe("ready");
+    if (ready.type !== "ready") return;
+    expect(ready.runtime).toBeUndefined();
+    // The builder never ran: a null runtime must not mint the node's keypair
+    // or touch the pin file just to prove the block is absent.
+    expect(existsSync(join(dir, "identity.json"))).toBe(false);
+    expect(existsSync(join(dir, "ssh-machine-pins.json"))).toBe(false);
+  });
+
+  test("an unreadable pin file costs the block, never the connection", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "subshell-daemon-sshfp-corrupt-"));
+    daemonDirs.push(dir);
+    writeFileSync(join(dir, "ssh-machine-pins.json"), "}{");
+    const h = await startDaemon({ runtime: supervised, config: { dataDir: dir } });
+    const ready = await waitForReady(h);
+    expect(ready.type).toBe("ready");
+    if (ready.type !== "ready") return;
+    expect(ready.runtime).toBeDefined();
+    expect(
+      ready.runtime && "sshFingerprint" in ready.runtime ? ready.runtime.sshFingerprint : undefined,
+    ).toBeUndefined();
     expect(h.plane.unparsed).toEqual([]);
   });
 

@@ -6,6 +6,7 @@ import type { NodeConfig } from "../config.js";
 import { mapOs } from "../enroll.js";
 import { readMaintenance } from "../maintenance.js";
 import { collectRuntime } from "../runtime.js";
+import { buildSshFingerprintReport } from "../ssh-fingerprint-report.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
 import { NODE_VERSION } from "../version.js";
 import { getDaemonState } from "./state.js";
@@ -109,6 +110,15 @@ export async function liveSubshellCount(dataDir: string): Promise<number> {
 export async function buildLocalNodeView(cfg: NodeConfig) {
   const runtime = await runtimeForView();
   const m = maintenanceFields(cfg.dataDir);
+  // The §4.6 trust block from the node-local store (identity files plus
+  // `ssh-machine-pins.json`), the plane-independent side of the out-of-band
+  // compare. `stale: false` by definition: this page is the machine answering
+  // about itself, never a mirror of a departed connection. An unreadable pin
+  // set costs the FIELD (the card renders nothing), never the page, and the
+  // store's quarantine is the operator's repair.
+  const sshTrust = await buildSshFingerprintReport(cfg.dataDir)
+    .then((block) => ({ ...block, stale: false }))
+    .catch(() => null);
   // The `ready` frame's capability list, restated for the view so the card
   // shows what the plane is shown.
   const capabilities = ["uploads", "mcp"];
@@ -141,6 +151,7 @@ export async function buildLocalNodeView(cfg: NodeConfig) {
     held: null,
     serverUrl: cfg.serverUrl,
     runtime,
+    ...(sshTrust ? { sshTrust } : {}),
     runningSubshells: await liveSubshellCount(cfg.dataDir),
   };
 }
