@@ -317,6 +317,28 @@ describe("setupHere door order (pane first, gates before any key)", () => {
 });
 
 describe("setupHere relay mode", () => {
+  it("refuses jump or aliased host trust before creating a relay or setup key", async () => {
+    const pair = attachPair({ withA: true, status: () => DONE_OK });
+    const keysBefore = (await keys.listByUser(owner)).length;
+    try {
+      for (const snapshot of [
+        SNAP({ hostKeyAlias: "host-trust-alias" }),
+        SNAP({ proxyJumps: [{ host: "jump.example.test", user: null, port: 22 }] }),
+      ]) {
+        const paneId = await mkPane({ keyHome: true, ssh: JSON.stringify(snapshot) });
+        const answer = await setupHere({ viewerId: owner, paneId });
+        expect(answer.ok).toBe(false);
+        if (!answer.ok) expect(coded(answer.refusal).code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
+      }
+      expect(openCalls).toHaveLength(0);
+      expect(pair.b.cmdTypes()).toEqual([]);
+      expect((await keys.listByUser(owner)).length).toBe(keysBefore);
+    } finally {
+      pair.a?.detach();
+      pair.b.detach();
+    }
+  });
+
   it("a non-egressing D answers the NAMED egress cause and leaves the pane untouched", async () => {
     await clearUpgradeRows();
     const paneId = await mkPane({ keyHome: true });
@@ -640,4 +662,66 @@ describe("setupHere direct mode (B's own keys, no relay)", () => {
       pair.b.detach();
     }
   });
+});
+
+describe("setupHere preserves completed enrollment after later failures", () => {
+  for (const failure of [
+    "kick",
+    "lost-status",
+    "deadline",
+    "installer",
+    "installer-timeout",
+    "ready-timeout",
+  ] as const) {
+    it(`returns the enrolled machine when ${failure} happens after the key was consumed`, async () => {
+      await clearUpgradeRows();
+      const paneId = await mkPane({ keyHome: false });
+      let enrolled: Awaited<ReturnType<typeof enrollD>> | undefined;
+      let clock = 0;
+      setSshSetupHereDepsForTests({
+        nowMs: () => clock++,
+        sleepMs: async () => {},
+        execTimeoutMs: 1,
+        execPollMarginMs: 0,
+        readyBudgetMs: 1,
+        pollMs: 1,
+        broker: () => fakeBroker,
+      });
+      const pair = attachPair({
+        withA: false,
+        onKick: async (kick) => {
+          enrolled = await enrollD(mintedKey(kick));
+          enrolled.handle.detach();
+          if (failure === "kick") throw new Error("reply lost after installation");
+        },
+        status: () => {
+          if (failure === "lost-status") return new Error("connection lost");
+          if (failure === "deadline") return { state: "running" };
+          if (failure === "ready-timeout") return DONE_OK;
+          return {
+            ...DONE_OK,
+            code: 1,
+            timedOut: failure === "installer-timeout",
+            stderr: "service installation failed",
+          };
+        },
+      });
+      try {
+        const answer = await setupHere({ viewerId: owner, paneId });
+        if (!enrolled) throw new Error("the installer did not consume its key");
+        expect(answer).toEqual({ ok: true, value: { nodeId: enrolled.id, connected: false } });
+        const key = await keys.peekByKey(mintedKey(pair.kick()));
+        expect(typeof key?.usedAt).toBe("string");
+        const events = await upgradeRows();
+        expect(events).toHaveLength(1);
+        expect(events[0]?.metadataJson).toContain('"outcome":"enrolled"');
+        expect(events[0]?.metadataJson).toContain(enrolled?.id ?? "missing");
+        expect(events[0]?.metadataJson).not.toContain("nsk_");
+      } finally {
+        pair.b.detach();
+        if (enrolled) await nodes.deleteById(enrolled.id);
+        installDeps();
+      }
+    });
+  }
 });

@@ -38,7 +38,10 @@ test("choose remote keys, approve, and return to the same destination without au
       return route.fulfill({ json: { aliases: [], includeCycle: false, truncated: false } });
     if (path.endsWith("/launch")) {
       launches.push(request.postDataJSON());
-      return route.fulfill({ status: 409, json: { code: "SSH_GRANT_APPROVAL_REQUIRED", message: "Approval needed." } });
+      return route.fulfill({
+        status: 409,
+        json: { code: "SSH_GRANT_APPROVAL_REQUIRED", message: "Approval needed.", metadata: { requestId: "request" } },
+      });
     }
     if (path.endsWith("/grant-requests"))
       return route.fulfill({

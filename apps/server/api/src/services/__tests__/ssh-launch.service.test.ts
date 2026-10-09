@@ -3,7 +3,7 @@ import { buildSshConfigPath, buildSshKnownHostsPath, renderSshConfigContents } f
 import type { SshConnectionSnapshotWire } from "@internal/subshell-protocol";
 import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import { subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
-import { composeSshLaunch, isWireSafeSshDestination } from "@/services/ssh-launch.service.js";
+import { composeSshLaunch, isWireSafeSshDestination, relaySnapshotRefusal } from "@/services/ssh-launch.service.js";
 
 /**
  * The compose half of the ssh launch service (spec 2026-10-07 §5.2, decisions
@@ -128,5 +128,23 @@ describe("composeSshLaunch", () => {
   it("refuses a snapshot the frozen grammar cannot express, rather than render it (the belt beside the RPC validator)", () => {
     const forged = { ...SNAP(), host: "-oProxyCommand=evil" } as unknown as SshConnectionSnapshotWire;
     expect(() => composeSshLaunch({ snapshot: forged, targetDataDir: "/home/n/.subshell", subshellId: ID })).toThrow();
+  });
+});
+
+describe("relaySnapshotRefusal", () => {
+  it("accepts canonical destinations and refuses unsupported relay trust settings before opening a session", () => {
+    expect(relaySnapshotRefusal(SNAP())).toBeNull();
+    for (const snapshot of [
+      SNAP({ hostKeyAlias: "alias" }),
+      SNAP({ proxyJumps: [{ host: "jump.example", user: null, port: 22 }] }),
+    ]) {
+      const result = relaySnapshotRefusal(snapshot);
+      expect(result?.ok).toBe(false);
+      if (result && !result.ok) {
+        expect(result.refusal.status).toBe(409);
+        if (result.refusal.status !== 422)
+          expect(result.refusal.message).toContain("Use keys on the connecting machine");
+      }
+    }
   });
 });

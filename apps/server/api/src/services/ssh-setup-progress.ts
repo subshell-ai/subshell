@@ -3,13 +3,13 @@ import type { SshAnswer } from "@/services/ssh-launch.service.js";
 import type { SetupHereResult } from "@/services/ssh-setup-here.service.js";
 
 /** Only host-selected stages cross the status endpoint; installer output never does. */
-export type SshSetupStage = "checking" | "installing" | "connecting" | "complete" | "failed";
+export type SshSetupStage = "checking" | "installing" | "connecting" | "enrolled" | "complete" | "failed";
 export interface SshSetupProgress {
   /** Server-observed stage; no installer output is exposed. */
   stage: SshSetupStage;
   /** ISO timestamp for elapsed-time display. */
   startedAt: string;
-  /** Enrolled destination once its connection is confirmed. */
+  /** Enrolled destination, including one still waiting to connect. */
   nodeId: string | null;
   /** Safe failure explanation. */
   error: string | null;
@@ -69,7 +69,7 @@ export function createSshSetupTracker(now = Date.now) {
       entry.result = entry.result.then(
         (answer) => {
           entry.settledAt = now();
-          progress.stage = answer.ok ? "complete" : "failed";
+          progress.stage = answer.ok ? (answer.value.connected === false ? "enrolled" : "complete") : "failed";
           if (answer.ok) progress.nodeId = answer.value.nodeId;
           else
             progress.error =

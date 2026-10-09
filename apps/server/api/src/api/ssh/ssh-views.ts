@@ -125,7 +125,12 @@ export function throwCodedRefusal(refusal: SshRefusal): never {
       message: "SSH refusal routed to the wrong surface",
     });
   }
-  throwApiError({ code: refusal.code, message: refusal.message, doNotLog: true });
+  throwApiError({
+    code: refusal.code,
+    message: refusal.message,
+    doNotLog: true,
+    ...(refusal.requestId ? { metadataSafe: { requestId: refusal.requestId } } : {}),
+  });
 }
 
 /**

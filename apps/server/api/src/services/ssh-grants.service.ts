@@ -237,7 +237,12 @@ function grantView(row: SshKeyGrantTable): SshGrantView {
  * arms (403 gate-off, 502 machine-refused) reach it through the launcher's
  * `gateSshNode` when a create names a machine the caller may not use.
  */
-type SshRefusalNarrow = { status: 400 | 403 | 404 | 409 | 502; code: BackendErrorCodes; message: string };
+type SshRefusalNarrow = {
+  status: 400 | 403 | 404 | 409 | 502;
+  code: BackendErrorCodes;
+  message: string;
+  requestId?: string;
+};
 
 /** The grant surface's answer union: a value, or the refusal the route returns as-is. */
 export type SshGrantAnswer<T> = { ok: true; value: T } | { ok: false; refusal: SshRefusalNarrow };
@@ -809,6 +814,7 @@ export async function prepareRelayLeg(args: {
     return refused({
       status: 409,
       code: BackendErrorCodes.SSH_GRANT_APPROVAL_REQUIRED,
+      ...(ref ? { requestId: ref } : {}),
       message: `Asked ${args.aNode.name} to approve signing with its keys${ref ? ` (request ${ref})` : ""}. Launch again once it is approved.`,
     });
   }

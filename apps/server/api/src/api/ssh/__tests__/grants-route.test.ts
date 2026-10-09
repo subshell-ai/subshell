@@ -497,8 +497,22 @@ describe("POST /api/ssh/launch in relay mode (the grant-gated relay leg)", () =>
         body: { node: NODE_B, destination: "git", keyHome: NODE_A },
       });
       expect(res.status).toBe(409);
-      const body = (await res.json()) as { code: string; message: string };
+      const body = (await res.json()) as {
+        code: string;
+        message: string;
+        metadata?: { requestId: string };
+        metadataSafe?: { requestId: string };
+      };
       expect(body.code).toBe(BackendErrorCodes.SSH_GRANT_APPROVAL_REQUIRED);
+      const requestId = (body.metadata ?? body.metadataSafe)?.requestId;
+      expect(requestId).toBeTruthy();
+      expect(
+        await db
+          .selectFrom("sshGrantRequests")
+          .select("id")
+          .where("id", "=", requestId as string)
+          .executeTakeFirst(),
+      ).toBeDefined();
       // The copy names the key home (row name) and the remedy; two sentences, no secrets.
       expect(body.message).toContain(`grantsapi-${NODE_A.slice(-8)}`);
       expect(body.message.toLowerCase()).toContain("approve");

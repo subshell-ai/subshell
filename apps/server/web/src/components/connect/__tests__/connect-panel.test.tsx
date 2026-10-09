@@ -580,13 +580,18 @@ describe("relay launch and approval recovery", () => {
     const { restore } = await renderPanel(
       {
         nodes: [HOST_A, HOST_C],
-        launch: () => json({ code: "SSH_GRANT_APPROVAL_REQUIRED", message: "Approve first." }, 409),
+        launch: () =>
+          json(
+            { code: "SSH_GRANT_APPROVAL_REQUIRED", message: "Approve first.", metadata: { requestId: "req1" } },
+            409,
+          ),
       },
       { node: HOST_A.id, keyHome: HOST_C.id, destination: "work" },
     );
     try {
       await clickConnect();
       const link = screen.getByRole("link", { name: "Review SSH approval" }) as HTMLAnchorElement;
+      expect(new URL(link.href).searchParams.get("requestId")).toBe("req1");
       expect(link.href).toContain("/settings/ssh");
       expect(link.href).toContain("keyHome");
       expect(screen.queryByText(/has no live connection/)).toBeNull();
