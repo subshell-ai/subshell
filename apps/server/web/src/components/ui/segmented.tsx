@@ -1,5 +1,4 @@
 import { Button, cn } from "@internal/node-admin";
-import { Check } from "lucide-react";
 import { Fragment, type ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -107,14 +106,7 @@ export function Segmented<T extends string>({
         } as const;
         const content = (
           <>
-            {option.icon ??
-              (typeof option.label === "string" && option.label !== "" ? (
-                <Check
-                  data-icon="inline-start"
-                  aria-hidden="true"
-                  className={value === option.value ? undefined : "invisible"}
-                />
-              ) : null)}
+            {option.icon}
             {option.label}
           </>
         );
