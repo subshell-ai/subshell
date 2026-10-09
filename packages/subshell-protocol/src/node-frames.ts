@@ -491,6 +491,101 @@ export interface NodeRuntimeReport {
   tmuxPath: string | null;
   /** The agent binary this process re-enters (`selfInvoke.command`). */
   binaryPath: string;
+  /**
+   * The machine's SSH trust block (spec 2026-10-08 §4.6): this machine's own
+   * signing and encryption key fingerprints, and the pinned half of every
+   * relay peer, as the canonical `SHA256:` form of `fingerprintJwk`.
+   *
+   * Fingerprints are the DISPLAY form of the trust the node enforces as raw
+   * byte equality (`machine-pin-store.ts`): this block carries no key
+   * material, only public identifiers, and exists so an operator can compare
+   * what one machine STORED about a peer against what the peer COMPUTES from
+   * its own keys. Absent from agents that predate M2, and dropped rather than
+   * fatal when malformed, like `logging`.
+   */
+  sshFingerprint?: NodeSshFingerprintReport;
+}
+
+/**
+ * One machine's two public relay halves as `SHA256:` fingerprints (spec
+ * 2026-10-08 §4.5): the ES256 signing key and the ECDH-ES encryption key.
+ */
+export interface NodeSshFingerprintPair {
+  /** Fingerprint of the ES256 machine-signing public key. */
+  signing: string;
+  /** Fingerprint of the ECDH-ES encryption public key. */
+  encryption: string;
+}
+
+/** One pinned peer, named by id, with both of its fingerprints. */
+export interface NodeSshPeerFingerprint extends NodeSshFingerprintPair {
+  /** The pinned peer's node id. */
+  nodeId: string;
+}
+
+/**
+ * The §4.6 trust block: what this machine pins for itself and every peer,
+ * computed from its OWN key files, never from the plane's copy of them. The
+ * plane mirrors it onto `nodes.ssh_fingerprint` (the trust card's stale half).
+ */
+export interface NodeSshFingerprintReport {
+  /** This machine's own both halves. */
+  own: NodeSshFingerprintPair;
+  /** Every pinned peer; the empty array is the honest "no peers yet". */
+  peers: NodeSshPeerFingerprint[];
+}
+
+/**
+ * The canonical fingerprint spelling of `fingerprintJwk`: the `SHA256:`
+ * prefix and exactly the 43 unpadded base64url characters of a 32-byte
+ * SHA-256 digest. Nothing else is admitted: the plane mirrors and renders
+ * bytes it cannot re-derive, so a looser grammar would let another scheme's
+ * digests into the same out-of-band comparison the block exists to enable.
+ */
+const SSH_FINGERPRINT_RE = /^SHA256:[A-Za-z0-9_-]{43}$/;
+
+/** Whether `value` is a canonical `SHA256:` fingerprint string. */
+function isSshFingerprint(value: unknown): value is string {
+  return typeof value === "string" && SSH_FINGERPRINT_RE.test(value);
+}
+
+/**
+ * Node ids as the plane mints them: uuid text (hex and hyphens). `isNodeSubshellId`'s
+ * shape, reused because a peer id reaching the block is the same registry id.
+ */
+function isPeerNodeId(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-fA-F-]{1,64}$/.test(value);
+}
+
+/** The `{ signing, encryption }` pair, or null when either half is off. */
+function parseFingerprintPair(value: unknown): NodeSshFingerprintPair | null {
+  if (!isRecord(value)) return null;
+  if (!isSshFingerprint(value.signing) || !isSshFingerprint(value.encryption)) return null;
+  return { signing: value.signing, encryption: value.encryption };
+}
+
+/**
+ * Shape-check a `NodeSshFingerprintReport` (the runtime report's §4.6 block).
+ * STRICT inside, like every required field of the runtime report it rides:
+ * a half-refused block would print a trust card whose compare is meaningless,
+ * so one bad entry refuses the whole block (the block itself is dropped from
+ * the runtime report leniently, the `logging` way: the card is lost, not the
+ * connection).
+ * @param value - the candidate, typically `ready.runtime.sshFingerprint`
+ * @returns the narrowed report, or null when malformed
+ */
+export function parseNodeSshFingerprintReport(value: unknown): NodeSshFingerprintReport | null {
+  if (!isRecord(value) || !Array.isArray(value.peers)) return null;
+  const own = parseFingerprintPair(value.own);
+  if (own === null) return null;
+  const peers: NodeSshPeerFingerprint[] = [];
+  for (const entry of value.peers) {
+    if (!isRecord(entry) || !isPeerNodeId(entry.nodeId)) return null;
+    const pair = parseFingerprintPair(entry);
+    if (pair === null) return null;
+    peers.push({ nodeId: entry.nodeId, signing: pair.signing, encryption: pair.encryption });
+  }
+  return { own, peers };
 }
 
 /** The agent's debug state, or the default when it did not say it properly. */
@@ -536,6 +631,11 @@ export function parseNodeRuntimeReport(value: unknown): NodeRuntimeReport | null
   ) {
     return null;
   }
+  // Lenient like `logging`, strict inside: a present-but-malformed block
+  // drops the BLOCK (no trust card), never the runtime report beside it
+  // (paths, supervision, the verbs). A valid one passes through narrowed.
+  const sshFingerprint =
+    value.sshFingerprint === undefined ? null : parseNodeSshFingerprintReport(value.sshFingerprint);
   return {
     startedAt: value.startedAt,
     supervised: value.supervised,
@@ -562,6 +662,7 @@ export function parseNodeRuntimeReport(value: unknown): NodeRuntimeReport | null
     logHint: value.logHint,
     tmuxPath: value.tmuxPath,
     binaryPath: value.binaryPath,
+    ...(sshFingerprint ? { sshFingerprint } : {}),
   };
 }
 
