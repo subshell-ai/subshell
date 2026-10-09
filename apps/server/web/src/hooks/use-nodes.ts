@@ -133,11 +133,12 @@ export function useReregisterNode(id: string) {
 }
 
 /** The caller's setup keys, newest first — each with its key text, which is what the card lists. */
-export function useSetupKeys(enabled = true) {
+export function useSetupKeys(enabled = true, polling = false) {
   return useQuery({
     queryKey: SETUP_KEYS_QUERY_KEY,
     queryFn: () => apiFetch<{ keys: SetupKeyRow[] }>("/api/nodes/setup-keys"),
     enabled,
+    refetchInterval: enabled && polling ? 3000 : false,
   });
 }
 

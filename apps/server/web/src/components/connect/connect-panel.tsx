@@ -2,15 +2,25 @@ import type { Node } from "@internal/node-admin";
 import { Button, Label } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { ChevronDown } from "lucide-react";
-import { type JSX, useEffect, useState } from "react";
+import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { DestinationField } from "@/components/connect/destination-field";
-import { buildDestinationOptions, type DestinationCandidate } from "@/components/connect/destination-options";
+import { buildDestinationOptions } from "@/components/connect/destination-options";
 import { NoSshTargets } from "@/components/connect/no-ssh-targets";
+import { SshKeyStep } from "@/components/connect/ssh-key-step";
 import { type SshRefusalCopy, sshLaunchRefusal } from "@/components/connect/ssh-refusal";
+import {
+  type SshInitialChoices,
+  type SshSessionDraft,
+  type SshWizardIntent,
+  sshDestination,
+  sshDraftProblems,
+  sshKeySelectionProblem,
+  sshSessionDraft,
+} from "@/components/connect/ssh-session-draft";
+import { SshWizard } from "@/components/connect/ssh-wizard";
 import { SshQueryStatus } from "@/components/ssh/query-status";
-import { Checkbox } from "@/components/ui/checkbox";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldGroup } from "@/components/ui/field";
 import { RequiredMark } from "@/components/ui/required-mark";
 import {
   useLaunchSsh,
@@ -21,10 +31,9 @@ import {
   useSshReadiness,
   useSshSavedHosts,
 } from "@/hooks/use-ssh";
-import { fieldErrorToned } from "@/lib/form";
+import { fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
 import { nodeOptionLabel } from "@/lib/node-label";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
-import { sshSelectionError } from "@/lib/ssh";
 
 /** Shared SSH launch form for new subshells, workspace additions and splits.
  * A picked suggestion retains its canonical destination; editing it submits
@@ -41,24 +50,23 @@ const MACHINE_IDS = {
 export const SSH_DISCLOSURE_COPY =
   "Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.";
 
-/** The destination field's committed state, held as ONE value so a pick and
- *  the text echo that follows it cannot interleave into a stale pair. */
-interface DestinationState {
-  /** The picked row's wire meaning; null = nothing committed yet */
-  pick: DestinationCandidate | null;
-  /** The picked row's option id (the picker's held value) */
-  pickId: string | null;
-  /** The input's live text (feeds the typed mirror row; not a commitment) */
-  typed: string;
-}
-
 export function ConnectPanel({
   initial,
   onCreated,
   onLeave,
   onPendingChange,
+  draft: controlledDraft,
+  onDraftChange,
+  startInWizard = false,
+  wizardIntent,
+  onDone,
 }: {
-  initial?: { node?: string; destination?: string; keyHome?: string };
+  initial?: SshInitialChoices;
+  draft?: SshSessionDraft;
+  onDraftChange?: (draft: SshSessionDraft) => void;
+  startInWizard?: boolean;
+  wizardIntent?: SshWizardIntent;
+  onDone?: () => void;
   onCreated?: (id: string) => Promise<void> | void;
   onLeave?: () => void;
   onPendingChange?: (pending: boolean) => void;
@@ -82,16 +90,21 @@ export function ConnectPanel({
   const save = useSaveSshHost();
   const setDefault = useSetDefaultNode();
 
-  const [nodeId, setNodeId] = useState(initial?.node ?? "");
-  const [keyHome, setKeyHome] = useState(initial?.keyHome ?? "");
-  const [dest, setDest] = useState<DestinationState>({
-    pick: initial?.destination ? { destination: initial.destination } : null,
-    pickId: null,
-    typed: initial?.destination ?? "",
-  });
-  const [advanced, setAdvanced] = useState(!!initial?.keyHome);
-  const [selection, setSelection] = useState<{ node: string; fingerprints: string[] } | null>(null);
-  const [remember, setRemember] = useState(false);
+  const [localDraft, setLocalDraft] = useState(() => sshSessionDraft(initial));
+  const draft = controlledDraft ?? localDraft;
+  const setDraft = onDraftChange ?? setLocalDraft;
+  const nodeId = draft.nodeId;
+  const keyHome = draft.keyHome;
+  const dest = draft.destination;
+  const remember = draft.remember;
+  const setNodeId = useCallback((nodeId: string) => setDraft({ ...draft, nodeId }), [draft, setDraft]);
+  const setKeyHome = (keyHome: string) => setDraft({ ...draft, keyHome });
+  const setDest = (destination: SshSessionDraft["destination"]) => setDraft({ ...draft, destination });
+  const setRemember = (remember: boolean) => setDraft({ ...draft, remember });
+  const [wizard, setWizard] = useState(startInWizard);
+  const [advanced, setAdvanced] = useState(!!initial?.keyHome || !!draft.keyHome);
+  const submitGuard = useRef(false);
+  const [createdId, setCreatedId] = useState<string | null>(null);
   const [refusal, setRefusal] = useState<SshRefusalCopy | null>(null);
 
   const targets = nodes ?? [];
@@ -141,32 +154,26 @@ export function ConnectPanel({
     const usable = machines.filter((machine) => machine.canConnect).map((machine) => machine.node);
     if (defaultNodeId !== null && usable.some((n) => n.id === defaultNodeId)) setNodeId(defaultNodeId);
     else if (usable.length === 1) setNodeId(usable[0].id);
-  }, [nodeId, machines, defaultNodeId]);
+  }, [nodeId, machines, defaultNodeId, setNodeId]);
 
   const keyOptions: ComboboxOption[] = [
     { value: "connecting", label: "Connecting machine’s own keys" },
     ...(nodes ?? [])
-      .filter((n) => n.kind === "agent" && n.id !== nodeId)
+      .filter((n) => n.id !== nodeId)
       .map((n) => ({
         value: n.id,
         label: n.name,
-        disabled: selectedNode?.kind !== "agent" || !machineCanConnect(n.id),
-        reason:
-          selectedNode?.kind !== "agent"
-            ? "Choose a node as the connecting machine first"
-            : (machineBlocker(n.id) ?? undefined),
+        disabled: !machineCanConnect(n.id),
+        reason: machineBlocker(n.id) ?? undefined,
       })),
   ];
   const effectiveKeyHome = keyHome === nodeId ? "" : keyHome;
   const keyReady = !effectiveKeyHome || keyOptions.some((o) => o.value === effectiveKeyHome && !o.disabled);
-  const roster = useSshNodeRoster(effectiveKeyHome && keyReady ? effectiveKeyHome : null);
-  const fingerprints =
-    selection?.node === effectiveKeyHome
-      ? selection.fingerprints
-      : (roster.data?.identities.map((key) => key.fingerprint) ?? []);
-  const selectionError = sshSelectionError(fingerprints);
+  const roster = useSshNodeRoster(effectiveKeyHome && keyReady ? effectiveKeyHome : null, !wizard);
+  const fingerprints = draft.selections[effectiveKeyHome] ?? [];
+  const selectionError = sshKeySelectionProblem(fingerprints, roster.data?.identities);
   const rosterReady = !effectiveKeyHome || (!roster.isPending && !roster.isError && selectionError === null);
-  const destination = dest.pick?.destination ?? dest.typed.trim();
+  const destination = sshDestination(draft);
   // A committed row's label is the field's text; while that echo stands the
   // list is UNFILTERED (the whole ledger again), because the echo is display,
   // not a search. Any keystroke releases the pick, and text becomes query.
@@ -186,20 +193,43 @@ export function ConnectPanel({
     setDest({ pick: candidate, pickId: option.value, typed: option.label });
   }
 
-  const canSubmit = !submitting && machineReady && destination !== "" && keyReady && rosterReady;
+  const form = makeForm({
+    defaultValues: { draft },
+    validator: ({ draft }): Record<string, string> => {
+      const error = Object.values(sshDraftProblems(draft))[0];
+      return error ? { draft: error } : {};
+    },
+    onSubmit: () => submit(),
+  });
+  useEffect(() => {
+    form.setFieldValue("draft", draft);
+    void form.validate("change");
+  }, [draft, form]);
+  const disabled = useSubmitDisabled(form, submitting || !!createdId || !machineReady || !keyReady || !rosterReady);
+  const canSubmit =
+    !submitting &&
+    !createdId &&
+    machineReady &&
+    keyReady &&
+    rosterReady &&
+    Object.keys(sshDraftProblems(draft)).length === 0;
 
   async function submit(): Promise<void> {
     // Belt over gate: the button's own disabled condition already holds both
     // fields, so this can only fire on a render race, never as a silent no-op.
-    if (!canSubmit) return;
+    if (!canSubmit || submitGuard.current) return;
+    submitGuard.current = true;
     setSubmitting(true);
     setRefusal(null);
+    let launchedId: string | null = null;
     try {
       const created = await launch.mutateAsync({
         node: nodeId,
         destination,
         ...(effectiveKeyHome ? { keyHome: effectiveKeyHome, fingerprints } : {}),
       });
+      launchedId = created.subshell.id;
+      setCreatedId(launchedId);
       if (remember) {
         // The alias rides ONLY for a config-list pick (an alias token); saved
         // and recent rows already carry their own.
@@ -212,9 +242,17 @@ export function ConnectPanel({
       if (onCreated) await onCreated(created.subshell.id);
       else void navigate({ to: "/subshells/$id", params: { id: created.subshell.id } });
     } catch (err) {
-      setRefusal(sshLaunchRefusal(err, selectedNode));
+      setRefusal(
+        launchedId
+          ? {
+              field: "destination",
+              text: "SSH subshell was created but could not be attached. Add it from the existing subshell list instead.",
+            }
+          : sshLaunchRefusal(err, selectedNode),
+      );
     } finally {
       setSubmitting(false);
+      submitGuard.current = false;
     }
   }
 
@@ -242,12 +280,55 @@ export function ConnectPanel({
       .filter((id): id is string => id !== null)
       .join(" ") || undefined;
 
+  if (wizard)
+    return (
+      <div className="flex flex-col gap-4">
+        <SshWizard
+          intent={wizardIntent}
+          draft={draft}
+          onDraftChange={setDraft}
+          machines={machines ?? []}
+          readiness={nodesQuery}
+          onStart={submit}
+          onApplySetup={() => {
+            setAdvanced(!!draft.keyHome);
+            setWizard(false);
+          }}
+          onCancel={() => setWizard(false)}
+          onDone={onDone ?? (() => setWizard(false))}
+          onLeave={onLeave}
+          busy={submitting}
+          launchBlocked={createdId !== null}
+        />
+        {refusal && (
+          <p role="alert" className="text-destructive text-detail">
+            {refusal.text}
+          </p>
+        )}
+      </div>
+    );
   if (nodesQuery.isPending || nodesQuery.isError)
-    return <SshQueryStatus query={nodesQuery} label="connecting machines" />;
-  if (enabledCount === 0) return <NoSshTargets machines={machines ?? []} onLeave={onLeave} />;
+    return (
+      <div className="flex flex-col gap-4">
+        <SshQueryStatus query={nodesQuery} label="connecting machines" />
+        <Button type="button" onClick={() => setWizard(true)}>
+          SSH Wizard
+        </Button>
+      </div>
+    );
+  if (enabledCount === 0) return <NoSshTargets machines={machines ?? []} onWizard={() => setWizard(true)} />;
 
   return (
     <div className="flex flex-col gap-4">
+      <Button
+        type="button"
+        variant="outline"
+        className="self-start"
+        disabled={submitting}
+        onClick={() => setWizard(true)}
+      >
+        SSH Wizard
+      </Button>
       <FieldGroup className="gap-4">
         <Field>
           <Label htmlFor={DESTINATION_IDS.field}>SSH destination</Label>
@@ -354,42 +435,14 @@ export function ConnectPanel({
                   {refusal.text}
                 </p>
               )}
-              {effectiveKeyHome && (
-                <>
-                  <SshQueryStatus query={roster} label="SSH agent keys" />
-                  {roster.data && (
-                    <fieldset className="flex flex-col gap-2">
-                      <legend className="text-label">SSH agent keys</legend>
-                      {roster.data.identities.map((key, index) => (
-                        <Field key={key.fingerprint}>
-                          <Checkbox
-                            id={`ssh-key-${index}`}
-                            checked={fingerprints.includes(key.fingerprint)}
-                            onCheckedChange={(checked) =>
-                              setSelection({
-                                node: effectiveKeyHome,
-                                fingerprints: checked
-                                  ? [...fingerprints, key.fingerprint]
-                                  : fingerprints.filter((value) => value !== key.fingerprint),
-                              })
-                            }
-                          />
-                          <FieldLabel htmlFor={`ssh-key-${index}`}>{key.comment || key.fingerprint}</FieldLabel>
-                        </Field>
-                      ))}
-                      {roster.data.identities.length === 0 && (
-                        <p className="text-detail text-muted-foreground">
-                          No keys are loaded in this machine's SSH agent.
-                        </p>
-                      )}
-                      {selectionError && (
-                        <p role="alert" className="text-destructive text-detail">
-                          {selectionError}
-                        </p>
-                      )}
-                    </fieldset>
-                  )}
-                </>
+              {effectiveKeyHome && keyReady && (
+                <SshKeyStep
+                  nodeId={keyReady ? effectiveKeyHome : null}
+                  fingerprints={fingerprints}
+                  onChange={(fingerprints) =>
+                    setDraft({ ...draft, selections: { ...draft.selections, [effectiveKeyHome]: fingerprints } })
+                  }
+                />
               )}
             </Field>
           </div>
@@ -407,7 +460,7 @@ export function ConnectPanel({
         </div>
 
         <p className="text-detail text-muted-foreground">{SSH_DISCLOSURE_COPY}</p>
-        <Button onClick={() => void submit()} disabled={!canSubmit}>
+        <Button type="button" onClick={() => void form.handleSubmit()} disabled={disabled}>
           {submitting ? "Connecting…" : "Start SSH subshell"}
         </Button>
       </FieldGroup>

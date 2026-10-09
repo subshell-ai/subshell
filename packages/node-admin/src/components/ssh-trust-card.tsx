@@ -19,15 +19,9 @@ import { CopyableValue } from "../ui/copyable-value";
  * key material, and nothing here proves anything until both machines have
  * been read.
  *
- * Gated twice over, on purpose. The server omits `sshTrust` for a `view`
- * grantee and on `local` entirely (it is machine-relationship disclosure, the
- * same class as the runtime block), and this component refuses the same two
- * cases so a payload that arrived against the rule still renders nothing. On
- * the node's own dashboard the view says `kind: "agent"`, `access: "owner"`
- * (there is no viewer identity at loopback, and the human here holds the CLI
- * that outranks any web grant), and `stale: false` by construction: this page
- * is the machine answering about itself, never a mirror of a departed
- * connection.
+ * Agent trust requires owner/edit access. The control plane may opt its local
+ * row in for an authenticated admin through `allowLocal`; its canManage check
+ * remains a second gate. Node dashboards retain the agent-only default.
  *
  * Staleness is not the gate: an OFFLINE agent renders the durable mirror, and
  * says so plainly, because comparing last-known fingerprints during an
@@ -43,11 +37,15 @@ import { CopyableValue } from "../ui/copyable-value";
 export function NodeSshTrustCard({
   node,
   renderPeerAction,
+  allowLocal = false,
 }: {
   node: NodeDetail;
   renderPeerAction?: (peer: NodeSshTrustPeer) => ReactNode;
+  /** The control plane opts in only for an authenticated admin; node dashboards remain agent-only. */
+  allowLocal?: boolean;
 }): JSX.Element | null {
-  if (node.kind !== "agent" || (node.access !== "owner" && node.access !== "edit")) return null;
+  if (node.kind === "local" ? !allowLocal || !node.canManage : node.access !== "owner" && node.access !== "edit")
+    return null;
   const trust = node.sshTrust;
   if (!trust) return null;
   return (

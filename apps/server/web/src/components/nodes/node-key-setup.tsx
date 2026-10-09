@@ -64,7 +64,7 @@ import { installAddresses } from "@/lib/install-addresses";
  */
 
 /** The two ways to put a machine on the plane. */
-type Method = "terminal" | "desktop";
+export type Method = "terminal" | "desktop";
 
 const METHOD_OPTIONS = [
   { value: "terminal" as const, label: "Terminal" },
@@ -190,16 +190,25 @@ export function NodeKeySetup({
   keyText,
   generate,
   defaultMethod = "terminal",
+  chosenAddress,
+  onAddressChange,
+  chosenMethod,
+  onMethodChange,
 }: {
   keyText: string | null;
   generate?: ReactNode;
   defaultMethod?: Method;
+  chosenAddress?: string | null;
+  onAddressChange?: (address: string) => void;
+  chosenMethod?: Method;
+  onMethodChange?: (method: Method) => void;
 }) {
   const addressId = useId();
   const [chosen, setChosen] = useState<string | null>(null);
   // Terminal first: it is the one that works on a headless box, which is most of what
   // gets added.
-  const [method, setMethod] = useState<Method>(defaultMethod);
+  const [localMethod, setMethod] = useState<Method>(defaultMethod);
+  const method = chosenMethod ?? localMethod;
   const { appBaseUrl, trustedOrigins, hasMissingTargets, missingNote, unknownNote } = useSetupKeyVerdict();
 
   // The address comes from the trusted-origin allowlist (spec 2026-08-31 §9.3 loopback
@@ -219,7 +228,7 @@ export function NodeKeySetup({
   // Dropped when no longer on offer (a settings refetch can grow or shrink the list
   // while this is open), then derived — not synced in an effect, so a selection cannot
   // survive as a stale string.
-  const selected = rows.find((url) => url === chosen) ?? rows[0];
+  const selected = rows.find((url) => url === (chosenAddress ?? chosen)) ?? rows[0];
 
   return (
     <>
@@ -231,7 +240,10 @@ export function NodeKeySetup({
           fires where the fact is knowable. */}
       <div className="space-y-2">
         <Label htmlFor={addressId}>Select Subshell server address</Label>
-        <Select value={selected} onValueChange={(url: string | null) => url && setChosen(url)}>
+        <Select
+          value={selected}
+          onValueChange={(url: string | null) => url && (onAddressChange ? onAddressChange(url) : setChosen(url))}
+        >
           <SelectTrigger id={addressId} className="w-full min-w-0">
             <SelectValue placeholder="Choose an address" />
           </SelectTrigger>
@@ -249,7 +261,7 @@ export function NodeKeySetup({
         ariaLabel="How the machine joins"
         options={METHOD_OPTIONS}
         value={method}
-        onChange={setMethod}
+        onChange={onMethodChange ?? setMethod}
         className="w-full"
       />
       {method === "terminal" ? (

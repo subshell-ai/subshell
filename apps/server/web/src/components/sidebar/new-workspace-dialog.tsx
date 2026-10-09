@@ -2,6 +2,7 @@ import { apiPost, Button, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
+import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
   canSubmit,
@@ -59,6 +60,7 @@ export function NewWorkspaceDialog({
   const { data: workspaces } = useWorkspaces();
   const create = useCreateSubshell();
 
+  const [sshDraft, setSshDraft] = useState(() => sshSessionDraft());
   const [kind, setKind] = useState<SubshellKind>("agent");
   const [mode, setMode] = useState<Mode>("existing");
   const [query, setQuery] = useState("");
@@ -73,6 +75,7 @@ export function NewWorkspaceDialog({
   const [createdId, setCreatedId] = useState<string | null>(null);
 
   function reset() {
+    setSshDraft(sshSessionDraft());
     setMode("existing");
     setKind("agent");
     setQuery("");
@@ -152,6 +155,7 @@ export function NewWorkspaceDialog({
       // A half-filled launch form is not disposable (ruling 2026-09-30):
       // only a deliberate act closes this - X, Cancel, or a successful add.
       onOpenChange={formDialogOpenChange((next) => {
+        if (creating || launching) return;
         onOpenChange(next);
         if (!next) reset();
       })}
@@ -162,18 +166,19 @@ export function NewWorkspaceDialog({
           <DialogDescription>Start it with subshells already tiled in, or empty.</DialogDescription>
         </DialogHeader>
 
-        <Segmented
-          ariaLabel="What to add"
-          options={[
-            { value: "existing", label: "Existing subshells" },
-            { value: "new", label: "New subshell" },
-          ]}
-          value={mode}
-          onChange={(next) => {
-            if (!launching) setMode(next);
-          }}
-        />
-
+        <fieldset disabled={creating || launching}>
+          <Segmented
+            ariaLabel="What to add"
+            options={[
+              { value: "existing", label: "Existing subshells" },
+              { value: "new", label: "New subshell" },
+            ]}
+            value={mode}
+            onChange={(next) => {
+              if (!launching) setMode(next);
+            }}
+          />
+        </fieldset>
         {createdId ? (
           // The workspace exists; the error line above says which adds failed.
           <p className="text-muted-foreground text-sm">The workspace is created. Enter it to add the rest.</p>
@@ -190,8 +195,10 @@ export function NewWorkspaceDialog({
         ) : (
           <div className="flex flex-col gap-4">
             <SubshellKindPicker value={kind} onChange={setKind} disabled={launching} />
-            {kind === "ssh" ? (
+            {kind === "ssh" && open ? (
               <ConnectPanel
+                draft={sshDraft}
+                onDraftChange={setSshDraft}
                 onPendingChange={setLaunching}
                 onLeave={() => onOpenChange(false)}
                 onCreated={(id) => {
