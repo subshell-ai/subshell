@@ -22,6 +22,7 @@ import {
   parseNodeCommandBody,
   parseNodeEvent,
   parseNodeRuntimeReport,
+  parseNodeSshFingerprintReport,
   partPathOf,
 } from "../node-frames.js";
 import {
@@ -745,6 +746,107 @@ describe("ready.runtime (additive)", () => {
       debug: true,
       source: "process env",
     });
+  });
+});
+
+describe("ready.runtime.sshFingerprint (spec 2026-10-08 §4.6)", () => {
+  const base = {
+    type: "ready",
+    agentVersion: "0.2.0",
+    protocolVersion: NODE_PROTOCOL_VERSION,
+    os: "linux",
+    arch: "x64",
+    hostname: "h",
+    dataDir: "/d",
+    capabilities: [],
+  };
+  const runtime = {
+    startedAt: "2026-09-12T10:00:00.000Z",
+    supervised: true,
+    service: {
+      manager: "systemd",
+      installed: true,
+      definitionPath: "/u/.config/systemd/user/subshell.service",
+      state: "running",
+      pid: 42,
+      enabled: true,
+      linger: true,
+      paneSafety: "keeps",
+    },
+    configPath: "/u/.config/subshell/config.json",
+    agentLogPath: "/u/.config/subshell/logs/agent.log",
+    logging: { debug: false, source: "default" },
+    logPath: null,
+    logHint: null,
+    tmuxPath: "/usr/bin/tmux",
+    binaryPath: "/u/.local/bin/subshell",
+  };
+  /** A canonical 32-byte SHA-256 digest printed as 43 base64url characters. */
+  const FP_A = `SHA256:${"A".repeat(43)}`;
+  const FP_B = `SHA256:${"B".repeat(43)}`;
+  const FP_C = `SHA256:${"C".repeat(43)}`;
+  const FP_D = `SHA256:${"D".repeat(43)}`;
+  const block = {
+    own: { signing: FP_A, encryption: FP_B },
+    peers: [{ nodeId: "0f8e2c1a-0000-4000-8000-000000000001", signing: FP_C, encryption: FP_D }],
+  };
+
+  it("parseNodeSshFingerprintReport accepts a canonical block, empty peers included", () => {
+    expect(parseNodeSshFingerprintReport(block)).toEqual(block);
+    expect(parseNodeSshFingerprintReport({ own: block.own, peers: [] })).toEqual({ own: block.own, peers: [] });
+  });
+
+  it("refuses fingerprints that are not canonical SHA256 base64url", () => {
+    // The spelling the node emits is `fingerprintJwk`'s exactly: the `SHA256:`
+    // prefix, 43 unpadded base64url characters, never the `+` `/` `=` spellings
+    // of standard base64 (a different scheme would fingerprint-compare against
+    // bytes the machine never pinned).
+    for (const bad of [
+      "A".repeat(43), // no prefix
+      `SHA256:${"A".repeat(42)}`, // short digest
+      `SHA256:${"A".repeat(44)}`, // long digest
+      `SHA256:${"A".repeat(42)}=`, // padded, not canonical here
+      `SHA256:${"+".repeat(43)}`, // standard-base64 alphabet
+      `sha256:${"A".repeat(43)}`, // case-sensitive prefix
+    ]) {
+      expect(parseNodeSshFingerprintReport({ own: { signing: bad, encryption: FP_B }, peers: [] })).toBeNull();
+    }
+  });
+
+  it("refuses structural junk: missing halves, non-array peers, bad peer ids", () => {
+    expect(parseNodeSshFingerprintReport(null)).toBeNull();
+    expect(parseNodeSshFingerprintReport("own")).toBeNull();
+    expect(parseNodeSshFingerprintReport({ own: { signing: FP_A }, peers: [] })).toBeNull();
+    expect(parseNodeSshFingerprintReport({ own: block.own })).toBeNull(); // peers REQUIRED (empty = no peers)
+    expect(parseNodeSshFingerprintReport({ own: block.own, peers: "none" })).toBeNull();
+    expect(parseNodeSshFingerprintReport({ own: block.own, peers: [{ signing: FP_C, encryption: FP_D }] })).toBeNull();
+    expect(
+      parseNodeSshFingerprintReport({ own: block.own, peers: [{ nodeId: "", signing: FP_C, encryption: FP_D }] }),
+    ).toBeNull();
+    expect(
+      parseNodeSshFingerprintReport({ own: block.own, peers: [{ nodeId: "a b/c", signing: FP_C, encryption: FP_D }] }),
+    ).toBeNull();
+    expect(
+      parseNodeSshFingerprintReport({
+        own: block.own,
+        peers: [{ nodeId: "n".repeat(65), signing: FP_C, encryption: FP_D }],
+      }),
+    ).toBeNull();
+  });
+
+  it("runtime carries a well-formed block and drops a malformed one, keeping the report", () => {
+    expect(parseNodeRuntimeReport({ ...runtime, sshFingerprint: block })?.sshFingerprint).toEqual(block);
+    const withBad = parseNodeRuntimeReport({ ...runtime, sshFingerprint: { own: "yes", peers: [] } });
+    expect(withBad).not.toBeNull();
+    expect(withBad && "sshFingerprint" in withBad ? withBad.sshFingerprint : undefined).toBeUndefined();
+    expect(parseNodeRuntimeReport(runtime) && "sshFingerprint" in (parseNodeRuntimeReport(runtime) as object)).toBe(
+      false,
+    );
+  });
+
+  it("the ready frame keeps a reported block end to end", () => {
+    const ev = parseNodeEvent({ ...base, runtime: { ...runtime, sshFingerprint: block } });
+    expect(ev && ev.type === "ready" ? ev.runtime?.sshFingerprint : undefined).toEqual(block);
   });
 });
 
