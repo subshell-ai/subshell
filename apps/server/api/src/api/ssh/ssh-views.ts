@@ -127,3 +127,63 @@ export function throwCodedRefusal(refusal: SshRefusal): never {
   }
   throwApiError({ code: refusal.code, message: refusal.message, doNotLog: true });
 }
+
+/**
+ * One standing key grant as the grants screen reads it (spec 2026-10-08 §6.1,
+ * §8). The fingerprint SET is public key identifiers (the `SHA256:` display
+ * notation) and it is deliberately ON this response: the screen is the
+ * owner's own, and "which keys serve" is exactly what the owner manages. The
+ * values never appear in an audit row, a log line, or a push body (the
+ * Global Constraint lives there, not at the owner's screen).
+ */
+export const SshGrantViewSchema = t.Object({
+  id: t.String({ description: "Grant row id (uuid)" }),
+  name: t.String({ description: "Display name the operator gave the grant" }),
+  keyHomeNodeId: t.String({ description: "Key home machine: its ssh-agent signs for this grant" }),
+  resolvedSelector: t.String({
+    description: "Destination selector, stored RESOLVED: a concrete hostname or a '*' host pattern",
+  }),
+  fingerprints: t.Array(t.String({ description: "OpenSSH SHA256: fingerprint of a selected agent identity" }), {
+    description: "The selected public identities (at most SSH_MAX_GRANT_FINGERPRINTS); an empty set serves nothing",
+  }),
+  createdVia: t.Union([t.Literal("first-use"), t.Literal("manual")], {
+    description: "Which door created the row: an approved first use, or the grants screen",
+  }),
+  createdAt: t.String({ description: "ISO 8601 creation stamp (the match tie-break: oldest wins)" }),
+  updatedAt: t.String({ description: "ISO 8601 of the last operator edit" }),
+});
+
+/**
+ * One public agent identity from the key home's live roster (spec 2026-10-08
+ * §5.4, Tasks 11/18): the shape BOTH roster reads answer with - the
+ * request-scoped one behind the approval screen and the roster-by-node read
+ * behind the create picker. The two fields are the whole of it, by
+ * construction: the key BLOBS are withheld on the machine, and this schema is
+ * where the wire restates that there is nowhere for one to ride.
+ */
+export const SshAgentIdentityViewSchema = t.Object({
+  fingerprint: t.String({
+    description:
+      "Public agent identity in the canonical SHA256: notation (the approval body sends these back verbatim)",
+  }),
+  comment: t.String({ description: "OpenSSH's label for the key, as the agent reports it (display only)" }),
+});
+
+/** One first-use approval request as the queue reads it (spec 2026-10-08 §6.2). */
+export const SshGrantRequestViewSchema = t.Object({
+  id: t.String({ description: "Request row id (uuid) - the opaque ref the refusal and the notification name" }),
+  keyHomeNodeId: t.String({ description: "The key home whose approval is asked" }),
+  resolvedSelector: t.String({ description: "The resolved destination hostname the launch would have dialed" }),
+  requestedFingerprints: t.Nullable(
+    t.Array(t.String({ description: "Pre-selected SHA256: fingerprint" }), {
+      description: "Pre-selection riding the request, or null (the approver picks)",
+    }),
+  ),
+  paneId: t.String({ description: "The asking pane's id (the requester the screen names)" }),
+  bNodeId: t.String({ description: "The connecting machine of the asking launch" }),
+  expiresAt: t.String({ description: "ISO 8601 deadline (24 h); past it the sweep answers the row expired" }),
+  status: t.Union([t.Literal("pending"), t.Literal("approved"), t.Literal("denied"), t.Literal("expired")], {
+    description: "Lifecycle state; only pending can be answered",
+  }),
+  createdAt: t.String({ description: "ISO 8601 creation stamp" }),
+});

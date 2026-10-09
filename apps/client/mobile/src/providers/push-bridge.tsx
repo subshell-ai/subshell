@@ -6,6 +6,7 @@ import { SUBSHELLS_KEY } from "@/hooks/query-keys";
 import { useIconBadge } from "@/hooks/use-icon-badge";
 import { useApp } from "@/lib/app-state";
 import type { SubshellNotifData } from "@/lib/notif-data";
+import { decidePushAction } from "@/lib/push-routing";
 import { configureNotifications, enrollPush } from "@/native/push";
 import { clientForOrigin } from "@/native/subshell-client-factory";
 import { useSubshell } from "@/providers/subshell-provider";
@@ -24,7 +25,10 @@ import { useSubshell } from "@/providers/subshell-provider";
  *   route itself is the biometric gate, §Security notes), "Silence bell" →
  *   one PATCH against the ORIGIN's client + list refresh, without
  *   foregrounding. An origin this phone no longer knows (forgotten instance)
- *   is ignored rather than opened on the wrong server.
+ *   is ignored rather than opened on the wrong server. A `grant_approval`
+ *   push switches instances the same way but lands on the settings tab, and
+ *   its Silence action is ignored (its sid names a grant request, not a pane;
+ *   PR 338 review, Important 1).
  *
  * The response listener mounts ONCE and reads the registry via
  * `useApp.getState()` at call time: an earlier version kept activeId/instances
@@ -53,13 +57,18 @@ export function PushBridge() {
       const { activeId, instances, setActive } = useApp.getState();
       const origin = data.origin && data.origin !== activeId ? data.origin : null;
       if (origin && !instances.some((i) => i.id === origin)) return; // unknown/forgotten instance
+      // The helper decides (pure, pinned in src/lib/push-routing.ts); this
+      // closure only performs. A `grant_approval` push routes to settings and
+      // ignores the Silence bell: its sid is a grant request, not a pane.
+      const action = decidePushAction(data, response.actionIdentifier);
+      if (action.action === "ignore") return;
       // The action belongs to the ORIGIN's instance, whatever is active now.
       const actor = origin ? clientForOrigin(origin) : client;
-      if (response.actionIdentifier === "silence") {
+      if (action.action === "silence") {
         // Background action: one quick PATCH; the app never opens.
         if (!actor) return;
         try {
-          await actor.setNotify(data.sid, false);
+          await actor.setNotify(action.sid, false);
           await qc.invalidateQueries({ queryKey: SUBSHELLS_KEY });
         } catch {
           /* signed-out mid-flight: the bell state re-converges on next open */
@@ -67,7 +76,7 @@ export function PushBridge() {
         return;
       }
       if (origin) setActive(origin); // provider clears the query cache on switch
-      router.push(`/subshell/${encodeURIComponent(data.sid)}`);
+      router.push(action.href);
     };
     const sub = Notifications.addNotificationResponseReceivedListener((r) => void respond(r));
     // Cold start from a notification tap must route too, not just live taps.

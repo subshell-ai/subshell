@@ -131,6 +131,82 @@ export const SSH_REQ_ID_MAX_CHARS = 64;
  */
 export const SSH_SESSION_LOG_WINDOW_BYTES = 128 * 1024;
 
+/* ------------------------------------------------------------------ */
+/* sealed agent relay (spec 2026-10-08 §5.1/§5.3/§5.4/§5.6)            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Largest RAW payload one sealed relay frame may carry (spec 2026-10-08
+ * §5.1). 128 KiB is the channel-envelope scale the spec names the cap
+ * bounded to: base64 inflates 4/3, so a full blob spells about 174,764
+ * characters inside the frame, well under the node link's own
+ * NODE_MAX_FRAME_BYTES ceiling - the same arithmetic that sized
+ * {@link SSH_SESSION_LOG_WINDOW_BYTES}. An over-cap frame is refused and
+ * the session closed with a named reason; the cap is law, not a hint.
+ */
+export const SSH_RELAY_FRAME_MAX_BYTES = 131_072;
+
+/**
+ * Concurrent relay sessions one node may hold on the plane's broker
+ * (spec §5.3). Exceeding the cap is a LOUD refusal, never a queue.
+ */
+export const SSH_RELAY_MAX_PER_NODE = 8;
+
+/**
+ * Hard ceiling on a relay session's life (spec §5.6). Modeled on
+ * {@link SSH_SESSION_OPEN_DEADLINE_MS}: the relay exists only for the
+ * handshake window, and the lifetime is the last-resort cut beneath the
+ * earlier ones (grace elapsed, child exit, A drop, grant revoke).
+ */
+export const SSH_RELAY_LIFETIME_MS = 30_000;
+
+/**
+ * How long B's proxy keeps the relay open after the `ssh` child is alive
+ * with no agent error before tearing it down (spec §5.6: B cannot see
+ * ssh's handshake to D, so a quiet grace stands in for the signal, and
+ * child exit cuts immediately). Same 5 s family as {@link SSH_CANCEL_GRACE_MS}.
+ */
+export const SSH_RELAY_TEARDOWN_GRACE_MS = 5_000;
+
+/**
+ * Key fingerprints one grant may select (spec §5.4). Deliberately
+ * DISTINCT from {@link SSH_MAX_IDENTITY_REFS}, which bounds snapshot
+ * identity PATHS, not grant selections; an approval selecting more is a
+ * hard refusal, never a silent truncation. Public data end to end:
+ * `SHA256:` base64 fingerprints, never key material.
+ */
+export const SSH_MAX_GRANT_FINGERPRINTS = 8;
+
+/**
+ * Longest single OpenSSH `known_hosts` line the wire may carry, in EITHER
+ * direction: the `ssh_host_key` answer's entries and the `ssh_relay_open`
+ * pin's line alike (spec 2026-10-08 §9, Task 12). A real line is a pattern
+ * list, a key type, and base64 key material - an RSA-8192 entry with a long
+ * pattern runs well past a kilobyte, and the grammar's bound must not refuse
+ * the honest file while leaving a hostile plane an unbounded text field.
+ */
+export const SSH_MAX_HOST_PIN_LINE_CHARS = 4096;
+
+/**
+ * Host-key lines one `ssh_host_key` answer may carry (Task 12). A destination
+ * with more recorded entries than this is not the operator's `known_hosts`
+ * the capture expects; the answer is malformed, refused at the grammar rather
+ * than truncated.
+ */
+export const SSH_MAX_HOST_KEY_LINES = 32;
+
+/**
+ * Identities one live agent may report in one `ssh_agent_identities` roster
+ * read (spec 2026-10-08 §5.4; PR #338 review round 2). A generous
+ * display/selection bound: the roster feeds the approval picker and the
+ * grant's ≤ {@link SSH_MAX_GRANT_FINGERPRINTS}-key selection, and no honest
+ * agent holds this many keys. An agent reporting MORE is refused by name at
+ * the node and refused as malformed at the validator, never truncated down
+ * to this number: a roster the code quietly cut would read to the operator
+ * as the whole truth (the no-silent-truncation law).
+ */
+export const SSH_ROSTER_MAX_IDENTITIES = 64;
+
 /**
  * Largest raw stdout slice one brokered `session_frame` event may carry
  * (design §3's pump, restated as a number: the node-frames `session_frame`
@@ -141,3 +217,49 @@ export const SSH_SESSION_LOG_WINDOW_BYTES = 128 * 1024;
  * the stream nothing but an event.
  */
 export const SSH_SESSION_PUMP_CHUNK_BYTES = 192 * 1024;
+
+/* ------------------------------------------------------------------ */
+/* the non-interactive setup exec (spec 2026-10-08 §7, Task 14)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Largest `ssh_exec` preset-flag token list. The compose emits `-F`,
+ * `BatchMode`, the port, `--`, and the destination: far short of this, and
+ * the bound is the grammar's, so a hostile plane cannot grow the argv the
+ * node spawns.
+ */
+export const SSH_EXEC_MAX_PRESET_FLAGS = 64;
+
+/**
+ * The remote one-liner an `ssh_exec` runs on the destination (the rendered
+ * `install.sh` one-liner with a minted setup key). One printable line - the
+ * grammar refuses control characters, so a smuggled second command is not
+ * representable. The cap bounds the text the destination's login shell
+ * parses; the real installer line is a few hundred characters.
+ */
+export const SSH_EXEC_COMMAND_MAX_CHARS = 8192;
+
+/**
+ * Upper bound on the node-side deadline of ONE non-interactive `ssh_exec`
+ * run. The act streams a node-binary download to the destination over the
+ * pane's own connection; ten minutes bounds the worst honest install, and a
+ * longer one is a refusal to the plane (which raises a fresh act), never an
+ * unbounded child.
+ */
+export const SSH_EXEC_TIMEOUT_MAX_MS = 600_000;
+
+/**
+ * Bytes of one captured stream the node RETAINS after the `nsk_` redaction
+ * (tail-first: the status verbs that end the installer's output are the
+ * lines the plane parses). Redaction runs BEFORE truncation, so no cut can
+ * leave a key's tail bytes behind.
+ */
+export const SSH_EXEC_RETAIN_BYTES = 8192;
+
+/**
+ * Longest captured stream one `ssh_exec_status` answer may carry (each of
+ * stdout and stderr, in characters). Comfortably above the node's own
+ * {@link SSH_EXEC_RETAIN_BYTES} tail; past it the answer is malformed, and
+ * the plane never sees a machine that simply did not cap itself.
+ */
+export const SSH_EXEC_RESULT_MAX_CHARS = 32_768;

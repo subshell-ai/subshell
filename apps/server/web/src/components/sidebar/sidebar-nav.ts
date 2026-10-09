@@ -3,6 +3,7 @@ import {
   ArrowUpCircle,
   Cable,
   DatabaseBackup,
+  Fingerprint,
   KeyRound,
   LayoutDashboard,
   type LucideIcon,
@@ -77,6 +78,11 @@ const NAV_ENTRIES: NavEntry[] = [
       { to: "/presets", label: "Presets", icon: SlidersHorizontal, short: "Preset" },
       // Beside Presets: both are saved launch material, one is settings, one is text.
       { to: "/prompts", label: "Prompts", icon: MessageSquareText, short: "Prompts" },
+      // The owner's SSH relay ledger (spec 2026-10-08 §8): per-owner surface,
+      // so it sits in the personal group even though its path is under
+      // /settings - General lights only on an exact match, so a member's page
+      // never illuminates the admin group (sidebar-nav's own comment).
+      { to: "/settings/ssh", label: "SSH", icon: Fingerprint, short: "SSH" },
     ],
   },
   // On the label (spec 2026-09-11 §2.1). The single entry here used to read

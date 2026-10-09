@@ -22,9 +22,26 @@ import {
   parseNodeCommandBody,
   parseNodeEvent,
   parseNodeRuntimeReport,
+  parseNodeSshFingerprintReport,
   partPathOf,
 } from "../node-frames.js";
-import { SSH_CONFIG_FILE_MAX_BYTES } from "../ssh-limits.js";
+import {
+  isSshGrantFingerprints,
+  isSshPaneId,
+  redactSshSetupKeyLines,
+  SSH_COMMAND_TYPES,
+  SSH_RELAY_CLOSE_REASONS,
+  type SshExecCommand,
+  type SshMachinePinRepairCommand,
+  type SshRelayOpenCommand,
+} from "../ssh-frames.js";
+import {
+  SSH_CONFIG_FILE_MAX_BYTES,
+  SSH_EXEC_COMMAND_MAX_CHARS,
+  SSH_EXEC_MAX_PRESET_FLAGS,
+  SSH_EXEC_TIMEOUT_MAX_MS,
+  SSH_MAX_GRANT_FINGERPRINTS,
+} from "../ssh-limits.js";
 import { MIN_NODE_VERSION } from "../versions.js";
 
 const launchCmd = {
@@ -42,6 +59,43 @@ const launchCmd = {
   // names a command line nothing on that machine can build.
   argv: [HARNESS_BINARY_PLACEHOLDER],
   resolve: { binaryName: "claude" },
+};
+
+/**
+ * A complete relay-open pairing (spec 2026-10-08 §5.1): every field the
+ * brokered open carries is REQUIRED on the wire, so one fixture serves the
+ * accept paths and the field-by-field refusals below.
+ */
+const relayOpenCmd: SshRelayOpenCommand = {
+  type: "ssh_relay_open",
+  relayId: "relay-9c31",
+  ref: "r-4f2a",
+  role: "A",
+  aNodeId: "node-a",
+  bNodeId: "node-b",
+  peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB"}',
+  peerEncryptPublicKey: "SGVsbG9Xb3JsZEhlcmVJc1RoaXJ0eXR3b0J5dGVzMTI=",
+  grantId: "grant-77",
+  fingerprints: ["SHA256:AAAA", "SHA256:BBBB"],
+  lifetimeMs: 30_000,
+  paneId: "11111111-2222-4333-8444-555555555555",
+  // Task 12: the destination's pinned host-key line (A's known_hosts entry,
+  // captured at grant creation). Required: a relay-open without it is a
+  // relay grant with no pin, which is exactly what the grammar refuses.
+  hostPin: "git.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000",
+};
+
+/**
+ * A complete §4.5 re-pair (Task 17): the plane re-delivers ONE peer's
+ * registered pair (the SAME peer-key carriage the relay-open uses) to the
+ * machine whose pin store is repaired. Three fields, all required; one
+ * fixture serves the accept path and the refusals below.
+ */
+const repairCmd: SshMachinePinRepairCommand = {
+  type: "ssh_machine_pin_repair",
+  peerNodeId: "node-b",
+  peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB"}',
+  peerEncryptPublicKey: "SGVsbG9Xb3JsZEhlcmVJc1RoaXJ0eXR3b0J5dGVzMTI=",
 };
 
 describe("parseNodeCommandBody", () => {
@@ -322,7 +376,12 @@ describe("parseNodeCommandBody", () => {
     // `ssh` block and the `ssh_discover_aliases` / `ssh_resolve_config` arms.
     // A lagging agent ignores the launch block and spawns a bare `ssh` with no
     // `-F` config, so it is HELD (update-only) until crossed, not approximated.
-    expect(NODE_PROTOCOL_VERSION).toBe(17);
+    // 18 is the sealed agent relay (spec 2026-10-08 §5.1): the `relay` link
+    // frame (a new frame kind on the established link) and the `ssh_relay_open`
+    // / `ssh_relay_close` signed commands. A tier-17 agent understands no relay
+    // frame, and the exact-match gate refuses it BEFORE any relay command
+    // (spec §11: never half-relaying).
+    expect(NODE_PROTOCOL_VERSION).toBe(18);
   });
 
   it("accepts set_allowed_dirs and rejects a missing or non-array dirs", () => {
@@ -712,6 +771,107 @@ describe("ready.runtime (additive)", () => {
   });
 });
 
+describe("ready.runtime.sshFingerprint (spec 2026-10-08 §4.6)", () => {
+  const base = {
+    type: "ready",
+    agentVersion: "0.2.0",
+    protocolVersion: NODE_PROTOCOL_VERSION,
+    os: "linux",
+    arch: "x64",
+    hostname: "h",
+    dataDir: "/d",
+    capabilities: [],
+  };
+  const runtime = {
+    startedAt: "2026-09-12T10:00:00.000Z",
+    supervised: true,
+    service: {
+      manager: "systemd",
+      installed: true,
+      definitionPath: "/u/.config/systemd/user/subshell.service",
+      state: "running",
+      pid: 42,
+      enabled: true,
+      linger: true,
+      paneSafety: "keeps",
+    },
+    configPath: "/u/.config/subshell/config.json",
+    agentLogPath: "/u/.config/subshell/logs/agent.log",
+    logging: { debug: false, source: "default" },
+    logPath: null,
+    logHint: null,
+    tmuxPath: "/usr/bin/tmux",
+    binaryPath: "/u/.local/bin/subshell",
+  };
+  /** A canonical 32-byte SHA-256 digest printed as 43 base64url characters. */
+  const FP_A = `SHA256:${"A".repeat(43)}`;
+  const FP_B = `SHA256:${"B".repeat(43)}`;
+  const FP_C = `SHA256:${"C".repeat(43)}`;
+  const FP_D = `SHA256:${"D".repeat(43)}`;
+  const block = {
+    own: { signing: FP_A, encryption: FP_B },
+    peers: [{ nodeId: "0f8e2c1a-0000-4000-8000-000000000001", signing: FP_C, encryption: FP_D }],
+  };
+
+  it("parseNodeSshFingerprintReport accepts a canonical block, empty peers included", () => {
+    expect(parseNodeSshFingerprintReport(block)).toEqual(block);
+    expect(parseNodeSshFingerprintReport({ own: block.own, peers: [] })).toEqual({ own: block.own, peers: [] });
+  });
+
+  it("refuses fingerprints that are not canonical SHA256 base64url", () => {
+    // The spelling the node emits is `fingerprintJwk`'s exactly: the `SHA256:`
+    // prefix, 43 unpadded base64url characters, never the `+` `/` `=` spellings
+    // of standard base64 (a different scheme would fingerprint-compare against
+    // bytes the machine never pinned).
+    for (const bad of [
+      "A".repeat(43), // no prefix
+      `SHA256:${"A".repeat(42)}`, // short digest
+      `SHA256:${"A".repeat(44)}`, // long digest
+      `SHA256:${"A".repeat(42)}=`, // padded, not canonical here
+      `SHA256:${"+".repeat(43)}`, // standard-base64 alphabet
+      `sha256:${"A".repeat(43)}`, // case-sensitive prefix
+    ]) {
+      expect(parseNodeSshFingerprintReport({ own: { signing: bad, encryption: FP_B }, peers: [] })).toBeNull();
+    }
+  });
+
+  it("refuses structural junk: missing halves, non-array peers, bad peer ids", () => {
+    expect(parseNodeSshFingerprintReport(null)).toBeNull();
+    expect(parseNodeSshFingerprintReport("own")).toBeNull();
+    expect(parseNodeSshFingerprintReport({ own: { signing: FP_A }, peers: [] })).toBeNull();
+    expect(parseNodeSshFingerprintReport({ own: block.own })).toBeNull(); // peers REQUIRED (empty = no peers)
+    expect(parseNodeSshFingerprintReport({ own: block.own, peers: "none" })).toBeNull();
+    expect(parseNodeSshFingerprintReport({ own: block.own, peers: [{ signing: FP_C, encryption: FP_D }] })).toBeNull();
+    expect(
+      parseNodeSshFingerprintReport({ own: block.own, peers: [{ nodeId: "", signing: FP_C, encryption: FP_D }] }),
+    ).toBeNull();
+    expect(
+      parseNodeSshFingerprintReport({ own: block.own, peers: [{ nodeId: "a b/c", signing: FP_C, encryption: FP_D }] }),
+    ).toBeNull();
+    expect(
+      parseNodeSshFingerprintReport({
+        own: block.own,
+        peers: [{ nodeId: "n".repeat(65), signing: FP_C, encryption: FP_D }],
+      }),
+    ).toBeNull();
+  });
+
+  it("runtime carries a well-formed block and drops a malformed one, keeping the report", () => {
+    expect(parseNodeRuntimeReport({ ...runtime, sshFingerprint: block })?.sshFingerprint).toEqual(block);
+    const withBad = parseNodeRuntimeReport({ ...runtime, sshFingerprint: { own: "yes", peers: [] } });
+    expect(withBad).not.toBeNull();
+    expect(withBad && "sshFingerprint" in withBad ? withBad.sshFingerprint : undefined).toBeUndefined();
+    expect(parseNodeRuntimeReport(runtime) && "sshFingerprint" in (parseNodeRuntimeReport(runtime) as object)).toBe(
+      false,
+    );
+  });
+
+  it("the ready frame keeps a reported block end to end", () => {
+    const ev = parseNodeEvent({ ...base, runtime: { ...runtime, sshFingerprint: block } });
+    expect(ev && ev.type === "ready" ? ev.runtime?.sshFingerprint : undefined).toEqual(block);
+  });
+});
+
 describe("service command", () => {
   it("parses every verb, with and without force", () => {
     for (const verb of NODE_SERVICE_VERBS) {
@@ -923,6 +1083,96 @@ describe("ssh command arms and the launch ssh block", () => {
     expect(parseNodeCommandBody({ type: "ssh_resolve_config", alias: "a b" })).toBeNull();
   });
 
+  it("the ssh_register_identity arm is its type alone (spec 2026-10-08 §4.3)", () => {
+    expect(parseNodeCommandBody({ type: "ssh_register_identity" })).toEqual({ type: "ssh_register_identity" });
+    // Nothing beyond the type travels: the machine answers about itself, so
+    // a plane-sent field could only be an injection attempt at its own slot.
+    expect(parseNodeCommandBody({ type: "ssh_register_identity", signingPublicKey: "x" })).toEqual({
+      type: "ssh_register_identity",
+    });
+    expect(parseNodeCommandBody({ type: "ssh_register_identity" })).not.toBeNull();
+    // The family's census: exactly these ten types, and the count is the
+    // tripwire - a further arm must show up here before it ships.
+    expect([...SSH_COMMAND_TYPES].sort()).toEqual([
+      "ssh_agent_identities",
+      "ssh_discover_aliases",
+      "ssh_exec",
+      "ssh_exec_status",
+      "ssh_host_key",
+      "ssh_machine_pin_repair",
+      "ssh_register_identity",
+      "ssh_relay_close",
+      "ssh_relay_open",
+      "ssh_resolve_config",
+    ]);
+    expect(SSH_COMMAND_TYPES).toHaveLength(10);
+    // Every census type is a type the dispatcher actually narrows.
+    for (const t of SSH_COMMAND_TYPES) {
+      const body =
+        t === "ssh_resolve_config"
+          ? { type: t, alias: "box-a" }
+          : t === "ssh_relay_open"
+            ? relayOpenCmd
+            : t === "ssh_relay_close"
+              ? { type: t, ref: "r-1", reason: "lifetime-expiry" }
+              : t === "ssh_host_key"
+                ? { type: t, host: "git.example.test", port: 22, user: null }
+                : t === "ssh_exec"
+                  ? execCmdFixture()
+                  : t === "ssh_exec_status"
+                    ? { type: t, execId: EXEC_ID }
+                    : t === "ssh_machine_pin_repair"
+                      ? repairCmd
+                      : { type: t };
+      expect(parseNodeCommandBody(body)).not.toBeNull();
+    }
+  });
+
+  it("the ssh_agent_identities arm is its type alone (spec 2026-10-08 §5.4: the roster command asks the WHOLE roster)", () => {
+    expect(parseNodeCommandBody({ type: "ssh_agent_identities" })).toEqual({ type: "ssh_agent_identities" });
+    // Nothing beyond the type travels: the command enumerates A's entire public
+    // roster, so a plane-sent selection could only be a widening attempt.
+    expect(parseNodeCommandBody({ type: "ssh_agent_identities", fingerprints: ["x"] })).toEqual({
+      type: "ssh_agent_identities",
+    });
+    expect(parseNodeCommandBody({ type: "ssh_agent_identities", grantId: "g" })).toEqual({
+      type: "ssh_agent_identities",
+    });
+  });
+
+  it("the ssh_host_key arm names a destination and nothing else (spec 2026-10-08 §9, Task 12)", () => {
+    // The capture command asks for ONE destination's known_hosts entries: host
+    // always, port always (ssh's own lookup spells the port), user as its
+    // honest null when the snapshot named none. Stray members do not ride.
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "git.example.test", port: 22, user: null })).toEqual({
+      type: "ssh_host_key",
+      host: "git.example.test",
+      port: 22,
+      user: null,
+    });
+    expect(
+      parseNodeCommandBody({ type: "ssh_host_key", host: "git.example.test", port: 2222, user: "deploy" }),
+    ).toEqual({ type: "ssh_host_key", host: "git.example.test", port: 2222, user: "deploy" });
+    expect(
+      parseNodeCommandBody({ type: "ssh_host_key", host: "[2001:db8::1]", port: 22, user: null, smuggled: "x" }),
+    ).not.toHaveProperty("smuggled");
+    // Refusals: the host takes the alias grammar (option-like, whitespace,
+    // control chars, over-long); the port is a positive 16-bit int; the user
+    // is null or an alias-grammar name.
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "-oProxyCommand=x", port: 22, user: null })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "a b", port: 22, user: null })).toBeNull();
+    expect(
+      parseNodeCommandBody({ type: "ssh_host_key", host: `h${"x".repeat(300)}`, port: 22, user: null }),
+    ).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 0, user: null })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 65536, user: null })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 22.5, user: null })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 22, user: "a b" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 22, user: 7 })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 22 })).toBeNull(); // user must be present (null is spelled)
+    expect(parseNodeCommandBody({ type: "ssh_host_key", host: "h", port: 22, user: undefined })).toBeNull();
+  });
+
   it("launch accepts an ssh block and refuses malformed ones", () => {
     const good = { ...launchCmd, ssh: { configPath: "/d/ssh/s1/config", fileContent: "Host *\n" } };
     expect(parseNodeCommandBody(good)).toMatchObject({
@@ -943,6 +1193,414 @@ describe("ssh command arms and the launch ssh block", () => {
       }),
     ).not.toBeNull();
     expect(parseNodeCommandBody({ ...launchCmd, ssh: "x" })).toBeNull();
+  });
+});
+
+describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => {
+  it("narrows a complete open pairing, every field carried through", () => {
+    expect(parseNodeCommandBody(structuredClone(relayOpenCmd))).toEqual(structuredClone(relayOpenCmd));
+    expect(parseNodeCommandBody(JSON.stringify(relayOpenCmd))).toEqual(relayOpenCmd);
+    // Role B is the same grammar; the plane decides which machine gets which.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, role: "B" })).toMatchObject({ role: "B" });
+    // An empty fingerprint set parses: scoping (serve nothing) is the
+    // responder's rule (§5.4), not a reason to refuse the frame.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [] })).toMatchObject({ fingerprints: [] });
+  });
+
+  it("refuses an open missing any half of the pairing", () => {
+    // The command IS the pairing; a partial one names no complete session,
+    // so every field is required (same posture as `update`'s three).
+    for (const drop of [
+      "relayId",
+      "ref",
+      "role",
+      "aNodeId",
+      "bNodeId",
+      "peerSigningPublicKey",
+      "peerEncryptPublicKey",
+      "grantId",
+      "fingerprints",
+      "lifetimeMs",
+      "paneId",
+      "hostPin",
+    ] as const) {
+      const partial = structuredClone(relayOpenCmd) as unknown as Record<string, unknown>;
+      delete partial[drop];
+      expect(parseNodeCommandBody(partial)).toBeNull();
+    }
+  });
+
+  it("refuses malformed open fields", () => {
+    expect(parseNodeCommandBody({ ...relayOpenCmd, role: "C" })).toBeNull(); // only A or B
+    expect(parseNodeCommandBody({ ...relayOpenCmd, relayId: "" })).toBeNull(); // ids are non-empty
+    expect(parseNodeCommandBody({ ...relayOpenCmd, grantId: 42 })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: "SHA256:AAAA" })).toBeNull(); // array, not string
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["ok", 7] })).toBeNull();
+    // The grant's selection is capped by SSH_MAX_GRANT_FINGERPRINTS, and the
+    // refusal is hard - never a silent truncation (§5.4).
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        fingerprints: Array.from({ length: SSH_MAX_GRANT_FINGERPRINTS + 1 }, (_, i) => `SHA256:${i}`),
+      }),
+    ).toBeNull();
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        fingerprints: Array.from({ length: SSH_MAX_GRANT_FINGERPRINTS }, (_, i) => `SHA256:${i}`),
+      }),
+    ).not.toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, lifetimeMs: 0 })).toBeNull(); // positive or refuse
+    expect(parseNodeCommandBody({ ...relayOpenCmd, lifetimeMs: 1.5 })).toBeNull();
+    // The encryption half is a base64 key (same spelling the link pins carry);
+    // junk at the grammar is malformed, not "the pin will sort it out".
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerEncryptPublicKey: "!!!" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerEncryptPublicKey: "" })).toBeNull();
+  });
+
+  it("refuses a peer signing key whose JSON is not a plain public-JWK record (Task 4 review)", () => {
+    // The shape gate mirrors parseNodeSshIdentity: a non-empty string is not
+    // enough; it must PARSE to a plain record. A bare word and a serialized
+    // PRIVATE JWK are the two shapes the old isIdStr-only check let through,
+    // so both are named here. Deep private-material refusal (importability,
+    // curve, coordinates) stays `bytesOfJwk` on the node - Task 6.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerSigningPublicKey: "not json" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerSigningPublicKey: "hello" })).toBeNull();
+    // A real private-JWK spelling: plain record, carries the `d` member.
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB","d":"pr1v4t3"}',
+      }),
+    ).toBeNull();
+    // JSON scalars and arrays are not records.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerSigningPublicKey: "null" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, peerSigningPublicKey: "[1,2]" })).toBeNull();
+    // The public shape (the fixture) still parses, and a public JWK with
+    // EXTRA public members is still a record.
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB","use":"sig"}',
+      }),
+    ).not.toBeNull();
+  });
+
+  it("rebuilds the open from validated fields; stray wire members do not ride", () => {
+    const parsed = parseNodeCommandBody({ ...relayOpenCmd, sneaky: { should: "not pass" } });
+    expect(parsed).not.toBeNull();
+    expect(parsed).not.toHaveProperty("sneaky");
+    expect(parsed).toEqual(relayOpenCmd);
+  });
+
+  it("refuses a hostPin that is not one known_hosts line (spec 2026-10-08 §9, Task 12)", () => {
+    // The pin carriage is A's recorded key line delivered to B; the grammar's
+    // job is the SHAPE: one printable line, bounded, never a comment, never a
+    // multi-line smuggle (the node writes it verbatim into B's 0600 pinned
+    // file, so a newline would be a second, plane-authored trust entry).
+    // Deep truth (does the key match D) stays OpenSSH's at connect time.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "" })).toBeNull(); // empty is no pin
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "   " })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "host ssh-rsa AAA\nsecond ssh-rsa BBB" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "host ssh-rsa AAA\rBBB" })).toBeNull(); // CR smuggle
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "host ssh-rsa AAA\tB\tBB" })).toBeNull(); // tab smuggle
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: "# comment line" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: 7 })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: `host ssh-rsa ${"A".repeat(4084)}` })).toBeNull(); // 4097 > SSH_MAX_HOST_PIN_LINE_CHARS
+    // Honest spellings parse: plain, hashed-pattern, and user-qualified lines
+    // all carry A's recorded trust in OpenSSH's own known_hosts form.
+    expect(
+      parseNodeCommandBody({ ...relayOpenCmd, hostPin: "[git.example.test]:2222 ssh-ed25519 AAAAC3Nza==" }),
+    ).not.toBeNull();
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        hostPin:
+          "git.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000 comment@host",
+      }),
+    ).not.toBeNull();
+    expect(
+      parseNodeCommandBody({
+        ...relayOpenCmd,
+        hostPin: "|1|bnVsbHNhbHRudWxsc2FsdA==|dGhlaGFzaHRoYXRpc25vdHRoaXM=|ssh-ed25519 AAAAC3NzaC1lZDI1NTE5",
+      }),
+    ).not.toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, hostPin: `host ssh-rsa ${"A".repeat(4083)}` })).not.toBeNull(); // at the bound (4096 total)
+  });
+
+  it("refuses fingerprint entries outside the SHA256 display form", () => {
+    // The tight form is what stops control chars (and plain junk) reaching a
+    // future audit row through a field that promises to be a fingerprint.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["ok"] })).toBeNull(); // no prefix
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["SHA256:"] })).toBeNull(); // empty digest
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: ["SHA256:AAA\tBBB"] })).toBeNull(); // control char
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [`SHA256:${"A".repeat(129)}`] })).toBeNull(); // over the bound
+    expect(parseNodeCommandBody({ ...relayOpenCmd, fingerprints: [`SHA256:${"a-_0".repeat(32)}`] })).not.toBeNull(); // alphabet, at bound
+  });
+
+  it("validates the paneId against the path-composition shape (Task 8 (b))", () => {
+    // The B-side proxy socket is `<dataDir>/ssh/<paneId>/agent.sock` and
+    // pane-runtime's own guard refuses anything outside
+    // `^[a-zA-Z0-9_-]{1,64}$`; the grammar names the SAME shape so a command
+    // that could only fail the node's guard fails here first, before the
+    // plane signs it. A uuid (the normal subshell id) is in the class.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "pane-42" })).toMatchObject({ paneId: "pane-42" });
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "A9_z-x" })).toMatchObject({ paneId: "A9_z-x" });
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "x".repeat(64) })).not.toBeNull(); // at bound
+    // Every refusal below is a shape the socket-path guard could not take:
+    // traversal, absolute paths, empty, over-bound, and whitespace/control.
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "x".repeat(65) })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "../escape" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "a/b" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "/abs" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "a.b" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "a b" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: "a\nb" })).toBeNull();
+    expect(parseNodeCommandBody({ ...relayOpenCmd, paneId: 42 })).toBeNull();
+    // The exported predicate is the ONE spelling of the rule; the parse arm
+    // and the plane's openRelay consult it, so a drift here is a drift there.
+    expect(isSshPaneId("pane-42")).toBe(true);
+    expect(isSshPaneId("x".repeat(64))).toBe(true);
+    expect(isSshPaneId("x".repeat(65))).toBe(false);
+    expect(isSshPaneId("a/b")).toBe(false);
+    expect(isSshPaneId("")).toBe(false);
+    expect(isSshPaneId(7)).toBe(false);
+    expect(isSshPaneId(null)).toBe(false);
+  });
+
+  it("exposes the grant fingerprint-set predicate for the plane's pre-signing check", () => {
+    // The plane validates a grant's selection with the SAME rule its own
+    // parser enforces on receipt; one definition, two directions.
+    expect(isSshGrantFingerprints([])).toBe(true); // §5.4: empty names nothing, serves nothing
+    expect(isSshGrantFingerprints(["SHA256:AAAA"])).toBe(true);
+    expect(isSshGrantFingerprints(["SHA256:AAAA", "not-a-fingerprint"])).toBe(false);
+    expect(
+      isSshGrantFingerprints(Array.from({ length: SSH_MAX_GRANT_FINGERPRINTS + 1 }, (_, i) => `SHA256:${i}`)),
+    ).toBe(false);
+    expect(isSshGrantFingerprints("SHA256:AAAA")).toBe(false);
+  });
+
+  it("narrows the close: routing ref and a NAMED reason from the typed union, nothing else", () => {
+    // The census members are the ONLY accepted spellings; each round-trips.
+    for (const reason of SSH_RELAY_CLOSE_REASONS) {
+      expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason })).toEqual({
+        type: "ssh_relay_close",
+        ref: "r-4f2a",
+        reason,
+      });
+    }
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason: "grant-revoked" })).toEqual({
+      type: "ssh_relay_close",
+      ref: "r-4f2a",
+      reason: "grant-revoked",
+    });
+    // An unknown reason is a malformed close: §5.1's "closed with a named
+    // reason" cannot hold if the grammar accepts any string.
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason: "because-i-said-so" })).toBeNull();
+    // The old underscore spellings are not the names either.
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a", reason: "grant_revoked" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-4f2a" })).toBeNull(); // reason required
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", reason: "lifetime-expiry" })).toBeNull(); // ref required
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "", reason: "child-exit" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r", reason: "" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r", reason: 3 })).toBeNull();
+    // A stray member on a valid close does not ride (the open arm's rebuild
+    // style; the close always rebuilt, and it still drops the extra).
+    expect(parseNodeCommandBody({ type: "ssh_relay_close", ref: "r-1", reason: "a-dropped", extra: 1 })).toEqual({
+      type: "ssh_relay_close",
+      ref: "r-1",
+      reason: "a-dropped",
+    });
+  });
+});
+
+describe("ssh_machine_pin_repair arm (spec 2026-10-08 §4.5, Task 17)", () => {
+  it("narrows a complete re-pair, every field carried through", () => {
+    expect(parseNodeCommandBody(structuredClone(repairCmd))).toEqual(structuredClone(repairCmd));
+    expect(parseNodeCommandBody(JSON.stringify(repairCmd))).toEqual(repairCmd);
+  });
+
+  it("refuses a repair missing any half of the delivered pair", () => {
+    // The command IS the re-delivery: peer + signing + encryption. A partial
+    // one could only make the node guess which key to replace (§4.5 writes
+    // BOTH halves, the same pair §4.4 pins), so every field is required.
+    for (const drop of ["peerNodeId", "peerSigningPublicKey", "peerEncryptPublicKey"] as const) {
+      const partial = structuredClone(repairCmd);
+      delete partial[drop];
+      expect(parseNodeCommandBody(partial)).toBeNull();
+    }
+  });
+
+  it("refuses malformed re-pair fields, the relay-open carriage rules restated", () => {
+    expect(parseNodeCommandBody({ ...repairCmd, peerNodeId: "" })).toBeNull(); // ids are non-empty
+    expect(parseNodeCommandBody({ ...repairCmd, peerNodeId: 42 })).toBeNull();
+    // The signing half must PARSE to a plain record (same gate as the
+    // relay-open's): bare words, scalars, and arrays are malformed, not junk
+    // the pin store sorts out.
+    expect(parseNodeCommandBody({ ...repairCmd, peerSigningPublicKey: "not json" })).toBeNull();
+    expect(parseNodeCommandBody({ ...repairCmd, peerSigningPublicKey: "hello" })).toBeNull();
+    expect(parseNodeCommandBody({ ...repairCmd, peerSigningPublicKey: "null" })).toBeNull();
+    expect(parseNodeCommandBody({ ...repairCmd, peerSigningPublicKey: "[1,2]" })).toBeNull();
+    // A serialized PRIVATE JWK is refused by name: re-pair re-delivers the
+    // peer's REGISTERED public halves; private material has no path onto this
+    // command or into the pin store.
+    expect(
+      parseNodeCommandBody({
+        ...repairCmd,
+        peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB","d":"pr1v4t3"}',
+      }),
+    ).toBeNull();
+    // The encryption half keeps the base64 spelling the relay-open carries;
+    // undecodable junk is refused at the grammar.
+    expect(parseNodeCommandBody({ ...repairCmd, peerEncryptPublicKey: "!!!" })).toBeNull();
+    expect(parseNodeCommandBody({ ...repairCmd, peerEncryptPublicKey: "" })).toBeNull();
+    // A public JWK with extra PUBLIC members still parses (shape gate only;
+    // deep validity is `bytesOfJwk` on the node, beside the import).
+    expect(
+      parseNodeCommandBody({
+        ...repairCmd,
+        peerSigningPublicKey: '{"kty":"EC","crv":"P-256","x":"AAA","y":"BBB","use":"sig"}',
+      }),
+    ).not.toBeNull();
+  });
+
+  it("rebuilds the repair from validated fields; stray wire members do not ride", () => {
+    const parsed = parseNodeCommandBody({ ...repairCmd, sneaky: { should: "not pass" } });
+    expect(parsed).not.toBeNull();
+    expect(parsed).not.toHaveProperty("sneaky");
+    expect(parsed).toEqual(repairCmd);
+  });
+});
+
+/**
+ * A complete `ssh_exec` kick (spec 2026-10-08 §7, Task 14): the non-interactive
+ * "Set up Subshell here" run on the connecting machine. Every field is
+ * required - the node byte-checks the config path against its own derivation,
+ * so a frame guessing any half is refused rather than executed with a hole.
+ */
+const EXEC_ID = "11111111-2222-4333-8444-555555555555";
+const execCmdFixture = (): SshExecCommand => ({
+  type: "ssh_exec",
+  execId: EXEC_ID,
+  configPath: `/home/u/.subshell/ssh/${EXEC_ID}/config`,
+  fileContent: "Host *\n  StrictHostKeyChecking yes\n",
+  presetFlags: [
+    "-o",
+    "BatchMode=yes",
+    "-F",
+    `/home/u/.subshell/ssh/${EXEC_ID}/config`,
+    "-p",
+    "22",
+    "--",
+    "d.example.test",
+  ],
+  command: 'curl -fsSL "http://plane.test/install.sh?setup_key=nsk_x" | SUBSHELL_NODE_NAME="d" bash',
+  relay: true,
+  agentSocketPath: null,
+  timeoutMs: 300_000,
+});
+
+describe("ssh_exec / ssh_exec_status arms (spec 2026-10-08 §7, Task 14)", () => {
+  it("narrows a complete kick, every field carried through", () => {
+    expect(parseNodeCommandBody(structuredClone(execCmdFixture()))).toEqual(execCmdFixture());
+    // Direct mode: no relay, the snapshot's own agent socket rides (or null).
+    expect(parseNodeCommandBody({ ...execCmdFixture(), relay: false, agentSocketPath: null })).toMatchObject({
+      relay: false,
+      agentSocketPath: null,
+    });
+    expect(
+      parseNodeCommandBody({ ...execCmdFixture(), relay: false, agentSocketPath: "/run/user/501/agent.sock" }),
+    ).toMatchObject({
+      agentSocketPath: "/run/user/501/agent.sock",
+    });
+  });
+
+  it("refuses a kick missing any field", () => {
+    for (const drop of [
+      "execId",
+      "configPath",
+      "fileContent",
+      "presetFlags",
+      "command",
+      "relay",
+      "agentSocketPath",
+      "timeoutMs",
+    ] as const) {
+      const partial = structuredClone(execCmdFixture()) as unknown as Record<string, unknown>;
+      delete partial[drop];
+      expect(parseNodeCommandBody(partial)).toBeNull();
+    }
+  });
+
+  it("refuses malformed kick fields: ids, paths, flags, command, and the relay contradiction", () => {
+    expect(parseNodeCommandBody({ ...execCmdFixture(), execId: "not an id" })).toBeNull(); // path-id shape
+    expect(parseNodeCommandBody({ ...execCmdFixture(), execId: "" })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), configPath: "ssh/x/config" })).toBeNull(); // absolute only
+    expect(
+      parseNodeCommandBody({ ...execCmdFixture(), fileContent: "x".repeat(SSH_CONFIG_FILE_MAX_BYTES + 1) }),
+    ).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), presetFlags: "not-an-array" })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), presetFlags: [] })).toBeNull(); // the launch needs at least the -F tail
+    expect(
+      parseNodeCommandBody({
+        ...execCmdFixture(),
+        presetFlags: Array.from({ length: SSH_EXEC_MAX_PRESET_FLAGS + 1 }, (_, i) => `-${i}`),
+      }),
+    ).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), presetFlags: ["-F", "path with space"] })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), presetFlags: ["-x", "nl\n"] })).toBeNull(); // control chars refused
+    expect(parseNodeCommandBody({ ...execCmdFixture(), command: "" })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), command: "a\x00b" })).toBeNull(); // one printable line
+    expect(
+      parseNodeCommandBody({ ...execCmdFixture(), command: "c".repeat(SSH_EXEC_COMMAND_MAX_CHARS + 1) }),
+    ).toBeNull();
+    // relay true names the DERIVED socket; an agentSocketPath claim beside it
+    // is a contradiction, and agentSocketPath null in direct mode is legal.
+    expect(
+      parseNodeCommandBody({
+        ...execCmdFixture(),
+        relay: true,
+        agentSocketPath: "/home/u/.subshell/ssh/other/agent.sock",
+      }),
+    ).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), timeoutMs: 0 })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), timeoutMs: SSH_EXEC_TIMEOUT_MAX_MS + 1 })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), timeoutMs: 1.5 })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), relay: "yes" })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), agentSocketPath: "relative/sock" })).toBeNull();
+    // A stray member drops; the narrowed body is rebuilt from the checked fields.
+    const withExtra = parseNodeCommandBody({ ...execCmdFixture(), smuggled: "x" });
+    expect(withExtra).not.toBeNull();
+    expect(Object.keys(withExtra as Record<string, unknown>).sort()).toEqual(Object.keys(execCmdFixture()).sort());
+  });
+
+  it("the status arm is one path id", () => {
+    expect(parseNodeCommandBody({ type: "ssh_exec_status", execId: EXEC_ID })).toEqual({
+      type: "ssh_exec_status",
+      execId: EXEC_ID,
+    });
+    expect(parseNodeCommandBody({ type: "ssh_exec_status", execId: "bad id" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_exec_status" })).toBeNull();
+  });
+
+  it("redactSshSetupKeyLines drops EVERY line carrying the setup-key marker", () => {
+    const out = redactSshSetupKeyLines(
+      [
+        "==> downloading subshell (linux-x64) from http://plane.test",
+        "curl: (7) could not reach http://plane.test/install.sh?setup_key=nsk_SECRET_VALUE_00000000000000000000",
+        'KEY="nsk_SECRET_VALUE_00000000000000000000"',
+        "==> done.",
+      ].join("\n"),
+    );
+    expect(out).not.toContain("nsk_");
+    expect(out).not.toContain("SECRET");
+    expect(out).toContain("==> downloading");
+    expect(out).toContain("==> done.");
+    // A line whose key marker was cut mid-token at the truncation seam still
+    // drops when the `nsk_` prefix survives; the function is whole-line by law.
+    expect(redactSshSetupKeyLines("")).toBe("");
+    expect(redactSshSetupKeyLines("clean\nlines\nonly")).toBe("clean\nlines\nonly");
   });
 });
 

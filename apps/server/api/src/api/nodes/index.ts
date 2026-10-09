@@ -11,6 +11,7 @@ import { nodeLoggingRoute } from "@/api/nodes/node-logging.route.js";
 import { nodeLogsRoute } from "@/api/nodes/node-logs.route.js";
 import { recheckNodeRoute } from "@/api/nodes/recheck-node.route.js";
 import { renameNodeRoute } from "@/api/nodes/rename-node.route.js";
+import { repairNodeMachinePinRoute } from "@/api/nodes/repair-node-machine-pin.route.js";
 import { reregisterNodeRoute } from "@/api/nodes/reregister-node.route.js";
 import { rotateNodeKeyRoute } from "@/api/nodes/rotate-node-key.route.js";
 import { serviceNodeRoute } from "@/api/nodes/service-node.route.js";
@@ -48,6 +49,7 @@ export const nodesRoutes = new Elysia({ prefix: "/api/nodes" })
   .use(setNodeAllowedDirsRoute)
   .use(setNodeMaintenanceRoute)
   .use(setNodeSshEnabledRoute)
+  .use(repairNodeMachinePinRoute)
   .use(rotateNodeKeyRoute)
   .use(reregisterNodeRoute)
   .use(recheckNodeRoute)

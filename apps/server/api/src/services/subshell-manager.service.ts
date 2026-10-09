@@ -60,6 +60,7 @@ import { getNotifyService, type NotifyKind } from "@/services/notify.service.js"
 import { EMPTY_PRESET, parsePreset } from "@/services/preset-definition.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
 import { sweepLocalSshDir } from "@/services/ssh-launch.service.js";
+import { closeRelayForPaneExit, sweepRelayForPane } from "@/services/ssh-relay.service.js";
 import { issueSubshellToken, revokeSubshellToken } from "@/services/subshell-tokens.js";
 import { logger } from "@/utils/logger.js";
 
@@ -145,6 +146,13 @@ export interface SshLaunchPlumbing {
   fileContent: string;
   /** The snapshot the resolver approved (grammar-validated at each boundary already). */
   snapshot: SshConnectionSnapshotWire;
+  /**
+   * RELAY MODE (spec 2026-10-08 §7): the key home whose agent signed the
+   * connection, stored on the row (migration 0052) so "Set up Subshell here"
+   * can re-open the pairing after the relay session's own memory is gone.
+   * Absent on every direct launch.
+   */
+  keyHomeNodeId?: string;
 }
 
 /**
@@ -492,6 +500,9 @@ export class SubshellManagerService {
       // read its presence. NULL for every pane this call did not compose from
       // an approved snapshot.
       ssh: ssh ? JSON.stringify(ssh.snapshot) : null,
+      // The relay pane's key home, recorded with the row (migration 0052):
+      // immutable thereafter, and no direct pane carries it.
+      keyHomeNodeId: ssh?.keyHomeNodeId ?? null,
     });
 
     // The token is minted AFTER the row exists (issueSubshellToken writes the
@@ -568,6 +579,9 @@ export class SubshellManagerService {
       // no-ops every non-local / non-ssh create; `targetNode` keeps a remote
       // pane's dir on ITS node's disk untouched.
       sweepLocalSshDir({ id, nodeId: targetNode, ssh: ssh ? JSON.stringify(ssh.snapshot) : null });
+      // A relay session (M2) bound to this pane must die with the create too:
+      // the B proxy socket would otherwise outlive the row it was named for.
+      closeRelayForPaneExit(id);
       await this.#subshells.markTerminated(id, new Date().toISOString());
       await this.#revokeTokenOrUnlink(id);
       publishLive({ kind: "subshell.changed", id });
@@ -1054,6 +1068,7 @@ export class SubshellManagerService {
   async terminateForMaintenance(row: SubshellTable): Promise<void> {
     const stopped = await this.terminateSubshell(row.userId, row.id);
     sweepLocalSshDir(row); // guard: local node ∧ snapshot; agent rows skip (their disk, their watcher)
+    sweepRelayForPane(row); // relay sessions are per-pane and die with the pane (M2 §5.6 child-exit)
     if (stopped) void this.#notify(row.id, "maintenance");
   }
 
@@ -1111,6 +1126,7 @@ export class SubshellManagerService {
     const artifacts = row.nodeId === LOCAL_NODE_ID ? [launcher.logPath(id)] : launcher.subshellArtifacts(id, sshPane);
     await launcher.removeArtifacts(artifacts);
     sweepLocalSshDir(row); // guard: local node ∧ snapshot; agent rows skip (their disk, their watcher)
+    sweepRelayForPane(row); // the pane stops existing in every flavor: any brokered relay ends here
     // And the generated MCP config (no secrets, but nothing to leave behind).
     try {
       unlinkSync(subshellMcpConfigPath(id));
@@ -1445,6 +1461,7 @@ export class SubshellManagerService {
             // fixture-shaped belt that keeps "whichever hand first notices
             // removes the dir" true for EVERY alive→dead stamp, not most.
             sweepLocalSshDir(row);
+            closeRelayForPaneExit(row.id); // the same belt for relay sessions
           }
         }
         continue;
@@ -1640,6 +1657,10 @@ export class SubshellManagerService {
     // reconcile reaches this same line whenever the process is gone, so this is
     // the deterministic sweep. Guarded on `!restarted` (never clobber a live
     // re-render) and by the helper itself (local ∧ ssh; every other row no-ops).
+    // The relay cut runs whatever the restart ladder decided: an agent-capable
+    // ssh pane never auto-restarts (M1 decision 7), and a restart of anything
+    // else must not strand the relay session of the process that just died.
+    closeRelayForPaneExit(fresh.id);
     if (!restarted) sweepLocalSshDir(fresh);
     if (!restarted && (fresh.restartOnExit !== 1 || fresh.backoffCount >= 5)) {
       // Terminal: this subshell will never come back, so its bearer must

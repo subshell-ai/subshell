@@ -7,6 +7,7 @@ import {
   type NodeEvent,
   nodeVersionSupported,
   parseNodeEvent,
+  relayFrameRefIfOverCap,
 } from "@internal/subshell-protocol";
 import type { LinkSession } from "@internal/subshell-protocol/node-link-crypto";
 import { HttpError } from "@/api/auth-guard.js";
@@ -29,6 +30,7 @@ import {
 } from "@/services/nodes/link-session.js";
 import { loadNodeEncryptionKeys, nodeEncryptionPublicKey } from "@/services/nodes/node-encryption-keys.js";
 import { announceNodePresence, projectNodeOffline } from "@/services/nodes/node-presence-announce.js";
+import { bootstrapSshIdentityOnReady } from "@/services/nodes/ssh-identity.js";
 import { logger } from "@/utils/logger.js";
 import { refireInputHoldsForNode } from "@/ws/input-hold.js";
 import { dispatchOutput, getNodeLifecycleHooks } from "./node-events.js";
@@ -46,6 +48,7 @@ import {
   releaseHeld,
 } from "./node-registry.js";
 import { binaryPayload, failConnPendings, resolveResult } from "./node-rpc.js";
+import { onNodeSocketClosed, onRelayFrame, onRelayFrameOverCap } from "./relay-frames.js";
 import { recordNodeDisconnect, recordNodeReady } from "./update-tracker.js";
 
 /**
@@ -182,7 +185,7 @@ export interface NodeVerifiedKey {
 /** Repository slice the socket touches (full `NodesRepository` satisfies it). */
 export type NodeWsNodesRepo = Pick<
   NodesRepository,
-  "findById" | "applyReady" | "applyInventory" | "touch" | "setStatus"
+  "findById" | "applyReady" | "applyInventory" | "touch" | "setStatus" | "setSshFingerprint"
 >;
 
 /** Everything the handler reaches outside its own module. */
@@ -744,6 +747,18 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
 
   const event = parseNodeEvent(resolved);
   if (!event) {
+    // A WELL-FORMED relay frame whose blob exceeds SSH_RELAY_FRAME_MAX_BYTES
+    // is refused by the strict grammar (parseRelayFrame stays strict so the
+    // NodeEvent union cannot carry an unlawful frame), but §5.1 refuses to
+    // answer it with silence: "closed with a named reason" needs the refusal
+    // to be OBSERVABLE. Probe the shape before logging "unrecognized" - the
+    // probe reads shape and the blob's raw length only, never the bytes
+    // (§5.5) - and route the named refusal to the relay seam.
+    const overCapRef = relayFrameRefIfOverCap(resolved);
+    if (overCapRef !== null) {
+      onRelayFrameOverCap(nodeId, overCapRef);
+      return;
+    }
     logger.debug(`node ws: dropped unrecognized frame from ${nodeId}`);
     return;
   }
@@ -864,6 +879,17 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
           ...(event.runtime ? { runtime: event.runtime } : {}),
         };
       }
+      // Mirror the §4.6 trust block the report carried onto the row (spec
+      // 2026-10-08 §4.5/§4.6) — the durable copy behind the offline,
+      // STALE-marked card, written on the same "record FIRST" posture as the
+      // facts stash above and on the same surviving-socket rule (the stillLive
+      // probe already returned for a disowned one). A ready WITHOUT a block
+      // — an agent that predates M2, or one whose block the grammar refused —
+      // writes NOTHING: absence is not evidence the machine's keys are gone,
+      // and only a fresh true report may move the plane's copy.
+      if (event.runtime?.sshFingerprint) {
+        await deps.nodes.setSshFingerprint(nodeId, JSON.stringify(event.runtime.sshFingerprint));
+      }
       // The floor FIRST, because its refusal is the one a person can act on:
       // it names the version to install and the version found, where a bare
       // protocol number names neither. Identity is already persisted above,
@@ -980,6 +1006,14 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       // cheap; everything slow lives in the push's own best-effort swallow.
       if (hooks) await hooks.onSshEnabled(nodeId, event.sshEnabled);
       else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile ssh_enabled`);
+      // The §4.3 signing bootstrap (spec 2026-10-08): an agent whose identity
+      // record has no signing key is ASKED ONCE, and the answer files itself.
+      // Fire-and-forget for the same reason the detect kick above is: the
+      // machine's answer arrives as a LATER `result` frame on this socket's
+      // own queue, and awaiting it inside this frame would deadlock the
+      // chain. The no-spam gate (filled slot / absent record = silent skip)
+      // lives in the call itself.
+      void bootstrapSshIdentityOnReady(nodeId);
       return;
     }
     case "heartbeat":
@@ -1064,6 +1098,17 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
     case "error":
       logger.withMetadata({ nodeId, code: event.code }).warn(`node reported error: ${event.message}`);
       return;
+    case "relay": {
+      // The sealed agent-relay leg (spec 2026-10-08 §5.1). Everything a
+      // router must know about this frame is already decided upstream: the
+      // grammar validated shape and the SSH_RELAY_FRAME_MAX_BYTES cap, the
+      // exact-match handshake refused any pre-18 agent BEFORE this socket
+      // could carry a frame, and the held/supersede guards above ran. The
+      // blob stays opaque right through here (§5.5) - Task 8's broker pairs
+      // refs and shuttles; this is the routing seam, not the broker.
+      onRelayFrame(nodeId, event);
+      return;
+    }
   }
 }
 
@@ -1132,6 +1177,14 @@ export async function handleNodeClose(deps: NodeWsDeps, ws: NodeWsSocket): Promi
     // touched any of them — so without this the dashboard keeps rendering
     // them as healthy until the viewer reconnects.
     announceNodePresence(nodeId);
+    // The relay broker's `a-dropped` witness (spec 2026-10-08 §5.6): this is
+    // the honest "this node's authenticated link is gone" moment - the
+    // broker cuts sessions where this machine was A and leaves its B-side
+    // sessions for the redial (or a child-exit / cap cut). The superseded
+    // branch below deliberately calls nothing: a replacement socket means
+    // the node is NOT gone. Fire-and-forget by contract (relay-frames owns
+    // the swallow).
+    onNodeSocketClosed(nodeId);
     logger.debug(`node ws: ${nodeId} disconnected → offline`);
     return;
   }

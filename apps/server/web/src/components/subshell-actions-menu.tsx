@@ -10,6 +10,7 @@ import {
   Keyboard,
   QrCode,
   RotateCcw,
+  ServerCog,
   Share2,
   SlidersHorizontal,
   TextCursorInput,
@@ -20,6 +21,7 @@ import { type ActionItem, ActionsMenu } from "@/components/actions-menu";
 import { CloneSubshellDialog } from "@/components/clone-subshell-dialog";
 import { InjectPromptDialog } from "@/components/prompts/inject-prompt-dialog";
 import { QrLinkDialog } from "@/components/qr-link-dialog";
+import { SetupHereDialog } from "@/components/setup-here-dialog";
 import { SharingDialog } from "@/components/sharing-dialog";
 import { SwitchPresetDialog } from "@/components/switch-preset-dialog";
 import { TitleDialog } from "@/components/ui/title-dialog";
@@ -79,6 +81,7 @@ export function SubshellActionsMenu({
   const [titleOpen, setTitleOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cloneOpen, setCloneOpen] = useState(false);
+  const [setupHereOpen, setSetupHereOpen] = useState(false);
   const [switchPresetOpen, setSwitchPresetOpen] = useState(false);
   const [injectOpen, setInjectOpen] = useState(false);
   const navigate = useNavigate();
@@ -255,6 +258,21 @@ export function SubshellActionsMenu({
           },
         ]
       : []),
+    // "Set up Subshell here" (spec 2026-10-08 §7): the destination upgrade,
+    // an act the OWNER performs on an SSH-terminal pane. The ssh flag is the
+    // pane's kind fact and the server re-checks it (a non-ssh pane refuses by
+    // name); the offline gate is the restart item's rule, because this act
+    // needs the connecting machine online to carry the install - promising it
+    // offline would end in a refusal the menu could have named first.
+    ...(isOwner && subshell.ssh === true && !subshell.nodeOffline
+      ? [
+          {
+            icon: ServerCog,
+            label: "Set up Subshell here…",
+            onSelect: () => setSetupHereOpen(true),
+          },
+        ]
+      : []),
     ...(preset
       ? [
           {
@@ -310,6 +328,9 @@ export function SubshellActionsMenu({
           half-typed custom TEXT deliberately outlives the unmount (the
           picker's sessionStorage draft, ruling 2026-09-29). */}
       {injectOpen && <InjectPromptDialog subshellId={subshell.id} open onOpenChange={setInjectOpen} />}
+      {/* Mount-while-open, the menu's dialog posture: every open starts from
+          the question, and a finished act's answer leaves with the close. */}
+      {setupHereOpen && <SetupHereDialog subshell={subshell} open onOpenChange={setSetupHereOpen} />}
       <QrLinkDialog
         open={qrOpen}
         onOpenChange={setQrOpen}

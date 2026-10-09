@@ -29,6 +29,11 @@ import { execSetMaintenance } from "./set-maintenance.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execSetSshEnabled } from "./set-ssh-enabled.js";
 import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
+import { execSshExec, execSshExecStatus } from "./ssh-exec.js";
+import { execSshHostKey } from "./ssh-host-key.js";
+import { execSshAgentIdentities, execSshRegisterIdentity } from "./ssh-identity.js";
+import { execSshMachinePinRepair } from "./ssh-machine-pin-repair.js";
+import { execSshRelayClose, execSshRelayOpen } from "./ssh-relay-exec.js";
 import { execLogRead, execTailStart, execTailStop } from "./tail.js";
 import { execTransferWrite } from "./transfer-write.js";
 import { execTreeManifest } from "./tree-manifest.js";
@@ -51,9 +56,33 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * commands `archive_create`, `file_read`, `transfer_write`, `archive_extract`
  * and `tree_manifest` (spec 2026-10-01 §4, protocol 15), and
  * `set_ssh_enabled` (spec 2026-10-07 §4.3, protocol 16 — the SSH gate's plane-
- * to-machine write), and the two SSH read arms `ssh_discover_aliases` and
+ * to-machine write), the two SSH read arms `ssh_discover_aliases` and
  * `ssh_resolve_config` (spec 2026-10-07 §5, protocol 17 — both refuse on the
- * local gate mirror before any lookup or spawn). Any
+ * local gate mirror before any lookup or spawn), the M2 §4.3 bootstrap
+ * `ssh_register_identity` (spec 2026-10-08 §4.3 - the machine's own signing
+ * PUBLIC key, ungated like `set_ssh_enabled`: registration is not an SSH act),
+ * the roster read `ssh_agent_identities` (spec 2026-10-08 §5.4 - the live
+ * agent's public identities as fingerprints plus comments, blobs withheld;
+ * gated like the config arms, because reading the account's agent IS an SSH
+ * act, and it probes the agent's numbering before asking, never guessing),
+ * the host-key capture `ssh_host_key` (spec 2026-10-08 §9, Task 12 - the
+ * `known_hosts` entries for one destination, evaluated by `ssh-keygen -F` so
+ * OpenSSH's own matching answers; gated like the config arms, and an absent
+ * file is the honest empty answer the capture fails closed on),
+ * and the brokered relay pair `ssh_relay_open` / `ssh_relay_close`
+ * (spec 2026-10-08 §5.1, protocol 18 - open consults the gate then drives the
+ * T6/T7 pairing branches by the command's own role; close is ungated teardown,
+ * because ending a session is not an SSH act), and the non-interactive setup
+ * pair `ssh_exec` / `ssh_exec_status` (spec 2026-10-08 §7, Task 14 - the
+ * "Set up Subshell here" install runs on its own short-lived ssh, off the
+ * command chain, its captured output `nsk_`-redacted before it is kept),
+ * and the §4.5 recovery `ssh_machine_pin_repair` (Task 17 - replaces ONE
+ * peer's stored machine pin with the peer's registered public pair the plane
+ * re-delivers; deliberately UNGATED like `ssh_register_identity`, because it
+ * is a trust-record act on this machine's own store and the recovery must
+ * reach a machine whose pairing is blocked; deep public-only key validation
+ * before any write, audit stays plane-side).
+ * Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
  *
@@ -134,6 +163,22 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execSshDiscoverAliases(ctx);
       case "ssh_resolve_config":
         return await execSshResolveConfig(ctx, cmd);
+      case "ssh_register_identity":
+        return await execSshRegisterIdentity(ctx);
+      case "ssh_agent_identities":
+        return await execSshAgentIdentities(ctx);
+      case "ssh_host_key":
+        return await execSshHostKey(ctx, cmd);
+      case "ssh_relay_open":
+        return await execSshRelayOpen(ctx, cmd);
+      case "ssh_relay_close":
+        return execSshRelayClose(ctx, cmd);
+      case "ssh_exec":
+        return await execSshExec(ctx, cmd);
+      case "ssh_exec_status":
+        return await execSshExecStatus(ctx, cmd);
+      case "ssh_machine_pin_repair":
+        return execSshMachinePinRepair(ctx, cmd);
       case "set_server_url":
         return await execSetServerUrl(ctx, cmd);
       case "update":

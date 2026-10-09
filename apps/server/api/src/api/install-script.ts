@@ -289,7 +289,11 @@ case "$HTTP" in
     echo "    'bun run release:cli-node' from a checkout on the server host, or copy the" >&2
     echo "    'subshell-node-cli-$TARGET' asset from a cli-node-vX.Y.Z GitHub Release into that dir." >&2
     echo "    Or install the node for this machine another way and run setup directly:" >&2
-    echo "      subshell setup --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
+    # The key here is a LITERAL placeholder, never the KEY variable: bash would
+    # expand the value into the printed line, and "Set up Subshell here"
+    # (spec 2026-10-08 §7) captures this output through a non-interactive exec.
+    # The advice is a copy-paste template; the person following it fills in a key.
+    echo "      subshell setup --server $SERVER --key <setup key>\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
     exit 1
     ;;
   *)

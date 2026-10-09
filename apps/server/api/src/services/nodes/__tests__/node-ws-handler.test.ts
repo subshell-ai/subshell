@@ -7,6 +7,8 @@ import {
   NODE_MAX_FRAME_BYTES,
   NODE_PROTOCOL_VERSION,
   type NodeEvent,
+  type RelayFrame,
+  SSH_RELAY_FRAME_MAX_BYTES,
 } from "@internal/subshell-protocol";
 import {
   createClientSession,
@@ -20,6 +22,7 @@ import { type NodeReadyReport, NodesRepository } from "@/db/repositories/nodes.r
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
 import { subscribeLive } from "@/services/live-bus.js";
+import { type RelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
 import { resetInputHoldsForTests } from "@/ws/input-hold.js";
 import { resetInputWindowsForTests } from "@/ws/input-window.js";
 import { handleSubshellMessage } from "@/ws/subshell-ws.js";
@@ -48,6 +51,7 @@ import {
   type NodeWsDeps,
   type NodeWsSocket,
 } from "../node-ws-handler.js";
+import { relayFramesSeenFor, relayOverCapsSeenFor, resetRelayFramesForTests } from "../relay-frames.js";
 import { beginUpdate, readView, resetForTests, updateSwapped } from "../update-tracker.js";
 
 /* ---------------------------- fakes ----------------------------- */
@@ -98,6 +102,8 @@ interface Harness {
   disabledOwners: Set<string>;
   ready: { id: string; report: NodeReadyReport }[];
   inventories: { id: string; json: string }[];
+  /** JSON trust blocks `ready` mirror writes landed (spec 2026-10-08 §4.6) */
+  sshFingerprints: { id: string; json: string | null }[];
   touched: string[];
   statuses: { id: string; status: string }[];
   /** what deps.resolveResult saw: the connection handed to it + the event */
@@ -121,6 +127,7 @@ function makeHarness(): Harness {
     disabledOwners: new Set(),
     ready: [],
     inventories: [],
+    sshFingerprints: [],
     touched: [],
     statuses: [],
     results: [],
@@ -159,6 +166,9 @@ function makeHarness(): Harness {
       },
       setStatus: async (id, status) => {
         h.statuses.push({ id, status });
+      },
+      setSshFingerprint: async (id, json) => {
+        h.sshFingerprints.push({ id, json });
       },
     } as unknown as NodeWsDeps["nodes"],
     resolveResult: (conn, event) => {
@@ -617,6 +627,64 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // this commit; its removal from {@link NodeWsDeps} is itself the pin that
     // `ready` cannot pull anymore, whatever a future frame handler grows.
     expect(ws.closed).toHaveLength(0);
+  });
+
+  /**
+   * A complete runtime report the strict validator accepts, so the frames
+   * below exercise the MIRROR rules rather than the parser's floor.
+   */
+  const runtimeWith = (extra: Record<string, unknown>) => ({
+    startedAt: "2026-10-08T00:00:00.000Z",
+    supervised: false,
+    service: {
+      manager: "systemd",
+      installed: false,
+      definitionPath: null,
+      state: "running",
+      pid: null,
+      enabled: null,
+      linger: null,
+      paneSafety: "unknown",
+    },
+    configPath: "/c",
+    agentLogPath: "/c/agent.log",
+    logPath: null,
+    logHint: null,
+    tmuxPath: null,
+    binaryPath: "/b",
+    logging: { debug: false, source: "default" },
+    ...extra,
+  });
+
+  /** The canonical §4.6 trust block shapes; one good, one the grammar refuses. */
+  const TRUST_BLOCK = {
+    own: { signing: `SHA256:${"A".repeat(43)}`, encryption: `SHA256:${"B".repeat(43)}` },
+    peers: [],
+  };
+
+  it("ready mirrors the ssh trust block onto the row; no block, no write, no clear", async () => {
+    const h = makeHarness();
+    await handleNodeMessage(
+      h.deps,
+      fakeSocket("n1"),
+      JSON.stringify(readyFrame({ runtime: runtimeWith({ sshFingerprint: TRUST_BLOCK }) })),
+    );
+    expect(h.sshFingerprints).toEqual([{ id: "n1", json: JSON.stringify(TRUST_BLOCK) }]);
+    // A later ready WITHOUT a block (the agent predates M2, or the read
+    // failed): the mirror must survive it. Absence is not evidence the
+    // machine's keys are gone; only a fresh true report moves the copy.
+    await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
+    expect(h.sshFingerprints).toHaveLength(1);
+    // And a malformed block is dropped by the frame parser BEFORE the switch,
+    // so it reaches no write at all (the same frame still comes online: the
+    // ready itself is kept, `runtime` with it, minus the junk block).
+    await handleNodeMessage(
+      h.deps,
+      fakeSocket("n1"),
+      JSON.stringify(readyFrame({ runtime: runtimeWith({ sshFingerprint: { own: "junk", peers: [] } }) })),
+    );
+    expect(h.sshFingerprints).toHaveLength(1);
+    expect(h.ready).toHaveLength(3);
   });
 
   /**
@@ -1391,6 +1459,47 @@ describe("handleNodeClose (superseded-close hygiene, spec §5.3)", () => {
     await handleNodeClose(h.deps, fakeSocket("n1"));
     expect(h.statuses).toEqual([]);
   });
+
+  it("(Task 8, spec 2026-10-08 §5.6) the LIVE socket's death is witnessed by the relay broker; a superseded one is not", async () => {
+    // The `a-dropped` cut's ONLY trigger is this witness: the handler owns
+    // "the authenticated link is gone", the broker owns "which sessions that
+    // kills". A superseded close means the node is NOT gone - its newer
+    // socket still answers - so the witness must fire once, for the real
+    // death only.
+    const seen: string[] = [];
+    const broker: RelayBroker = {
+      openRelay: async () => {
+        throw new Error("unused");
+      },
+      routeRelayFrame: () => {},
+      closeRelay: async () => false,
+      closeForGrant: async () => 0,
+      closeForPane: async () => 0,
+      refuseOverCap: async () => false,
+      onNodeSocketClosed: async (nodeId) => {
+        seen.push(nodeId);
+        return 0;
+      },
+      activeRelayCount: () => 0,
+      sessionInfo: () => null,
+      reset: () => {},
+    };
+    setRelayBrokerForTests(broker);
+    try {
+      const h = makeHarness();
+      const first = fakeSocket("n1");
+      handleNodeOpen(OPEN_DEPS, first);
+      const second = fakeSocket("n1"); // newest-wins: the first is superseded
+      handleNodeOpen(OPEN_DEPS, second);
+      await handleNodeClose(h.deps, first);
+      expect(seen).toEqual([]); // a superseded close tells the broker NOTHING
+      await handleNodeClose(h.deps, second);
+      expect(seen).toEqual(["n1"]); // the real death is reported exactly once
+      await new Promise((resolve) => setTimeout(resolve, 0)); // drain the fire-and-forget
+    } finally {
+      setRelayBrokerForTests(null);
+    }
+  });
 });
 
 /**
@@ -1746,6 +1855,104 @@ describe("handleNodeMessage through the link machine (spec 2026-09-24 §4/§5/§
     Object.assign(big.data, { linkMode: "handshake", linkEncryptPublicKey: "irrelevant" });
     await handleNodeMessage(h.deps, big, new Uint8Array(NODE_MAX_FRAME_BYTES + 1));
     expect(big.closed[0]?.code).toBe(NODE_CLOSE_TOO_BIG);
+  });
+
+  it("(g2) a tier-17 binding is refused, and no relay frame EVER reaches the seam on that socket (spec 2026-10-08 §11)", async () => {
+    // THE bump gate: relay frames are a new link frame kind, so an agent
+    // that ships no relay grammar must not pair at all. The exact-match
+    // check in the binding is what refuses it - BEFORE establishment, which
+    // is the only door a relay frame has (the machine hands plaintext only
+    // after `established`, and the switch never runs on an unestablished
+    // socket). The relay frame here is a VALID shape; it fails on the
+    // version, which is the point.
+    resetRelayFramesForTests();
+    const f = await handshakeFixture();
+    const { h, ws, client } = f;
+    await handleNodeMessage(h.deps, ws, kxText(f));
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      client.session.sealFrame(
+        JSON.stringify({ nodeId: "n1", nodeKey: LIVE, protocolVersion: NODE_PROTOCOL_VERSION - 1 }),
+      ),
+    );
+    expect(ws.closed[0]?.code).toBe(NODE_CLOSE_HANDSHAKE_REQUIRED); // 4410
+    expect(ws.data.linkPhase).not.toBe("established");
+    // What the pre-18 agent tries anyway - first as plaintext junk, then as
+    // a WELL-FORMED sealed relay frame its own session can still encrypt.
+    const relayFrame = { type: "relay", ref: "r-1", seq: 0, direction: "B2A", blob: "QUJD" };
+    await handleNodeMessage(h.deps, ws, JSON.stringify(relayFrame));
+    await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify(relayFrame)));
+    expect(relayFramesSeenFor("n1")).toBeUndefined(); // refused at the version match, never routed
+  });
+
+  it("(g3) an established tier-18 link routes a sealed relay frame verbatim to the seam; over-cap is refused by name", async () => {
+    resetRelayFramesForTests();
+    const f = await handshakeFixture();
+    const { h, ws, client } = f;
+    await handleNodeMessage(h.deps, ws, kxText(f));
+    await handleNodeMessage(h.deps, ws, bindingBytes(f)); // established at 18
+    const relayFrame: RelayFrame = { type: "relay", ref: "r-1", seq: 3, direction: "A2B", blob: "QUJD" };
+    await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify(relayFrame)));
+    // The frame reached the broker (Task 8's route: pair by ref, copy the
+    // blob unopened). The seam's own record is a routing SUMMARY - the plane
+    // is a blind router (§5.5) and the summary has no slot to hold a blob.
+    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, lastRef: "r-1", lastDirection: "A2B" });
+    expect(JSON.stringify(relayFramesSeenFor("n1"))).not.toContain("QUJD");
+    // The over-cap blob is refused by the grammar upstream of the ROUTER seam
+    // (§5.1: cap is law); the socket survives, the frame is not forwarded.
+    // But §5.1's named-reason close needs the refusal to be OBSERVABLE, and
+    // the handler's over-cap probe is what routes it - ref only, no blob.
+    const over = "A".repeat(Math.ceil(SSH_RELAY_FRAME_MAX_BYTES / 3) * 4 + 4);
+    await handleNodeMessage(h.deps, ws, client.session.sealFrame(JSON.stringify({ ...relayFrame, blob: over })));
+    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, lastRef: "r-1", lastDirection: "A2B" }); // router seam: NOT the normal route
+    expect(relayOverCapsSeenFor("n1")).toEqual({ overCaps: 1, lastRef: "r-1" }); // over-cap seam, ref carried
+    // The blob never crossed: the record has no byte slot, and the only
+    // bytes the seam could know are the ref (§5.5 blindness end to end).
+    expect(JSON.stringify(relayOverCapsSeenFor("n1"))).not.toContain("AAAA");
+    expect(ws.closed).toHaveLength(0); // a refused frame is not fatal (spec §3.1 posture)
+  });
+
+  it("(g3b) an over-cap relay frame lands on the over-cap seam, NOT the router seam; junk lands on neither (Task 4 review)", async () => {
+    // The plain-path twin of g3's encrypted route (the fake socket skips the
+    // link machine), pinning the branch the handler added to its
+    // parseNodeEvent-null path: shape probe first, then the drop.
+    resetRelayFramesForTests();
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    const over = "A".repeat(Math.ceil(SSH_RELAY_FRAME_MAX_BYTES / 3) * 4 + 4);
+    const overFrame = { type: "relay", ref: "r-9", seq: 1, direction: "B2A", blob: over };
+    await handleNodeMessage(h.deps, ws, JSON.stringify(overFrame));
+    expect(relayOverCapsSeenFor("n1")).toEqual({ overCaps: 1, lastRef: "r-9" });
+    expect(relayFramesSeenFor("n1")).toBeUndefined(); // never routed, blob never forwarded
+    // A second refusal increments the same node's count with the newer ref.
+    await handleNodeMessage(h.deps, ws, JSON.stringify({ ...overFrame, ref: "r-10" }));
+    expect(relayOverCapsSeenFor("n1")).toEqual({ overCaps: 2, lastRef: "r-10" });
+    // A MALFORMED over-cap frame is junk, not an over-cap: it stays on the
+    // silent-drop path the probe deliberately does not widen.
+    await handleNodeMessage(h.deps, ws, JSON.stringify({ ...overFrame, seq: -5 }));
+    expect(relayOverCapsSeenFor("n1")).toMatchObject({ overCaps: 2 });
+    // And a well-formed UNDER-cap frame goes the other way: routed, not refused.
+    const goodFrame: RelayFrame = { type: "relay", ref: "r-11", seq: 0, direction: "A2B", blob: "QUJD" };
+    await handleNodeMessage(h.deps, ws, JSON.stringify(goodFrame));
+    expect(relayFramesSeenFor("n1")).toEqual({ frames: 1, lastRef: "r-11", lastDirection: "A2B" });
+    expect(relayOverCapsSeenFor("n1")).toMatchObject({ overCaps: 2 }); // still just the two
+    expect(ws.closed).toHaveLength(0);
+  });
+
+  it("(g4) a HELD socket's relay frame is dropped by the held-gate, not routed", async () => {
+    resetRelayFramesForTests();
+    const h = makeHarness();
+    const ws = fakeSocket("n1"); // unclassified fake: straight to the gates/switch
+    handleNodeOpen(OPEN_DEPS, ws); // the hold needs the connection it attaches
+    await handleNodeMessage(h.deps, ws, JSON.stringify(readyFrame({ protocolVersion: 999 })));
+    expect(getHeld("n1")).toBeDefined();
+    await handleNodeMessage(
+      h.deps,
+      ws,
+      JSON.stringify({ type: "relay", ref: "r-1", seq: 0, direction: "B2A", blob: "QUJD" }),
+    );
+    expect(relayFramesSeenFor("n1")).toBeUndefined(); // held speaks exactly one thing: `result`
   });
 
   it("(h) the held `update` path traverses the machine untouched: plaintext out, plaintext result in, RPC completes", async () => {

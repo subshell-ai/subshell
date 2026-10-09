@@ -157,6 +157,26 @@ export class NodesRepository extends BaseRepository {
       .executeTakeFirst();
   }
 
+  /**
+   * Mirror (or clear) this node's §4.6 SSH trust block (spec 2026-10-08
+   * §4.5/§4.6): the JSON of what the machine last reported about its own and
+   * its pinned peers' key fingerprints, so the trust card survives an offline
+   * node and a plane restart alike.
+   *
+   * The `ready` ingest calls this ONLY when the report carried a well-formed
+   * block: a report that says nothing never clears the mirror (absence is not
+   * evidence the keys are gone). `null` is for callers that DO know the block
+   * is dead (tests today; a future machine-side identity wipe would clear it
+   * by re-report, not by null).
+   */
+  async setSshFingerprint(id: string, json: string | null): Promise<void> {
+    await this.db
+      .updateTable("nodes")
+      .set({ sshFingerprint: json, updatedAt: new Date().toISOString() })
+      .where("id", "=", id)
+      .execute();
+  }
+
   /** Cache a harness inventory snapshot (spec §6.2 TTL is the caller's). */
   async applyInventory(id: string, inventoryJson: string): Promise<void> {
     const now = new Date().toISOString();

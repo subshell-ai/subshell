@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { hashPassword } from "better-auth/crypto";
 import { Elysia } from "elysia";
+import { exportJWK, generateKeyPair } from "jose";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { authDatabase } from "@/auth/database.js";
 import { getAuth } from "@/auth.js";
 import { db } from "@/db/index.js";
+import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
@@ -20,6 +22,7 @@ import {
 } from "@/services/nodes/node-registry.js";
 import { NodeRpcError } from "@/services/nodes/node-rpc.js";
 import { ensureLocalNode, localPlatform } from "@/services/nodes/seed-local.js";
+import { deliverSigningKey } from "@/services/nodes/ssh-identity.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
@@ -93,6 +96,7 @@ describe("/api/nodes registry CRUD", () => {
   const app = new Elysia().use(errorHandlerPlugin).use(nodesRoutes);
   const nodes = new NodesRepository(db);
   const nodeShares = new NodeSharesRepository(db);
+  const identities = new IdentitiesRepository(db);
 
   let aliceCookie = "";
   let bobCookie = "";
@@ -567,6 +571,62 @@ describe("/api/nodes registry CRUD", () => {
     expect(sock.closed.some((c) => c.code === 4401)).toBe(true);
     expect(getLive(n.id)).toBeUndefined();
     resetNodeRegistryForTests();
+  });
+
+  it("rotate: clears the signing slot too, and the SAME-bytes redial re-files it (no block, no peer re-pair)", async () => {
+    // Spec §13's rotation units, plane side. Rotation replaces the BEARER and
+    // everything entrusted under its link, and it clears BOTH machine-key
+    // slots: the X25519 link pin (previous case) and the ES256 signing slot
+    // here. What makes this safe rather than destructive is that the machine
+    // keys themselves never moved: the redial's §4.3 bootstrap answers with
+    // the SAME bytes (a quiet re-file, not a refusal), and the node's own
+    // peer pins are untouched by anything the plane does, so the relay keeps
+    // byte-equality and no peer has to re-pair. The fingerprint MIRROR also
+    // survives: the machine's reported trust is about keys that did not move.
+    const n = await mkNode(aliceId, `rot-sign-${crypto.randomUUID().slice(0, 8)}`);
+    const { publicKey } = await generateKeyPair("ES256", { crv: "P-256", extractable: true });
+    const signingJwk = JSON.stringify(await exportJWK(publicKey));
+    await identities.register({
+      principalId: `node:${n.id}`,
+      publicKey: `{"kty":"EC","crv":"P-256","x":"${"B".repeat(43)}","y":"${"A".repeat(43)}"}`,
+      signingPublicKey: signingJwk,
+      displayName: null,
+    });
+    const block = {
+      own: { signing: `SHA256:${"A".repeat(43)}`, encryption: `SHA256:${"B".repeat(43)}` },
+      peers: [
+        {
+          nodeId: "0f8e2c1a-0000-4000-8000-000000000001",
+          signing: `SHA256:${"C".repeat(43)}`,
+          encryption: `SHA256:${"D".repeat(43)}`,
+        },
+      ],
+    };
+    await nodes.setEncryptPublicKey(n.id, "AAECzaWRtZXgtcHVibGljLWtleQ");
+    await nodes.setSshFingerprint(n.id, JSON.stringify(block));
+
+    const sock = fakeSocket();
+    attachConnection(n.id, sock);
+    try {
+      expect((await req("POST", `/${n.id}/rotate-key`, { cookie: aliceCookie })).status).toBe(200);
+
+      // Cleared: the link pin and the signing slot. Preserved: the mirror
+      // (both halves and the peer entries, byte for byte).
+      const row = await nodes.findById(n.id);
+      expect(row?.encryptPublicKey).toBeNull();
+      expect((await identities.findByPrincipal(`node:${n.id}`))?.signingPublicKey).toBeNull();
+      expect(row?.sshFingerprint).toBe(JSON.stringify(block));
+
+      // The redial's §4.3 delivery, SAME bytes into the now-empty slot: stored
+      // quietly (a DIFFERENT key here would be refused against a filled slot,
+      // and the cleared slot plus the unchanged disk identity make that
+      // branch unreachable for an honest agent).
+      expect(await deliverSigningKey(n.id, signingJwk)).toBe(signingJwk);
+      expect((await identities.findByPrincipal(`node:${n.id}`))?.signingPublicKey).toBe(signingJwk);
+    } finally {
+      await db.deleteFrom("identities").where("principalId", "=", `node:${n.id}`).execute();
+      resetNodeRegistryForTests();
+    }
   });
 
   it("rotate: view-grantee 403, admin on an agent node 403", async () => {

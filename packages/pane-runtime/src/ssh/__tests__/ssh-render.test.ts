@@ -1,7 +1,14 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { buildSshConfigPath, renderSshConfigContents, sshDestinationToken, sshOptionTokens } from "../ssh-render.js";
+import { dirname, join } from "node:path";
+import {
+  buildAgentSocketPath,
+  buildSshConfigPath,
+  buildSshKnownHostsPath,
+  renderSshConfigContents,
+  sshDestinationToken,
+  sshOptionTokens,
+} from "../ssh-render.js";
 import { makeSnapshot } from "./helpers.js";
 
 /**
@@ -213,6 +220,104 @@ describe("sshDestinationToken", () => {
   });
 });
 
+describe("buildSshKnownHostsPath", () => {
+  // Spec 2026-10-08 §9 (Task 12): the B side writes the delivered pin to a
+  // 0600 known_hosts file in the SAME per-pane ssh dir, so `ssh -F` reads a
+  // config whose UserKnownHostsFile points at it. One derivation, both ends.
+  it("composes the pinned file beside the config and socket, one dir", () => {
+    expect(buildSshKnownHostsPath("/data", "s1")).toBe("/data/ssh/s1/known_hosts");
+    expect(dirname(buildSshKnownHostsPath("/data", "s1"))).toBe(dirname(buildSshConfigPath("/data", "s1")));
+    expect(dirname(buildSshKnownHostsPath("/data", "s1"))).toBe(dirname(buildAgentSocketPath("/data", "s1")));
+  });
+
+  it("runs the same guards as the config path", () => {
+    expect(() => buildSshKnownHostsPath("data", "s1")).toThrow(/absolute/);
+    expect(() => buildSshKnownHostsPath("/d", "")).toThrow(/paneId/);
+    expect(() => buildSshKnownHostsPath("/d", "../escape")).toThrow(/paneId/);
+    expect(() => buildSshKnownHostsPath("/d", "a".repeat(65))).toThrow(/paneId/);
+    expect(buildSshKnownHostsPath("/d", "a".repeat(64))).toBe(`/d/ssh/${"a".repeat(64)}/known_hosts`);
+  });
+});
+
+describe("renderSshConfigContents relay mode (spec 2026-10-08 §9)", () => {
+  const PIN = "/data/ssh/s1/known_hosts";
+  const relay = { hostPinPath: PIN };
+
+  it("emits the pinned UserKnownHostsFile and forces yes, not accept-new", () => {
+    const out = renderSshConfigContents(baseSnapshot({ knownHostsFiles: ["/home/deploy/.ssh/known_hosts"] }), relay);
+    expect(out).toContain("    StrictHostKeyChecking yes");
+    expect(out).not.toContain("accept-new");
+    // The pinned file is the ONLY trust source: B's own ambient known_hosts
+    // is NOT the authority (spec §9), so the snapshot's own trust refs are
+    // replaced, never appended.
+    expect(out).toContain(`    UserKnownHostsFile ${PIN}`);
+    expect(out).not.toContain("/home/deploy/.ssh/known_hosts");
+  });
+
+  it("forces yes even when the snapshot named no trust refs (relay replaces, never defers)", () => {
+    const out = renderSshConfigContents(baseSnapshot({ knownHostsFiles: [] }), relay);
+    expect(out).toContain("    StrictHostKeyChecking yes");
+    expect(out).not.toContain("accept-new");
+    expect(out).toContain(`    UserKnownHostsFile ${PIN}`);
+  });
+
+  it("neutralizes the system-wide file too: BOTH trust refs, UserKnownHostsFile pinned and GlobalKnownHostsFile /dev/null", () => {
+    // OpenSSH consults GlobalKnownHostsFile (/etc/ssh/ssh_known_hosts by
+    // default) ALONGSIDE UserKnownHostsFile, and a match there satisfies
+    // `yes` - outranking the user file is not enough. A planted or stale key
+    // in B's system-wide file must not authenticate D: the destination's
+    // global trust DB is /dev/null for every hop (spec 2026-10-08 §9: the
+    // pinned file is the authority, not ambient state on B).
+    const out = renderSshConfigContents(baseSnapshot(), relay);
+    expect(out).toContain(`    UserKnownHostsFile ${PIN}`);
+    expect(out).toContain("    GlobalKnownHostsFile /dev/null");
+  });
+
+  it("quotes the pinned path only when it needs it (the same tokenizer rule as other file values)", () => {
+    const spaced = renderSshConfigContents(baseSnapshot(), { hostPinPath: "/data/ssh dir/s1/known_hosts" });
+    expect(spaced).toContain('    UserKnownHostsFile "/data/ssh dir/s1/known_hosts"');
+  });
+
+  it("keeps every other mandatory policy line unchanged (relay mode is ONLY the trust refs + yes)", () => {
+    const out = renderSshConfigContents(baseSnapshot(), relay);
+    for (const [key, value] of [
+      ["ForwardAgent", "no"],
+      ["ForwardX11", "no"],
+      ["ClearAllForwardings", "yes"],
+      ["EscapeChar", "none"],
+      ["RemoteCommand", "none"],
+      ["VerifyHostKeyDNS", "no"],
+      ["CanonicalizeHostname", "no"],
+    ] as [string, string][]) {
+      expect(out).toContain(`    ${key} ${value}`);
+    }
+  });
+
+  it("a non-relay render is byte-for-byte the M1 accept-new posture (the branch is untouched)", () => {
+    const snap = baseSnapshot();
+    expect(renderSshConfigContents(snap)).toContain("    StrictHostKeyChecking accept-new");
+    // No second argument is the M1 call; it must equal an explicit-undefined.
+    expect(renderSshConfigContents(snap, undefined)).toBe(renderSshConfigContents(snap));
+    // The relay's global-file neutralization must NOT leak into the M1
+    // posture: the direct branch keeps consulting the machine's own trust
+    // files exactly as M1 rendered them.
+    expect(renderSshConfigContents(snap)).not.toContain("GlobalKnownHostsFile");
+  });
+
+  it("refuses a non-absolute or oversized hostPinPath (never composes a stray trust file)", () => {
+    expect(() => renderSshConfigContents(baseSnapshot(), { hostPinPath: "relative/known_hosts" })).toThrow(/absolute/);
+    expect(() => renderSshConfigContents(baseSnapshot(), { hostPinPath: "" })).toThrow(/absolute/);
+    expect(() => renderSshConfigContents(baseSnapshot(), { hostPinPath: `/${"x".repeat(5000)}` })).toThrow(/path/i);
+  });
+
+  it("refuses a hand-built snapshot carrying a forbidden member, same as non-relay", () => {
+    const smuggled = { ...baseSnapshot(), proxyCommand: "nc attacker 4444" } as unknown as ReturnType<
+      typeof baseSnapshot
+    >;
+    expect(() => renderSshConfigContents(smuggled, relay)).toThrow("not renderable");
+  });
+});
+
 describe("buildSshConfigPath", () => {
   it("composes the derived path from the two facts each side already holds", () => {
     expect(buildSshConfigPath("/data", "s1")).toBe("/data/ssh/s1/config");
@@ -232,6 +337,27 @@ describe("buildSshConfigPath", () => {
     expect(() => buildSshConfigPath("/d", "../escape")).toThrow(/subshellId/);
     expect(() => buildSshConfigPath("/d", "a".repeat(65))).toThrow(/subshellId/);
     expect(buildSshConfigPath("/d", "a".repeat(64))).toBe(`/d/ssh/${"a".repeat(64)}/config`);
+  });
+});
+
+describe("buildAgentSocketPath", () => {
+  // Spec 2026-10-08 §5.2: the relay proxy socket lives in the SAME per-pane
+  // ssh dir the rendered config owns, so the pane's dir holds `config` and
+  // `agent.sock` side by side. It lives here because BOTH ends derive it -
+  // the node binds this exact path and the plane byte-checks the path the
+  // B open answers with - and one derivation is the only thing keeping the
+  // byte-check meaningful.
+  it("composes the socket beside the config, one dir", () => {
+    expect(buildAgentSocketPath("/data", "s1")).toBe("/data/ssh/s1/agent.sock");
+    expect(dirname(buildAgentSocketPath("/data", "s1"))).toBe(dirname(buildSshConfigPath("/data", "s1")));
+  });
+
+  it("runs the same guards as the config path", () => {
+    expect(() => buildAgentSocketPath("data", "s1")).toThrow(/absolute/);
+    expect(() => buildAgentSocketPath("/d", "")).toThrow(/paneId/);
+    expect(() => buildAgentSocketPath("/d", "../escape")).toThrow(/paneId/);
+    expect(() => buildAgentSocketPath("/d", "a".repeat(65))).toThrow(/paneId/);
+    expect(buildAgentSocketPath("/d", "a".repeat(64))).toBe(`/d/ssh/${"a".repeat(64)}/agent.sock`);
   });
 });
 

@@ -48,6 +48,10 @@ import * as nodeReregistrationMigration from "@/db/migrations/0045-node-reregist
 import * as backupRecoveryMigration from "@/db/migrations/0046-backup-recovery.js";
 import * as sshEnabledMigration from "@/db/migrations/0047-node-ssh-enabled.js";
 import * as sshLaunchMigration from "@/db/migrations/0048-ssh-launch-and-saved-hosts.js";
+import * as sshRelayIdentityMigration from "@/db/migrations/0049-ssh-relay-identity.js";
+import * as sshGrantsMigration from "@/db/migrations/0050-ssh-grants.js";
+import * as sshRequestDestinationMigration from "@/db/migrations/0051-ssh-request-destination.js";
+import * as subshellKeyHomeMigration from "@/db/migrations/0052-subshell-key-home.js";
 
 /**
  * Runs all pending Kysely migrations against the app database.
@@ -140,6 +144,21 @@ export async function runMigrations(): Promise<void> {
           // The SSH launcher tier: the per-owner destination ledger and the
           // pane's approved snapshot in `subshells.ssh` (spec 2026-10-07 §7).
           "0048-ssh-launch-and-saved-hosts": sshLaunchMigration,
+          // The relay identity tier: the machine's ES256 signing slot in the
+          // identities record and the trust-card fingerprint mirror on the
+          // nodes row (spec 2026-10-08 §4, §9).
+          "0049-ssh-relay-identity": sshRelayIdentityMigration,
+          // The grant tier: standing key grants, the durable first-use approval
+          // queue, and the M2 host-pin store (spec 2026-10-08 §6, §9).
+          "0050-ssh-grants": sshGrantsMigration,
+          // The first-use request carries the full resolved destination so the
+          // approval that creates the grant can capture the host-key pin at the
+          // exact `user@host:port` the launch dialed (spec 2026-10-08 §9).
+          "0051-ssh-request-destination": sshRequestDestinationMigration,
+          // The relay pane's key home (spec 2026-10-08 §7): "Set up Subshell
+          // here" re-opens the pairing that authorized the pane, so the row
+          // carries the A it launched with.
+          "0052-subshell-key-home": subshellKeyHomeMigration,
         };
       },
     },

@@ -1,12 +1,14 @@
 /**
- * The client shapes of the `/api/ssh` surface (spec 2026-10-07 §5–§7), the
- * same mirror `lib/prompts.ts` keeps for the prompt library: local types that
- * state the wire field for field, read through `apiFetch<T>`. The definitions
- * live beside the routes that answer them
+ * The client shapes of the `/api/ssh` surface (specs 2026-10-07 and
+ * 2026-10-08), the same mirror `lib/prompts.ts` keeps for the prompt library:
+ * local types that state the wire field for field, read through `apiFetch<T>`. The
+ * definitions live beside the routes that answer them
  * (`apps/server/api/src/api/ssh/ssh-views.ts`); the copy here restates that
  * contract for the SPA, and the two are kept honest by review like every
  * other mirror type in this app.
  */
+
+import { SSH_MAX_GRANT_FINGERPRINTS } from "@internal/subshell-protocol";
 
 /** One ProxyJump hop as the frozen snapshot spells it. */
 export interface SshHop {
@@ -154,4 +156,84 @@ export interface SshLaunchRequest {
  */
 export interface SshLaunchResponse {
   subshell: { id: string };
+}
+
+/**
+ * One standing key grant as the grants screen reads it (spec 2026-10-08 §6.1,
+ * §8). The fingerprint set is public `SHA256:` identifiers and it is
+ * deliberately on this wire: the screen is the owner's own, and "which keys
+ * serve" is exactly what the owner manages.
+ */
+export interface SshGrant {
+  /** Grant row id (uuid) */
+  id: string;
+  /** Display name the operator gave the grant */
+  name: string;
+  /** Key home machine: its ssh-agent signs for this grant */
+  keyHomeNodeId: string;
+  /** Destination selector, stored RESOLVED: a concrete hostname or a '*' host pattern */
+  resolvedSelector: string;
+  /** The selected public identities (at most SSH_MAX_GRANT_FINGERPRINTS); an empty set serves nothing */
+  fingerprints: string[];
+  /** Which door created the row: an approved first use, or the grants screen */
+  createdVia: "first-use" | "manual";
+  /** ISO 8601 creation stamp (the match tie-break: oldest wins) */
+  createdAt: string;
+  /** ISO 8601 of the last operator edit */
+  updatedAt: string;
+}
+
+/** One first-use approval request as the queue reads it (spec 2026-10-08 §6.2). */
+export interface SshGrantRequest {
+  /** Request row id (uuid) - the opaque ref the refusal and the notification name */
+  id: string;
+  /** The key home whose approval is asked */
+  keyHomeNodeId: string;
+  /** The resolved destination hostname the launch would have dialed */
+  resolvedSelector: string;
+  /** Pre-selection riding the request, or null (the approver picks) */
+  requestedFingerprints: string[] | null;
+  /** The asking pane's id (the requester the screen names) */
+  paneId: string;
+  /** The connecting machine of the asking launch */
+  bNodeId: string;
+  /** ISO 8601 deadline (24 h); past it the sweep answers the row expired */
+  expiresAt: string;
+  /** Lifecycle state; only pending can be answered */
+  status: "pending" | "approved" | "denied" | "expired";
+  /** ISO 8601 creation stamp */
+  createdAt: string;
+}
+
+/** One key home agent identity from the approval roster (blobs are withheld by construction). */
+export interface SshAgentIdentity {
+  /** Public agent identity in the canonical SHA256: notation (the approval sends it back verbatim) */
+  fingerprint: string;
+  /** OpenSSH's label for the key, as the agent reports it (display only) */
+  comment: string;
+}
+
+/** One pinned destination host key (spec 2026-10-08 §9): destination + public fingerprint, never key bytes. */
+export interface SshHostPin {
+  /** Pin row id (uuid) */
+  id: string;
+  /** Canonical resolved destination `user@host:port` */
+  destination: string;
+  /** The pinned key's SHA256: display fingerprint (public identifier) */
+  fingerprint: string;
+  /** ISO 8601 first capture (the TOFU moment) */
+  createdAt: string;
+  /** ISO 8601 of the last accepted match */
+  updatedAt: string;
+}
+
+/**
+ * The client-side spelling of the server's hard selection cap (spec
+ * 2026-10-08 §5.4): the same sentence the refusing service answers
+ * (`ssh-grants.service.ts`), so the red line on the card and a refused POST
+ * read identically.
+ */
+export function grantSelectionError(fingerprints: readonly string[]): string | null {
+  if (fingerprints.length <= SSH_MAX_GRANT_FINGERPRINTS) return null;
+  return `A grant can carry at most ${SSH_MAX_GRANT_FINGERPRINTS} keys. Deselect some and try again; nothing was truncated.`;
 }

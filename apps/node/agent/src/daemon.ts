@@ -11,6 +11,8 @@ import {
   type NodeMaintenanceWire,
   type NodeRuntimeReport,
   type NodeSshEnabledWire,
+  parseRelayFrame,
+  relayFrameRefIfOverCap,
   SeqTracker,
   verifyCommand,
 } from "@internal/subshell-protocol";
@@ -24,6 +26,7 @@ import {
   seedMaintenanceMemo,
   seedSshEnabledMemo,
 } from "./commands/report.js";
+import { RelaySessions } from "./commands/ssh-relay.js";
 import { stopAllTails } from "./commands/tail.js";
 import { sweepStaleTransfers } from "./commands/transfer-sweep.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
@@ -37,10 +40,12 @@ import { binaryPayload, createLinkNegotiator, type LinkNegotiator, type LinkNego
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
 import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } from "./pane-log-retention.js";
+import { createDaemonRelaySend } from "./relay-send.js";
 import { noteSweepScheduled } from "./retention-settings.js";
 import { collectRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { sweepOrphanSshDirs } from "./ssh-dir-retention.js";
+import { buildSshFingerprintReport } from "./ssh-fingerprint-report.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { completeUpdate, revertAfterRefusal } from "./update.js";
 import { NODE_VERSION } from "./version.js";
@@ -205,6 +210,13 @@ export interface DaemonDeps {
    * "plaintext mode": spec §6 forbids a v14 socket ever running unsealed.
    */
   link?: (args: LinkNegotiatorArgs) => LinkNegotiator;
+  /**
+   * The relay-session registry the inbound `relay` frames route into (spec
+   * 2026-10-08 §5.1/§5.2; default: a fresh {@link RelaySessions}).
+   * @internal test seam: the daemon test injects a capturing registry to pin
+   * the routing decision; production runs on the one this call constructs.
+   */
+  relaySessions?: RelaySessions;
 }
 
 interface WsClose {
@@ -443,6 +455,30 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // degrades to null — the `ready` simply carries no `runtime`.
   const runtime = deps.runtime === undefined ? await collectRuntime().catch(() => null) : deps.runtime;
 
+  // The `ready` frame's runtime, with the §4.6 trust block merged in when
+  // this machine can state it. Recomputed PER DIAL, unlike `runtime` itself:
+  // the process facts cannot change while the pid does not, but peers get
+  // paired (and re-paired) during a process's life, and a trust block frozen
+  // at boot would under-report the pin store the whole comparison is about.
+  let sshRuntime: NodeRuntimeReport | null = runtime;
+
+  /**
+   * The runtime report plus this machine's live trust block, or the bare
+   * report when the block cannot be built. A failure is logged once per dial
+   * and never costs the connection: a machine whose pin file is corrupt still
+   * comes online and keeps launching; only its trust card stays empty, on the
+   * plane and on its own dashboard alike.
+   */
+  async function withSshFingerprint(report: NodeRuntimeReport | null): Promise<NodeRuntimeReport | null> {
+    if (report === null) return null; // no runtime report to ride: no block, no key reads
+    try {
+      return { ...report, sshFingerprint: await buildSshFingerprintReport(config.dataDir) };
+    } catch (err) {
+      log(`ready: ssh trust block unavailable: ${err instanceof Error ? err.message : String(err)}`);
+      return report;
+    }
+  }
+
   // PER-PROCESS lifetimes (mixing these up is a security bug — see VerifyContext in node-signing):
   const jtiLru = new JtiLru(); // survives every reconnect: a replayed jti never gets a second evaluation
   const seqTracker = new SeqTracker(); // per-CONNECTION value; reset on every open below
@@ -450,6 +486,13 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // from here (and so does execute(), should the LRU ever evict inside the TTL window) —
   // a jti that has run once NEVER runs twice.
   const idempotent = new Map<string, CommandResult>();
+
+  // The relay-session registry (spec 2026-10-08 §5.1/§5.2): PER-DAEMON, like
+  // the idempotence map: a relay session belongs to the pairing, not to the
+  // socket it first rode, and the plane re-pumps frames on the fresh link.
+  // Inbound `relay` frames route through it (see `onFrame`); B proxies (and
+  // from Task 7, the A responder) register into it by routing ref.
+  const relaySessions = deps.relaySessions ?? new RelaySessions();
 
   // PER-PROCESS executor context (spec §3.4/§7): built once, survives every
   // reconnect. `ws` is a STABLE wrapper routing to the CURRENT socket —
@@ -486,6 +529,16 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     tails: new Map(),
     uploads: new Map(),
     runtime,
+    // The relay plumbing (spec 2026-10-08 §5.1, Task 8): the per-daemon
+    // registry (sessions survive reconnects - the plane re-pumps on the fresh
+    // socket) plus the DELIVER-OR-THROW pump. The pump reads the CURRENT
+    // socket and link through a getter, exactly like the stale-socket guard in
+    // `send` above: a frame sent after this socket died targets the new link
+    // if one exists, and throws if none does (acceptance (c)).
+    relay: {
+      sessions: relaySessions,
+      sendRelayFrame: createDaemonRelaySend(() => ({ ws: currentWs, link })),
+    },
     requestRestart: () => {
       // Deferred, because the daemon is the only sender of `result`: the
       // executor returns `{ ok: true }`, the frame leaves on this turn, and
@@ -826,14 +879,34 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     return null;
   };
 
-  /** One ADMITTED frame: jws extraction → verify → execute (spec §4). */
+  /** One ADMITTED frame: relay routing (spec 2026-10-08 §5.1) OR jws → verify → execute (§4). */
   const onFrame = async (ws: WsLike, data: string): Promise<void> => {
-    let jws: unknown;
+    let parsed: unknown;
     try {
-      jws = (JSON.parse(data) as { jws?: unknown }).jws;
+      parsed = JSON.parse(data);
     } catch {
-      jws = undefined;
+      parsed = undefined;
     }
+    // The `relay` link frame is NOT a command (§5.1: no per-message signing,
+    // the link authenticates the machine, origin rides the inner ES256
+    // signature): it must never draw the command grammar's `verify: malformed`
+    // answer, which the plane reads as a command anomaly. Recognized by its
+    // `type` BEFORE the JWS path; a relay-shaped-but-malformed candidate is
+    // relay noise (dropped with a line; over-cap ones name their ref, the
+    // session's named close itself is the broker's), and every non-relay frame
+    // falls through to the untouched command path below.
+    if (typeof parsed === "object" && parsed !== null && (parsed as { type?: unknown }).type === "relay") {
+      const frame = parseRelayFrame(parsed as object);
+      if (frame !== null) relaySessions.onInboundRelayFrame(frame);
+      else {
+        const overCapRef = relayFrameRefIfOverCap(parsed);
+        if (overCapRef !== null)
+          log(`relay frame over the size cap for ref ${overCapRef}: refused (§5.1; the named close is the broker's)`);
+        else log("malformed relay frame dropped");
+      }
+      return;
+    }
+    const jws = (parsed as { jws?: unknown } | undefined)?.jws;
     if (typeof jws !== "string") {
       send(ws, { type: "error", code: "verify", message: "malformed" });
       return;
@@ -1022,7 +1095,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // The SSH mirror rides the same synchronous read + seed as the
         // maintenance one (spec 2026-10-07 §4.3): the value `ready` carries and
         // the memo that stops the first heartbeat repeating it are one read.
-        send(ws, readyEvent(config, runtime, seedMaintenanceMemo(ctx), seedSshEnabledMemo(ctx)));
+        send(ws, readyEvent(config, sshRuntime, seedMaintenanceMemo(ctx), seedSshEnabledMemo(ctx)));
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
@@ -1150,6 +1223,10 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       // backoff sleep exits 0 here — the first Ctrl-C never waits out a sleep or a dial.
       if (shuttingDown) stop(0);
       await provisioning; // §5: R7's provisioning close must not redial past its own key write
+      // Fresh block per dial, BEFORE the socket: `ready` is built synchronously
+      // in the open turn (the arm() comment argues the posture), so this is
+      // the last moment anything may await.
+      sshRuntime = await withSshFingerprint(runtime);
       const close = await runConnection();
       if (shuttingDown) stop(0); // graceful: the socket closed cleanly on our request
       if (close.code === NODE_CLOSE_SUPERSEDED) {

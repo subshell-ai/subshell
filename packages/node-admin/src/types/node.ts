@@ -233,6 +233,13 @@ export interface NodeShare {
  * Facts about a process, never about the machine: the control plane holds
  * the report on the live socket and drops it when that goes, so a value here
  * is always current or absent.
+ *
+ * One deliberate narrowing from the protocol's report: the §4.6
+ * `sshFingerprint` block is NOT mirrored here, because no view carries it.
+ * The plane's route serializes `runtime` through a schema that does not
+ * declare it, and the node's own dashboard passes its pre-merge report (the
+ * trust block goes to the SPA as the top-level `sshTrust`, which is where
+ * `NodeSshTrustCard` reads it).
  */
 export interface NodeRuntime {
   /** ISO 8601 start time of this node process */
@@ -296,6 +303,36 @@ export interface NodeRuntime {
   binaryPath: string;
 }
 
+/**
+ * The §4.6 SSH trust card's payload (spec 2026-10-08), mirroring the plane's
+ * `SshTrustSchema`: this machine's own key fingerprints and every pinned
+ * peer's, as `SHA256:` display strings. Fingerprints are public identifiers
+ * of the trust the machine enforces as byte equality; the card's whole purpose
+ * is the out-of-band compare against what the PEER computes from its own keys.
+ */
+/** One pinned peer's two halves, as this machine stores them (§4.4/§4.5). */
+export interface NodeSshTrustPeer {
+  /** The peer's node id (the same registry entry, not a bare hostname) */
+  nodeId: string;
+  /** Fingerprint of that peer's signing key, as this machine pins it */
+  signing: string;
+  /** Fingerprint of that peer's encryption key, as this machine pins it */
+  encryption: string;
+}
+
+export interface NodeSshTrust {
+  /** This machine's both halves */
+  own: { signing: string; encryption: string };
+  /** Every pinned peer, id ascending; empty means nothing paired yet */
+  peers: NodeSshTrustPeer[];
+  /**
+   * true = the plane's durable MIRROR of the last report (the node is offline,
+   * or its live connection reported no block), so the card is last-known truth
+   * and says so; false = what this connection reported at connect.
+   */
+  stale: boolean;
+}
+
 /** `GET /api/nodes/:id` — the view plus the grant set, ONLY for config-capable viewers (then the key is absent, not null). */
 export interface NodeDetail extends Node {
   /**
@@ -333,6 +370,17 @@ export interface NodeDetail extends Node {
    * supports.
    */
   runningSubshells?: number;
+  /**
+   * The machine's SSH trust block (§4.6): its own and its pinned peers'
+   * fingerprints, live report when the node is connected, durable mirror
+   * (`stale: true`) when it is not.
+   *
+   * Present only for a config-capable viewer on an AGENT node, the same gate
+   * as `runtime` and for the same kind of reason: which machines this one has
+   * paired with is machine-relationship disclosure, not something a `view`
+   * grantee's launch needs. Absent, never null, for everyone else.
+   */
+  sshTrust?: NodeSshTrust;
 }
 
 /**

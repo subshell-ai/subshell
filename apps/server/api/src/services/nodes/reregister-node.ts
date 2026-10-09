@@ -21,6 +21,14 @@ export async function reregisterNode(
     agentVersion: string;
   },
   encryptPublicKey: string | null,
+  /**
+   * The ES256 relay signing half (spec 2026-10-08 §4.2): re-registration is a
+   * fresh enrollment-grade trust event, so it REPLACES the slot rather than
+   * preserving it. The machine's on-disk keypairs normally survive the
+   * re-registration, so the replacement is normally the same bytes; null is
+   * the pre-M2 posture until the §4.3 bootstrap reports.
+   */
+  signingPublicKey: string | null,
 ): Promise<{ nodeId: string; nodeKey: string; name: string }> {
   const nodeId = key.targetNodeId;
   if (!nodeId) throw new Error("Re-registration needs an existing node");
@@ -59,9 +67,12 @@ export async function reregisterNode(
         .executeTakeFirst();
       if (!updated) throw new Error("Node credentials changed; issue a new re-registration key and retry");
       name = updated.name;
+      // Both identity halves rotate together, inside the same transaction that
+      // swaps the credentials (§4.2).
       await new IdentitiesRepository(tx).register({
         principalId: `node:${nodeId}`,
         publicKey: machine.publicKey,
+        signingPublicKey,
         displayName: name,
       });
       // Auth uses a separate handle to the SAME SQLite file. Revoke through

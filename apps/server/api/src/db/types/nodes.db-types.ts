@@ -101,6 +101,14 @@ export interface NodeTable {
    * maintenance.
    */
   sshEnabledAt: string | null;
+  /**
+   * JSON mirror of the ssh-fingerprint block from this node's last runtime
+   * report (spec 2026-10-08 §4.5), so the trust card survives an offline node
+   * or a plane restart. NULL until a post-M2 agent reports. Serialized only
+   * under the same owner-or-`edit` gate as the live runtime field, never
+   * `view` and never `local`. Populated by the report-handling task.
+   */
+  sshFingerprint: string | null;
   /** ISO 8601 creation time */
   createdAt: string;
   /** ISO 8601 last update time */

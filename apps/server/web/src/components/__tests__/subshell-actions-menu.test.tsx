@@ -657,3 +657,37 @@ describe("SubshellActionsMenu — prompt input availability", () => {
     }
   });
 });
+
+describe("SubshellActionsMenu - Set up Subshell here (spec 2026-10-08 §7)", () => {
+  afterEach(cleanup);
+
+  it("offers it on the owner's live SSH pane and opens the dialog", async () => {
+    const { restore } = mockFetch();
+    try {
+      await renderMenu(makeSubshell({ ssh: true }));
+      await openMenu("subshell");
+      fireEvent.click(screen.getByRole("menuitem", { name: "Set up Subshell here…" }));
+      expect(await screen.findByText("Set up Subshell here?")).toBeTruthy();
+    } finally {
+      restore();
+    }
+  });
+
+  for (const hidden of [
+    { ssh: false },
+    { ssh: true, access: "edit" as const },
+    { ssh: true, access: "view" as const },
+    { ssh: true, nodeOffline: true },
+  ]) {
+    it(`does not offer it for ${JSON.stringify(hidden)}`, async () => {
+      const { restore } = mockFetch();
+      try {
+        await renderMenu(makeSubshell(hidden));
+        await openMenu("subshell");
+        expect(screen.queryByRole("menuitem", { name: "Set up Subshell here…" })).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+  }
+});

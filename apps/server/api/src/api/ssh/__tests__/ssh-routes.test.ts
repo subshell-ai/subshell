@@ -672,6 +672,36 @@ describe("the local node answers in-process (no agent socket exists to reach)", 
     expect((await aliases(LOCAL_NODE_ID, otherCookie)).status).toBe(403);
   });
 
+  it("`local` is never a key home (acceptance (d)): the create names the door with the code's canonical 409, and stores nothing", async () => {
+    await nodes.setSshEnabled(LOCAL_NODE_ID, { on: true, changedAt: "2026-10-07T09:00:00.000Z" });
+    const res = await sshFetch("/api/ssh/grants", {
+      method: "POST",
+      cookie: adminCookie,
+      body: {
+        node: LOCAL_NODE_ID,
+        name: "server keys",
+        selector: "git.example.test",
+        fingerprints: [`SHA256:${"c".repeat(43)}`],
+      },
+    });
+    // 409 is what the OPEN-FAILURE code renders (the declared arm rides the
+    // code, not the service's own number); the server host is refused exactly
+    // as the broker would refuse it, BEFORE anything is stored.
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
+    expect(await db.selectFrom("sshKeyGrants").selectAll().execute()).toHaveLength(0);
+  });
+
+  it("the roster-by-node read (Task 18) refuses `local` at the SAME door as the create: the 409 before anything is asked", async () => {
+    await nodes.setSshEnabled(LOCAL_NODE_ID, { on: true, changedAt: "2026-10-07T09:00:00.000Z" });
+    // No roster seam is installed in this suite: reaching the fetch would run
+    // the production RPC against `local`, which has no node link at all. The
+    // kind check must land first, so this 409 is also the proof nothing asked.
+    const res = await sshFetch(`/api/ssh/grants/identities?node=${LOCAL_NODE_ID}`, { cookie: adminCookie });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
+  });
+
   it("local resolve runs the same engine in-process: the -G answer becomes an approved snapshot", async () => {
     await nodes.setSshEnabled(LOCAL_NODE_ID, { on: true, changedAt: "2026-10-07T09:00:00.000Z" });
     const res = await resolve(LOCAL_NODE_ID, "verify.example", adminCookie);

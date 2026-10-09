@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 import type { TmuxRunner } from "@internal/pane-runtime";
 import {
   type ControlKeyPair,
+  fingerprintJwk,
   generateControlKeys,
   HARNESS_BINARY_PLACEHOLDER,
   NODE_CLOSE_HANDSHAKE_REQUIRED,
@@ -26,6 +27,7 @@ import {
   type NodeEvent,
   type NodeRuntimeReport,
   parseNodeEvent,
+  type RelayFrame,
   signCommand,
 } from "@internal/subshell-protocol";
 import {
@@ -37,6 +39,7 @@ import {
   parseLinkBinding,
 } from "@internal/subshell-protocol/node-link-crypto";
 import { run as runCli } from "../cli.js";
+import { RelaySessions } from "../commands/ssh-relay.js";
 import { TAIL_POLL_MS } from "../commands/tail.js";
 import { configPath, type NodeConfig, saveConfig } from "../config.js";
 import {
@@ -49,6 +52,7 @@ import {
   wsUrlFor,
 } from "../daemon.js";
 import { type DaemonLock, lockPath } from "../lock.js";
+import { MachinePinStore } from "../machine-pin-store.js";
 import { maintenancePath, writeMaintenance } from "../maintenance.js";
 import { sweepIsScheduled } from "../retention-settings.js";
 import { SubshellMetaStore } from "../subshell-meta.js";
@@ -467,6 +471,7 @@ async function startDaemon(
       | "runtime"
       | "retentionMs"
       | "retentionPass"
+      | "relaySessions"
     >
   > & {
     config?: Partial<NodeConfig>;
@@ -2231,6 +2236,75 @@ describe("restart command (spec 2026-09-12 § 6.3)", () => {
     expect(h.plane.unparsed).toEqual([]);
   });
 
+  /**
+   * A public EC P-256 JWK whose coordinates are 32 bytes of zero and of four:
+   * canonical unpadded base64url, so `fingerprintJwk` digests it, and no key
+   * VALUE the relay could seal to. Pin fixtures for the §4.6 block.
+   */
+  const peerJwk = `{"kty":"EC","crv":"P-256","x":"${"A".repeat(43)}","y":"${"E".repeat(43)}"}`;
+  const peerJwk2 = `{"kty":"EC","crv":"P-256","x":"${"E".repeat(43)}","y":"${"A".repeat(43)}"}`;
+
+  test("ready carries the ssh trust block computed from this machine's key files (spec §4.6)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "subshell-daemon-sshfp-"));
+    daemonDirs.push(dir);
+    new MachinePinStore(dir).pin("f0000000-0000-4000-8000-000000000001", {
+      signing: peerJwk,
+      encryption: peerJwk2,
+    });
+    const h = await startDaemon({ runtime: supervised, config: { dataDir: dir } });
+    const ready = await waitForReady(h);
+    expect(ready.type).toBe("ready");
+    if (ready.type !== "ready") return;
+    const block = ready.runtime?.sshFingerprint;
+    expect(block).toBeDefined();
+    // Own halves come from the identity files the daemon just generated, the
+    // peer half from the pin file seeded above, all through `fingerprintJwk`.
+    const sig = (JSON.parse(readFileSync(join(dir, "node-signing-identity.json"), "utf8")) as { publicJwk: string })
+      .publicJwk;
+    const enc = (JSON.parse(readFileSync(join(dir, "identity.json"), "utf8")) as { publicJwk: string }).publicJwk;
+    expect(block?.own).toEqual({ signing: await fingerprintJwk(sig), encryption: await fingerprintJwk(enc) });
+    expect(block?.peers).toEqual([
+      {
+        nodeId: "f0000000-0000-4000-8000-000000000001",
+        signing: await fingerprintJwk(peerJwk),
+        encryption: await fingerprintJwk(peerJwk2),
+      },
+    ]);
+    // And the frame SURVIVES the real parser on the way in (the fake plane
+    // parses every outbound frame with `parseNodeEvent`): a block the plane's
+    // grammar would drop is a block that never reaches the trust card.
+    expect(h.plane.unparsed).toEqual([]);
+  });
+
+  test("no runtime report means no trust block and no key reads (the block rides the runtime report)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "subshell-daemon-sshfp-null-"));
+    daemonDirs.push(dir);
+    const h = await startDaemon({ runtime: null, config: { dataDir: dir } });
+    const ready = await waitForReady(h);
+    expect(ready.type).toBe("ready");
+    if (ready.type !== "ready") return;
+    expect(ready.runtime).toBeUndefined();
+    // The builder never ran: a null runtime must not mint the node's keypair
+    // or touch the pin file just to prove the block is absent.
+    expect(existsSync(join(dir, "identity.json"))).toBe(false);
+    expect(existsSync(join(dir, "ssh-machine-pins.json"))).toBe(false);
+  });
+
+  test("an unreadable pin file costs the block, never the connection", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "subshell-daemon-sshfp-corrupt-"));
+    daemonDirs.push(dir);
+    writeFileSync(join(dir, "ssh-machine-pins.json"), "}{");
+    const h = await startDaemon({ runtime: supervised, config: { dataDir: dir } });
+    const ready = await waitForReady(h);
+    expect(ready.type).toBe("ready");
+    if (ready.type !== "ready") return;
+    expect(ready.runtime).toBeDefined();
+    expect(
+      ready.runtime && "sshFingerprint" in ready.runtime ? ready.runtime.sshFingerprint : undefined,
+    ).toBeUndefined();
+    expect(h.plane.unparsed).toEqual([]);
+  });
+
   // The ORDER is the contract: the daemon is the only sender of `result`, so
   // an executor that exited itself would leave the plane waiting out a
   // timeout instead of seeing a success.
@@ -2551,4 +2625,43 @@ describe("pane-log retention wiring", () => {
       delete process.env.SUBSHELL_LOG_RETENTION_HOURS;
     }
   });
+});
+
+/* ------------------------------------------------------------------ */
+/* relay inbound routing (spec 2026-10-08 §5.1): frames are not commands */
+/* ------------------------------------------------------------------ */
+
+test("an inbound relay frame reaches the relay seam and never the JWS-command path", async () => {
+  // The registry is INJECTED: this pins the daemon's routing decision, and the
+  // seam is the one Task 7's A-side responder registers into (a single
+  // onInboundRelayFrame dispatch, routed by the ref the relay-open paired).
+  const relay = new RelaySessions();
+  const seen: RelayFrame[] = [];
+  relay.register("r-1", { onRelayFrame: (f) => seen.push(f), close: () => {} });
+  const h = await startDaemon({ relaySessions: relay });
+  await waitFor(h, (e) => e.type === "inventory", "connect inventory push");
+
+  h.plane.sendToAgent(JSON.stringify({ type: "relay", ref: "r-1", seq: 0, direction: "A2B", blob: "AAAA" }));
+  await waitUntil(() => seen.length === 1, "the frame routed to its session handler");
+  await sleep(120);
+  // NOT a command: the JWS path answers every non-command text frame with a
+  // `verify: malformed` error - a relay frame must draw NOTHING from it.
+  expect(eventsAs(h, "error").length).toBe(0);
+  expect(count(h, (e) => e.type === "result")).toBe(0);
+
+  // A malformed relay candidate is relay-TYPED noise: dropped, still never a
+  // command refusal the plane would read as a command anomaly.
+  h.plane.sendToAgent(JSON.stringify({ type: "relay", ref: "r-1", seq: 0, direction: "A2B", blob: "!!!!" }));
+  h.plane.sendToAgent(JSON.stringify({ type: "relay", ref: "", seq: 0, direction: "A2B", blob: "AAAA" }));
+  // A frame for an unregistered ref is dropped by the registry, not re-routed.
+  h.plane.sendToAgent(JSON.stringify({ type: "relay", ref: "r-none", seq: 0, direction: "A2B", blob: "AAAA" }));
+  await sleep(120);
+  expect(seen.length).toBe(1);
+  expect(eventsAs(h, "error").length).toBe(0);
+
+  // And the command path is UNTOUCHED for what is not relay-shaped: the old
+  // non-JWS text frame still draws the ordinary malformed answer.
+  h.plane.sendToAgent(JSON.stringify({ jws: 42 }));
+  await waitFor(h, (e) => e.type === "error" && e.code === "verify", "non-relay junk still answers verify/malformed");
+  expect(seen.length).toBe(1);
 });

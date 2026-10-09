@@ -23,8 +23,25 @@ import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray, isStringMap } fr
 import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 import { parseSshConnectionSnapshot } from "./ssh-config.js";
 import { isSshErrorCode } from "./ssh-errors.js";
-import { SSH_MAX_DISCOVERED_ALIASES } from "./ssh-limits.js";
-import type { NodeSshAliasListResult, NodeSshResolveOutcomeWire } from "./ssh-results.js";
+import { isSshGrantFingerprint, isSshKnownHostsPinLine, isSshPaneId } from "./ssh-frames.js";
+import {
+  SSH_EXEC_RESULT_MAX_CHARS,
+  SSH_MAX_DISCOVERED_ALIASES,
+  SSH_MAX_HOST_KEY_LINES,
+  SSH_NAME_MAX_CHARS,
+  SSH_ROSTER_MAX_IDENTITIES,
+} from "./ssh-limits.js";
+import type {
+  NodeSshAgentIdentitiesResult,
+  NodeSshAgentIdentity,
+  NodeSshAliasListResult,
+  NodeSshExecKickResult,
+  NodeSshExecStatusResult,
+  NodeSshHostKeyResult,
+  NodeSshIdentityResult,
+  NodeSshMachinePinRepairResult,
+  NodeSshResolveOutcomeWire,
+} from "./ssh-results.js";
 
 function isNonEmptyStr(value: unknown): value is string {
   return isStr(value) && value.length > 0;
@@ -583,4 +600,148 @@ export function parseNodeSshResolveOutcome(data: unknown): NodeSshResolveOutcome
   }
   if (!isSshErrorCode(data.code) || !isStrArray(data.settings)) return null;
   return { accepted: false, code: data.code, settings: [...(data.settings as string[])] };
+}
+
+/**
+ * Validates and narrows an `ssh_agent_identities` command's `result{data}`
+ * (spec 2026-10-08 §5.4, Task 11). The BLOBS are unrepresentable by
+ * construction: each entry is REBUILT from its two checked fields, so a
+ * `blob` member a buggy or hostile node tried to ship drops here and the
+ * narrowed answer has nowhere to hold key material. Fingerprints must be in
+ * the grant grammar's own spelling (one predicate, both directions: the
+ * approve surface takes roster values verbatim); comments are OpenSSH's
+ * labels, passed through as bounded text, never parsed. The entry COUNT is
+ * capped at {@link SSH_ROSTER_MAX_IDENTITIES} rather than truncated (the
+ * same reasoning {@link SSH_MAX_HOST_KEY_LINES} carries): a past-cap roster
+ * is a malformed machine, and an answer quietly cut to size would read to
+ * the operator as the agent's whole truth.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed roster, or null when malformed
+ */
+export function parseNodeSshAgentIdentities(data: unknown): NodeSshAgentIdentitiesResult | null {
+  if (!isRecord(data) || !Array.isArray(data.identities)) return null;
+  if (data.identities.length > SSH_ROSTER_MAX_IDENTITIES) return null;
+  const identities: NodeSshAgentIdentity[] = [];
+  for (const entry of data.identities as unknown[]) {
+    if (!isRecord(entry) || !isSshGrantFingerprint(entry.fingerprint)) return null;
+    if (!isStr(entry.comment) || entry.comment.length > SSH_NAME_MAX_CHARS) return null;
+    identities.push({ fingerprint: entry.fingerprint, comment: entry.comment });
+  }
+  return { identities };
+}
+
+/**
+ * Validates and narrows an `ssh_host_key` command's `result{data}` (spec
+ * 2026-10-08 §9, Task 12). Each line is checked with the SAME predicate that
+ * gates the relay-open's pin carriage ({@link isSshKnownHostsPinLine}) - one
+ * definition of "what a wire host-key line is", answer in and pin out, so a
+ * line A answered can always ride the open that carries it - and the answer
+ * is capped at {@link SSH_MAX_HOST_KEY_LINES} rather than truncated (the
+ * roster cap's reasoning: a past-cap answer is a malformed machine, not a
+ * long one). An empty list parses: "A has recorded nothing" is the fact the
+ * capture fails closed on, and a fabrication-shaped error would hide it.
+ * Deep well-formedness (which token is the key, whether it matches D) is the
+ * capture service's fingerprint extraction and B's OpenSSH at connect time.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed entries, or null when malformed
+ */
+export function parseNodeSshHostKey(data: unknown): NodeSshHostKeyResult | null {
+  if (!isRecord(data) || !Array.isArray(data.lines)) return null;
+  if ((data.lines as unknown[]).length > SSH_MAX_HOST_KEY_LINES) return null;
+  const lines: string[] = [];
+  for (const line of data.lines as unknown[]) {
+    if (!isSshKnownHostsPinLine(line)) return null;
+    lines.push(line);
+  }
+  return { lines };
+}
+
+/**
+ * Validates and narrows an `ssh_register_identity` command's `result{data}`
+ * (spec 2026-10-08 §4.3). Deliberately shallow: the grammar proves the field
+ * is a non-empty string carrying JSON that parses to an object. ES256
+ * importability (and the no-private-component rule) is the server's gate at
+ * the store, not the wire's; a machine answering its OWN key has nothing to
+ * inject beyond its own identity.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed answer, or null when malformed
+ */
+export function parseNodeSshIdentity(data: unknown): NodeSshIdentityResult | null {
+  if (!isRecord(data) || !isNonEmptyStr(data.signingPublicKey)) return null;
+  try {
+    if (!isRecord(JSON.parse(data.signingPublicKey) as unknown)) return null;
+  } catch {
+    return null;
+  }
+  return { signingPublicKey: data.signingPublicKey };
+}
+
+/**
+ * Validates and narrows the ack of an `ssh_machine_pin_repair` (spec
+ * 2026-10-08 §4.5, Task 17). Two fields and no opinion: `repaired: true` is
+ * the ONLY legal value (a machine that refused the write answers `ok:false`
+ * with the named cause, the exec-kick posture restated), and the peer id is
+ * the echo the plane matches its act against by equality. Nothing else may
+ * ride it - the answer structurally has no slot for key material, and the
+ * durable record of the act is the plane's ids-only audit row, not this ack.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed ack, or null when malformed
+ */
+export function parseNodeSshMachinePinRepair(data: unknown): NodeSshMachinePinRepairResult | null {
+  if (!isRecord(data)) return null;
+  if (data.repaired !== true) return null;
+  if (!isNonEmptyStr(data.peerNodeId)) return null;
+  return { repaired: true, peerNodeId: data.peerNodeId };
+}
+
+/**
+ * Validates and narrows an `ssh_exec` KICK's `result{data}` (spec 2026-10-08
+ * §7, Task 14). The ack is two fields and no opinion: a machine that did not
+ * start answers `ok:false` (a refusal), never a `{started:false}`.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed ack, or null when malformed
+ */
+export function parseNodeSshExecKick(data: unknown): NodeSshExecKickResult | null {
+  if (!isRecord(data)) return null;
+  if (data.started !== true) return null;
+  if (!isSshPaneId(data.execId)) return null;
+  return { started: true, execId: data.execId };
+}
+
+/**
+ * Validates and narrows an `ssh_exec_status` answer (spec 2026-10-08 §7,
+ * Task 14). Two closed states, and `done` states ALL FOUR facts (a code, a
+ * timeout flag, and both streams): a machine answering half the outcome
+ * would let the plane guess which half the installer broke on. The streams
+ * are bounded printable text - newlines, tabs, and CR survive; every other
+ * control character refuses the answer (an escape sequence reaching a
+ * renderable field is not "output", and the plane re-redacts anyway).
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed status, or null when malformed
+ */
+export function parseNodeSshExecStatus(data: unknown): NodeSshExecStatusResult | null {
+  if (!isRecord(data)) return null;
+  if (data.state === "running") {
+    // Running is running: nothing may ride it (a smuggled half-outcome would
+    // be exactly the partial truth the "done states all four" rule refuses).
+    if (Object.keys(data).length !== 1) return null;
+    return { state: "running" };
+  }
+  if (data.state !== "done") return null;
+  if (!("code" in data) || !(data.code === null || isInt(data.code))) return null;
+  if (!isBool(data.timedOut)) return null;
+  if (!isExecStreamStr(data.stdout) || !isExecStreamStr(data.stderr)) return null;
+  return {
+    state: "done",
+    code: data.code === null ? null : (data.code as number),
+    timedOut: data.timedOut,
+    stdout: data.stdout,
+    stderr: data.stderr,
+  };
+}
+
+/** A captured stream: bounded text whose only control characters are newlines, tabs, and CR. */
+function isExecStreamStr(value: unknown): value is string {
+  if (!isStr(value) || value.length > SSH_EXEC_RESULT_MAX_CHARS) return false;
+  return !/\p{Cc}/u.test(value.replace(/[\n\r\t]/g, ""));
 }

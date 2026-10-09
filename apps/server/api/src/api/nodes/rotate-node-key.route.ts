@@ -58,7 +58,8 @@ export const rotateNodeKeyRoute = new Elysia()
         },
       })) as unknown as CreatedApiKey;
 
-      // 2. Flip the binding, clear the link pin, THEN 3. disable the old key.
+      // 2. Flip the binding, clear the link pin (and 2b, the signing slot),
+      //    THEN 3. disable the old key.
       //    `encrypt_public_key` goes to NULL with the bearer it was trusted
       //    under (spec 2026-09-24 §5): the row falls back to legacy mode and
       //    the agent's redial re-provisions a fresh encryption identity
@@ -78,6 +79,28 @@ export const rotateNodeKeyRoute = new Elysia()
             .deleteFrom("nodeSetupKeys")
             .where("targetNodeId", "=", gate.row.id)
             .where("usedAt", "is", null)
+            .execute();
+          // 2b. The ES256 signing slot goes with the link pin (spec 2026-10-08
+          //     §13): it was filed under the OLD bearer's trust, and rotation
+          //     is the operator saying that trust ends now. This clears the
+          //     PLANE's record, never the machine's key: the redial's §4.3
+          //     bootstrap answers `ssh_register_identity` from the disk pair,
+          //     the empty slot takes the SAME bytes back quietly, the node's
+          //     own peer pins are untouched by anything the plane does, and
+          //     `nodes.ssh_fingerprint` (the trust card's mirror) deliberately
+          //     SURVIVES, because the fingerprints it holds are digests of
+          //     keys that did not move. What the clearing does NOT do is
+          //     police the redial: the slot stands empty, so §4.3's
+          //     first-fill branch takes ANY reported key quietly (its
+          //     same-bytes refusal guards a FILLED slot, which is the steady
+          //     state an honest agent returns the key to). A machine that
+          //     re-files a DIFFERENT identity is blocked by its peers' own
+          //     pins instead: the relay's byte-equality check fails it, as
+          //     §4.6 intends.
+          await tx
+            .updateTable("identities")
+            .set({ signingPublicKey: null })
+            .where("principalId", "=", `node:${gate.row.id}`)
             .execute();
           if (gate.row.apiKeyId) {
             await sql`UPDATE apikey SET enabled = 0, "updatedAt" = ${new Date().toISOString()} WHERE id = ${gate.row.apiKeyId}`.execute(

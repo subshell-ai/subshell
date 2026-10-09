@@ -63,6 +63,7 @@ import { completeUpdate, readPending, recordFailure, revertUpdate } from "@/serv
 import { getNotifyService } from "@/services/notify.service.js";
 import { sweepExpiredPaneLogs, tightenPaneLogModes } from "@/services/pane-log-hygiene.js";
 import { expirePendingApprovals, remarkUnmarkedArrivals } from "@/services/pending-approvals.js";
+import { sweepExpiredGrantRequests } from "@/services/ssh-grants.service.js";
 import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
 import { hasAnyUser } from "@/services/registration-gate.js";
 import { SubshellManagerService } from "@/services/subshell-manager.service.js";
@@ -366,6 +367,11 @@ async function bootServer(): Promise<void> {
   const sweepPendingApprovals = async (): Promise<void> => {
     await expirePendingApprovals(db);
     await remarkUnmarkedArrivals(db);
+    // The FIRST-USE grant queue rides the same cadence and the same boot-pass
+    // doctrine (spec 2026-10-08 §6.2): unanswered grant requests expire at a
+    // day's scale, the sweep writes no audit row, and the durable pending
+    // rows are what make a plane restart forget nothing.
+    await sweepExpiredGrantRequests();
   };
   try {
     await sweepPendingApprovals();

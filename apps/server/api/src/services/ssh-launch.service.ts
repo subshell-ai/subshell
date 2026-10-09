@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import {
   buildSshConfigPath,
+  buildSshKnownHostsPath,
   discoverSshAliases,
   findBinary,
   getHarness,
@@ -13,6 +14,7 @@ import {
   sshOptionTokens,
 } from "@internal/pane-runtime";
 import {
+  type NodeSshAgentIdentity,
   type NodeSshAliasListResult,
   type NodeSshResolveOutcomeWire,
   parseNodeSshAliasList,
@@ -35,6 +37,14 @@ import { getHeld, getLive } from "@/services/nodes/node-registry.js";
 import { SshRpcError, sshDiscover, sshResolve } from "@/services/nodes/ssh-rpc.js";
 import { subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
 import { serverSubshellsEnabled } from "@/services/server-as-node.js";
+import {
+  createGrant,
+  fetchAgentRoster,
+  prepareRelayLeg,
+  type SshGrantAnswer,
+  type SshGrantView,
+} from "@/services/ssh-grants.service.js";
+import { closeRelayForPaneExit, sshRelayPaneEnv } from "@/services/ssh-relay.service.js";
 import type { SubshellsService } from "@/services/subshells.service.js";
 import { logger } from "@/utils/logger.js";
 
@@ -123,6 +133,17 @@ export function composeSshLaunch(args: {
   snapshot: SshConnectionSnapshotWire;
   targetDataDir: string;
   subshellId: string;
+  /**
+   * The relay session's pinned host-key file path (Task 12, spec 2026-10-08
+   * §9). PRESENT is the relay mode: the rendered config forces
+   * `StrictHostKeyChecking yes` and names this one file as the ONLY trust
+   * source - the pane's ssh verifies D against A's recorded key, never
+   * against B's ambient known_hosts. ABSENT is the M1 direct launch: the
+   * accept-new posture, byte-for-byte. The path is `buildSshKnownHostsPath`
+   * of the SAME two facts the config path derives from; B writes the pin
+   * delivered on the signed relay-open to its own derivation of them.
+   */
+  hostPinPath?: string;
 }): {
   configPath: string;
   fileContent: string;
@@ -132,7 +153,10 @@ export function composeSshLaunch(args: {
   const approved = parseSshConnectionSnapshot(args.snapshot);
   if (approved === null) throw new Error("ssh compose: snapshot failed grammar re-validation");
   const configPath = buildSshConfigPath(args.targetDataDir, args.subshellId);
-  const fileContent = renderSshConfigContents(approved);
+  const fileContent = renderSshConfigContents(
+    approved,
+    args.hostPinPath === undefined ? undefined : { hostPinPath: args.hostPinPath },
+  );
   const presetFlags = [...sshOptionTokens(approved, configPath), "--", sshDestinationToken(approved)];
   return approved.authAgentSocket === null
     ? { configPath, fileContent, presetFlags }
@@ -199,8 +223,13 @@ export function sweepLocalSshDir(row: Pick<SubshellTable, "id" | "nodeId" | "ssh
 /* any command; naming WHY is this surface's copy, per §12)            */
 /* ------------------------------------------------------------------ */
 
-/** The acting user's SSH-usable gate on one node, or the refusal that closes the request. */
-async function gateSshNode(viewerId: string, nodeId: string): Promise<SshAnswer<NodeGate>> {
+/**
+ * The acting user's SSH-usable gate on one node, or the refusal that closes
+ * the request. Exported because the §7 setup-here act re-runs EXACTLY this
+ * door (B and A alike) before it touches either machine - one gate, one
+ * spelling of every cause.
+ */
+export async function gateSshNode(viewerId: string, nodeId: string): Promise<SshAnswer<NodeGate>> {
   // Invisible and absent collapse to one 404 (the node-gate doctrine: an
   // invisible node must never answer 403, so ids cannot be probed).
   const gate = await loadNodeGate(viewerId, nodeId);
@@ -239,8 +268,13 @@ function gateCause(row: NodeTable, serverAccountEnabled: boolean): string {
   return `Subshell SSH on ${machine} is reserved to its owner; a shared machine stays the owner's to SSH from.`;
 }
 
-/** The machine refused or could not answer; the code family, never the agent's own text. */
-function rpcRefusal(err: SshRpcError): SshAnswer<never> {
+/**
+ * The machine refused or could not answer; the code family, never the
+ * agent's own text. Exported for the §7 setup-here act, whose ssh_exec RPCs
+ * must map failures through the SAME doors (spec §12's naming doctrine: one
+ * cause, one sentence, wherever it was reached).
+ */
+export function rpcRefusal(err: SshRpcError): SshAnswer<never> {
   if (err.kind === "offline") {
     return codedRefusal(
       409,
@@ -322,8 +356,8 @@ async function nodeResolve(row: NodeTable, destination: string): Promise<SshAnsw
   }
 }
 
-/** The node's dataDir at the compose instant, or null (the offline class). */
-function targetDataDir(row: NodeTable): string | null {
+/** The node's dataDir at the compose instant, or null (the offline class). Exported with the gate. */
+export function targetDataDir(row: NodeTable): string | null {
   // local: the server's own dir (LocalLauncher byte-checks this exact
   // derivation); agent: the ready-reported `dataDir`, which the AGENT
   // re-derives from itself and refuses a byte-mismatch on.
@@ -377,6 +411,19 @@ export async function sshLaunch(args: {
   nodeId: string;
   destination: string;
   name?: string;
+  /**
+   * RELAY MODE (spec 2026-10-08 §5-§6, T10): the key home A whose agent signs
+   * for B. Absent is the M1 direct launch (B's own keys, snapshot agent
+   * socket as before). Present: after B's resolve, the grant layer decides -
+   * a standing grant opens a brokered relay session and the pane's scoped
+   * `SSH_AUTH_SOCK` points at B's proxy socket (the broker's byte-checked
+   * path); NO grant records the first-use request and FAILS the launch fast
+   * with `SSH_GRANT_APPROVAL_REQUIRED` - the pane never exists, and a
+   * re-launch after approval simply proceeds (or finds the standing pending
+   * row). A is gated exactly like B (its own row, its own owner); `local`
+   * can be neither side.
+   */
+  keyHomeNodeId?: string;
   /** The REQUEST-scoped subshells service (the create path is its own). */
   subshells: Pick<SubshellsService, "createSubshell">;
 }): Promise<SshAnswer<{ subshellId: string }>> {
@@ -402,29 +449,94 @@ export async function sshLaunch(args: {
     );
   }
   const subshellId = crypto.randomUUID();
-  const composed = composeSshLaunch({ snapshot, targetDataDir: dataDir, subshellId });
+  // The relay leg runs BEFORE the pane exists (decision 2): the grant match
+  // answers from stored facts, `openRelay` verifies B's proxy socket path
+  // against the pane id minted here, and the refused launch writes no pane.
+  // A refusal (no grant -> asked, or a broker refusal) returns here; the
+  // only thing that ever existed was a durable pending row, which is the
+  // point of it.
+  let relay: { socketPath: string; grantId: string } | null = null;
+  if (args.keyHomeNodeId !== undefined) {
+    const gateA = await gateSshNode(args.viewerId, args.keyHomeNodeId);
+    if (!gateA.ok) return gateA;
+    const aRow = gateA.value.row;
+    if (aRow.kind !== "agent") {
+      // Acceptance (d) restated at the door that can name it: the server host
+      // is never a key home, whatever its own gate says about SSH. The 409
+      // is the code's canonical render (`throwCodedRefusal` rides the code's
+      // own status), matching what the broker's own `local-node` refusal is.
+      return codedRefusal(
+        409,
+        BackendErrorCodes.SSH_RELAY_OPEN_FAILED,
+        "The server host itself cannot hold a relay key home; pick a machine running the Subshell app.",
+      );
+    }
+    const leg = await prepareRelayLeg({
+      viewerId: args.viewerId,
+      aNode: { id: aRow.id, name: aRow.name },
+      bNodeId: row.id,
+      resolvedHost: snapshot.host,
+      // The canonical triple the pin is keyed by, from the SAME validated
+      // snapshot whose host drove the grant match (Task 12).
+      destination: sshCanonicalDestination({ host: snapshot.host, port: snapshot.port, user: snapshot.user }),
+      paneId: subshellId,
+    });
+    if (!leg.ok) return leg;
+    relay = leg.value;
+  }
+  const composed = composeSshLaunch({
+    snapshot,
+    targetDataDir: dataDir,
+    subshellId,
+    // Relay mode (Task 12): the config pins B's trust source to the file the
+    // signed relay-open just wrote beside it; a direct launch renders the M1
+    // accept-new bytes untouched.
+    ...(relay ? { hostPinPath: buildSshKnownHostsPath(dataDir, subshellId) } : {}),
+  });
+  // Relay mode RE-POINTS the scoped exception (spec §5.2): the socket the
+  // pane's ssh authenticates through is B's proxy the broker just verified,
+  // never the snapshot's agent socket even if the config names one. Still
+  // one key, still the ssh invocation only, still never the whole-pane env.
+  if (relay) composed.extraPaneEnv = sshRelayPaneEnv(relay.socketPath);
   // The create can still refuse (node switched off, harness gone, a
   // lockdown, a maintenance window) — those ride the global error handler
   // with their own codes. They land here, AFTER the resolve: the honest
   // order, since this act's gate (SSH use) is strictly narrower than the
   // launch's and every refusal below writes no pane.
-  const created = await args.subshells.createSubshell({
-    userId: args.viewerId,
-    harnessId: "ssh",
-    presetId: null,
-    // The presetless-terminal default (spec 2026-10-01 §2): the launch node's
-    // home, resolved by the create path itself — exactly what the wizard's
-    // "connect from this machine" journey wants as the pane's starting cwd.
-    workingDir: undefined,
-    name: args.name,
-    nodeId: row.id,
-    machineActor: false, // the routes are cookie-only (requireCookieActor)
-    crossAgent: false,
-    subshellId,
-    ssh: { configPath: composed.configPath, fileContent: composed.fileContent, snapshot },
-    presetFlags: composed.presetFlags,
-    ...(composed.extraPaneEnv ? { extraPaneEnv: composed.extraPaneEnv } : {}),
-  });
+  let created;
+  try {
+    created = await args.subshells.createSubshell({
+      userId: args.viewerId,
+      harnessId: "ssh",
+      presetId: null,
+      // The presetless-terminal default (spec 2026-10-01 §2): the launch node's
+      // home, resolved by the create path itself - exactly what the wizard's
+      // "connect from this machine" journey wants as the pane's starting cwd.
+      workingDir: undefined,
+      name: args.name,
+      nodeId: row.id,
+      machineActor: false, // the routes are cookie-only (requireCookieActor)
+      crossAgent: false,
+      subshellId,
+      ssh: {
+        configPath: composed.configPath,
+        fileContent: composed.fileContent,
+        snapshot,
+        // A relay pane remembers its A on the row (migration 0052); the act
+        // that RE-OPENS the pairing later reads only this.
+        ...(relay ? { keyHomeNodeId: args.keyHomeNodeId as string } : {}),
+      },
+      presetFlags: composed.presetFlags,
+      ...(composed.extraPaneEnv ? { extraPaneEnv: composed.extraPaneEnv } : {}),
+    });
+  } catch (err) {
+    // A session was opened under a pane id that will never have a child:
+    // the child-exit word is the honest cut (the process is gone at t=0),
+    // and the sweep is the same best-effort helper every death site uses.
+    // The refusal the caller sees is the create's own, untouched.
+    if (relay) closeRelayForPaneExit(subshellId);
+    throw err;
+  }
   // Recency FIRST (a bookkeeping refresh the human already sees as part of the
   // launch), then the audit — both AFTER the pane exists. The ledger is
   // best-effort (a failed touch must not turn a live pane into an error, the
@@ -444,7 +556,14 @@ export async function sshLaunch(args: {
     action: "ssh.launch",
     targetType: "node",
     targetId: row.id,
-    metadataJson: JSON.stringify({ nodeId: row.id, destination, subshellId: created.id }),
+    // The relay's grant id rides the success row: ids only, and it lets the
+    // trail read which authorization carried the launch (spec §9's audit
+    // posture; the fingerprint set lives on the grant, not here).
+    metadataJson: JSON.stringify(
+      relay
+        ? { nodeId: row.id, destination, subshellId: created.id, grantId: relay.grantId }
+        : { nodeId: row.id, destination, subshellId: created.id },
+    ),
   });
   return ok({ subshellId: created.id });
 }
@@ -484,6 +603,94 @@ export async function sshSaveHost(args: {
 /** `DELETE /api/ssh/saved-hosts/:id` — false for foreign AND absent (one 404). */
 export async function sshRemoveSavedHost(viewerId: string, id: string): Promise<boolean> {
   return await new SshSavedHostsRepository(db).remove(viewerId, id);
+}
+
+/**
+ * The key home's gate, shared by BOTH grant doors (Task 18): the create below
+ * and the roster-by-node read behind its picker. A grant authorizes the key
+ * home's agent to sign, so A must be an agent node this caller may SSH
+ * through, switched on and unheld - the same `gateSshNode` a relay launch
+ * runs, run BEFORE anything is stored or asked so the screen cannot point an
+ * authorization (or a machine ask) at a machine the caller has no say over.
+ * `local` is never a key home (acceptance (d)); the refusal names that door
+ * with the open-failure code because it is exactly what the broker would have
+ * refused, refused before anything was stored or fetched.
+ */
+async function gateKeyHome(viewerId: string, aNodeId: string): Promise<SshGrantAnswer<NodeGate>> {
+  const gate = await gateSshNode(viewerId, aNodeId);
+  if (!gate.ok) {
+    // gateSshNode only ever carries the CODED arm (its refusal is a gate
+    // verdict, never a resolve outcome); the 422 type-arm is unreachable,
+    // and an unreachable arm is rendered loudly, not swallowed.
+    if (gate.refusal.status === 422) {
+      return {
+        ok: false,
+        refusal: {
+          status: 502,
+          code: BackendErrorCodes.SSH_NODE_REFUSED,
+          message: "The grant surface cannot answer that gate check.",
+        },
+      };
+    }
+    return { ok: false, refusal: gate.refusal };
+  }
+  if (gate.value.row.kind !== "agent") {
+    return {
+      ok: false,
+      refusal: {
+        // 409 is this code's canonical render (`throwCodedRefusal` rides the
+        // code's own status), and it is what the broker's own `local-node`
+        // refusal gives: the same door, refused before anything is stored.
+        status: 409,
+        code: BackendErrorCodes.SSH_RELAY_OPEN_FAILED,
+        message: "The server host itself cannot hold a grant key home; pick a machine running the Subshell app.",
+      },
+    };
+  }
+  return { ok: true, value: gate.value };
+}
+
+/**
+ * `POST /api/ssh/grants` - create a standing grant from the screen (spec
+ * 2026-10-08 §8), gated through {@link gateKeyHome} first.
+ */
+export async function sshCreateGrant(args: {
+  viewerId: string;
+  aNodeId: string;
+  name: string;
+  selector: string;
+  fingerprints: readonly string[];
+}): Promise<SshGrantAnswer<{ grant: SshGrantView }>> {
+  const gate = await gateKeyHome(args.viewerId, args.aNodeId);
+  if (!gate.ok) return { ok: false, refusal: gate.refusal };
+  return await createGrant({
+    ownerUserId: args.viewerId,
+    aNodeId: args.aNodeId,
+    name: args.name,
+    selector: args.selector,
+    fingerprints: args.fingerprints,
+  });
+}
+
+/**
+ * `GET /api/ssh/grants/identities?node=` - the roster-by-node read behind the
+ * grants screen's CREATE picker (spec 2026-10-08 §8, Task 18): the same
+ * T11 roster command and the same fail-closed doors as the approval screen's
+ * request-scoped read, taken against a directly-chosen key home so an
+ * operator can build a grant WITHOUT a pending first-use request standing.
+ * The gate runs before the machine is asked (a machine the caller may not
+ * SSH through never sees a frame), and like every roster read this is a
+ * question, not an answer: NO audit row is written, no row changes, an
+ * offline or refusing key home answers the named error rather than the
+ * empty roster a live agent honestly reports.
+ */
+export async function listNodeAgentIdentities(args: {
+  viewerId: string;
+  aNodeId: string;
+}): Promise<SshGrantAnswer<{ identities: NodeSshAgentIdentity[] }>> {
+  const gate = await gateKeyHome(args.viewerId, args.aNodeId);
+  if (!gate.ok) return { ok: false, refusal: gate.refusal };
+  return await fetchAgentRoster(args.aNodeId);
 }
 
 /** The GET payload of the launcher screen: the owner's rows plus their default machine. */

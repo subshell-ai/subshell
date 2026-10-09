@@ -2186,6 +2186,49 @@ Audit events are written, grouped by family:
 - **Nodes**: `node.enroll`, `node.delete`, `node.rename`, `node.key_rotate`, `node.reregister_key`, `node.reregister`,
   `node.allowed_dirs.update`, `node.config.update`,
   `node.maintenance.update`, `node.ssh_enabled.update`,
+  `node.ssh_identity.register` (spec 2026-10-08 §4.3: the signing-key
+  bootstrap lands when the link's answer fills the EMPTY slot, `via: "link"`
+  and nothing else in the metadata - never the key value; the idempotent
+  re-report of the same bytes and the refused different-bytes report write
+  no row),
+  `node.ssh_machine_pin.repair` (spec §4.5, Task 17: the machine trust
+  re-pair - the owner of A re-delivers one peer's registered public pair to
+  replace that peer's stored pin, the ONLY sanctioned way a pinned entry
+  changes; metadata names A and the peer by NODE ID ONLY, never key bytes or
+  fingerprints, and the row lands only when A's own ack confirmed the write -
+  an offline or refusing A audits nothing, every other actor and every
+  refusal writes no row),
+  `node.ssh_grant.request|create|update|delete|approve|deny` (spec §6/§9/§10,
+  migration 0050: the ask names the pane, the two machines, and the resolved
+  destination; approve/create name the grant, the destination, and the CHOSEN
+  key FINGERPRINTS (the `SHA256:` public identifiers - spec §10 makes the
+  approve row the only durable record of the operator's selection, since a
+  plane could widen the set it hands A and no plane-independent surface shows
+  what A enforced); those fingerprint values appear ONLY in the grant
+  approve/create audit rows - never in a log line or a notification body; deny
+  is audit-only and expiry writes NOTHING; delete carries `relaysClosed`, the
+  revoke's live-session cut made real; create carries `via: "first-use" |
+  "manual"`; no key material, challenge, or signature rides any row),
+  `node.ssh_host_pin.create|delete` (spec §9, Task 12: the destination's
+  TOFU record, created at a grant's capture or an explicit supply and deleted
+  as the recovery's first half; metadata names the canonical destination and
+  the pinned key's `SHA256:` fingerprint ONLY - a host-key fingerprint is a
+  public identifier like the grant's agent fingerprints - plus `via:
+  "captured" | "explicit"` on create; the pinned line's bytes ride NO audit
+  row, log line, or notification, and the `ssh_host_key` capture COMMAND
+  itself writes nothing: the row belongs to the capture act),
+  `node.ssh_relay.open|close` (spec §5.3/§9: open names grant, A, B, pane,
+  the routing ref, and the fingerprint COUNT; close names the one
+  `reason` word from the grammar - the plane's broker rows, `actorUserId:
+  null`, because the human's act is the launch/grant trail),
+  `node.ssh_upgrade.run` (spec §7, Task 14: one row per "Set up Subshell
+  here" act, naming the pane, B, A and the grant on a relay run, the
+  canonical destination, the act's exec id, and the OUTCOME with a STAGE
+  word chosen by the service; the minted setup key appears nowhere - never
+  the metadata, never a refusal's copy, and no installer output at all:
+  the act parses the machine's redacted capture into the stage verb and
+  keeps nothing else; the single-use key row is the only durable record of
+  the credential, matching the `setup_key.create` no-metadata precedent),
   `node.logging.update`, `node.update`,
   `node.update.unknown`, `node.shares_set`, `node.local_share_changed`, and
   `node.service` (with `{ verb: "restart", forced }` metadata; the restart

@@ -227,6 +227,97 @@ export enum BackendErrorCodes {
    * code, exactly as it drops a `view` grantee's keystrokes.
    */
   SSH_OWNER_INPUT_ONLY = "SSH_OWNER_INPUT_ONLY",
+  /**
+   * A relay launch the grant layer refused for lack of a standing grant
+   * (spec 2026-10-08 §6.2): a first-use approval was RECORDED and asked of
+   * the key home's owner, and the launch fails fast rather than hang a pane
+   * on a human. The message names the asking machine and the remedy (answer
+   * the approval, launch again); never the key or destination beyond what
+   * the pending row already discloses.
+   */
+  SSH_GRANT_APPROVAL_REQUIRED = "SSH_GRANT_APPROVAL_REQUIRED",
+  /**
+   * A grant approval selecting MORE than `SSH_MAX_GRANT_FINGERPRINTS` keys
+   * (spec 2026-10-08 §5.4): a hard, loud, named refusal on the grants
+   * surface, NEVER a silent truncation of the operator's selection. The cap
+   * is law.
+   */
+  SSH_GRANT_KEYS_OVER_LIMIT = "SSH_GRANT_KEYS_OVER_LIMIT",
+  /**
+   * A grant fingerprint outside the `SHA256:` display grammar (agent-wire
+   * base64; `isSshGrantFingerprints`). Refused before any write; the value
+   * itself is never echoed into the message.
+   */
+  SSH_GRANT_KEYS_INVALID = "SSH_GRANT_KEYS_INVALID",
+  /**
+   * The relay broker refused to open (spec 2026-10-08 §5.3): quota, gate,
+   * handshake, or a refused side. The pane was not launched; the message
+   * names which door. No grant was consumed and no session exists.
+   */
+  SSH_RELAY_OPEN_FAILED = "SSH_RELAY_OPEN_FAILED",
+  /**
+   * A relay launch aimed at a machine that has no registered relay identity
+   * (spec 2026-10-08 §4.2/§4.3: no `node:` record, or its signing slot is
+   * still empty). The remedy is on the machine: re-enroll, or let its next
+   * `ready` fill the slot.
+   */
+  SSH_RELAY_IDENTITY_MISSING = "SSH_RELAY_IDENTITY_MISSING",
+  /**
+   * A grant destination selector the grammar refuses: blank, over 253
+   * characters, leading `-`/`.`, doubled `*`, control characters or
+   * whitespace. A selector is a hostname pattern (concrete host or `*`
+   * globs) matched against resolved destination hostnames; it is refused
+   * before anything is stored.
+   */
+  SSH_GRANT_SELECTOR_INVALID = "SSH_GRANT_SELECTOR_INVALID",
+  /**
+   * An approval question already answered (or already expired) when someone
+   * tried to answer it: the queue is compare-and-set, so a second approver or
+   * the sweep wins and this is the loud no the screen shows (spec 2026-10-08
+   * §6.2 - the row records the whole lifecycle, the answer does not rewrite
+   * history).
+   */
+  SSH_GRANT_ALREADY_ANSWERED = "SSH_GRANT_ALREADY_ANSWERED",
+  /**
+   * A relay grant creation the host-key capture refused because the key home
+   * has no `known_hosts` entry for the destination (spec 2026-10-08 §9,
+   * Task 12). A relay grant must carry a pin - B verifies D against A's
+   * recorded key, never its own ambient TOFU - so the grant is NOT created
+   * and the approval stays pending. The remedy the message names: connect to
+   * the destination once from the key home, or supply the key on the trust
+   * screen.
+   */
+  SSH_HOST_PIN_MISSING = "SSH_HOST_PIN_MISSING",
+  /**
+   * The host-key capture found the destination pinned to a DIFFERENT key
+   * (spec 2026-10-08 §9): the TOFU hard block at the plane's edge, the mirror
+   * of the block OpenSSH itself raises on B. Nothing is overwritten; recovery
+   * is delete the pin (trust screen) plus a fresh grant-creation TOFU, no
+   * separate rotate act.
+   */
+  SSH_HOST_PIN_CHANGED = "SSH_HOST_PIN_CHANGED",
+  /**
+   * A host-key line (an explicit pin, or a canonical destination) the wire
+   * grammar refuses: not one bounded printable line, a comment or blank, a
+   * smuggled newline. Refused before any write (spec 2026-10-08 §9).
+   */
+  SSH_HOST_PIN_INVALID = "SSH_HOST_PIN_INVALID",
+  /**
+   * The "Set up Subshell here" act's named EGRESS refusal (spec 2026-10-08
+   * §7): the destination cannot reach the plane URL, so the install cannot
+   * run and no key was ever spent on an enrollment. Deliberately a code of
+   * its own: the spec requires this cause to read differently from any key
+   * error, and the working pane is untouched either way.
+   */
+  SSH_UPGRADE_EGRESS = "SSH_UPGRADE_EGRESS",
+  /**
+   * The "Set up Subshell here" act stopped at a NAMED stage short of an
+   * enrolled, connected node (spec 2026-10-08 §7): the install failed, the
+   * enrollment was refused, or the new node never reported `ready` within
+   * the bounded wait. The message names which stage; the setup key is
+   * nowhere in it, and the interactive pane is untouched.
+   */
+  SSH_UPGRADE_FAILED = "SSH_UPGRADE_FAILED",
 }
 
 export const BackendErrorCodeDefs = {
@@ -486,5 +577,53 @@ export const BackendErrorCodeDefs = {
   [BackendErrorCodes.SSH_OWNER_INPUT_ONLY]: {
     message: "SSH panes accept input from their owner only",
     statusCode: 403,
+  },
+  [BackendErrorCodes.SSH_GRANT_APPROVAL_REQUIRED]: {
+    message: "This connection needs a key-grant approval first",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_GRANT_KEYS_OVER_LIMIT]: {
+    message: "Too many keys selected for one grant",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.SSH_GRANT_KEYS_INVALID]: {
+    message: "That key fingerprint is not in the SHA256 form grants store",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.SSH_RELAY_OPEN_FAILED]: {
+    message: "The relay refused to open; the pane was not launched",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_RELAY_IDENTITY_MISSING]: {
+    message: "That machine has no registered relay identity yet",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_GRANT_SELECTOR_INVALID]: {
+    message: "That grant selector is not a hostname pattern",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.SSH_GRANT_ALREADY_ANSWERED]: {
+    message: "That grant request has already been answered",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_HOST_PIN_MISSING]: {
+    message: "The key home has no recorded host key for that destination",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_HOST_PIN_CHANGED]: {
+    message: "The host key for that destination does not match the stored pin",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_HOST_PIN_INVALID]: {
+    message: "That host-key entry is not a valid known_hosts line",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.SSH_UPGRADE_EGRESS]: {
+    message: "The destination cannot reach this server, so it cannot install Subshell",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_UPGRADE_FAILED]: {
+    message: "Setting up Subshell here did not finish",
+    statusCode: 409,
   },
 };

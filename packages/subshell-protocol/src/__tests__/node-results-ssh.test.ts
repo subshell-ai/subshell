@@ -1,6 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { parseNodeSshAliasList, parseNodeSshResolveOutcome } from "../node-results.js";
+import {
+  parseNodeSshAgentIdentities,
+  parseNodeSshAliasList,
+  parseNodeSshExecKick,
+  parseNodeSshExecStatus,
+  parseNodeSshHostKey,
+  parseNodeSshIdentity,
+  parseNodeSshMachinePinRepair,
+  parseNodeSshResolveOutcome,
+} from "../node-results.js";
+import { SSH_EXEC_RESULT_MAX_CHARS, SSH_MAX_HOST_KEY_LINES, SSH_ROSTER_MAX_IDENTITIES } from "../ssh-limits.js";
 import { makeAliasList, makeResolveOk, makeResolveRefused } from "./fixtures/ssh-fixtures.js";
+
+/** A well-formed public-JWK STRING: the validator's whole job is that it is JSON and an object. */
+const SIGNING_JWK =
+  '{"kty":"EC","crv":"P-256","x":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","y":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}';
 
 describe("parseNodeSshAliasList", () => {
   test("narrows a well-formed answer", () => {
@@ -42,5 +56,195 @@ describe("parseNodeSshResolveOutcome", () => {
       settings: ["ProxyCommand"],
     });
     expect(parseNodeSshResolveOutcome({ accepted: false, code: "not_a_code", settings: [] })).toBeNull();
+  });
+});
+
+describe("parseNodeSshAgentIdentities", () => {
+  /** A canonical grant-grammar fingerprint (SHA256: + base64url digest text). */
+  const FP_A = `SHA256:${"A".repeat(20)}${"b".repeat(20)}cd`;
+  const _FP_B = `SHA256:${"-_9".repeat(14)}x`;
+
+  test("narrows a well-formed roster answer", () => {
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: FP_A, comment: "laptop key" }] })).toEqual({
+      identities: [{ fingerprint: FP_A, comment: "laptop key" }],
+    });
+  });
+  test("an EMPTY roster is a legal answer (a live agent may carry zero keys)", () => {
+    expect(parseNodeSshAgentIdentities({ identities: [] })).toEqual({ identities: [] });
+  });
+  test("blob bytes are NOT representable: a wire `blob` member is dropped from the narrowed answer", () => {
+    // The grammar has no slot for key material, so even a (buggy or hostile)
+    // node that tried to ship one cannot get it past the rebuild.
+    const blob = Buffer.from("PRIVATE-WIRE-MATERIAL").toString("base64");
+    const parsed = parseNodeSshAgentIdentities({ identities: [{ fingerprint: FP_A, comment: "c", blob }] });
+    expect(parsed).toEqual({ identities: [{ fingerprint: FP_A, comment: "c" }] });
+    expect(JSON.stringify(parsed)).not.toContain("PRIVATE-WIRE-MATERIAL");
+    expect(JSON.stringify(parsed)).not.toContain(blob);
+  });
+  test("refuses fingerprints outside the canonical SHA256: grammar", () => {
+    // The roster's fingerprint must be a valid grant selection, the SAME
+    // grammar both directions (the approve error copy promises "exactly as
+    // the roster reports it"); anything else is a malformed answer, refused.
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: "MD5:aa:bb", comment: "c" }] })).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: "SHA256:", comment: "c" }] })).toBeNull();
+    expect(
+      parseNodeSshAgentIdentities({ identities: [{ fingerprint: "SHA256:with space", comment: "c" }] }),
+    ).toBeNull();
+    expect(
+      parseNodeSshAgentIdentities({ identities: [{ fingerprint: "SHA256:with/slash+plus=", comment: "c" }] }),
+    ).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: 7, comment: "c" }] })).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: FP_A }] })).toBeNull();
+  });
+  test("refuses malformed entries, non-string comments, and non-array shapes", () => {
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: FP_A, comment: 4 }] })).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: [{ fingerprint: FP_A, comment: "x".repeat(254) }] })).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: "not an array" })).toBeNull();
+    expect(parseNodeSshAgentIdentities({ identities: ["bare string"] })).toBeNull();
+    expect(parseNodeSshAgentIdentities({})).toBeNull();
+    expect(parseNodeSshAgentIdentities(null)).toBeNull();
+    expect(parseNodeSshAgentIdentities([])).toBeNull();
+  });
+  test("refuses a roster past SSH_ROSTER_MAX_IDENTITIES, the bound itself answers (PR #338 review)", () => {
+    // The count bound mirrors SSH_MAX_HOST_KEY_LINES' reasoning: a machine
+    // reporting more identities than the display/selection bound is
+    // malformed, refused rather than truncated down to size (a roster the
+    // validator quietly cut would read to the operator as the whole truth).
+    const roster = (n: number) => ({
+      identities: Array.from({ length: n }, () => ({ fingerprint: FP_A, comment: "k" })),
+    });
+    expect(parseNodeSshAgentIdentities(roster(SSH_ROSTER_MAX_IDENTITIES + 1))).toBeNull();
+    expect(parseNodeSshAgentIdentities(roster(SSH_ROSTER_MAX_IDENTITIES))).not.toBeNull();
+  });
+});
+
+describe("parseNodeSshIdentity", () => {
+  test("narrows a well-formed signing-public-key answer", () => {
+    expect(parseNodeSshIdentity({ signingPublicKey: SIGNING_JWK })).toEqual({ signingPublicKey: SIGNING_JWK });
+  });
+  test("refuses a non-string or empty field", () => {
+    expect(parseNodeSshIdentity({ signingPublicKey: 7 })).toBeNull();
+    expect(parseNodeSshIdentity({ signingPublicKey: "" })).toBeNull();
+    expect(parseNodeSshIdentity({})).toBeNull();
+    expect(parseNodeSshIdentity(null)).toBeNull();
+    expect(parseNodeSshIdentity(SIGNING_JWK)).toBeNull(); // the answer is an OBJECT, not a bare string
+  });
+  test("refuses a value that is not well-formed JSON of object shape", () => {
+    // The grammar stops at "JSON that parses to an object"; ES256 importability
+    // is the server's gate (assertImportableSigningJwk), never this one's.
+    expect(parseNodeSshIdentity({ signingPublicKey: "not json at all" })).toBeNull();
+    expect(parseNodeSshIdentity({ signingPublicKey: '"a string that parses"' })).toBeNull();
+    expect(parseNodeSshIdentity({ signingPublicKey: "[1,2]" })).toBeNull();
+    expect(parseNodeSshIdentity({ signingPublicKey: "null" })).toBeNull();
+  });
+});
+
+describe("parseNodeSshHostKey (spec 2026-10-08 §9, Task 12)", () => {
+  const LINE_A = "git.example.test ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI00000000000000000000000000000000000000000";
+  const LINE_B = "|1|bnVsbHNhbHRudWxsc2FsdA==|dGhlaGFzaA==| ssh-ed25519 AAAA";
+  test("narrows a well-formed answer of verbatim known_hosts lines", () => {
+    expect(parseNodeSshHostKey({ lines: [LINE_A] })).toEqual({ lines: [LINE_A] });
+    expect(parseNodeSshHostKey({ lines: [] })).toEqual({ lines: [] }); // the honest "recorded nothing"
+  });
+  test("rebuilds the lines array (extra answer members do not ride)", () => {
+    const parsed = parseNodeSshHostKey({ lines: [LINE_A, LINE_B], sneaky: "x" });
+    expect(parsed).not.toHaveProperty("sneaky");
+    expect(parsed?.lines).toEqual([LINE_A, LINE_B]);
+  });
+  test("refuses a malformed or over-cap answer", () => {
+    expect(parseNodeSshHostKey({ lines: "not an array" })).toBeNull();
+    expect(parseNodeSshHostKey({ lines: [7] })).toBeNull();
+    expect(parseNodeSshHostKey({ lines: ["host ssh-rsa AAA\nsecond entry"] })).toBeNull(); // smuggled newline
+    expect(parseNodeSshHostKey({ lines: [""] })).toBeNull();
+    expect(parseNodeSshHostKey({ lines: null })).toBeNull();
+    expect(
+      parseNodeSshHostKey({
+        lines: Array.from({ length: SSH_MAX_HOST_KEY_LINES + 1 }, (_, i) => `h${i} ssh-ed25519 A`),
+      }),
+    ).toBeNull();
+    expect(
+      parseNodeSshHostKey({ lines: Array.from({ length: SSH_MAX_HOST_KEY_LINES }, (_, i) => `h${i} ssh-ed25519 A`) }),
+    ).not.toBeNull();
+  });
+});
+
+describe("parseNodeSshExecKick / parseNodeSshExecStatus (spec 2026-10-08 §7, Task 14)", () => {
+  const EXEC_ID = "11111111-2222-4333-8444-555555555555";
+  test("the kick ack narrows to the started marker plus the id", () => {
+    expect(parseNodeSshExecKick({ started: true, execId: EXEC_ID })).toEqual({ started: true, execId: EXEC_ID });
+    expect(parseNodeSshExecKick({ started: false, execId: EXEC_ID })).toBeNull();
+    expect(parseNodeSshExecKick({ started: true })).toBeNull();
+    expect(parseNodeSshExecKick({ started: true, execId: "bad id" })).toBeNull();
+    expect(parseNodeSshExecKick("pong")).toBeNull();
+  });
+  test("the status answer narrows both states", () => {
+    expect(parseNodeSshExecStatus({ state: "running" })).toEqual({ state: "running" });
+    expect(
+      parseNodeSshExecStatus({ state: "done", code: 0, timedOut: false, stdout: "==> done.\n", stderr: "" }),
+    ).toEqual({ state: "done", code: 0, timedOut: false, stdout: "==> done.\n", stderr: "" });
+    // A signal-killed child reports a null code honestly.
+    expect(parseNodeSshExecStatus({ state: "done", code: null, timedOut: true, stdout: "", stderr: "" })).toEqual({
+      state: "done",
+      code: null,
+      timedOut: true,
+      stdout: "",
+      stderr: "",
+    });
+  });
+  test("the status answer refuses malformed shapes", () => {
+    expect(parseNodeSshExecStatus({ state: "half" })).toBeNull();
+    expect(parseNodeSshExecStatus({ state: "running", smuggled: 1 })).toBeNull(); // rebuilt from checked fields
+    expect(parseNodeSshExecStatus({ state: "done" })).toBeNull(); // done states ALL four facts
+    expect(parseNodeSshExecStatus({ state: "done", code: 0.5, timedOut: false, stdout: "", stderr: "" })).toBeNull();
+    expect(parseNodeSshExecStatus({ state: "done", code: 0, stdout: "", stderr: "" })).toBeNull();
+    expect(
+      parseNodeSshExecStatus({ state: "done", code: 0, timedOut: false, stdout: "a\x00b", stderr: "" }),
+    ).toBeNull(); // control chars other than newlines/tabs/CR are refused
+    expect(
+      parseNodeSshExecStatus({
+        state: "done",
+        code: 0,
+        timedOut: false,
+        stdout: "x".repeat(SSH_EXEC_RESULT_MAX_CHARS + 1),
+        stderr: "",
+      }),
+    ).toBeNull();
+  });
+  test("the narrowed status answer drops unknown members (rebuild, not cast)", () => {
+    const parsed = parseNodeSshExecStatus({
+      state: "done",
+      code: 1,
+      timedOut: false,
+      stdout: "s",
+      stderr: "e",
+      nodeKey: "leak?",
+    });
+    expect(parsed).not.toHaveProperty("nodeKey");
+    expect(parsed).toEqual({ state: "done", code: 1, timedOut: false, stdout: "s", stderr: "e" });
+  });
+});
+
+describe("parseNodeSshMachinePinRepair (spec 2026-10-08 §4.5, Task 17)", () => {
+  test("narrows the repair ack: repaired true plus the echoed peer id", () => {
+    expect(parseNodeSshMachinePinRepair({ repaired: true, peerNodeId: "node-b" })).toEqual({
+      repaired: true,
+      peerNodeId: "node-b",
+    });
+  });
+  test("refuses anything the node did not confirm", () => {
+    // `repaired: true` is the ONLY legal value (the exec-kick rule restated):
+    // a store that refused answers ok:false, never a soft no.
+    expect(parseNodeSshMachinePinRepair({ repaired: false, peerNodeId: "node-b" })).toBeNull();
+    expect(parseNodeSshMachinePinRepair({ repaired: "true", peerNodeId: "node-b" })).toBeNull();
+    expect(parseNodeSshMachinePinRepair({ repaired: true })).toBeNull(); // no echo to match
+    expect(parseNodeSshMachinePinRepair({ repaired: true, peerNodeId: "" })).toBeNull();
+    expect(parseNodeSshMachinePinRepair({ repaired: true, peerNodeId: 7 })).toBeNull();
+    expect(parseNodeSshMachinePinRepair(null)).toBeNull();
+    expect(parseNodeSshMachinePinRepair("node-b")).toBeNull();
+  });
+  test("rebuilds the ack (a stray answer member does not ride)", () => {
+    const parsed = parseNodeSshMachinePinRepair({ repaired: true, peerNodeId: "node-b", nodeKey: "leak?" });
+    expect(parsed).not.toHaveProperty("nodeKey");
+    expect(parsed).toEqual({ repaired: true, peerNodeId: "node-b" });
   });
 });

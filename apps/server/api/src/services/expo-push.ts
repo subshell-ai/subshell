@@ -72,6 +72,10 @@ const KIND_COPY: Record<NotifyKind, string> = {
   crashed: "A subshell crashed, auto-restarting",
   crashed_final: "A subshell crashed",
   maintenance: "A subshell was stopped for node maintenance",
+  // Not a subshell: a first-use key-grant request waiting on the owner
+  // (spec 2026-10-08 §6.2). Fixed copy, names nothing - `sid` carries the
+  // opaque request id, never a destination or a fingerprint.
+  grant_approval: "A key grant needs your approval",
 };
 
 /**
@@ -121,9 +125,14 @@ export function buildExpoMessages(
     threadId: subshellId,
     tag: subshellId,
     collapseId: subshellId,
-    // Names registered in apps/client/mobile/src/native/push.ts — keep the three in
-    // sync or the lock-screen actions silently vanish on real devices.
-    categoryId: "subshell",
+    // Category and channel NAMES as registered in
+    // apps/client/mobile/src/native/push.ts (`subshell`, `subshell-plain`, the
+    // `subshell-subshells` channel); keep these strings in sync with what that
+    // file registers or the lock-screen actions silently vanish on real devices.
+    // grant_approval names the action-free category: its sid is a grant
+    // REQUEST uuid, so the Silence bell (a PATCH against a subshell) would be
+    // a dead end on the lock screen (PR #338 review, Important 1).
+    categoryId: kind === "grant_approval" ? "subshell-plain" : "subshell",
     channelId: "subshell-subshells",
     _channelId: "subshell-subshells",
     data: { sid: subshellId, kind, origin: APP_BASE_URL },

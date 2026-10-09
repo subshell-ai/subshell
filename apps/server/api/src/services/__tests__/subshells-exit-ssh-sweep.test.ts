@@ -8,6 +8,7 @@ import { runMigrations } from "@/db/migrate.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
+import { type RelayBroker, setRelayBrokerForTests } from "@/services/ssh-relay.service.js";
 import { SubshellsService } from "@/services/subshells.service.js";
 import { getLogger } from "@/utils/logger.js";
 
@@ -114,5 +115,43 @@ describe("the exit report sweeps the LOCAL ssh config dir", () => {
     // No dir made at all: the sweep must not throw on a missing path.
     await expect(service.reportExit(id, 0)).resolves.toBeUndefined();
     await expect(service.reportExit(id, 0)).resolves.toBeUndefined();
+  });
+
+  it("(M2 §5.6 child-exit) the report also witnesses the pane's death to the relay broker", async () => {
+    // The relay cut is keyed by the PANE, so it fires for every row flavor
+    // (local or agent, ssh or not - the broker's map lookup no-ops the rows
+    // that never brokered anything). A spy broker observes the witness.
+    const cuts: { paneId: string; reason: string }[] = [];
+    const spy = {
+      openRelay: async () => {
+        throw new Error("unused");
+      },
+      routeRelayFrame: () => {},
+      closeRelay: async () => false,
+      closeForGrant: async () => 0,
+      closeForPane: async (paneId: string, reason: string) => {
+        cuts.push({ paneId, reason });
+        return 0;
+      },
+      refuseOverCap: async () => false,
+      onNodeSocketClosed: async () => 0,
+      activeRelayCount: () => 0,
+      sessionInfo: () => null,
+      reset: () => {},
+    };
+    setRelayBrokerForTests(spy as unknown as RelayBroker);
+    try {
+      const id = crypto.randomUUID();
+      await seedPaneRow({ id, nodeId: "node-remote-ssh", ssh: '{"host":"example.test"}' });
+      await service.reportExit(id, 0);
+      await new Promise((resolve) => setTimeout(resolve, 0)); // the sweep is fire-and-forget
+      // The report's own witness AND the manager's shared death transition
+      // both speak the same word (the dir sweep's redundancy, restated):
+      // closeForPane is idempotent, and at least one sure thing is the bar.
+      expect(cuts.length).toBeGreaterThanOrEqual(1);
+      for (const cut of cuts) expect(cut).toEqual({ paneId: id, reason: "child-exit" });
+    } finally {
+      setRelayBrokerForTests(null);
+    }
   });
 });
