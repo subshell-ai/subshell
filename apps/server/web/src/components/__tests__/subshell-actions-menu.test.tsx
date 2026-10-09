@@ -658,7 +658,7 @@ describe("SubshellActionsMenu — prompt input availability", () => {
   });
 });
 
-describe("SubshellActionsMenu — Set up Subshell here (spec 2026-10-08 §7)", () => {
+describe("SubshellActionsMenu - Set up Subshell here (spec 2026-10-08 §7)", () => {
   afterEach(cleanup);
 
   it("offers it on the owner's live SSH pane and opens the dialog", async () => {
