@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { useLaunchSsh, useSshAliases, useSshSavedHosts } from "@/hooks/use-ssh";
+import {
+  useApproveSshGrantRequest,
+  useLaunchSsh,
+  useSshAliases,
+  useSshHostPins,
+  useSshSavedHosts,
+} from "@/hooks/use-ssh";
 
 /**
  * The keys and URLs this file states, asserted on the WIRE the way
@@ -126,3 +132,21 @@ function counts(calls: Call[]): { saved: number; aliases: number } {
     aliases: calls.filter((c) => c.url.startsWith("/api/ssh/aliases")).length,
   };
 }
+
+it("refreshes destination trust after approval captures its host pin", async () => {
+  const { calls, restore } = mockFetch({
+    "GET /api/ssh/host-pins": () => json({ pins: [] }),
+    "POST /api/ssh/grant-requests/req1/approve": () => json({ grant: { id: "g1" } }),
+  });
+  try {
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => ({ pins: useSshHostPins(), approve: useApproveSshGrantRequest() }), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.pins.isSuccess).toBe(true));
+    await result.current.approve.mutateAsync({ requestId: "req1", fingerprints: ["SHA256:key"] });
+    await waitFor(() => expect(calls.filter((c) => c.url === "/api/ssh/host-pins")).toHaveLength(2));
+  } finally {
+    restore();
+  }
+});

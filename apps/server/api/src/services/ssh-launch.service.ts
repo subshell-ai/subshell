@@ -82,7 +82,7 @@ import { logger } from "@/utils/logger.js";
 
 /** The refusal union the routes render verbatim (a returned `status()` body, never a thrown). */
 export type SshRefusal =
-  | { status: 400 | 403 | 404 | 409 | 502; code: BackendErrorCodes; message: string }
+  | { status: 400 | 403 | 404 | 409 | 502; code: BackendErrorCodes; message: string; requestId?: string }
   | { status: 422; outcome: Extract<NodeSshResolveOutcomeWire, { accepted: false }> };
 
 /** The service answer shape: a value, or the refusal the route returns as-is. */
@@ -161,6 +161,19 @@ export function composeSshLaunch(args: {
   return approved.authAgentSocket === null
     ? { configPath, fileContent, presetFlags }
     : { configPath, fileContent, presetFlags, extraPaneEnv: { SSH_AUTH_SOCK: approved.authAgentSocket } };
+}
+
+/** Relay trust currently pins one canonical destination, not jump hosts or host-key aliases. */
+export function relaySnapshotRefusal(snapshot: SshConnectionSnapshotWire): SshAnswer<never> | null {
+  const settings: string[] = [];
+  if (snapshot.proxyJumps.length > 0) settings.push("ProxyJump");
+  if (snapshot.hostKeyAlias !== null) settings.push("HostKeyAlias");
+  if (settings.length === 0) return null;
+  return codedRefusal(
+    409,
+    BackendErrorCodes.SSH_RELAY_OPEN_FAILED,
+    `Using SSH keys from another machine does not yet support ${settings.join(" or ")}. Use keys on the connecting machine, or choose a destination without these settings.`,
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -437,6 +450,10 @@ export async function sshLaunch(args: {
   if (!resolved.ok) return resolved;
   if (!resolved.value.accepted) return refusedRefusal(resolved.value);
   const snapshot = resolved.value.snapshot; // parseNodeSshResolveOutcome already narrowed + rebuilt it
+  if (args.keyHomeNodeId !== undefined) {
+    const refusal = relaySnapshotRefusal(snapshot);
+    if (refusal) return refusal;
+  }
   const dataDir = targetDataDir(row);
   if (dataDir === null) {
     // Between the resolve and here the machine dropped, or it connected

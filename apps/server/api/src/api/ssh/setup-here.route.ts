@@ -13,9 +13,8 @@ import { sshSetupTracker } from "@/services/ssh-setup-progress.js";
  * pane as a node by running the ordinary install over a SEPARATE
  * non-interactive connection, leaving the pane itself untouched. The act is
  * owner-only by construction (a foreign pane is the service's 404), cookie-
- * only like every launcher door, and its answer is the new node's id ONLY
- * once that node's `ready` frame has landed - the installer's cheer line is
- * not success, the connection is. The minted setup key exists nowhere in
+ * only like every launcher door. Its answer identifies the enrolled node and
+ * distinguishes enrollment from a confirmed connection. The minted setup key exists nowhere in
  * this response, its refusals, or the audit; the machine ran the install
  * where the key is allowed to live (spec §7's accepted postures) and the
  * plane kept only the parsed outcome.
@@ -43,13 +42,14 @@ export const sshSetupHereRoute = new Elysia()
                   t.Literal("checking"),
                   t.Literal("installing"),
                   t.Literal("connecting"),
+                  t.Literal("enrolled"),
                   t.Literal("complete"),
                   t.Literal("failed"),
                 ],
                 { description: "Current server-observed setup stage" },
               ),
               startedAt: t.String({ description: "ISO timestamp when setup began" }),
-              nodeId: t.Nullable(t.String({ description: "Enrolled node after it connects" })),
+              nodeId: t.Nullable(t.String({ description: "Enrolled node, which may still be offline" })),
               error: t.Nullable(t.String({ description: "Safe failure explanation, never installer output" })),
             }),
           ),
@@ -97,7 +97,8 @@ export const sshSetupHereRoute = new Elysia()
       }),
       response: {
         200: t.Object({
-          nodeId: t.String({ description: "The newly enrolled node's id (its `ready` frame has landed)" }),
+          nodeId: t.String({ description: "The newly enrolled node's id" }),
+          connected: t.Optional(t.Boolean({ description: "False if enrolled but not confirmed connected" })),
         }),
         400: "ApiErrorResponse",
         401: "ApiErrorResponse",
@@ -110,7 +111,7 @@ export const sshSetupHereRoute = new Elysia()
         operationId: "sshSetupHere",
         tags: ["ssh"],
         description:
-          "Runs the ordinary node enrollment install on an open SSH pane's destination over a separate non-interactive connection and answers the new node's id once it is online; the pane keeps running and the enrollment key never appears in the pane, its log, or any returned text",
+          "Runs the ordinary node enrollment install on an open SSH pane's destination over a separate non-interactive connection and answers the new node's id with its connection outcome; the pane keeps running and the enrollment key never appears in the pane, its log, or any returned text",
       },
     },
   );

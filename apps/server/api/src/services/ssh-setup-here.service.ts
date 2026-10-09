@@ -16,6 +16,7 @@ import { prepareRelayLeg } from "@/services/ssh-grants.service.js";
 import {
   composeSshLaunch,
   gateSshNode,
+  relaySnapshotRefusal,
   rpcRefusal,
   type SshAnswer,
   targetDataDir,
@@ -144,9 +145,11 @@ function couldNotReachPlane(output: string, code: number | null): boolean {
   return (code === 6 || code === 7) && !output.includes("==>");
 }
 
-/** What a completed act answers: the enrolled node's id, learned from `ready`. */
+/** Enrollment identity, with an explicit flag when its connection is not confirmed. */
 export interface SetupHereResult {
   nodeId: string;
+  /** False when enrollment completed but the new machine has not reported ready. */
+  connected?: boolean;
 }
 
 /**
@@ -218,6 +221,8 @@ export async function setupHere(args: {
   let aNodeId: string | null = null;
   const keyHome = pane.keyHomeNodeId;
   if (keyHome !== null && keyHome !== undefined) {
+    const unsupported = relaySnapshotRefusal(snapshot);
+    if (unsupported) return unsupported;
     aNodeId = keyHome;
     const gateA = await gateSshNode(args.viewerId, keyHome);
     if (!gateA.ok) return gateA;
@@ -299,11 +304,21 @@ export async function setupHere(args: {
   /** Best-effort: an unspent key is revoked when the act gives up; a spent one stands as enroll's record. */
   const revokeUnspentKey = async (): Promise<void> => {
     try {
-      const state = await keys.peekByKey(keyRow.key);
-      if (state && state.usedAt === null) await keys.deleteById(keyRow.id, args.viewerId);
+      // Atomic with enrollment's compare-and-set: never erase its consumed
+      // record between a state read and deletion.
+      await db.deleteFrom("nodeSetupKeys").where("id", "=", keyRow.id).where("usedAt", "is", null).execute();
     } catch (err) {
       logger.withError(err).warn(`setup-here: could not revoke the unspent key for pane ${pane.id}`);
     }
+  };
+  /** Enrollment is durable even if installation or the connecting link fails afterward. */
+  const enrolledResult = async (cause: string): Promise<SshAnswer<SetupHereResult> | null> => {
+    const spent = await keys.findById(keyRow.id);
+    const nodeId = spent?.consumedNodeId;
+    if (!nodeId) return null;
+    const connected = getLive(nodeId)?.agent !== undefined;
+    await runAudit("enrolled", connected ? "ready" : cause, nodeId);
+    return { ok: true, value: { nodeId, ...(connected ? {} : { connected: false }) } };
   };
   /**
    * The post-mint invariant: even an unexpected internal throw (not the
@@ -345,6 +360,8 @@ export async function setupHere(args: {
   } catch (err) {
     await closeExecRelay();
     await revokeUnspentKey();
+    const enrolled = await enrolledResult(err instanceof SshRpcError ? `exec-${err.kind}` : "internal-error");
+    if (enrolled) return enrolled;
     if (err instanceof SshRpcError) {
       const r = rpcRefusal(err);
       await runAudit("refused", `exec-${err.kind}`);
@@ -364,6 +381,8 @@ export async function setupHere(args: {
     } catch (err) {
       await closeExecRelay();
       await revokeUnspentKey();
+      const enrolled = await enrolledResult(err instanceof SshRpcError ? `exec-lost-${err.kind}` : "internal-error");
+      if (enrolled) return enrolled;
       if (err instanceof SshRpcError) {
         await runAudit("refused", `exec-lost-${err.kind}`);
         return rpcRefusal(err);
@@ -375,6 +394,8 @@ export async function setupHere(args: {
     if (deps.nowMs() > pollDeadline) {
       await closeExecRelay();
       await revokeUnspentKey();
+      const enrolled = await enrolledResult("install-deadline");
+      if (enrolled) return enrolled;
       await runAudit("refused", "install-deadline");
       return coded(
         409,
@@ -397,7 +418,9 @@ export async function setupHere(args: {
     // must be readable when the caller sees the refusal (the `ssh.launch`
     // posture inverted - there success audits last, here every exit audits
     // BEFORE the answer leaves).
-    const fail = async (cause: string, refusal: SshAnswer<never>): Promise<SshAnswer<never>> => {
+    const fail = async (cause: string, refusal: SshAnswer<never>): Promise<SshAnswer<SetupHereResult>> => {
+      const enrolled = await enrolledResult(cause);
+      if (enrolled) return enrolled;
       await runAudit("refused", cause);
       return refusal;
     };
@@ -491,18 +514,9 @@ export async function setupHere(args: {
     if (deps.nowMs() > readyDeadline) break;
     await deps.sleepMs(deps.pollMs);
   }
-  const spent = await keys.findById(keyRow.id);
-  if (spent?.consumedNodeId) {
-    // Enrolled but not connected: the daemon on D starts under its fresh
-    // service; the remedy is patience and the machine page, not a rerun.
-    await runAudit("refused", "ready-timeout", spent.consumedNodeId);
-    return coded(
-      409,
-      BackendErrorCodes.SSH_UPGRADE_FAILED,
-      "The destination enrolled, but it has not connected to this server yet; watch its machine page and retry only if it stays offline.",
-    );
-  }
   await revokeUnspentKey();
+  const enrolled = await enrolledResult("ready-timeout");
+  if (enrolled) return enrolled;
   await runAudit("refused", "enroll-missing");
   return coded(
     409,

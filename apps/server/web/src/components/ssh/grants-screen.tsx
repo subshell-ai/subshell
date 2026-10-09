@@ -277,7 +277,7 @@ function CreateGrantDialog({ onOpenChange }: { onOpenChange: (open: boolean) => 
             )}
             {roster.data && roster.data.identities.length === 0 && (
               <p className="mt-1 text-detail text-muted-foreground">
-                The key home&apos;s agent holds no keys right now.
+                No SSH keys are loaded on this machine. Load a key with ssh-add there, then refresh the key list.
               </p>
             )}
             {roster.data && roster.data.identities.length > 0 && (
@@ -306,6 +306,9 @@ function CreateGrantDialog({ onOpenChange }: { onOpenChange: (open: boolean) => 
                 ))}
               </ul>
             )}
+            <Button variant="outline" size="sm" disabled={roster.isFetching} onClick={() => void roster.refetch()}>
+              Refresh keys
+            </Button>
             {selectionError && (
               <p role="alert" className="mt-2 text-destructive text-detail">
                 {selectionError}

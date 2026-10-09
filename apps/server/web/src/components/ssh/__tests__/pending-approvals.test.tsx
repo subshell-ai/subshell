@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PendingApprovals } from "@/components/ssh/pending-approvals";
+import type { sshConnectSearch } from "@/lib/ssh-connect-search";
 
 /**
  * The first-use approval queue (spec 2026-10-08 §6.2): each card names the
@@ -30,6 +31,7 @@ const REQUEST = {
   id: "req1",
   keyHomeNodeId: "nodeA",
   resolvedSelector: "build-1.example.com",
+  destination: "deploy@build-1.example.com:2222",
   requestedFingerprints: [PRE],
   paneId: "pane1",
   bNodeId: "nodeB",
@@ -106,17 +108,21 @@ afterEach(() => {
 });
 
 /** Renders the queue inside a throwaway router: the requester renders as a Link. */
-function renderScreen() {
+function renderScreen(connection?: ReturnType<typeof sshConnectSearch>) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const rootRoute = createRootRoute();
   const indexRoute = createRoute({
     getParentRoute: () => rootRoute,
     path: "/",
-    component: () => <PendingApprovals />,
+    component: () => <PendingApprovals connection={connection} />,
   });
   const subshellRoute = createRoute({ getParentRoute: () => rootRoute, path: "/subshells/$id", component: () => null });
   const router = createRouter({
-    routeTree: rootRoute.addChildren([indexRoute, subshellRoute]),
+    routeTree: rootRoute.addChildren([
+      indexRoute,
+      subshellRoute,
+      createRoute({ getParentRoute: () => rootRoute, path: "/connect", component: () => null }),
+    ]),
     history: createMemoryHistory({ initialEntries: ["/"] }),
     defaultPreload: false,
   });
@@ -286,3 +292,15 @@ it("approval explains the required retry and provides a return path", async () =
   expect(await screen.findByText(/original connection did not start/)).toBeTruthy();
   expect(screen.getByRole("link", { name: "Return to Connect" })).toBeTruthy();
 });
+
+for (const matched of [true, false]) {
+  it(`returns to the ${matched ? "originating alias" : "approved destination"} when request IDs ${matched ? "match" : "differ"}`, async () => {
+    stubFetch((undo) => restores.push(undo));
+    renderScreen({ node: "nodeB", keyHome: "nodeA", destination: "other-alias", requestId: matched ? "req1" : "req2" });
+    await screen.findAllByRole("checkbox");
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    const link = (await screen.findByRole("link", { name: "Return to Connect" })) as HTMLAnchorElement;
+    const search = new URL(link.href, "http://localhost").searchParams;
+    expect(search.get("destination")).toBe(matched ? "other-alias" : REQUEST.destination);
+  });
+}

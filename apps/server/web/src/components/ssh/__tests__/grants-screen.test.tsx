@@ -296,6 +296,18 @@ describe("GrantsScreen", () => {
     await screen.findByText(first);
   }
 
+  it("refreshes an empty roster after keys are loaded without closing the form", async () => {
+    const roster: { fingerprint: string; comment: string }[] = [];
+    stubFetch((undo) => restores.push(undo), { roster });
+    renderScreen();
+    await openCreateAndPickKeyHome(
+      "No SSH keys are loaded on this machine. Load a key with ssh-add there, then refresh the key list.",
+    );
+    roster.push({ fingerprint: ROSTER_ONE, comment: "newly loaded" });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh keys" }));
+    expect(await screen.findByRole("checkbox", { name: ROSTER_ONE })).toBeDefined();
+  });
+
   it("creates a grant: static title, the create-eligible key home only, and the POST carries node/name/selector/fingerprints", async () => {
     const sent = stubFetch((undo) => {
       restores.push(undo);
@@ -429,7 +441,7 @@ describe("GrantsScreen", () => {
     fireEvent.pointerDown(option);
     fireEvent.pointerUp(option);
     fireEvent.click(option);
-    expect(await screen.findByText(/holds no keys/)).toBeDefined();
+    expect(await screen.findByText(/No SSH keys are loaded/)).toBeDefined();
     expect((screen.getByRole("button", { name: "Create" }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

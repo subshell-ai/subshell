@@ -329,7 +329,7 @@ export function ConnectPanel({
           {refusal?.approval && (
             <Link
               to="/settings/ssh"
-              search={{ node: nodeId, destination, keyHome: effectiveKeyHome }}
+              search={{ ...launch.variables, requestId: refusal.requestId }}
               className="text-label underline"
             >
               Review SSH approval

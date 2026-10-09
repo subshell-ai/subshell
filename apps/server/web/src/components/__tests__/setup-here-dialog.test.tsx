@@ -127,6 +127,20 @@ describe("SetupHereDialog", () => {
     }
   });
 
+  it("links to an enrolled offline machine without offering another installation", async () => {
+    const { restore } = mockFetch({ body: { nodeId: "offline-node", connected: false } });
+    try {
+      await renderDialog(makeSshPane());
+      fireEvent.click(screen.getByRole("button", { name: "Set up Subshell" }));
+      expect(await screen.findByText(/connection has not been confirmed/)).toBeTruthy();
+      expect(screen.queryByText("The machine enrolled and connected.")).toBeNull();
+      expect(screen.getByRole("link", { name: "Open its page" }).getAttribute("href")).toContain("/nodes/offline-node");
+      expect(screen.queryByRole("button", { name: "Set up Subshell" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
   it("the server's named refusal is shown verbatim, in destructive, and the act can be retried", async () => {
     const { calls, restore } = mockFetch({
       status: 409,

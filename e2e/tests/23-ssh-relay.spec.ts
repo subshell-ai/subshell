@@ -247,7 +247,10 @@ test.describe("ssh relay crown jewel (spec 2026-10-08 §13)", () => {
           setupKey,
           name,
           server: ORIGIN,
-          env: extraEnv,
+          // Bun derives userInfo().username from these env vars. Containers
+          // can omit them, making the resolver report "unknown" while sshd
+          // authenticates the real uid. Keep the fixture account consistent.
+          env: { USER: D.user, LOGNAME: D.user, ...extraEnv },
         });
         cleanup(`node ${name}`, async () => {
           await h.stop();
