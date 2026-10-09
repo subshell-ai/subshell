@@ -7,6 +7,7 @@ import { getNodeRoute } from "@/api/nodes/get-node.route.js";
 import { getNodeSharesRoute } from "@/api/nodes/get-node-shares.route.js";
 import { listNodesRoute } from "@/api/nodes/list-nodes.route.js";
 import { listSetupKeyRoute } from "@/api/nodes/list-setup-keys.route.js";
+import { localSshIdentityRoute } from "@/api/nodes/local-ssh-identity.route.js";
 import { nodeLoggingRoute } from "@/api/nodes/node-logging.route.js";
 import { nodeLogsRoute } from "@/api/nodes/node-logs.route.js";
 import { recheckNodeRoute } from "@/api/nodes/recheck-node.route.js";
@@ -36,6 +37,7 @@ import { updateNodeRoute } from "@/api/nodes/update-node.route.js";
  * modules on this instance rather than growing a flat chain upstream.
  */
 export const nodesRoutes = new Elysia({ prefix: "/api/nodes" })
+  .use(localSshIdentityRoute)
   .use(enrollRoute)
   .use(createSetupKeyRoute)
   .use(listSetupKeyRoute)

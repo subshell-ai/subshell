@@ -10,6 +10,7 @@ import { nodeCanConfigure } from "@/lib/node-access.js";
 import { apiModels } from "@/schema/index.js";
 import { detectOnNodeBestEffort } from "@/services/nodes/inventory.js";
 import { getLive } from "@/services/nodes/node-registry.js";
+import { localSshTrustReport } from "@/services/ssh-local-participant.js";
 
 /**
  * `GET /api/nodes/:id` — one node view for the caller. Missing and invisible
@@ -53,8 +54,11 @@ export const getNodeRoute = new Elysia()
       // machines this one has paired with, which is machine-relationship
       // disclosure, not a launch need (spec 2026-10-08 §4.6/§6). Live report
       // when the socket has one; the durable mirror, STALE-marked, otherwise;
-      // never `local`, never a `view` grantee.
-      const sshTrust = sshTrustView(gate.row, runtime?.sshFingerprint);
+      // Server trust is read directly for administrators; enrolled nodes use their live report or mirror.
+      const sshTrust =
+        gate.row.kind === "local" && gate.isAdmin
+          ? { ...(await localSshTrustReport()), stale: false }
+          : sshTrustView(gate.row, runtime?.sshFingerprint);
       // What entering maintenance would cost, on a NARROWER gate than the two
       // fields above (spec 2026-09-14 §5.5): `canManage`, not
       // `nodeCanConfigure`. Only a manager can flip that switch, so only a

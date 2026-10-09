@@ -85,6 +85,8 @@ export function requiredIdentityPaths(path: string): string[] {
         required.push("data/node-encryption.json");
       }
     }
+    if (tables.has("identities") && db.query("SELECT 1 FROM identities WHERE principal_id = 'node:local'").get())
+      required.push("data/ssh-relay/identity.json");
     const panes = tables.has("subshells") ? "subshells" : tables.has("sessions") ? "sessions" : null;
     if (tables.has("identities") && panes) {
       requireMetadataColumns(schema, "identities", ["principal_id"]);

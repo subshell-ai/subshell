@@ -1,3 +1,4 @@
+import { shutdownRelayBroker } from "@/services/ssh-relay.service.js";
 // LOAD-BEARING IMPORT ORDER — do not re-sort this block. The entry prelude
 // must be the FIRST import in the graph: it applies the config.env layer
 // before `@/constants.js` runs dotenvx (which only fills unset keys — this
@@ -14,22 +15,13 @@
 // biome-ignore-all assist/source/organizeImports: entry prelude must evaluate first — see comment
 import "./cli-bootstrap.js";
 import { join, resolve } from "node:path";
-import { serverConfigDir } from "@/config-env.js";
-import { closeAuthDatabase } from "@/auth/database.js";
-import { acquireInstanceLock } from "@/services/instance-state-lock.js";
-import {
-  instanceRestoreJournalPath,
-  assertInstanceRestoreDestination,
-  finalizeInstanceRestore,
-  rollbackInstanceRestore,
-} from "@/services/backups/index.js";
-import { sweepBackupDownloads } from "@/services/backup-download-jobs.js";
-import { sweepRestoreStages } from "@/services/backup-staging.js";
-import { instanceBackupPaths } from "@/services/instance-backup-source.js";
 import { getHarness, setPluginDataDir } from "@internal/pane-runtime";
+import { closeAuthDatabase } from "@/auth/database.js";
 import { ensureSystemUser } from "@/auth/system-user.js";
 import { setAuthPolicyDb } from "@/auth.js";
+import { banner } from "@/banner.js";
 import { isCliEngaged } from "@/cli.js";
+import { serverConfigDir } from "@/config-env.js";
 import {
   APP_BASE_URL,
   assertProdAuthSecret,
@@ -45,34 +37,43 @@ import { runMigrations } from "@/db/migrate.js";
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { PresetsRepository } from "@/db/repositories/presets.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
-import { publishLive } from "@/services/live-bus.js";
 import { startServer } from "@/server.js";
+import { sweepBackupDownloads } from "@/services/backup-download-jobs.js";
+import { sweepRestoreStages } from "@/services/backup-staging.js";
+import {
+  assertInstanceRestoreDestination,
+  finalizeInstanceRestore,
+  instanceRestoreJournalPath,
+  rollbackInstanceRestore,
+} from "@/services/backups/index.js";
+import { instanceBackupPaths } from "@/services/instance-backup-source.js";
+import { acquireInstanceLock } from "@/services/instance-state-lock.js";
+import { publishLive } from "@/services/live-bus.js";
 import { loadAndApplyDebugLogging } from "@/services/logging-preference.js";
+import { refreshNetworkOrigins, seedNetworkOrigins, startOriginRefresh } from "@/services/network/origin-refresh.js";
+import { prepareNetworkGuards, prepareNetworkProcesses } from "@/services/network/prepare.js";
+import { stopAllProcesses } from "@/services/network/supervisor.js";
 import { startInventoryRefresh } from "@/services/nodes/inventory-refresh.js";
+import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { reconcileMaintenance } from "@/services/nodes/maintenance.js";
-import { reconcileSshEnabled } from "@/services/nodes/ssh-enabled.js";
 import { setNodeLifecycleHooks } from "@/services/nodes/node-events.js";
 import { listOnline } from "@/services/nodes/node-registry.js";
-import { prepareNetworkGuards, prepareNetworkProcesses } from "@/services/network/prepare.js";
-import { refreshNetworkOrigins, seedNetworkOrigins, startOriginRefresh } from "@/services/network/origin-refresh.js";
-import { stopAllProcesses } from "@/services/network/supervisor.js";
-import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
+import { reconcileSshEnabled } from "@/services/nodes/ssh-enabled.js";
 import { subshellLogPath } from "@/services/nodes/subshell-paths.js";
-import { completeUpdate, readPending, recordFailure, revertUpdate } from "@/services/update-transaction.js";
 import { getNotifyService } from "@/services/notify.service.js";
+import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
 import { sweepExpiredPaneLogs, tightenPaneLogModes } from "@/services/pane-log-hygiene.js";
 import { expirePendingApprovals, remarkUnmarkedArrivals } from "@/services/pending-approvals.js";
-import { createIdleWatcher, IDLE_TICK_MS } from "@/services/notify-idle.js";
 import { hasAnyUser } from "@/services/registration-gate.js";
 import { SubshellManagerService } from "@/services/subshell-manager.service.js";
+import { completeUpdate, readPending, recordFailure, revertUpdate } from "@/services/update-transaction.js";
 import { BANNER_GROUP, getLogger } from "@/utils/logger.js";
-import { banner } from "@/banner.js";
 import { SERVER_VERSION } from "@/version.js";
 import { sweepWsTokens } from "@/ws/ws-token.js";
 
 export type { App } from "@/server.js";
-export type { BackupInspection, InstanceBackupManifest, BackupAdmin } from "@/services/backups/types.js";
+export type { BackupAdmin, BackupInspection, InstanceBackupManifest } from "@/services/backups/types.js";
 
 // Plan 2 CLI gate: `isCliEngaged()` flips synchronously inside the prelude's
 // `dispatchCli` call the moment a subcommand is recognised, so an async CLI
@@ -466,7 +467,7 @@ function installShutdownHandlers(): void {
     const deadline = setTimeout(() => process.exit(0), 10_000);
     // Never blocks the exit on an unref'd timer of its own.
     deadline.unref?.();
-    void stopAllProcesses()
+    void Promise.all([stopAllProcesses(), shutdownRelayBroker()])
       .catch((err: unknown) => getLogger().withError(err).warn("could not stop every network process cleanly"))
       .finally(() => {
         clearTimeout(deadline);

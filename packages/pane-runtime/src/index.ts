@@ -139,6 +139,60 @@ export {
   runBounded,
 } from "./run-bounded.js";
 export { shellQuote } from "./shell.js";
+export { type AgentIdentitiesSeams, readMachineAgentIdentities } from "./ssh/relay/agent-identities.js";
+export { machineSshExec, machineSshExecStatus, resetSshExecRunsForTests, type SshExecSeams } from "./ssh/relay/exec.js";
+export { type HostKeySeams, readMachineHostKey, sshHostKeyCandidates } from "./ssh/relay/host-key.js";
+export {
+  connectingHomeDir,
+  knownHostsPath,
+  resolveSshBin,
+  resolveSshKeygenBin,
+  SSH_BINARY_ENV,
+  SSH_GATE_REFUSAL,
+  SSH_KEYGEN_BINARY_ENV,
+} from "./ssh/relay/machine-paths.js";
+export {
+  type MachinePin,
+  MachinePinStore,
+  type MachinePinVerdict,
+  machinePinPath,
+} from "./ssh/relay/machine-pin-store.js";
+export {
+  type ARelaySessionArgs,
+  type BRelaySessionArgs,
+  openARelaySession,
+  openBRelaySession,
+  RELAY_CLOSE_TOMBSTONE_MS,
+  type RelayMachineIdentity,
+  type RelayParticipantDeps,
+  type RelaySessionHandler,
+  RelaySessions,
+} from "./ssh/relay/participant.js";
+export { pathAllowed, realpathRoots } from "./ssh/relay/path-policy.js";
+export { decodePeerEncryptionJwk } from "./ssh/relay/peer-key.js";
+export {
+  type AgentIdentity,
+  type AgentRequestFn,
+  type AgentScheme,
+  CLASSIC_SCHEME,
+  filterIdentitiesAnswer,
+  fingerprintAgentBlob,
+  OPENSSH_10X_SCHEME,
+  parseIdentitiesAnswer,
+  parseSignRequest,
+  parseSignResponse,
+  probeAgentScheme,
+  type SignRequestBody,
+  SSH2_AGENT_FAILURE,
+} from "./ssh/relay/relay-agent-scheme.js";
+export { liveAgentSocketPath, requestLiveAgent } from "./ssh/relay/relay-agent-socket.js";
+export { type AgentProxyArgs, type AgentProxyHandle, startAgentProxy } from "./ssh/relay/relay-proxy.js";
+export {
+  type RelayResponderArgs,
+  type RelayResponderHandle,
+  startRelayResponder,
+} from "./ssh/relay/relay-responder.js";
+export type { MachineSshResult } from "./ssh/relay/result.js";
 export {
   defaultSshConfigPath,
   discoverSshAliases,

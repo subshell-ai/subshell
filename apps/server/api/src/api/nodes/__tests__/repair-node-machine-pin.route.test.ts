@@ -1,4 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { MachinePinStore } from "@internal/pane-runtime";
+import { fingerprintJwk } from "@internal/subshell-protocol";
 import { hashPassword } from "better-auth/crypto";
 import { nodesRoutes } from "@/api/nodes/index.js";
 import { db } from "@/db/index.js";
@@ -8,6 +10,11 @@ import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
 import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { SshRpcError } from "@/services/nodes/ssh-rpc.js";
+import {
+  ensureLocalRelayIdentity,
+  localRelayIdentityDir,
+  resetLocalRelayIdentity,
+} from "@/services/ssh-local-identity.js";
 import { setSshMachinePinsDepsForTests } from "@/services/ssh-machine-pins.service.js";
 import { issueSubshellToken } from "@/services/subshell-tokens.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
@@ -202,14 +209,14 @@ describe("the door: EXACTLY the owner", () => {
     expect((await repairRows()).length).toBe(before);
   });
 
-  it("an admin is 403 on a foreign agent, and 403 on local (never a repair target)", async () => {
+  it("an admin cannot repair a foreign node but manages server pins", async () => {
     // The exact-owner rule, not `canManage`: the admin boost (effective edit)
     // and the seeded-local manage exception both stop at a trust act.
     const before = (await repairRows()).length;
     expect((await post(NODE_A, PEER_B, adminCookie)).status).toBe(403);
-    expect((await post(LOCAL_NODE_ID, PEER_B, adminCookie)).status).toBe(403);
+    expect((await post(LOCAL_NODE_ID, PEER_B, adminCookie)).status).toBe(200);
     expect((await post(LOCAL_NODE_ID, PEER_B, ownerCookie)).status).toBe(403);
-    expect(sentCmds).toHaveLength(0);
+    expect(sentCmds).toHaveLength(1);
     expect((await repairRows()).length).toBe(before);
   });
 
@@ -259,5 +266,45 @@ describe("the service doors the route renders", () => {
     // The node's words stay in the service log, not in the human's refusal -
     // and no key material could ride either way (this copy is fixed).
     expect(body.message).not.toContain("SENTINEL");
+  });
+});
+
+describe("server relay identity recovery", () => {
+  it("requires an admin cookie and both verified disk fingerprints; it never rewrites peer pins", async () => {
+    const identity = await ensureLocalRelayIdentity();
+    const repo = new IdentitiesRepository(db);
+    const original = await repo.findByPrincipal("node:local");
+    if (!original) throw new Error("missing server identity");
+    const call = (method: string, cookie: string, body?: unknown) =>
+      nodesRoutes.fetch(
+        new Request(`http://localhost/api/nodes/local/ssh-identity${method === "POST" ? "/repair" : ""}`, {
+          method,
+          headers: { cookie: `better-auth.session_token=${cookie}`, "content-type": "application/json" },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        }),
+      );
+    const own = {
+      signing: await fingerprintJwk(identity.signingPublicJwk),
+      encryption: await fingerprintJwk(identity.publicJwk),
+    };
+    const pins = new MachinePinStore(localRelayIdentityDir());
+    pins.repair("peer-recovery-test", { signing: identity.signingPublicJwk, encryption: identity.publicJwk });
+    const before = pins.entries();
+    try {
+      await repo.register({ ...original, signingPublicKey: identity.publicJwk });
+      expect((await call("GET", ownerCookie)).status).toBe(403);
+      expect((await call("POST", ownerCookie, own)).status).toBe(403);
+      const status = await call("GET", adminCookie);
+      expect(status.status).toBe(200);
+      expect(((await status.json()) as { matches: boolean }).matches).toBe(false);
+      expect((await call("POST", adminCookie, { ...own, signing: "wrong" })).status).toBe(409);
+      expect((await repo.findByPrincipal("node:local"))?.signingPublicKey).toBe(identity.publicJwk);
+      expect((await call("POST", adminCookie, own)).status).toBe(200);
+      expect((await repo.findByPrincipal("node:local"))?.signingPublicKey).toBe(identity.signingPublicJwk);
+      expect(pins.entries()).toEqual(before);
+    } finally {
+      await repo.register(original);
+      resetLocalRelayIdentity();
+    }
   });
 });

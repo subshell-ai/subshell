@@ -5,6 +5,7 @@ import {
   isSshPaneId,
   NODE_MAX_FRAME_BYTES,
   type NodeCommandBody,
+  parseRelayFrame,
   type RelayFrame,
   SSH_RELAY_CLOSE_REASONS,
   SSH_RELAY_LIFETIME_MS,
@@ -14,11 +15,13 @@ import {
   type SshRelayCloseReason,
   type SshRelayOpenCommand,
 } from "@internal/subshell-protocol";
+import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
 import type { NodeKind } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { type AuditEventInput, audit } from "@/services/audit.js";
 import { getLive } from "@/services/nodes/node-registry.js";
 import { binaryPayload, sendCommand } from "@/services/nodes/node-rpc.js";
+import { productionLocalRelayParticipant } from "@/services/ssh-local-participant.js";
 import { gateSshNode } from "@/services/ssh-policy.service.js";
 import { logger } from "@/utils/logger.js";
 
@@ -48,7 +51,6 @@ export type SshRelayRefusalCode =
   | "bad-host-pin"
   | "same-node"
   | "no-node"
-  | "local-node"
   | "node-off"
   | "no-datadir"
   | "quota"
@@ -183,6 +185,10 @@ export interface RelayBroker {
   sessionInfo(ref: string): RelaySessionInfo | null;
   /** Drop everything (timer-cancelling; daemon-test isolation). */
   reset(): void;
+  /** Close all sessions and their endpoints during process shutdown. */
+  shutdown(): Promise<void>;
+  /** Close both roles before explicit identity recovery. */
+  closeForNodeIdentityRepair(nodeId: string): Promise<void>;
 }
 
 /** One brokered pairing, in memory only (§5.3: durable life is the audit rows). */
@@ -254,8 +260,8 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
     // the side in the log and nothing more).
     const cmd: SshNodeCommandBody = { type: "ssh_relay_close", ref: s.ref, reason };
     return Promise.allSettled([
-      Promise.resolve().then(() => deps.sendCommand(s.aNode, cmd)),
-      Promise.resolve().then(() => deps.sendCommand(s.bNode, cmd)),
+      Promise.resolve().then(() => deps.sendCommand(s.aNode, cmd, { timeoutMs: SSH_RELAY_TEARDOWN_GRACE_MS })),
+      Promise.resolve().then(() => deps.sendCommand(s.bNode, cmd, { timeoutMs: SSH_RELAY_TEARDOWN_GRACE_MS })),
     ]);
   };
 
@@ -325,15 +331,13 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
       // that should not have asked at all.
       throw new SshRelayRefusal("same-node", "relay open refused: A and B name the same machine");
     }
-    // (d) the gate: BOTH sides must be switched-on AGENT nodes, fail closed.
+    // (d) the gate: BOTH machines must have SSH switched on, fail closed.
     // The plane's row is the authoritative half of the double gate (the node
     // re-checks its own mirror on delivery; both refusals are this posture).
     for (const nodeId of [input.aNode, input.bNode]) {
       const row = await deps.nodeRow(nodeId);
       if (!row) throw new SshRelayRefusal("no-node", `relay open refused: node "${nodeId}" has no row`, nodeId);
-      if (row.kind !== "agent") {
-        throw new SshRelayRefusal("local-node", `relay open refused: "${nodeId}" is not an agent machine`, nodeId);
-      }
+
       if (row.sshEnabled !== 1) {
         throw new SshRelayRefusal("node-off", `relay open refused: SSH is not enabled on "${nodeId}"`, nodeId);
       }
@@ -460,6 +464,10 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
     // §5.5 in one line's worth of reading: look up the ref, find the peer,
     // copy the frame. The blob never comes anywhere near this function's
     // comprehension - it is passed by reference and that IS the forwarding.
+    if (!parseRelayFrame(frame)) {
+      deps.log("malformed relay frame refused");
+      return;
+    }
     const s = byRef.get(frame.ref);
     if (!s) {
       // A stale ref (the session was cut around the plane's own close) or a
@@ -472,6 +480,10 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
     const fromA = s.aNode === nodeId;
     if (!fromA && s.bNode !== nodeId) {
       deps.log(`relay frame for ref ${frame.ref} from non-party ${nodeId}: refused`);
+      return;
+    }
+    if (frame.direction !== (fromA ? "A2B" : "B2A")) {
+      deps.log(`relay direction refused for ${frame.ref}`);
       return;
     }
     const peer = fromA ? s.bNode : s.aNode;
@@ -526,6 +538,14 @@ export function createRelayBroker(deps: RelayBrokerDeps): RelayBroker {
     sessionInfo(ref) {
       const s = byRef.get(ref);
       return s ? infoOf(s) : null;
+    },
+    async closeForNodeIdentityRepair(nodeId) {
+      await Promise.all(
+        forEach((s) => s.aNode === nodeId || s.bNode === nodeId).map((s) => closeRelay(s.ref, "access-revoked")),
+      );
+    },
+    async shutdown() {
+      await Promise.all([...byRef.keys()].map((ref) => closeRelay(ref, "child-exit")));
     },
     reset() {
       for (const s of byRef.values()) {
@@ -611,16 +631,30 @@ export function sweepRelayForPane(row: { id: string } | null | undefined): void 
 /* ------------------------------------------------------------------ */
 
 let defaultDeps: RelayBrokerDeps | undefined;
+let localParticipant: ReturnType<typeof productionLocalRelayParticipant> | undefined;
+function getLocalParticipant() {
+  localParticipant ??= productionLocalRelayParticipant((frame) => getRelayBroker().routeRelayFrame("local", frame));
+  return localParticipant;
+}
+
+/** Release local sockets immediately and close brokered peers within the broker teardown deadline. */
+export async function shutdownRelayBroker(): Promise<void> {
+  localParticipant?.closeAll();
+  await singleton?.shutdown();
+}
 
 function productionDeps(): RelayBrokerDeps {
   defaultDeps ??= {
-    sendCommand: (nodeId, cmd, opts) => sendCommand(nodeId, cmd, opts ?? {}),
-    sendRelayFrame: sendRelayFrameOverNodeSocket,
+    sendCommand: (nodeId, cmd, opts) =>
+      nodeId === "local" ? getLocalParticipant().command(cmd) : sendCommand(nodeId, cmd, opts ?? {}),
+    sendRelayFrame: (nodeId, frame) =>
+      nodeId === "local" ? getLocalParticipant().inbound(frame) : sendRelayFrameOverNodeSocket(nodeId, frame),
     async nodeRow(nodeId) {
       const row = await getRequestlessContext().repos.nodes.findById(nodeId);
       return row ? { kind: row.kind, sshEnabled: row.sshEnabled } : null;
     },
-    nodeDataDir: (nodeId) => getLive(nodeId)?.agent?.dataDir ?? null,
+    nodeDataDir: (nodeId) =>
+      nodeId === "local" ? SUBSHELL_SERVER_DATA_DIR : (getLive(nodeId)?.agent?.dataDir ?? null),
     authorize: async (userId, nodeId) => (await gateSshNode(userId, nodeId)).ok,
     audit,
     nowMs: () => Date.now(),

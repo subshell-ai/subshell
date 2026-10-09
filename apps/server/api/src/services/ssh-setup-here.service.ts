@@ -203,16 +203,6 @@ export async function setupHere(args: {
   // opens no session, and leaves the pane running.
   const gateB = await gateSshNode(args.viewerId, pane.nodeId);
   if (!gateB.ok) return gateB;
-  if (gateB.value.row.kind !== "agent") {
-    // The server host has no agent socket to carry an exec; §7's act runs on
-    // the Subshell app's machine, so a direct pane launched FROM the plane
-    // host refuses by name rather than inventing an in-process path.
-    return coded(
-      409,
-      BackendErrorCodes.SSH_UPGRADE_FAILED,
-      "Setting up Subshell here runs from the Subshell app on the connecting machine; the server host is not a connecting machine for it.",
-    );
-  }
   const dataDirB = targetDataDir(gateB.value.row);
   if (dataDirB === null) {
     return coded(
@@ -244,14 +234,7 @@ export async function setupHere(args: {
     aNodeId = keyHome;
     const gateA = await gateSshNode(args.viewerId, keyHome);
     if (!gateA.ok) return gateA;
-    if (gateA.value.row.kind !== "agent") {
-      return coded(
-        409,
-        BackendErrorCodes.SSH_RELAY_OPEN_FAILED,
-        "The server host itself cannot hold a relay key home; this pane was not opened through one.",
-      );
-    }
-    if (!getLive(keyHome)) {
+    if (gateA.value.row.kind === "agent" && !getLive(keyHome)) {
       return coded(
         409,
         BackendErrorCodes.SSH_RELAY_OPEN_FAILED,

@@ -492,7 +492,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // socket it first rode, and the plane re-pumps frames on the fresh link.
   // Inbound `relay` frames route through it (see `onFrame`); B proxies (and
   // from Task 7, the A responder) register into it by routing ref.
-  const relaySessions = deps.relaySessions ?? new RelaySessions();
+  const relaySessions = deps.relaySessions ?? new RelaySessions(log);
 
   // PER-PROCESS executor context (spec §3.4/§7): built once, survives every
   // reconnect. `ws` is a STABLE wrapper routing to the CURRENT socket —
