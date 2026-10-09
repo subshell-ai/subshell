@@ -28,11 +28,19 @@ import {
 import {
   isSshGrantFingerprints,
   isSshPaneId,
+  redactSshSetupKeyLines,
   SSH_COMMAND_TYPES,
   SSH_RELAY_CLOSE_REASONS,
+  type SshExecCommand,
   type SshRelayOpenCommand,
 } from "../ssh-frames.js";
-import { SSH_CONFIG_FILE_MAX_BYTES, SSH_MAX_GRANT_FINGERPRINTS } from "../ssh-limits.js";
+import {
+  SSH_CONFIG_FILE_MAX_BYTES,
+  SSH_EXEC_COMMAND_MAX_CHARS,
+  SSH_EXEC_MAX_PRESET_FLAGS,
+  SSH_EXEC_TIMEOUT_MAX_MS,
+  SSH_MAX_GRANT_FINGERPRINTS,
+} from "../ssh-limits.js";
 import { MIN_NODE_VERSION } from "../versions.js";
 
 const launchCmd = {
@@ -1069,18 +1077,20 @@ describe("ssh command arms and the launch ssh block", () => {
       type: "ssh_register_identity",
     });
     expect(parseNodeCommandBody({ type: "ssh_register_identity" })).not.toBeNull();
-    // The family's census: exactly these seven types, and the count is the
+    // The family's census: exactly these nine types, and the count is the
     // tripwire - a further arm must show up here before it ships.
     expect([...SSH_COMMAND_TYPES].sort()).toEqual([
       "ssh_agent_identities",
       "ssh_discover_aliases",
+      "ssh_exec",
+      "ssh_exec_status",
       "ssh_host_key",
       "ssh_register_identity",
       "ssh_relay_close",
       "ssh_relay_open",
       "ssh_resolve_config",
     ]);
-    expect(SSH_COMMAND_TYPES).toHaveLength(7);
+    expect(SSH_COMMAND_TYPES).toHaveLength(9);
     // Every census type is a type the dispatcher actually narrows.
     for (const t of SSH_COMMAND_TYPES) {
       const body =
@@ -1092,7 +1102,11 @@ describe("ssh command arms and the launch ssh block", () => {
               ? { type: t, ref: "r-1", reason: "lifetime-expiry" }
               : t === "ssh_host_key"
                 ? { type: t, host: "git.example.test", port: 22, user: null }
-                : { type: t };
+                : t === "ssh_exec"
+                  ? execCmdFixture()
+                  : t === "ssh_exec_status"
+                    ? { type: t, execId: EXEC_ID }
+                    : { type: t };
       expect(parseNodeCommandBody(body)).not.toBeNull();
     }
   });
@@ -1381,6 +1395,137 @@ describe("ssh_relay_open / ssh_relay_close arms (spec 2026-10-08 §5.1)", () => 
       ref: "r-1",
       reason: "a-dropped",
     });
+  });
+});
+
+/**
+ * A complete `ssh_exec` kick (spec 2026-10-08 §7, Task 14): the non-interactive
+ * "Set up Subshell here" run on the connecting machine. Every field is
+ * required - the node byte-checks the config path against its own derivation,
+ * so a frame guessing any half is refused rather than executed with a hole.
+ */
+const EXEC_ID = "11111111-2222-4333-8444-555555555555";
+const execCmdFixture = (): SshExecCommand => ({
+  type: "ssh_exec",
+  execId: EXEC_ID,
+  configPath: `/home/u/.subshell/ssh/${EXEC_ID}/config`,
+  fileContent: "Host *\n  StrictHostKeyChecking yes\n",
+  presetFlags: [
+    "-o",
+    "BatchMode=yes",
+    "-F",
+    `/home/u/.subshell/ssh/${EXEC_ID}/config`,
+    "-p",
+    "22",
+    "--",
+    "d.example.test",
+  ],
+  command: 'curl -fsSL "http://plane.test/install.sh?setup_key=nsk_x" | SUBSHELL_NODE_NAME="d" bash',
+  relay: true,
+  agentSocketPath: null,
+  timeoutMs: 300_000,
+});
+
+describe("ssh_exec / ssh_exec_status arms (spec 2026-10-08 §7, Task 14)", () => {
+  it("narrows a complete kick, every field carried through", () => {
+    expect(parseNodeCommandBody(structuredClone(execCmdFixture()))).toEqual(execCmdFixture());
+    // Direct mode: no relay, the snapshot's own agent socket rides (or null).
+    expect(parseNodeCommandBody({ ...execCmdFixture(), relay: false, agentSocketPath: null })).toMatchObject({
+      relay: false,
+      agentSocketPath: null,
+    });
+    expect(
+      parseNodeCommandBody({ ...execCmdFixture(), relay: false, agentSocketPath: "/run/user/501/agent.sock" }),
+    ).toMatchObject({
+      agentSocketPath: "/run/user/501/agent.sock",
+    });
+  });
+
+  it("refuses a kick missing any field", () => {
+    for (const drop of [
+      "execId",
+      "configPath",
+      "fileContent",
+      "presetFlags",
+      "command",
+      "relay",
+      "agentSocketPath",
+      "timeoutMs",
+    ] as const) {
+      const partial = structuredClone(execCmdFixture()) as unknown as Record<string, unknown>;
+      delete partial[drop];
+      expect(parseNodeCommandBody(partial)).toBeNull();
+    }
+  });
+
+  it("refuses malformed kick fields: ids, paths, flags, command, and the relay contradiction", () => {
+    expect(parseNodeCommandBody({ ...execCmdFixture(), execId: "not an id" })).toBeNull(); // path-id shape
+    expect(parseNodeCommandBody({ ...execCmdFixture(), execId: "" })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), configPath: "ssh/x/config" })).toBeNull(); // absolute only
+    expect(
+      parseNodeCommandBody({ ...execCmdFixture(), fileContent: "x".repeat(SSH_CONFIG_FILE_MAX_BYTES + 1) }),
+    ).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), presetFlags: "not-an-array" })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), presetFlags: [] })).toBeNull(); // the launch needs at least the -F tail
+    expect(
+      parseNodeCommandBody({
+        ...execCmdFixture(),
+        presetFlags: Array.from({ length: SSH_EXEC_MAX_PRESET_FLAGS + 1 }, (_, i) => `-${i}`),
+      }),
+    ).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), presetFlags: ["-F", "path with space"] })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), presetFlags: ["-x", "nl\n"] })).toBeNull(); // control chars refused
+    expect(parseNodeCommandBody({ ...execCmdFixture(), command: "" })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), command: "a\x00b" })).toBeNull(); // one printable line
+    expect(
+      parseNodeCommandBody({ ...execCmdFixture(), command: "c".repeat(SSH_EXEC_COMMAND_MAX_CHARS + 1) }),
+    ).toBeNull();
+    // relay true names the DERIVED socket; an agentSocketPath claim beside it
+    // is a contradiction, and agentSocketPath null in direct mode is legal.
+    expect(
+      parseNodeCommandBody({
+        ...execCmdFixture(),
+        relay: true,
+        agentSocketPath: "/home/u/.subshell/ssh/other/agent.sock",
+      }),
+    ).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), timeoutMs: 0 })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), timeoutMs: SSH_EXEC_TIMEOUT_MAX_MS + 1 })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), timeoutMs: 1.5 })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), relay: "yes" })).toBeNull();
+    expect(parseNodeCommandBody({ ...execCmdFixture(), agentSocketPath: "relative/sock" })).toBeNull();
+    // A stray member drops; the narrowed body is rebuilt from the checked fields.
+    const withExtra = parseNodeCommandBody({ ...execCmdFixture(), smuggled: "x" });
+    expect(withExtra).not.toBeNull();
+    expect(Object.keys(withExtra as Record<string, unknown>).sort()).toEqual(Object.keys(execCmdFixture()).sort());
+  });
+
+  it("the status arm is one path id", () => {
+    expect(parseNodeCommandBody({ type: "ssh_exec_status", execId: EXEC_ID })).toEqual({
+      type: "ssh_exec_status",
+      execId: EXEC_ID,
+    });
+    expect(parseNodeCommandBody({ type: "ssh_exec_status", execId: "bad id" })).toBeNull();
+    expect(parseNodeCommandBody({ type: "ssh_exec_status" })).toBeNull();
+  });
+
+  it("redactSshSetupKeyLines drops EVERY line carrying the setup-key marker", () => {
+    const out = redactSshSetupKeyLines(
+      [
+        "==> downloading subshell (linux-x64) from http://plane.test",
+        "curl: (7) could not reach http://plane.test/install.sh?setup_key=nsk_SECRET_VALUE_00000000000000000000",
+        'KEY="nsk_SECRET_VALUE_00000000000000000000"',
+        "==> done.",
+      ].join("\n"),
+    );
+    expect(out).not.toContain("nsk_");
+    expect(out).not.toContain("SECRET");
+    expect(out).toContain("==> downloading");
+    expect(out).toContain("==> done.");
+    // A line whose key marker was cut mid-token at the truncation seam still
+    // drops when the `nsk_` prefix survives; the function is whole-line by law.
+    expect(redactSshSetupKeyLines("")).toBe("");
+    expect(redactSshSetupKeyLines("clean\nlines\nonly")).toBe("clean\nlines\nonly");
   });
 });
 

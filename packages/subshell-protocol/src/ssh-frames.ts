@@ -19,7 +19,11 @@
  * becomes the pin the relay-open carries to B), and the brokered pair
  * `ssh_relay_open` / `ssh_relay_close` (§5.1: the plane's OPEN hands one
  * machine the whole pairing plus the destination's host-key pin, the CLOSE
- * names why it ends). What
+ * names why it ends), and the non-interactive setup-exec pair `ssh_exec` /
+ * `ssh_exec_status` (spec 2026-10-08 §7, Task 14: the "Set up Subshell here"
+ * act runs the rendered installer over its own short-lived `ssh` connection,
+ * never the pane, and the answer carries output only through the setup-key
+ * redactor). What
  * rides the link AFTER an open - the sealed blobs themselves - is not a
  * command at all: it is the `relay` link frame in `node-frames.ts`, which
  * carries no per-message signing because the link already authenticates.
@@ -36,8 +40,17 @@
  * data (the relay pair answer with a plain ack - no envelope to validate).
  */
 
-import { BASE64_RE, isInt, isRecord, isStr, isStrArray } from "./guards.js";
-import { SSH_MAX_GRANT_FINGERPRINTS, SSH_MAX_HOST_PIN_LINE_CHARS, SSH_NAME_MAX_CHARS } from "./ssh-limits.js";
+import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray } from "./guards.js";
+import {
+  SSH_CONFIG_FILE_MAX_BYTES,
+  SSH_EXEC_COMMAND_MAX_CHARS,
+  SSH_EXEC_MAX_PRESET_FLAGS,
+  SSH_EXEC_TIMEOUT_MAX_MS,
+  SSH_MAX_GRANT_FINGERPRINTS,
+  SSH_MAX_HOST_PIN_LINE_CHARS,
+  SSH_NAME_MAX_CHARS,
+  SSH_PATH_MAX_CHARS,
+} from "./ssh-limits.js";
 
 /* ------------------------------------------------------------------ */
 /* command bodies                                                      */
@@ -227,6 +240,57 @@ export interface SshRelayCloseCommand {
   reason: SshRelayCloseReason;
 }
 
+/**
+ * The non-interactive setup exec (spec 2026-10-08 §7, Task 14): run
+ * `ssh <flags> -- <destination> '<command>'` on THIS machine as one short-
+ * lived, output-capturing connection - the "Set up Subshell here" act's
+ * separate channel, NEVER typed into the interactive pane. The command string
+ * carries the minted setup key; every refusal and every captured byte on the
+ * answer side obeys the redaction rule ({@link redactSshSetupKeyLines}), so
+ * the key lands nowhere the pane, the pane log, or the plane's trail can
+ * read.
+ *
+ * The shape mirrors the `launch` frame's ssh member, with one sharper rule
+ * repeated: `configPath` is a CLAIM. The node re-derives
+ * `buildSshConfigPath(dataDir, execId)` from the exec id and refuses a
+ * single-byte mismatch, so a signed command can never name a config path
+ * outside the ephemeral per-act directory the machine's own sweeps own.
+ *
+ * `relay: true` is relay mode: the ssh child's `SSH_AUTH_SOCK` is the agent
+ * proxy socket the earlier `ssh_relay_open` bound at
+ * `buildAgentSocketPath(dataDir, execId)` - derived HERE, claimed by nothing,
+ * which is why a non-null `agentSocketPath` beside `relay: true` is a
+ * contradiction the grammar refuses. `relay: false` is M1's direct posture:
+ * the snapshot's own agent socket rides as `agentSocketPath` (the same scoped
+ * env the direct pane launch carries) or nothing does.
+ */
+export interface SshExecCommand {
+  type: "ssh_exec";
+  /** The ephemeral act id (path-composition shape): names `<dataDir>/ssh/<execId>/`. */
+  execId: string;
+  /** The rendered-config path the plane derived; the node byte-checks its own. */
+  configPath: string;
+  /** The rendered ssh config bytes (relay render: pinned, `StrictHostKeyChecking yes`). */
+  fileContent: string;
+  /** The ssh option tokens through the destination: `-F … … -- host`. */
+  presetFlags: string[];
+  /** The remote one-liner (the installer command; the setup key lives HERE, transiently). */
+  command: string;
+  /** True: authenticate through the exec's own relay proxy socket (relay mode). */
+  relay: boolean;
+  /** Direct mode only: the snapshot's agent socket, or null; MUST be null when relay is true. */
+  agentSocketPath: string | null;
+  /** The node-side hard deadline for the run; the plane's RPC deadline rides past it. */
+  timeoutMs: number;
+}
+
+/** Ask one machine for the state of a kicked `ssh_exec` (running, or done with its captured answer). */
+export interface SshExecStatusCommand {
+  type: "ssh_exec_status";
+  /** The same ephemeral act id the kick carried. */
+  execId: string;
+}
+
 /** Every SSH-family command body, as one union the {@link NodeCommandBody} union folds in. */
 export type SshNodeCommandBody =
   | SshDiscoverAliasesCommand
@@ -235,7 +299,9 @@ export type SshNodeCommandBody =
   | SshAgentIdentitiesCommand
   | SshHostKeyCommand
   | SshRelayOpenCommand
-  | SshRelayCloseCommand;
+  | SshRelayCloseCommand
+  | SshExecCommand
+  | SshExecStatusCommand;
 
 /** Every SSH command `type`, for census tests and dispatch tables. */
 export const SSH_COMMAND_TYPES = [
@@ -246,6 +312,8 @@ export const SSH_COMMAND_TYPES = [
   "ssh_host_key",
   "ssh_relay_open",
   "ssh_relay_close",
+  "ssh_exec",
+  "ssh_exec_status",
 ] as const;
 
 /* ------------------------------------------------------------------ */
@@ -471,7 +539,87 @@ export function parseSshNodeCommandBody(value: unknown): SshNodeCommandBody | nu
       if (!(SSH_RELAY_CLOSE_REASONS as readonly string[]).includes(value.reason)) return null;
       return { type: "ssh_relay_close", ref: value.ref, reason: value.reason as SshRelayCloseReason };
     }
+    case "ssh_exec": {
+      // Every field is required (the §7 redaction rule has no omitted half
+      // to paper over): the exec id takes the SAME path-composition shape
+      // the relay's paneId takes, the config member takes the launch frame's
+      // ssh rules verbatim (absolute bounded path, bounded content), the
+      // flag list and the command are the argv this machine will spawn, so
+      // they are bounded TEXT, control characters refused (a smuggled
+      // newline would be a second command on the destination), and the
+      // relay/own-mode contradiction is refused at the grammar rather than
+      // guessed by the executor.
+      if (!isSshPaneId(value.execId)) return null;
+      if (
+        !isStr(value.configPath) ||
+        !value.configPath.startsWith("/") ||
+        value.configPath.length > SSH_PATH_MAX_CHARS
+      ) {
+        return null;
+      }
+      if (!isStr(value.fileContent) || value.fileContent.length > SSH_CONFIG_FILE_MAX_BYTES) return null;
+      if (!isStrArray(value.presetFlags) || value.presetFlags.length === 0) return null;
+      if (value.presetFlags.length > SSH_EXEC_MAX_PRESET_FLAGS) return null;
+      for (const flag of value.presetFlags) {
+        if (!isExecToken(flag)) return null;
+      }
+      if (!isStr(value.command) || value.command.length === 0) return null;
+      if (value.command.length > SSH_EXEC_COMMAND_MAX_CHARS) return null;
+      if (/\p{Cc}/u.test(value.command)) return null; // one printable line; a control char is a smuggled second command
+      if (!isBool(value.relay)) return null;
+      if (!("agentSocketPath" in value)) return null;
+      if (!(value.agentSocketPath === null || isAbsPathStr(value.agentSocketPath))) return null;
+      if (value.relay && value.agentSocketPath !== null) return null; // relay derives its own socket
+      if (!isInt(value.timeoutMs) || (value.timeoutMs as number) < 1) return null;
+      if ((value.timeoutMs as number) > SSH_EXEC_TIMEOUT_MAX_MS) return null;
+      return {
+        type: "ssh_exec",
+        execId: value.execId,
+        configPath: value.configPath,
+        fileContent: value.fileContent,
+        presetFlags: [...value.presetFlags],
+        command: value.command,
+        relay: value.relay,
+        agentSocketPath: value.agentSocketPath,
+        timeoutMs: value.timeoutMs as number,
+      };
+    }
+    case "ssh_exec_status": {
+      // One path-shaped id selects the act; the answer's shape is
+      // `node-results.ts`'s business, and a stray member drops here.
+      if (!isSshPaneId(value.execId)) return null;
+      return { type: "ssh_exec_status", execId: value.execId };
+    }
     default:
       return null;
   }
+}
+
+/** A preset flag: bounded, non-empty, whitespace-free, control-char-free. */
+function isExecToken(value: string): boolean {
+  return value.length > 0 && value.length <= SSH_NAME_MAX_CHARS && !/\s|\p{Cc}/u.test(value);
+}
+
+/** An absolute path claim the grammar may pass on (the launch frame's ssh rule, restated). */
+function isAbsPathStr(value: unknown): value is string {
+  return isStr(value) && value.startsWith("/") && value.length <= SSH_PATH_MAX_CHARS;
+}
+
+/**
+ * Drop every line of captured installer output that carries the setup-key
+ * marker (`nsk_`, the mint shape's fixed prefix). Whole lines go, never bytes
+ * spliced: a line that mentions the key at all is a line the pane's machine,
+ * the plane's retained copy, and every downstream surface must not have.
+ * Deliberately broader than the key grammar - ANY `nsk_` substring drops -
+ * because the rule's job is to survive the mint's format changing under it.
+ * The node applies it before retaining or answering with ANY captured byte;
+ * the plane applies it again as the belt that does not trust the machine's
+ * hygiene (the "never trust a machine answer" doctrine, applied to output).
+ */
+export function redactSshSetupKeyLines(text: string): string {
+  if (!text.includes("nsk_")) return text;
+  return text
+    .split("\n")
+    .filter((line) => !line.includes("nsk_"))
+    .join("\n");
 }

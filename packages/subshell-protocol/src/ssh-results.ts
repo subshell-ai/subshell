@@ -116,3 +116,38 @@ export interface NodeSshHostKeyResult {
   /** Every `known_hosts` line matching the destination's lookup; verbatim, at most SSH_MAX_HOST_KEY_LINES. */
   lines: string[];
 }
+
+/**
+ * The ack of a kicked `ssh_exec` (spec 2026-10-08 §7, Task 14): the run was
+ * accepted and started off the command chain (an installer takes minutes; a
+ * chain-occupying executor would stall the machine the act is meant to leave
+ * untouched). The outcome arrives through {@link NodeSshExecStatusResult}.
+ */
+export interface NodeSshExecKickResult {
+  /** True is the ONLY legal value: a kick that did not start answers `ok:false`, not this shape. */
+  started: true;
+  /** The act id echoed back, so a reply is matched to its kick by equality. */
+  execId: string;
+}
+
+/**
+ * The pollable state of one `ssh_exec` (Task 14). `running` says the child is
+ * alive and nothing is kept of it yet; `done` carries the terminal facts: the
+ * exit code (null when a signal or a failed spawn left none), whether the
+ * deadline ended it, and the installer's captured output AFTER the node's
+ * own `nsk_` redaction and tail truncation. The plane redacts again; what
+ * reaches the pane, the log, or the trail is never a machine's raw word.
+ */
+export type NodeSshExecStatusResult =
+  | { state: "running" }
+  | {
+      state: "done";
+      /** The child's exit code; null on signal death or a spawn that never ran. */
+      code: number | null;
+      /** True when the node-side deadline ended the run (the child is gone). */
+      timedOut: boolean;
+      /** Captured stdout, redacted and tail-truncated ({@link SSH_EXEC_RETAIN_BYTES}). */
+      stdout: string;
+      /** Captured stderr, redacted and tail-truncated ({@link SSH_EXEC_RETAIN_BYTES}). */
+      stderr: string;
+    };

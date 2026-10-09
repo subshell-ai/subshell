@@ -2,11 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   parseNodeSshAgentIdentities,
   parseNodeSshAliasList,
+  parseNodeSshExecKick,
+  parseNodeSshExecStatus,
   parseNodeSshHostKey,
   parseNodeSshIdentity,
   parseNodeSshResolveOutcome,
 } from "../node-results.js";
-import { SSH_MAX_HOST_KEY_LINES } from "../ssh-limits.js";
+import { SSH_EXEC_RESULT_MAX_CHARS, SSH_MAX_HOST_KEY_LINES } from "../ssh-limits.js";
 import { makeAliasList, makeResolveOk, makeResolveRefused } from "./fixtures/ssh-fixtures.js";
 
 /** A well-formed public-JWK STRING: the validator's whole job is that it is JSON and an object. */
@@ -151,5 +153,61 @@ describe("parseNodeSshHostKey (spec 2026-10-08 §9, Task 12)", () => {
     expect(
       parseNodeSshHostKey({ lines: Array.from({ length: SSH_MAX_HOST_KEY_LINES }, (_, i) => `h${i} ssh-ed25519 A`) }),
     ).not.toBeNull();
+  });
+});
+
+describe("parseNodeSshExecKick / parseNodeSshExecStatus (spec 2026-10-08 §7, Task 14)", () => {
+  const EXEC_ID = "11111111-2222-4333-8444-555555555555";
+  test("the kick ack narrows to the started marker plus the id", () => {
+    expect(parseNodeSshExecKick({ started: true, execId: EXEC_ID })).toEqual({ started: true, execId: EXEC_ID });
+    expect(parseNodeSshExecKick({ started: false, execId: EXEC_ID })).toBeNull();
+    expect(parseNodeSshExecKick({ started: true })).toBeNull();
+    expect(parseNodeSshExecKick({ started: true, execId: "bad id" })).toBeNull();
+    expect(parseNodeSshExecKick("pong")).toBeNull();
+  });
+  test("the status answer narrows both states", () => {
+    expect(parseNodeSshExecStatus({ state: "running" })).toEqual({ state: "running" });
+    expect(
+      parseNodeSshExecStatus({ state: "done", code: 0, timedOut: false, stdout: "==> done.\n", stderr: "" }),
+    ).toEqual({ state: "done", code: 0, timedOut: false, stdout: "==> done.\n", stderr: "" });
+    // A signal-killed child reports a null code honestly.
+    expect(parseNodeSshExecStatus({ state: "done", code: null, timedOut: true, stdout: "", stderr: "" })).toEqual({
+      state: "done",
+      code: null,
+      timedOut: true,
+      stdout: "",
+      stderr: "",
+    });
+  });
+  test("the status answer refuses malformed shapes", () => {
+    expect(parseNodeSshExecStatus({ state: "half" })).toBeNull();
+    expect(parseNodeSshExecStatus({ state: "running", smuggled: 1 })).toBeNull(); // rebuilt from checked fields
+    expect(parseNodeSshExecStatus({ state: "done" })).toBeNull(); // done states ALL four facts
+    expect(parseNodeSshExecStatus({ state: "done", code: 0.5, timedOut: false, stdout: "", stderr: "" })).toBeNull();
+    expect(parseNodeSshExecStatus({ state: "done", code: 0, stdout: "", stderr: "" })).toBeNull();
+    expect(
+      parseNodeSshExecStatus({ state: "done", code: 0, timedOut: false, stdout: "a\x00b", stderr: "" }),
+    ).toBeNull(); // control chars other than newlines/tabs/CR are refused
+    expect(
+      parseNodeSshExecStatus({
+        state: "done",
+        code: 0,
+        timedOut: false,
+        stdout: "x".repeat(SSH_EXEC_RESULT_MAX_CHARS + 1),
+        stderr: "",
+      }),
+    ).toBeNull();
+  });
+  test("the narrowed status answer drops unknown members (rebuild, not cast)", () => {
+    const parsed = parseNodeSshExecStatus({
+      state: "done",
+      code: 1,
+      timedOut: false,
+      stdout: "s",
+      stderr: "e",
+      nodeKey: "leak?",
+    });
+    expect(parsed).not.toHaveProperty("nodeKey");
+    expect(parsed).toEqual({ state: "done", code: 1, timedOut: false, stdout: "s", stderr: "e" });
   });
 });
