@@ -9,7 +9,7 @@ import {
   parseNodeSshMachinePinRepair,
   parseNodeSshResolveOutcome,
 } from "../node-results.js";
-import { SSH_EXEC_RESULT_MAX_CHARS, SSH_MAX_HOST_KEY_LINES } from "../ssh-limits.js";
+import { SSH_EXEC_RESULT_MAX_CHARS, SSH_MAX_HOST_KEY_LINES, SSH_ROSTER_MAX_IDENTITIES } from "../ssh-limits.js";
 import { makeAliasList, makeResolveOk, makeResolveRefused } from "./fixtures/ssh-fixtures.js";
 
 /** A well-formed public-JWK STRING: the validator's whole job is that it is JSON and an object. */
@@ -104,6 +104,17 @@ describe("parseNodeSshAgentIdentities", () => {
     expect(parseNodeSshAgentIdentities({})).toBeNull();
     expect(parseNodeSshAgentIdentities(null)).toBeNull();
     expect(parseNodeSshAgentIdentities([])).toBeNull();
+  });
+  test("refuses a roster past SSH_ROSTER_MAX_IDENTITIES, the bound itself answers (PR #338 review)", () => {
+    // The count bound mirrors SSH_MAX_HOST_KEY_LINES' reasoning: a machine
+    // reporting more identities than the display/selection bound is
+    // malformed, refused rather than truncated down to size (a roster the
+    // validator quietly cut would read to the operator as the whole truth).
+    const roster = (n: number) => ({
+      identities: Array.from({ length: n }, () => ({ fingerprint: FP_A, comment: "k" })),
+    });
+    expect(parseNodeSshAgentIdentities(roster(SSH_ROSTER_MAX_IDENTITIES + 1))).toBeNull();
+    expect(parseNodeSshAgentIdentities(roster(SSH_ROSTER_MAX_IDENTITIES))).not.toBeNull();
   });
 });
 

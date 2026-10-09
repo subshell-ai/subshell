@@ -303,6 +303,7 @@ export {
   SSH_RELAY_LIFETIME_MS,
   SSH_RELAY_MAX_PER_NODE,
   SSH_RELAY_TEARDOWN_GRACE_MS,
+  SSH_ROSTER_MAX_IDENTITIES,
 } from "./ssh-limits.js";
 // PURE module (WebCrypto globals only, no node: builtins): safe in the
 // Metro-consumed barrel; pinned by __tests__/ssh-pin-store.test.ts.

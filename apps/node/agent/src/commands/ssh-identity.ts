@@ -1,4 +1,9 @@
-import { type JsonValue, parseNodeSshAgentIdentities, parseNodeSshIdentity } from "@internal/subshell-protocol";
+import {
+  type JsonValue,
+  parseNodeSshAgentIdentities,
+  parseNodeSshIdentity,
+  SSH_ROSTER_MAX_IDENTITIES,
+} from "@internal/subshell-protocol";
 import { loadOrCreateIdentity } from "../identity.js";
 import type { AgentIdentity, AgentRequestFn } from "../relay-agent-scheme.js";
 import { fingerprintAgentBlob, parseIdentitiesAnswer, probeAgentScheme } from "../relay-agent-scheme.js";
@@ -65,7 +70,9 @@ export interface AgentIdentitiesSeams {
  *   positive-confirmation rule as the relay responder, and an agent that
  *   resolves nothing is refused by name rather than asked under a guess.
  * - **Fail closed, never fabricate**: no socket, an unresolvable scheme, a
- *   refused or unparsable roster each answer `ok:false` with a named error.
+ *   refused or unparsable roster, or a roster past
+ *   {@link SSH_ROSTER_MAX_IDENTITIES} each answer `ok:false` with a named
+ *   error; an oversized roster is refused, never truncated down to the bound.
  *   An EMPTY roster from a live agent is the honest answer (`{identities:[]}`)
  *   - it is A reporting zero keys, which is a fact; the plane's offline path
  *   keeps the grant request pending precisely so a fabrication cannot read as
@@ -107,6 +114,17 @@ export async function execSshAgentIdentities(
     // partial-parse risk §5.4 refuses. The plane's caller keeps the approval
     // question pending on this error, which is the fail-closed half.
     return { ok: false, error: "the agent's IDENTITIES_ANSWER did not parse; refusing to answer a partial roster" };
+  }
+  if (entries.length > SSH_ROSTER_MAX_IDENTITIES) {
+    // The count bound (PR #338 review round 2): the parse takes whatever
+    // count the agent declares, so the refusal is here. Never a silent
+    // truncation - a roster cut to fit would read to the operator as the
+    // agent's whole truth. The error names the cause and the counts only:
+    // no fingerprint, comment, or blob byte.
+    return {
+      ok: false,
+      error: `the agent reported ${entries.length} identities, past the ${SSH_ROSTER_MAX_IDENTITIES}-identity roster bound; refusing to answer an oversized roster`,
+    };
   }
   // The blobs are discarded HERE, before any validator sees the answer: the
   // result frame structurally cannot carry one.

@@ -29,6 +29,7 @@ import {
   SSH_MAX_DISCOVERED_ALIASES,
   SSH_MAX_HOST_KEY_LINES,
   SSH_NAME_MAX_CHARS,
+  SSH_ROSTER_MAX_IDENTITIES,
 } from "./ssh-limits.js";
 import type {
   NodeSshAgentIdentitiesResult,
@@ -609,12 +610,17 @@ export function parseNodeSshResolveOutcome(data: unknown): NodeSshResolveOutcome
  * narrowed answer has nowhere to hold key material. Fingerprints must be in
  * the grant grammar's own spelling (one predicate, both directions: the
  * approve surface takes roster values verbatim); comments are OpenSSH's
- * labels, passed through as bounded text, never parsed.
+ * labels, passed through as bounded text, never parsed. The entry COUNT is
+ * capped at {@link SSH_ROSTER_MAX_IDENTITIES} rather than truncated (the
+ * same reasoning {@link SSH_MAX_HOST_KEY_LINES} carries): a past-cap roster
+ * is a malformed machine, and an answer quietly cut to size would read to
+ * the operator as the agent's whole truth.
  * @param data - the `data` member of a successful result frame
  * @returns the narrowed roster, or null when malformed
  */
 export function parseNodeSshAgentIdentities(data: unknown): NodeSshAgentIdentitiesResult | null {
   if (!isRecord(data) || !Array.isArray(data.identities)) return null;
+  if (data.identities.length > SSH_ROSTER_MAX_IDENTITIES) return null;
   const identities: NodeSshAgentIdentity[] = [];
   for (const entry of data.identities as unknown[]) {
     if (!isRecord(entry) || !isSshGrantFingerprint(entry.fingerprint)) return null;

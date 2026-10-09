@@ -939,6 +939,29 @@ describe("ssh-grants.service", () => {
       expect(await db.selectFrom("auditEvents").selectAll().execute()).toHaveLength(0);
     });
 
+    it("a key home that REFUSES the roster (e.g. the oversized bound) surfaces as SSH_NODE_REFUSED, never an empty roster", async () => {
+      // PR #338 review round 2 pinned the propagation the picker relies on:
+      // the node's named `ok:false` refusal (the T11 command refuses an
+      // oversized roster by name) travels as the refused arm, and the grant
+      // create picker answers a refusal the operator can act on - NOT a
+      // fabricated empty roster, which would read as "this agent holds no
+      // keys". The agent's own text rides the log only, never the response.
+      rosterAnswer = () => {
+        throw new SshRpcError(
+          "refused",
+          "the agent answered ok:false",
+          NODE_A,
+          "past the identity roster bound; refusing to answer an oversized roster",
+        );
+      };
+      const answer = await listNodeAgentIdentities({ viewerId: owner, aNodeId: NODE_A });
+      expect(answer.ok).toBe(false);
+      if (answer.ok) return;
+      expect(answer.refusal).toMatchObject({ status: 502, code: BackendErrorCodes.SSH_NODE_REFUSED });
+      expect(answer.refusal.message).not.toInclude("oversized");
+      expect(await db.selectFrom("auditEvents").selectAll().execute()).toHaveLength(0);
+    });
+
     it("a key home whose SSH is switched off is the gate's 403 BEFORE the machine is asked", async () => {
       const answer = await listNodeAgentIdentities({ viewerId: owner, aNodeId: NODE_OFF });
       expect(answer.ok).toBe(false);

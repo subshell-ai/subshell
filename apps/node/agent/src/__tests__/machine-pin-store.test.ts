@@ -109,7 +109,7 @@ test("check on an unpinned peer is 'changed': the store fails closed, it never s
   expect(store.check("never-seen", keyA)).toBe("changed");
 });
 
-test("pins persist across store instances and multiple peers coexist; re-pin replaces one entry", () => {
+test("pins persist across store instances and multiple peers coexist; the re-pair route replaces one entry", () => {
   const dir = freshDir();
   new MachinePinStore(dir).pin("node-1", keyA);
   new MachinePinStore(dir).pin("node-2", keyB);
@@ -117,10 +117,50 @@ test("pins persist across store instances and multiple peers coexist; re-pin rep
   expect(reopened.get("node-1")).toEqual(keyA);
   expect(reopened.get("node-2")).toEqual(keyB);
   // §4.5's re-pair replaces the stored pin for that peer and only that peer.
-  reopened.pin("node-1", keyB);
+  // The replace route is `repair`: pin() now refuses an already-pinned peer
+  // (see the next test), so the re-pair writes through the sanctioned path.
+  reopened.repair("node-1", keyB);
   expect(reopened.get("node-1")).toEqual(keyB);
   expect(reopened.get("node-2")).toEqual(keyB);
   expect(reopened.check("node-1", keyA)).toBe("changed");
+});
+
+test("pin refuses a peer that ALREADY has an entry: a changed peer is a block, not a re-pin", () => {
+  // The structural guard (PR #338 review round 2): `pin` used to delegate
+  // straight to `repair`, so a call-site ordering bug could silently
+  // OVERWRITE a pinned peer. It now refuses when an entry exists; `repair`
+  // stays the ONLY sanctioned replace path (§4.5's re-pair route).
+  const dir = freshDir();
+  const store = new MachinePinStore(dir);
+  store.pin("node-1", keyA);
+  const before = readFileSync(machinePinPath(dir), "utf8");
+  expect(() => store.pin("node-1", keyB)).toThrow(
+    "machine pin exists for node-1: a changed peer is a block, not a re-pin",
+  );
+  // The refusal is inert: the file is byte-identical and the stored pin is
+  // still keyA. A moved peer stays BLOCKED (check says changed), never
+  // silently re-pinned by whatever asked second.
+  expect(readFileSync(machinePinPath(dir), "utf8")).toBe(before);
+  expect(store.get("node-1")).toEqual(keyA);
+  expect(store.check("node-1", keyB)).toBe("changed");
+  // The message names the peer and the cause, never key bytes: the error
+  // string is log-safe material.
+  let message = "";
+  try {
+    store.pin("node-1", keyB);
+  } catch (err) {
+    message = String(err);
+  }
+  expect(message).toContain("node-1");
+  expect(message).not.toContain(keyA.signing);
+  expect(message).not.toContain(keyA.encryption);
+  expect(message).not.toContain(keyB.signing);
+  expect(message).not.toContain(keyB.encryption);
+  // `repair` still replaces the same peer's entry: the guard refuses pin(),
+  // not the re-pair route.
+  store.repair("node-1", keyB);
+  expect(store.get("node-1")).toEqual(keyB);
+  expect(store.check("node-1", keyB)).toBe("ok");
 });
 
 test("a corrupt pin file is quarantined and throws; it is never read as an empty pin set", () => {
