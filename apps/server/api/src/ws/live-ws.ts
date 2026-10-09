@@ -77,8 +77,6 @@ export interface LiveWsDeps {
    * pane costs a `capture-pane` spawn each.
    */
   previewsFor(userId: string, ids: string[]): Promise<Map<string, string[]>>;
-  /** Whether this viewer holds the admin role — decides the `admins` topic. */
-  isAdmin(userId: string): Promise<boolean>;
   /**
    * Whether the viewer's account is DISABLED — the post-redeem re-ask
    * (`attach-resolve` names the race on its token branch; this is the feed's
@@ -182,21 +180,6 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
   }
   if (stopped) return;
 
-  // GUARDED like the snapshot below, and for the same reason: a rejection here
-  // used to reject into the plugin's `.catch`, which only logs — leaving a
-  // socket that is open, subscribed to nothing, and permanently silent. The
-  // client marks itself connected only once a snapshot lands and schedules a
-  // reconnect only from `onclose`, so nothing would ever have fired again.
-  let isAdmin: boolean;
-  try {
-    isAdmin = await deps.isAdmin(userId);
-  } catch (err) {
-    logger.withError(err).warn("live ws: could not resolve the viewer's role; closing so the client reconnects");
-    ws.close(1011, "open failed");
-    return;
-  }
-  if (stopped) return;
-
   /**
    * Subscribe BEFORE the list read, so no event fired during it is missed.
    *
@@ -206,7 +189,7 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
    * newer than a snapshot whose read began before it, so no sequence number
    * and no server-side buffer are needed (spec 2026-09-19 §4.1a).
    */
-  for (const topic of topicsForViewer({ viewerId: userId, isAdmin })) {
+  for (const topic of topicsForViewer({ viewerId: userId })) {
     ws.subscribe?.(topic);
   }
 
@@ -259,7 +242,6 @@ export function liveWsDeps(): LiveWsDeps {
       // none of them.
       getRequestlessContext().services.subshells.listSubshells(userId, { previews: false }),
     previewsFor: (userId, ids) => getRequestlessContext().services.subshells.previewsFor(userId, ids),
-    isAdmin: async (userId) => (await getRequestlessContext().repos.userMeta.getRole(userId)) === "admin",
     accountDisabled: (userId) => accountDisabled(getRequestlessContext().db, userId),
     passwordChangeRequired: (userId) => backupPasswordChangeRequired(getRequestlessContext().db, userId),
   };

@@ -68,7 +68,7 @@ Everything below assumes that perimeter holds.
 | **Network-level attackers** | No TLS enforcement, no certificate pinning: transport security is the operator's deployment (a VPN, or TLS terminated in front). The node ↔ control-plane link is the exception since protocol 14: it encrypts at the application layer whatever the deployment (§6). What still rides the network in the clear: the browser ↔ server HTTP and WebSockets (the server must read those bytes to serve them; TLS is that leg's job, §12), the downloads and the install one-liners (publisher-signed: integrity, not secrecy, §11.12), and the node's loopback dashboard (a local socket, never a wire, §6) |
 | **Channel metadata analysis** | Channel names, membership, post timing, ordering, message sizes and principals are all plaintext on the server |
 | **Control-plane compromise** | The node signing keypair lives on the backend host and rules every enrolled node. Compromise there is compromise of the whole fleet |
-| **A malicious admin** | Admins hold instance-wide edit access and can mint full-access system keys. There is no separation of duties |
+| **A malicious admin** | Admins run the whole instance: users, settings, plugins, nodes, and full-access system keys, and a password reset turns any account into theirs. They no longer see anyone's panes by right (2026-10-09), but impersonation reaches everything. There is no separation of duties |
 | **Denial of service** | Only login is rate-limited |
 | **Supply chain of the harnesses themselves** | Subshell launches whatever `claude`/`opencode`/`codex` binary is on the host's PATH and does not verify it |
 
@@ -444,10 +444,17 @@ is deliberate: a 403 would confirm the id exists.
 **Grants.** The owner may share (§5). Grants confer view or edit; they never
 confer delete or re-sharing.
 
-**Admin.** Admins hold instance-wide **edit**, effective operator access. They
-can read and drive any subshell. They **cannot** delete one or change its shares;
-those stay with the real owner. Admin status lives in the app's `user_meta`
-table, not on the better-auth user row.
+**Admin.** Since the operator ruling of 2026-10-09
+(`docs/superpowers/specs/2026-10-09-admin-pane-visibility-removal-design.md`),
+the admin role carries **no subshell reach at all**: a pane resolves for an
+admin exactly as for any other account - own, or shared, or nothing, with the
+foreign unshared row answering the 404 a stranger gets. The earlier posture
+(instance-wide effective **edit**, read and drive anything but never delete or
+re-share) was retired with that ruling; owner-only acts were always the
+owner's, and now the whole axis simply ignores the role. Admin remains
+instance **management**: users, roles, settings, providers, plugins, network,
+status, and `local` node config. Reaching another account's pane still happens
+the way it always finally did: by becoming that account, not by holding a flag.
 
 Hard rules and standing rulings on top (the two rulings are the LIST reads this
 section's posture depends on):
@@ -456,18 +463,19 @@ section's posture depends on):
   non-cookie actor with 403: `/api/users`, `/api/system-keys`,
   `/api/admin/status`, the `/api/admin/server` group (§11.11), and the sharing
   routes.
-- **A subshell's own token gets no boost and no grants.** The switch-off is
-  keyed on WHICH machine credential, not on bearer-ness: the per-subshell
-  gate runs the admin boost and shared grants only for an actor other than a
-  subshell's own key (`subshells.service.ts:531-541`). A pane's own token can
+- **A subshell's own token gets no grants.** The switch-off is keyed on WHICH
+  machine credential, not on bearer-ness: the per-subshell
+  gate (`subshells.service.ts`, `#gate`, `allowShares`) runs shared grants
+  only for an actor other than a subshell's own key. A pane's own token can
   therefore act only on its owner's OWN subshells, never a foreign one,
   never one merely shared with its owner. A **system key is not switched
   off**: it resolves through the full human gate, exactly as a signed-in
   caller does, as the `system` service user it authenticates as, which in
   practice resolves nowhere, because that user owns no subshells and is
   shared with nothing, but a deliberate grant WOULD reach it. The
-  boost-and-grants switch-off was therefore never what kept system keys off
-  other people's rows. What keeps machine credentials off the instance
+  grants switch-off was therefore never what kept system keys off
+  other people's rows (and since 2026-10-09 there is no boost to switch off
+  anywhere on this axis). What keeps machine credentials off the instance
   itself is the separate cookie-only guard above.
 - **The LIST route resolves shares for every caller, machine tokens
   included, KEPT by decision, pinned by test (operator ruling 2026-09-23).**
@@ -578,10 +586,10 @@ output, or tmux pane metadata. Accepted (§11).
 (`services/subshell-tokens.ts:33`):
 the map is a coarse scope gate, not a row fence. The MCP tools self-restrict
 the pane to its own row for reporting, but the raw REST surface resolves the
-token as its OWNER with the boost and shares switched off (§3), which means a
+token as its OWNER with shares switched off (§3), which means a
 prompt-injected pane can create, restart and **terminate** the owner's OTHER
 subshells; terminate gates at `edit`, and the owner holds `edit` on its own
-rows by definition (`subshells.service.ts:765-772`). This is the first
+rows by definition (the service's `#gate`). This is the first
 written accounting of the sibling surface the "other panes are agents"
 coordination posture rests on, and it is stated plainly for that reason:
 intra-instance coordination is trusted at the same altitude as the harness
@@ -2087,11 +2095,13 @@ what it never receives.
 
 ### Notifications stay owner-targeted
 
-The desktop watcher reads `GET /api/subshells`, which returns every subshell
-the caller can SEE; for an admin, every subshell on the instance. It therefore
-applies the same three gates the push path applies (§5): owner only, the
-per-subshell bell, and the account-wide master switch. Sharing widens who can
-see and act on a subshell; it never widens who gets notified about it.
+The desktop watcher reads `GET /api/subshells`, which returns the caller's
+own and what is shared to them - the same set for every role since 2026-10-09.
+It still applies the three gates the push path applies (§5): owner only, the
+per-subshell bell, and the account-wide master switch; the owner-only gate is
+now a redundant belt rather than the narrowing act, and it stays. Sharing
+widens who can see and act on a subshell; it never widens who gets notified
+about it.
 
 ## 9. Input handling and untrusted data
 
@@ -2350,11 +2360,11 @@ Recorded so they are decisions rather than surprises:
    `SUBSHELL_FS_ROOT` narrows it; nothing narrows it by default.
 5. **Admins are unconstrained operators.** No separation of duties, no
    four-eyes on system-key minting, and, since 2026-09-05, an admin can
-   **reset any other user's password** from the Users page. That grants no
-   reach an admin lacked (they could already mint a full-access system key and
-   read every subshell), but it is now a one-click credential takeover, and it
-   is audited as `user.password_reset` with the session count rather than the
-   password. Two guards bound it: an admin cannot reset their OWN password
+   **reset any other user's password** from the Users page. Since 2026-10-09
+   that click is how an admin reaches another account's panes at all (the role
+   itself no longer reads them), which makes it a one-click credential
+   takeover of everything that account holds, and it is audited as
+   `user.password_reset` with the session count rather than the password. Two guards bound it: an admin cannot reset their OWN password
    there (Account requires the current one, so an unlocked laptop is not a
    takeover), and the `system` service account is untouchable.
 
@@ -2536,11 +2546,11 @@ the next boot. Changing `APP_BASE_URL` additionally moves better-auth's passkey 
 so existing passkeys stop working at the old address; the page says so under
 the field, because that consequence is invisible from the form.
 
-**What it is measured against.** An admin already holds effective operator
-access to everything this instance runs (§11.5): they can mint a full-access
-system key, read any subshell, and reset any other user's password. Editing
-four addresses is not a step up from that, and the values are addresses rather
-than secrets. `BETTER_AUTH_SECRET` is not among the keys this route can touch,
+**What it is measured against.** An admin already runs everything this
+instance manages (§11.5): they can mint a full-access system key and reset any
+other user's password, which is total reach by way of the account that owns
+it. Editing four addresses is not a step up from that, and the values are
+addresses rather than secrets. `BETTER_AUTH_SECRET` is not among the keys this route can touch,
 it is preserved byte-for-byte in the file it rewrites, and a test scans the
 audit metadata for it. The deployment view the page reads carries no secret in
 any form either: only `authSecret: { state, source }`, never a value, the same
@@ -3308,8 +3318,9 @@ opposite directions.** Every other access decision in the tree is viewer →
 row: `resolveSubshellAccess`, `listVisibleTo`. The fan-out cannot work that
 way (it has to answer "who may receive this row"), so
 `ws/live-topics.ts` derives a recipient set instead, from the row's owner and
-its grants, decomposed into `live:u:<id>`, `live:admins` and `live:everyone`
-with no user enumeration anywhere.
+its grants, decomposed into `live:u:<id>` and `live:everyone` with no user
+enumeration anywhere. (The `live:admins` topic died with the 2026-10-09
+ruling: the role is not a grant, so the fan-out has no role arm to name.)
 
 That is a second policy path, and the objection to a second policy path is
 real: the 2026-09-03 flicker was two viewer → rows implementations
@@ -3317,8 +3328,9 @@ disagreeing, and a disagreement here does not flicker, it discloses a private
 subshell. What makes it sound is that the two are DIFFED: an exhaustive test
 asserts that a viewer's subscribed topics intersect a row's published topics
 **exactly once** when `resolveSubshellAccess` grants access, and not at all
-when it does not, over every combination of owner / admin / explicit grant /
-Everyone grant. Two implementations with a diff between them is a stronger
+when it does not, over every combination of owner / explicit grant / Everyone
+grant (roles are outside the space: neither half can see one). Two
+implementations with a diff between them is a stronger
 guarantee than one with nothing checking it; the hazard was never duplication,
 it was UNDIFFED duplication.
 
@@ -3329,15 +3341,15 @@ subscriber. It is not a unit test among others; it is the control.
 **A role change or an account disable drops that user's sockets.** A socket
 chooses its topics ONCE, at connect, and nothing else closes it: a WebSocket
 authenticates at connect and is never re-checked, exactly as `/ws` does
-(§11.5's "Live WebSockets"). So an admin demoted with a dashboard tab open
-would have gone on receiving every subshell on the instance for as long as
-that tab lived. `PATCH /api/users/:id/role` therefore closes that user's
-live sockets, counted in the audit row; the client reconnects on its own and
-re-derives what it may subscribe to. `PATCH /:id/disabled` does the same on
-the disable edge (the drop that used to be the gap this section recorded),
-and disabling is the stronger act: the account it drops can no longer even
-mint a reconnect token, because the mint runs through `authGuard`
-(§2, "Disabling an account"). A password reset still does NOT do this: it
+(§11.5's "Live WebSockets"). The disable drop is the load-bearing one: a
+disabled account must not keep streaming, and `PATCH /:id/disabled` closes
+the sockets (the drop that used to be the gap this section recorded) with an
+account that can no longer even mint a reconnect token, because the mint runs
+through `authGuard` (§2, "Disabling an account"). The role-change drop
+survived the 2026-10-09 ruling as hygiene rather than safety: role no longer
+chooses feed topics at all, but a changed role changes what the client should
+be rendering, so `PATCH /api/users/:id/role` still closes that user's live
+sockets, counted in the audit row, and the reconnect rebuilds the chrome. A password reset still does NOT do this: it
 is a credential rotation, not a session-kill switch, and that asymmetry is
 deliberate.
 

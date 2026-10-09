@@ -16,10 +16,11 @@ import { issueWsToken } from "@/ws/ws-token.js";
  * Both are producers of one client cache key (`SUBSHELLS_QUERY_KEY`): the root
  * feed provider writes every snapshot into it and REST refetches overwrite it.
  * While the feed used the owner-only `SubshellManagerService.listSubshells` and
- * REST used the sharing/admin-aware `SubshellsService.listSubshells`, an admin
- * saw another user's subshell pop IN on a REST refetch and OUT on the next
- * 1.5 s frame — the sidebar row visibly flickered (live report 2026-09-03,
- * "mac-builder.local keeps popping in and out").
+ * REST a wider read, an admin saw another user's subshell pop IN on a REST
+ * refetch and OUT on the next frame — the sidebar row visibly flickered (live
+ * report 2026-09-03, "mac-builder.local keeps popping in and out"). Since the
+ * 2026-10-09 ruling both producers read the SAME owner+grants set for every
+ * role, which retires the flicker's widest case rather than reconciling it.
  *
  * Carried over from the `/api/events` SSE route this replaced (spec
  * 2026-09-19). The transport changed; the invariant did not, and it is the one
@@ -108,13 +109,14 @@ describe("the live feed's snapshot matches the REST list (one cache, two produce
     await deleteUserByEmailOrId(adminEmail);
   });
 
-  it("the admin's first snapshot contains what the admin's REST list contains", async () => {
+  it("the admin's first snapshot matches the admin's REST list - and both EXCLUDE the foreign row", async () => {
     const restRes = await app.fetch(authedRequest("/api/subshells", adminCookie));
     expect(restRes.status).toBe(200);
     const rest = (await restRes.json()) as { id: string }[];
-    // Sanity: REST's admin visibility DOES include the foreign row (the set
-    // the client cache should converge to).
-    expect(rest.map((s) => s.id)).toContain(subshellIds[0]);
+    // Sanity pin for the 2026-10-09 ruling: the foreign (owner's, unshared)
+    // row is NOT in an admin's answer. The invariant the file exists for is
+    // snapshot == REST; this asserts WHICH set both must now agree on.
+    expect(rest.map((s) => s.id)).toEqual([]);
 
     const snapshot = await firstSnapshot(adminId);
     expect(snapshot.map((s) => s.id).sort()).toEqual(rest.map((s) => s.id).sort());

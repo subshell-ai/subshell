@@ -3,13 +3,16 @@ import type { LiveWsSocket } from "@/ws/live-ws.js";
 /**
  * The open live-feed sockets, by viewer.
  *
- * **It exists for one reason: a socket's topics are fixed at connect.**
- * `topicsForViewer` is evaluated once, so an admin subscribes to the
- * instance-wide `admins` topic for the life of that connection — and a user
- * DEMOTED with a dashboard tab open would keep receiving every subshell on the
- * instance, including rows they may not see. Neither a role change nor a
- * session revoke closes a WebSocket (auth happens at connect and is never
- * re-checked, `docs/security.md`), so something has to close it deliberately.
+ * **It exists so a revocation can reach an open connection.** A socket's
+ * topics and rows are fixed at connect, and neither an account disable nor a
+ * role change closes a WebSocket (auth happens at connect and is never
+ * re-checked, `docs/security.md`), so something has to close it deliberately —
+ * a disabled account must not keep streaming, and a changed role drops the
+ * sockets so the reconnect rebuilds the client with the new role's chrome.
+ * Since the 2026-10-09 ruling the role no longer chooses feed topics at all
+ * (an admin subscribes to the same two topics as everyone else), which makes
+ * the role-change drop hygiene rather than the safety this file was first
+ * written for; the disable drop stays load-bearing.
  *
  * The feed's own snapshot-on-connect is what makes closing cheap: the client
  * reconnects on any close, re-resolves its role, and subscribes correctly. So

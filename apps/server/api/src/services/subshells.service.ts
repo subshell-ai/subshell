@@ -630,8 +630,9 @@ export class SubshellsService extends BaseService {
    * @param viewerId - The signed-in user (resolved from cookie or subshell key)
    */
   async listSubshells(viewerId: string, opts: { previews?: boolean } = {}): Promise<SubshellView[]> {
-    const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
-    const rows = await this.repos.subshells.listVisibleTo(viewerId, isAdmin);
+    // No role read: since 2026-10-09 the visible set is the viewer's own and
+    // what is shared to them, for admins exactly as for everyone else.
+    const rows = await this.repos.subshells.listVisibleTo(viewerId);
     const sharesBy = await this.repos.subshellShares.listForSubshells(rows.map((r) => r.id));
     // Resolve access per row (needs the owner id, which the view doesn't carry),
     // keyed by id so the view mapping stays a plain lookup. A visible row always
@@ -639,7 +640,7 @@ export class SubshellsService extends BaseService {
     // carries it, so the fallback names the weakest real access.
     const accessBy = new Map<string, Exclude<Access, "none">>();
     for (const row of rows) {
-      const access = resolveSubshellAccess(viewerId, isAdmin, row.userId, sharesBy.get(row.id) ?? []);
+      const access = resolveSubshellAccess(viewerId, row.userId, sharesBy.get(row.id) ?? []);
       accessBy.set(row.id, access === "none" ? "view" : access);
     }
     const views = await this.#manager.toViews(rows, opts);
@@ -679,9 +680,8 @@ export class SubshellsService extends BaseService {
    */
   async previewsFor(viewerId: string, ids: string[]): Promise<Map<string, string[]>> {
     if (ids.length === 0) return new Map();
-    const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
     const wanted = new Set(ids);
-    const visible = (await this.repos.subshells.listVisibleTo(viewerId, isAdmin)).filter((row) => wanted.has(row.id));
+    const visible = (await this.repos.subshells.listVisibleTo(viewerId)).filter((row) => wanted.has(row.id));
     return await this.#manager.previewsFor(visible);
   }
 
@@ -723,28 +723,28 @@ export class SubshellsService extends BaseService {
   }
 
   /**
-   * Waiting/running counts over the visible set (own + shared; all for an
-   * admin) — the same subshells {@link listSubshells} returns, reduced to the
-   * badge numbers for the native tab and push payloads. The blessed
+   * Waiting/running counts over the visible set (own + shared, admins
+   * included) — the same subshells {@link listSubshells} returns, reduced to
+   * the badge numbers for the native tab and push payloads. The blessed
    * `isNodeOffline` predicate is passed so a waiting subshell behind an
    * unreachable node does not count as waiting (F1); `running`/`total` are
    * unaffected.
    * @param viewerId - The signed-in user whose visible set to count
    */
   async summarySubshells(viewerId: string): Promise<{ total: number; running: number; waiting: number }> {
-    const isAdmin = (await this.repos.userMeta.getRole(viewerId)) === "admin";
-    return await this.repos.subshells.countsVisibleTo(viewerId, isAdmin, isNodeOffline);
+    return await this.repos.subshells.countsVisibleTo(viewerId, isNodeOffline);
   }
 
   /**
    * Loads a subshell and enforces that `viewerId` holds at least `min` access,
    * the single policy point for every per-subshell route.
    *
-   * A bearer (subshell-key) actor is treated as its owner and NOTHING more: the
-   * admin boost and shared grants are switched off for it, so a machine token
-   * can never act on a foreign or shared subshell — exactly the strictness the
-   * pre-sharing owner check had. Absent/invisible → 404 (`not_found`, no
-   * existence leak); visible-but-insufficient → 403.
+   * A bearer (subshell-key) actor is treated as its owner and NOTHING more:
+   * shared grants are switched off for it, so a machine token can never act
+   * on a foreign or shared subshell — exactly the strictness the pre-sharing
+   * owner check had. (No admin arm to switch off: since 2026-10-09 the human
+   * gate is owner + grants only, the role notwithstanding.) Absent/invisible
+   * → 404 (`not_found`, no existence leak); visible-but-insufficient → 403.
    *
    * @returns the subshell row (caller uses `row.userId` as the owner when it
    *          hands off to the owner-keyed manager) and the resolved access
@@ -756,10 +756,10 @@ export class SubshellsService extends BaseService {
     actor: GuardActor,
   ): Promise<{ row: SubshellTable; access: Access }> {
     const { row, access } = await loadSubshellAccess(
-      { subshells: this.repos.subshells, shares: this.repos.subshellShares, userMeta: this.repos.userMeta },
+      { subshells: this.repos.subshells, shares: this.repos.subshellShares },
       viewerId,
       subshellId,
-      { allowAdminAndShares: actor !== "subshell-key" },
+      { allowShares: actor !== "subshell-key" },
     );
     if (!row || access === "none") throw new SubshellError("not_found", "Subshell not found");
     if (!accessAtLeast(access, min)) {

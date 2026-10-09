@@ -86,18 +86,19 @@ export class SubshellsRepository extends BaseRepository {
   /**
    * Subshells a viewer may SEE (spec 2026-08-31 §4.3): their own, plus any
    * shared with Everyone (a `subshell_shares` row with a NULL grantee) or named
-   * directly, newest first. An admin sees every subshell. A private foreign
-   * subshell never appears — the whole list reads as "no such subshell", so a
-   * stranger cannot probe which ids exist.
+   * directly, newest first — the same answer for an admin as for anyone else
+   * (operator ruling 2026-10-09: the admin role carries no subshell reach).
+   * A private foreign subshell never appears — the whole list reads as "no such
+   * subshell", so a stranger cannot probe which ids exist.
    *
    * This is the WHERE-clause half of visibility; the resolver
    * (`lib/subshell-access`) is the access-level half. Both key off the same
    * `granteeUserId IS NULL OR = viewer` rule.
    */
-  async listVisibleTo(viewerId: string, isAdmin: boolean): Promise<SubshellTable[]> {
-    let query = this.db.selectFrom("subshells");
-    if (!isAdmin) {
-      query = query.where((eb) =>
+  async listVisibleTo(viewerId: string): Promise<SubshellTable[]> {
+    const query = this.db
+      .selectFrom("subshells")
+      .where((eb) =>
         eb.or([
           eb("subshells.userId", "=", viewerId),
           eb.exists(
@@ -110,9 +111,8 @@ export class SubshellsRepository extends BaseRepository {
               .select("subshellShares.subshellId"),
           ),
         ]),
-      );
-    }
-    query = query.orderBy("createdAt", "desc");
+      )
+      .orderBy("createdAt", "desc");
     return query.selectAll().execute();
   }
 
@@ -138,22 +138,22 @@ export class SubshellsRepository extends BaseRepository {
   }
 
   /**
-   * Badge counts over everything a viewer can SEE (own + shared; all for an
-   * admin) — the same visible set {@link listVisibleTo} returns, reduced with
-   * the shared {@link summarizeSubshells} formula. Badge surfaces MUST pass
-   * the blessed `node-registry.isNodeOffline` (see {@link summarizeSubshells}
-   * for what the predicate does to each count).
+   * Badge counts over everything a viewer can SEE (own + shared — admins
+   * included, since 2026-10-09 the role widens nothing here) — the same
+   * visible set {@link listVisibleTo} returns, reduced with the shared
+   * {@link summarizeSubshells} formula. Badge surfaces MUST pass the blessed
+   * `node-registry.isNodeOffline` (see {@link summarizeSubshells} for what the
+   * predicate does to each count).
    */
   async countsVisibleTo(
     viewerId: string,
-    isAdmin: boolean,
     isNodeOffline: (nodeId: string) => boolean,
   ): Promise<{ total: number; running: number; waiting: number }> {
     // Delegates to listVisibleTo so there is exactly ONE definition of
     // "what a viewer can see" — counts and list can never disagree about the
     // set. Per-user lists are small, so fetching full rows here is cheap and
     // worth the single-source-of-truth.
-    return summarizeSubshells(await this.listVisibleTo(viewerId, isAdmin), isNodeOffline);
+    return summarizeSubshells(await this.listVisibleTo(viewerId), isNodeOffline);
   }
 
   async update(id: string, update: SubshellUpdate): Promise<SubshellTable | undefined> {

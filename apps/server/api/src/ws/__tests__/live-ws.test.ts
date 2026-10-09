@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { ADMINS_TOPIC, EVERYONE_TOPIC, userTopic } from "@/ws/live-topics.js";
+import { EVERYONE_TOPIC, userTopic } from "@/ws/live-topics.js";
 import {
   handleLiveClose,
   handleLiveMessage,
@@ -63,7 +63,6 @@ function deps(over: Partial<LiveWsDeps> = {}): LiveWsDeps {
   return {
     consumeToken: (t) => (t === "good" ? { userId: "u1", subshellId: null } : null),
     listSubshells: async () => [{ id: "s1" }] as never,
-    isAdmin: async () => false,
     previewsFor: async () => new Map(),
     // The re-ask (disable race): healthy by default, like the token the
     // factory hands out. Individual cases flip it.
@@ -180,13 +179,14 @@ describe("/ws/live", () => {
     expect(subscribedAtRead).toEqual([userTopic("u1"), EVERYONE_TOPIC]);
   });
 
-  it("subscribes an admin to the admins topic ALONE — one frame, not two", async () => {
-    // That topic already carries every row, so adding this viewer's own would
-    // deliver a subshell they OWN twice. Measured against a real server: an
-    // admin owner received each frame two times until the sets were disjoint.
+  it("the open path reads no role at all (2026-10-09): the deps carry no isAdmin", async () => {
+    // The admins topic and the role read died together - the feed's audience
+    // is owner + grantees, and a viewer's pair is [own, everyone] whatever
+    // their role. This deps object is the real LiveWsDeps shape: if a role
+    // read ever returns to the open path, this literal stops type-checking.
     const { ws, subscribed } = fakeSocket({ token: "good" });
-    await handleLiveOpen(ws, deps({ isAdmin: async () => true }));
-    expect(subscribed).toEqual([ADMINS_TOPIC]);
+    await handleLiveOpen(ws, deps());
+    expect(subscribed).toEqual([userTopic("u1"), EVERYONE_TOPIC]);
   });
 
   /**

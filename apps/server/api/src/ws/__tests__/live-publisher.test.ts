@@ -4,7 +4,7 @@ import { db } from "@/db/index.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { publishLive } from "@/services/live-bus.js";
 import { startLivePublisher } from "@/ws/live-publisher.js";
-import { ADMINS_TOPIC, EVERYONE_TOPIC, userTopic } from "@/ws/live-topics.js";
+import { EVERYONE_TOPIC, userTopic } from "@/ws/live-topics.js";
 
 /** Records what was published, per topic. */
 function fakeTarget() {
@@ -87,8 +87,9 @@ describe("live publisher coalescing", () => {
     try {
       for (let i = 0; i < 4; i++) publishLive({ kind: "subshell.deleted", id: "d1", ownerId: "u1", shares: [] });
       await settle();
-      // Two topics (the owner's and admins'), ONE frame each — not four.
-      expect(typesFor("d1")).toEqual(["subshell-gone", "subshell-gone"]);
+      // One topic (the owner's — there is no admins' topic since 2026-10-09),
+      // ONE frame on it — not four.
+      expect(typesFor("d1")).toEqual(["subshell-gone"]);
     } finally {
       stop();
     }
@@ -102,7 +103,7 @@ describe("live publisher coalescing", () => {
       publishLive({ kind: "subshell.deleted", id: "d2", ownerId: "u1", shares: [] });
       publishLive({ kind: "subshell.changed", id: "d2" }); // must not undo it
       await settle();
-      expect(typesFor("d2")).toEqual(["subshell-gone", "subshell-gone"]);
+      expect(typesFor("d2")).toEqual(["subshell-gone"]); // one topic, one frame
     } finally {
       stop();
     }
@@ -152,7 +153,7 @@ describe("a deletion reaches everyone the row reached", () => {
       });
       await settle();
       const topics = sent.filter((x) => x.frame.id === "shared").map((x) => x.topic);
-      expect(new Set(topics)).toEqual(new Set([userTopic("owner"), userTopic("grantee"), ADMINS_TOPIC]));
+      expect(new Set(topics)).toEqual(new Set([userTopic("owner"), userTopic("grantee")]));
     } finally {
       stop();
     }
@@ -173,7 +174,7 @@ describe("a deletion reaches everyone the row reached", () => {
       // Saying it to an id a viewer never held is harmless by design (§4.2):
       // "you cannot see this" is true whether the row was deleted, unshared,
       // or never visible.
-      expect(new Set(topics)).toEqual(new Set([EVERYONE_TOPIC, ADMINS_TOPIC]));
+      expect(new Set(topics)).toEqual(new Set([EVERYONE_TOPIC]));
     } finally {
       stop();
     }
@@ -218,7 +219,7 @@ describe("the coalescing window cannot swallow a revocation", () => {
       });
       publishLive({ kind: "subshell.deleted", id: "s11", ownerId: "owner", shares: [] });
       await settle();
-      expect(typesFor("s11")).toEqual(["subshell-gone", "subshell-gone"]);
+      expect(typesFor("s11")).toEqual(["subshell-gone"]); // one topic, one frame
     } finally {
       stop();
     }
