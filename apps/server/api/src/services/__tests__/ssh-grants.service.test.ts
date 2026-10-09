@@ -804,6 +804,12 @@ describe("ssh-grants.service", () => {
       expect(sshGrantSelectorMatches("git.*.test", "git.example.test")).toBe(true);
       expect(sshGrantSelectorMatches("git.example.test", "evilgit.example.test")).toBe(false);
       expect(sshGrantSelectorMatches("a.b", "axb")).toBe(false); // the DOT is literal, not the regex dot
+      // IPv6-literal shape, pinned (PR #338 review round 3): an exact selector can
+      // never NAME a bracketed IPv6 host, but `*` spans brackets and colons, so a
+      // wildcard still matches such a destination incidentally.
+      expect(normalizeSshGrantSelector("[::1]")).toBeNull();
+      expect(sshGrantSelectorMatches("*1*", "[::1]")).toBe(true);
+      expect(sshGrantSelectorMatches("*.example.test", "[2001:db8::1]")).toBe(false);
     });
 
     it("update edits name and selector and audits the change (no fingerprint rewrite path exists)", async () => {
