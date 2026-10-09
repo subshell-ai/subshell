@@ -186,13 +186,13 @@ describe("the owner door (exact, not manage, not admin)", () => {
     );
   });
 
-  it("local refuses as A and as peer: no agent store exists either way", async () => {
-    await expectRefusal("local-node", () =>
+  it("only an administrator can repair server pins, while a remote owner may repair its server peer", async () => {
+    await expectRefusal("not-owner", () =>
       repairMachinePin({ actorUserId: ownerId, nodeId: LOCAL_NODE_ID, peerNodeId: PEER_B }),
     );
-    await expectRefusal("local-node", () =>
-      repairMachinePin({ actorUserId: ownerId, nodeId: NODE_A, peerNodeId: LOCAL_NODE_ID }),
-    );
+    await repairMachinePin({ actorUserId: adminId, nodeId: LOCAL_NODE_ID, peerNodeId: PEER_B });
+    await repairMachinePin({ actorUserId: ownerId, nodeId: NODE_A, peerNodeId: LOCAL_NODE_ID });
+    expect(sent).toHaveLength(2);
   });
 
   it("an absent A refuses no-node; an absent peer refuses no-peer", async () => {

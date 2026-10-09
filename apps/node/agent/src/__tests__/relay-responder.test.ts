@@ -1311,7 +1311,7 @@ test("a B open refused at the node cap releases its bound proxy: no socket file 
   relay.closeAll("lifetime-expiry");
 });
 
-test("an A open refused at the node cap closes its responder too (fix MAJOR 1, A twin)", async () => {
+test("an A open at the node cap refuses before probing or starting a responder", async () => {
   const relay = new RelaySessions();
   for (let i = 0; i < SSH_RELAY_MAX_PER_NODE; i += 1) expect(relay.register(`fill-${i}`, REFUSAL_FILLER)).toBe(true);
   const dataDir = mkdtempSync(join(tmpdir(), "subshell-relay-acap-"));
@@ -1328,7 +1328,7 @@ test("an A open refused at the node cap closes its responder too (fix MAJOR 1, A
     }),
   ).rejects.toThrow(/relay registry full/);
   // The responder existed when register threw; the symmetric catch closes it.
-  expect(lines.some((l) => l.includes("r-cap-a") && l.includes("A-side responder closed"))).toBe(true);
+  expect(lines).toHaveLength(0);
   expect(relay.size).toBe(SSH_RELAY_MAX_PER_NODE);
   relay.closeAll("lifetime-expiry");
 });
@@ -1353,11 +1353,11 @@ test("a close that lands mid-probe wins the race: the late A open is refused and
     });
     await sleep(20); // mid-probe: nothing owns the ref yet
     expect(lag.received.length).toBeGreaterThan(0); // the probe really is running
-    expect(relay.close("r-race", "handshake-grace")).toBe(false); // the plane's ssh_relay_close lands first
+    expect(relay.close("r-race", "handshake-grace")).toBe(true); // the plane's ssh_relay_close lands first
     await expect(pending).rejects.toThrow(/already closed by the plane/);
     // (b) release: the responder's own close line ran (the probe's one-shot
     // connections are gone by then; nothing was ever forwarded).
-    expect(lines.some((l) => l.includes("r-race") && l.includes("A-side responder closed"))).toBe(true);
+    expect(lines.some((l) => l.includes("A-side responder closed"))).toBe(false);
     // (c) no orphan: the refused late register took no slot...
     expect(relay.size).toBe(0);
     // (d) and the tombstone punishes only THAT ref: a genuinely new session

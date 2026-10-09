@@ -1,4 +1,20 @@
 import {
+  type MachineSshResult,
+  machineSshExec,
+  machineSshExecStatus,
+  readMachineAgentIdentities,
+  readMachineHostKey,
+} from "@internal/pane-runtime";
+import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
+import { repairLocalMachinePin } from "@/services/ssh-local-participant.js";
+
+/** Preserve the RPC refusal contract for the in-process machine operations. */
+function localResult(result: MachineSshResult): unknown {
+  if (!result.ok) throw new SshRpcError("refused", "server SSH account operation refused", "local", result.error);
+  return result.data;
+}
+
+import {
   type NodeSshAgentIdentitiesResult,
   type NodeSshAliasListResult,
   type NodeSshExecKickResult,
@@ -151,7 +167,10 @@ export async function sshHostKey(
 ): Promise<NodeSshHostKeyResult> {
   let data: unknown;
   try {
-    data = await sendCommand(nodeId, { type: "ssh_host_key", ...destination });
+    data =
+      nodeId === "local"
+        ? localResult(await readMachineHostKey({ type: "ssh_host_key", ...destination }))
+        : await sendCommand(nodeId, { type: "ssh_host_key", ...destination });
   } catch (err) {
     if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
     throw err;
@@ -176,7 +195,10 @@ export async function sshHostKey(
 export async function sshAgentIdentities(nodeId: string): Promise<NodeSshAgentIdentitiesResult> {
   let data: unknown;
   try {
-    data = await sendCommand(nodeId, { type: "ssh_agent_identities" });
+    data =
+      nodeId === "local"
+        ? localResult(await readMachineAgentIdentities())
+        : await sendCommand(nodeId, { type: "ssh_agent_identities" });
   } catch (err) {
     if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
     throw err;
@@ -211,7 +233,10 @@ export async function sshExec(
 ): Promise<NodeSshExecKickResult> {
   let data: unknown;
   try {
-    data = await sendCommand(nodeId, { type: "ssh_exec", ...args }, { timeoutMs: 30_000 });
+    data =
+      nodeId === "local"
+        ? localResult(await machineSshExec(SUBSHELL_SERVER_DATA_DIR, { type: "ssh_exec", ...args }))
+        : await sendCommand(nodeId, { type: "ssh_exec", ...args }, { timeoutMs: 30_000 });
   } catch (err) {
     if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
     throw err;
@@ -240,7 +265,10 @@ export async function sshExecStatus(nodeId: string, execId: string): Promise<Nod
     // timed-out poll costs more than a late one: the caller names
     // exec-lost-timeout, revokes the unspent setup key, and reports a live
     // install as lost. The headroom is the whole honest mitigation.
-    data = await sendCommand(nodeId, { type: "ssh_exec_status", execId }, { timeoutMs: 30_000 });
+    data =
+      nodeId === "local"
+        ? localResult(await machineSshExecStatus(SUBSHELL_SERVER_DATA_DIR, { type: "ssh_exec_status", execId }))
+        : await sendCommand(nodeId, { type: "ssh_exec_status", execId }, { timeoutMs: 30_000 });
   } catch (err) {
     if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
     throw err;
@@ -269,7 +297,7 @@ export async function sshMachinePinRepair(
 ): Promise<NodeSshMachinePinRepairResult> {
   let data: unknown;
   try {
-    data = await sendCommand(nodeId, cmd);
+    data = nodeId === "local" ? repairLocalMachinePin(cmd) : await sendCommand(nodeId, cmd);
   } catch (err) {
     if (err instanceof NodeRpcError) throw mapRpcError(nodeId, err);
     throw err;

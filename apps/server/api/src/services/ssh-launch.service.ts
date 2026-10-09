@@ -268,7 +268,9 @@ export function rpcRefusal(err: SshRpcError): SshAnswer<never> {
   return codedRefusal(
     502,
     BackendErrorCodes.SSH_NODE_REFUSED,
-    "The connecting machine refused the SSH request. Check that SSH is switched on there and that ssh is installed.",
+    err.nodeId === "local"
+      ? "The server service account could not use SSH. Ensure ssh is installed and that this service has an absolute SSH_AUTH_SOCK pointing to its running SSH agent. Keys in another login session are not automatically available to the service."
+      : "The connecting machine refused the SSH request. Check that SSH is switched on there and that ssh is installed.",
   );
 }
 
@@ -390,6 +392,16 @@ export async function sshLaunch(args: {
   if (args.fingerprints !== undefined && args.keyHomeNodeId === undefined) {
     return codedRefusal(400, BackendErrorCodes.SSH_KEYS_INVALID, "Choose a key home before selecting SSH keys.");
   }
+  // Explicit own-machine key homes use the direct account path. A supplied subset cannot be broadened.
+  if (args.keyHomeNodeId === row.id) {
+    if (args.fingerprints !== undefined)
+      return codedRefusal(
+        400,
+        BackendErrorCodes.SSH_KEYS_INVALID,
+        "Use this machine's own keys without a key selection, or choose a different key machine to select a subset.",
+      );
+    args = { ...args, keyHomeNodeId: undefined };
+  }
   const resolved = await nodeResolve(row, args.destination);
   if (!resolved.ok) return resolved;
   if (!resolved.value.accepted) return refusedRefusal(resolved.value);
@@ -417,17 +429,6 @@ export async function sshLaunch(args: {
     const gateA = await gateSshNode(args.viewerId, args.keyHomeNodeId);
     if (!gateA.ok) return gateA;
     const aRow = gateA.value.row;
-    if (aRow.kind !== "agent") {
-      // Acceptance (d) restated at the door that can name it: the server host
-      // is never a key home, whatever its own gate says about SSH. The 409
-      // is the code's canonical render (`throwCodedRefusal` rides the code's
-      // own status), matching what the broker's own `local-node` refusal is.
-      return codedRefusal(
-        409,
-        BackendErrorCodes.SSH_RELAY_OPEN_FAILED,
-        "The server host itself cannot hold a relay key home; pick a machine running the Subshell app.",
-      );
-    }
     const leg = await prepareRelayLeg({
       viewerId: args.viewerId,
       aNode: { id: aRow.id, name: aRow.name },
@@ -567,8 +568,6 @@ export async function listNodeAgentIdentities(args: {
 }): Promise<SshAnswer<{ identities: NodeSshAgentIdentity[] }>> {
   const gate = await gateSshNode(args.viewerId, args.aNodeId);
   if (!gate.ok) return gate;
-  if (gate.value.row.kind !== "agent")
-    return codedRefusal(409, BackendErrorCodes.SSH_RELAY_OPEN_FAILED, "The server host cannot supply relay keys yet.");
   try {
     return ok(await sshAgentIdentities(args.aNodeId));
   } catch (err) {

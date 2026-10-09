@@ -4,6 +4,7 @@ import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { ensureDestinationPin, hostPinRefusal, SshHostPinError } from "@/services/ssh-host-pins.service.js";
 import { listNodeAgentIdentities, type SshAnswer } from "@/services/ssh-launch.service.js";
+import { ensureLocalRelayIdentity } from "@/services/ssh-local-identity.js";
 import { gateSshNode } from "@/services/ssh-policy.service.js";
 import { getRelayBroker, type RelayPeerKeys, SshRelayRefusal } from "@/services/ssh-relay.service.js";
 
@@ -58,6 +59,18 @@ export async function prepareRelayLeg(args: {
   const selection = selectRelayFingerprints(roster.value.identities, args.fingerprints);
   if (!selection.ok) return selection;
   const selected = selection.value;
+  if ([args.aNode.id, args.bNodeId].includes("local")) {
+    try {
+      await ensureLocalRelayIdentity();
+    } catch {
+      return refused({
+        status: 409,
+        code: BackendErrorCodes.SSH_RELAY_IDENTITY_MISSING,
+        message:
+          "The server relay identity is unavailable or differs from its registration. An admin must restore or repair its SSH identity before connecting.",
+      });
+    }
+  }
   const identities = new IdentitiesRepository(db);
   const [rowA, rowB] = await Promise.all([
     identities.findByPrincipal(`node:${args.aNode.id}`),
@@ -144,8 +157,6 @@ function relayRefusalCopy(code: SshRelayRefusal["code"]): string {
     case "no-node":
     case "no-datadir":
       return "One of the machines is not fully connected; retry once it reports in.";
-    case "local-node":
-      return "The server host itself can be neither key home nor connecting machine for a relay.";
     case "same-node":
       return "The key home and the connecting machine are the same machine; this connection needs no relay.";
     case "bad-socket-path":

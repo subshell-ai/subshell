@@ -269,11 +269,10 @@ describe("openRelay (spec §5.1/§5.3, Task 8 (a)(b)(d)(g)(h))", () => {
     await expect(h.open()).rejects.toMatchObject({ code: "bad-socket-path" });
   });
 
-  it("refuses a node whose ssh gate is off, is local, or has no row - before any command or audit (acceptance (d))", async () => {
+  it("refuses a node whose ssh gate is off or has no row - before any command or audit (acceptance (d))", async () => {
     for (const [rows, code] of [
       [{ a: { kind: "agent" as const, sshEnabled: 0 }, b: { kind: "agent" as const, sshEnabled: 1 } }, "node-off"],
       [{ a: null, b: { kind: "agent" as const, sshEnabled: 1 } }, "no-node"],
-      [{ a: { kind: "agent" as const, sshEnabled: 1 }, b: { kind: "local" as const, sshEnabled: 1 } }, "local-node"],
       [{ a: { kind: "agent" as const, sshEnabled: null }, b: { kind: "agent" as const, sshEnabled: 1 } }, "node-off"],
     ] as const) {
       const h = makeHarness({ rows: rows as never });

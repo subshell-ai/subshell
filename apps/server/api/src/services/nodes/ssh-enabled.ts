@@ -3,6 +3,7 @@ import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { getRequestlessContext } from "@/lib/context.js";
 import { audit } from "@/services/audit.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
+import { getRelayBroker } from "@/services/ssh-relay.service.js";
 import { logger } from "@/utils/logger.js";
 
 /**
@@ -39,6 +40,7 @@ export async function setNodeSshEnabled(write: SshEnabledWrite): Promise<void> {
     targetId: write.nodeId,
     metadataJson: JSON.stringify({ on: write.on }),
   });
+  if (!write.on) await getRelayBroker().closeUnauthorizedForNode(write.nodeId);
   // The row is written and audited BEFORE the push, so a node that answers the
   // command cannot be looking at a mirror the record has not caught up to —
   // and a push that fails (the node is offline) costs nothing: the value
