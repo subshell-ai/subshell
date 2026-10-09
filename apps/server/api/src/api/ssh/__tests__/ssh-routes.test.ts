@@ -6,6 +6,7 @@ import { BackendErrorCodes } from "@internal/backend-errors";
 import {
   buildAgentSocketPath,
   buildSshConfigPath,
+  OPENSSH_10X_SCHEME,
   renderSshConfigContents,
   sshDestinationToken,
   sshOptionTokens,
@@ -24,6 +25,7 @@ import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { LOCAL_NODE_ID, type NodeTable } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { ROSTER, startStubAgent } from "@/services/__tests__/helpers/ssh-relay-stack.js";
 import { audit } from "@/services/audit.js";
 import { getHeld, holdConnection, releaseHeld, resetNodeRegistryForTests } from "@/services/nodes/node-registry.js";
 import { sendCommand } from "@/services/nodes/node-rpc.js";
@@ -413,6 +415,36 @@ describe("POST /api/ssh/launch", () => {
     }
   });
 
+  it("normalizes an explicit own-machine key home before relay restrictions, and refuses a supplied subset", async () => {
+    const snap = snapshot({ identityFiles: ["/home/user/.ssh/id_ed25519"] });
+    const scripted = attachScriptedNode(NODE_ON, {
+      ssh_resolve_config: () => ({ accepted: true, snapshot: snap }),
+      launch: ok,
+      stat_dir: statDirEcho,
+    });
+    try {
+      const refused = await launch(
+        {
+          node: NODE_ON,
+          keyHome: NODE_ON,
+          destination: "work",
+          fingerprints: ["SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"],
+        },
+        ownerCookie,
+      );
+      expect(refused.status).toBe(400);
+      expect(scripted.cmdTypes()).toEqual([]);
+      const response = await launch({ node: NODE_ON, keyHome: NODE_ON, destination: "work" }, ownerCookie);
+      expect(response.status).toBe(201);
+      const body = (await response.json()) as { subshell: { id: string } };
+      createdSubshellIds.push(body.subshell.id);
+      expect((await new SubshellsRepository(db).findById(body.subshell.id))?.keyHomeNodeId).toBeNull();
+      expect(scripted.cmdTypes()).not.toContain("ssh_relay_open");
+    } finally {
+      scripted.detach();
+    }
+  });
+
   it("launches the ssh pane: the frame carries the config at the NODE's derived path, the option tail, the agent socket env; the row keeps the snapshot", async () => {
     const snap = snapshot({ authAgentSocket: "/run/user/501/ssh-agent.sock" });
     const scripted = attachScriptedNode(NODE_ON, {
@@ -700,14 +732,24 @@ describe("the local node answers in-process (no agent socket exists to reach)", 
     expect(res.status).toBe(404);
   });
 
-  it("the roster-by-node read (Task 18) refuses `local` at the SAME door as the create: the 409 before anything is asked", async () => {
+  it("local roster uses the server account agent; a missing service agent is a named refusal", async () => {
     await nodes.setSshEnabled(LOCAL_NODE_ID, { on: true, changedAt: "2026-10-07T09:00:00.000Z" });
-    // No roster seam is installed in this suite: reaching the fetch would run
-    // the production RPC against `local`, which has no node link at all. The
-    // kind check must land first, so this 409 is also the proof nothing asked.
-    const res = await sshFetch(`/api/ssh/identities?node=${LOCAL_NODE_ID}`, { cookie: adminCookie });
-    expect(res.status).toBe(409);
-    expect(((await res.json()) as { code: string }).code).toBe(BackendErrorCodes.SSH_RELAY_OPEN_FAILED);
+    const previous = process.env.SSH_AUTH_SOCK;
+    const agent = await startStubAgent(ROSTER, OPENSSH_10X_SCHEME);
+    try {
+      process.env.SSH_AUTH_SOCK = agent.path;
+      const res = await sshFetch(`/api/ssh/identities?node=${LOCAL_NODE_ID}`, { cookie: adminCookie });
+      expect(res.status).toBe(200);
+      expect(((await res.json()) as { identities: unknown[] }).identities).toHaveLength(2);
+      delete process.env.SSH_AUTH_SOCK;
+      const missing = await sshFetch(`/api/ssh/identities?node=${LOCAL_NODE_ID}`, { cookie: adminCookie });
+      expect(missing.status).toBe(502);
+      expect(((await missing.json()) as { message: string }).message).toContain("server service account");
+    } finally {
+      if (previous === undefined) delete process.env.SSH_AUTH_SOCK;
+      else process.env.SSH_AUTH_SOCK = previous;
+      await agent.close();
+    }
   });
 
   it("local resolve runs the same engine in-process: the -G answer becomes an approved snapshot", async () => {

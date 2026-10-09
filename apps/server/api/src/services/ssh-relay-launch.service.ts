@@ -4,6 +4,7 @@ import { db } from "@/db/index.js";
 import { IdentitiesRepository } from "@/db/repositories/identities.repository.js";
 import { ensureDestinationPin, hostPinRefusal, SshHostPinError } from "@/services/ssh-host-pins.service.js";
 import { listNodeAgentIdentities, type SshAnswer } from "@/services/ssh-launch.service.js";
+import { ensureLocalRelayIdentity } from "@/services/ssh-local-identity.js";
 import { gateSshNode } from "@/services/ssh-policy.service.js";
 import { getRelayBroker, type RelayPeerKeys, SshRelayRefusal } from "@/services/ssh-relay.service.js";
 
@@ -49,6 +50,11 @@ export async function prepareRelayLeg(args: {
   paneId: string;
   fingerprints?: readonly string[];
 }): Promise<SshAnswer<{ socketPath: string; ref: string; fingerprints: string[] }>> {
+  const broker = getRelayBroker();
+  const identityGenerations = {
+    a: broker.identityGeneration(args.aNode.id),
+    b: broker.identityGeneration(args.bNodeId),
+  };
   for (const nodeId of [args.aNode.id, args.bNodeId]) {
     const gate = await gateSshNode(args.viewerId, nodeId);
     if (!gate.ok) return gate;
@@ -58,6 +64,18 @@ export async function prepareRelayLeg(args: {
   const selection = selectRelayFingerprints(roster.value.identities, args.fingerprints);
   if (!selection.ok) return selection;
   const selected = selection.value;
+  if ([args.aNode.id, args.bNodeId].includes("local")) {
+    try {
+      await ensureLocalRelayIdentity();
+    } catch {
+      return refused({
+        status: 409,
+        code: BackendErrorCodes.SSH_RELAY_IDENTITY_MISSING,
+        message:
+          "The server relay identity is unavailable or differs from its registration. An admin must restore or repair its SSH identity before connecting.",
+      });
+    }
+  }
   const identities = new IdentitiesRepository(db);
   const [rowA, rowB] = await Promise.all([
     identities.findByPrincipal(`node:${args.aNode.id}`),
@@ -95,12 +113,12 @@ export async function prepareRelayLeg(args: {
     if (err instanceof SshHostPinError) return refused(hostPinRefusal(err));
     throw err;
   }
-  const broker = getRelayBroker();
   let socketPath: string;
   let ref: string;
   try {
     const opened = await broker.openRelay({
       userId: args.viewerId,
+      identityGenerations,
       fingerprints: selected,
       paneId: args.paneId,
       aNode: args.aNode.id,
@@ -133,6 +151,8 @@ export async function prepareRelayLeg(args: {
 /** Human copy per broker refusal code; ids only, never key material or sockets. */
 function relayRefusalCopy(code: SshRelayRefusal["code"]): string {
   switch (code) {
+    case "identity-repair":
+      return "A machine relay identity is being repaired or changed while connecting. Retry after its identity repair finishes.";
     case "access-denied":
       return "SSH launch access changed while the connection was opening. Check access to both machines and retry.";
     case "quota":
@@ -144,8 +164,6 @@ function relayRefusalCopy(code: SshRelayRefusal["code"]): string {
     case "no-node":
     case "no-datadir":
       return "One of the machines is not fully connected; retry once it reports in.";
-    case "local-node":
-      return "The server host itself can be neither key home nor connecting machine for a relay.";
     case "same-node":
       return "The key home and the connecting machine are the same machine; this connection needs no relay.";
     case "bad-socket-path":

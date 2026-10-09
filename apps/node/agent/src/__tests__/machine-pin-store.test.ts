@@ -171,13 +171,13 @@ test("a corrupt pin file is quarantined and throws; it is never read as an empty
   // Fail closed on FIRST read: an unreadable pin set must not silently become
   // "no pins" (the pin-store.ts / identity.ts doctrine). The unreadable file
   // is moved aside, its bytes preserved for the operator.
-  expect(() => store.get("node-1")).toThrow();
+  expect(() => store.get("node-1")).toThrow("restore the verified pin file from backup");
   const quarantined = readdirSync(dir).filter((f) => f.includes("corrupt"));
   expect(quarantined.length).toBe(1);
   expect(readFileSync(join(dir, quarantined[0]), "utf8")).toContain("definitely not json");
-  // Only after quarantine does the store read empty; a re-pin works again.
-  expect(store.get("node-1")).toBe(null);
-  store.pin("node-1", keyA);
+  // Quarantine must not reopen TOFU. Only restoring verified contents recovers.
+  expect(() => store.get("node-1")).toThrow("quarantined");
+  writeFileSync(machinePinPath(dir), JSON.stringify({ "node-1": keyA }));
   expect(store.check("node-1", keyA)).toBe("ok");
   // check() fail-closes the same way: a junk file is never an "empty pin set",
   // and a wrong-shape entry is junk too.
@@ -288,4 +288,16 @@ test("repair keeps the file discipline: 0600, other peers untouched, durable acr
   const reopened = new MachinePinStore(freshDir());
   reopened.repair("toString", keyB);
   expect(reopened.get("toString")).toEqual(keyB);
+});
+
+test("quarantine remains a refusal across reads and fresh store instances", () => {
+  const dir = freshDir();
+  writeFileSync(machinePinPath(dir), "broken");
+  const store = new MachinePinStore(dir);
+  expect(() => store.get("peer")).toThrow("corrupt");
+  expect(() => store.get("peer")).toThrow("quarantined");
+  expect(() => new MachinePinStore(dir).pin("peer", keyB)).toThrow("quarantined");
+  // Restoring the verified file is an explicit operator recovery.
+  writeFileSync(machinePinPath(dir), JSON.stringify({ peer: keyA }));
+  expect(store.check("peer", keyA)).toBe("ok");
 });

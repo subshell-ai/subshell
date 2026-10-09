@@ -1482,6 +1482,11 @@ describe("handleNodeClose (superseded-close hygiene, spec §5.3)", () => {
       },
       activeRelayCount: () => 0,
       sessionInfo: () => null,
+      shutdown: async () => {},
+      identityGeneration: () => 0,
+      withNodeIdentityRepair: async (_nodeId, repair) => {
+        await repair();
+      },
       reset: () => {},
     };
     setRelayBrokerForTests(broker);

@@ -61,6 +61,29 @@ export class IdentitiesRepository extends BaseRepository {
     return Number(res.numUpdatedRows) > 0;
   }
 
+  /** Register only when absent, or fill a missing signing half while encryption still agrees. */
+  async registerIfMatching(input: {
+    principalId: string;
+    publicKey: string;
+    signingPublicKey: string;
+    displayName: string | null;
+  }): Promise<boolean> {
+    await this.db
+      .insertInto("identities")
+      .values({ ...input, registeredAt: sql`(strftime('%Y-%m-%dT%H:%M:%fZ','now'))` })
+      .onConflict((oc) => oc.column("principalId").doNothing())
+      .execute();
+    await this.db
+      .updateTable("identities")
+      .set({ signingPublicKey: input.signingPublicKey })
+      .where("principalId", "=", input.principalId)
+      .where("publicKey", "=", input.publicKey)
+      .where("signingPublicKey", "is", null)
+      .execute();
+    const standing = await this.findByPrincipal(input.principalId);
+    return standing?.publicKey === input.publicKey && standing.signingPublicKey === input.signingPublicKey;
+  }
+
   /** The principal's current identity, if registered. */
   async findByPrincipal(principalId: string): Promise<IdentityTable | undefined> {
     return this.db.selectFrom("identities").selectAll().where("principalId", "=", principalId).executeTakeFirst();

@@ -84,6 +84,7 @@ let fakeBroker: RelayBroker;
 
 function makeFakeBroker(): RelayBroker {
   return {
+    identityGeneration: () => 0,
     openRelay: async (input: OpenRelayInput) => {
       openCalls.push(input);
       return {

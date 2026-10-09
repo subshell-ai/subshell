@@ -304,7 +304,7 @@ export const GetNodeResponseSchema = t.Object({
   sshTrust: t.Optional(
     t.Object(SshTrustSchema.properties, {
       description:
-        "This machine's SSH trust block (own + pinned-peer fingerprints, spec 2026-10-08 §4.6): the live report's when the node is connected, else the durable mirror with `stale: true`. Same gate as `runtime`: config-capable viewers on agent nodes only, never `view`, never `local`",
+        "This machine's SSH trust block (own + pinned-peer fingerprints, spec 2026-10-08 §4.6): the live report's when the node is connected, else the durable mirror with `stale: true`. Config-capable viewers on enrolled nodes; administrators on the server host",
     }),
   ),
   runningSubshells: t.Optional(
@@ -374,8 +374,8 @@ function readMirrorBlock(json: string | null): NodeSshFingerprintReport | null {
  * already-checked config gate. The live connection's block wins when it has
  * one (`stale: false`); otherwise the durable mirror renders marked
  * (`stale: true`), because the offline card an operator compares during an
- * incident is worth its last-known truth and the word that says so. `local`
- * answers null at the call site's kind gate, and an absent mirror/absent
+ * incident is worth its last-known truth and the word that says so. the server host
+ * is reported directly by its local adapter; an absent mirror/absent
  * live block means the field is ABSENT on the view, not null.
  */
 export function sshTrustView(

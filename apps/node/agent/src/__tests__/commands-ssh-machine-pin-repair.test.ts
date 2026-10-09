@@ -162,7 +162,7 @@ describe("deep key validation before any write (the grammar cannot see inside ba
     if (res.ok === false) expect(res.error).toContain("machine pin repair refused");
     // The store's quarantine doctrine ran (throws, moves the file aside);
     // the delivered pair never landed as a fresh store.
-    expect(new MachinePinStore(dir).get(PEER)).toBe(null);
+    expect(() => new MachinePinStore(dir).get(PEER)).toThrow("quarantined");
     rmSync(dir, { recursive: true, force: true });
   });
 

@@ -16,6 +16,7 @@ export const DATA_COMPONENTS = [
   "vapid.json",
   "peers.json",
   "identities",
+  "ssh-relay",
   "plugins",
   "plugins-state",
   "subshells",
