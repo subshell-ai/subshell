@@ -141,6 +141,8 @@ export interface SshSaveHostRequest {
 
 /** `POST /api/ssh/launch` body: name is the pane's display name, optional. */
 export interface SshLaunchRequest {
+  /** Optional machine whose SSH agent supplies keys; absent uses the connecting machine. */
+  keyHome?: string;
   /** Connecting machine ('local' = the control-plane host) */
   node: string;
   /** Destination token (1..253), resolved on the machine before anything launches */
@@ -185,6 +187,8 @@ export interface SshGrant {
 
 /** One first-use approval request as the queue reads it (spec 2026-10-08 §6.2). */
 export interface SshGrantRequest {
+  /** Exact resolved account, host and port; absent on older servers. */
+  destination?: string | null;
   /** Request row id (uuid) - the opaque ref the refusal and the notification name */
   id: string;
   /** The key home whose approval is asked */

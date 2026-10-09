@@ -3,8 +3,12 @@ import { PageHeader } from "@/components/page-header";
 import { GrantsScreen } from "@/components/ssh/grants-screen";
 import { HostPinsScreen } from "@/components/ssh/host-pins-screen";
 import { PendingApprovals } from "@/components/ssh/pending-approvals";
+import { sshConnectSearch } from "@/lib/ssh-connect-search";
 
-export const Route = createFileRoute("/settings_/ssh")({ component: SshSettingsPage });
+export const Route = createFileRoute("/settings_/ssh")({
+  validateSearch: sshConnectSearch,
+  component: SshSettingsRoute,
+});
 
 /**
  * The SSH settings page (spec 2026-10-08 §6, §8-§9): the owner's half of the
@@ -20,11 +24,15 @@ export const Route = createFileRoute("/settings_/ssh")({ component: SshSettingsP
  * launch that is already failing fast at the pane. Machine trust is not here:
  * it is a fact about one machine, and it renders on that machine's page.
  */
-export function SshSettingsPage() {
+function SshSettingsRoute() {
+  return <SshSettingsPage connection={Route.useSearch()} />;
+}
+
+export function SshSettingsPage({ connection }: { connection?: ReturnType<typeof sshConnectSearch> } = {}) {
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
       <PageHeader title="SSH" subtitle="Key grants, approvals, and destination trust for your keys" />
-      <PendingApprovals />
+      <PendingApprovals connection={connection} />
       <GrantsScreen />
       <HostPinsScreen />
     </main>

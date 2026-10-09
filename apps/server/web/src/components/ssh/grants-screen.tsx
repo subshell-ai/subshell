@@ -13,6 +13,7 @@ import {
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { z } from "zod";
+import { SshQueryStatus } from "@/components/ssh/query-status";
 import { Checkbox } from "@/components/ui/checkbox";
 import { type ComboboxOption, SearchableSelect } from "@/components/ui/combobox";
 import {
@@ -58,7 +59,8 @@ import { grantSelectionError, type SshGrant } from "@/lib/ssh";
  * STATIC title.
  */
 export function GrantsScreen() {
-  const { data: view } = useSshGrants();
+  const query = useSshGrants();
+  const view = query.data;
   const { data: nodeData } = useNodes();
   const revoke = useRevokeSshGrant();
   const grants = view?.grants ?? [];
@@ -87,8 +89,8 @@ export function GrantsScreen() {
         <div className="space-y-1.5">
           <CardTitle>Key grants</CardTitle>
           <CardDescription>
-            Which machine&apos;s agent keys sign for which destinations. Revoking cuts the grant and every live session
-            running under it at once.
+            A grant gives permission to use selected SSH keys for a destination. The keys stay on their machine.
+            Revoking ends connections using that permission.
           </CardDescription>
         </div>
         {/* §8's create door (Task 18): the same row an approved first use writes, built from A's live roster. */}
@@ -97,9 +99,12 @@ export function GrantsScreen() {
         </Button>
       </CardHeader>
       <CardContent>
-        {grants.length === 0 ? (
+        {query.isPending || query.isError ? (
+          <SshQueryStatus query={query} label="key grants" />
+        ) : grants.length === 0 ? (
           <p className="text-detail text-muted-foreground">
-            No key grants yet. Answer a first-use approval yes, or create one here from a key home&apos;s roster.
+            No key grants yet. Approve a connection request above, or create permission here by choosing a machine and
+            its loaded SSH keys.
           </p>
         ) : (
           <ul className="space-y-4">
@@ -238,13 +243,13 @@ function CreateGrantDialog({ onOpenChange }: { onOpenChange: (open: boolean) => 
         <DialogHeader>
           <DialogTitle>Create grant</DialogTitle>
           <DialogDescription>
-            Pick the key home, choose the keys its agent may sign with, and name the destinations they unlock. The
-            machine answers its roster live, so its SSH must be switched on.
+            Choose the machine that holds your SSH keys, then select which keys may connect to the destination. The
+            machine must be online with SSH enabled and keys loaded in its SSH agent (ssh-add).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           <Label htmlFor="grant-create-node">
-            Key home
+            SSH keys from
             <RequiredMark />
           </Label>
           <SearchableSelect
@@ -254,14 +259,14 @@ function CreateGrantDialog({ onOpenChange }: { onOpenChange: (open: boolean) => 
               setKeyHomeId(value);
               setSelected([]); // a new key home answers a NEW roster; old ticks are not its keys
             }}
-            placeholder="Choose a key home"
+            placeholder="Choose the machine holding your keys"
             options={keyHomeOptions}
             emptyText="No machine you own has SSH switched on yet. Switch it on from a machine's settings first."
           />
         </div>
         {keyHomeId !== "" && (
           <div>
-            <Label>Choose the keys this grant may serve</Label>
+            <Label>Choose the keys allowed for this destination</Label>
             {roster.isPending && (
               <p className="mt-1 text-detail text-muted-foreground">Asking the key home&apos;s agent…</p>
             )}
@@ -343,7 +348,7 @@ function CreateGrantDialog({ onOpenChange }: { onOpenChange: (open: boolean) => 
           {(field) => (
             <div className="space-y-2">
               <Label htmlFor="grant-create-selector">
-                Destination selector
+                Destination hostname or pattern
                 <RequiredMark />
               </Label>
               <Input
@@ -472,7 +477,7 @@ function EditGrantDialog({ grant, onOpenChange }: { grant: SshGrant; onOpenChang
           {(field) => (
             <div className="space-y-2">
               <Label htmlFor="grant-edit-selector">
-                Destination selector
+                Destination hostname or pattern
                 <RequiredMark />
               </Label>
               <Input

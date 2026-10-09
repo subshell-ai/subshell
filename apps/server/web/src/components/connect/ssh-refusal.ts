@@ -24,12 +24,13 @@ export function isSshResolveRefusal(value: unknown): value is Extract<SshResolve
 }
 
 /** Which field the refusal belongs under: the token typed, or the machine chosen. */
-export type RefusalField = "destination" | "machine";
+export type RefusalField = "destination" | "machine" | "keys";
 
 /** The red line the panel renders, and where. */
 export interface SshRefusalCopy {
   text: string;
   field: RefusalField;
+  approval?: boolean;
 }
 
 /** What the panel knows about the connecting machine at submit time. */
@@ -53,6 +54,14 @@ function refusalFromOutcome(outcome: Extract<SshResolveOutcome, { accepted: fals
 export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null): SshRefusalCopy | null {
   if (isNetworkError(err)) return null;
   if (err instanceof ApiError) {
+    if (err.code === "SSH_GRANT_APPROVAL_REQUIRED")
+      return {
+        field: "keys",
+        approval: true,
+        text: "Approval is needed to use these keys. Review the request in SSH settings, then return here and connect again.",
+      };
+    if (err.code?.startsWith("SSH_RELAY_") || err.code?.startsWith("SSH_HOST_PIN_"))
+      return { field: "keys", text: err.message };
     switch (err.status) {
       case 400:
         // ALIAS_UNSAFE: the token was refused before the machine was asked.

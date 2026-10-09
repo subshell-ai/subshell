@@ -278,3 +278,11 @@ describe("PendingApprovals", () => {
     expect(await screen.findByText(/HostKeyAlias/)).toBeDefined();
   });
 });
+
+it("approval explains the required retry and provides a return path", async () => {
+  stubFetch((undo) => restores.push(undo));
+  await renderWithRoster();
+  fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+  expect(await screen.findByText(/original connection did not start/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Return to Connect" })).toBeTruthy();
+});

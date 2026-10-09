@@ -191,6 +191,8 @@ export interface SshGrantView {
 
 /** One first-use request row as the approvals screen reads it. */
 export interface SshGrantRequestView {
+  /** Exact destination account and port; null for pre-migration requests. */
+  destination: string | null;
   /** Request row id (uuid) - the opaque ref the launch refusal and the notification name */
   id: string;
   /** Machine A asked to sign (the key home whose owner must answer) */
@@ -627,6 +629,7 @@ export async function listGrantRequests(args: {
     id: row.id,
     keyHomeNodeId: row.keyHomeNodeId,
     resolvedSelector: row.resolvedSelector,
+    destination: row.destination,
     requestedFingerprints: row.requestedFingerprints === null ? null : parseFingerprintArray(row.requestedFingerprints),
     paneId: row.paneId,
     bNodeId: row.bNodeId,

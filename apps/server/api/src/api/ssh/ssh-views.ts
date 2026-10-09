@@ -171,6 +171,9 @@ export const SshAgentIdentityViewSchema = t.Object({
 
 /** One first-use approval request as the queue reads it (spec 2026-10-08 §6.2). */
 export const SshGrantRequestViewSchema = t.Object({
+  destination: t.Nullable(
+    t.String({ description: "Exact resolved account, host and port for reconnecting; null for older requests" }),
+  ),
   id: t.String({ description: "Request row id (uuid) - the opaque ref the refusal and the notification name" }),
   keyHomeNodeId: t.String({ description: "The key home whose approval is asked" }),
   resolvedSelector: t.String({ description: "The resolved destination hostname the launch would have dialed" }),

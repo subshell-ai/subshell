@@ -52,7 +52,11 @@ describe("SetupHereDialog", () => {
     globalThis.fetch = ((input: unknown, init?: RequestInit) => {
       const url = new URL(String(input), "http://localhost");
       calls.push({ url: url.pathname, body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined });
-      return Promise.resolve(new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 }));
+      return Promise.resolve(
+        url.pathname.startsWith("/api/ssh/setup-here/")
+          ? new Response(JSON.stringify({ operation: null }))
+          : new Response(JSON.stringify(answer.body), { status: answer.status ?? 200 }),
+      );
     }) as typeof fetch;
     return { calls, restore: () => (globalThis.fetch = original) };
   }
@@ -144,6 +148,42 @@ describe("SetupHereDialog", () => {
       expect(calls.filter((c) => c.url === "/api/ssh/setup-here")).toHaveLength(2);
     } finally {
       restore();
+    }
+  });
+  it("can close and reopen an install without another POST, including after a page remount", async () => {
+    const original = globalThis.fetch;
+    let posts = 0;
+    let operation: { stage: string; startedAt: string; nodeId: string | null; error: null } | null = null;
+    let finish!: (value: Response) => void;
+    globalThis.fetch = ((_input: unknown, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        posts++;
+        operation = { stage: "installing", startedAt: new Date().toISOString(), nodeId: null, error: null };
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      }
+      return Promise.resolve(new Response(JSON.stringify({ operation })));
+    }) as typeof fetch;
+    try {
+      let closed = false;
+      await renderDialog(makeSshPane(), () => {
+        closed = true;
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Set up Subshell" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Continue working" }));
+      expect(closed).toBe(true);
+      cleanup();
+      await renderDialog(makeSshPane());
+      expect(screen.getByText(/Installing on the destination/)).toBeTruthy();
+      expect((screen.getByRole("button", { name: "Setting up…" }) as HTMLButtonElement).disabled).toBe(true);
+      expect(posts).toBe(1);
+      operation = { stage: "complete", startedAt: new Date().toISOString(), nodeId: "new-node", error: null };
+      finish(new Response(JSON.stringify({ nodeId: "new-node" })));
+      expect(await screen.findByRole("link", { name: "Open its page" }, { timeout: 3000 })).toBeTruthy();
+      expect(posts).toBe(1);
+    } finally {
+      globalThis.fetch = original;
     }
   });
 });
