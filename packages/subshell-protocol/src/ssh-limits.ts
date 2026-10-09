@@ -205,3 +205,49 @@ export const SSH_MAX_HOST_KEY_LINES = 32;
  * the stream nothing but an event.
  */
 export const SSH_SESSION_PUMP_CHUNK_BYTES = 192 * 1024;
+
+/* ------------------------------------------------------------------ */
+/* the non-interactive setup exec (spec 2026-10-08 §7, Task 14)        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Largest `ssh_exec` preset-flag token list. The compose emits `-F`,
+ * `BatchMode`, the port, `--`, and the destination: far short of this, and
+ * the bound is the grammar's, so a hostile plane cannot grow the argv the
+ * node spawns.
+ */
+export const SSH_EXEC_MAX_PRESET_FLAGS = 64;
+
+/**
+ * The remote one-liner an `ssh_exec` runs on the destination (the rendered
+ * `install.sh` one-liner with a minted setup key). One printable line - the
+ * grammar refuses control characters, so a smuggled second command is not
+ * representable. The cap bounds the text the destination's login shell
+ * parses; the real installer line is a few hundred characters.
+ */
+export const SSH_EXEC_COMMAND_MAX_CHARS = 8192;
+
+/**
+ * Upper bound on the node-side deadline of ONE non-interactive `ssh_exec`
+ * run. The act streams a node-binary download to the destination over the
+ * pane's own connection; ten minutes bounds the worst honest install, and a
+ * longer one is a refusal to the plane (which raises a fresh act), never an
+ * unbounded child.
+ */
+export const SSH_EXEC_TIMEOUT_MAX_MS = 600_000;
+
+/**
+ * Bytes of one captured stream the node RETAINS after the `nsk_` redaction
+ * (tail-first: the status verbs that end the installer's output are the
+ * lines the plane parses). Redaction runs BEFORE truncation, so no cut can
+ * leave a key's tail bytes behind.
+ */
+export const SSH_EXEC_RETAIN_BYTES = 8192;
+
+/**
+ * Longest captured stream one `ssh_exec_status` answer may carry (each of
+ * stdout and stderr, in characters). Comfortably above the node's own
+ * {@link SSH_EXEC_RETAIN_BYTES} tail; past it the answer is malformed, and
+ * the plane never sees a machine that simply did not cap itself.
+ */
+export const SSH_EXEC_RESULT_MAX_CHARS = 32_768;

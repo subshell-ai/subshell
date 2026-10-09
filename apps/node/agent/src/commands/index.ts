@@ -29,6 +29,7 @@ import { execSetMaintenance } from "./set-maintenance.js";
 import { execSetServerUrl } from "./set-server-url.js";
 import { execSetSshEnabled } from "./set-ssh-enabled.js";
 import { execSshDiscoverAliases, execSshResolveConfig } from "./ssh-aliases.js";
+import { execSshExec, execSshExecStatus } from "./ssh-exec.js";
 import { execSshHostKey } from "./ssh-host-key.js";
 import { execSshAgentIdentities, execSshRegisterIdentity } from "./ssh-identity.js";
 import { execSshRelayClose, execSshRelayOpen } from "./ssh-relay-exec.js";
@@ -70,7 +71,10 @@ export type { CommandContext, CommandResult, CommandWs, TailHandle } from "./con
  * and the brokered relay pair `ssh_relay_open` / `ssh_relay_close`
  * (spec 2026-10-08 §5.1, protocol 18 - open consults the gate then drives the
  * T6/T7 pairing branches by the command's own role; close is ungated teardown,
- * because ending a session is not an SSH act).
+ * because ending a session is not an SSH act), and the non-interactive setup
+ * pair `ssh_exec` / `ssh_exec_status` (spec 2026-10-08 §7, Task 14 - the
+ * "Set up Subshell here" install runs on its own short-lived ssh, off the
+ * command chain, its captured output `nsk_`-redacted before it is kept).
  * Any
  * unknown type still answers `unsupported` — the integration
  * contract that lets the backend and agent tracks move independently.
@@ -162,6 +166,10 @@ export async function dispatchCommand(ctx: CommandContext, cmd: NodeCommandBody)
         return await execSshRelayOpen(ctx, cmd);
       case "ssh_relay_close":
         return execSshRelayClose(ctx, cmd);
+      case "ssh_exec":
+        return await execSshExec(ctx, cmd);
+      case "ssh_exec_status":
+        return await execSshExecStatus(ctx, cmd);
       case "set_server_url":
         return await execSetServerUrl(ctx, cmd);
       case "update":

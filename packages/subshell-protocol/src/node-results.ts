@@ -23,12 +23,19 @@ import { BASE64_RE, isBool, isInt, isRecord, isStr, isStrArray, isStringMap } fr
 import { MAX_ARCHIVE_BYTES, MAX_MANIFEST_PAGE_ENTRIES } from "./node-frames.js";
 import { parseSshConnectionSnapshot } from "./ssh-config.js";
 import { isSshErrorCode } from "./ssh-errors.js";
-import { isSshGrantFingerprint, isSshKnownHostsPinLine } from "./ssh-frames.js";
-import { SSH_MAX_DISCOVERED_ALIASES, SSH_MAX_HOST_KEY_LINES, SSH_NAME_MAX_CHARS } from "./ssh-limits.js";
+import { isSshGrantFingerprint, isSshKnownHostsPinLine, isSshPaneId } from "./ssh-frames.js";
+import {
+  SSH_EXEC_RESULT_MAX_CHARS,
+  SSH_MAX_DISCOVERED_ALIASES,
+  SSH_MAX_HOST_KEY_LINES,
+  SSH_NAME_MAX_CHARS,
+} from "./ssh-limits.js";
 import type {
   NodeSshAgentIdentitiesResult,
   NodeSshAgentIdentity,
   NodeSshAliasListResult,
+  NodeSshExecKickResult,
+  NodeSshExecStatusResult,
   NodeSshHostKeyResult,
   NodeSshIdentityResult,
   NodeSshResolveOutcomeWire,
@@ -660,4 +667,56 @@ export function parseNodeSshIdentity(data: unknown): NodeSshIdentityResult | nul
     return null;
   }
   return { signingPublicKey: data.signingPublicKey };
+}
+
+/**
+ * Validates and narrows an `ssh_exec` KICK's `result{data}` (spec 2026-10-08
+ * §7, Task 14). The ack is two fields and no opinion: a machine that did not
+ * start answers `ok:false` (a refusal), never a `{started:false}`.
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed ack, or null when malformed
+ */
+export function parseNodeSshExecKick(data: unknown): NodeSshExecKickResult | null {
+  if (!isRecord(data)) return null;
+  if (data.started !== true) return null;
+  if (!isSshPaneId(data.execId)) return null;
+  return { started: true, execId: data.execId };
+}
+
+/**
+ * Validates and narrows an `ssh_exec_status` answer (spec 2026-10-08 §7,
+ * Task 14). Two closed states, and `done` states ALL FOUR facts (a code, a
+ * timeout flag, and both streams): a machine answering half the outcome
+ * would let the plane guess which half the installer broke on. The streams
+ * are bounded printable text - newlines, tabs, and CR survive; every other
+ * control character refuses the answer (an escape sequence reaching a
+ * renderable field is not "output", and the plane re-redacts anyway).
+ * @param data - the `data` member of a successful result frame
+ * @returns the narrowed status, or null when malformed
+ */
+export function parseNodeSshExecStatus(data: unknown): NodeSshExecStatusResult | null {
+  if (!isRecord(data)) return null;
+  if (data.state === "running") {
+    // Running is running: nothing may ride it (a smuggled half-outcome would
+    // be exactly the partial truth the "done states all four" rule refuses).
+    if (Object.keys(data).length !== 1) return null;
+    return { state: "running" };
+  }
+  if (data.state !== "done") return null;
+  if (!("code" in data) || !(data.code === null || isInt(data.code))) return null;
+  if (!isBool(data.timedOut)) return null;
+  if (!isExecStreamStr(data.stdout) || !isExecStreamStr(data.stderr)) return null;
+  return {
+    state: "done",
+    code: data.code === null ? null : (data.code as number),
+    timedOut: data.timedOut,
+    stdout: data.stdout,
+    stderr: data.stderr,
+  };
+}
+
+/** A captured stream: bounded text whose only control characters are newlines, tabs, and CR. */
+function isExecStreamStr(value: unknown): value is string {
+  if (!isStr(value) || value.length > SSH_EXEC_RESULT_MAX_CHARS) return false;
+  return !/\p{Cc}/u.test(value.replace(/[\n\r\t]/g, ""));
 }
