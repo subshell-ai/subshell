@@ -1,7 +1,11 @@
 import { apiFetch, apiPost } from "@internal/node-admin";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
+  SshAgentIdentity,
   SshAliasesView,
+  SshGrant,
+  SshGrantRequest,
+  SshHostPin,
   SshLaunchRequest,
   SshLaunchResponse,
   SshSavedHost,
@@ -107,5 +111,149 @@ export function useLaunchSsh() {
   return useMutation({
     mutationFn: (draft: SshLaunchRequest) => apiPost<SshLaunchResponse>("/api/ssh/launch", draft),
     onSuccess: () => void invalidate(),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* key grants, first-use approvals, destination host-key pins          */
+/* (spec 2026-10-08 §6, §8-§9; the operator screens of Task 15)         */
+/* ------------------------------------------------------------------ */
+
+export const SSH_GRANTS_QUERY_KEY = ["ssh-grants"] as const;
+export const SSH_GRANT_REQUESTS_QUERY_KEY = ["ssh-grant-requests"] as const;
+export const SSH_HOST_PINS_QUERY_KEY = ["ssh-host-pins"] as const;
+/** The roster is per-request: the key home answers live, so no two cards share an entry. */
+export const sshRosterQueryKey = (requestId: string) => ["ssh-grant-roster", requestId] as const;
+
+/** The owner's standing key grants, newest first. */
+export function useSshGrants() {
+  return useQuery({
+    queryKey: SSH_GRANTS_QUERY_KEY,
+    queryFn: () => apiFetch<{ grants: SshGrant[] }>("/api/ssh/grants"),
+  });
+}
+
+/**
+ * `DELETE /api/ssh/grants/:id` - the instant both-ways cut: the row goes and
+ * every live relay that ran under it is torn down server-side. 204 no body;
+ * a foreign row is the same 404 as an absent one.
+ */
+export function useRevokeSshGrant() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiFetch(`/api/ssh/grants/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: SSH_GRANTS_QUERY_KEY }),
+  });
+}
+
+/** The owner's outstanding first-use approvals, newest first (the GET sweeps expired rows first). */
+export function useSshGrantRequests() {
+  return useQuery({
+    queryKey: SSH_GRANT_REQUESTS_QUERY_KEY,
+    queryFn: () => apiFetch<{ requests: SshGrantRequest[] }>("/api/ssh/grant-requests"),
+  });
+}
+
+/**
+ * The key home's live agent roster to approve FROM. `enabled` gates on the
+ * card actually being open: an offline or refusing key home answers a named
+ * error and the request stays pending, never a fabricated empty roster, so
+ * the roster is fetched on demand rather than for every queued question.
+ */
+export function useSshGrantRoster(requestId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: sshRosterQueryKey(requestId),
+    queryFn: () =>
+      apiFetch<{ identities: SshAgentIdentity[] }>(
+        `/api/ssh/grant-requests/${encodeURIComponent(requestId)}/identities`,
+      ),
+    enabled,
+  });
+}
+
+/** The approve body: the selected fingerprints, and an optional display name for the new grant. */
+export interface SshGrantApproval {
+  requestId: string;
+  fingerprints: string[];
+  /** Display name override; absent keeps the server's default naming */
+  name?: string;
+}
+
+/**
+ * `POST /api/ssh/grant-requests/:id/approve` - answers YES and writes the
+ * standing grant. Both lists move: the row leaves the queue, the grant joins
+ * the ledger. An over-cap selection is a hard refusal server-side, never a
+ * truncation; the screen shows the same sentence before sending.
+ */
+export function useApproveSshGrantRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (draft: SshGrantApproval) =>
+      apiPost<{ grant: SshGrant }>(`/api/ssh/grant-requests/${encodeURIComponent(draft.requestId)}/approve`, {
+        fingerprints: draft.fingerprints,
+        ...(draft.name ? { name: draft.name } : {}),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: SSH_GRANT_REQUESTS_QUERY_KEY });
+      void queryClient.invalidateQueries({ queryKey: SSH_GRANTS_QUERY_KEY });
+    },
+  });
+}
+
+/**
+ * `POST /api/ssh/grant-requests/:id/deny` - answers NO. No grant and no pin
+ * exists for a denial; a later relaunch simply asks again, so denying needs
+ * no confirm.
+ */
+export function useDenySshGrantRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (requestId: string) =>
+      apiPost<{ requestId: string }>(`/api/ssh/grant-requests/${encodeURIComponent(requestId)}/deny`, {}),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: SSH_GRANT_REQUESTS_QUERY_KEY }),
+  });
+}
+
+/** The owner's destination host-key pins, newest first (key bytes are display-excluded by construction). */
+export function useSshHostPins() {
+  return useQuery({
+    queryKey: SSH_HOST_PINS_QUERY_KEY,
+    queryFn: () => apiFetch<{ pins: SshHostPin[] }>("/api/ssh/host-pins"),
+  });
+}
+
+/** The explicit-pin body (spec §9's "or an explicit pin" door): canonical destination + one known_hosts line. */
+export interface SshHostPinDraft {
+  /** Canonical resolved destination `user@host:port` (the spelling the launch keys the pin by) */
+  destination: string;
+  /** The pinned entry in OpenSSH known_hosts form */
+  hostKey: string;
+}
+
+/**
+ * `POST /api/ssh/host-pins` - supplies an explicit pin for a destination the
+ * key home has not connected to yet. A destination already pinned to a
+ * DIFFERENT key is the named hard block (409, nothing written): delete the
+ * pin first, that is the whole recovery flow.
+ */
+export function useCreateSshHostPin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (draft: SshHostPinDraft) => apiPost<{ pin: SshHostPin }>("/api/ssh/host-pins", draft),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: SSH_HOST_PINS_QUERY_KEY }),
+  });
+}
+
+/**
+ * `DELETE /api/ssh/host-pins/:destination` - the TOFU recovery's first half;
+ * the next capture at a fresh key re-decides trust. The destination is the
+ * key, so it rides the path encoded.
+ */
+export function useDeleteSshHostPin() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (destination: string) =>
+      apiFetch<{ deleted: boolean }>(`/api/ssh/host-pins/${encodeURIComponent(destination)}`, { method: "DELETE" }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: SSH_HOST_PINS_QUERY_KEY }),
   });
 }
