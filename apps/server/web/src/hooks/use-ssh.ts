@@ -133,6 +133,33 @@ export function useSshGrants() {
   });
 }
 
+/** The edit body (§8's "edit the selector/name"): the two fields PATCH accepts. */
+export interface SshGrantEdit {
+  grantId: string;
+  /** New display name */
+  name: string;
+  /** New destination selector (a concrete hostname or a '*' host pattern) */
+  selector: string;
+}
+
+/**
+ * `PATCH /api/ssh/grants/:id` - the §8 name/selector edit. The body can only
+ * ever carry those two fields: which keys serve is IMMUTABLE server-side
+ * (widening a standing selection is a revoke plus a fresh grant), and this
+ * mutation gives the fingerprint set no way onto the wire.
+ */
+export function useUpdateSshGrant() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (draft: SshGrantEdit) =>
+      apiFetch<{ grant: SshGrant }>(`/api/ssh/grants/${encodeURIComponent(draft.grantId)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name: draft.name, selector: draft.selector }),
+      }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: SSH_GRANTS_QUERY_KEY }),
+  });
+}
+
 /**
  * `DELETE /api/ssh/grants/:id` - the instant both-ways cut: the row goes and
  * every live relay that ran under it is torn down server-side. 204 no body;

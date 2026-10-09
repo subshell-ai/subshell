@@ -6,10 +6,12 @@ import { GrantsScreen } from "@/components/ssh/grants-screen";
 
 /**
  * The grants screen (spec 2026-10-08 §6.1, §8): the owner's standing key
- * grants, their selected agent identities, and the instant-both-ways revoke.
- * The revoke is the screen's one destructive act, so its confirm is pinned:
- * a STATIC title (the ruling 2026-09-30: the name rides the body) and a
- * refusal of the DELETE rendered red on the row that failed.
+ * grants, their selected agent identities, the name/selector edit, and the
+ * instant-both-ways revoke. The revoke is the screen's one destructive act, so
+ * its confirm is pinned: a STATIC title (the ruling 2026-09-30: the name rides
+ * the body) and a refusal of the DELETE rendered red on the row that failed.
+ * The edit dialog is pinned too: it PATCHes only name and selector, never the
+ * fingerprint set the server declares immutable.
  */
 
 const FP_ONE = `SHA256:${"A".repeat(43)}`;
@@ -29,6 +31,7 @@ const GRANT = {
 interface Sent {
   method: string;
   path: string;
+  body?: unknown;
 }
 
 function stubFetch(
@@ -43,12 +46,15 @@ function stubFetch(
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     const method = init?.method ?? "GET";
-    sent.push({ method, path: url.pathname });
+    sent.push({ method, path: url.pathname, body: init?.body ? JSON.parse(String(init.body)) : undefined });
     if (url.pathname === "/api/ssh/grants") {
       return new Response(JSON.stringify({ grants: [GRANT] }), { status: 200 });
     }
     if (url.pathname === "/api/nodes") {
       return new Response(JSON.stringify({ nodes: [{ id: "nodeA", name: "vault" }] }), { status: 200 });
+    }
+    if (url.pathname === "/api/ssh/grants/g1" && method === "PATCH") {
+      return new Response(JSON.stringify({ grant: { ...GRANT, ...(sent.at(-1)?.body as object) } }), { status: 200 });
     }
     if (url.pathname === "/api/ssh/grants/g1" && method === "DELETE") {
       if (opts.revokeStatus) {
@@ -142,6 +148,28 @@ describe("GrantsScreen", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Revoke grant prod keys" }));
     await waitFor(() => expect(confirm.seen.length).toBe(1));
     expect(sent.some((s) => s.method === "DELETE")).toBe(false);
+  });
+
+  it("edits name and selector through PATCH, sending no fingerprints", async () => {
+    const sent = stubFetch((undo) => {
+      restores.push(undo);
+    });
+    renderScreen();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit grant prod keys" }));
+    // Static dialog title (ruling 2026-09-30): the grant's name rides the body, never the heading.
+    expect(await screen.findByRole("heading", { name: "Edit grant" })).toBeDefined();
+    expect(screen.getByRole("dialog").textContent).toContain("prod keys");
+    // The fields open pre-filled with what the row shows.
+    expect((screen.getByLabelText(/Grant name/) as HTMLInputElement).value).toBe("prod keys");
+    expect((screen.getByLabelText(/Destination selector/) as HTMLInputElement).value).toBe("*.prod.example.com");
+    fireEvent.change(screen.getByLabelText(/Grant name/), { target: { value: "staging keys" } });
+    fireEvent.change(screen.getByLabelText(/Destination selector/), { target: { value: "*.staging.example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(sent.some((s) => s.method === "PATCH" && s.path === "/api/ssh/grants/g1")).toBe(true));
+    const patch = sent.find((s) => s.method === "PATCH");
+    // The body is exactly the two editable fields: which keys serve is immutable,
+    // so fingerprints must never ride this PATCH (toEqual pins its absence).
+    expect(patch?.body).toEqual({ name: "staging keys", selector: "*.staging.example.com" });
   });
 
   it("renders a refused revoke as the row's own red line", async () => {

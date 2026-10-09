@@ -227,8 +227,13 @@ export interface SshHostPin {
   updatedAt: string;
 }
 
-/** The client-side spelling of the server's hard selection cap (spec 2026-10-08 §5.4). */
+/**
+ * The client-side spelling of the server's hard selection cap (spec
+ * 2026-10-08 §5.4): the same sentence the refusing service answers
+ * (`ssh-grants.service.ts`), so the red line on the card and a refused POST
+ * read identically.
+ */
 export function grantSelectionError(fingerprints: readonly string[]): string | null {
   if (fingerprints.length <= SSH_MAX_GRANT_FINGERPRINTS) return null;
-  return `A grant can serve at most ${SSH_MAX_GRANT_FINGERPRINTS} keys. Deselect some before approving.`;
+  return `A grant can carry at most ${SSH_MAX_GRANT_FINGERPRINTS} keys. Deselect some and try again; nothing was truncated.`;
 }
