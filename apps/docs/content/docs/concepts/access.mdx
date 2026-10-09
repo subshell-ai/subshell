@@ -13,7 +13,7 @@ View grants include output and live terminal viewing. Edit adds input, rename, r
 
 ## Administrators
 
-Administrators have effective edit access across sessions and can manage the instance. Ownership-only operations stay with the real owner, including for an administrator.
+Administrators manage the instance. They have no special reach into sessions: a session resolves from ownership and sharing alone, the same for every role (ruling 2026-10-09), and another user's unshared session is as invisible to an administrator as to a stranger. Reaching one means signing in as that user. Ownership-only operations were always the owner's.
 
 Administrative endpoints require a cookie session with the admin role. Bearer credentials are refused there.
 

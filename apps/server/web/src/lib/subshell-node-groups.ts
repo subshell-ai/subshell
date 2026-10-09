@@ -22,7 +22,7 @@ export interface SubshellNodeGroup {
    * The header's hover text: the NAME when the registry resolved it, the
    * full node id otherwise — the reveal the cards' retired `nodePill` used
    * to give (`title={subshell.nodeId}`), and the only way to tell which
-   * machine an "unknown node" or a short-id header actually names.
+   * machine a "node you can't see" or a short-id header actually names.
    */
   title: string;
   /** The rows, in the order they arrived (i.e. the caller's status sort), capped by `limit` */
@@ -57,10 +57,14 @@ export const FALLBACK_NODE_ID = "local";
  *   cannot), and a "deleted node" verdict above `local` after a flaky
  *   `/api/nodes` would be a lie about the one machine that cannot be
  *   deleted;
- * - the registry ANSWERED without the id → "unknown node". Not "deleted
- *   node": deletion is one cause, but the list is share-filtered, so a revoked
- *   grant (an admin narrowing `local`, a node share pulled under a live
- *   subshell) lands here too, and "unknown" claims only what is known.
+ * - the registry ANSWERED without the id → "node you can't see". Not
+ *   "deleted node": deletion is one cause, but the list is share-filtered, so
+ *   a revoked grant (an admin narrowing `local`, a node share pulled under a
+ *   live subshell) lands here too. Since 2026-10-09 the pane list is
+ *   share-filtered for EVERY role, and this is the whole meaning of the
+ *   header: the machine exists on someone else's screen, or existed, and this
+ *   one cannot see it. "unknown node" claimed that too but also read as "the
+ *   machine is gone", which is why the phrase changed.
  *
  * Exported beside {@link groupSubshellsByNode} because the Wave C diagnostics
  * HUD names a pane's machine too, and two ladders for one question is how the
@@ -78,7 +82,7 @@ export function nodeLabelFor(
   const known = nodes?.find((n) => n.id === nodeId);
   if (known) return { label: known.name, title: known.name };
   if (unanswered) return { label: nodeId.slice(0, 8), title: nodeId };
-  return { label: "unknown node", title: nodeId };
+  return { label: "node you can't see", title: nodeId };
 }
 
 /**

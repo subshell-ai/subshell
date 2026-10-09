@@ -19,20 +19,23 @@ describe("GET /api/subshells visibility + access", () => {
   const aliceEmail = `sh-alice-${crypto.randomUUID()}@subshell.local`;
   const bobEmail = `sh-bob-${crypto.randomUUID()}@subshell.local`;
   const carolEmail = `sh-carol-${crypto.randomUUID()}@subshell.local`;
+  const adminEmail = `sh-admin-${crypto.randomUUID()}@subshell.local`;
   let aliceId: string;
   let bobId: string;
   let bobCookie: string;
   let carolCookie: string;
+  let adminId: string;
+  let adminCookie: string;
   /** A REAL subshell bearer key — Bob's pane's MCP token, the machine credential under test. */
   let bobSubshellKey: string;
   const created: string[] = [];
 
-  async function mkUser(email: string): Promise<string> {
+  async function mkUser(email: string, role: "user" | "admin" = "user"): Promise<string> {
     return await new UsersRepository(db).createUser({
       email,
       name: email,
       passwordHash: await hashPassword(pw),
-      role: "user",
+      role,
     });
   }
 
@@ -54,9 +57,12 @@ describe("GET /api/subshells visibility + access", () => {
     aliceId = await mkUser(aliceEmail);
     bobId = await mkUser(bobEmail);
     await mkUser(carolEmail);
+    adminId = await mkUser(adminEmail, "admin");
     bobCookie = await signIn(bobEmail, pw);
     carolCookie = await signIn(carolEmail, pw);
+    adminCookie = await signIn(adminEmail, pw);
 
+    await ownSubshell("s_adminown", adminId); // the admin's own row
     await ownSubshell("s_priv", aliceId); // Alice only
     await ownSubshell("s_bob", aliceId); // Bob: edit
     await ownSubshell("s_all", aliceId); // Everyone: view
@@ -75,7 +81,7 @@ describe("GET /api/subshells visibility + access", () => {
   afterAll(async () => {
     for (const id of created) await db.deleteFrom("subshells").where("id", "=", id).execute();
     // better-auth owns the `user` table — remove via the helper, not a raw delete.
-    for (const email of [aliceEmail, bobEmail, carolEmail]) await deleteUserByEmailOrId(email);
+    for (const email of [aliceEmail, bobEmail, carolEmail, adminEmail]) await deleteUserByEmailOrId(email);
   });
 
   function list(cookie: string) {
@@ -110,6 +116,30 @@ describe("GET /api/subshells visibility + access", () => {
     expect(rows[0]?.access).toBe("view");
   });
 
+  it("an ADMIN sees own + Everyone and nothing else: the role buys no pane (2026-10-09 ruling)", async () => {
+    // The reversal pinned at the HTTP surface. An admin cookie used to answer
+    // the whole table; the operator ruling made the subshell axis blind to the
+    // role, so the admin here is just another viewer: their own row, the
+    // Everyone grant like everyone gets, and Alice's/Bob's private rows absent
+    // exactly as they are for carol.
+    const rows = (await (await list(adminCookie)).json()) as { id: string; access: string }[];
+    const byId = new Map(rows.map((r) => [r.id, r.access]));
+    expect([...byId.keys()].sort()).toEqual(["s_adminown", "s_all"]);
+    expect(byId.get("s_adminown")).toBe("owner");
+    expect(byId.get("s_all")).toBe("view");
+    expect(byId.has("s_priv")).toBe(false);
+    expect(byId.has("s_bob")).toBe(false);
+  });
+
+  it("an ADMIN's direct read of a foreign pane 404s like a stranger's", async () => {
+    const res = await subshellRoutes.fetch(
+      new Request("http://localhost:3080/api/subshells/s_priv", {
+        headers: { cookie: `better-auth.session_token=${adminCookie}` },
+      }),
+    );
+    expect(res.status).toBe(404); // the no-existence-leak answer, role notwithstanding
+  });
+
   it("summary counts the same visible set the list returns", async () => {
     // Bob's visible set is his OWN s_bobown (the bearer-boundary fixture) plus
     // the two shared-in rows — three, all running.
@@ -124,7 +154,7 @@ describe("GET /api/subshells visibility + access", () => {
    * owner can see, which is what the MCP coordination posture
    * (`list_subshells`/`get_subshell` on siblings) wants — while every
    * per-subshell route runs machine credentials with shares switched OFF
-   * (the service's `#gate`, `allowAdminAndShares: actor !== "subshell-key"`).
+   * (the service's `#gate`, `allowShares: actor !== "subshell-key"`).
    * The asymmetry is the product: enumeration is disclosure-bounded
    * (names/status of owner-visible rows, no pane content), acting is not.
    * Tightening the list half is a `docs/security.md` §3 change, not a

@@ -118,7 +118,7 @@ export class WorkspacesService extends BaseService {
    */
   private async requireVisibleSubshell(userId: string, subshellId: string): Promise<void> {
     const { row, access } = await loadSubshellAccess(
-      { subshells: this.repos.subshells, shares: this.repos.subshellShares, userMeta: this.repos.userMeta },
+      { subshells: this.repos.subshells, shares: this.repos.subshellShares },
       userId,
       subshellId,
     );

@@ -2,7 +2,14 @@ import { ApiError, Button, errMessage, Input, Label, Switch } from "@internal/no
 import { useState } from "react";
 import { normalizeOriginEntry } from "@/components/auth/entry-origins";
 import { RegistrationPanel } from "@/components/auth/registration-panel";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  formDialogOpenChange,
+} from "@/components/ui/dialog";
 import { RequiredMark } from "@/components/ui/required-mark";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreateAuthProvider, usePatchAuthProvider } from "@/hooks/use-auth-providers";
@@ -40,9 +47,13 @@ export function ProviderDialog({
   provider: ProviderAdminView | null;
   onSaved: () => void;
 }) {
+  // A form dialog: outside press and Escape must not discard a half-typed
+  // issuer (the same 2026-09-30 ruling the preset dialogs pin). No max-h or
+  // overflow here: DialogContent's inner wrapper already scrolls, and a second
+  // cap on the Popup stacked a second scrollbar (85vh inside 85dvh).
   return (
-    <Dialog open={open} onOpenChange={(next) => onOpenChange(next)}>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+    <Dialog open={open} onOpenChange={formDialogOpenChange(onOpenChange)}>
+      <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{provider ? "Edit provider" : "Add provider"}</DialogTitle>
         </DialogHeader>

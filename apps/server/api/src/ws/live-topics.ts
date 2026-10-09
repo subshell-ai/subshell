@@ -10,9 +10,6 @@ import { resolveSubshellAccess } from "@/lib/subshell-access.js";
  */
 export const EVERYONE_TOPIC = "live:everyone";
 
-/** Topic every admin's socket joins; admins hold instance-wide `edit`. */
-export const ADMINS_TOPIC = "live:admins";
-
 /** Prefix of every per-viewer topic; see {@link userTopic}. */
 const USER_TOPIC_PREFIX = "live:u:";
 
@@ -29,23 +26,25 @@ interface ShareRow {
 }
 
 /**
- * The topics a socket subscribes to at connect.
+ * The topics a socket subscribes to at connect: the viewer's own, plus the
+ * shared-with-all one. The same two for EVERY signed-in user, admins included
+ * (spec 2026-10-09: the admin role carries no subshell reach, so there is no
+ * admins' topic to join).
  *
  * **The sets are disjoint by construction, so every frame reaches a viewer
- * EXACTLY once.** An admin subscribes to `admins` ALONE — they hold
- * instance-wide `edit`, so that topic already carries every row, and adding
- * their own would deliver a row they own twice (measured: an admin owner
- * received each frame two times before this). Everyone else takes their own
- * topic plus the shared-with-all one, which {@link recipientTopics} keeps from
- * overlapping by never publishing to both.
+ * EXACTLY once**: {@link recipientTopics} keeps a row's owner topic and the
+ * Everyone topic from ever both carrying it, because an Everyone grant is
+ * visible to the owner too and naming both would deliver the frame twice
+ * (measured, under the old admins topic: an admin owner received each frame
+ * two times before the single-subscription rule).
  *
- * Fixed for the life of the socket: a role change does not retro-subscribe an
- * existing connection, exactly as a role change does not re-authenticate one
+ * Fixed for the life of the socket: a role change does not retune an existing
+ * connection, exactly as a role change does not re-authenticate one
  * (`docs/security.md` — the same never-re-checked property `/ws` has). The
- * next connect picks it up.
+ * next connect picks it up; since roles no longer choose topics at all, only
+ * a sign-out or the role-change socket drop moves a connection now.
  */
-export function topicsForViewer(viewer: { viewerId: string; isAdmin: boolean }): string[] {
-  if (viewer.isAdmin) return [ADMINS_TOPIC];
+export function topicsForViewer(viewer: { viewerId: string }): string[] {
   return [userTopic(viewer.viewerId), EVERYONE_TOPIC];
 }
 
@@ -72,13 +71,12 @@ export function recipientTopics(row: { ownerUserId: string; shares: ShareRow[] }
   // An Everyone share is visible to every signed-in user, which INCLUDES the
   // owner and every explicit grantee — so `everyone` alone carries all of
   // them, and naming their own topics as well would deliver the frame twice.
-  // Admins are still named because they subscribe to `admins` alone.
   if (row.shares.some((share) => share.granteeUserId === null)) {
-    return [EVERYONE_TOPIC, ADMINS_TOPIC];
+    return [EVERYONE_TOPIC];
   }
   // A Set because an owner who also appears as an explicit grantee would
   // otherwise be published to twice.
-  const topics = new Set<string>([userTopic(row.ownerUserId), ADMINS_TOPIC]);
+  const topics = new Set<string>([userTopic(row.ownerUserId)]);
   for (const share of row.shares) {
     if (share.granteeUserId !== null) topics.add(userTopic(share.granteeUserId));
   }
@@ -102,9 +100,9 @@ export function recipientTopics(row: { ownerUserId: string; shares: ShareRow[] }
  *
  * - **`gone`** — every subscriber of this topic has certainly lost the row, so
  *   it can be removed at once. True of a user topic when neither it nor
- *   `everyone` survives: that viewer subscribes to those two alone (an admin
- *   subscribes to `admins` alone and is never on a user topic), so nothing
- *   else could still be carrying it to them.
+ *   `everyone` survives: every viewer (admins included) subscribes to their
+ *   own topic plus `everyone` alone, so nothing else could still be carrying
+ *   it to them.
  * - **`recheck`** — the topic MIGHT have lost it, and only a per-viewer
  *   resolve can say. This is `everyone` losing its grant while named topics
  *   survive: the same broadcast reaches the owner, who kept the row, and every
@@ -170,12 +168,11 @@ export function levelChangedTopics(row: { ownerUserId: string; before: ShareRow[
   // The Everyone grant's own level, read through the eyes of someone who has
   // no other route to the row.
   for (const principal of [STRANGER, ...named]) {
-    const before = resolveSubshellAccess(principal, false, row.ownerUserId, row.before);
-    const after = resolveSubshellAccess(principal, false, row.ownerUserId, row.after);
+    const before = resolveSubshellAccess(principal, row.ownerUserId, row.before);
+    const after = resolveSubshellAccess(principal, row.ownerUserId, row.after);
     if (before === "none" || after === "none" || before === after) continue;
     topics.add(principal === STRANGER ? EVERYONE_TOPIC : userTopic(principal));
   }
-  // The owner is always `owner` and an admin always holds instance-wide
-  // `edit`, so neither can be changed by a grant edit.
+  // The owner is always `owner`, so a grant edit cannot change them either.
   return [...topics];
 }

@@ -90,16 +90,16 @@ describe("groupSubshellsByNode — labels", () => {
   it("reads a FAILED registry as unanswered, never as a verdict — `local` cannot be deleted", () => {
     // The card can dodge this by returning null for `local` outright; this
     // header labels every node including the control-plane host, so a flaky
-    // /api/nodes must wear the short id, not "unknown node".
+    // /api/nodes must wear the short id, not "node you can't see".
     const groups = groupSubshellsByNode([subshell({ nodeId: "local" })], undefined, { unanswered: true });
     expect(groups[0]?.label).toBe("local");
   });
 
-  it("says 'unknown node', with the id on hover, once the registry ANSWERED without the id", () => {
+  it("says 'node you can't see', with the id on hover, once the registry ANSWERED without the id", () => {
     // Not "deleted node": the list is share-filtered, so a revoked grant
     // lands here too, and "unknown" claims only what is known.
     const groups = groupSubshellsByNode([subshell({ nodeId: "gone" })], [node()], { unanswered: false });
-    expect(groups[0]?.label).toBe("unknown node");
+    expect(groups[0]?.label).toBe("node you can't see");
     expect(groups[0]?.title).toBe("gone");
   });
 
@@ -183,7 +183,7 @@ describe("nodeLabelFor: the exported ladder (the diagnostics HUD names a node wi
     // Never succeeded (in flight, or failed with nothing cached): short id.
     expect(nodeLabelFor("abcdef0123456789", undefined, true).label).toBe("abcdef01");
     // Answered without the id: unknown, never a "deleted" verdict.
-    expect(nodeLabelFor("gone", [node()], false).label).toBe("unknown node");
+    expect(nodeLabelFor("gone", [node()], false).label).toBe("node you can't see");
   });
 });
 

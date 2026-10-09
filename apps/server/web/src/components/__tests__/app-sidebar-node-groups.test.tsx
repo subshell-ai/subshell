@@ -241,7 +241,7 @@ describe("the rail's subshell list, grouped by node", () => {
     // `unanswered` must mean "no read has EVER succeeded" — an `isError` flag
     // would also fire on a failed background refresh of a POPULATED cache,
     // re-labelling resolved headers on a blip. With no cache the failure is
-    // genuinely no answer: the id, not "unknown node" (and never the word
+    // genuinely no answer: the id, not "node you can't see" (and never the word
     // "deleted", which this rail must not assert about `local`).
     await withRail(
       [subshell({ id: "a", name: "one", nodeId: "mac-pro-abcdef" })],
@@ -249,7 +249,7 @@ describe("the rail's subshell list, grouped by node", () => {
         await waitFor(() => expect(groupHeaders()).toHaveLength(1));
         const header = groupHeader("mac-pro-abcdef");
         expect(header.textContent).toContain("mac-pro");
-        expect(header.textContent).not.toContain("unknown node");
+        expect(header.textContent).not.toContain("node you can't see");
         // The reveal is a styled tooltip popup since 2026-09-24 (the rows'
         // zoom reason), and its trigger is the HEADER BUTTON itself — the
         // focusable element the reveal must be keyboard-reachable on (round-4
@@ -266,14 +266,14 @@ describe("the rail's subshell list, grouped by node", () => {
     // test the 35c7bf09 message promised and its cold-failure sibling is not:
     // TanStack reports `isError` on a failed refetch WHILE KEEPING `data`,
     // so `isPending || isError` would relabel the resolved header (and the
-    // unresolved one, from "unknown node" to a short id) on a transient
+    // unresolved one, from "node you can't see" to a short id) on a transient
     // blip. `nodeData === undefined` cannot: data is still there.
     await withRail(
       [subshell({ id: "a", name: "one", nodeId: "n1" }), subshell({ id: "b", name: "two", nodeId: "gone" })],
       async ({ client, failNodes }) => {
         await waitFor(() => expect(groupHeaders()).toHaveLength(2));
         expect(groupHeader("n1").textContent).toContain("mac-mini");
-        expect(groupHeader("gone").textContent).toContain("unknown node");
+        expect(groupHeader("gone").textContent).toContain("node you can't see");
 
         failNodes(true);
         await client.invalidateQueries({ queryKey: ["nodes"] });
@@ -281,7 +281,7 @@ describe("the rail's subshell list, grouped by node", () => {
         // intact) rather than racing it, then assert NOTHING moved.
         await new Promise((r) => setTimeout(r, 50));
         expect(groupHeader("n1").textContent).toContain("mac-mini");
-        expect(groupHeader("gone").textContent).toContain("unknown node");
+        expect(groupHeader("gone").textContent).toContain("node you can't see");
       },
     );
   });
@@ -292,7 +292,7 @@ describe("the rail's subshell list, grouped by node", () => {
     // and the id must be recoverable on hover.
     await withRail([subshell({ id: "a", nodeId: "gone-node-xyz" })], async () => {
       await waitFor(() => expect(groupHeaders()).toHaveLength(1));
-      expect(groupHeader("gone-node-xyz").textContent).toContain("unknown node");
+      expect(groupHeader("gone-node-xyz").textContent).toContain("node you can't see");
       // Same popup shape as the cold-failure case: trigger marker on the
       // button, no leftover native title anywhere in the header.
       const header = groupHeader("gone-node-xyz");

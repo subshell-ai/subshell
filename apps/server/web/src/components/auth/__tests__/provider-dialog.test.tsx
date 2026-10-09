@@ -285,4 +285,32 @@ describe("ProviderDialog", () => {
       restore();
     }
   });
+
+  it("clicking out or pressing Escape keeps the form; a half-typed issuer survives", async () => {
+    // The loss this pins: an outside press discarded the whole dialog with a
+    // half-entered issuer in it (the 2026-09-30 form-dialog ruling, now read
+    // by this dialog through the shared guard).
+    const { restore } = mockFetch({ appBaseUrl: "https://plane.example" });
+    try {
+      const closed: boolean[] = [];
+      renderDialog({ onOpenChange: (next) => closed.push(next) });
+      await settle();
+      const issuerInput = () => screen.getByLabelText("Issuer") as HTMLInputElement;
+      fireEvent.change(issuerInput(), { target: { value: "https://half-typed" } });
+      const backdrop = document.querySelector('[data-slot="dialog-overlay"]') as HTMLElement;
+      fireEvent.mouseDown(backdrop);
+      fireEvent.mouseUp(backdrop);
+      fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+      await settle();
+      expect(screen.queryByRole("dialog")).not.toBeNull();
+      expect(closed).toEqual([]);
+      expect(issuerInput().value).toBe("https://half-typed");
+      // The X still closes: reason "close-press" passes the guard untouched.
+      fireEvent.click(screen.getByLabelText("Close"));
+      await settle();
+      expect(closed).toEqual([false]);
+    } finally {
+      restore();
+    }
+  });
 });

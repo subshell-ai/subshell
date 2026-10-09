@@ -85,20 +85,24 @@ describe("SubshellsRepository.listVisibleTo", () => {
     await shares.replaceForSubshell("a_bob", [{ granteeUserId: "bob", permission: "edit" }], "alice");
 
     const subshells = new SubshellsRepository(db);
-    expect(ids(await subshells.listVisibleTo("bob", false))).toEqual(["a_bob", "a_everyone", "b_own"]);
-    expect(ids(await subshells.listVisibleTo("alice", false))).toEqual(["a_bob", "a_everyone", "a_priv"]);
+    expect(ids(await subshells.listVisibleTo("bob"))).toEqual(["a_bob", "a_everyone", "b_own"]);
+    expect(ids(await subshells.listVisibleTo("alice"))).toEqual(["a_bob", "a_everyone", "a_priv"]);
     // carol is in no grant except Everyone → she sees her own + the Everyone row only.
-    expect(ids(await subshells.listVisibleTo("carol", false))).toEqual(["a_everyone", "c_priv"]);
+    expect(ids(await subshells.listVisibleTo("carol"))).toEqual(["a_everyone", "c_priv"]);
     await db.destroy();
   });
 
-  it("an admin sees every subshell regardless of ownership or grants", async () => {
+  it("the WHERE clause cannot see the admin role: no flag, no widening (2026-10-09)", async () => {
+    // Operator ruling: the admin role carries no subshell reach. This layer
+    // no longer even accepts a role, so a viewer named `root` is just another
+    // user with no rows of their own and no grants - the empty list, where
+    // the old bypass returned the whole table.
     const db = await freshDb();
     await seed(db, "a_priv", "alice");
     await seed(db, "c_priv", "carol");
     await seed(db, "b_own", "bob");
     const subshells = new SubshellsRepository(db);
-    expect(ids(await subshells.listVisibleTo("root", true))).toEqual(["a_priv", "b_own", "c_priv"]);
+    expect(ids(await subshells.listVisibleTo("root"))).toEqual([]);
     await db.destroy();
   });
 });
@@ -182,12 +186,12 @@ describe("subshells counts — blessed predicate through the registry seam", () 
       // Registry empty → the REAL blessed predicate says node-x is offline.
       resetNodeRegistryForTests();
       expect(await subshells.countsByUser("bob", isNodeOffline)).toEqual(offlineExpected);
-      expect(await subshells.countsVisibleTo("bob", false, isNodeOffline)).toEqual(offlineExpected);
+      expect(await subshells.countsVisibleTo("bob", isNodeOffline)).toEqual(offlineExpected);
       // Bring node-x live through the registry seam — no predicate stubbing.
       const ws = { send: () => {}, close: () => {} };
       attachConnection("node-x", ws);
       expect(await subshells.countsByUser("bob", isNodeOffline)).toEqual(onlineExpected);
-      expect(await subshells.countsVisibleTo("bob", false, isNodeOffline)).toEqual(onlineExpected);
+      expect(await subshells.countsVisibleTo("bob", isNodeOffline)).toEqual(onlineExpected);
       detachConnection("node-x", ws);
     } finally {
       resetNodeRegistryForTests();

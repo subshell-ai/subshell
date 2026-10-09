@@ -52,7 +52,7 @@ const LOG_FILE_WAIT_MS = 1_500;
  * Auth: the `token` query param is the short-lived (30 s), single-use WS
  * attach token minted by `POST /api/auth/ws-token` — NOT the better-auth
  * subshell token. Attaching requires at least `view` access to the subshell
- * (spec 2026-08-31 §4): the owner, an admin, or anyone it is shared with. A
+ * (spec 2026-08-31 §4): the owner or anyone it is shared with. A
  * viewer watches read-only; only `edit`/`owner` may send input (see `canInput`).
  *
  * Attach paints ONCE: a `capture-pane -e -S -<cap>` replay ships the visible

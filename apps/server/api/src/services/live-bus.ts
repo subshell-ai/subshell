@@ -25,7 +25,7 @@ export type LiveEvent =
       /**
        * The grants the row held, read BEFORE the delete cascaded them away.
        *
-       * Without them a deletion reached the owner and the admins only, so a
+       * Without them a deletion reached the owner only, so a
        * shared subshell stayed on every grantee's dashboard until they
        * reconnected — and 404'd when clicked. There is no next snapshot to
        * learn from now that the polls are gone.

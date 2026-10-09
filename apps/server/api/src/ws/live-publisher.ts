@@ -128,7 +128,7 @@ async function publishEvent(target: LivePublisherTarget, event: LiveEvent): Prom
   if (event.kind === "subshell.deleted") {
     // The row and its grants are gone, so the recipient set comes from the
     // EVENT — which carries the shares read before the delete cascaded them.
-    // Deriving it from the owner alone reached the owner and the admins only,
+    // Deriving it from the owner alone reached the owner only,
     // and left a shared subshell sitting on every grantee's dashboard until
     // they reconnected. Telling someone about an id they never held is
     // harmless by design (§4.2): the frame says "you cannot see this", which
@@ -151,8 +151,8 @@ async function publishEvent(target: LivePublisherTarget, event: LiveEvent): Prom
    * **An empty `currentTopics` is not the same fact as "this row reaches
    * nobody", and conflating them publishes a removal for a row that exists.**
    * A failed read left it `[]`, which made every revoked topic look lost —
-   * `live:admins` included, since it is in both sets on every branch — so a
-   * transient database hiccup during a share edit told every admin and the
+   * the owner's own topic included, since nearly every surviving current set
+   * carries it — so a transient database hiccup during a share edit told the
    * owner that a live subshell was gone, stickily. That is the same mistake
    * as the topic-name difference this module already learned once.
    */

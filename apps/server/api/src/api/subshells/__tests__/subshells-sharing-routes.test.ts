@@ -163,7 +163,11 @@ describe("subshell sharing — access matrix over routes", () => {
     expect((await req("GET", "/s_own", carolCookie)).status).toBe(404);
   });
 
-  it("an admin (not owner, not shared to) gets effective edit — read + rename — but not owner-only acts", async () => {
+  it("an admin (not owner, not shared to) is a stranger: 404 on read, rename, and the owner-only acts", async () => {
+    // 2026-10-09 operator ruling: the admin role carries no subshell reach.
+    // This matrix cell used to read "effective edit (read + rename 200,
+    // owner-only acts 403)". Now the foreign unshared row answers the
+    // stranger's answer everywhere - 404, never 403, no existence leak.
     const adminEmail = `sm-admin-${crypto.randomUUID()}@subshell.local`;
     await new UsersRepository(db).createUser({
       email: adminEmail,
@@ -173,12 +177,14 @@ describe("subshell sharing — access matrix over routes", () => {
     });
     const cookie = await signIn(adminEmail, pw);
     try {
-      const got = (await (await req("GET", "/s_own", cookie)).json()) as { access: string };
-      expect(got.access).toBe("edit"); // admin effective access (spec), not owner
-      expect((await req("PATCH", "/s_own/name", cookie, { name: "admin edited" })).status).toBe(200);
-      // Owner-only acts stay with the real owner.
-      expect((await req("DELETE", "/s_own", cookie)).status).toBe(403);
-      expect((await req("PATCH", "/s_own/notify", cookie, { notify: false })).status).toBe(403);
+      expect((await req("GET", "/s_own", cookie)).status).toBe(404);
+      expect((await req("PATCH", "/s_own/name", cookie, { name: "admin edited" })).status).toBe(404);
+      expect((await req("DELETE", "/s_own", cookie)).status).toBe(404);
+      expect((await req("PATCH", "/s_own/notify", cookie, { notify: false })).status).toBe(404);
+      // The admin's OWN panes still work of course - the refusal is the
+      // FOREIGN row, not the routes. (s_view/s_edit belong to other users;
+      // an admin holding no grant gets the same 404 there too.)
+      expect((await req("GET", "/s_view", cookie)).status).toBe(404);
     } finally {
       await deleteUserByEmailOrId(adminEmail);
     }

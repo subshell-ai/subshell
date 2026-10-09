@@ -150,15 +150,15 @@ export async function resolveAttach(input: AttachRequest): Promise<AttachResolve
 
   const { repos } = getRequestlessContext();
   // Resolve the identity's access to THIS subshell with the FULL human gate
-  // (admin boost and shared grants count) — true for a cookie session, and
-  // correct for a scoped bearer token too because a scoped token records the
-  // subshell's OWNER (see ws-token.ts): the scope check above already
-  // confined it to that one pane, so resolving as its owner grants nothing
-  // beyond the pane it can only ever reach. Invisible (absent or unshared)
-  // closes with the same 4005 an owner-mismatch used to, so a stranger
-  // learns nothing.
+  // (shared grants count; no admin arm exists on this axis since 2026-10-09) —
+  // true for a cookie session, and correct for a scoped bearer token too
+  // because a scoped token records the subshell's OWNER (see ws-token.ts): the
+  // scope check above already confined it to that one pane, so resolving as
+  // its owner grants nothing beyond the pane it can only ever reach.
+  // Invisible (absent or unshared) closes with the same 4005 an
+  // owner-mismatch used to, so a stranger learns nothing.
   const { row, access } = await loadSubshellAccess(
-    { subshells: repos.subshells, shares: repos.subshellShares, userMeta: repos.userMeta },
+    { subshells: repos.subshells, shares: repos.subshellShares },
     identity.userId,
     subshellId,
   );

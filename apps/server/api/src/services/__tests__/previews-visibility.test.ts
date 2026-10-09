@@ -101,11 +101,16 @@ describe("previewsFor captures only what the viewer may see", () => {
     }
   });
 
-  it("captures it for an admin, who holds instance-wide edit", async () => {
+  it("captures nothing for an ADMIN either: the role carries no pane reach (2026-10-09)", async () => {
+    // This test used to prove the opposite ("instance-wide edit"). The
+    // operator ruling removed the admin arm from the visibility read, so an
+    // admin's preview ask crosses the same filter a stranger's does: no
+    // capture, the id simply absent.
     const { seen, spy } = watchCaptures();
     try {
-      await getRequestlessContext().services.subshells.previewsFor(adminId, [subshellId]);
-      expect(seen).toEqual([[subshellId]]);
+      const out = await getRequestlessContext().services.subshells.previewsFor(adminId, [subshellId]);
+      expect(seen).toEqual([[]]);
+      expect(out.has(subshellId)).toBe(false);
     } finally {
       spy.mockRestore();
     }

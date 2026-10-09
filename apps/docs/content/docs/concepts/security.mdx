@@ -16,7 +16,7 @@ Use the following boundaries when evaluating a deployment:
 | Boundary | Protection | Important limit |
 | --- | --- | --- |
 | Unauthenticated caller → server | Authentication on protected API routes and WebSocket attachment | First-run setup is reachable before an administrator exists. |
-| Signed-in user → another user's session | Ownership and explicit view or edit grants | Administrators have instance-wide edit access. |
+| Signed-in user → another user's session | Ownership and explicit view or edit grants | The grants answer every role alike; administrators manage the instance, not its sessions (ruling 2026-10-09). |
 | Agent → Subshell API | Scoped pane credentials, resource checks, and refusal on instance-administration routes | A pane can act on other sessions owned by its user. |
 | Server → enrolled node | Encrypted application-layer connection and signed, target-bound commands | The server is authorized to run programs as the node's execution account. |
 | Agent → agent channel | End-to-end encryption of message bodies and peer-key pinning | Metadata, terminal output, and compromised endpoint keys are outside this protection. |

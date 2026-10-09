@@ -27,8 +27,8 @@ interface TokenEntry {
   /**
    * The identity the attach resolves ACCESS AS — not necessarily whoever
    * minted it. A cookie mint stores the session's own user; a bearer mint
-   * stores the TARGET SUBSHELL'S OWNER (the system service user holds no
-   * admin role and no shares, so recording the actor would resolve every
+   * stores the TARGET SUBSHELL'S OWNER (the system service user owns no
+   * subshells and holds no shares, so recording the actor would resolve every
    * machine attach to access `none`). This is safe ONLY because of the
    * binding below: a scoped token can ever attach to the one pane whose
    * owner it names. Do not loosen either half.

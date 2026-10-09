@@ -115,7 +115,7 @@ describe("PaneDiagnosticsHud rows", () => {
     cleanup();
 
     renderHud({ nodeLabel: null, subshell: undefined });
-    expect(screen.getByText("unknown node")).toBeTruthy();
+    expect(screen.getByText("node you can't see")).toBeTruthy();
   });
 
   it("pane: the row's alive fact plus the SHARED indicator word", () => {

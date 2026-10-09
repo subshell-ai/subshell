@@ -27,9 +27,14 @@ the question now sits where the answer is.
   `setup` requires `--name` under any of them; the install one-liner's spelling is
   `curl … | SUBSHELL_NODE_NAME="mac mini" bash` (argv cannot cross a pipe, the same
   reason `SUBSHELL_DATA_DIR` and `SUBSHELL_NO_SERVICE` exist). Without that knob and
-  without `--name`, the script's `exec </dev/tty` reattach is what lets the question be
-  asked at all, which is why it sits BEFORE the final `setup` line and why a CI pipe,
-  which has no `/dev/tty`, must name the machine explicitly.
+  without `--name`, the terminal is what lets the question be asked at all: the
+  script opens `/dev/tty` for the `setup` command alone (a per-command redirect -
+  it never swaps its own stdin, which would strand a piped script's tail in the
+  pipe, the 2026-10-09 stall), and when the terminal cannot be opened AND fd 0
+  is not itself an inherited terminal the script refuses as a usage error
+  before ever running the binary (an inherited fd-0 terminal answers `setup`
+  directly, so that cell stays nameable). That is why a CI pipe, which has
+  neither, must name the machine explicitly.
 - **`config.json`'s `name` is a local echo of what enroll sent.** The plane owns the
   row afterwards (`PATCH /api/nodes/:id`), which is why `configure` still takes no
   `--name` (see `apps/node/agent/docs/repointing.md`); that rule is unchanged and now reads more clearly: the

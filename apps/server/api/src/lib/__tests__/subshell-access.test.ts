@@ -9,36 +9,38 @@ import * as crossAgentMigration from "@/db/migrations/0039-subshell-cross-agent.
 import { openSqliteDatabase } from "@/db/open-database.js";
 import { SubshellSharesRepository } from "@/db/repositories/subshell-shares.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
-import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { Database } from "@/db/types/index.js";
 import { accessAtLeast, loadSubshellAccess, resolveSubshellAccess } from "@/lib/subshell-access.js";
 
 describe("resolveSubshellAccess (pure)", () => {
-  it("the owner always resolves to owner, even with no shares and even if admin", () => {
-    expect(resolveSubshellAccess("alice", false, "alice", [])).toBe("owner");
-    expect(resolveSubshellAccess("alice", true, "alice", [])).toBe("owner");
+  it("the owner always resolves to owner, even with no shares", () => {
+    expect(resolveSubshellAccess("alice", "alice", [])).toBe("owner");
   });
 
-  it("an admin who is not the owner gets edit (effective access, spec)", () => {
-    expect(resolveSubshellAccess("root", true, "alice", [])).toBe("edit");
+  it("the resolver cannot see the admin role: it takes no role input at all", () => {
+    // Operator ruling 2026-10-09: the admin role carries no subshell reach.
+    // Arity is the pin - a reintroduced admin arm needs a signature change
+    // this test refuses (the loadSubshellAccess section below runs the DB
+    // half: a stored role='admin' row resolves like a stranger's).
+    expect(resolveSubshellAccess.length).toBe(3);
   });
 
   it("Everyone(view) only → view; Everyone(edit) → edit", () => {
-    expect(resolveSubshellAccess("bob", false, "alice", [{ granteeUserId: null, permission: "view" }])).toBe("view");
-    expect(resolveSubshellAccess("bob", false, "alice", [{ granteeUserId: null, permission: "edit" }])).toBe("edit");
+    expect(resolveSubshellAccess("bob", "alice", [{ granteeUserId: null, permission: "view" }])).toBe("view");
+    expect(resolveSubshellAccess("bob", "alice", [{ granteeUserId: null, permission: "edit" }])).toBe("edit");
   });
 
   it("the highest of Everyone + a specific grant wins", () => {
     // Specific edit over Everyone view.
     expect(
-      resolveSubshellAccess("bob", false, "alice", [
+      resolveSubshellAccess("bob", "alice", [
         { granteeUserId: null, permission: "view" },
         { granteeUserId: "bob", permission: "edit" },
       ]),
     ).toBe("edit");
     // Everyone edit over a specific view.
     expect(
-      resolveSubshellAccess("bob", false, "alice", [
+      resolveSubshellAccess("bob", "alice", [
         { granteeUserId: null, permission: "edit" },
         { granteeUserId: "bob", permission: "view" },
       ]),
@@ -46,11 +48,11 @@ describe("resolveSubshellAccess (pure)", () => {
   });
 
   it("a grant naming someone else does not leak to the viewer", () => {
-    expect(resolveSubshellAccess("bob", false, "alice", [{ granteeUserId: "carol", permission: "edit" }])).toBe("none");
+    expect(resolveSubshellAccess("bob", "alice", [{ granteeUserId: "carol", permission: "edit" }])).toBe("none");
   });
 
-  it("no shares, not owner, not admin → none", () => {
-    expect(resolveSubshellAccess("bob", false, "alice", [])).toBe("none");
+  it("no shares, not owner → none", () => {
+    expect(resolveSubshellAccess("bob", "alice", [])).toBe("none");
   });
 });
 
@@ -85,7 +87,6 @@ describe("loadSubshellAccess", () => {
     return {
       subshells: new SubshellsRepository(db),
       shares: new SubshellSharesRepository(db),
-      userMeta: new UserMetaRepository(db),
     };
   }
 
@@ -104,18 +105,22 @@ describe("loadSubshellAccess", () => {
     await db.destroy();
   });
 
-  it("resolves owner, admin-edit, shared-view and none from real rows + roles", async () => {
+  it("resolves owner, shared-view and none - and an ADMIN row resolves as a stranger's (2026-10-09)", async () => {
     const db = await freshDb();
     await seedSubshell(db, "s1", "alice");
     await (db as Kysely<any>).insertInto("userMeta").values({ userId: "root", role: "admin" }).execute();
     await (db as Kysely<any>).insertInto("userMeta").values({ userId: "bob", role: "user" }).execute();
 
     expect((await loadSubshellAccess(deps(db), "alice", "s1")).access).toBe("owner");
-    expect((await loadSubshellAccess(deps(db), "root", "s1")).access).toBe("edit");
+    // The role is REAL in this DB (the row exists, role='admin') and buys
+    // nothing here: foreign pane, no grant ⇒ none, exactly bob's answer.
+    expect((await loadSubshellAccess(deps(db), "root", "s1")).access).toBe("none");
     expect((await loadSubshellAccess(deps(db), "bob", "s1")).access).toBe("none");
 
-    await deps(db).shares.replaceForSubshell("s1", [{ granteeUserId: "bob", permission: "view" }], "alice");
-    expect((await loadSubshellAccess(deps(db), "bob", "s1")).access).toBe("view");
+    // A grant reaches an admin like it reaches anyone: same permission, no
+    // boost on top of it.
+    await deps(db).shares.replaceForSubshell("s1", [{ granteeUserId: "root", permission: "view" }], "alice");
+    expect((await loadSubshellAccess(deps(db), "root", "s1")).access).toBe("view");
     await db.destroy();
   });
 });
