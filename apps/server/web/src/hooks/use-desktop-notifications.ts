@@ -68,9 +68,10 @@ export interface DesktopNotificationsState {
  * kept its notifications personal even then. They still are: the server's own
  * `notify.service.ts` sends only to `row.userId`, only when `row.notify` is
  * set, and only when the owner's master switch is on;
- * `.claude/rules/security-context.md` states the invariant directly: "Sharing
- * widens who can see/act on a subshell; it never widens who gets pushed about
- * it." Shared rows reach this hook exactly as they reach the dashboard, so the
+ * `docs/security.md`, "Notifications stay owner-targeted", states the
+ * invariant: "Sharing widens who can see and act on a subshell; it never
+ * widens who gets notified about it." Shared rows reach this hook exactly as
+ * they reach the dashboard, so the
  * filters are the belt that keeps a grantee's view of a pane silent on the
  * grantee's own desktop — and a muted bell stays silent whatever the list
  * grows to.

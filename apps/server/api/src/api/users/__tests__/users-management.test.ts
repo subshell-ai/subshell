@@ -152,12 +152,14 @@ describe("admin user management", () => {
 
   describe("role assignment", () => {
     it("drops that user's live sockets, so their next connect re-derives its topics", async () => {
-      // A live socket chooses its topics ONCE, at connect, and a WebSocket is
-      // never re-authenticated — so a demoted admin with a dashboard tab open
-      // would go on receiving every subshell on the instance for as long as
-      // that tab lived. The registry is tested in isolation; what nothing
-      // asserted is that this ROUTE calls it, which is the seam that drifts
-      // while both halves stay green.
+      // A live socket chooses its topics ONCE, at connect, and a WebSocket
+      // is never re-authenticated. The topics have been role-free since
+      // 2026-10-09, so a demotion leaks nothing anymore - but a role change
+      // still changes the chrome the client should render, and this route
+      // closes the user's sockets so the next connect rebuilds it (hygiene;
+      // ws/live-registry.ts's header carries the reasoning). The registry is
+      // tested in isolation; what nothing asserted is that this ROUTE calls
+      // it, which is the seam that drifts while both halves stay green.
       resetLiveRegistryForTests();
       const closes: number[] = [];
       registerLiveSocket(admin2Id, {
