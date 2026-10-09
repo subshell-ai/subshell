@@ -71,6 +71,17 @@ export class SshHostPinError extends Error {
 
 const repo = new SshHostPinsRepository(db);
 
+/**
+ * True when a failed insert hit this table's UNIQUE
+ * `(owner_user_id, destination)` index (idx_ssh_host_pins_owner_destination):
+ * the `node-errors` message-containment posture, scoped to the table so any
+ * OTHER constraint violation stays loud instead of being swallowed as a race.
+ */
+function isUniquePinViolation(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return msg.includes("UNIQUE constraint failed") && msg.includes("ssh_host_pins");
+}
+
 /** The service's world. Production at {@link defaultPinsDeps}; tests install a fake. */
 export interface SshHostPinsDeps {
   /** The one clock: row stamps. */
@@ -210,6 +221,37 @@ async function fetchAndChooseLine(aNodeId: string | null, destination: string): 
 }
 
 /**
+ * The decision over a STANDING row, shared by the serialized read and the
+ * insert-collision readback so a raced capture decides EXACTLY as the
+ * serialized one: a differing key is §9's byte-equality hard block (nothing
+ * written, nothing deleted - the operator's re-decide is the only way past),
+ * the same key is the TOFU record agreeing with itself (the row stands,
+ * updatedAt = the last accepted match, no second create row).
+ */
+async function acceptStandingPin(
+  ownerUserId: string,
+  existing: SshHostPinTable,
+  fps: string[],
+  destination: string,
+): Promise<SshHostPinTable> {
+  const stored = hostKeyFingerprints(existing.hostKey);
+  if (stored.length !== 1 || stored[0] !== fps[0]) {
+    // §9's byte-equality hard block, at the plane's edge: A now reports a
+    // different key than the pin. Nothing written, nothing deleted - the
+    // operator's re-decide (delete + fresh capture) is the only way past.
+    throw new SshHostPinError(
+      "changed",
+      `the key home now reports a different host key for ${destination} than the pinned one`,
+      destination,
+    );
+  }
+  // The same key again is the TOFU record agreeing with itself: the row
+  // stands (updatedAt = the last accepted match), no second create row.
+  await repo.touchPin(ownerUserId, destination, pinsDeps().nowIso());
+  return { ...existing, updatedAt: pinsDeps().nowIso() };
+}
+
+/**
  * Capture (or accept, idempotently) the owner's pin for one canonical
  * destination. `hostKeyLine` supplies the explicit-pin posture (the operator's
  * key, not a fetch); absent it, A's `known_hosts` is asked over the signed
@@ -243,23 +285,7 @@ export async function captureHostPin(args: {
     );
   }
   const existing = await repo.getPin(ownerUserId, destination);
-  if (existing !== null) {
-    const stored = hostKeyFingerprints(existing.hostKey);
-    if (stored.length !== 1 || stored[0] !== fps[0]) {
-      // §9's byte-equality hard block, at the plane's edge: A now reports a
-      // different key than the pin. Nothing written, nothing deleted - the
-      // operator's re-decide (delete + fresh capture) is the only way past.
-      throw new SshHostPinError(
-        "changed",
-        `the key home now reports a different host key for ${destination} than the pinned one`,
-        destination,
-      );
-    }
-    // The same key again is the TOFU record agreeing with itself: the row
-    // stands (updatedAt = the last accepted match), no second create row.
-    await repo.touchPin(ownerUserId, destination, pinsDeps().nowIso());
-    return { ...existing, updatedAt: pinsDeps().nowIso() };
-  }
+  if (existing !== null) return await acceptStandingPin(ownerUserId, existing, fps, destination);
   const now = pinsDeps().nowIso();
   const row: SshHostPinTable = {
     id: crypto.randomUUID(),
@@ -269,7 +295,32 @@ export async function captureHostPin(args: {
     createdAt: now,
     updatedAt: now,
   };
-  await repo.insertPin(row);
+  // The get-then-insert above races the UNIQUE (owner_user_id, destination)
+  // index: two concurrent FIRST captures of one destination both read "no
+  // row". A collision is decided, never surfaced raw: the loser re-reads the
+  // winner's row and accepts it through the SAME rule the serialized path
+  // applies (same key = the idempotent touch, different key = the changed
+  // block). A winner that vanished between the refused insert and the
+  // readback (a concurrent delete) gets one retry; a second double-race
+  // refuses by name rather than looping - a non-violation DB error is not a
+  // race and stays loud.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await repo.insertPin(row);
+      break;
+    } catch (err) {
+      if (!isUniquePinViolation(err)) throw err;
+      const standing = await repo.getPin(ownerUserId, destination);
+      if (standing !== null) return await acceptStandingPin(ownerUserId, standing, fps, destination);
+      if (attempt === 1) {
+        throw new SshHostPinError(
+          "changed",
+          `the host-pin store refused the capture for ${destination} twice while its row kept changing; ask again`,
+          destination,
+        );
+      }
+    }
+  }
   await pinAudit(ownerUserId, "node.ssh_host_pin.create", aNodeId, {
     destination,
     fingerprint: fps[0], // the public identifier ONLY, never the line's bytes (§10)

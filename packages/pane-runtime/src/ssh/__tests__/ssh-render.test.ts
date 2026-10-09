@@ -261,12 +261,24 @@ describe("renderSshConfigContents relay mode (spec 2026-10-08 §9)", () => {
     expect(out).toContain(`    UserKnownHostsFile ${PIN}`);
   });
 
+  it("neutralizes the system-wide file too: BOTH trust refs, UserKnownHostsFile pinned and GlobalKnownHostsFile /dev/null", () => {
+    // OpenSSH consults GlobalKnownHostsFile (/etc/ssh/ssh_known_hosts by
+    // default) ALONGSIDE UserKnownHostsFile, and a match there satisfies
+    // `yes` - outranking the user file is not enough. A planted or stale key
+    // in B's system-wide file must not authenticate D: the destination's
+    // global trust DB is /dev/null for every hop (spec 2026-10-08 §9: the
+    // pinned file is the authority, not ambient state on B).
+    const out = renderSshConfigContents(baseSnapshot(), relay);
+    expect(out).toContain(`    UserKnownHostsFile ${PIN}`);
+    expect(out).toContain("    GlobalKnownHostsFile /dev/null");
+  });
+
   it("quotes the pinned path only when it needs it (the same tokenizer rule as other file values)", () => {
     const spaced = renderSshConfigContents(baseSnapshot(), { hostPinPath: "/data/ssh dir/s1/known_hosts" });
     expect(spaced).toContain('    UserKnownHostsFile "/data/ssh dir/s1/known_hosts"');
   });
 
-  it("keeps every other mandatory policy line unchanged (relay mode is ONLY the trust source + yes)", () => {
+  it("keeps every other mandatory policy line unchanged (relay mode is ONLY the trust refs + yes)", () => {
     const out = renderSshConfigContents(baseSnapshot(), relay);
     for (const [key, value] of [
       ["ForwardAgent", "no"],
@@ -286,6 +298,10 @@ describe("renderSshConfigContents relay mode (spec 2026-10-08 §9)", () => {
     expect(renderSshConfigContents(snap)).toContain("    StrictHostKeyChecking accept-new");
     // No second argument is the M1 call; it must equal an explicit-undefined.
     expect(renderSshConfigContents(snap, undefined)).toBe(renderSshConfigContents(snap));
+    // The relay's global-file neutralization must NOT leak into the M1
+    // posture: the direct branch keeps consulting the machine's own trust
+    // files exactly as M1 rendered them.
+    expect(renderSshConfigContents(snap)).not.toContain("GlobalKnownHostsFile");
   });
 
   it("refuses a non-absolute or oversized hostPinPath (never composes a stray trust file)", () => {
