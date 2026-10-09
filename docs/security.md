@@ -2243,7 +2243,8 @@ Audit events are written, grouped by family:
   `node.service` (with `{ verb: "restart", forced }` metadata; the restart
   verb shares its action with the rest of the service surface). The SSH
   launcher's act lands in this family too as `ssh.launch` (spec 2026-10-07
-  §12): metadata `{ nodeId, destination, subshellId }`, naming which machine
+  §12): metadata `{ nodeId, destination, subshellId }` plus `relayRef` for a
+  relay launch, naming which machine
   dialed out to which canonical `host:port` and the pane that came of it, and
   never a config value, path list, or key material (§13). It is written AFTER
   the pane spawned, success only, the same posture as `subshell.create`, and
