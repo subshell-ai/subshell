@@ -61,15 +61,19 @@ export interface DesktopNotificationsState {
  * noticing a TRANSITION.
  *
  * **It must apply the same three gates the server's push path applies**, and
- * the list it reads makes that non-optional. `GET /api/subshells` returns every
- * subshell the caller can SEE — their own, ones shared with them, and for an
- * ADMIN every subshell on the instance. The server's own
+ * they stay non-optional even though the list got narrower. Since 2026-10-09
+ * `GET /api/subshells` returns the subshells the caller can SEE — their own
+ * and ones shared with them — for every role alike, admins included; it used
+ * to add the whole instance for an admin, and this hook's filters were what
+ * kept its notifications personal even then. They still are: the server's own
  * `notify.service.ts` sends only to `row.userId`, only when `row.notify` is
  * set, and only when the owner's master switch is on;
  * `.claude/rules/security-context.md` states the invariant directly: "Sharing
  * widens who can see/act on a subshell; it never widens who gets pushed about
- * it." Without these filters an admin's desktop notifies on every user's agent
- * on the instance, and a muted bell notifies anyway.
+ * it." Shared rows reach this hook exactly as they reach the dashboard, so the
+ * filters are the belt that keeps a grantee's view of a pane silent on the
+ * grantee's own desktop — and a muted bell stays silent whatever the list
+ * grows to.
  *
  * **It also reports when a notification did not happen** (spec 2026-09-14
  * §5.1). Declining the macOS prompt is one click and macOS never asks again,
@@ -102,7 +106,7 @@ export function useDesktopNotifications(): DesktopNotificationsState {
 
   useEffect(() => {
     // Only the owner's own, belled subshells are ever notified about — the
-    // list itself is much wider than that.
+    // visible list also carries the shared rows this filter keeps out.
     const mine = subshells.filter((s) => s.access === "owner" && s.notify);
     const waiting = new Set<string>(mine.filter((s) => subshellIndicator(s) === "waiting").map((s) => s.id));
     const before = previous.current;
