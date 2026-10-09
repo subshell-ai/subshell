@@ -1,11 +1,16 @@
-import { CardTitle, type Node } from "@internal/node-admin";
-import { Link } from "@tanstack/react-router";
+import { Button, CardTitle, type Node } from "@internal/node-admin";
+import { useNavigate } from "@tanstack/react-router";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 import { canAddNode, NODE_ENROLLMENT_OFF_COPY } from "@/lib/node-enrollment";
 import { sshMachineBlocker } from "@/lib/ssh-machine-readiness";
 
 /** Keep setup reachable without asking for a destination that cannot be used. */
 export function NoSshTargets({ nodes, onLeave }: { nodes: Node[]; onLeave?: () => void }) {
+  const navigate = useNavigate();
+  function leaveFor(go: () => void): void {
+    onLeave?.();
+    go();
+  }
   const { data: settings } = usePublicSettings();
   const mayAdd = canAddNode(settings);
   const manageable = nodes.filter((node) => node.canManage);
@@ -24,22 +29,25 @@ export function NoSshTargets({ nodes, onLeave }: { nodes: Node[]; onLeave?: () =
           <p className="text-detail">
             {node.name}: {sshMachineBlocker(node)}
           </p>
-          <Link to="/nodes/$id" params={{ id: node.id }} onClick={onLeave} className="text-label underline">
+          <Button
+            variant="outline"
+            size="sm"
+            className="self-start"
+            onClick={() => leaveFor(() => void navigate({ to: "/nodes/$id", params: { id: node.id } }))}
+          >
             Open {node.name} settings
-          </Link>
+          </Button>
         </div>
       ))}
-      {settings?.viewerIsAdmin &&
-        settings.allowServerSubshells === false &&
-        nodes.some((node) => node.kind === "local") && (
-          <Link to="/settings" onClick={onLeave} className="text-label underline">
-            Allow server subshells in Server Settings
-          </Link>
-        )}
       {mayAdd ? (
-        <Link to="/nodes" onClick={onLeave} className="text-label underline">
+        <Button
+          variant="outline"
+          size="sm"
+          className="self-start"
+          onClick={() => leaveFor(() => void navigate({ to: "/nodes" }))}
+        >
           Add a node
-        </Link>
+        </Button>
       ) : (
         <p className="text-detail text-muted-foreground">{NODE_ENROLLMENT_OFF_COPY}</p>
       )}
