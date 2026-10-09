@@ -102,6 +102,8 @@ interface Harness {
   disabledOwners: Set<string>;
   ready: { id: string; report: NodeReadyReport }[];
   inventories: { id: string; json: string }[];
+  /** JSON trust blocks `ready` mirror writes landed (spec 2026-10-08 §4.6) */
+  sshFingerprints: { id: string; json: string | null }[];
   touched: string[];
   statuses: { id: string; status: string }[];
   /** what deps.resolveResult saw: the connection handed to it + the event */
@@ -125,6 +127,7 @@ function makeHarness(): Harness {
     disabledOwners: new Set(),
     ready: [],
     inventories: [],
+    sshFingerprints: [],
     touched: [],
     statuses: [],
     results: [],
@@ -163,6 +166,9 @@ function makeHarness(): Harness {
       },
       setStatus: async (id, status) => {
         h.statuses.push({ id, status });
+      },
+      setSshFingerprint: async (id, json) => {
+        h.sshFingerprints.push({ id, json });
       },
     } as unknown as NodeWsDeps["nodes"],
     resolveResult: (conn, event) => {
@@ -621,6 +627,64 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     // this commit; its removal from {@link NodeWsDeps} is itself the pin that
     // `ready` cannot pull anymore, whatever a future frame handler grows.
     expect(ws.closed).toHaveLength(0);
+  });
+
+  /**
+   * A complete runtime report the strict validator accepts, so the frames
+   * below exercise the MIRROR rules rather than the parser's floor.
+   */
+  const runtimeWith = (extra: Record<string, unknown>) => ({
+    startedAt: "2026-10-08T00:00:00.000Z",
+    supervised: false,
+    service: {
+      manager: "systemd",
+      installed: false,
+      definitionPath: null,
+      state: "running",
+      pid: null,
+      enabled: null,
+      linger: null,
+      paneSafety: "unknown",
+    },
+    configPath: "/c",
+    agentLogPath: "/c/agent.log",
+    logPath: null,
+    logHint: null,
+    tmuxPath: null,
+    binaryPath: "/b",
+    logging: { debug: false, source: "default" },
+    ...extra,
+  });
+
+  /** The canonical §4.6 trust block shapes; one good, one the grammar refuses. */
+  const TRUST_BLOCK = {
+    own: { signing: `SHA256:${"A".repeat(43)}`, encryption: `SHA256:${"B".repeat(43)}` },
+    peers: [],
+  };
+
+  it("ready mirrors the ssh trust block onto the row; no block, no write, no clear", async () => {
+    const h = makeHarness();
+    await handleNodeMessage(
+      h.deps,
+      fakeSocket("n1"),
+      JSON.stringify(readyFrame({ runtime: runtimeWith({ sshFingerprint: TRUST_BLOCK }) })),
+    );
+    expect(h.sshFingerprints).toEqual([{ id: "n1", json: JSON.stringify(TRUST_BLOCK) }]);
+    // A later ready WITHOUT a block (the agent predates M2, or the read
+    // failed): the mirror must survive it. Absence is not evidence the
+    // machine's keys are gone; only a fresh true report moves the copy.
+    await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify(readyFrame()));
+    expect(h.sshFingerprints).toHaveLength(1);
+    // And a malformed block is dropped by the frame parser BEFORE the switch,
+    // so it reaches no write at all (the same frame still comes online: the
+    // ready itself is kept, `runtime` with it, minus the junk block).
+    await handleNodeMessage(
+      h.deps,
+      fakeSocket("n1"),
+      JSON.stringify(readyFrame({ runtime: runtimeWith({ sshFingerprint: { own: "junk", peers: [] } }) })),
+    );
+    expect(h.sshFingerprints).toHaveLength(1);
+    expect(h.ready).toHaveLength(3);
   });
 
   /**
