@@ -127,7 +127,10 @@ export function buildExpoMessages(
     collapseId: subshellId,
     // Names registered in apps/client/mobile/src/native/push.ts — keep the three in
     // sync or the lock-screen actions silently vanish on real devices.
-    categoryId: "subshell",
+    // grant_approval names the action-free category: its sid is a grant
+    // REQUEST uuid, so the Silence bell (a PATCH against a subshell) would be
+    // a dead end on the lock screen (PR #338 review, Important 1).
+    categoryId: kind === "grant_approval" ? "subshell-plain" : "subshell",
     channelId: "subshell-subshells",
     _channelId: "subshell-subshells",
     data: { sid: subshellId, kind, origin: APP_BASE_URL },

@@ -7,7 +7,6 @@
 "@internal/node-web": major
 "@internal/node-admin": major
 "@internal/backend-errors": major
-"@subshell-ai/plugin-ssh": major
 "@internal/mobile": major
 ---
 

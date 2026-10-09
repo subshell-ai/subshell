@@ -51,6 +51,17 @@ export function configureNotifications(): void {
       options: { opensAppToForeground: false, isAuthenticationRequired: true },
     },
   ]);
+  // The action-free twin, named by `grant_approval` payloads server-side: a
+  // remote push surfaces actions only for a REGISTERED category, and that
+  // kind's sid is a grant REQUEST id, so the Silence bell has nothing to
+  // PATCH (PR #338 review, Important 1). Plain Open only.
+  void Notifications.setNotificationCategoryAsync("subshell-plain", [
+    {
+      identifier: "open",
+      buttonTitle: "Open",
+      options: { opensAppToForeground: true, isAuthenticationRequired: true },
+    },
+  ]);
 }
 
 /**
