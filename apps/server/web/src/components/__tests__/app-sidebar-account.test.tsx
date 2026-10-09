@@ -112,6 +112,7 @@ describe("the header account card", () => {
     const calls = stubFetch(opts);
     const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
       openLaunch: () => {},
+      openSshLaunch: () => {},
       openNewWorkspace: () => {},
     });
     try {

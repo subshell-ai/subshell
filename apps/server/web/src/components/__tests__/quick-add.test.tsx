@@ -74,7 +74,7 @@ describe("QuickAddProvider", () => {
     await act(async () => {
       screen.getByText("rail + (subshell)").click();
     });
-    expect(await screen.findByText("Launch an agent in a working directory.")).toBeDefined();
+    expect(await screen.findByText("Start an agent, a terminal, or an SSH session in a subshell.")).toBeDefined();
     // The workspace dialog stays closed — the two triggers are independent.
     expect(screen.queryByText("Start it with subshells already tiled in, or empty.")).toBeNull();
     await flush();
@@ -86,7 +86,7 @@ describe("QuickAddProvider", () => {
       screen.getByText("rail + (workspace)").click();
     });
     expect(await screen.findByText("Start it with subshells already tiled in, or empty.")).toBeDefined();
-    expect(screen.queryByText("Launch an agent in a working directory.")).toBeNull();
+    expect(screen.queryByText("Start an agent, a terminal, or an SSH session in a subshell.")).toBeNull();
     await flush();
   });
 

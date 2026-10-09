@@ -44,11 +44,21 @@ import type { sshConnectSearch } from "@/lib/ssh-connect-search";
  * fingerprint out of the grant. A denial needs no confirm: it writes only the
  * audit row, and a later relaunch simply asks again.
  */
-export function PendingApprovals({ connection }: { connection?: ReturnType<typeof sshConnectSearch> }) {
+export function PendingApprovals({
+  connection,
+  onlyRequestId,
+  onApproved,
+}: {
+  connection?: ReturnType<typeof sshConnectSearch>;
+  onlyRequestId?: string;
+  onApproved?: () => void;
+}) {
   const [approved, setApproved] = useState<SshGrantRequest | null>(null);
   const query = useSshGrantRequests();
   const view = query.data;
-  const requests = (view?.requests ?? []).filter((r) => r.status === "pending");
+  const requests = (view?.requests ?? []).filter(
+    (r) => r.status === "pending" && (!onlyRequestId || r.id === onlyRequestId),
+  );
   return (
     <Card>
       <CardHeader>
@@ -62,8 +72,8 @@ export function PendingApprovals({ connection }: { connection?: ReturnType<typeo
         {approved && (
           <div role="status" className="mb-4 flex flex-col gap-2">
             <p className="text-detail">
-              Keys approved for {approved.resolvedSelector}. The original connection did not start. Return to Connect
-              and try again.
+              Keys approved for {approved.resolvedSelector}. The original connection did not start. Return to the
+              subshell launcher and try again.
             </p>
             <Link
               to="/connect"
@@ -78,7 +88,7 @@ export function PendingApprovals({ connection }: { connection?: ReturnType<typeo
               }
               className="text-label underline"
             >
-              Return to Connect
+              Return to SSH subshell
             </Link>
           </div>
         )}
@@ -89,7 +99,14 @@ export function PendingApprovals({ connection }: { connection?: ReturnType<typeo
         ) : (
           <div className="space-y-6">
             {requests.map((request) => (
-              <ApprovalCard key={request.id} request={request} onApproved={() => setApproved(request)} />
+              <ApprovalCard
+                key={request.id}
+                request={request}
+                onApproved={() => {
+                  if (onApproved) onApproved();
+                  else setApproved(request);
+                }}
+              />
             ))}
           </div>
         )}
