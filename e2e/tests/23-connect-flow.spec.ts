@@ -8,41 +8,12 @@ import { PORTS } from "../ports";
 import { shortTmuxBase } from "../stack";
 import { expectSubshellRunning } from "./helpers";
 
-/**
- * Plan 3's browser proof (spec 2026-10-07 §7, plan Task 5): the destination-
- * first /connect page driven in a REAL browser against a REAL sshd. Four
- * scenarios, in order, each its own test with its own page context:
- *
- *  1. gate OFF (the fresh instance's default): the machine picker keeps the
- *     control-plane host VISIBLE and DISABLED with the reason "SSH is off on
- *     this machine" - greying explains, hiding does not (decision 3). The
- *     disabled row is never clicked; the field staying empty IS the inertness
- *     assertion.
- *  2. the two-sentence Match exec disclosure, verbatim (decision 6), above the
- *     Connect button BEFORE any Connect is attempted - the box-order check
- *     makes "before the button" a literal assertion.
- *  3. gate ON (a REST flip on the admin's own cookie session, then a reload):
- *     the sole SSH-enabled machine pre-selects honestly, the destination
- *     picker's config group carries the fixture alias, Connect POSTs once and
- *     the router lands on /subshells/<id>; the typed line comes back EVALUATED
- *     by the remote shell (only the shell's arithmetic spells CONNECT-7-OK),
- *     read through the pane-log route - spec 22's proof, browser-driven.
- *  4. an EVERYONE-edit sharee opening the SAME pane sees the SSH badge and the
- *     view-only sentence, and their typing leaves nothing in the log (the
- *     client posture; the 403 itself is tier 2's, pinned in spec 22).
- *
- * Why its own backend: exactly spec 22's reason - the ssh tier resolves as the
- * server process's HOME and bun caches `os.homedir()` per process, so this
- * child is SPAWNED with `HOME=<fixture home>` + the spec's ssh-agent socket,
- * on its own temp DB, data dir and tmux base (port: PORTS.connect, a fresh
- * slot so the two ssh specs' instances can never collide).
- *
- * The control-plane host is the seeded `local` node, whose picker NAME is
- * "Server" (seed-local.ts) - the assertions read that name because the page
- * reads node rows, not ids.
- *
- * Binaries: ssh / ssh-keygen / sshd, decided by the fixture's own gate; a host
- * without them SKIPS LOUDLY and never fakes a pass.
+/** Real-browser direct SSH proof against a dedicated sshd and isolated backend.
+ * Gate-off state enters the same wizard as launch, readiness blocks Start until
+ * explicitly enabled, and the Match exec disclosure precedes the launch action.
+ * A real alias launch reaches the remote shell; an edit sharee remains view-only.
+ * The backend owns a fixture HOME and SSH_AUTH_SOCK, temp DB/data, and tmux socket.
+ * Missing SSH binaries skip loudly rather than substituting a mock.
  */
 
 const ROOT = path.join(import.meta.dirname, "..", "..");
@@ -57,9 +28,9 @@ test.skip(missing.length > 0, `SSH binaries absent on this host (${missing.join(
 
 /** The exact strings the page ships (components/connect/* + components/ssh-pane-labels.tsx). */
 const SSH_DISCLOSURE_COPY =
-  "Resolving asks the connecting machine to read its SSH config. A hidden Match exec in that config can run a local command while it resolves.";
+  "Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.";
 const SSH_VIEW_ONLY_COPY = "SSH sessions take input from their owner only.";
-const MACHINE_OFF_REASON = "SSH is off here. An admin can switch it on from this machine's settings.";
+const MACHINE_OFF_REASON = "SSH is off on this machine. An admin can enable it in machine settings.";
 /** The seeded control-plane host's display name (seed-local.ts): the picker reads names, not ids. */
 const LOCAL_NODE_NAME = "Server";
 /** `configGroupLabel(selectedNode.name)` for that row. */
@@ -304,11 +275,11 @@ async function login(page: Page, email: string, password: string): Promise<void>
   await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: READY_TIMEOUT });
 }
 
-/** The /connect page, fields mounted (the panel renders them on mount; the queries fill them in). */
+/** The compatibility route opens the current SSH launch dialog; gate-off state may show setup instead of fields. */
 async function openConnectPage(page: Page): Promise<void> {
   await page.goto(`${ORIGIN}/connect`);
-  await expect(page.getByRole("heading", { name: "Connect", exact: true })).toBeVisible();
-  await expect(page.locator("#connect-destination")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "New subshell", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "SSH terminal", exact: true })).toHaveAttribute("aria-pressed", "true");
 }
 
 function requireAdmin(): APIRequestContext {
@@ -321,30 +292,36 @@ function requirePaneId(): string {
   return paneId;
 }
 
-test("gate off: the control-plane host sits disabled in the machine picker with its reason", async ({ page }) => {
+test("gate off: the wizard shows the host’s blocker and requires explicit setup before launch", async ({ page }) => {
   await login(page, ADMIN.email, ADMIN.password);
   await openConnectPage(page);
-
-  // Base UI opens its popup on the pointer path; a real Playwright click is
-  // exactly that. The picker keeps the gated-off row LISTED (decision 3).
-  await page.locator("#connect-machine").click();
-  const popup = page.locator('[data-slot="combobox-content"]');
-  const serverRow = popup.getByRole("option", { name: /Server/ });
-  await expect(serverRow).toHaveAttribute("data-disabled", "");
+  await expect(page.getByText("No machine is ready for SSH")).toBeVisible();
+  await expect(page.locator("#connect-destination")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "SSH Wizard", exact: true }).click();
+  await page.getByRole("button", { name: "Connect to a destination", exact: true }).click();
+  await page.getByLabel("SSH destination", { exact: true }).fill(SSH_FIXTURE_ALIAS);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("combobox", { name: "Connect through", exact: true }).click();
+  const serverRow = page.getByRole("option", { name: /Server/ });
   await expect(serverRow).toContainText(MACHINE_OFF_REASON);
-
-  // Inertness, asserted rather than attempted (the T3 handoff): no click is
-  // fired at the disabled row; the field still carries no selection.
-  await expect(page.locator("#connect-machine")).toHaveValue("");
+  await serverRow.click();
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Prepare the connecting machine", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Enable SSH", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Start SSH subshell", exact: true })).toHaveCount(0);
 });
 
-test("the disclosure names the Match exec risk above the Connect button, before any Connect", async ({ page }) => {
+test("the disclosure names the Match exec risk above Start SSH subshell before launch", async ({ page }) => {
+  const enabled = await requireAdmin().put("/api/nodes/local/ssh-enabled", { data: { on: true } });
+  expect(enabled.ok(), await enabled.text()).toBe(true);
   await login(page, ADMIN.email, ADMIN.password);
   await openConnectPage(page);
 
   const disclosure = page.getByText(SSH_DISCLOSURE_COPY);
   await expect(disclosure).toBeVisible();
-  const connectButton = page.getByRole("button", { name: "Connect", exact: true });
+  const connectButton = page.getByRole("button", { name: "Start SSH subshell", exact: true });
   await expect(connectButton).toBeVisible();
 
   // "Before the button" literally: the paragraph's box lies above the
@@ -389,7 +366,7 @@ test("gate on: destination-first launch reaches a live ssh pane whose remote she
     predicate: (w) => w.url().includes("/ws"),
     timeout: READY_TIMEOUT,
   });
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.getByRole("button", { name: "Start SSH subshell", exact: true }).click();
   await expect(page).toHaveURL(/\/subshells\/[a-zA-Z0-9_-]{1,64}$/, { timeout: READY_TIMEOUT });
   paneId = new URL(page.url()).pathname.split("/").pop();
 

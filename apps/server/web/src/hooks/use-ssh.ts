@@ -120,12 +120,12 @@ export function useLaunchSsh() {
 export const SSH_HOST_PINS_QUERY_KEY = ["ssh-host-pins"] as const;
 export const sshNodeRosterQueryKey = (nodeId: string) => ["ssh-node-roster", nodeId] as const;
 
-export function useSshNodeRoster(nodeId: string | null) {
+export function useSshNodeRoster(nodeId: string | null, enabled = true) {
   return useQuery({
     queryKey: sshNodeRosterQueryKey(nodeId ?? ""),
     queryFn: () =>
       apiFetch<{ identities: SshAgentIdentity[] }>(`/api/ssh/identities?node=${encodeURIComponent(nodeId ?? "")}`),
-    enabled: nodeId !== null && nodeId !== "",
+    enabled: enabled && nodeId !== null && nodeId !== "",
   });
 }
 
@@ -202,5 +202,24 @@ export function useSshReadiness() {
     queryKey: ["ssh-readiness"],
     queryFn: () => apiFetch<{ machines: import("@/lib/ssh").SshMachineReadiness[] }>("/api/ssh/readiness"),
     refetchInterval: 5000,
+  });
+}
+
+/** An explicit SSH configuration act; readiness must be re-read before claiming readiness. */
+export function useEnableSsh() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/api/nodes/${encodeURIComponent(id)}/ssh-enabled`, {
+        method: "PUT",
+        body: JSON.stringify({ on: true }),
+      }),
+    onSuccess: async (_data, id) => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["ssh-readiness"] }),
+        client.invalidateQueries({ queryKey: [...NODE_QUERY_KEY, id] }),
+        client.invalidateQueries({ queryKey: NODES_QUERY_KEY }),
+      ]);
+    },
   });
 }

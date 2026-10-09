@@ -26,6 +26,7 @@ export function NodePageShell({
   subtitle,
   action,
   children,
+  errorContent,
 }: {
   id: string;
   /** Overrides the node's name — the Overview page passes an editable field. */
@@ -33,6 +34,8 @@ export function NodePageShell({
   subtitle?: string;
   action?: (node: NodeDetail) => ReactNode;
   children: (node: NodeDetail) => ReactNode;
+  /** An independent management recovery read when node detail cannot load. */
+  errorContent?: ReactNode;
 }): JSX.Element {
   const node = useNode(id);
 
@@ -42,7 +45,11 @@ export function NodePageShell({
     return (
       <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
         <PageHeader title="Node" subtitle="Machine details" />
-        <ErrorBanner message="That node does not exist, or is not shared with you." className="rounded-md border" />
+        <ErrorBanner
+          message="Machine details could not be loaded. The node may be unavailable or not shared with you."
+          className="rounded-md border"
+        />
+        {errorContent}
       </main>
     );
   }

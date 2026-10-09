@@ -164,17 +164,38 @@ of navigating away. Keep launch pending until that attachment finishes.
 
 The SSH destination accepts typed text directly; suggestions retain their
 canonical destination until edited. Explain the connecting machine beside its
-picker. Alternate key machines belong under Advanced SSH options. Approval
-runs inside the same dialog, scoped to the exact request, and returns to the
-form without launching automatically. This preserves workspace selections and
-split direction. Saved destination management lives in Settings → SSH.
+picker. Alternate key machines belong under Advanced SSH options and require
+an explicit selection of current SSH-agent fingerprints; no keys are selected
+automatically, and a disappeared selected key blocks launch. The server can
+connect or supply remote agent keys under the same launch-access rule as nodes.
+Saved destination management lives in Settings → SSH.
+
+**SSH Wizard** is available from empty, partial, and ready connection forms,
+personal SSH settings, and each node's overview. It stays inside the caller's
+existing dialog: Connect to a destination, Prepare a machine for SSH, and Use
+keys from another machine share one draft and adapt their steps to current
+readiness. Setup completion never launches a pane. Prepare ends with Done or
+Connect now; remote keys ends with Use this setup, returning to the same form.
+The original parent callback still owns workspace selection or split attachment,
+and busy state lasts until asynchronous attachment finishes. Changing a parent
+mode keeps the destination, canonical suggestion, machine, scoped fingerprints,
+and remember choice.
+
+Enabling SSH is an explicit owner/admin configuration act, independent of launch
+access. Offline, maintenance, version, missing-access, and read-failure blockers
+remain visible and retryable; selections never silently change when readiness
+changes. Enrollment embeds the shared setup-key fields, preserves the generated
+key and chosen method/address across Back, and matches that exact key's
+`consumedNodeId`. Enrollment and coming online are separate states. The instance's
+enrollment policy disables adding a machine while keeping existing choices usable.
+Polling lives only on mounted open SSH surfaces.
+
+Remote key enumeration reads the Subshell process's SSH agent. An empty roster
+means keys need loading; an unreachable agent means that process needs access to
+`SSH_AUTH_SOCK`, which may differ from an interactive login shell's environment.
+Normal same-machine SSH can use identity files without any agent. Readiness does
+not claim that authentication to the destination has been tested.
 
 `/connect` is a compatibility redirect to `/new?kind=ssh`, preserving validated
 connection choices. The quick-add provider opens the shared dialog over the
 subshell list; there is no separate Connect navigation item or page.
-
-The SSH terminal form requires an owned (or admin-managed server), online,
-launchable machine with SSH enabled, outside maintenance and protocol hold.
-When none is ready it shows setup guidance and machine settings links instead
-of destination fields. It polls availability while open; a stale selection
-blocks creation without silently switching machines. Failed reads offer Retry.

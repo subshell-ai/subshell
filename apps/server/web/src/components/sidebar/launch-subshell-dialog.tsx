@@ -2,6 +2,7 @@ import { Button } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useRef, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
+import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
 import {
   canSubmit,
   emptyNewSubshellForm,
@@ -39,6 +40,7 @@ export function LaunchSubshellDialog({
   onOpenChange: (open: boolean) => void;
 }): JSX.Element {
   const [sshPending, setSshPending] = useState(false);
+  const [sshDraft, setSshDraft] = useState(() => sshSessionDraft(initialSsh));
   const [kind, setKind] = useState<SubshellKind>(initialSsh ? "ssh" : "agent");
   const contentRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -47,6 +49,7 @@ export function LaunchSubshellDialog({
   const [error, setError] = useState<string | null>(null);
 
   function reset() {
+    setSshDraft(sshSessionDraft(initialSsh));
     setForm(emptyNewSubshellForm());
     setError(null);
     setKind("agent");
@@ -75,6 +78,7 @@ export function LaunchSubshellDialog({
       // A half-filled launch form is not disposable (ruling 2026-09-30):
       // only a deliberate act closes this - X, Cancel, or a successful add.
       onOpenChange={formDialogOpenChange((next) => {
+        if (sshPending || create.isPending) return;
         onOpenChange(next);
         if (!next) reset();
       })}
@@ -93,8 +97,10 @@ export function LaunchSubshellDialog({
           <DialogDescription>Start an agent, a terminal, or an SSH session in a subshell.</DialogDescription>
         </DialogHeader>
         <SubshellKindPicker value={kind} onChange={setKind} disabled={sshPending || create.isPending} />
-        {kind === "ssh" ? (
+        {kind === "ssh" && open ? (
           <ConnectPanel
+            draft={sshDraft}
+            onDraftChange={setSshDraft}
             onPendingChange={setSshPending}
             initial={initialSsh}
             onLeave={() => onOpenChange(false)}

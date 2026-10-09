@@ -19,6 +19,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { SshWizardDialog } from "@/components/connect/ssh-wizard-dialog";
 import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { EditableText } from "@/components/editable-text";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
@@ -28,6 +29,7 @@ import { osLabel } from "@/components/nodes/node-row";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { NodeUpdateCard } from "@/components/nodes/node-update-card";
+import { ServerIdentityRecovery } from "@/components/ssh/server-identity-recovery";
 import { SshTrustSection } from "@/components/ssh/trust-section";
 import { useDeleteNode, useRenameNode } from "@/hooks/use-nodes";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
@@ -89,6 +91,7 @@ function NodeDetailPage() {
   return (
     <NodePageShell
       id={id}
+      errorContent={id === "local" ? <ServerIdentityRecovery /> : undefined}
       title={
         // Rename is owner-gated: `canManage` is exactly that gate — a real
         // owner on an agent node, or an admin on `local`, whose boost is
@@ -247,6 +250,7 @@ function NodeDetailPage() {
           {/* The flip's fallout on THIS surface: every subshell of the viewer's
               that ran here went `terminated` the instant the PUT answered, and
               nothing else on the page refetches the sidebar list. */}
+          <SshWizardDialog initial={{ node: n.id }} />
           <NodeMaintenanceCard
             node={n}
             onMaintenanceChanged={() => void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY })}
@@ -272,7 +276,8 @@ function NodeDetailPage() {
               section adds the plane-only halves: the "display only" honesty
               line (§4.6: this rendering proves nothing, the two dashboards
               do) and the owner-only re-pair act on each peer (§4.5). */}
-          {managesNodeSections(n) && <SshTrustSection node={n} />}
+          <SshTrustSection node={n} />
+          {n.kind === "local" && <ServerIdentityRecovery />}
 
           {/* The node's RULES live on its page, not in a tab of one card:
               the allowlist gates launches on this machine including the
