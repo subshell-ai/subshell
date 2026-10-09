@@ -61,6 +61,8 @@ async function setup({
   const state = {
     machines,
     readyError,
+    savedError: false,
+    aliasesError: false,
     identities: [{ fingerprint: "SHA256:AAAA", comment: "Work key" }],
     rosterError: false,
     consumedNodeId: null as string | null,
@@ -81,8 +83,14 @@ async function setup({
       });
     if (path === "/api/ssh/readiness")
       return state.readyError ? json({ message: "read failed" }, 503) : json({ machines: state.machines });
-    if (path === "/api/ssh/saved-hosts") return json({ saved: [], recent: [], defaultNodeId: null });
-    if (path === "/api/ssh/aliases") return json({ aliases: ["work"], includeCycle: false, truncated: false });
+    if (path === "/api/ssh/saved-hosts")
+      return state.savedError
+        ? json({ message: "saved read failed" }, 503)
+        : json({ saved: [], recent: [], defaultNodeId: null });
+    if (path === "/api/ssh/aliases")
+      return state.aliasesError
+        ? json({ message: "aliases read failed" }, 503)
+        : json({ aliases: ["work"], includeCycle: false, truncated: false });
     if (path === "/api/ssh/identities")
       return state.rosterError ? json({ message: "No SSH_AUTH_SOCK" }, 502) : json({ identities: state.identities });
     if (path.endsWith("/ssh-enabled")) {
@@ -200,6 +208,32 @@ it("connect intent skips satisfied setup, focuses steps, and starts only after r
   expect(calls.filter((c) => c.path === "/api/ssh/launch")).toEqual([
     { path: "/api/ssh/launch", method: "POST", body: { node: "desk", destination: "deploy@example:22" } },
   ]);
+});
+
+it("shows destination discovery failures and retries them without losing typed input", async () => {
+  const { state, client, calls } = await setup({ initial: { node: "desk", destination: "keep-me" } });
+  await click("Connect to a destination");
+  state.savedError = true;
+  state.aliasesError = true;
+  await act(async () => {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: ["ssh-saved-hosts"] }),
+      client.invalidateQueries({ queryKey: ["ssh-aliases"] }),
+    ]);
+  });
+  await screen.findByText(/Saved and recent destinations could not be read/);
+  expect(screen.getByText(/SSH config aliases could not be read/)).toBeTruthy();
+  expect((screen.getByLabelText("SSH destination") as HTMLInputElement).value).toBe("keep-me");
+  expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(false);
+  const savedReads = calls.filter((call) => call.path === "/api/ssh/saved-hosts").length;
+  const aliasReads = calls.filter((call) => call.path === "/api/ssh/aliases").length;
+  state.savedError = false;
+  state.aliasesError = false;
+  await click("Retry destination suggestions");
+  await waitFor(() => expect(screen.queryByText(/could not be read/)).toBeNull());
+  expect(calls.filter((call) => call.path === "/api/ssh/saved-hosts")).toHaveLength(savedReads + 1);
+  expect(calls.filter((call) => call.path === "/api/ssh/aliases")).toHaveLength(aliasReads + 1);
+  expect((screen.getByLabelText("SSH destination") as HTMLInputElement).value).toBe("keep-me");
 });
 
 it("prepare intent explicitly enables SSH and never launches; Connect now returns to same form", async () => {

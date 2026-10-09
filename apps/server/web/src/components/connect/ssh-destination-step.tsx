@@ -1,3 +1,4 @@
+import { Button } from "@internal/node-admin";
 import { DestinationField } from "@/components/connect/destination-field";
 import { buildDestinationOptions } from "@/components/connect/destination-options";
 import type { SshSessionDraft } from "@/components/connect/ssh-session-draft";
@@ -45,6 +46,26 @@ export function SshDestinationStep({
         <p className="text-detail text-muted-foreground">
           Enter the destination you want to access, for example deploy@example.com:22, or choose a saved destination.
         </p>
+        {(ledger.isError || aliases.isError) && (
+          <div className="flex flex-col items-start gap-2">
+            <p role="alert" className="text-destructive text-detail">
+              {ledger.isError && "Saved and recent destinations could not be read. "}
+              {aliases.isError && "SSH config aliases could not be read. "}
+              You can still type a destination.
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={ledger.isFetching || aliases.isFetching}
+              onClick={() => {
+                if (ledger.isError) void ledger.refetch();
+                if (aliases.isError) void aliases.refetch();
+              }}
+            >
+              Retry destination suggestions
+            </Button>
+          </div>
+        )}
       </Field>
     </FieldGroup>
   );
