@@ -5,6 +5,7 @@ import {
   type SshWizardStep,
   sshDestination,
   sshKeySelectionProblem,
+  sshKeySourceProblem,
   sshWizardSteps,
 } from "@/components/connect/ssh-session-draft";
 import type { SshWizardProps } from "@/components/connect/ssh-wizard";
@@ -35,10 +36,15 @@ export function useSshWizardController({
   const mayAdd = canAddNode(settings);
   const machine = machines.find((m) => m.node.id === draft.nodeId);
   const keyMachine = machines.find((m) => m.node.id === draft.keyHome);
-  const remote = !!draft.keyHome && draft.keyHome !== draft.nodeId;
+  const remote = !!draft.keyHome;
+  const keySourceProblem = sshKeySourceProblem(draft);
   const fingerprints = draft.selections[draft.keyHome] ?? [];
   const roster = useSshNodeRoster(
-    intent !== "prepare" && remote && keyMachine?.canConnect && ["keys", "review", "readiness"].includes(current)
+    intent !== "prepare" &&
+      remote &&
+      !keySourceProblem &&
+      keyMachine?.canConnect &&
+      ["keys", "review", "readiness"].includes(current)
       ? draft.keyHome
       : null,
   );
@@ -49,14 +55,12 @@ export function useSshWizardController({
     if (value.current === "destination" && !sshDestination(value.draft)) return { draft: "Enter an SSH destination." };
     if (["machine", "review", "readiness"].includes(value.current) && !value.draft.nodeId)
       return { draft: "Choose a machine." };
-    if (value.current === "key-source" && (!value.draft.keyHome || value.draft.keyHome === value.draft.nodeId))
-      return { draft: "Choose another machine for keys." };
-    if (
-      intent !== "prepare" &&
-      ["keys", "review", "readiness"].includes(value.current) &&
-      value.draft.keyHome &&
-      value.draft.keyHome !== value.draft.nodeId
-    ) {
+    if (intent !== "prepare" && ["key-source", "keys", "review", "readiness"].includes(value.current)) {
+      const problem = sshKeySourceProblem(value.draft);
+      if (problem) return { draft: problem };
+    }
+    if (value.current === "key-source" && !value.draft.keyHome) return { draft: "Choose another machine for keys." };
+    if (intent !== "prepare" && ["keys", "review", "readiness"].includes(value.current) && value.draft.keyHome) {
       const problem = sshKeySelectionProblem(value.draft.selections[value.draft.keyHome] ?? []);
       if (problem) return { draft: problem };
     }
@@ -129,6 +133,7 @@ export function useSshWizardController({
     mayAdd,
     machine,
     keyMachine,
+    keySourceProblem,
     remote,
     fingerprints,
     roster,

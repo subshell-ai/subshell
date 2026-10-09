@@ -61,6 +61,22 @@ export function SshKeyStep({
               <p className="break-all font-mono text-detail text-muted-foreground">{key.fingerprint}</p>
             </Field>
           ))}
+          {fingerprints
+            .filter((fingerprint) => !roster.data.identities.some((key) => key.fingerprint === fingerprint))
+            .map((fingerprint) => (
+              <div key={fingerprint} className="flex flex-col items-start gap-2">
+                <p className="break-all font-mono text-detail text-muted-foreground">{fingerprint}</p>
+                <p className="text-detail text-muted-foreground">Selected key unavailable in this SSH agent.</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  aria-label={`Remove unavailable key ${fingerprint}`}
+                  onClick={() => onChange(fingerprints.filter((selected) => selected !== fingerprint))}
+                >
+                  Remove unavailable key
+                </Button>
+              </div>
+            ))}
           {roster.data.identities.length === 0 && (
             <p className="text-detail text-muted-foreground">
               No keys are loaded in this machine’s SSH agent. Load the keys you want to use into that agent, then Retry

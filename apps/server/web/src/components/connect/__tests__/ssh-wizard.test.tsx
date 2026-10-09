@@ -25,6 +25,8 @@ function machine(id: string, ready = true, configure = true, kind: "agent" | "lo
     id,
     name: id === "local" ? "Named server" : id,
     kind,
+    os: null,
+    arch: null,
     status: "online",
     canLaunch: true,
     canManage: configure,
@@ -291,6 +293,88 @@ it("remote keys intent includes the named server and requires an explicit finger
     destination: "target",
     keyHome: "local",
     fingerprints: ["SHA256:AAAA"],
+  });
+});
+
+it("preserves an explicit subset when the connecting machine becomes its key source and blocks form/wizard launch", async () => {
+  const { calls } = await setup({
+    initial: { node: "desk", keyHome: "keys", destination: "keep-me", fingerprints: ["SHA256:AAAA"] },
+    start: false,
+  });
+  await choose("Connect through", "keys");
+  expect(screen.getByText(/selected key machine is also the connecting machine/)).toBeTruthy();
+  expect((screen.getByLabelText("Use SSH keys from") as HTMLInputElement).value).toBe("keys");
+  expect((screen.getByRole("button", { name: "Start SSH subshell" }) as HTMLButtonElement).disabled).toBe(true);
+  await click("Start SSH subshell");
+  expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
+  await click("SSH Wizard");
+  await click("Connect to a destination");
+  await next();
+  await next();
+  await click("Use keys from another machine");
+  expect((screen.getByLabelText("Use SSH keys from") as HTMLInputElement).value).toBe("keys");
+  expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  await click("Continue");
+  expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
+  await click("Cancel wizard");
+  await choose("Connect through", "desk");
+  expect(screen.getByRole("checkbox", { name: "Work key" }).getAttribute("aria-checked")).toBe("true");
+  await click("Start SSH subshell");
+  expect(calls.find((call) => call.path === "/api/ssh/launch")?.body).toEqual({
+    node: "desk",
+    keyHome: "keys",
+    destination: "keep-me",
+    fingerprints: ["SHA256:AAAA"],
+  });
+});
+
+it("blocks same-machine initial choices until own keys are explicitly chosen", async () => {
+  const { calls } = await setup({
+    initial: { node: "keys", keyHome: "keys", destination: "keep-me", fingerprints: ["SHA256:AAAA"] },
+    start: false,
+  });
+  expect((screen.getByLabelText("Use SSH keys from") as HTMLInputElement).value).toBe("keys");
+  expect((screen.getByRole("button", { name: "Start SSH subshell" }) as HTMLButtonElement).disabled).toBe(true);
+  await click("Start SSH subshell");
+  expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
+  await click("SSH Wizard");
+  await click("Connect to a destination");
+  await next();
+  await next();
+  expect(screen.getByText(/selected key machine is also the connecting machine/)).toBeTruthy();
+  await click("Use connecting machine’s own keys");
+  expect(screen.queryByText(/selected key machine is also the connecting machine/)).toBeNull();
+  expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
+  await click("Start SSH subshell");
+  expect(calls.find((call) => call.path === "/api/ssh/launch")?.body).toEqual({ node: "keys", destination: "keep-me" });
+});
+
+it("requires a deliberate removal of vanished selected keys before continuing with a current key", async () => {
+  const { state, calls } = await setup({
+    initial: { node: "desk", keyHome: "keys", destination: "keep-me", fingerprints: ["SHA256:AAAA"] },
+  });
+  await click("Use keys from another machine");
+  await next();
+  await next();
+  state.identities = [{ fingerprint: "SHA256:BBBB", comment: "Replacement key" }];
+  await click("Retry keys");
+  expect(screen.getByText(/selected key is no longer available/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Remove unavailable key SHA256:AAAA" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Replacement key" }));
+  await settle();
+  expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
+  await click("Remove unavailable key SHA256:AAAA");
+  expect(screen.queryByText(/selected key is no longer available/)).toBeNull();
+  await next();
+  await click("Use this setup");
+  expect((screen.getByLabelText("SSH destination") as HTMLInputElement).value).toBe("keep-me");
+  await click("Start SSH subshell");
+  expect(calls.find((call) => call.path === "/api/ssh/launch")?.body).toEqual({
+    node: "desk",
+    keyHome: "keys",
+    destination: "keep-me",
+    fingerprints: ["SHA256:BBBB"],
   });
 });
 
