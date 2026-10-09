@@ -144,7 +144,7 @@ test.describe("ssh relay crown jewel (spec 2026-10-08 §13)", () => {
     try {
       // ── Stage 0: the world. Scratch paths for the D session (the installer
       // sandbox), the real sshd + hang listener + two homes, the real agent.
-      const root = mkdtempSync(path.join(tmpdir(), "subshell-e2e-relaytier-"));
+      const root = mkdtempSync(path.join(tmpdir(), "ssh-relay-"));
       cleanup("temp root", () => rmSync(root, { recursive: true, force: true }));
       const dconf = path.join(root, "dconf"); // D's SUBSHELL_CONFIG_HOME (SetEnv)
       const dnode = path.join(root, "dnode"); // D's install data dir (SetEnv)
