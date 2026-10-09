@@ -172,3 +172,9 @@ split direction. Saved destination management lives in Settings → SSH.
 `/connect` is a compatibility redirect to `/new?kind=ssh`, preserving validated
 connection choices. The quick-add provider opens the shared dialog over the
 subshell list; there is no separate Connect navigation item or page.
+
+The SSH terminal form requires an owned (or admin-managed server), online,
+launchable machine with SSH enabled, outside maintenance and protocol hold.
+When none is ready it shows setup guidance and machine settings links instead
+of destination fields. It polls availability while open; a stale selection
+blocks creation without silently switching machines. Failed reads offer Retry.
