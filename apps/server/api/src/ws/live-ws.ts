@@ -145,9 +145,11 @@ export async function handleLiveOpen(ws: LiveWsSocket, deps: LiveWsDeps): Promis
   // Who this socket belongs to, for the messages it may send later. Stashed
   // rather than re-derived: the token is single-use and already spent.
   ws.data.liveViewerId = userId;
-  // Findable by a role change, which must close this socket: the topics below
-  // are chosen ONCE, so a demotion would otherwise leave an ex-admin on the
-  // instance-wide topic for as long as the tab stays open.
+  // Findable so a revocation can reach it: the disable drop is the
+  // load-bearing one (a disabled account must not keep streaming, and cannot
+  // re-mint), and a role change still closes the socket so the reconnect
+  // rebuilds the client's chrome. Since 2026-10-09 the role chooses no feed
+  // topics at all, so the role drop is hygiene - see live-registry's header.
   registerLiveSocket(userId, ws);
 
   // ARMED BEFORE THE FIRST AWAIT, and that ordering is load-bearing: this

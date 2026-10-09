@@ -624,7 +624,8 @@ export class SubshellsService extends BaseService {
 
   /**
    * Lists every subshell the caller can SEE — their own plus those shared with
-   * Everyone or with them by name (all for an admin) — as manager-reconciled
+   * Everyone or with them by name, the same answer for every role since
+   * 2026-10-09 - as manager-reconciled
    * views carrying the caller's viewer-relative `access`. A private foreign
    * subshell is simply absent, never a 403.
    * @param viewerId - The signed-in user (resolved from cookie or subshell key)
@@ -855,7 +856,7 @@ export class SubshellsService extends BaseService {
    * input the live attach socket already carries, given an HTTP door for
    * machine callers. Gated at `edit`, the level the posture assigns to
    * terminal input (`view` 403s, a foreign row 404s, and a bearer pane key
-   * acts through its OWNER with boost and shares off, exactly like restart).
+   * acts through its OWNER with shares off, exactly like restart).
    *
    * "The same seam as the attach path" means: the ONE `NodeLauncher.sendInput`
    * member, resolved per row via `launcherFor(row.nodeId)`: locally a
@@ -1066,7 +1067,7 @@ export class SubshellsService extends BaseService {
 
   /**
    * Lists a subshell's sharing grants — OWNER-only (managing who can see a
-   * subshell is the owner's act; an admin's effective `edit` does not extend here).
+   * subshell is the owner's act, and since 2026-10-09 no role extends it).
    * @throws SubshellError 404 when absent or invisible to the caller.
    * @throws HttpError 403 when the caller is not the owner.
    */
@@ -1389,7 +1390,7 @@ export class SubshellsService extends BaseService {
     // only way to reach the people it was shared with. Announced from HERE
     // rather than from the manager for the same reason — the manager is
     // owner-keyed and holds no shares repository, so a deletion announced
-    // there could only ever name the owner and the admins, which is exactly
+    // there could only ever name the owner, which is exactly
     // the bug: a shared subshell stayed on every grantee's dashboard until
     // they reconnected, and 404'd when clicked.
     const shares = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
