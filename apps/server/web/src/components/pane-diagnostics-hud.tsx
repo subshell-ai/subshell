@@ -199,7 +199,9 @@ export function PaneDiagnosticsHud({
     return `${pane} · ${indicator}`;
   })();
   const nodeValue =
-    subshell?.nodeOffline === true ? `${nodeLabel ?? "unknown node"} · unreachable` : (nodeLabel ?? "unknown node");
+    subshell?.nodeOffline === true
+      ? `${nodeLabel ?? "node you can't see"} · unreachable`
+      : (nodeLabel ?? "node you can't see");
   const input = inputWords({
     hasQueue: queue !== null,
     stats,

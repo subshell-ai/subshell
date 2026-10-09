@@ -54,7 +54,7 @@ describe("subshellRowTooltip", () => {
   it("labels an unresolved node with the SAME fallback the header wears", () => {
     // The caller passes the group's label straight through, so the tooltip
     // never guesses a second answer to "which machine?".
-    expect(subshellRowTooltip(probe(), "unknown node", "Claude Code")).toContain("Node: unknown node");
+    expect(subshellRowTooltip(probe(), "node you can't see", "Claude Code")).toContain("Node: node you can't see");
   });
 
   it("omits the directory line when the row has none to reveal", () => {

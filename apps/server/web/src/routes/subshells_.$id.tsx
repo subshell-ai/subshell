@@ -106,7 +106,7 @@ function SubshellPage() {
   const { on: copyOn, onToggle: toggleCopyMode } = usePaneCopyMode(id);
   // The HUD names the machine the pane runs on, on the SAME ladder the
   // sidebar's node groups use (`nodeLabelFor`): the resolved name, the short
-  // id only while the nodes read has never succeeded, "unknown node" once it
+  // id only while the nodes read has never succeeded, "node you can't see" once it
   // answered without the id. The nodes read is already mounted across the
   // app (the trust notices use it), so this adds no request. Unanswered is
   // `nodesData === undefined` and not `isError`, for the ladder's own reason:

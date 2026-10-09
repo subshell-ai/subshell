@@ -24,7 +24,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
  *   takes the links out of the tab order so a shut group is not a keyboard
  *   trap of invisible stops.
  * - **The label carries a hover reveal.** When the registry has not resolved
- *   the node the label is a short id or "unknown node", and the full id on
+ *   the node the label is a short id or "node you can't see", and the full id on
  *   hover is the only thing that says WHICH machine — the reveal the cards'
  *   retired `nodePill` used to give, for the same reason. It is a `ui/tooltip`
  *   popup rather than a native `title` since 2026-09-24 (the row tooltips'
