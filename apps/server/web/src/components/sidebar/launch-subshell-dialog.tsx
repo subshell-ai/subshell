@@ -1,6 +1,6 @@
 import { Button } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
-import { type JSX, useState } from "react";
+import { type JSX, useRef, useState } from "react";
 import { ConnectPanel } from "@/components/connect/connect-panel";
 import {
   canSubmit,
@@ -40,6 +40,7 @@ export function LaunchSubshellDialog({
 }): JSX.Element {
   const [sshPending, setSshPending] = useState(false);
   const [kind, setKind] = useState<SubshellKind>(initialSsh ? "ssh" : "agent");
+  const contentRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const create = useCreateSubshell();
   const [form, setForm] = useState<NewSubshellFormValue>(emptyNewSubshellForm);
@@ -78,7 +79,15 @@ export function LaunchSubshellDialog({
         if (!next) reset();
       })}
     >
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent
+        className="sm:max-w-xl"
+        ref={contentRef}
+        initialFocus={(interaction) =>
+          interaction === "touch"
+            ? true
+            : (contentRef.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]') ?? true)
+        }
+      >
         <DialogHeader>
           <DialogTitle>New subshell</DialogTitle>
           <DialogDescription>Start an agent, a terminal, or an SSH session in a subshell.</DialogDescription>
