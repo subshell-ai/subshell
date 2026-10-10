@@ -10,6 +10,7 @@ import { NodeSharesRepository } from "@/db/repositories/node-shares.repository.j
 import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
+import type { NodeTable } from "@/db/types/nodes.db-types.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import {
   attachConnection,
@@ -33,6 +34,7 @@ type View = {
   arch: string | null;
   access: string;
   canManage: boolean;
+  canLaunch: boolean;
   capabilities: string[];
   harnesses: { harnessId: string; installed: boolean; version?: string }[];
   inventoryStale: boolean;
@@ -354,6 +356,43 @@ describe("/api/nodes registry CRUD", () => {
     const seen = (await res.json()) as View;
     expect(seen.access).toBe("edit");
     expect(seen.canManage).toBe(false);
+  });
+
+  it("the LIST carries a foreign private node to an admin and never to a plain viewer", async () => {
+    // The gap this test pins (measured 2026-10-09, the disaresta "AI PC"
+    // report): the detail gate gives an admin `edit` on a foreign node and
+    // the Updates page lists every agent, but the LIST query filtered
+    // owner/share BEFORE the boost could speak, so a held, foreign-owned
+    // machine was absent from the page an operator navigates. The list now
+    // answers the same visibility question the detail route answers.
+    const n = await mkNode(aliceId, `ad-list-${crypto.randomUUID().slice(0, 8)}`);
+    const adminView = (await list(adminCookie)).find((x) => x.id === n.id);
+    expect(adminView).toBeDefined();
+    expect(adminView?.access).toBe("edit"); // the boost, exactly as on detail
+    expect(adminView?.canManage).toBe(false); // edit, never manage/delete/re-share
+    // Launch on an AGENT node rides the boosted access (`nodeCanLaunchOn`:
+    // any share grants launch, and the admin's instance-wide edit counts):
+    // the row the list hands the picker must tell the picker the truth.
+    expect(adminView?.canLaunch).toBe(true);
+    expect((await list(bobCookie)).some((x) => x.id === n.id)).toBe(false);
+    // Widened WHOSE, never WHAT KIND: a row whose kind is not a real machine
+    // (the IN-list is 'local' | 'agent') stays out of the admin list by
+    // construction, whatever its owner. The kind is set by raw UPDATE because
+    // it deliberately sits OUTSIDE today's NodeKind union: the guard is about
+    // kinds that do not exist yet, not about today's type system. (The name
+    // avoids "runtime": that word already means the detail route's runtime
+    // report, a different concept.)
+    const weird = await mkNode(aliceId, `weird-${crypto.randomUUID().slice(0, 8)}`);
+    await db
+      .updateTable("nodes")
+      .set({ kind: "not-a-machine-kind" as unknown as NodeTable["kind"] })
+      .where("id", "=", weird.id)
+      .execute();
+    try {
+      expect((await list(adminCookie)).some((x) => x.id === weird.id)).toBe(false);
+    } finally {
+      await db.deleteFrom("nodes").where("id", "=", weird.id).execute();
+    }
   });
 
   it("a subshell bearer key reads the LIST (owner-only, spec 2026-09-25) but is refused on every other registry route", async () => {

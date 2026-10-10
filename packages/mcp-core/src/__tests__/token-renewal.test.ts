@@ -57,7 +57,15 @@ describe("startTokenRenewal (issue #331 startup extend)", () => {
     const { api, calls } = recordingApi();
     const timer = startTokenRenewal(api, "sess-1", 20);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 90));
+      // WAIT for the third call, bounded — do not sleep a fixed 90 ms and
+      // hope three 20 ms ticks fit inside it: a starved CI container delivers
+      // two (measured: this cell failed at 90.77 ms on PR #351's packages
+      // job). The promise tested is "extends keep coming while the child
+      // lives"; the deadline keeps a broken implementation still failing.
+      const deadline = Date.now() + 2000;
+      while (calls.length < 3 && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
       expect(calls.length).toBeGreaterThanOrEqual(3);
       expect(calls.every((c) => c.path === "/api/subshells/sess-1/extend-token")).toBe(true);
     } finally {

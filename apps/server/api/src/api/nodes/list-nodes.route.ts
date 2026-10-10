@@ -13,9 +13,14 @@ import { apiModels } from "@/schema/index.js";
  * mapper so the two actor classes cannot disagree about the row shape.
  *
  * COOKIE actors (spec 2026-08-31 §2, where the share row IS the visibility
- * filter): owned or shared, the seeded `local` included via its Everyone
- * grant; a private foreign node is absent, so ids cannot be probed from the
- * list either.
+ * filter): a NON-admin sees owned or shared rows, the seeded `local` included
+ * via its Everyone grant, and a private foreign node is absent, so ids cannot
+ * be probed from the list. An ADMIN sees every machine node (`local` |
+ * `agent`): the list answers the same visibility question the detail gate
+ * already answers for admins (a foreign node is `edit`, never manageable —
+ * no delete, no re-share, no maintenance flip), because Updates listed every
+ * agent and running the whole instance includes seeing every machine
+ * (docs/security.md §3).
  *
  * BEARER actors (any API key): the machine consumer this route's phase-1 note
  * deferred to arrived with the MCP DX work (spec 2026-09-25). A pane picking
@@ -36,11 +41,27 @@ export const listNodesRoute = new Elysia()
     "/",
     async ({ user, actor }) => {
       if (actor === "cookie") {
-        // `findAccessible` returns owned/shared rows only, so the resolved
-        // access is never "none"; the flatMap discard is a type witness, not
-        // behavior.
-        const rows = await new NodesRepository(db).findAccessible(user.id);
         const isAdmin = (await new UserMetaRepository(db).getRole(user.id)) === "admin";
+        // Admins read EVERY machine node (`local` | `agent`); everyone else
+        // reads owned/shared rows. The admin arm makes the list answer the
+        // same visibility question the detail gate already answers (an admin
+        // `GET /api/nodes/:id` on a foreign node answers 200 with `edit`,
+        // pinned in nodes-crud-route.test.ts) and the Updates page's
+        // instance-wide Nodes list. Before it, a node owned by another
+        // account was visible in two of the three surfaces and absent from
+        // the one an operator actually navigates: you could not reach its
+        // detail page to see WHY it was held or to press the remedy that IS
+        // admin-capable (`update`, gated at `nodeCanConfigure`, which the
+        // boosted `edit` passes) — while shares and maintenance stayed
+        // owner-only all along, boost included (measured on the disaresta
+        // plane, 2026-10-09: a held node named "AI PC", listed by Updates,
+        // invisible on Nodes).
+        // For a NON-admin, `findAccessible` returns owned/shared rows only,
+        // so the resolved access is never "none"; the flatMap discard is a
+        // type witness, not behavior. For an admin, foreign private rows
+        // resolve to the boosted `edit` exactly as on the detail path.
+        const nodes = new NodesRepository(db);
+        const rows = isAdmin ? await nodes.findAllMachines() : await nodes.findAccessible(user.id);
         const shares = await new NodeSharesRepository(db).listForNodes(rows.map((r) => r.id));
         const entries = rows.flatMap((row) => {
           const rowShares = shares.get(row.id) ?? [];
@@ -69,7 +90,8 @@ export const listNodesRoute = new Elysia()
       response: {
         200: t.Object({
           nodes: t.Array(NodeViewSchema, {
-            description: "Every node visible to the caller (cookie: owner or grant; bearer: owned only)",
+            description:
+              "Every node visible to the caller (cookie: owned, granted, or — for an admin — every machine node, `local` or `agent`, as on the detail route; bearer: owned only)",
           }),
         }),
         401: "ApiErrorResponse",
@@ -78,7 +100,7 @@ export const listNodesRoute = new Elysia()
         operationId: "listNodes",
         tags: ["nodes"],
         description:
-          "List nodes visible to the caller: cookie sees owned or shared, a machine token sees only its owner's own nodes (disclosure-only)",
+          "List nodes visible to the caller: a cookie sees owned or shared rows (an admin sees every machine node, `local` or `agent`, matching the detail gate's boost), a machine token sees only its owner's own nodes (disclosure-only)",
       },
     },
   );
