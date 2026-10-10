@@ -544,9 +544,15 @@ section's posture depends on):
   is stored under the NODE's owner (redemption requires
   `key.ownerUserId === node.ownerUserId`), so the admin is the audited ACTOR and
   the node owner the key's owner, and the recovery-preserves-ownership contract
-  is untouched. Pinned by `nodes-crud-route.test.ts` ("the LIST carries a
-  foreign private node to an admin…", "re-registration mint is retire-gated",
-  "delete: admin retires a foreign node") and by `node-access.test.ts`
+  is untouched. A node view rendered to an admin additionally carries the
+  owner's label (`ownerLabel`: name, falling back to email, then the raw id for
+  a removed account; `local`'s is the `system` service user), because a list
+  that shows every machine must be able to say WHOSE machine each row is (ruling
+  2026-10-10, the setup-key listing's `?all=1` precedent); every other viewer's
+  payload lacks the field entirely. Pinned by `nodes-crud-route.test.ts` ("the
+  LIST carries a foreign private node to an admin…", "re-registration mint is
+  retire-gated", "delete: admin retires a foreign node", "ownerLabel: the
+  admin's list and detail name the owner…") and by `node-access.test.ts`
   (`nodeCanRetire`).
 
 **The roster READ is not admin-gated, and it carries display names.** Writes to
@@ -1171,8 +1177,12 @@ subshell may only be launched in one of them or beneath it.
   connection active. Redemption validates the machine's public keys first, then
   spends the key and replaces bearer, encryption pin, and delivery identity on
   the same node. Its owner, name, shares, maintenance, creation time, and subshell
-  relationships remain. A transaction compares the prior credential binding
-  before swapping it; a conflict leaves the existing node intact. Successful
+  relationships remain; the enrollment flow still DEMANDS a name and then ignores
+  it on this path (the row's own stands), which is why `GET /install.sh` renders
+  a bound key with the node's real name pre-supplied and a "re-registering"
+  banner instead of asking for one that cannot change. A transaction compares
+  the prior credential binding before swapping it; a conflict leaves the
+  existing node intact. Successful
   replacement disables the old bearer, evicts live and held sockets, drains
   pending commands, and revokes other unused recovery keys for that node.
   Recovery is allowed while adding new nodes is disabled: it adds no machine

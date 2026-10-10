@@ -43,8 +43,12 @@ export function harnessFitsNode(node: Node, harnessId: string): IncompatReason |
 /**
  * The hedge both sides of the matrix append when a grey rests on STALE
  * inventory: a missing entry there is last-known state, not a confirmed fact.
+ * It is the ONLY UI surface that speaks of staleness at all: the Nodes row
+ * badge and the harness card's caveat paragraph were both removed the same
+ * day (operator's calls 2026-10-10), so the greyed row is where the honesty
+ * lives.
  */
-const STALE_HEDGE = " (inventory may be outdated)";
+const STALE_HEDGE = " (harness list may be outdated)";
 
 /**
  * Agent options paired against the chosen node (null = no pick yet: only the

@@ -202,19 +202,13 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
               <RefreshCw /> {recheck.isPending ? "Re-checking…" : "Re-check"}
             </Button>
             {recheck.isSuccess && (
-              <p className="text-detail text-success">Re-check sent. Inventory will refresh shortly.</p>
+              <p className="text-detail text-success">Re-check sent. The harness list will refresh shortly.</p>
             )}
           </div>
         )}
         {recheck.isError && (
           <p role="alert" className="text-destructive text-detail">
             {errMessage(recheck.error, "Re-check failed. The node may be offline.")}
-          </p>
-        )}
-
-        {data?.inventoryStale && (
-          <p className="text-muted-foreground text-sm">
-            The inventory may be outdated. These states are last-known, not live; a re-check refreshes them.
           </p>
         )}
 

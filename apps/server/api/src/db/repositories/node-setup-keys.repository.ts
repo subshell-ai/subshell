@@ -147,13 +147,19 @@ export class NodeSetupKeysRepository extends BaseRepository {
    * distinguish INVALID / CONSUMED / EXPIRED BEFORE the key is spent.
    * Deliberately narrow — one SELECT, no transaction, flips nothing; `consume`
    * stays the single-winner redemption step.
+   * `targetNodeId` rides along for `GET /install.sh`, which renders a recovery
+   * key's script differently (it names the node the machine will take over);
+   * the enroll route reads only the two time fields it always did.
+   *
    * @param key - The `nsk_…` code as presented
    * @returns the key's state, or undefined when no such key exists
    */
-  async peekByKey(key: string): Promise<{ usedAt: string | null; expiresAt: string } | undefined> {
+  async peekByKey(
+    key: string,
+  ): Promise<{ usedAt: string | null; expiresAt: string; targetNodeId: string | null } | undefined> {
     return await this.db
       .selectFrom("nodeSetupKeys")
-      .select(["usedAt", "expiresAt"])
+      .select(["usedAt", "expiresAt", "targetNodeId"])
       .where("key", "=", key)
       .executeTakeFirst();
   }

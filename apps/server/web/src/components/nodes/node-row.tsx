@@ -48,8 +48,13 @@ const INLINE_HARNESSES = 3;
  * column alone.
  *
  * Only the harness chips truncate, behind "+N more": the OS/arch, status,
- * `maintenance`, `inventory stale` and ownership badges are each one chip of
- * fixed shape, and a WARNING must never hide behind a "more" control.
+ * `maintenance` and ownership badges are each one chip of fixed shape, and a
+ * WARNING must never hide behind a "more" control. A stale cached detection
+ * is badged NOTHING at all, here or on the node page's harness card (both
+ * candidate warnings were removed the same day, operator's calls 2026-10-10):
+ * the machine may be perfectly healthy with only the cached answer old, and
+ * neither surface may claim a defect it has not established. The location
+ * pickers' greyed options carry the one honest hedge.
  */
 export function NodeRow({
   node,
@@ -117,7 +122,6 @@ export function NodeRow({
             so without this chip the row says nothing about why nobody can
             launch there. */}
         {node.maintenance && <Badge variant="warning">maintenance</Badge>}
-        {node.inventoryStale && <Badge variant="warning">inventory stale</Badge>}
         {visible.map((h) => (
           <Badge key={h.harnessId} variant="outline" className="border-emerald-500/50 text-emerald-400">
             {h.harnessId}

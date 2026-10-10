@@ -3,6 +3,7 @@ import { Elysia, t } from "elysia";
 import { APP_BASE_URL } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { canonicalPluginOrigin, originRegistry } from "@/services/trusted-origins.js";
 import { getLogger } from "@/utils/logger.js";
 
@@ -115,8 +116,17 @@ function resolveBakedServer(raw: string | undefined): string {
  * `service install`.
  * @param key - The setup key, already validated with {@link NodeSetupKeysRepository.peekValid}
  * @param server - The address to bake as `SERVER` — resolved by {@link resolveBakedServer}
+ * @param reRegisterName - When the key is BOUND to an existing node (a recovery
+ *  key from Re-register), that node's name. It changes only the two recovery
+ *  lines below — a banner, and the name the script supplies itself because the
+ *  recovery path ignores the answer anyway. Absent/unknown/spent/expired keys
+ *  never reach this function at all (the route renders the usage script for
+ *  them, byte-identically, the pinned no-oracle rule); the discrimination here
+ *  is between two kinds of VALID key, and either one's holder can already take
+ *  over the node by redeeming it, so naming the target discloses nothing the
+ *  key does not already grant.
  */
-function renderInstallScript(key: string, server: string): string {
+function renderInstallScript(key: string, server: string, reRegisterName: string | null = null): string {
   if (!/^nsk_[A-Za-z0-9_-]{32}$/.test(key)) return usageScript();
   return `#!/usr/bin/env bash
 # subshell installer: rendered by subshell for this instance (spec 2026-08-31 §8).
@@ -124,7 +134,18 @@ set -euo pipefail
 
 SERVER="${server}"
 KEY="${key}"
-
+${
+  reRegisterName === null
+    ? ""
+    : `# Re-registration key (minted by a node's Re-register): this machine takes over
+# the EXISTING node named here instead of adding a new one. The name is baked so
+# the script can answer the wizard's name question itself; the recovery path
+# ignores the name (the row keeps its own), so asking for one that cannot change
+# is the lie this line removes. Quote-escaped for the assignment: a node name is
+# operator text, only control characters were filtered at normalize time.
+REREG_NAME=${bashSingleQuote(reRegisterName)}
+`
+}
 # Install dest + setup --data-dir. Unset/empty SUBSHELL_DATA_DIR installs to
 # ~/.local/bin and runs WITHOUT --data-dir (the node keeps its own default
 # data dir). Setting the knob OPTS INTO a relocated install: everything lands
@@ -427,7 +448,18 @@ NODE_NAME_SET=""
 SETUP_NAME_ARGS=()
 if [ -n "\${SUBSHELL_NODE_NAME:-}" ]; then
   NODE_NAME_SET=1
-  SETUP_NAME_ARGS=(--name "$SUBSHELL_NODE_NAME")
+  SETUP_NAME_ARGS=(--name "$SUBSHELL_NODE_NAME")${
+    reRegisterName === null
+      ? ""
+      : `
+elif [ -n "$REREG_NAME" ]; then
+  # A re-registration key already knows the node's name (the row keeps it; the
+  # recovery path ignores any answer), so the script supplies it rather than
+  # asking for a name that cannot change. An explicit SUBSHELL_NODE_NAME still
+  # wins: it is the caller's own statement, and both are inert here.
+  NODE_NAME_SET=1
+  SETUP_NAME_ARGS=(--name "$REREG_NAME")`
+  }
 fi
 
 # No name and no terminal means nothing can answer the name question. The CLI
@@ -446,7 +478,14 @@ if [ -z "$NODE_NAME_SET" ] && [ -z "$CAN_PROMPT" ] && [ ! -t 0 ]; then
   exit 2
 fi
 
-echo "==> enrolling with $SERVER"
+${
+  reRegisterName === null
+    ? ""
+    : `# Said BEFORE the wizard, not after: a person mid-flow needs to know this run
+# replaces an existing entry before they answer anything, not from a summary.
+echo "==> re-registering the existing node \\"$REREG_NAME\\": this machine takes over that entry (its name, shares and settings are kept)"
+`
+}echo "==> enrolling with $SERVER"
 # One verb, two stdin shapes. The function keeps the guarded empty-array
 # expansions a single source; the ONLY difference is who answers setup's
 # questions. set -e still aborts on a failed setup: it sits in an if-BRANCH,
@@ -486,6 +525,18 @@ const InstallQuerySchema = t.Object({
 });
 
 /**
+ * Wrap a value for a literal bash single-quoted assignment: `'…'` with every
+ * embedded `'` spelled `'\\''`. The only context that needs it is `REREG_NAME`
+ * — a node name is normalize-filtered operator text (no control characters,
+ * but apostrophes and spaces are legal), and nothing in the rendered script
+ * ever word-splits or evaluates it; it is assigned, tested for emptiness, and
+ * expanded inside double quotes only.
+ */
+function bashSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
  * `GET /install.sh` — the one-line install entry point (spec §8):
  * `curl -fsSL <server>/install.sh?setup_key=… | bash`. Mounted at ROOT (not
  * under `/api`) and BEFORE the static SPA plugin in `server.ts`, which would
@@ -501,15 +552,36 @@ const InstallQuerySchema = t.Object({
  * instance's trusted origins (see {@link resolveBakedServer}), and
  * `APP_BASE_URL` otherwise — the same source `enroll` derives its `wsUrl`
  * from, so the install pipeline and enrollment agree on the default command.
+ *
+ * A VALID key bound to an existing node (a Re-register recovery key) renders
+ * the same pipeline plus two recovery lines: a banner naming the node this
+ * machine will take over, and the row's own name supplied to the wizard, which
+ * the recovery path would ignore an answer from anyway. The no-oracle rule is
+ * untouched — absent, unknown, spent and expired keys still get the byte-
+ * identical usage script; only two kinds of LIVE key differ here, and both
+ * already hand their holder the node.
  */
 export const installScriptRoute = new Elysia().get(
   "/install.sh",
   async ({ query }) => {
     const key = query.setup_key;
-    const body =
-      key && (await new NodeSetupKeysRepository(db).peekValid(key))
-        ? renderInstallScript(key, resolveBakedServer(query.server))
-        : usageScript();
+    const keys = new NodeSetupKeysRepository(db);
+    let body = usageScript();
+    if (key && (await keys.peekValid(key))) {
+      // The row exists by the peekValid definition, so the state probe cannot
+      // miss here; its targetNodeId decides whether the script says
+      // "re-registering" or enrolls silently. A bound row whose node vanished
+      // (cascade deletes recovery keys with the node; reading null here is
+      // therefore the race, not the design) renders as a new-node script —
+      // honest, because the redeem will fail on exactly that missing target.
+      const row = await keys.peekByKey(key);
+      let reRegisterName: string | null = null;
+      if (row?.targetNodeId) {
+        const target = await new NodesRepository(db).findById(row.targetNodeId);
+        if (target) reRegisterName = target.name;
+      }
+      body = renderInstallScript(key, resolveBakedServer(query.server), reRegisterName);
+    }
     return new Response(body, {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",

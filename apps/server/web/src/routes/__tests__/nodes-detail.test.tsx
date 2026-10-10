@@ -298,7 +298,9 @@ describe("NodeDetailPage reregister", () => {
       expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/node1/reregister").length).toBe(1);
       const revealed = await screen.findByText("nsk_recovery_secret");
       expect(revealed.textContent).toBe("nsk_recovery_secret");
-      expect(screen.getByText(/tied to.*single-use/)).toBeDefined();
+      // The reveal sentence names the node in its own bolded span.
+      const tied = await screen.findByText(/This setup key is tied to/);
+      expect(tied.querySelector("span")?.textContent).toBe("box");
       // Done retires the plaintext from the DOM.
       fireEvent.click(screen.getByRole("button", { name: /Done, hide the key/ }));
       await waitFor(() => expect(screen.queryByText("nsk_recovery_secret")).toBeNull());
@@ -489,6 +491,35 @@ describe("NodeDetailPage node-version floor", () => {
       renderDetail("node1");
       await waitFor(() => expect(screen.getByText(MIN_NODE_VERSION)).toBeDefined());
       expect(screen.queryByText(/below minimum/)).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NodeDetailPage owner line", () => {
+  // `ownerLabel` arrives ONLY on an admin's payload (node-view schema, ruling
+  // 2026-10-10): the operator who sees every machine learns whose machine it
+  // is. The page renders what it receives and derives nothing, so the fixture
+  // is the whole test: field present -> line; field absent -> no line.
+  it("names the owner when the payload carries one", async () => {
+    const { restore } = mockFetch(enrolledNode({ access: "edit", ownerLabel: "alice@subshell.local" }));
+    try {
+      renderDetail("node1");
+      await screen.findByText("Your access");
+      expect(screen.getByText("Owner")).toBeDefined();
+      expect(screen.getByText("alice@subshell.local")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("shows no owner line when the payload carries none", async () => {
+    const { restore } = mockFetch(enrolledNode({ access: "owner" }));
+    try {
+      renderDetail("node1");
+      await screen.findByText("Your access");
+      expect(screen.queryByText("Owner")).toBeNull();
     } finally {
       restore();
     }

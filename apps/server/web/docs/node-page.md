@@ -51,6 +51,11 @@ anymore (2026-09-21), and the Server-URL card left the Overview too
 (2026-10-09), so the allowlist card (its editor self-gates on `canManage`,
 `local` included) is the one rule standing beside the Maintenance switch.
 Machine facts, machine rules, one page; the tabs are for driving the daemon.
+The facts block gains an **Owner** row exactly when the server sent
+`ownerLabel`, which it does only for an admin (ruling 2026-10-10: the operator
+whose list shows every machine learns whose machine this is; `local`'s owner is
+the `system` service user). The page renders what arrives and derives nothing,
+so every other viewer's payload simply lacks the line.
 The harness card's Re-check gate is spelled like `managesNodeSections` and is
 a DIFFERENT rule
 (its own comment says so). Do not collapse them. The Overview also carries an
