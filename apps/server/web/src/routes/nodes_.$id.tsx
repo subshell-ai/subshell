@@ -5,7 +5,6 @@ import {
   errMessage,
   NodeAllowedDirs,
   NodeMaintenanceCard,
-  NodeServerUrlCard,
   relativeElapsed,
   useNode,
 } from "@internal/node-admin";
@@ -271,13 +270,13 @@ function NodeDetailPage() {
             }}
           />
 
-          {/* Where this machine dials, and the one field that moves it.
-              Repointing is a daemon concept: no card on `local`. The host
-              IS the server, and the URL is a configuration fact for the
-              people who configure: `owner`|`edit`, the old tab's audience,
-              not a `view` grantee's. The card's own write controls further
-              to `owner`. */}
-          {managesNodeSections(n) && <NodeServerUrlCard node={n} />}
+          {/* No control-plane card here on purpose: the plane cannot see which
+              address a node dials (that lives in the machine's own config, so
+              the field could only ever stand blank), and moving a machine is
+              an act for a shell on it: `subshell configure --server`, or the
+              node's own loopback dashboard, which CAN name the current
+              address. Spec 2026-09-12 §5 kept both of those; this removes the
+              third surface that could only guess. */}
 
           <NodeSharingDialog nodeId={n.id} open={shareOpen} onOpenChange={setShareOpen} canManage={n.canManage} />
         </>
