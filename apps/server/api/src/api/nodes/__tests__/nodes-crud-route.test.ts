@@ -34,6 +34,7 @@ type View = {
   arch: string | null;
   access: string;
   canManage: boolean;
+  canRetire: boolean;
   canLaunch: boolean;
   capabilities: string[];
   harnesses: { harnessId: string; installed: boolean; version?: string }[];
@@ -75,7 +76,8 @@ function plantPending(conn: NodeConnection): () => unknown {
 /**
  * `/api/nodes` registry CRUD (spec 2026-08-31 §9): list/detail with the
  * share-row-is-the-filter access model, rename (per-owner collision 409,
- * `local` immutable), delete (owner-only, running-subshell guard, force rules,
+ * `local` immutable), delete (retire-gated owner-or-admin since the
+ * 2026-10-09 ruling, running-subshell guard, force rules,
  * api-key teardown + live-socket disconnect), rotate-key (mint → flip →
  * disable, live-socket disconnect). The list is the one bearer-readable route
  * since spec 2026-09-25 (MCP DX, owner-only); every other route here stays
@@ -213,7 +215,7 @@ describe("/api/nodes registry CRUD", () => {
     return ((await res.json()) as { nodes: View[] }).nodes;
   }
 
-  it("re-registration mint is owner-only, cookie-only, agent-only and leaves current credentials active", async () => {
+  it("re-registration mint is retire-gated (owner or admin), cookie-only, agent-only and leaves current credentials active", async () => {
     const n = await mkNode(aliceId, `reregister-${crypto.randomUUID()}`);
     const minted = await req("POST", `/${n.id}/reregister`, { cookie: aliceCookie });
     expect(minted.status).toBe(201);
@@ -226,9 +228,20 @@ describe("/api/nodes registry CRUD", () => {
     expect((await nodes.findById(n.id))?.apiKeyId).toBe(n.keyRowId);
     expect((await req("POST", `/${n.id}/reregister`, { bearer: subshellKey })).status).toBe(403);
     expect((await req("POST", `/${n.id}/reregister`, { cookie: bobCookie })).status).toBe(404);
-    expect((await req("POST", `/${n.id}/reregister`, { cookie: adminCookie })).status).toBe(403);
+    // An admin mints on a FOREIGN agent (ruling 2026-10-09, the retire gate).
+    // The key is OWNED by the node's owner (recovery preserves ownership, and
+    // redemption requires it), while the ADMIN is the one revealed the key and
+    // the one audited as the actor.
+    const adminMint = await req("POST", `/${n.id}/reregister`, { cookie: adminCookie });
+    expect(adminMint.status).toBe(201);
+    const adminKey = (await adminMint.json()) as { id: string };
+    const adminRow = await new NodeSetupKeysRepository(db).findById(adminKey.id);
+    expect(adminRow?.targetNodeId).toBe(n.id);
+    expect(adminRow?.ownerUserId).toBe(aliceId); // the node's owner, not the admin
+    expect(adminRow?.usedAt).toBeNull();
     expect((await req("POST", "/local/reregister", { cookie: adminCookie })).status).toBe(400);
     await new NodeSetupKeysRepository(db).deleteById(key.id, aliceId);
+    await new NodeSetupKeysRepository(db).deleteById(adminKey.id, aliceId);
   });
 
   // ── list + detail visibility ──────────────────────────────────────────────
@@ -303,13 +316,22 @@ describe("/api/nodes registry CRUD", () => {
 
     // view grantee (carol) — cannot manage.
     expect((await list(carolCookie)).find((x) => x.id === n.id)?.canManage).toBe(false);
+
+    // `canRetire` is the SAME answers for these three (owner true, grantees
+    // false) — the admin split is the only thing that separates the flags, and
+    // it has its own cell in the LIST test below.
+    expect((await list(aliceCookie)).find((x) => x.id === n.id)?.canRetire).toBe(true);
+    expect((await list(bobCookie)).find((x) => x.id === n.id)?.canRetire).toBe(false);
+    expect((await list(carolCookie)).find((x) => x.id === n.id)?.canRetire).toBe(false);
   });
 
   it("canManage on `local`: true for an admin, false for a plain viewer", async () => {
     const adminView = (await list(adminCookie)).find((x) => x.id === "local");
     expect(adminView?.canManage).toBe(true);
+    expect(adminView?.canRetire).toBe(true); // admin is admin; the route's 400 is what saves `local`
     const aliceView = (await list(aliceCookie)).find((x) => x.id === "local");
     expect(aliceView?.canManage).toBe(false);
+    expect(aliceView?.canRetire).toBe(false); // Everyone/`edit` grants no retirement
 
     // detail path agrees with list
     expect(((await (await req("GET", "/local", { cookie: adminCookie })).json()) as View).canManage).toBe(true);
@@ -369,7 +391,10 @@ describe("/api/nodes registry CRUD", () => {
     const adminView = (await list(adminCookie)).find((x) => x.id === n.id);
     expect(adminView).toBeDefined();
     expect(adminView?.access).toBe("edit"); // the boost, exactly as on detail
-    expect(adminView?.canManage).toBe(false); // edit, never manage/delete/re-share
+    expect(adminView?.canManage).toBe(false); // edit, never manage (shares/rename/maintenance)
+    // The retire half of the ruling (2026-10-09): showing the machine without
+    // letting the operator retire it reads as a broken page.
+    expect(adminView?.canRetire).toBe(true);
     // Launch on an AGENT node rides the boosted access (`nodeCanLaunchOn`:
     // any share grants launch, and the admin's instance-wide edit counts):
     // the row the list hands the picker must tell the picker the truth.
@@ -461,10 +486,20 @@ describe("/api/nodes registry CRUD", () => {
 
   // ── delete ────────────────────────────────────────────────────────────────
 
-  it("delete: admin (non-owner) 403, foreign invisible 404, `local` 400", async () => {
-    const n = await mkNode(aliceId, `del-guard-${crypto.randomUUID().slice(0, 8)}`);
-    expect((await req("DELETE", `/${n.id}`, { cookie: adminCookie })).status).toBe(403);
-    expect((await req("DELETE", `/${n.id}`, { cookie: carolCookie })).status).toBe(404);
+  it("delete: admin retires a foreign node (ruling 2026-10-09), foreign viewer 404, `local` 400", async () => {
+    // The retire gate is owner OR admin. Before it, the #351 list showed an
+    // operator every machine but let them act on none of the foreign ones,
+    // which read as a broken page; retirement is still narrower than shares,
+    // which stay `canManage`.
+    const n = await mkNode(aliceId, `del-admin-${crypto.randomUUID().slice(0, 8)}`);
+    expect((await req("DELETE", `/${n.id}`, { cookie: adminCookie })).status).toBe(200);
+    expect(await nodes.findById(n.id)).toBeUndefined();
+    expect(await keyIsValid(n.key)).toBe(false); // retirement killed the credential too
+    const m = await mkNode(aliceId, `del-guard-${crypto.randomUUID().slice(0, 8)}`);
+    // Cookie-only: a machine token never reaches the retire gate (the route's
+    // requireCookieActor refuses it first, before the node is even looked up).
+    expect((await req("DELETE", `/${m.id}`, { bearer: subshellKey })).status).toBe(403);
+    expect((await req("DELETE", `/${m.id}`, { cookie: carolCookie })).status).toBe(404);
     expect((await req("DELETE", "/local", { cookie: adminCookie })).status).toBe(400);
   });
 

@@ -42,8 +42,9 @@ export function useNodes({ polling = false }: { polling?: boolean } = {}) {
 }
 
 /**
- * Deletes (retires) a node — owner-only; the backend answers 409
- * NODE_RUNNING_SUBSHELLS while subshells run and refuses `local` outright.
+ * Deletes (retires) a node — retire-gated (owner OR admin, `canRetire`); the
+ * backend answers 409 NODE_RUNNING_SUBSHELLS while subshells run and refuses
+ * `local` outright.
  */
 export function useDeleteNode() {
   const queryClient = useQueryClient();
@@ -143,9 +144,13 @@ export function useSetupKeys(enabled = true) {
 
 /** What the admin `?all=1` read adds to each row: whose key it is. */
 export interface SetupKeyOwnerFields {
-  /** Creator's user id */
+  /**
+   * The key OWNER's user id (the future node owner). For a recovery key an
+   * ADMIN minted, this is the node's owner, not the admin who pressed
+   * Re-register — the server mints under the owner so redemption holds.
+   */
   ownerUserId: string;
-  /** Creator's display name, falling back to email, then to the raw id for a deleted account */
+  /** The key owner's display name, falling back to email, then to the raw id for a deleted account */
   ownerLabel: string;
 }
 

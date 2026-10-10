@@ -5,14 +5,16 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UserMetaRepository } from "@/db/repositories/user-meta.repository.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { type NodeAccess, nodeCanManageFor, resolveNodeAccess } from "@/lib/node-access.js";
+import { type NodeAccess, nodeCanManageFor, nodeCanRetire, resolveNodeAccess } from "@/lib/node-access.js";
 
 /**
  * Per-request authorization snapshot for one node — the shared front door of
  * every `/:id` registry route (spec 2026-08-31 §2/§9). The local-node admin
  * exception deliberately lives HERE (routes side), not in the pure resolver
  * (T3 ruling): `resolveNodeAccess` ranks admins at `edit`, never `owner`, so
- * "admins manage the seeded local node" is layered on as `canManage`.
+ * "admins manage the seeded local node" is layered on as `canManage`. The
+ * retire gate (delete/re-register, owner OR any admin) lives here beside it for
+ * the same reason: one load, two named answers, no route re-deriving roles.
  */
 export interface NodeGate {
   /** The node row (present whenever the gate resolved). */
@@ -34,15 +36,24 @@ export interface NodeGate {
   shares: NodeShareTable[];
   /**
    * True for the real owner; additionally true for admins on `local` (whose
-   * shares/rename-adjacent config admins manage). Delete layers its own
-   * `local → 400` rule on top; rotate/shares use this as-is.
+   * shares/rename-adjacent config admins manage). Shares/rename/maintenance/
+   * rotate use this as-is; delete layers its own `local → 400` rule on the
+   * retire gate below.
    */
   canManage: boolean;
+  /**
+   * The DELETE and RE-REGISTER gate: the real owner, or any admin
+   * (operator ruling 2026-10-09 — the admin-wide Nodes list must be able to
+   * act on the machines it shows). Narrower than what it looks like it could
+   * cover: managing someone else's SHARES is not retiring a machine, and
+   * stays `canManage`-gated.
+   */
+  canRetire: boolean;
 }
 
 /**
- * Load the row + grants, resolve access, and compute the manage gate in one
- * step. Absent node AND invisible node collapse to `undefined` — the caller
+ * Load the row + grants, resolve access, and compute the manage and retire
+ * gates in one step. Absent node AND invisible node collapse to `undefined` — the caller
  * renders both as the same 404 so ids cannot be probed (never a 403 leak).
  * @param viewerId - The authenticated (cookie) user
  * @param nodeId - Node id from the route params
@@ -61,5 +72,6 @@ export async function loadNodeGate(viewerId: string, nodeId: string): Promise<No
     isAdmin,
     shares,
     canManage: nodeCanManageFor(row.kind, access, isAdmin),
+    canRetire: nodeCanRetire(access, isAdmin),
   };
 }

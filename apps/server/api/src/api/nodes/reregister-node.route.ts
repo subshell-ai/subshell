@@ -8,7 +8,19 @@ import { apiErrorBody } from "@/lib/api-error.js";
 import { apiModels } from "@/schema/index.js";
 import { audit } from "@/services/audit.js";
 
-/** Mint recovery consent. The old credentials stay active until redemption. */
+/**
+ * Mint recovery consent. The old credentials stay active until redemption.
+ * The RETIRE gate (real owner or any admin, `nodeCanRetire`), same ruling as
+ * delete: the mint touches no existing row and disconnects nothing, and an
+ * admin who can already delete this machine outright is not being widened by
+ * being allowed to replace its credentials instead. Redemption is the real
+ * power: it re-homes the node row onto whatever machine presents the new key. An
+ * admin who can already delete the machine outright is not newly widened by that
+ * credential-replacement mint, even though the rotate-key ROUTE stays owner-only
+ * (the weaker half of the same power, not a limit on the admin); delete
+ * dominates both, and the posture does not constrain an admin
+ * (`docs/security.md` §11, no separation of duties). `local` is refused by kind.
+ */
 export const reregisterNodeRoute = new Elysia()
   .use(authGuard)
   .use(apiModels)
@@ -19,7 +31,7 @@ export const reregisterNodeRoute = new Elysia()
       const gate = await loadNodeGate(user.id, params.id);
       if (!gate)
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: "Node not found" }));
-      if (!gate.canManage) throw new ForbiddenError();
+      if (!gate.canRetire) throw new ForbiddenError();
       if (gate.row.kind !== "agent") {
         return status(
           400,
@@ -29,7 +41,13 @@ export const reregisterNodeRoute = new Elysia()
           }),
         );
       }
-      const row = await new NodeSetupKeysRepository(db).create(user.id, undefined, gate.row.id);
+      // The key is minted under the NODE'S owner, not the caller. Recovery
+      // preserves ownership (spec 2026-08-31; `reregister-node.ts` redemption
+      // asserts `key.ownerUserId === node.ownerUserId`), so a key minted under
+      // an ADMIN would be dead on arrival. The admin is the ACTOR (audited below
+      // by `user.id`); the node owner is the KEY OWNER, who also sees it in their
+      // Setup-keys list.
+      const row = await new NodeSetupKeysRepository(db).create(gate.row.ownerUserId, undefined, gate.row.id);
       await audit({
         actorUserId: user.id,
         action: "node.reregister_key",

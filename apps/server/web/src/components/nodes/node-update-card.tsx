@@ -18,16 +18,28 @@ import { useNodeUpdate } from "@/hooks/use-node-update";
  * daemon sections and the route's own gate), so the card renders no permission
  * logic of its own.
  *
- * The button is deliberately NOT disabled while the node reads offline: a
- * HELD node (offline for every purpose but this command) is exactly the
- * machine this exists for, and a truly unreachable one gets the route's 409
- * explained in the alert line.
+ * Reachability decides the button, mirroring the server's own Updates-page
+ * rule (`admin-updates.route.ts canUpdate`: offline AND not held → "this node
+ * is offline"): a HELD node — offline for every purpose but THIS command —
+ * keeps its button, because rescuing exactly that machine is what the card
+ * exists for, and it says so in one line. A truly disconnected one loses the
+ * button rather than trading a click for a 409: a control that can only fail
+ * from the state the page already displays is not a choice.
  */
 export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
   const nodeUpdate = useNodeUpdate();
   const [accepted, setAccepted] = useState<{ to: string } | null>(null);
   const updating = nodeUpdate.pendingNodeIds.has(node.id);
   const failure = nodeUpdate.failures[node.id];
+  // The two states the server's `canUpdate` admits: online, or held. It reads
+  // the row `status` projection and the live-registry `held` — the SAME facts
+  // the page's own "offline" badge already shows — so a heartbeat-stalled node
+  // that is momentarily both shows a disabled button and an "offline" badge
+  // TOGETHER; the button never contradicts the status the rest of the page
+  // states, and the route stays authoritative for anyone who reaches it by
+  // other means. The one honest asymmetry: a live-but-stalled node's held=null
+  // + status=offline reads "gone" here, and self-heals on the next poll.
+  const reachable = node.status === "online" || node.held !== null;
 
   // TanStack reuses route components across param changes, so navigating to
   // another node must retire this node's result lines — and the hook's
@@ -80,7 +92,14 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
       <CardContent className="space-y-3">
         <p className="text-detail text-muted-foreground">Running {node.agentVersion ?? "an unreported version"}</p>
         <div className="flex flex-wrap items-center gap-3">
-          <Button type="button" variant="outline" size="sm" disabled={updating} onClick={() => void start()}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={updating || !reachable}
+            title={reachable ? undefined : "The machine is not connected, so there is nothing to send an update to"}
+            onClick={() => void start()}
+          >
             {/* The POST blocks for the node's whole download-and-restart window,
                 up to five minutes, so a bare disabled button reads as nothing
                 happening. */}
@@ -88,6 +107,15 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
             {updating ? "Updating…" : "Update to latest"}
           </Button>
         </div>
+        {node.held !== null && !updating && (
+          // The one offline-shaped state that CAN take an update, said before
+          // the press: the button looks alive on a row labeled offline, and
+          // without this line that reads as a rendering defect.
+          <p className="text-detail text-muted-foreground">
+            This node is connected, but the server refuses its agent. Update is the one command this connection still
+            accepts.
+          </p>
+        )}
         {accepted && (
           <p className="text-detail text-success">
             Update accepted. {node.name} is installing {accepted.to} and will reconnect by itself.

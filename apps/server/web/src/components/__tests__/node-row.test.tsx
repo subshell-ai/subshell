@@ -16,6 +16,7 @@ const BASE: Node = {
   protocolVersion: null,
   access: "owner",
   canManage: true,
+  canRetire: true,
   canLaunch: true,
   allowedDirs: [],
   capabilities: [],
@@ -116,7 +117,7 @@ describe("NodeRow", () => {
     // need a click to be seen.
     render(
       <NodeRow
-        node={{ ...MANY_HARNESSES, inventoryStale: true, access: "view", canManage: false }}
+        node={{ ...MANY_HARNESSES, inventoryStale: true, access: "view", canManage: false, canRetire: false }}
         onOpenConfig={() => {}}
         onShare={() => {}}
         onDelete={() => {}}
@@ -147,7 +148,7 @@ describe("NodeRow", () => {
   it("reads offline as a muted badge and shared access as a badge", () => {
     render(
       <NodeRow
-        node={{ ...BASE, status: "offline", access: "edit", canManage: false }}
+        node={{ ...BASE, status: "offline", access: "edit", canManage: false, canRetire: false }}
         onOpenConfig={() => {}}
         onShare={() => {}}
         onDelete={() => {}}
@@ -203,7 +204,7 @@ describe("NodeRow", () => {
   it("shows Delete and Share DISABLED (not hidden) for a non-owner", async () => {
     render(
       <NodeRow
-        node={{ ...BASE, access: "view", canManage: false }}
+        node={{ ...BASE, access: "view", canManage: false, canRetire: false }}
         onOpenConfig={() => {}}
         onShare={() => {}}
         onDelete={() => {}}
@@ -214,6 +215,27 @@ describe("NodeRow", () => {
     expect(screen.getByRole("menuitem", { name: "Delete" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByRole("menuitem", { name: "Share" }).getAttribute("aria-disabled")).toBe("true");
     expect(screen.getByRole("menuitem", { name: "Open config" })).toBeDefined();
+  });
+
+  it("enables Delete but not Share for an admin on a foreign agent", async () => {
+    // The ruling's split (2026-10-09): the #351 list hands admins every
+    // machine, so the menu must be able to RETIRE one (owner or admin), while
+    // managing a stranger's SHARES stays the owner's act. The two items read
+    // different server flags on purpose; this is the cell that keeps them from
+    // being collapsed into one.
+    render(
+      <NodeRow
+        node={{ ...BASE, access: "edit", canManage: false, canRetire: true }}
+        onOpenConfig={() => {}}
+        onShare={() => {}}
+        onDelete={() => {}}
+        onMaintenance={() => {}}
+      />,
+    );
+    await openMenu("mac mini");
+    expect(screen.getByRole("menuitem", { name: "Delete" }).getAttribute("aria-disabled")).not.toBe("true");
+    expect(screen.getByRole("menuitem", { name: "Share" }).getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByRole("menuitem", { name: "Start maintenance…" }).getAttribute("aria-disabled")).toBe("true");
   });
 
   it("shows the maintenance badge only while the flag is set", () => {

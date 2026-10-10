@@ -527,11 +527,27 @@ section's posture depends on):
   operable at all). Non-admin cookie lists are UNCHANGED: a private foreign
   node stays absent, so ids still cannot be probed from the list by anyone
   who is not admin (the rows themselves were already enumerated to admins by
-  the Updates page). Shares, maintenance, rename
-  and delete stay owner-only (admin only on `local`): the boost buys the
-  boosted-`edit` surfaces, exactly as on the detail route. Pinned by
-  `nodes-crud-route.test.ts` ("the LIST carries a foreign private node to an
-  admin and never to a plain viewer").
+  the Updates page). Shares, maintenance, rename and the allowlist stay
+  owner-only (admin only on `local`): the boost buys the boosted-`edit`
+  surfaces, exactly as on the detail route. **Delete and re-register are the
+  one widening (same-day follow-up ruling 2026-10-09): owner OR any admin, a
+  gate `nodeCanRetire` names and `canRetire` renders.** The list puts every
+  machine on the operator's screen; a page that shows a machine it cannot
+  retire reads as broken. Retirement replaces a machine's standing rather than
+  deciding who else may USE it, which is why shares stay owner-only. A
+  re-registration mint is genuinely a credential-replacement act (redemption
+  re-homes the row onto whatever machine presents the new key, keeping the
+  owner), and an admin who could already DELETE the machine outright is not
+  being newly widened by being able to rotate it in place instead; the rotate
+  KEY route stays owner-only because it is the weaker half of the same power,
+  not because the admin lacks the stronger one. A recovery key an admin mints
+  is stored under the NODE's owner (redemption requires
+  `key.ownerUserId === node.ownerUserId`), so the admin is the audited ACTOR and
+  the node owner the key's owner, and the recovery-preserves-ownership contract
+  is untouched. Pinned by `nodes-crud-route.test.ts` ("the LIST carries a
+  foreign private node to an admin…", "re-registration mint is retire-gated",
+  "delete: admin retires a foreign node") and by `node-access.test.ts`
+  (`nodeCanRetire`).
 
 **The roster READ is not admin-gated, and it carries display names.** Writes to
 `/api/users` are cookie-admin; `GET /api/users` is deliberately instance-wide
@@ -1145,8 +1161,12 @@ subshell may only be launched in one of them or beneath it.
   leaves behind is the record of what was minted: the mint's audit event carries NO
   metadata, so the key text never enters the audit trail (`create-setup-key.route.ts`).
   Storage and disclosure: the next subsection.
-- **Re-registration keys** (`POST /api/nodes/:id/reregister`) are cookie-owner-only
-  and agent-only. They carry a foreign-key-bound `target_node_id`; deleting the
+- **Re-registration keys** (`POST /api/nodes/:id/reregister`) are cookie
+  retire-gated (owner or any admin, `canRetire`; ruling 2026-10-09, same as
+  delete) and agent-only. An admin's mint is stored under the node's owner, not
+  the admin, because redemption requires `key.ownerUserId === node.ownerUserId`
+  (recovery preserves ownership); the admin is the audited actor. They carry a
+  foreign-key-bound `target_node_id`; deleting the
   node cascades its recovery keys. Minting leaves the current credentials and
   connection active. Redemption validates the machine's public keys first, then
   spends the key and replaces bearer, encryption pin, and delivery identity on
@@ -1190,12 +1210,12 @@ subshell may only be launched in one of them or beneath it.
   one action name with `{ foreign: true, ownerUserId }` metadata so the trail
   says whose provider it was, and the row names ids, never the key text. The same
   audit fix gave admins the matching view: `GET /api/nodes/setup-keys?all=1`
-  lists every key in the instance with its creator's label, and a plain
+  lists every key in the instance with its key owner's label, and a plain
   non-admin asking for it gets a 403 rather than a silently-narrowed list. So
-  the doors that revoke are expiry, the creator's own delete, and the admin's
+  the doors that revoke are expiry, the key owner's own delete, and the admin's
   foreign one, and an admin seeing an outstanding key they cannot close is
   no longer a thing. The switch bounds the FUTURE; the ≤24 h window it leaves
-  is closable from the Setup keys card by the creator or by an admin.
+  is closable from the Setup keys card by the key owner or by an admin.
 
   It governs ADDING a node only. Who may launch on one they were shared, and
   what a share confers, are the unchanged axes above.
@@ -1245,7 +1265,7 @@ the digest bought, and what was traded against it:
   enrollment doors (`GET /api/nodes/setup-keys` answers 403 to a machine token), and
   one caller sees its own rows and nobody else's. The one widening is the admin
   view (audit 2026-09 item 4): `?all=1` is cookie-ADMIN only and lists every
-  row with its creator's label: the same plaintext, gated like every other
+  row with its key owner's label: the same plaintext, gated like every other
   instance-wide admin read, and it exists so an outstanding foreign key is
   something an admin can SEE and close rather than only wait out.
 - **The `label` went with it.** The mint dialog's "Node name" became only this column,
@@ -1400,8 +1420,8 @@ stays enrolled and answers every other command (service control, logs,
 detection, restart, config), but takes no new subshells. Turning it on
 **terminates every subshell running there**, whoever owns them, and the two
 ends that can set it are `PUT /api/nodes/:id/maintenance` (owner only; admin on
-`local`; the same gate as delete and re-share) and the machine's own
-`subshell maintenance on|off`.
+`local`; the `canManage` gate, same as re-share, and NOT the wider `canRetire`
+gate delete sits on) and the machine's own `subshell maintenance on|off`.
 
 Three properties of that pair are worth stating rather than inferring:
 

@@ -57,10 +57,21 @@ a DIFFERENT rule
 Update card (`node-update-card.tsx`) behind the same `managesNodeSections` rule,
 driving the same `POST /api/nodes/:id/update` the Updates table rows use; that
 route also answers 409 when the node already runs the newest release this server
-can offer, rather than reinstalling the same binary.
+can offer, rather than reinstalling the same binary. The Update and Re-check buttons
+read the node's LINK state, not just permission (the server's own `canUpdate`
+rule): an ONLINE node or a HELD one (offline but its socket still answers the
+`update` command) can take an update, so its button stays live and the card says
+why the offline label is not the whole story; a node that is simply gone
+(offline AND not held) has its Update and Re-check buttons DISABLED with the
+reason, because a control that can only 409 from a state already on screen is a
+lie, not a choice. Held turns it the other way for Re-check: detection needs a
+live socket, which a held link drops, so Re-check is disabled there.
 
 The agent node's Overview offers **Re-register**, replacing the Rotate key card.
-Only its owner can generate the single-use setup key. The shared setup instructions
-lead with Desktop App, and the key also remains in Setup keys until redeemed or
-expired. Minting leaves the node connected; redemption keeps its registry entry
-and replaces its machine credentials. See [the recovery procedure](../../../docs/content/docs/nodes/desktop.mdx).
+Its owner or any admin can generate the single-use setup key (`canRetire`, the
+same gate as Delete, ruling 2026-10-09); an admin's mint is stored under the
+node's owner, so recovery still lands on that person's machine. The shared setup
+instructions lead with Desktop App, and the key also remains in Setup keys until
+redeemed or expired. Minting leaves the node connected; redemption keeps its
+registry entry and replaces its machine credentials. See [the recovery
+procedure](../../../docs/content/docs/nodes/desktop.mdx).

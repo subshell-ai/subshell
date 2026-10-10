@@ -12,6 +12,7 @@ import {
   nodeCanLaunchOn,
   nodeCanManage,
   nodeCanManageFor,
+  nodeCanRetire,
   resolveNodeAccess,
 } from "@/lib/node-access.js";
 
@@ -89,7 +90,7 @@ describe("capability predicates (spec §2 — NOT the subshell rule)", () => {
     expect(nodeCanConfigure("none")).toBe(false);
   });
 
-  it("manage (delete/re-share) is owner-only — admins included get false here", () => {
+  it("manage (re-share/rename/maintenance) is owner-only — admins get false here, retire is the wider gate", () => {
     expect(nodeCanManage("owner")).toBe(true);
     expect(nodeCanManage("edit")).toBe(false);
     expect(nodeCanManage("view")).toBe(false);
@@ -121,6 +122,30 @@ describe("nodeCanManageFor (ONE rule shared by the gate and the views)", () => {
     expect(nodeCanManageFor("agent", "edit", false)).toBe(false);
     expect(nodeCanManageFor("agent", "view", false)).toBe(false);
     expect(nodeCanManageFor("agent", "none", true)).toBe(false);
+  });
+});
+
+describe("nodeCanRetire (delete + re-register: owner OR any admin)", () => {
+  it("the owner always retires; any admin retires, whatever the access", () => {
+    expect(nodeCanRetire("owner", false)).toBe(true);
+    // The ruling's whole point: an admin resolves to `edit` on a foreign
+    // agent (manage false) yet still retires it.
+    expect(nodeCanRetire("edit", true)).toBe(true);
+    expect(nodeCanRetire("view", true)).toBe(true);
+  });
+
+  it("a plain grantee retires nothing", () => {
+    expect(nodeCanRetire("edit", false)).toBe(false);
+    expect(nodeCanRetire("view", false)).toBe(false);
+    expect(nodeCanRetire("none", false)).toBe(false);
+  });
+
+  it("`none` never pairs with an admin (the resolver ranks admins at edit)", () => {
+    // So the impossible-state question "does an admin retire a node they
+    // cannot even see?" has no answer to pin: `resolveNodeAccess` returns
+    // `edit` for an admin BEFORE the shares loop, and the gate 404s `none`.
+    // The predicate's `|| isAdmin` is therefore only ever reached at edit+.
+    expect(resolveNodeAccess("root", true, node("n1", "alice"), [])).toBe("edit");
   });
 });
 

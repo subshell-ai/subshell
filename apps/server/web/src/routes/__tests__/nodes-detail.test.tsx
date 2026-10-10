@@ -30,6 +30,7 @@ function enrolledNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
     protocolVersion: 1,
     access: "owner",
     canManage: true,
+    canRetire: true,
     canLaunch: true,
     allowedDirs: [],
     capabilities: [],
@@ -116,7 +117,7 @@ describe("NodeDetailPage re-check gating", () => {
   // it from them would strip a documented, server-honoured capability.
   // `local` never shows it: its probe is live on every read and recheck 400s.
   it("offers a `view` grantee no Re-check and POSTs nothing", async () => {
-    const { calls, restore } = mockFetch(enrolledNode({ access: "view", canManage: false }));
+    const { calls, restore } = mockFetch(enrolledNode({ access: "view", canManage: false, canRetire: false }));
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
@@ -128,7 +129,7 @@ describe("NodeDetailPage re-check gating", () => {
   });
 
   it("offers an `edit` grantee a working Re-check despite not managing the node", async () => {
-    const { calls, restore } = mockFetch(enrolledNode({ access: "edit", canManage: false }));
+    const { calls, restore } = mockFetch(enrolledNode({ access: "edit", canManage: false, canRetire: false }));
     try {
       renderDetail("node1");
       const btn = await screen.findByRole("button", { name: /Re-check/ });
@@ -137,7 +138,9 @@ describe("NodeDetailPage re-check gating", () => {
       await waitFor(() => {
         expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/node1/recheck")).toHaveLength(1);
       });
-      // Configure yes, manage no: Share/Delete stay gated on `canManage`.
+      // Configure yes, retire no, for a PLAIN grantee: Share gates on
+      // `canManage`, Delete on `canRetire`, and neither flag an admin holds
+      // sits in this fixture (the admin shape has its own cell below).
       expect(screen.getByRole("button", { name: /Share/ }).hasAttribute("disabled")).toBe(true);
       expect(screen.getByRole("button", { name: /Delete/ }).hasAttribute("disabled")).toBe(true);
     } finally {
@@ -257,7 +260,7 @@ describe("NodeDetailPage rename (owner-only PATCH)", () => {
   });
 
   it("does not render the editor for `local` when the viewer does not manage it", async () => {
-    const { restore } = mockFetch(localNode({ access: "edit", canManage: false }));
+    const { restore } = mockFetch(localNode({ access: "edit", canManage: false, canRetire: false }));
     try {
       renderDetail("local");
       await screen.findByText("Your access");
@@ -268,7 +271,7 @@ describe("NodeDetailPage rename (owner-only PATCH)", () => {
   });
 
   it("never renders the editor for a non-manager (the route 403s them too)", async () => {
-    const { restore } = mockFetch(enrolledNode({ access: "edit", canManage: false }));
+    const { restore } = mockFetch(enrolledNode({ access: "edit", canManage: false, canRetire: false }));
     try {
       renderDetail("node1");
       await screen.findByText("Your access");
@@ -327,12 +330,77 @@ describe("NodeDetailPage reregister", () => {
     }
   });
 
-  it("disables Re-register for a non-manager", async () => {
-    const { restore } = mockFetch(enrolledNode({ access: "edit", canManage: false }));
+  it("disables Re-register for a plain grantee (no manage, no retire)", async () => {
+    const { restore } = mockFetch(enrolledNode({ access: "edit", canManage: false, canRetire: false }));
     try {
       renderDetail("node1");
       const btn = await screen.findByRole("button", { name: /Re-register/ });
       expect(btn.hasAttribute("disabled")).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe("NodeDetailPage admin shape (ruling 2026-10-09)", () => {
+  // What a FOREIGN agent's view carries for an admin: access resolves to
+  // `edit`, `canManage` is false (their shares stay the owner's act),
+  // `canRetire` is TRUE (delete and re-register: the list put every machine
+  // on the admin's screen, the page must be able to act on it). One flag
+  // standing in for the other reads power wrong in both directions, so the
+  // split is pinned here at the page level and at the route level
+  // (`nodes-crud-route.test.ts`) and in the pure resolver.
+  it("enables Delete and Re-register while Share and rename stay owner-only", async () => {
+    const { restore } = mockFetch(enrolledNode({ access: "edit", canManage: false, canRetire: true }));
+    try {
+      renderDetail("node1");
+      await screen.findByText("Your access");
+      expect(screen.getByRole("button", { name: /Delete/ }).hasAttribute("disabled")).toBe(false);
+      expect(screen.getByRole("button", { name: /Re-register/ }).hasAttribute("disabled")).toBe(false);
+      expect(screen.getByRole("button", { name: /Share/ }).hasAttribute("disabled")).toBe(true);
+      expect(screen.queryByRole("button", { name: "Rename node" })).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps Update enabled on a HELD node and explains the offline label", async () => {
+    // The rescue state: the server refuses this agent, the socket is held open
+    // for `update` only. The page reads offline, so without this line the one
+    // button that WORKS looks like every broken one.
+    const { restore } = mockFetch(
+      enrolledNode({
+        access: "edit",
+        canManage: false,
+        canRetire: true,
+        status: "offline",
+        held: { reason: "protocol-mismatch", agentVersion: "0.1.0" },
+      }),
+    );
+    try {
+      renderDetail("node1");
+      const update = await screen.findByRole("button", { name: /Update to latest/ });
+      expect(update.hasAttribute("disabled")).toBe(false);
+      expect(screen.getByText(/the server refuses its agent/)).toBeDefined();
+      // Detection is not `update`: a held link drops it, so Re-check says so
+      // instead of trading a press for a 409.
+      const recheck = screen.getByRole("button", { name: /Re-check/ });
+      expect(recheck.hasAttribute("disabled")).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("disables Update and Re-check on a node that is simply gone", async () => {
+    const { restore } = mockFetch(
+      enrolledNode({ access: "edit", canManage: false, canRetire: true, status: "offline" }),
+    );
+    try {
+      renderDetail("node1");
+      const update = await screen.findByRole("button", { name: /Update to latest/ });
+      expect(update.hasAttribute("disabled")).toBe(true);
+      expect(screen.getByRole("button", { name: /Re-check/ }).hasAttribute("disabled")).toBe(true);
+      expect(screen.queryByText(/the server refuses its agent/)).toBeNull();
     } finally {
       restore();
     }

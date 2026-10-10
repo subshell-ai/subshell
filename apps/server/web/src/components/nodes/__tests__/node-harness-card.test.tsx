@@ -36,6 +36,10 @@ interface CardOpts {
   access?: NodeDetail["access"];
   inventoryStale?: boolean;
   kind?: NodeDetail["kind"];
+  /** The node view's connectivity, which gates whether Re-check can run. */
+  status?: NodeDetail["status"];
+  /** The held-socket fact; only an offline node that is held reads as `held`. */
+  held?: NodeDetail["held"];
   /** The plugins the instance has installed and enabled. */
   instanceHas?: string[];
   /** Status the POST to /recheck answers with (default 200 {ok:true}). */
@@ -91,6 +95,7 @@ function view(over: Partial<NodeDetail>): NodeDetail {
     protocolVersion: 2,
     access: "owner",
     canManage: true,
+    canRetire: true,
     canLaunch: true,
     capabilities: [],
     allowedDirs: [],
@@ -114,6 +119,8 @@ async function mount(opts: CardOpts = {}): Promise<{ calls: { method: string; ur
     kind: opts.kind ?? "agent",
     access: opts.access ?? "owner",
     canManage: opts.canManage ?? true,
+    status: opts.status ?? "online",
+    held: opts.held ?? null,
     inventoryStale: opts.inventoryStale ?? false,
     harnesses: (opts.harnesses ?? []).filter((h) => !opts.instanceHas || opts.instanceHas.includes(h.harnessId)),
   });
@@ -240,6 +247,39 @@ describe("NodeHarnessCard", () => {
     }
   });
 
+  it("disables Re-check on a disconnected node (permission yes, live socket no)", async () => {
+    // Re-check is a DETECTION command that needs the live socket. A node that
+    // is offline AND not held cannot answer anything, so the button is shown
+    // (the grantee may re-check once it reconnects) but disabled, with the
+    // reason in its title, rather than trading a press for a 409.
+    const { calls, restore } = await mount({ harnesses: [], status: "offline", held: null });
+    try {
+      const btn = screen.getByRole("button", { name: /re-check/i }) as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      expect(btn.getAttribute("title")).toContain("not connected");
+      fireEvent.click(btn);
+      expect(calls.some((c) => c.method === "POST" && c.url === `/api/nodes/${NODE_ID}/recheck`)).toBe(false);
+    } finally {
+      restore();
+    }
+  });
+
+  it("disables Re-check on a HELD node too (held answers `update` only)", async () => {
+    // The subtlety the Update card turns the OTHER way: `update` survives a
+    // held socket, detection does not. Same offline label, opposite verdicts,
+    // and both are true.
+    const { restore } = await mount({
+      harnesses: [],
+      status: "offline",
+      held: { reason: "protocol-mismatch", agentVersion: "1.0.0" },
+    });
+    try {
+      expect((screen.getByRole("button", { name: /re-check/i }) as HTMLButtonElement).disabled).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
   it("an edit grantee is offered Re-check, because that is the server's gate", async () => {
     // The recheck route gates on `nodeCanConfigure` = owner|edit
     // (api/src/lib/node-access.ts), and the security posture documents it:
@@ -348,6 +388,7 @@ describe("NodeHarnessCard", () => {
     const localOpts = {
       kind: "local" as const,
       canManage: true,
+      canRetire: true,
       harnesses: [{ harnessId: "claude", name: "Claude", installed: false, reason: "not-on-path" as const }],
       infos: [info()],
     };

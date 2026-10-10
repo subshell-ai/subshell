@@ -23,6 +23,7 @@ function node(overrides: Partial<Node>): Node {
     protocolVersion: null,
     access: "owner",
     canManage: true,
+    canRetire: true,
     canLaunch: true,
     allowedDirs: [],
     capabilities: [],

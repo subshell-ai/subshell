@@ -26,6 +26,7 @@ function node(over: Partial<NodeDetail> = {}): NodeDetail {
     protocolVersion: 12,
     access: "owner",
     canManage: true,
+    canRetire: true,
     canLaunch: true,
     capabilities: [],
     allowedDirs: [],
@@ -78,9 +79,8 @@ describe("NodeUpdateCard", () => {
 
   it("shows the pressed button as Updating while its POST is in flight", async () => {
     // The POST blocks for the node's whole download-and-restart window (up to
-    // five minutes), so the card has to say it is working. The button stays
-    // live even for an OFFLINE node (a held machine is what this exists for),
-    // which is why "offline" is not an option in this test's node either.
+    // five minutes), so the card has to say it is working. This node is online;
+    // the offline-but-held and offline-and-gone cases have their own cells below.
     const original = globalThis.fetch;
     let release: () => void = () => {};
     globalThis.fetch = ((_input: unknown, _init?: RequestInit) =>
@@ -189,7 +189,12 @@ describe("NodeUpdateCard", () => {
       )) as typeof globalThis.fetch;
     try {
       const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-      const { rerender } = render(withNode(client, node({ status: "offline" })));
+      // A HELD node: the button stays live offline because the held socket still
+      // accepts `update` (the disconnected case, held:null, is pinned disabled
+      // in its own cell below).
+      const { rerender } = render(
+        withNode(client, node({ status: "offline", held: { reason: "protocol-mismatch", agentVersion: "1.0.0" } })),
+      );
       fireEvent.click(screen.getByRole("button", { name: "Update to latest" }));
       await screen.findByText(/Update accepted/);
       rerender(withNode(client, node({ status: "online", agentVersion: "9.9.9" })));
@@ -197,5 +202,27 @@ describe("NodeUpdateCard", () => {
     } finally {
       globalThis.fetch = original;
     }
+  });
+
+  it("disables Update on a node that is simply disconnected (offline, not held)", () => {
+    // Mirrors the server's `canUpdate` rule (admin-updates.route): offline AND
+    // not held → the machine cannot be reached, so the button is disabled
+    // rather than trading a press for a 409. This is the split that keeps the
+    // HELD node (below) working while a truly gone node does not offer a dead
+    // control.
+    mount(node({ status: "offline", held: null }));
+    const btn = screen.getByRole("button", { name: "Update to latest" }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute("title")).toContain("not connected");
+  });
+
+  it("keeps Update live and explains it on a HELD node", () => {
+    // The rescue state: offline-labeled but the held socket answers `update`,
+    // so the button must be enabled AND say why, or it looks like the broken
+    // button above.
+    mount(node({ status: "offline", held: { reason: "below-floor", agentVersion: "0.0.1" } }));
+    const btn = screen.getByRole("button", { name: "Update to latest" }) as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    expect(screen.getByText(/the server refuses its agent/)).toBeTruthy();
   });
 });

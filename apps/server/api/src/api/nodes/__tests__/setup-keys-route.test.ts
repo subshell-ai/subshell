@@ -264,11 +264,11 @@ describe("/api/nodes/setup-keys", () => {
   // Audit 2026-09 item 4, operator-approved: an outstanding foreign key used
   // to be a door NO admin could close before its 24 h expiry — the delete was
   // owner-filtered and the list owner-scoped. Both halves opened at once:
-  // `?all=1` for a cookie admin sees every row with its creator's label, and
+  // `?all=1` for a cookie admin sees every row with its key owner's label, and
   // DELETE closes any row, audited `foreign: true` so the trail says whose
   // door it was.
   describe("the admin instance-wide view and foreign revoke", () => {
-    it("?all=1 as an admin lists every key with its creator's label and key text", async () => {
+    it("?all=1 as an admin lists every key with its key owner's label and key text", async () => {
       const foreignRow = await repo.create(aliceId);
       const ownRow = await repo.create(adminId);
       try {
@@ -277,8 +277,8 @@ describe("/api/nodes/setup-keys", () => {
         const keys = ((await res.json()) as { keys: AdminKeyRow[] }).keys;
         const foreign = keys.find((k) => k.id === foreignRow.id);
         expect(foreign?.key).toBe(foreignRow.key);
-        // The label is the creator's display name, which `mkUser` sets to the
-        // email — the card needs to say WHOSE door each row is.
+        // The label is the key owner's display name, which `mkUser` sets to
+        // the email — the card needs to say WHOSE door each row is.
         expect(foreign?.ownerUserId).toBe(aliceId);
         expect(foreign?.ownerLabel).toBe(aliceEmail);
         expect(keys.some((k) => k.id === ownRow.id)).toBe(true);

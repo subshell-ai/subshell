@@ -95,10 +95,31 @@ describe("UserMenu version + update additions", () => {
   };
   const openMenu = () => fireEvent.click(screen.getByRole("button", { name: /Thea/ }));
 
-  it("carries the server version and instance name as one detail line", async () => {
+  it("carries the server version and instance name as TWO separate detail lines", async () => {
+    // Split 2026-10-09: sharing one truncated line let a long hostname (the
+    // operator's real "mac-builder") cut the version off the end. Each now
+    // truncates on its own row, so the version is always whole.
     render(<UserMenu {...base} serverVersion="0.11.1" instanceName="Test plane" />);
     openMenu();
-    expect(await screen.findByText("Subshell Server 0.11.1 · Test plane")).toBeTruthy();
+    expect(await screen.findByText("Subshell Server 0.11.1")).toBeTruthy();
+    expect(screen.getByText("Test plane")).toBeTruthy();
+    // The joined form the operator complained about must no longer exist.
+    expect(screen.queryByText("Subshell Server 0.11.1 · Test plane")).toBeNull();
+  });
+
+  it("keeps the version whole when the instance name is long", async () => {
+    render(<UserMenu {...base} serverVersion="1.10.2" instanceName="mac-builder-production-host-01" />);
+    openMenu();
+    expect(await screen.findByText("Subshell Server 1.10.2")).toBeTruthy();
+    expect(screen.getByText("mac-builder-production-host-01")).toBeTruthy();
+  });
+
+  it("renders only the version line when the instance name is still pending", async () => {
+    render(<UserMenu {...base} serverVersion="0.11.1" instanceName="" />);
+    openMenu();
+    expect(await screen.findByText("Subshell Server 0.11.1")).toBeTruthy();
+    // No stray separator or empty second row.
+    expect(screen.queryByText("·")).toBeNull();
   });
 
   it("renders no version line while both reads are pending", async () => {

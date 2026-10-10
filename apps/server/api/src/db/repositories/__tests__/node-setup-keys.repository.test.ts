@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import { db } from "@/db/index.js";
 import { runMigrations } from "@/db/migrate.js"; // no-op when already applied
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 
 let seq = 0;
 // Salt per file: every test file in one `bun test` invocation shares one process
@@ -89,5 +90,31 @@ describe("NodeSetupKeysRepository", () => {
     expect(await repo.listByUser(unique("u"))).toHaveLength(0);
     expect(await repo.deleteById(row.id, "someone-else")).toBe(0);
     expect(await repo.deleteById(row.id, owner)).toBeGreaterThan(0);
+  });
+
+  it("a recovery key's mint owner must BE the target node's owner (the redemption invariant)", async () => {
+    // The reregister route, since the 2026-10-09 retire ruling, can be reached
+    // by an ADMIN but still mints under the NODE'S owner. This guard is WHY:
+    // redemption (`services/nodes/reregister-node.ts`) refuses a key whose
+    // ownerUserId differs from the node owner's, so a key minted under the
+    // admin would be dead on arrival. The repository enforces the invariant at
+    // the write, so the route can hand it the owner id and never persist a
+    // key that cannot redeem.
+    const nodeId = unique("node");
+    const nodeOwner = unique("u");
+    await new NodesRepository(db).create({ id: nodeId, ownerUserId: nodeOwner, name: nodeId, kind: "agent" });
+    // The owner-shaped mint the route performs: succeeds, key owned by the node owner.
+    const ok = await repo.create(nodeOwner, 60_000, nodeId);
+    expect(ok.targetNodeId).toBe(nodeId);
+    expect(ok.ownerUserId).toBe(nodeOwner);
+    // An admin-shaped mint (key under the caller, not the owner) is refused here.
+    let threw = false;
+    try {
+      await repo.create(unique("admin"), 60_000, nodeId);
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+    await new NodesRepository(db).deleteById(nodeId);
   });
 });

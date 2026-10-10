@@ -24,6 +24,7 @@ const base: NodeDetail = {
   protocolVersion: 4,
   access: "owner",
   canManage: true,
+  canRetire: true,
   canLaunch: true,
   allowedDirs: [],
   capabilities: [],

@@ -23,7 +23,7 @@ const OkResponseSchema = t.Object({
  *
  * The audit reuses the one action name — `setup_key.revoke` — and says which
  * kind it was in metadata: `{ foreign: true, ownerUserId }` on the admin's
- * foreign path, `null` on the creator's, exactly as before. Metadata carries
+ * foreign path, `null` on the key owner's, exactly as before. Metadata carries
  * ids, never the key text (the same rule the mint already holds to: the trail
  * is what gets screenshotted into an issue).
  */
@@ -38,7 +38,7 @@ export const deleteSetupKeyRoute = new Elysia()
       let deleted = await keys.deleteById(params.id, user.id);
       let metadataJson: string | null = null;
       if (deleted === 0 && (await isCookieAdmin(user, actor))) {
-        // The owner-filtered miss is what separates the two paths: a creator
+        // The owner-filtered miss is what separates the two paths: a key owner
         // deleting their own row never pays the role lookup, and the admin
         // widening opens ONLY after the owner path answered "not mine".
         const foreign = await keys.findById(params.id);

@@ -19,9 +19,12 @@ const QuerySchema = t.Object({
 const OkSchema = t.Object({ ok: t.Boolean({ description: "Always true on success" }) });
 
 /**
- * `DELETE /api/nodes/:id` — retire a node (spec 2026-08-31 §5.4/§9). OWNER
- * only (admins included NOT — effective edit never extends to delete),
- * cookie-only, and `local` is undeletable (400). Guards, in order:
+ * `DELETE /api/nodes/:id` — retire a node (spec 2026-08-31 §5.4/§9). The
+ * RETIRE gate: the real owner, or any admin (operator ruling 2026-10-09: the
+ * #351 list put every machine on every admin's Nodes page, and a page that
+ * shows a machine it cannot retire reads as broken). Cookie-only, and `local`
+ * is undeletable (400). Managing a foreign node's SHARES stays owner-only;
+ * retirement is the weaker act and the admin holds it. Guards, in order:
  * running subshells → 409 unless `?force=true`; force on a node that is
  * ONLINE → 409 (force may not ambush a live machine — remote terminate is
  * phase 2, so "go offline first" is the honest instruction).
@@ -52,7 +55,7 @@ export const deleteNodeRoute = new Elysia()
           apiErrorBody({ code: BackendErrorCodes.BAD_REQUEST, message: "The local node cannot be deleted" }),
         );
       }
-      if (!gate.canManage) throw new ForbiddenError();
+      if (!gate.canRetire) throw new ForbiddenError();
 
       const nodes = new NodesRepository(db);
       const force = query.force === "true";
@@ -115,7 +118,7 @@ export const deleteNodeRoute = new Elysia()
       detail: {
         operationId: "deleteNode",
         tags: ["nodes"],
-        description: "Delete a node (owner only; revokes its key; ?force=true for offline nodes with subshells)",
+        description: "Delete a node (owner or admin; revokes its key; ?force=true for offline nodes with subshells)",
       },
     },
   );

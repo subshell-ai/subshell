@@ -26,11 +26,11 @@ const INLINE_HARNESSES = 3;
 /**
  * One row of the Nodes list: name + hostname line, the OS/arch chip, the
  * status badge, chips for the harnesses whose program was detected, the access badge, and
- * the overflow menu. Delete/Share are gated on `node.canManage` — the
- * SERVER's answer (real owner, or admin on `local`) so admins keep the
- * surfaces the routes actually let them use; shown DISABLED rather than
- * hidden for non-managers so the row reads the same to everyone. `local` is
- * undeletable server-side, so its Delete is disabled even for a manager.
+ * the overflow menu. Share is gated on `node.canManage` and Delete on the wider
+ * `node.canRetire` (owner OR any admin) — both the SERVER's answers so the row keeps
+ * the surfaces the routes actually let the viewer use; shown DISABLED rather than
+ * hidden for those who lack the gate so the row reads the same to everyone.
+ * `local` is undeletable server-side, so its Delete is disabled even for a manager.
  *
  * The second line is the node's HOSTNAME for every kind. The control-plane
  * host used to read "this machine" here, which is false for every user who is
@@ -64,7 +64,7 @@ export function NodeRow({
   onOpenConfig: () => void;
   /** Open this node's sharing management (owner-only server-side) */
   onShare: () => void;
-  /** Delete this node (owner-only server-side) */
+  /** Delete this node (retire-gated server-side: owner or admin) */
   onDelete: () => void;
   /**
    * Start or end maintenance on this node — which of the two is decided by

@@ -24,6 +24,7 @@ function node(over: Partial<Node> = {}): Node {
     protocolVersion: 1,
     access: "owner",
     canManage: true,
+    canRetire: true,
     canLaunch: true,
     allowedDirs: [],
     capabilities: [],

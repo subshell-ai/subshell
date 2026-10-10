@@ -33,6 +33,7 @@ function navNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
     protocolVersion: 15,
     access: "owner",
     canManage: true,
+    canRetire: true,
     canLaunch: true,
     allowedDirs: [],
     capabilities: [],

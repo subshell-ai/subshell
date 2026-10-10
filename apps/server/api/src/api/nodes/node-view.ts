@@ -4,7 +4,7 @@ import { NodeAllowedDirsRepository } from "@/db/repositories/node-allowed-dirs.r
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import type { NodeShareTable } from "@/db/types/node-shares.db-types.js";
 import type { NodeTable } from "@/db/types/nodes.db-types.js";
-import { type NodeAccess, nodeCanLaunchOn, nodeCanManageFor } from "@/lib/node-access.js";
+import { type NodeAccess, nodeCanLaunchOn, nodeCanManageFor, nodeCanRetire } from "@/lib/node-access.js";
 import { type EffectiveHarnessReport, effectiveHarnessStates } from "@/services/nodes/inventory.js";
 import { enabledHarnessPlugins } from "@/services/nodes/local-plugins.js";
 import { getHeld, type HeldReason } from "@/services/nodes/node-registry.js";
@@ -113,7 +113,11 @@ export const NodeViewSchema = t.Object({
   access: NodeAccessSchema,
   canManage: t.Boolean({
     description:
-      "Whether the caller manages this node (delete/re-share/rotate): real owner, or an admin on `local`; same rule as the route gate",
+      "Whether the caller manages this node (shares/rename/maintenance/rotate/allowlist): real owner, or an admin on `local`; same rule as the route gate",
+  }),
+  canRetire: t.Boolean({
+    description:
+      "Whether the caller may end or replace this machine's standing on this plane (DELETE and RE-REGISTER): real owner, or any admin (ruling 2026-10-09: the admin-wide Nodes list must be able to act on the machines it shows). Deliberately NOT shares: retiring a machine is the owner's or the operator's act; re-sharing someone else's is only the owner's",
   }),
   canLaunch: t.Boolean({
     description:
@@ -346,6 +350,7 @@ function nodeViewBase(
     // The SAME rule the route gate applies — shared helper, so view and gate
     // can never drift (T14 review carry: the frontend cannot derive admin identity).
     canManage: nodeCanManageFor(row.kind, access, isAdmin),
+    canRetire: nodeCanRetire(access, isAdmin),
     // The SAME helper the launch gate calls, for the same reason `canManage`
     // shares one: the picker must not re-derive a rule the server enforces.
     canLaunch: nodeCanLaunchOn(row.kind, access, granted, row.maintenance === 1, serverAsNode),
@@ -372,7 +377,8 @@ function heldView(nodeId: string): { reason: HeldReason; agentVersion: string } 
 /**
  * Render one node row for a viewer at a known access level.
  * @param isAdmin - Whether the viewer holds the admin role (drives the
- *  seeded-`local` exception inside `canManage`)
+ *  seeded-`local` exception inside `canManage`, and the admin half of
+ *  `canRetire`, which is true for an admin on ANY kind)
  */
 export async function toNodeView(
   row: NodeTable,

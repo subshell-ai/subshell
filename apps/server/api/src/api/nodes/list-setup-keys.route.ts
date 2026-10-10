@@ -14,11 +14,16 @@ const SetupKeyRowSchema = t.Object({
   usedAt: t.Nullable(t.String({ description: "ISO 8601 redemption time, null while unused" })),
   targetNodeId: t.Union([t.String(), t.Null()]),
   consumedNodeId: t.Nullable(t.String({ description: "Node created by redeeming this key, null while unused" })),
-  ownerUserId: t.Optional(t.String({ description: "Creator's user id, present only on the admin `all=1` listing" })),
+  ownerUserId: t.Optional(
+    t.String({
+      description:
+        "The key OWNER's user id, present only on the admin `all=1` listing. This is the future node owner: for a recovery key an ADMIN minted it is the node's owner, not the admin who triggered the mint",
+    }),
+  ),
   ownerLabel: t.Optional(
     t.String({
       description:
-        "Creator's display name, falling back to email, then to the raw user id for a deleted account, present only on the admin `all=1` listing",
+        "The key owner's display name, falling back to email, then to the raw user id for a deleted account, present only on the admin `all=1` listing",
     }),
   ),
 });
@@ -86,7 +91,7 @@ function toKeyRow(
  *
  * Two answers, one route. Without `all=1`: the caller's own keys, as always.
  * With `all=1` (audit 2026-09 item 4, operator-approved): every key in the
- * instance with its creator's label — the admin's view of the enrollment
+ * instance with its key owner's label — the admin's view of the enrollment
  * doors outstanding on their machine. That is a real widening (an admin reads
  * keys they did not mint, in the plaintext the plaintext-storage decision
  * already describes) and it is gated exactly like every other admin surface:
@@ -112,7 +117,7 @@ export const listSetupKeyRoute = new Elysia()
         const labels = await new UsersRepository(db).displayNamesByIds([...new Set(rows.map((r) => r.ownerUserId))]);
         return {
           keys: rows.map((row) =>
-            // A deleted creator still owns rows that outlived the account;
+            // A deleted key owner still owns rows that outlived the account;
             // the id is the honest label for one, not a blank.
             toKeyRow(row, { ownerUserId: row.ownerUserId, ownerLabel: labels.get(row.ownerUserId) ?? row.ownerUserId }),
           ),
@@ -131,7 +136,7 @@ export const listSetupKeyRoute = new Elysia()
         operationId: "listNodeSetupKeys",
         tags: ["nodes"],
         description:
-          "Lists node setup keys, each with its key text: the caller's own, or with all=1 every key in the instance with its creator's label (cookie-admin only)",
+          "Lists node setup keys, each with its key text: the caller's own, or with all=1 every key in the instance with its key owner's label (cookie-admin only)",
       },
     },
   );

@@ -31,6 +31,7 @@ function node(overrides: Partial<NodeDetail> = {}): NodeDetail {
     protocolVersion: null,
     access: "owner",
     canManage: true,
+    canRetire: true,
     canLaunch: true,
     allowedDirs: [],
     capabilities: [],

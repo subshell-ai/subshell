@@ -20,7 +20,7 @@ it("reveals a setup key with client instructions and retires it on a node switch
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const tree = (nodeId: string) => (
     <QueryClientProvider client={client}>
-      <NodeReregister nodeId={nodeId} nodeName={nodeId} canManage />
+      <NodeReregister nodeId={nodeId} nodeName={nodeId} canRetire />
     </QueryClientProvider>
   );
   const { rerender } = render(tree("n1"));
@@ -51,7 +51,7 @@ it("does not mint for a different node when confirmation finishes after navigati
   const client = new QueryClient();
   const tree = (nodeId: string) => (
     <QueryClientProvider client={client}>
-      <NodeReregister nodeId={nodeId} nodeName={nodeId} canManage />
+      <NodeReregister nodeId={nodeId} nodeName={nodeId} canRetire />
     </QueryClientProvider>
   );
   const { rerender } = render(tree("n1"));
@@ -77,7 +77,7 @@ it("a late mint response cannot overwrite the next node's recovery key", async (
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const tree = (nodeId: string) => (
     <QueryClientProvider client={client}>
-      <NodeReregister nodeId={nodeId} nodeName={nodeId} canManage />
+      <NodeReregister nodeId={nodeId} nodeName={nodeId} canRetire />
     </QueryClientProvider>
   );
   const { rerender } = render(tree("n1"));
