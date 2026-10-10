@@ -1,5 +1,15 @@
 # @internal/server
 
+## 1.10.4
+
+### Patch Changes
+
+- [#356](https://github.com/subshell-ai/subshell/pull/356) [`c981340`](https://github.com/subshell-ai/subshell/commit/c981340ec21c27188bc05f88b0dc7809dfc65ced) Thanks [@theogravity](https://github.com/theogravity)! - Running a re-registration key's install command now says so. A recovery key from a node's Re-register card produced the same script, and the same wizard, as a new-machine enroll: the first thing it asked was "Name this node", a question the recovery path ignores (the existing row keeps its own name), so the flow read like registering something new instead of re-associating the machine. With a key bound to an existing node the script now prints, before anything is asked: "re-registering the existing node '<name>': this machine takes over that entry (its name, shares and settings are kept)", and it supplies that name to the wizard itself so the question never appears. An explicit SUBSHELL_NODE_NAME still wins. The Re-register card's Terminal tab carries the same sentence. Keys that are absent, spent or expired still render the byte-identical usage script; only two kinds of LIVE key differ now, and either one already hands its holder the node.
+
+- [#356](https://github.com/subshell-ai/subshell/pull/356) [`c981340`](https://github.com/subshell-ai/subshell/commit/c981340ec21c27188bc05f88b0dc7809dfc65ced) Thanks [@theogravity](https://github.com/theogravity)! - An admin's node view now names the node's owner. The Nodes list shows an operator every machine on the plane, and until now none of it could say WHOSE machine a row is: `access` says the node is not yours, not whose it is. A node view rendered to an admin carries `ownerLabel` (name, falling back to email, then the raw id for a removed account) and the node page shows it as an "Owner" line; `local` names the `system` service user. Every other viewer's payload lacks the field entirely, same admin-only shape as the setup-key listing's owner label.
+
+- [#356](https://github.com/subshell-ai/subshell/pull/356) [`c981340`](https://github.com/subshell-ai/subshell/commit/c981340ec21c27188bc05f88b0dc7809dfc65ced) Thanks [@theogravity](https://github.com/theogravity)! - A stale cached detection is no longer flagged in the SPA. The Nodes row's "inventory stale" badge is gone, and the harness card's caveat paragraph went with it (operator rulings 2026-10-10): nothing about a machine is stale when that flag fires, only the cached answer may be old, and a warning on a perfectly healthy row asserted a defect nobody had established. The launch picker's greyed options keep their hedge ("not installed on this node (harness list may be outdated)") because there the staleness changes what a choice means; everywhere else the docs say it. The word "inventory", which was the server's name for that cache and not anyone else's, stays out of user-facing copy.
+
 ## 1.10.3
 
 ### Patch Changes
