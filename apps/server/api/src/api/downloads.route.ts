@@ -47,8 +47,9 @@ const DownloadQuerySchema = t.Object({
 /**
  * WHICH credential answered a download request. The kind matters to the binary
  * route: an update-token download is served release-coherently (see the
- * route), the other two disk-first. A token also carries the digest the
- * update command named, which is what "release-coherent" is measured against.
+ * route), the other two by the shelf-vs-release serve decision (spec
+ * 2026-10-09). A token also carries the digest the update command named,
+ * which is what "release-coherent" is measured against.
  */
 type DownloadCredential = { kind: "cookie" | "setup-key" } | { kind: "update-token"; sha256: string };
 

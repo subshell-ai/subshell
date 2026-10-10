@@ -30,7 +30,9 @@ import { artifactPath, artifactSha, artifactStat, diskArtifactSha256Cached } fro
  *
  * 1. the digest the instance ANNOUNCES for the shelf copy (its bytes, or an
  *    honest sidecar's: the very number `install.sh`'s checksum-skip compares)
- *    already EQUALS the release's signed digest → disk, no exec needed;
+ *    already EQUALS the release's signed digest AND the bytes agree with it
+ *    → disk, no exec needed; a binary that disagrees with its own sidecar is
+ *    a broken cell, not a fast path (see `shelfInconsistent`);
  * 2. the shelf reports (by running it: `<file> version`, the same discipline
  *    the server's self-update applies to a downloaded binary) a NEWER semver
  *    and the server's protocol → disk. This is the hand-publish/dev-loop
@@ -194,15 +196,39 @@ function shelfCanConnect(facts: ShelfVersionFacts | null): boolean {
  */
 export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDecision> {
   const onDisk = artifactStat(target) !== null;
+  // The two numbers the shelf can show: its true BYTES, and what the instance
+  // ANNOUNCES for it (the sidecar-preferring artifactSha, which is exactly the
+  // number a machine's checksum-skip compares against). Measuring the decision
+  // on the ANNOUNCED value with the bytes agreeing is the invariant that
+  // makes "skip" and "download" land on the same build everywhere, not just
+  // on the fast path. Neither hash call may throw out of here: an unreadable
+  // file is an unmeasurable shelf, not a 500.
+  const diskDigest = onDisk ? await diskArtifactSha256Cached(target).catch(() => null) : null;
+  const announced = onDisk ? await artifactSha(target).catch(() => diskDigest) : null;
+  // A binary that does not match its own published `.sha256` is a broken
+  // shelf cell, and every digest story goes quiet on it: the release wins,
+  // or nothing does. Serving bytes under an announcement that denies them
+  // would fail the installer's verify mid-flow with a worse message than
+  // this one, and announcing the bytes would bless the corruption.
+  const shelfInconsistent = diskDigest !== null && announced !== null && announced !== diskDigest;
 
   if (!autoFetchEnabled()) {
     // Air-gapped: the shelf is the only source, which is its whole purpose.
-    return onDisk
-      ? { kind: "disk" }
-      : {
-          kind: "none",
-          message: `No subshell build for "${target}" is published on this instance, and this server has no release source configured.`,
-        };
+    if (!onDisk) {
+      return {
+        kind: "none",
+        message: `No subshell build for "${target}" is published on this instance, and this server has no release source configured.`,
+      };
+    }
+    if (shelfInconsistent) {
+      return {
+        kind: "none",
+        message:
+          `The ${target} binary on this server's shelf does not match its published .sha256, ` +
+          "so nothing was served rather than bytes that would fail the installer's own check. Republish.",
+      };
+    }
+    return { kind: "disk" };
   }
 
   // An unreachable release source is an unknown release, not a failed page:
@@ -225,6 +251,14 @@ export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDec
   if (compatible.release === null || releaseDigest === undefined || releaseVersion === null) {
     const why = compatible.reason ?? `the newest node release names no ${nodeArtifactFileName(target)} in its manifest`;
     if (!onDisk) return { kind: "none", message: why };
+    if (shelfInconsistent) {
+      return {
+        kind: "none",
+        message:
+          `The ${target} binary on this server's shelf does not match its published .sha256, and no ` +
+          `compatible release can be fetched (${why}). Republish the shelf, or point the server at a release source.`,
+      };
+    }
     const facts = await shelfVersionFacts(target);
     if (shelfCanConnect(facts)) return { kind: "disk" };
     return {
@@ -240,21 +274,22 @@ export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDec
     return { kind: "release", digest: releaseDigest, cache: true, releaseVersion };
   }
 
-  // Measured against what the instance ANNOUNCES (`artifactSha`, sidecar-
-  // preferring): that is the number `install.sh`'s checksum-skip compares its
-  // local file against, and the whole point of the shared resolver is that a
-  // machine skipping on the announcement ends up, by skipping, with exactly
-  // what a download would have served. A sidecar lying about its own bytes
-  // therefore loses shelf precedence (the release is fetched instead of a
-  // skipped-to skip), and the fast path stays exec-free.
-  const announced = await artifactSha(target);
-  if (announced !== null && announced === releaseDigest) {
-    // The shelf IS the release, as far as any consumer can tell: the fast
-    // path, no exec, no fetch.
-    return { kind: "disk" };
+  if (shelfInconsistent) {
+    // The release wins a broken cell outright: its bytes arrive under the
+    // signed digest every consumer re-verifies. Our own bytes may be
+    // replaced; an operator's broken pair is streamed past, untouched, for
+    // them to republish.
+    const ours = diskDigest !== null && (await fetchedLedgerEntry(target))?.digest === diskDigest;
+    return { kind: "release", digest: releaseDigest, cache: ours, releaseVersion };
   }
 
-  const diskDigest = await diskArtifactSha256Cached(target);
+  if (announced !== null && announced === releaseDigest) {
+    // The shelf IS the release, in the only sense a consumer can tell: the
+    // announced digest (which a skip compares) matches the release's signed
+    // digest, and the bytes agree with the announcement by the check above.
+    // The fast path: no exec, no fetch.
+    return { kind: "disk" };
+  }
 
   const facts = await shelfVersionFacts(target);
   const releaseWinsBecauseShelfCannotConnect = facts !== null && facts.protocol !== NODE_PROTOCOL_VERSION;

@@ -104,12 +104,15 @@ const shaCache = new Map<string, string>();
  * Null when unpublished — "published" being exactly {@link artifactStat}'s
  * rule, so the binary route and the sha route never disagree. An on-disk
  * `subshell-node-cli-<target>.sha256` sidecar wins when it holds a 64-hex
- * digest (publisher-provided truth); otherwise the digest is computed over
- * the binary. Both paths cache under the file mtimes, so a swapped binary or
- * sidecar is noticed on the next request without a stat-free fast path. A
- * sidecar that lies about its own bytes loses precedence at SERVE time: the
- * resolver measures the release against this announced value, and the fetch
- * it then prefers is verified against the signed digest downstream.
+ * digest (publisher-provided truth: when the bytes have gone stale or
+ * corrupt under it, announcing the PUBLISHED number makes `install.sh`'s own
+ * verify refuse the file, which is fail-closed; announcing the corrupt
+ * bytes' number would bless them). The bytes path shares
+ * {@link diskArtifactSha256Cached}'s streaming hash and cache, so one
+ * ~100 MB read per file identity serves the resolver, the announcement, and
+ * the ledger comparison alike. A sidecar DISAGREEING with its own bytes is
+ * not silently resolved here: {@link resolveNodeServe} treats the
+ * disagreement as the shelf losing precedence, naming it.
  *
  * PUBLISH NOTE: the cache keys on MTIME, so an artifact replaced in place
  * with the SAME mtime keeps serving the cached sha. The publish path must
@@ -124,37 +127,33 @@ export async function artifactSha(target: NodeTarget): Promise<string | null> {
   try {
     sideMtime = statSync(`${path}.sha256`).mtimeMs;
   } catch {
-    // No sidecar — computed-digest path; key stays mtime-of-binary only.
+    // No sidecar: the announced digest IS the bytes' own, asked of the one
+    // streaming cache rather than a second full-file buffer here.
+    return diskArtifactSha256Cached(target);
   }
 
-  const key = `${path}:${stat.mtimeMs}${sideMtime ? `:${sideMtime}` : ""}`;
+  const key = `${path}:${stat.mtimeMs}:${sideMtime}`;
   const cached = shaCache.get(key);
-  if (cached) return cached;
+  if (cached !== undefined) return cached;
 
-  let sha: string;
-  const sidecarHex = sideMtime
-    ? (
-        await Bun.file(`${path}.sha256`)
-          .text()
-          .catch(() => "")
-      )
-        .trim()
-        .split(/\s+/)[0]
-        ?.toLowerCase()
-    : undefined;
-  if (sidecarHex && /^[0-9a-f]{64}$/.test(sidecarHex)) {
-    sha = sidecarHex;
-  } else {
-    const digest = await crypto.subtle.digest("SHA-256", await Bun.file(path).arrayBuffer());
-    sha = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  // FIFO cap (Map iterates in insertion order): artifact files are large and
-  // rebuilds churn mtimes, so an unbounded cache would be a slow leak.
+  const sidecarHex = (
+    await Bun.file(`${path}.sha256`)
+      .text()
+      .catch(() => "")
+  )
+    .trim()
+    .split(/\s+/)[0]
+    ?.toLowerCase();
+  // A present-but-not-hex sidecar (truncated write, HTML from a captive
+  // portal) is no truth to prefer: the bytes speak.
+  const sha = sidecarHex && /^[0-9a-f]{64}$/.test(sidecarHex) ? sidecarHex : await diskArtifactSha256Cached(target);
+  // FIFO cap (Map iterates in insertion order): artifact rebuilds churn
+  // mtimes, so an unbounded cache would be a slow leak.
   if (shaCache.size >= SHA_CACHE_MAX) {
     const oldest = shaCache.keys().next().value;
     if (oldest !== undefined) shaCache.delete(oldest);
   }
-  shaCache.set(key, sha);
+  if (sha !== null) shaCache.set(key, sha);
   return sha;
 }
 

@@ -96,9 +96,17 @@ claims per target), the doctrine sentences in `docs/security.md`,
 `.claude/rules/security-context.md`, `apps/server/api/AGENTS.md` and
 `apps/server/api/docs/node-artifacts.md`, the 404 advisory in
 `install-script.ts`, this spec, a patch changeset. `release-and-ci.md`'s
-publish-dance text stays true untouched. Tests pin every cell of the rule with
-fake release servers and planted shelf scripts, the existing `releaseSeams`
-armor, including the sidecar-truth cell (the decision measures the ANNOUNCED
-digest, because that is what a skip compares against) and the fetch-failure
-cell (a release decision never falls back to shelf bytes under a release
-announcement).
+publish-dance text stays true untouched. `downloads-shelf-serve.test.ts` pins
+the rule's cells through the REAL routes with a fake release server and
+planted shelf scripts on the existing `releaseSeams` armor: behind/ahead/equal,
+wrong-protocol both with and without a compatible release, unmeasurable both
+ways, air-gap behind and ahead, below the version floor, a manifest that names
+no asset for the target, the sidecar-truth cells in both directions (a lying
+sidecar loses shelf precedence to the release AND to a 404 when none is
+compatible; the decision measures the ANNOUNCED digest, because that is what a
+skip compares against), the fetch-failure cell (a release decision never falls
+back to shelf bytes under a release announcement), the one-minute backoff on
+failed index reads, and the probe cache's re-read on identity change.
+`status-shelf-claims.test.ts` pins the operator-facing render through the real
+`runStatus`: wrong protocol named, below floor named, unmeasurable named, and
+silence for a copy that could honestly be served.

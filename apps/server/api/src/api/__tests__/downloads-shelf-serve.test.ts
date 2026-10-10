@@ -67,6 +67,11 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
   let binHits = 0;
   /** Flipped per test: the index is fine, the BINARY is unreachable. */
   let failBin = false;
+  /** Flipped per test: the INDEX itself answers 500. */
+  let failIndex = false;
+  /** Flipped per test: the manifest is signed and current but names no asset for TARGET. */
+  let omitAsset = false;
+  let indexHits = 0;
   let releaseBase = "";
 
   let server: ReturnType<typeof Bun.serve>;
@@ -86,6 +91,8 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
         const url = new URL(request.url);
         const base = `http://127.0.0.1:${server.port}`;
         if (url.pathname === "/releases") {
+          indexHits += 1;
+          if (failIndex) return new Response("busy", { status: 500 });
           return Response.json([
             {
               tag_name: "cli-node-v9.9.9",
@@ -113,7 +120,10 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
             nodeProtocol: manifestProtocol,
             minNodeVersion: MIN_NODE_VERSION,
             commit: "0123456789abcdef0123456789abcdef01234567",
-            assets: { [BINARY]: hex(NEWBODY) },
+            // Any name is legal to the parser, so the no-asset cell names a
+            // REAL asset of another triple rather than an empty map (refused
+            // outright, which is a different cell already covered).
+            assets: omitAsset ? { "subshell-node-cli-darwin-arm64": hex(NEWBODY) } : { [BINARY]: hex(NEWBODY) },
           });
         }
         return new Response("no", { status: 404 });
@@ -146,6 +156,9 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
     manifestProtocol = NODE_PROTOCOL_VERSION;
     binHits = 0;
     failBin = false;
+    failIndex = false;
+    omitAsset = false;
+    indexHits = 0;
     setReleaseUrlForTests(`${releaseBase}/releases`);
   });
 
@@ -279,6 +292,78 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
     plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION - 1));
     const res = await get(`/api/downloads/node/${TARGET}`);
     expect(res.status).toBe(404);
+  });
+
+  it("below the server's version floor: the release wins even when the shelf speaks this protocol", async () => {
+    // The floor half of "the newest build this server can talk to": a shelf
+    // that shares the protocol but predates MIN_NODE_VERSION is refused by
+    // the same rule the connect path applies, and the release takes it.
+    plantShelf(shelfScript("0.0.1", NODE_PROTOCOL_VERSION));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(NEWBODY);
+  });
+
+  it("the release's manifest names no asset for this target: both routes refuse, naming the asset", async () => {
+    omitAsset = true;
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toContain(BINARY);
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect(sha.status).toBe(404);
+  });
+
+  it("an inconsistent shelf AND no compatible release: refused, and the sentence says REPUBLISH", async () => {
+    manifestProtocol = NODE_PROTOCOL_VERSION - 1;
+    plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    writeFileSync(`${binaryPath}.sha256`, `${"f".repeat(64)}\n`);
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toContain("does not match its published .sha256");
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect(sha.status).toBe(404);
+  });
+
+  it("an inconsistent shelf with a compatible release: the release streams PAST the broken pair", async () => {
+    // The shelf's bytes and its sidecar deny each other, so the shelf loses
+    // precedence entirely (rule 1's broken cell) — and because these bytes
+    // are the OPERATOR's (no ledger entry), the release is streamed through
+    // without touching them: the operator republishes, the server does not.
+    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    writeFileSync(`${binaryPath}.sha256`, `${"f".repeat(64)}\n`);
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(NEWBODY);
+    expect(readFileSync(binaryPath, "utf8")).toBe(shelf);
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect((await sha.text()).trim()).toBe(hex(NEWBODY));
+  });
+
+  it("unmeasurable shelf and an unreachable release source: the shelf serves anyway (unknown is not a verdict)", async () => {
+    setReleaseUrlForTests("http://127.0.0.1:1/releases");
+    const shelf = plantShelf("not an executable at all");
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(shelf);
+  });
+
+  it("a failed release read is remembered for a minute: a recovered source still answers the OLD failure until the cache resets", async () => {
+    // The serve decision now consults the release on EVERY authenticated
+    // request, so a dead source must cost one network read per minute, not
+    // one metadata timeout per install.
+    failIndex = true;
+    const first = await get(`/api/downloads/node/${TARGET}`);
+    expect(first.status).toBe(404);
+    expect(((await first.json()) as { message: string }).message).toContain("answered 500");
+    const hitsAfterFirst = indexHits;
+    failIndex = false; // the source is healthy again NOW
+    const second = await get(`/api/downloads/node/${TARGET}`);
+    expect(second.status).toBe(404); // still the remembered verdict, no re-read
+    expect(indexHits).toBe(hitsAfterFirst);
+    resetReleaseCacheForTests(); // the Re-check seam clears the backoff
+    const third = await get(`/api/downloads/node/${TARGET}`);
+    expect(third.status).toBe(200);
+    expect(await third.text()).toBe(NEWBODY);
   });
 
   it("the probe parses the agent's own line and re-reads when the file's identity changes", async () => {
