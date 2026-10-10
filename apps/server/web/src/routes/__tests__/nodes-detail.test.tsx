@@ -204,6 +204,23 @@ describe("NodeDetailPage re-check gating", () => {
       enrolled.restore();
     }
   });
+
+  // The Control-plane card left the plane's node page by operator ruling
+  // 2026-10-09 (the server cannot see the address, so its field could only
+  // stand blank; repointing rides the CLI or the node's own dashboard). Same
+  // pinning as node-sections-flat.test.ts: if the card returns to this page,
+  // this suite is where that gets argued again.
+  it("renders no Control-plane card, even for the managing owner", async () => {
+    const { restore } = mockFetch(enrolledNode());
+    try {
+      renderDetail("node1");
+      await screen.findByText("Your access");
+      expect(screen.queryByText("Control plane")).toBeNull();
+      expect(screen.queryByText("New address")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
 });
 
 describe("NodeDetailPage rename (owner-only PATCH)", () => {

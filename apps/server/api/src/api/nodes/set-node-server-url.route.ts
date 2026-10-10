@@ -81,6 +81,13 @@ export function validateNodeServerUrl(value: string): { url: string } | { error:
  * start, and choosing when is the operator's — a machine that vanished
  * mid-request because it silently re-dialed elsewhere is the surprise this
  * whole surface exists to remove.
+ *
+ * **No SPA page calls this since 2026-10-09**, when the node page's
+ * Control-plane card left the server dashboard (a server that cannot see the
+ * address had nothing honest to pre-fill); the route keeps serving owner
+ * cookie callers the way `terminate` outlived its button. The node's own
+ * dashboard writes through the agent's local route, and the CLI never used
+ * this endpoint at all.
  */
 export const setNodeServerUrlRoute = new Elysia()
   .use(authGuard)

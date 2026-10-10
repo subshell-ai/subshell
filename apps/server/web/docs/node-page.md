@@ -11,15 +11,15 @@ same debug switch, same spinner while a restart lands, and `useNode` polls at
 That poll is affordable in a way the server's is not: `GET /api/nodes/:id` is
 DB reads plus an in-memory registry lookup, where `GET /api/admin/server`
 spawns `netstat` and the service manager synchronously and needs a memo behind
-it. Every node mutation writes back or invalidates; `useNodeLogSlice` and
-`useSetNodeServerUrl` deliberately do not (a byte-range read driven by card
-state, and a value this plane does not store).
+it. Every node mutation writes back or invalidates; `useNodeLogSlice`
+deliberately does not (a byte-range read driven by card state).
 
-Two places deliberately DIVERGE. There is no supervision card: Subshell Client
-has no supervisor, so a node has no "the app runs it as a child" mode to
-choose. And the Control plane card's "Restart to apply" has no wait-for-return:
-that restart sends the node to a DIFFERENT plane, so watching for it here
-would time out and report a failure for the thing working exactly as asked.
+Two ways this page deliberately departs from the client's model. There is no
+supervision card: Subshell Client has no supervisor, so a node has no "the app
+runs it as a child" mode to choose. And the Control plane card left this app
+entirely (2026-10-09, the operator's call): the plane cannot see which address
+a node dials, so its one field could only stand blank; repointing lives on the
+node's own dashboard and the CLI, where the current value is actually known.
 
 **Maintenance is one flag on the node, and the SPA writes it in one place.**
 `NodeMaintenanceCard` sits on every node's Overview (`local` has no other
@@ -47,12 +47,12 @@ routes (2026-09-20), `/nodes/local/service` was typeable and answered with a
 card calling the LIVE control plane "offline, nothing to report". The server
 remains the enforcement (400 for `local`, 403 for `view`); the redirect
 exists so the page never lies about a refusal. There is NO Configuration tab
-anymore (2026-09-21): it had shrunk to one card, so the allowlist card (its
-editor self-gates on `canManage`, `local` included) and the agent-only
-Server-URL card (`owner`/`edit` audience, write controls further to `owner`)
-render on the Overview beside the Maintenance switch. Machine facts, machine
-rules, one page; the tabs are for driving the daemon. The harness card's
-Re-check gate is spelled like `managesNodeSections` and is a DIFFERENT rule
+anymore (2026-09-21), and the Server-URL card left the Overview too
+(2026-10-09), so the allowlist card (its editor self-gates on `canManage`,
+`local` included) is the one rule standing beside the Maintenance switch.
+Machine facts, machine rules, one page; the tabs are for driving the daemon.
+The harness card's Re-check gate is spelled like `managesNodeSections` and is
+a DIFFERENT rule
 (its own comment says so). Do not collapse them. The Overview also carries an
 Update card (`node-update-card.tsx`) behind the same `managesNodeSections` rule,
 driving the same `POST /api/nodes/:id/update` the Updates table rows use; that

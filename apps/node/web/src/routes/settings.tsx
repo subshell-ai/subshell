@@ -5,12 +5,13 @@ import { LogRetentionCard } from "@/components/log-retention-card";
 export const Route = createFileRoute("/settings")({ component: SettingsPage });
 
 /**
- * Node Settings — the machine's own configuration, the same view as the control
- * plane's per-node Configuration tab (the operator's ask), minus what a local
- * edit could not honestly change.
+ * Node Settings — the machine's own configuration (the operator's ask),
+ * with only what a local surface can honestly show and change.
  *
- * The plane's Configuration section carries two rules: where this machine
- * dials, and what may run on it. This page adds a third that lives ONLY here
+ * This is now the ONLY UI for where the machine dials: the plane cannot see
+ * that answer (it lives in this `config.json`), so its node page carries the
+ * launch-allowlist rule alone, and repointing is this card, the CLI, or the
+ * owner's own PATCH. This page adds a third rule that lives ONLY here
  * because no plane route exists for it: how long the machine keeps its own
  * pane transcripts. It is `config.json`'s two retention fields, editable
  * through the same local surface `subshell update` has, which is exactly why
