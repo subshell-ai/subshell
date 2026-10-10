@@ -193,7 +193,9 @@ IPC; start-at-login IS a route, because it changes nothing running.
 **A node's page is Overview + two daemon sections, and the rules live on the
 Overview**: `managesNodeSections` hides the Service and Logs tabs AND gates
 their deep links (hiding a link never gated a URL), and the Configuration tab
-is gone: the allowlist and Server-URL cards render on the Overview. The
+is gone: the allowlist card renders on the Overview (the Server-URL card left
+it 2026-10-09; the plane cannot see where a node dials, so repointing is the
+CLI or the node's own dashboard). The
 harness card's Re-check gate is a DIFFERENT rule; do not collapse them.
 Maintenance is one flag confirmed with a named `runningSubshells` count, and
 both callers must surface the `failed` array. A refused kill must not read

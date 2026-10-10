@@ -274,11 +274,10 @@ function NodeDetailPage() {
               address a node dials, so the field could only ever stand blank
               (that answer lives in the machine's own config and nothing on
               the wire reports it). Moving a machine stays with the surfaces
-              that know
-              the current value: `subshell configure --server`, or the node's
-              own loopback dashboard. The plane's PATCH route survives this
-              card exactly as terminate survived its button; the removal is
-              the operator's call (2026-10-09). */}
+              that know the current value: `subshell configure --server`, or
+              the node's own loopback dashboard. The plane's PATCH route
+              survives this card exactly as terminate survived its button;
+              the removal is the operator's call (2026-10-09). */}
 
           <NodeSharingDialog nodeId={n.id} open={shareOpen} onOpenChange={setShareOpen} canManage={n.canManage} />
         </>
