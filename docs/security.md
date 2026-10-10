@@ -513,7 +513,7 @@ section's posture depends on):
   `enumerate-ok`, invisibility and `act-denied` in
   `apps/server/api/src/api/nodes/__tests__/nodes-list-bearer.test.ts`.
 - **The NODE LIST shows an admin every machine, as the detail gate always did
-  (2026-10-10).** The cookie list used to select owner/share rows in SQL
+  (2026-10-09).** The cookie list used to select owner/share rows in SQL
   before the admin boost could speak, so a foreign private node was visible on
   `GET /api/nodes/:id` (200, boosted `edit`) and on the admin Updates page yet
   absent from the Nodes page itself: held machines could not be opened to see
@@ -522,11 +522,12 @@ section's posture depends on):
   navigates. An admin read is now `findAllMachines` (`kind IN ('local',
   'agent')`: widened WHOSE, never WHAT KIND: a non-machine kind would stay
   out of admin listings, and a side effect is that `local` remains findable
-  by its own admin even after its Everyone share is narrowed, which §"local
-  launch is granted, never boosted" needs to be operable at all). Non-admin
-  cookie lists are UNCHANGED: a private foreign node stays absent, so ids
-  still cannot be probed from the list by anyone who is not admin, a class
-  the Updates page already enumerated to admins. Shares, maintenance, rename
+  by its own admin even after its Everyone share is narrowed, which the
+  launch-narrowing switch above ("**It applies to ADMINS too**") needs to be
+  operable at all). Non-admin cookie lists are UNCHANGED: a private foreign
+  node stays absent, so ids still cannot be probed from the list by anyone
+  who is not admin (the rows themselves were already enumerated to admins by
+  the Updates page). Shares, maintenance, rename
   and delete stay owner-only (admin only on `local`): the boost buys the
   boosted-`edit` surfaces, exactly as on the detail route. Pinned by
   `nodes-crud-route.test.ts` ("the LIST carries a foreign private node to an

@@ -363,7 +363,7 @@ describe("/api/nodes registry CRUD", () => {
     // report): the detail gate gives an admin `edit` on a foreign node and
     // the Updates page lists every agent, but the LIST query filtered
     // owner/share BEFORE the boost could speak, so a held, foreign-owned
-    // machine was unseeable on the one page that manages it. The list now
+    // machine was absent from the page an operator navigates. The list now
     // answers the same visibility question the detail route answers.
     const n = await mkNode(aliceId, `ad-list-${crypto.randomUUID().slice(0, 8)}`);
     const adminView = (await list(adminCookie)).find((x) => x.id === n.id);

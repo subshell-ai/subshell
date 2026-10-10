@@ -96,7 +96,7 @@ src/
 The nodes READ surface widened twice: spec 2026-09-25 (MCP DX) made `GET
 /api/nodes` answer a bearer machine token with its owner's own nodes
 (owner-only, no shares, no admin boost, disclosure-only), the door the MCP
-`list_nodes` tool rides; 2026-10-10 gave the COOKIE list its admin arm: an
+`list_nodes` tool rides; 2026-10-09 gave the COOKIE list its admin arm: an
 admin sees every machine node (`findAllMachines`), matching the detail gate
 that already gave admins `edit` on foreign rows, while a non-admin's list is
 the unchanged owner/share filter. `GET /api/nodes/:id` and every nodes write
