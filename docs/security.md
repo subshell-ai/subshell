@@ -523,7 +523,7 @@ section's posture depends on):
   'agent')`: widened WHOSE, never WHAT KIND: a non-machine kind would stay
   out of admin listings, and a side effect is that `local` remains findable
   by its own admin even after its Everyone share is narrowed, which the
-  launch-narrowing switch above ("**It applies to ADMINS too**") needs to be
+  launch-narrowing switch below ("**It applies to ADMINS too**") needs to be
   operable at all). Non-admin cookie lists are UNCHANGED: a private foreign
   node stays absent, so ids still cannot be probed from the list by anyone
   who is not admin (the rows themselves were already enumerated to admins by
