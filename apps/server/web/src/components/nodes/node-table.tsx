@@ -36,7 +36,7 @@ function NodeTableRow({
   onOpenConfig: () => void;
   /** Open this node's sharing management (owner-only server-side) */
   onShare: () => void;
-  /** Delete this node (owner-only server-side) */
+  /** Delete this node (retire-gated server-side: owner or admin) */
   onDelete: () => void;
   /** Say something on the page's one message line; null clears it */
   onError: (message: string | null) => void;

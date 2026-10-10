@@ -190,8 +190,11 @@ export function SetupKeysSection() {
                     {k.consumedNodeId
                       ? ` · enrolled ${k.consumedNodeId}`
                       : ` · expires ${new Date(k.expiresAt).toLocaleString()}`}
-                    {/* The admin read's one addition: whose door this row is. */}
-                    {k.ownerLabel ? ` · by ${k.ownerLabel}` : ""}
+                    {/* The admin read's one addition: whose door this row is.
+                        "for", not "by": the label is the key OWNER (the future
+                        node owner), who for an admin-minted recovery key is not
+                        whoever pressed Re-register. */}
+                    {k.ownerLabel ? ` · for ${k.ownerLabel}` : ""}
                   </p>
                 </div>
                 <Badge variant={state === "unused" ? "success" : state === "expired" ? "warning" : "muted"}>
