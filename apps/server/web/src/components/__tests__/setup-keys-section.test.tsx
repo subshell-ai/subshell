@@ -3,6 +3,7 @@ import { type ConfirmOptions, setConfirmHandler } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SetupKeysSection } from "@/components/nodes/setup-keys-section";
+import { SETUP_KEYS_QUERY_KEY } from "@/hooks/use-nodes";
 
 interface Row {
   id: string;
@@ -82,14 +83,17 @@ function mockKeys(rows: Row[], opts: { viewerIsAdmin?: boolean; allRows?: Row[] 
   };
 }
 
-function renderCard(rows: Row[]) {
+/** Renders the card and hands back the QueryClient, so a test can await the
+ * same invalidation the component's mutation fires (see the revoke test).
+ * The rows a test serves come from {@link mockKeys}, never through here. */
+function renderCard(): QueryClient {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <SetupKeysSection />
     </QueryClientProvider>,
   );
-  return rows;
+  return client;
 }
 
 const row = (over: Partial<Row> = {}): Row => ({
@@ -112,7 +116,7 @@ describe("SetupKeysSection", () => {
     // back here is the reason it is stored in the clear at all.
     const { restore } = mockKeys([row()]);
     try {
-      renderCard([row()]);
+      renderCard();
       expect(await screen.findByText("nsk_alpha_alpha_alpha_alpha_1")).toBeDefined();
       expect(screen.getByRole("button", { name: "Copy setup key" })).toBeDefined();
       expect(screen.getByText(/Single-use enrollment credentials/i)).toBeDefined();
@@ -134,7 +138,7 @@ describe("SetupKeysSection", () => {
       row({ id: "c", key: "nsk_stale_stale_stale_stale_sta_1", expiresAt: PAST }),
     ]);
     try {
-      renderCard([]);
+      renderCard();
       await screen.findByText("nsk_unused_unused_unused_unused_1");
       expect(screen.getByText("unused")).toBeDefined();
       expect(screen.getByText("used")).toBeDefined();
@@ -148,7 +152,7 @@ describe("SetupKeysSection", () => {
   it("revoking names the act in the title and the key in the body", async () => {
     const { restore, deletes, confirmations } = mockKeys([row()]);
     try {
-      renderCard([row()]);
+      renderCard();
       await screen.findByText("nsk_alpha_alpha_alpha_alpha_1");
       fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
       await waitFor(() => expect(deletes).toEqual(["/api/nodes/setup-keys/k1"]));
@@ -180,7 +184,7 @@ describe("SetupKeysSection", () => {
       }),
     ]);
     try {
-      renderCard([]);
+      renderCard();
       await screen.findByText("nsk_used_used_used_used_used_1x");
       fireEvent.click(screen.getByRole("button", { name: "Remove" }));
       await waitFor(() => expect(deletes).toEqual(["/api/nodes/setup-keys/b"]));
@@ -209,7 +213,7 @@ describe("SetupKeysSection", () => {
       row({ id: "c", key: "nsk_stale_stale_stale_stale_sta_1", expiresAt: PAST }),
     ]);
     try {
-      renderCard([]);
+      renderCard();
       await screen.findByText("nsk_alpha_alpha_alpha_alpha_1");
       // One button, beside the usable row alone: steps for a redeemed or expired key
       // would walk someone to a 401 they cannot act on.
@@ -243,7 +247,7 @@ describe("SetupKeysSection", () => {
   it("says so when nothing has been minted", async () => {
     const { restore } = mockKeys([]);
     try {
-      renderCard([]);
+      renderCard();
       expect(await screen.findByText("No setup keys yet.")).toBeDefined();
     } finally {
       restore();
@@ -268,7 +272,7 @@ describe("SetupKeysSection", () => {
       await screen.findByText("No setup keys yet.");
       rows = [row()];
       await act(async () => {
-        await client.invalidateQueries({ queryKey: ["node-setup-keys"] });
+        await client.invalidateQueries({ queryKey: SETUP_KEYS_QUERY_KEY });
       });
       expect(await screen.findByText("nsk_alpha_alpha_alpha_alpha_1")).toBeDefined();
     } finally {
@@ -281,7 +285,7 @@ describe("SetupKeysSection", () => {
   it("shows no all-accounts switch to a plain user, and fires no all-accounts request", async () => {
     const { restore, gets } = mockKeys([row()], { viewerIsAdmin: false });
     try {
-      renderCard([row()]);
+      renderCard();
       await screen.findByText("nsk_alpha_alpha_alpha_alpha_1");
       expect(screen.queryByRole("switch")).toBeNull();
       // Not just the control: the widening must never even be REQUESTED by a
@@ -306,9 +310,9 @@ describe("SetupKeysSection", () => {
       ownerLabel: "bob@subshell.local",
     });
     const allRows = [mine, foreign];
-    const { restore, gets } = mockKeys([mine], { viewerIsAdmin: true, allRows });
+    const { restore, gets, deletes } = mockKeys([mine], { viewerIsAdmin: true, allRows });
     try {
-      renderCard([]);
+      const client = renderCard();
       await screen.findByText("nsk_alpha_alpha_alpha_alpha_1");
       fireEvent.click(screen.getByRole("switch", { name: "List every account's setup keys" }));
       await screen.findByText("nsk_foreign_foreign_foreign_fore_1");
@@ -319,17 +323,23 @@ describe("SetupKeysSection", () => {
         .closest("div.space-y-2") as HTMLElement;
       fireEvent.click(within(foreignCard).getByRole("button", { name: "Revoke" }));
 
-      // Still in all-mode — the row is gone because the list RE-READ, not because
-      // the view changed. The pump is load-bearing, not ceremony: the refetch's
-      // commit lands on React's act queue outside any act scope, and `waitFor`'s
-      // poll never creates a boundary to flush it (the `act` around the mint's
-      // invalidate above is the same lesson, written the other way).
-      await waitFor(async () => {
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 10));
-        });
-        expect(screen.queryByText("nsk_foreign_foreign_foreign_fore_1")).toBeNull();
+      // Two facts, each awaited at its own deterministic seam. First the
+      // DELETE must actually have gone out: confirm → mutate is async, so a
+      // refetch issued straight off the click could read the PRE-deletion
+      // list (the mock records the call synchronously, which is what makes
+      // this wait observable rather than timer-based). Then await the SAME
+      // invalidation the mutation's onSuccess fires: react-query resolves it
+      // only once every active refetch has settled, and awaiting it inside
+      // `act` gives the re-render its commit boundary. The previous shape
+      // pumped `setTimeout(10)` inside `waitFor` until React happened to
+      // commit, which starved on a loaded CI container and reported the test
+      // at 40 s (main, 2026-10-10). Still all-mode: the row is gone because
+      // the list RE-READ, not because the view changed.
+      await waitFor(() => expect(deletes).toEqual(["/api/nodes/setup-keys/f1"]));
+      await act(async () => {
+        await client.invalidateQueries({ queryKey: SETUP_KEYS_QUERY_KEY });
       });
+      expect(screen.queryByText("nsk_foreign_foreign_foreign_fore_1")).toBeNull();
       expect(gets.filter((g) => g.includes("all=1")).length).toBeGreaterThan(allGetsBefore);
       expect(screen.getByText("nsk_alpha_alpha_alpha_alpha_1")).toBeDefined();
       expect(screen.getByRole("switch", { name: "List every account's setup keys" })).toBeDefined();
@@ -350,7 +360,7 @@ describe("SetupKeysSection", () => {
     // read produced the row on screen — the card must not blend them.
     const { restore, gets, deletes } = mockKeys([mine], { viewerIsAdmin: true, allRows: [mine, foreign] });
     try {
-      renderCard([]);
+      renderCard();
       await screen.findByText("nsk_alpha_alpha_alpha_alpha_1");
       const toggle = screen.getByRole("switch", { name: "List every account's setup keys" });
       // The widening must not fire until asked: the admin read is opt-in per
