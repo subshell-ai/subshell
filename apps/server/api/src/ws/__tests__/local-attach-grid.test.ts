@@ -12,7 +12,11 @@ import {
   resizeCalls,
   seedLocalRow,
   stubLauncher,
+  useLocalAttachHarness,
 } from "./helpers/local-attach-harness.js";
+
+/** Serial-mode module sharing makes hook registration per-file; see the harness. */
+useLocalAttachHarness();
 
 describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () => {
   it("skips the winch storm for a RESTARTED row inside its boot grace (residual log + fresh startedAt)", async () => {

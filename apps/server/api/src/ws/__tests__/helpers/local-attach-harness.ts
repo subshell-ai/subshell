@@ -167,24 +167,49 @@ export async function seedLocalRow() {
   });
 }
 
-beforeAll(async () => {
-  await runMigrations(); // the row insert + persistOutput's update hit the shared temp DB
-});
+/**
+ * Registers this harness's lifecycle hooks for the CALLING file. Every file
+ * that imports the launcher stubs MUST call this at top level.
+ *
+ * A serial `bun test` runs every file in ONE process against ONE module
+ * cache, so this module evaluates exactly once - for whichever file happens
+ * to import it FIRST (alphabetical, or argument order) - and a `beforeAll` /
+ * `afterEach` registered at module scope therefore governs only THAT file.
+ * Every other consuming file stubbed the shared launcher singleton and the
+ * recorders with NOTHING restoring them: measured 2026-10-10, running
+ * `src/ws` serially failed two files that pass in isolation. The cleanup
+ * file's LAST test left `paneSize` answering `{122, 49}` (its incumbent lands
+ * there), and the integration file's parity attach then read a `geometry`
+ * frame where its first terminal frame must be the replay; with a different
+ * file importing first, the grid file's own recorders accumulated across its
+ * tests with nothing resetting them, and the first victim was its `&hidden=1`
+ * case: that case's baseline checks are self-relative, but its
+ * `resizeCalls.some((c) => c.rows === 20)` membership scan is not, and an
+ * earlier test's phone attach had already pushed a 20-row entry. Which file
+ * owned the hooks was purely a function of import order.
+ * Under `--parallel` each file gets its own process and the trap is invisible.
+ * Calling the hooks from every file makes the suite order-independent.
+ */
+export function useLocalAttachHarness(): void {
+  beforeAll(async () => {
+    await runMigrations(); // the row insert + persistOutput's update hit the shared temp DB
+  });
 
-afterEach(() => {
-  // Before the stubs are restored: a live poller must not survive into the
-  // next test, and cleanupSubshellWs is idempotent, so cases that already
-  // release their own socket are unaffected.
-  for (const fake of attached.splice(0)) cleanupSubshellWs(fake.ws);
-  defaultLocalLauncher.hasSubshell = launcherOriginals.hasSubshell;
-  defaultLocalLauncher.capture = launcherOriginals.capture;
-  defaultLocalLauncher.resize = launcherOriginals.resize;
-  defaultLocalLauncher.paneSize = launcherOriginals.paneSize;
-  defaultLocalLauncher.paneCursor = launcherOriginals.paneCursor;
-  defaultLocalLauncher.signalPaneWinch = launcherOriginals.signalPaneWinch;
-  captureCalls = 0;
-  captureLinesArg = undefined;
-  resizeCalls = [];
-  order = [];
-  resetLiveViewersForTests();
-});
+  afterEach(() => {
+    // Before the stubs are restored: a live poller must not survive into the
+    // next test, and cleanupSubshellWs is idempotent, so cases that already
+    // release their own socket are unaffected.
+    for (const fake of attached.splice(0)) cleanupSubshellWs(fake.ws);
+    defaultLocalLauncher.hasSubshell = launcherOriginals.hasSubshell;
+    defaultLocalLauncher.capture = launcherOriginals.capture;
+    defaultLocalLauncher.resize = launcherOriginals.resize;
+    defaultLocalLauncher.paneSize = launcherOriginals.paneSize;
+    defaultLocalLauncher.paneCursor = launcherOriginals.paneCursor;
+    defaultLocalLauncher.signalPaneWinch = launcherOriginals.signalPaneWinch;
+    captureCalls = 0;
+    captureLinesArg = undefined;
+    resizeCalls = [];
+    order = [];
+    resetLiveViewersForTests();
+  });
+}

@@ -13,7 +13,11 @@ import {
   resizeCalls,
   seedLocalRow,
   stubLauncher,
+  useLocalAttachHarness,
 } from "./helpers/local-attach-harness.js";
+
+/** Serial-mode module sharing makes hook registration per-file; see the harness. */
+useLocalAttachHarness();
 
 describe("local attach cleanup — the ws.data wiring (pre-existing leak)", () => {
   it("the tail disposer is reachable on ws.data after attach — the contract cleanupSubshellWs consumes", async () => {
