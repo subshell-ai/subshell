@@ -14,12 +14,12 @@ spawns `netstat` and the service manager synchronously and needs a memo behind
 it. Every node mutation writes back or invalidates; `useNodeLogSlice`
 deliberately does not (a byte-range read driven by card state).
 
-Two places deliberately DIVERGE. There is no supervision card: Subshell Client
-has no supervisor, so a node has no "the app runs it as a child" mode to
-choose. And the Control plane card left this app entirely (2026-10-09, the
-operator's call): the plane cannot see which address a node dials, so its one
-field could only stand blank; repointing lives on the node's own dashboard and
-the CLI, where the current value is actually known.
+Two ways this page deliberately departs from the client's model. There is no
+supervision card: Subshell Client has no supervisor, so a node has no "the app
+runs it as a child" mode to choose. And the Control plane card left this app
+entirely (2026-10-09, the operator's call): the plane cannot see which address
+a node dials, so its one field could only stand blank; repointing lives on the
+node's own dashboard and the CLI, where the current value is actually known.
 
 **Maintenance is one flag on the node, and the SPA writes it in one place.**
 `NodeMaintenanceCard` sits on every node's Overview (`local` has no other
@@ -50,8 +50,9 @@ exists so the page never lies about a refusal. There is NO Configuration tab
 anymore (2026-09-21), and the Server-URL card left the Overview too
 (2026-10-09), so the allowlist card (its editor self-gates on `canManage`,
 `local` included) is the one rule standing beside the Maintenance switch.
-Machine facts, machine rules, one page; the tabs are for driving the daemon. The harness card's
-Re-check gate is spelled like `managesNodeSections` and is a DIFFERENT rule
+Machine facts, machine rules, one page; the tabs are for driving the daemon.
+The harness card's Re-check gate is spelled like `managesNodeSections` and is
+a DIFFERENT rule
 (its own comment says so). Do not collapse them. The Overview also carries an
 Update card (`node-update-card.tsx`) behind the same `managesNodeSections` rule,
 driving the same `POST /api/nodes/:id/update` the Updates table rows use; that
