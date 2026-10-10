@@ -101,14 +101,35 @@ export class NodesRepository extends BaseRepository {
   }
 
   /**
+   * Every real machine on the instance, creation order — the ADMIN arm of
+   * `GET /api/nodes`, mirroring the detail gate (an admin's `GET
+   * /api/nodes/:id` on a foreign row already answers 200 with the boosted
+   * `edit`; the list answering differently is what hid a held, foreign-owned
+   * machine from the one surface that could manage it). The `kind` IN-list is
+   * today's whole domain ('local' | 'agent') stated as a filter, not a
+   * comment: when a machine-shaped-but-not row ever exists, it stays out of
+   * listings by construction. Never call this for a non-admin; the visibility
+   * answer for everyone else is `findAccessible`. @internal
+   */
+  async findAllMachines(): Promise<NodeTable[]> {
+    return await this.db
+      .selectFrom("nodes")
+      .selectAll()
+      .where("kind", "in", ["local", "agent"])
+      .orderBy("createdAt", "asc")
+      .execute();
+  }
+
+  /**
    * Every ENROLLED node, whoever owns it — the fleet, in name order.
    *
-   * The one instance-wide node read, and it is deliberately narrow: it exists
-   * for `GET /api/admin/updates`, which is admin-only and asks a question about
-   * the whole fleet ("which machines are behind?"), not about one viewer's
-   * grants. Every other reader goes through `findAccessible`, which is what
-   * keeps a private node invisible. `local` is excluded because it is not an
-   * agent: the control-plane host updates with the server.
+   * The instance-wide AGENT read for `GET /api/admin/updates`, which is
+   * admin-only and asks a question about the whole fleet ("which machines are
+   * behind?"), not about one viewer's grants. `local` is excluded because it
+   * is not an agent: the control-plane host updates with the server. The
+   * other instance-wide reader is `findAllNonRuntime`, used only by the
+   * admin arm of `GET /api/nodes`; a non-admin read of "nodes I can see"
+   * stays `findAccessible`, which is what keeps a private node invisible.
    */
   async listAgents(): Promise<NodeTable[]> {
     return await this.db.selectFrom("nodes").selectAll().where("kind", "=", "agent").orderBy("name").execute();
