@@ -4,7 +4,12 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SRV="${1:-$ROOT/apps/server/api/dist/subshell-server}"
-LAN_IP="${2:-$(bun -e 'import os from "node:os"; console.log(Object.values(os.networkInterfaces()).flat().find(a => a && a.family === "IPv4" && !a.internal)?.address ?? "")')}"
+# Same picker the server's lan-origins uses (services/lan-origins.ts): an APIPA
+# 169.254 lease on any interface is what a machine self-assigns when it has no
+# network, and the server refuses it ON PURPOSE; a first-non-internal pick that
+# lands on one tests a refusal, not the derivation. Measured 2026-10-09 on a
+# host whose unused ethernet had just claimed an APIPA address.
+LAN_IP="${2:-$(bun -e 'import os from "node:os"; console.log(Object.values(os.networkInterfaces()).flat().find(a => a && a.family === "IPv4" && !a.internal && !a.address.startsWith("169.254.") && a.address !== "0.0.0.0")?.address ?? "")')}"
 [ -n "$LAN_IP" ] || { echo "SKIP: no LAN interface for the origin check"; exit 0; }
 PORT=31997
 BASE="http://127.0.0.1:$PORT"

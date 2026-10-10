@@ -1,0 +1,455 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  MIN_NODE_VERSION,
+  NODE_PROTOCOL_VERSION,
+  parseReleaseManifest,
+  RELEASE_MANIFEST_NAME,
+  RELEASE_MANIFEST_SIG_NAME,
+} from "@internal/subshell-protocol";
+import type { verifyReleaseManifest } from "@internal/subshell-protocol/release-signature";
+import { hashPassword } from "better-auth/crypto";
+import { Elysia } from "elysia";
+import { downloadsRoutes } from "@/api/downloads.route.js";
+import { NODE_ARTIFACTS_DIR } from "@/constants.js";
+import { db } from "@/db/index.js";
+import { UsersRepository } from "@/db/repositories/users.repository.js";
+import { resetShelfProbeForTests, shelfVersionFacts } from "@/lib/node-artifact-serve.js";
+import { resetAnnouncedShaCacheForTests, resetDiskShaCacheForTests } from "@/lib/node-artifacts.js";
+import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
+import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
+import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
+
+const app = new Elysia().use(errorHandlerPlugin).use(downloadsRoutes);
+
+const TARGET = "linux-x64";
+const BINARY = `subshell-node-cli-${TARGET}`;
+const NEWBODY = "the release's bytes, ninety tonnes of agent";
+const TEST_ARMOR = "test: minisign arm accepted";
+
+/** A shelf copy that ANSWERS for itself: the node CLI's version line, as a script. */
+const shelfScript = (version: string, protocol: number) =>
+  `#!/bin/sh\necho "subshell ${version} (node protocol v${protocol})"\n`;
+
+function hex(bytes: string): string {
+  const h = new Bun.CryptoHasher("sha256");
+  h.update(new TextEncoder().encode(bytes));
+  return h.digest("hex");
+}
+
+/**
+ * Whether a chmod-000 file is actually unreadable HERE. A root process carries
+ * DAC_OVERRIDE and reads it anyway (the CI runners are root — measured on
+ * PR #348's first shard, where the unreadable-copy cells failed as designed
+ * scenarios the runner cannot stage), so the cells that stage unreadability
+ * through file modes skip under such a process rather than assert a lie.
+ */
+const DAC_ENFORCES_READ = (() => {
+  mkdirSync(NODE_ARTIFACTS_DIR, { recursive: true });
+  const probe = join(NODE_ARTIFACTS_DIR, `.dac-probe-${process.pid}`);
+  try {
+    writeFileSync(probe, "x");
+    chmodSync(probe, 0o000);
+    readFileSync(probe);
+    return false; // the mode did not stop the read: no DAC enforcement here
+  } catch {
+    return true;
+  } finally {
+    chmodSync(probe, 0o644);
+    rmSync(probe, { force: true });
+  }
+})();
+
+const realVerify = { ...releaseSeams };
+const acceptSigned: typeof verifyReleaseManifest = async (bytes, sig, _pub, expected) => {
+  const parsed = parseReleaseManifest(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8"));
+  if (parsed === null) return { ok: false, reason: "test: not a manifest" };
+  if (sig.trim() !== TEST_ARMOR) return { ok: false, reason: "test: signature refused" };
+  if (parsed.component !== expected.component || parsed.version !== expected.version) {
+    return { ok: false, reason: "test: payload mismatch" };
+  }
+  return { ok: true, manifest: parsed };
+};
+
+/**
+ * The shelf reconciled against the release (spec 2026-10-09): every cell of
+ * the rule, answered through the REAL routes so binary and `.sha256` are
+ * proven to agree — an announced digest that skips an install past the
+ * reconciliation the download would have applied is exactly the bug class.
+ */
+describe("/api/downloads/node — the shelf answers for itself", () => {
+  const email = `shelf-${crypto.randomUUID()}@subshell.local`;
+  const pw = "shelf-serve-1";
+  let cookie = "";
+  const binaryPath = join(NODE_ARTIFACTS_DIR, BINARY);
+  const ledgerPath = join(NODE_ARTIFACTS_DIR, ".fetched.json");
+
+  /** Flipped per test: what the fake release's SIGNED manifest claims. */
+  let manifestProtocol = NODE_PROTOCOL_VERSION;
+  let binHits = 0;
+  /** Flipped per test: the index is fine, the BINARY is unreachable. */
+  let failBin = false;
+  /** Flipped per test: the INDEX itself answers 500. */
+  let failIndex = false;
+  /** Flipped per test: the manifest is signed and current but names no asset for TARGET. */
+  let omitAsset = false;
+  let indexHits = 0;
+  let releaseBase = "";
+
+  let server: ReturnType<typeof Bun.serve>;
+  beforeAll(async () => {
+    await setupAuthTables();
+    mkdirSync(NODE_ARTIFACTS_DIR, { recursive: true });
+    await new UsersRepository(db).createUser({
+      email,
+      name: email,
+      passwordHash: await hashPassword(pw),
+      role: "user",
+    });
+    cookie = await signIn(email, pw);
+    server = Bun.serve({
+      port: 0,
+      fetch(request) {
+        const url = new URL(request.url);
+        const base = `http://127.0.0.1:${server.port}`;
+        if (url.pathname === "/releases") {
+          indexHits += 1;
+          if (failIndex) return new Response("busy", { status: 500 });
+          return Response.json([
+            {
+              tag_name: "cli-node-v9.9.9",
+              draft: false,
+              assets: [
+                { name: BINARY, browser_download_url: `${base}/bin` },
+                { name: `${BINARY}.sha256`, browser_download_url: `${base}/sha` },
+                { name: RELEASE_MANIFEST_NAME, browser_download_url: `${base}/manifest` },
+                { name: RELEASE_MANIFEST_SIG_NAME, browser_download_url: `${base}/sig` },
+              ],
+            },
+          ]);
+        }
+        if (url.pathname === "/bin") {
+          binHits += 1;
+          if (failBin) return new Response("gone", { status: 500 });
+          return new Response(NEWBODY);
+        }
+        if (url.pathname === "/sha") return new Response(`${hex(NEWBODY)}\n`);
+        if (url.pathname === "/sig") return new Response(TEST_ARMOR);
+        if (url.pathname === "/manifest") {
+          return Response.json({
+            component: "cli-node",
+            version: "9.9.9",
+            nodeProtocol: manifestProtocol,
+            minNodeVersion: MIN_NODE_VERSION,
+            commit: "0123456789abcdef0123456789abcdef01234567",
+            // Any name is legal to the parser, so the no-asset cell names a
+            // REAL asset of another triple rather than an empty map (refused
+            // outright, which is a different cell already covered).
+            assets: omitAsset ? { "subshell-node-cli-darwin-arm64": hex(NEWBODY) } : { [BINARY]: hex(NEWBODY) },
+          });
+        }
+        return new Response("no", { status: 404 });
+      },
+    });
+    releaseBase = `http://127.0.0.1:${server.port}`;
+    releaseSeams.verifyManifest = acceptSigned;
+  });
+
+  afterAll(async () => {
+    Object.assign(releaseSeams, realVerify);
+    server.stop(true);
+    setReleaseUrlForTests(null);
+    resetReleaseCacheForTests();
+    rmSync(binaryPath, { force: true });
+    rmSync(`${binaryPath}.sha256`, { force: true });
+    rmSync(ledgerPath, { force: true });
+    await deleteUserByEmailOrId(email);
+  });
+
+  beforeEach(() => {
+    // Every cache that could carry one cell's verdict into the next.
+    resetReleaseCacheForTests();
+    resetShelfProbeForTests();
+    resetDiskShaCacheForTests();
+    resetAnnouncedShaCacheForTests();
+    rmSync(binaryPath, { force: true });
+    rmSync(`${binaryPath}.sha256`, { force: true });
+    rmSync(ledgerPath, { force: true });
+    manifestProtocol = NODE_PROTOCOL_VERSION;
+    binHits = 0;
+    failBin = false;
+    failIndex = false;
+    omitAsset = false;
+    indexHits = 0;
+    setReleaseUrlForTests(`${releaseBase}/releases`);
+  });
+
+  function plantShelf(contents: string): string {
+    writeFileSync(binaryPath, contents);
+    chmodSync(binaryPath, 0o755);
+    return contents;
+  }
+
+  const get = (path: string) =>
+    app.handle(new Request(`http://localhost${path}`, { headers: { cookie: `better-auth.session_token=${cookie}` } }));
+
+  it("a shelf BEHIND the release serves the release, and the digest route announces the SAME answer", async () => {
+    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(NEWBODY);
+    // Operator bytes, no ledger entry: streamed PAST, never overwritten.
+    expect(readFileSync(binaryPath, "utf8")).toBe(shelf);
+
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect((await sha.text()).trim()).toBe(hex(NEWBODY));
+  });
+
+  it("a shelf NEWER than the release, speaking this protocol, stays operator truth", async () => {
+    const shelf = plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(shelf);
+    expect(binHits).toBe(0);
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect((await sha.text()).trim()).toBe(hex(shelf));
+  });
+
+  it("a shelf whose bytes ARE the release is the fast path: served without touching the source", async () => {
+    plantShelf(NEWBODY);
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(NEWBODY);
+    expect(binHits).toBe(0);
+  });
+
+  it("a shelf that CANNOT CONNECT is never served while a compatible release exists, even claiming a newer version", async () => {
+    const shelf = plantShelf(shelfScript("99.0.0", NODE_PROTOCOL_VERSION - 1));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    // The disaresta cell, made unmissable: yesterday the wrong-protocol copy
+    // won on "newer" and every fresh machine 4410-looped after a successful
+    // install.
+    expect(await res.text()).toBe(NEWBODY);
+    expect(readFileSync(binaryPath, "utf8")).toBe(shelf); // still not operator-overwritten
+  });
+
+  it("no compatible release AND a wrong-protocol shelf: both routes refuse, naming the mismatch", async () => {
+    manifestProtocol = NODE_PROTOCOL_VERSION - 1;
+    plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION - 1));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { code: string; message: string };
+    expect(body.message).toContain("protocol");
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect(sha.status).toBe(404);
+  });
+
+  it("no compatible release but a shelf that CAN connect: the shelf serves (dev-loop and air-gap-adjacent cells)", async () => {
+    manifestProtocol = NODE_PROTOCOL_VERSION - 1;
+    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(shelf);
+  });
+
+  it("a shelf that answers NOTHING defers to the release when one exists", async () => {
+    plantShelf("not an executable at all");
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(NEWBODY);
+  });
+
+  it("air-gapped: a connectable shelf is the only source and wins, behind or ahead", async () => {
+    setReleaseUrlForTests(null);
+    const behind = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    expect(await (await get(`/api/downloads/node/${TARGET}`)).text()).toBe(behind);
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect((await sha.text()).trim()).toBe(hex(behind));
+    resetShelfProbeForTests();
+    const ahead = plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
+    expect(await (await get(`/api/downloads/node/${TARGET}`)).text()).toBe(ahead);
+  });
+
+  it("air-gapped with a wrong-protocol shelf: refused too — a doomed agent is doomed with no release as well", async () => {
+    // The operator rule says ALWAYS the newest build the server understands;
+    // round 3 caught that only this branch of it was untested and (until the
+    // same round's fix) unenforced: the empty-SUBSHELL_RELEASE_URL plane
+    // handing out yesterday's protocol was the identical 4410 incident.
+    setReleaseUrlForTests(null);
+    plantShelf(shelfScript("99.0.0", NODE_PROTOCOL_VERSION - 1));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toContain("protocol");
+    expect(body.message).toContain("no release source");
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect(sha.status).toBe(404);
+  });
+
+  // skipIf: staged through file modes, which a DAC_OVERRIDE process (root,
+  // the CI runners) cannot make stick. See DAC_ENFORCES_READ.
+  it.skipIf(!DAC_ENFORCES_READ)(
+    "air-gapped with UNREADABLE bytes: the copy is treated as absent, never streamed to die mid-download",
+    async () => {
+      setReleaseUrlForTests(null);
+      plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
+      chmodSync(binaryPath, 0o000);
+      try {
+        const res = await get(`/api/downloads/node/${TARGET}`);
+        expect(res.status).toBe(404);
+      } finally {
+        chmodSync(binaryPath, 0o755);
+      }
+    },
+  );
+
+  it.skipIf(!DAC_ENFORCES_READ)(
+    "an honest sidecar over UNREADABLE bytes does not win either: the release replaces the dead copy",
+    async () => {
+      // The NIT-2 edge made into a cell: bytes unhashable, sidecar holds valid
+      // hex. Announcing that hex and "serving" it would die mid-stream, so the
+      // copy is absent, the release answers, and cache semantics let it be
+      // replaced (this server can fetch what the shelf cannot even read).
+      // skipIf: same root-DAC posture as the cell above.
+      plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
+      writeFileSync(`${binaryPath}.sha256`, `${hex(NEWBODY)}\n`);
+      chmodSync(binaryPath, 0o000);
+      try {
+        const res = await get(`/api/downloads/node/${TARGET}`);
+        expect(res.status).toBe(200);
+        expect(await res.text()).toBe(NEWBODY);
+        const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+        expect((await sha.text()).trim()).toBe(hex(NEWBODY));
+      } finally {
+        chmodSync(binaryPath, 0o755);
+      }
+    },
+  );
+
+  it("a sidecar lying about its own bytes loses shelf precedence: announcement and bytes agree on the RELEASE", async () => {
+    // The shelf actually HOLDS the release bytes, but a stale hand-written
+    // sidecar announces something older. Measuring the decision against the
+    // announcement (not the raw bytes) is what keeps a machine's skip honest:
+    // it can only skip to what it would have downloaded.
+    plantShelf(NEWBODY);
+    writeFileSync(`${binaryPath}.sha256`, `${"f".repeat(64)}\n`);
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect((await sha.text()).trim()).toBe(hex(NEWBODY));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(NEWBODY);
+  });
+
+  it("the release the decision chose cannot be fetched: 404, and the shelf is NOT served under a release announcement", async () => {
+    plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    failBin = true;
+    try {
+      const res = await get(`/api/downloads/node/${TARGET}`);
+      expect(res.status).toBe(404);
+    } finally {
+      failBin = false;
+    }
+  });
+
+  it("bytes this INSTANCE fetched are cache the release may replace", async () => {
+    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    writeFileSync(
+      ledgerPath,
+      JSON.stringify({ [TARGET]: { tag: "cli-node-v0.0.1", digest: hex(shelf), fetchedAt: "x" } }),
+    );
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(NEWBODY);
+    // Ours to replace: the fetch cached over the old bytes.
+    expect(readFileSync(binaryPath, "utf8")).toBe(NEWBODY);
+  });
+
+  it("release unreachable with a connectable shelf: the older agent still installs (outdated beats refused)", async () => {
+    setReleaseUrlForTests("http://127.0.0.1:1/releases");
+    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(shelf);
+  });
+
+  it("release unreachable with a wrong-protocol shelf: still the 404, never the refusal-loop installer", async () => {
+    setReleaseUrlForTests("http://127.0.0.1:1/releases");
+    plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION - 1));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(res.status).toBe(404);
+  });
+
+  it("below the server's version floor: the release wins even when the shelf speaks this protocol", async () => {
+    // The floor half of "the newest build this server can talk to": a shelf
+    // that shares the protocol but predates MIN_NODE_VERSION is refused by
+    // the same rule the connect path applies, and the release takes it.
+    plantShelf(shelfScript("0.0.1", NODE_PROTOCOL_VERSION));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(NEWBODY);
+  });
+
+  it("the release's manifest names no asset for this target: both routes refuse, naming the asset", async () => {
+    omitAsset = true;
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toContain(BINARY);
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect(sha.status).toBe(404);
+  });
+
+  it("an inconsistent shelf AND no compatible release: refused, and the sentence says REPUBLISH", async () => {
+    manifestProtocol = NODE_PROTOCOL_VERSION - 1;
+    plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    writeFileSync(`${binaryPath}.sha256`, `${"f".repeat(64)}\n`);
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toContain("does not match its published .sha256");
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect(sha.status).toBe(404);
+  });
+
+  it("an inconsistent shelf with a compatible release: the release streams PAST the broken pair", async () => {
+    // The shelf's bytes and its sidecar deny each other, so the shelf loses
+    // precedence entirely (rule 1's broken cell) — and because these bytes
+    // are the OPERATOR's (no ledger entry), the release is streamed through
+    // without touching them: the operator republishes, the server does not.
+    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    writeFileSync(`${binaryPath}.sha256`, `${"f".repeat(64)}\n`);
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(NEWBODY);
+    expect(readFileSync(binaryPath, "utf8")).toBe(shelf);
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect((await sha.text()).trim()).toBe(hex(NEWBODY));
+  });
+
+  it("unmeasurable shelf and an unreachable release source: the shelf serves anyway (unknown is not a verdict)", async () => {
+    setReleaseUrlForTests("http://127.0.0.1:1/releases");
+    const shelf = plantShelf("not an executable at all");
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(shelf);
+  });
+
+  it("a failed release read is remembered for a minute: a recovered source still answers the OLD failure until the cache resets", async () => {
+    // The serve decision now consults the release on EVERY authenticated
+    // request, so a dead source must cost one network read per minute, not
+    // one metadata timeout per install.
+    failIndex = true;
+    const first = await get(`/api/downloads/node/${TARGET}`);
+    expect(first.status).toBe(404);
+    expect(((await first.json()) as { message: string }).message).toContain("answered 500");
+    const hitsAfterFirst = indexHits;
+    failIndex = false; // the source is healthy again NOW
+    const second = await get(`/api/downloads/node/${TARGET}`);
+    expect(second.status).toBe(404); // still the remembered verdict, no re-read
+    expect(indexHits).toBe(hitsAfterFirst);
+    resetReleaseCacheForTests(); // the Re-check seam clears the backoff
+    const third = await get(`/api/downloads/node/${TARGET}`);
+    expect(third.status).toBe(200);
+    expect(await third.text()).toBe(NEWBODY);
+  });
+
+  it("the probe parses the agent's own line and re-reads when the file's identity changes", async () => {
+    plantShelf(shelfScript("2.3.4", 12));
+    expect(await shelfVersionFacts(TARGET)).toEqual({ version: "2.3.4", protocol: 12 });
+    // Different bytes AND different size: the cache key (path:mtime:size) moves.
+    plantShelf(shelfScript("10.0.0", 13));
+    expect(await shelfVersionFacts(TARGET)).toEqual({ version: "10.0.0", protocol: 13 });
+  });
+});

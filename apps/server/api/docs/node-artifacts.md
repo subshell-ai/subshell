@@ -11,9 +11,12 @@ see the release-coherent rule below), never anonymous.
 A binary-only server install ships that dir EMPTY. That used to mean the
 install one-liner 404ed until someone published; since 2026-09-12 the server
 FETCHES a missing binary from the project's own `cli-node-v*` GitHub release the
-first time a machine asks for it (`services/releases.ts`). Lazily, on the
-download route's 404 branch: no warm-up, no admin button, no poll, so a plane
-whose nodes are all one platform never spends a byte on the others. The bytes
+first time a machine asks for it (`services/releases.ts`). Binary bytes are
+still lazy: served on request, never warmed up, no admin button, no poll, so a
+plane whose nodes are all one platform never spends a byte on the others.
+Since 2026-10-09 the tiny index/manifest reads behind the serve decision run
+on EVERY authenticated download request (TTL-cached; a failed read is backed
+off a minute), not just on the branch that ends in a fetch. The bytes
 stream THROUGH while being hashed against the digest from the release's
 SIGNED manifest `assets` map; the manifest and its signature are
 verified before the first binary byte, and the `.sha256` sidecar is never
@@ -41,8 +44,10 @@ stay published for `install.sh` alone). `services/releases.ts`'s
 lazy fetch, `fetchDigest` (so the `update` command's digest), the server's own
 `update`, and the Updates page; the three-way refusal grammar
 ("no manifest" / "unsigned" / "failed verification") is what lets the page
-tell those stories apart. A file on disk always wins over a fetch **for the
-installer path** (cookie or setup key), and only
+tell those stories apart. On the installer path (cookie or setup key) the
+disk copy wins only while it can answer for itself as the newest build this
+server can talk to (the serve-time rule of spec 2026-10-09,
+`resolveNodeServe` above). Only
 what this instance fetched (recorded in `<node-artifacts>/.fetched.json` with
 its release tag) is ever superseded when a newer tag appears; a hand-published
 binary has no entry and is never touched. Superseded platforms are DELETED

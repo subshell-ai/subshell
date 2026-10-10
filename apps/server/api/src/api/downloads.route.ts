@@ -1,11 +1,11 @@
-import { statSync } from "node:fs";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_TARGETS, type NodeTarget, nodeArtifactFileName } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
-import { artifactPath, artifactStat, diskArtifactSha256, staleArtifactRefusal } from "@/lib/node-artifacts.js";
+import { resolveNodeServe } from "@/lib/node-artifact-serve.js";
+import { artifactPath, artifactSha, diskArtifactSha256, staleArtifactRefusal } from "@/lib/node-artifacts.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
 import { consumeUpdateToken } from "@/services/nodes/update-tokens.js";
@@ -47,8 +47,9 @@ const DownloadQuerySchema = t.Object({
 /**
  * WHICH credential answered a download request. The kind matters to the binary
  * route: an update-token download is served release-coherently (see the
- * route), the other two disk-first. A token also carries the digest the
- * update command named, which is what "release-coherent" is measured against.
+ * route), the other two by the shelf-vs-release serve decision (spec
+ * 2026-10-09). A token also carries the digest the update command named,
+ * which is what "release-coherent" is measured against.
  */
 type DownloadCredential = { kind: "cookie" | "setup-key" } | { kind: "update-token"; sha256: string };
 
@@ -112,67 +113,6 @@ function unauthorized() {
   } as const;
 }
 
-/** Max entries in {@link shaCache} — FIFO-evicted so mtime churn can't grow it. */
-const SHA_CACHE_MAX = 16;
-/** Computed-sha cache, keyed `${binaryPath}:${binaryMtimeMs}[:${sidecarMtimeMs}]`. */
-const shaCache = new Map<string, string>();
-
-/**
- * SHA-256 (lowercase hex) of a target's binary, or null when unpublished —
- * "published" being exactly {@link artifactStat}'s rule, so the binary route
- * and this one never disagree. An on-disk `subshell-node-cli-<target>.sha256`
- * sidecar wins when it holds a 64-hex digest (publisher-provided truth);
- * otherwise the digest is computed over the binary. Both paths cache under
- * the file mtimes, so a swapped binary or sidecar is noticed on the next
- * request without a stat-free fast path.
- *
- * PUBLISH NOTE: the cache keys on MTIME, so an artifact replaced in place
- * with the SAME mtime keeps serving the cached sha. The publish path must
- * therefore swap atomically (write to a temp name + rename, or at least
- * touch the file) rather than overwrite bytes through the existing inode.
- */
-async function artifactSha(target: NodeTarget): Promise<string | null> {
-  const path = artifactPath(target);
-  const stat = artifactStat(target);
-  if (!stat) return null;
-  let sideMtime = 0;
-  try {
-    sideMtime = statSync(`${path}.sha256`).mtimeMs;
-  } catch {
-    // No sidecar — computed-digest path; key stays mtime-of-binary only.
-  }
-
-  const key = `${path}:${stat.mtimeMs}${sideMtime ? `:${sideMtime}` : ""}`;
-  const cached = shaCache.get(key);
-  if (cached) return cached;
-
-  let sha: string;
-  const sidecarHex = sideMtime
-    ? (
-        await Bun.file(`${path}.sha256`)
-          .text()
-          .catch(() => "")
-      )
-        .trim()
-        .split(/\s+/)[0]
-        ?.toLowerCase()
-    : undefined;
-  if (sidecarHex && /^[0-9a-f]{64}$/.test(sidecarHex)) {
-    sha = sidecarHex;
-  } else {
-    const digest = await crypto.subtle.digest("SHA-256", await Bun.file(path).arrayBuffer());
-    sha = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  // FIFO cap (Map iterates in insertion order): artifact files are large and
-  // rebuilds churn mtimes, so an unbounded cache would be a slow leak.
-  if (shaCache.size >= SHA_CACHE_MAX) {
-    const oldest = shaCache.keys().next().value;
-    if (oldest !== undefined) shaCache.delete(oldest);
-  }
-  shaCache.set(key, sha);
-  return sha;
-}
-
 /** A thrown value's words, for the one log line a failed fetch leaves behind. */
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -185,8 +125,10 @@ const notPublished = (target: string) => ({
  * `/api/downloads/node/*` — serve the prebuilt `subshell` binaries and
  * their checksums (spec 2026-08-31 §8). Auth: session cookie OR a valid,
  * unconsumed `?setup_key=` OR a one-time `?update_token=` ({@link
- * authorizeDownload}); neither → 401. A cookie or setup key is served
- * disk-first; an update token is served release-coherently (see the binary
+ * authorizeDownload}); neither → 401. A cookie or setup key is served by the
+ * shelf-vs-release rule of `resolveNodeServe` (spec 2026-10-09: the newest
+ * build this server can talk to, with a newer hand-published shelf copy still
+ * winning); an update token is served release-coherently (see the binary
  * route).
  *
  * The `.sha256` variants are one STATIC route per target rather than a
@@ -213,27 +155,40 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       "Cache-Control": "private, no-cache",
     };
 
-    // The installer and browser path: on disk wins, always. A binary an
-    // operator published with `release:cli-node` is what this instance serves,
-    // and nothing here second-guesses it.
+    // The installer and browser path: the shelf serves, the release serves, or
+    // nothing serves — decided by {@link resolveNodeServe}, which asks the
+    // shelf copy what it actually is (spec 2026-10-09). Before that rule, the
+    // answer was "whatever the shelf holds, always", and an updated plane kept
+    // dispensing an agent its own server closes at 4410. A hand-published
+    // binary that is NEWER than the release and speaks this server's protocol
+    // still wins, as the operator's own publish path.
     if (credential.kind !== "update-token") {
-      if (artifactStat(params.target)) {
+      const decision = await resolveNodeServe(params.target);
+      if (decision.kind === "disk") {
         return new Response(Bun.file(artifactPath(params.target)), { headers });
       }
-      // Nothing local. THIS is the lazy fetch: the first machine of a platform
-      // to ask pays for the download, and it is streamed past rather than staged
-      // (see services/releases.ts). A plane whose nodes are all one platform
-      // never spends a byte on the others.
-      if (!autoFetchEnabled()) return status(404, apiErrorBody(notPublished(params.target)));
+      if (decision.kind === "none") {
+        getLogger().warn(`node artifacts: refusing the ${params.target} download: ${decision.message}`);
+        return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: decision.message }));
+      }
       try {
-        const fetched = await fetchArtifact(params.target);
+        const fetched = await fetchArtifact(params.target, { cache: decision.cache });
         return new Response(fetched.stream, { headers });
       } catch (error) {
         // A release that cannot be read is the same OUTCOME as an unpublished
         // build — the machine cannot install — so it is the same 404 rather than
         // a 502 the install script has no branch for. The reason is logged
-        // where an operator can find it.
-        getLogger().warn(`node artifacts: could not fetch ${params.target} from the release: ${errorText(error)}`);
+        // where an operator can find it. The shelf deliberately does NOT fall
+        // back in here: this decision already announced the release digest on
+        // `.sha256` (which is what `install.sh` verifies against, and what a
+        // waiting machine's checksum-skip compares), so serving older bytes
+        // under a release announcement would fail the script's own check one
+        // line later. Availability for a connectable shelf lives in the
+        // no-compatible-release branch of the resolver, where the ANNOUNCEMENT
+        // and the BYTES are the same file.
+        getLogger().warn(
+          `node artifacts: could not fetch ${params.target} from the release the serve decision chose (v${decision.releaseVersion}): ${errorText(error)}`,
+        );
         return status(404, apiErrorBody(notPublished(params.target)));
       }
     }
@@ -244,9 +199,10 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
     // the token carries exactly that digest, so this request is measured
     // against the release the COMMAND named, not against whatever the disk
     // holds or the release index now names. The installer path above answers
-    // "whatever this instance publishes", which is the right contract for an
-    // enroll; it is the wrong one for an update, where a disk file from an
-    // older release is refused by the node's own digest check after a full
+    // "the newest build this server can talk to" (spec 2026-10-09); an update
+    // is measured against the specific release the COMMAND ordered, which for
+    // an update is the only right contract: a disk file from a
+    // different release is refused by the node's own digest check after a full
     // ~70 MB download (the live incident of 2026-09-21). So the disk file is
     // a cache here: served when it IS the release, fetched around otherwise.
     //
@@ -343,7 +299,7 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
       operationId: "downloadNodeCli",
       tags: ["downloads"],
       description:
-        "Downloads the prebuilt subshell binary for one platform target (session cookie or valid ?setup_key=, served disk-first; or a one-time ?update_token=, served release-coherent and 409ing with a remedy when the disk copy is stale and no release can be fetched; unknown target → 404)",
+        "Downloads the prebuilt subshell binary for one platform target (session cookie or valid ?setup_key=, served as the newest build this server can talk to — the shelf copy unless a newer supported release exists; or a one-time ?update_token=, served release-coherent and 409ing with a remedy when the disk copy is stale and no release can be fetched; unknown target → 404)",
     },
   },
 );
@@ -354,12 +310,28 @@ for (const target of NODE_TARGETS) {
     async ({ request, query, status }) => {
       // `null`: an update token is not spendable on a digest — see authorizeDownload.
       if ((await authorizeDownload(request, query, null)) === null) return status(401, apiErrorBody(unauthorized()));
-      const local = await artifactSha(target);
+      // Announce the digest the BINARY route would actually serve, not simply
+      // the digest of whatever sits on the shelf (spec 2026-10-09).
+      // `install.sh`'s checksum-skip compares a local binary against THIS
+      // answer: an announced stale-shelf digest would let a machine skip its
+      // way past the very reconciliation the binary route applies.
+      const decision = await resolveNodeServe(target);
+      if (decision.kind === "release") {
+        return new Response(`${decision.digest}\n`, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      }
+      if (decision.kind === "none") {
+        getLogger().warn(`node artifacts: refusing to announce the ${target} digest: ${decision.message}`);
+        return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: decision.message }));
+      }
+      // `.catch(() => null)`, same never-throw posture as the resolver's own
+      // read: the decision just said disk, so a hash that RACES into an error
+      // answers the fetch tail below rather than a 500 the installer has no
+      // branch for.
+      const local = await artifactSha(target).catch(() => null);
       if (local) return new Response(`${local}\n`, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
-      // `install.sh` asks for the sha AFTER the binary, so by here the
-      // streaming fetch has normally written the sidecar and the line above
-      // answered. This is the other order: the digest alone, which is 65
-      // bytes and does not pull the binary down with it.
+      // The disk decision raced with a file removal (or a sidecar-less empty
+      // read): answer the digest the fetch would land, the way this route
+      // always has when nothing local exists to hash.
       if (!autoFetchEnabled()) return status(404, apiErrorBody(notPublished(target)));
       try {
         return new Response(`${await fetchDigest(target)}\n`, {
@@ -376,7 +348,7 @@ for (const target of NODE_TARGETS) {
       detail: {
         operationId: `downloadNodeCliSha256${target.replace(/-/g, "")}`,
         tags: ["downloads"],
-        description: `SHA-256 (64-hex) of the ${target} subshell build (same cookie-or-setup_key gate as the binary)`,
+        description: `SHA-256 (64-hex) of the build the binary route would actually serve for ${target} (same cookie-or-setup_key gate; the same serve decision, spec 2026-10-09)`,
       },
     },
   );

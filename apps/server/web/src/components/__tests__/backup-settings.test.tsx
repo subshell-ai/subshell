@@ -396,7 +396,13 @@ describe("Settings backup workflows", () => {
     await confirmReview();
     await screen.findByText("Restoring your server");
     expect((screen.getByRole("button", { name: "Restoring…" }) as HTMLButtonElement).disabled).toBe(true);
-    await screen.findByText("Restore finished");
+    // The card's own status poll runs on a fixed 1 s cadence
+    // (restore-backup-card.tsx), and this scenario's FIRST poll is the thrown
+    // connection refusal, so "Restore finished" cannot exist before ~1 s plus
+    // the jsdom tick. findByText's default budget is exactly 1 s: an idle
+    // runner squeaks past, a loaded CI runner (PR #348, twice at ~1.5 s) does
+    // not. The headroom asserts nothing new; it stops racing the cadence.
+    await screen.findByText("Restore finished", undefined, { timeout: 3000 });
     expect(screen.queryByText("Restore Complete")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByText("Your server is ready");

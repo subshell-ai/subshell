@@ -50,8 +50,9 @@ const BASH = Bun.which("bash");
  * 2026-08-31 §8). The gate is cookie session OR a valid, unconsumed setup key;
  * the closed target set is enforced in-handler before any path construction
  * (never as a params-schema throw — that would reach the global handler as a
- * 400); sha reads an on-disk sidecar when present and computes (and caches by
- * mtime) otherwise. Artifacts come from the real `NODE_ARTIFACTS_DIR` — under
+ * 400); the sha answer and the binary answer come from ONE serve decision
+ * (spec 2026-10-09), an honest sidecar preferred as the announcement. Artifacts
+ * come from the real `NODE_ARTIFACTS_DIR` — under
  * IS_TEST that is inside this process's temp data dir, so fixtures are written
  * straight there.
  */
@@ -279,23 +280,38 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(text.trim()).toBe(expectedSha);
   });
 
-  it(".sha256 prefers an on-disk sidecar and notices a swapped binary (mtime-keyed cache)", async () => {
-    const fakeHex = "a".repeat(64);
-    writeFileSync(sidecarPath, `${fakeHex}  subshell-node-cli-${TARGET}\n`);
+  it(".sha256 announces an honest sidecar, and a binary swapped UNDER it is refused, not re-hashed", async () => {
+    // Rewritten 2026-10-09: this cell used to pin "whatever the sidecar says,
+    // even against its own bytes" — the exact announce-a-lie behavior the
+    // shelf-vs-release decision removed, because a machine checksum-skips on
+    // THIS answer and then installs bytes that deny it.
+    writeFileSync(sidecarPath, `${expectedSha}  subshell-node-cli-${TARGET}\n`);
     try {
       const side = await dl(`/node/${TARGET}.sha256`, { cookie });
-      expect(side.status).toBe(200);
-      expect((await side.text()).trim()).toBe(fakeHex);
+      expect(side.status).toBe(200); // publisher truth, bytes agree → still the announced hex
+      expect((await side.text()).trim()).toBe(expectedSha);
+
+      // Swap the bytes under the (now lying) sidecar → the cell is broken, and
+      // the refusal names it: no announcement serves here under either story.
+      writeFileSync(fixturePath, new Uint8Array([...FIXTURE, 0x99]));
+      utimesSync(fixturePath, new Date(Date.now() + 2000), new Date(Date.now() + 2000));
+      const bad = await dl(`/node/${TARGET}.sha256`, { cookie });
+      expect(bad.status).toBe(404);
+      expect(((await bad.json()) as { message: string }).message).toContain("does not match its published .sha256");
+
+      // Remove the sidecar: the swap is NOTICE (cache keyed on file identity)
+      // and the bytes' own digest announces again — no stale memo.
+      rmSync(sidecarPath, { force: true });
+      const after = await dl(`/node/${TARGET}.sha256`, { cookie });
+      expect(after.status).toBe(200);
+      const h = new Bun.CryptoHasher("sha256");
+      h.update(new Uint8Array([...FIXTURE, 0x99]));
+      expect((await after.text()).trim()).toBe(h.digest("hex"));
     } finally {
       rmSync(sidecarPath, { force: true });
+      writeFileSync(fixturePath, FIXTURE); // restore for any later assertion
+      utimesSync(fixturePath, new Date(Date.now() + 4000), new Date(Date.now() + 4000));
     }
-    // Swap the bytes behind the same name → the computed sha must follow.
-    writeFileSync(fixturePath, new Uint8Array([...FIXTURE, 0x99]));
-    utimesSync(fixturePath, new Date(Date.now() + 2000), new Date(Date.now() + 2000));
-    const after = await dl(`/node/${TARGET}.sha256`, { cookie });
-    expect((await after.text()).trim()).not.toBe(fakeHex);
-    writeFileSync(fixturePath, FIXTURE); // restore for any later assertion
-    utimesSync(fixturePath, new Date(Date.now() + 4000), new Date(Date.now() + 4000));
   });
 
   it(".sha256 for a known target with no binary on disk → 404", async () => {
