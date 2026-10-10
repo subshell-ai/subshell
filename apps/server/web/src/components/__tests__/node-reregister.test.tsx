@@ -25,10 +25,19 @@ it("reveals a setup key with client instructions and retires it on a node switch
   );
   const { rerender } = render(tree("n1"));
   fireEvent.click(screen.getByRole("button", { name: "Re-register" }));
-  expect(await screen.findByText(/This setup key is tied to n1/)).toBeDefined();
+  const reveal = await screen.findByText(/This setup key is tied to/);
+  // The node's name rides its own bolded span (operator ask 2026-10-10: the
+  // name is the one word in the sentence the reader must find at a glance).
+  expect(reveal.querySelector("span")?.textContent).toBe("n1");
   expect(screen.getByText(/Service → Re-enroll/)).toBeDefined();
+  // The Terminal tab says what the key actually does. The bare command is
+  // indistinguishable from a new-machine enroll (same shape, different act),
+  // and the rendered install.sh says "re-registering" on the machine — the
+  // card must not be the one surface that stays silent about it.
+  fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+  expect(await screen.findByText(/re-registers the existing node/)).toBeDefined();
   rerender(tree("n2"));
-  expect(screen.queryByText(/This setup key is tied to n1/)).toBeNull();
+  expect(screen.queryByText(/This setup key is tied to/)).toBeNull();
   expect(screen.getByRole("button", { name: "Re-register" })).toBeDefined();
 });
 

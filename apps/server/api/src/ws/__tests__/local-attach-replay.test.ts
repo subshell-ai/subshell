@@ -15,7 +15,11 @@ import {
   resizeCalls,
   seedLocalRow,
   stubLauncher,
+  useLocalAttachHarness,
 } from "./helpers/local-attach-harness.js";
+
+/** Serial-mode module sharing makes hook registration per-file; see the harness. */
+useLocalAttachHarness();
 
 describe("local attach replay — one clean paint, no raw-log re-play", () => {
   it("history never ships as raw log bytes: the tail starts at the log's size when the replay was taken", async () => {

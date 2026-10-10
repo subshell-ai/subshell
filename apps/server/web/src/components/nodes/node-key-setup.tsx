@@ -190,10 +190,20 @@ export function NodeKeySetup({
   keyText,
   generate,
   defaultMethod = "terminal",
+  reRegisterName = null,
 }: {
   keyText: string | null;
   generate?: ReactNode;
   defaultMethod?: Method;
+  /**
+   * Set when the key is a RE-REGISTRATION key for this existing node. It adds
+   * one line to the terminal panel (the command alone reads as "add a new
+   * machine"; the rendered script says the same thing on the machine). The
+   * Add-node dialog never passes it, so the operator's 2026-09-18 ruling that
+   * the terminal panel carries NO paragraph above the command still holds for
+   * every new-node flow — this line is the recovery exception, not a reversal.
+   */
+  reRegisterName?: string | null;
 }) {
   const addressId = useId();
   const [chosen, setChosen] = useState<string | null>(null);
@@ -254,7 +264,8 @@ export function NodeKeySetup({
       />
       {method === "terminal" ? (
         <div className="space-y-3">
-          {/* No paragraph above the command. One used to describe what the script does
+          {/* No paragraph above the command for a NEW-node key (the recovery
+              exception renders one, a few lines below). One used to describe what the script does
               ("installs the node CLI to ~/.local/bin, asks what to call this machine,
               enrolls it, and then asks about the background service…"), and it is GONE
               — operator's call, 2026-09-18. The command is the instruction; the script
@@ -263,6 +274,16 @@ export function NodeKeySetup({
               Before the key exists the command shows with `KEY_PENDING_TOKEN` in the
               key slot and copy disabled — the shape is the instruction, the fake token
               is unmistakable, and nothing runs until the mint replaces it. */}
+          {reRegisterName ? (
+            // The recovery exception to the no-paragraph ruling above: the
+            // command is the instruction ONLY when it means what the reader
+            // assumes; a bound key does a different act than the same-looking
+            // new-node enroll.
+            <p className="text-detail text-muted-foreground">
+              This command re-registers the existing node "<span className="font-strong">{reRegisterName}</span>": the
+              machine that runs it takes over that entry, keeping its name, shares and settings.
+            </p>
+          ) : null}
           <CopyCommandRow
             text={installCommandFor(selected, keyText ?? KEY_PENDING_TOKEN, appBaseUrl)}
             label="install command"

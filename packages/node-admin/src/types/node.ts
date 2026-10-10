@@ -93,6 +93,15 @@ export interface Node {
   /** The caller's effective access (drives which controls render) */
   access: NodeAccess;
   /**
+   * The node owner's label (name, falling back to email, then the raw user id
+   * for a removed account). Sent ONLY to an admin — the operator whose Nodes
+   * list shows every machine must be able to say whose machine each row is
+   * (ruling 2026-10-10, the admin setup-key listing's precedent). `local`'s
+   * label is the `system` service user; every other viewer gets no field,
+   * because their `access` already says whether the node is theirs.
+   */
+  ownerLabel?: string;
+  /**
    * Whether the caller manages this node's CONFIG (shares/rename/maintenance/
    * rotate/allowlist): real owner, or an admin on `local` — server-derived (the
    * same rule the route gate applies), so the client must never re-derive admin

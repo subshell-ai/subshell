@@ -28,6 +28,7 @@ import { installScriptRoute } from "@/api/install-script.js";
 import { APP_BASE_URL, NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
+import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { mintUpdateToken, resetUpdateTokensForTests } from "@/services/nodes/update-tokens.js";
@@ -70,7 +71,9 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
   let cookie = "";
   let userId = "";
   const repo = new NodeSetupKeysRepository(db);
+  const nodesRepo = new NodesRepository(db);
   const createdKeyIds: string[] = [];
+  const createdNodeIds: string[] = [];
 
   /** GET a downloads path with optional cookie / setup-key credentials. */
   async function dl(path: string, opts: { cookie?: string; key?: string } = {}): Promise<Response> {
@@ -89,6 +92,16 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
 
   async function mkKey(ttlMs?: number): Promise<string> {
     const row = await repo.create(userId, ttlMs);
+    createdKeyIds.push(row.id);
+    return row.key;
+  }
+
+  /** Node row + key bound to it — the shape a node's Re-register mint leaves. */
+  async function mkRecoveryKey(name: string): Promise<string> {
+    const nodeId = `n-rereg-${crypto.randomUUID().slice(0, 8)}`;
+    await nodesRepo.create({ id: nodeId, ownerUserId: userId, name, kind: "agent", status: "offline" });
+    createdNodeIds.push(nodeId);
+    const row = await repo.create(userId, undefined, nodeId);
     createdKeyIds.push(row.id);
     return row.key;
   }
@@ -113,6 +126,7 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     rmSync(sidecarPath, { force: true });
     await deleteUserByEmailOrId(email);
     for (const id of createdKeyIds) await repo.deleteById(id, userId);
+    for (const id of createdNodeIds) await nodesRepo.deleteById(id);
   });
 
   // ── target gating (in-handler, before any filesystem path construction) ───
@@ -366,6 +380,11 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     expect(body).toContain(`SERVER="${APP_BASE_URL}"`); // same source enroll's wsUrl derives from
     expect(body).toContain(`KEY="${key}"`);
     expect(body.split(key).length - 1).toBe(1); // exactly one literal occurrence
+    // A NEW-node key carries NO recovery machinery at all: the fragment is
+    // conditional in the render, so the variable, its banner and its name
+    // pre-answer simply are not in the script. Silence here is structural.
+    expect(body).not.toContain("REREG_NAME");
+    expect(body).not.toContain("re-registering the existing node");
     // uname detection covers all four targets and fails loudly otherwise
     for (const m of ["Linux/x86_64", "Linux/aarch64", "Darwin/x86_64", "Darwin/arm64"]) {
       expect(body).toContain(m);
@@ -399,6 +418,52 @@ describe("/api/downloads + /install.sh (assembled app)", () => {
     // render and a nameless pipe share the usage code, so the pin is on the
     // usage script's own copy, which must never appear on this path.
     expect(body).not.toContain("usage: curl");
+  });
+
+  it("install.sh with a valid RE-REGISTRATION key → names the node and pre-supplies its name", async () => {
+    const key = await mkRecoveryKey("AI PC");
+    const body = await (await install(key)).text();
+    // The banner text and the baked name: the operator sees WHAT this run does
+    // before the wizard asks anything, and the name question is answered by
+    // the script because the recovery path ignores any answer anyway.
+    expect(body).toContain("REREG_NAME='AI PC'");
+    expect(body).toContain('echo "==> re-registering the existing node \\"$REREG_NAME\\"');
+    expect(body).toContain('elif [ -n "$REREG_NAME" ]; then');
+    expect(body).toContain('SETUP_NAME_ARGS=(--name "$REREG_NAME")');
+    // It is still the SAME pipeline otherwise (one verb, same guards).
+    expect(body).toContain('"$DEST" setup --server "$SERVER" --key "$KEY"');
+    expect(body).not.toContain("usage: curl");
+  });
+
+  /**
+   * The invalid arms of the no-oracle rule, PINNED (review round 1 of PR #356:
+   * the rule was only asserted for absent/unknown keys, and this PR is exactly
+   * the change that made script rendering discriminate between live key kinds).
+   * The route reads a recovery key's node name only after `peekValid` answers
+   * LIVE; a spent or expired key must not leak that it was ever bound.
+   */
+  it("install.sh with a SPENT or EXPIRED recovery key → the byte-identical usage script", async () => {
+    const usage = await (await install()).text();
+
+    const spent = await mkRecoveryKey("Spent Box");
+    await repo.consume(spent, "pin-node-not-a-real-node");
+    expect(await (await install(spent)).text()).toBe(usage);
+
+    const expired = await mkRecoveryKey("Expired Box");
+    await db
+      .updateTable("nodeSetupKeys")
+      .set({ expiresAt: new Date(Date.now() - 1000).toISOString() })
+      .where("key", "=", expired)
+      .execute();
+    expect(await (await install(expired)).text()).toBe(usage);
+  });
+
+  it("install.sh quote-escapes a baked node name (an apostrophe cannot break the assignment)", async () => {
+    // Node names are normalize-filtered operator text: control characters are
+    // gone, but apostrophes are legal and land inside `REREG_NAME='…'`.
+    const key = await mkRecoveryKey("O'Clock Box");
+    const body = await (await install(key)).text();
+    expect(body).toContain(`REREG_NAME='O'\\''Clock Box'`);
   });
 
   // ── the `server` param (the Add-node dialog's address dropdown) ─────────

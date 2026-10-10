@@ -213,6 +213,16 @@ function NodeDetailPage() {
                 <dt className="text-muted-foreground">Your access</dt>
                 <dd>{n.access}</dd>
               </div>
+              {/* The server sends `ownerLabel` to ADMINS only (node-view
+                  schema): the operator whose list shows every machine learns
+                  whose machine this is. Every other viewer's payload has no
+                  field, so nothing renders for them. */}
+              {n.ownerLabel !== undefined && (
+                <div>
+                  <dt className="text-muted-foreground">Owner</dt>
+                  <dd className="truncate">{n.ownerLabel}</dd>
+                </div>
+              )}
               {n.capabilities.length > 0 && (
                 <div className="col-span-full">
                   <dt className="text-muted-foreground">Capabilities</dt>

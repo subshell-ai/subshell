@@ -111,6 +111,12 @@ export const NodeViewSchema = t.Object({
     description: "Node protocol version, null until first ready (the UI's node-too-old check, spec §9)",
   }),
   access: NodeAccessSchema,
+  ownerLabel: t.Optional(
+    t.String({
+      description:
+        "The node owner's label (name, falling back to email, then the raw user id for a removed account): present ONLY when the viewer is an admin, because the admin-wide Nodes list shows machines whose people the operator must be able to identify (ruling 2026-10-10, the same precedent as the admin setup-key listing). `local`'s label is the `system` service user",
+    }),
+  ),
   canManage: t.Boolean({
     description:
       "Whether the caller manages this node (shares/rename/maintenance/rotate/allowlist): real owner, or an admin on `local`; same rule as the route gate",
@@ -326,6 +332,7 @@ function nodeViewBase(
   allowedDirs: string[],
   granted: NodeAccess,
   serverAsNode = true,
+  ownerLabel?: string,
 ) {
   return {
     // Empty = unrestricted (see the schema note). Passed in rather than read
@@ -347,6 +354,10 @@ function nodeViewBase(
     // Task 15's "node too old" chip reads this against NODE_PROTOCOL_VERSION.
     protocolVersion: row.protocolVersion,
     access,
+    // Present only when the caller resolved it, which happens only for an
+    // admin (see the schema note). A conditional spread keeps it OUT of every
+    // other viewer's payload rather than carrying an empty string.
+    ...(ownerLabel !== undefined ? { ownerLabel } : {}),
     // The SAME rule the route gate applies — shared helper, so view and gate
     // can never drift (T14 review carry: the frontend cannot derive admin identity).
     canManage: nodeCanManageFor(row.kind, access, isAdmin),
@@ -391,8 +402,14 @@ export async function toNodeView(
   // The switch only ever speaks about the control-plane host, so only that
   // row pays the read.
   const serverAsNode = row.kind === "local" ? await serverSubshellsEnabled(db) : true;
+  // The owner's name is an ADMIN fact (schema note): one user read, paid only
+  // by the viewer whose page shows every machine on the plane. A removed
+  // account falls back to the raw id rather than dropping the row's owner.
+  const ownerLabel = isAdmin
+    ? ((await new UsersRepository(db).displayNamesByIds([row.ownerUserId])).get(row.ownerUserId) ?? row.ownerUserId)
+    : undefined;
   return {
-    ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, serverAsNode),
+    ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, serverAsNode, ownerLabel),
     harnesses,
     inventoryStale: stale,
   };
@@ -419,19 +436,31 @@ export async function toNodeViews(
   // the dirs query — lazy because an agent-only caller must not pay for a
   // setting that cannot describe any of its rows.
   let serverAsNode: boolean | undefined;
+  // Owner labels are an admin fact (see the schema note) and ONE read for the
+  // whole list; a non-admin list resolves nothing (empty input short-circuits
+  // the query), so no ordinary viewer's page pays for a user table they get
+  // nothing from. A removed account falls back to the raw id, never to absent.
+  const ownerLabels = await new UsersRepository(db).displayNamesByIds([
+    ...new Set(entries.filter((e) => e.isAdmin).map((e) => e.row.ownerUserId)),
+  ]);
   for (const { row, access, isAdmin, granted } of entries) {
     const allowedDirs = dirsBy.get(row.id) ?? [];
+    const ownerLabel = isAdmin ? (ownerLabels.get(row.ownerUserId) ?? row.ownerUserId) : undefined;
     if (row.kind === "local") {
       localReport ??= await effectiveHarnessStates(row, installed);
       serverAsNode ??= await serverSubshellsEnabled(db);
       out.push({
-        ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, serverAsNode),
+        ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, serverAsNode, ownerLabel),
         harnesses: localReport.harnesses,
         inventoryStale: localReport.stale,
       });
     } else {
       const { harnesses, stale } = await effectiveHarnessStates(row, installed);
-      out.push({ ...nodeViewBase(row, access, isAdmin, allowedDirs, granted), harnesses, inventoryStale: stale });
+      out.push({
+        ...nodeViewBase(row, access, isAdmin, allowedDirs, granted, true, ownerLabel),
+        harnesses,
+        inventoryStale: stale,
+      });
     }
   }
   return out;
