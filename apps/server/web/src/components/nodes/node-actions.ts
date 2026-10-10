@@ -8,11 +8,11 @@ import type { ActionItem } from "@/components/actions-menu";
  * The list grew a second view, and every item here carries a SERVER-derived
  * gate (`canManage` for config, `canRetire` for Delete, `kind === "local"`)
  * and a destructive flag that pairs with a confirmation two files away. Two
- * copies of that list is two chances
- * for the table to grey what the card does not, or to offer Delete on
- * `local`, so the list is defined once and both views call it. Entity
- * knowledge still belongs to the caller — every handler is passed in, and
- * the menu stays free of route and mutation knowledge exactly as before.
+ * copies of that list is two chances for the table to grey what the card does
+ * not, or to offer Delete on `local`, so the list is defined once and both
+ * views call it. Entity knowledge still belongs to the caller — every handler
+ * is passed in, and the menu stays free of route and mutation knowledge exactly
+ * as before.
  *
  * @param node - The row's node, source of every gate
  * @param handlers - What each item does, decided by the page

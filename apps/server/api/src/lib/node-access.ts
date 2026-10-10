@@ -10,7 +10,7 @@ import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
  * `none` to everyone else. Admins resolve to `edit` (spec §1: instance-wide
  * effective operator access, not ownership) — re-share stays with the real
  * owner via `nodeCanManage`, while delete and re-registration join the admin
- * through `nodeCanRetireFor` (operator ruling 2026-10-09: an admin who can
+ * through `nodeCanRetire` (operator ruling 2026-10-09: an admin who can
  * see every machine must be able to retire one).
  */
 export type NodeAccess = "owner" | "edit" | "view" | "none";
@@ -102,9 +102,10 @@ export function nodeCanLaunchOn(
  * where launch sits at edit. Product decision (spec 2026-08-31 §2): a `view`
  * grantee may start subshells on a node (launching is not configuring); the
  * capability rule for nodes is — any share grants launch; edit/owner grants
- * config; delete + managing shares require owner, EXCEPT the seeded `local`
- * node, whose shares/config admins manage (routes add that exception, since the
- * resolver ranks admins at `edit`, never `owner`).
+ * config; managing SHARES requires the owner (admin on `local`), while DELETE
+ * and RE-REGISTER are the retire gate, owner OR any admin (see `nodeCanRetire`);
+ * the routes layer the seeded-`local` admin exception, since the resolver ranks
+ * admins at `edit`, never `owner`.
  */
 export function nodeCanLaunch(access: NodeAccess): boolean {
   return access !== "none";
@@ -151,8 +152,11 @@ export function nodeCanManageFor(rowKind: NodeKind, access: NodeAccess, isAdmin:
  * rename, maintenance and the allowlist.
  *
  * On `local` this answers the same as `nodeCanManageFor` (the owner there is
- * the system user; admin-on-local was already true); the routes refuse `local`
- * with their own 400s before this matters. Both the route gate
+ * the system user; admin-on-local was already true). No caller can actually
+ * retire `local`: delete 400s on the kind BEFORE this gate, and reregister's
+ * kind 400 is what a retire-authorized admin hits (a plain viewer of `local`
+ * is 403'd by the gate first, but that viewer cannot retire anything either).
+ * Both the route gate
  * (`loadNodeGate`) and the rendered views (`node-view.ts`) derive `canRetire`
  * from this call so the rule can never drift between them.
  *

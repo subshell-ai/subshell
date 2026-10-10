@@ -14,11 +14,16 @@ const SetupKeyRowSchema = t.Object({
   usedAt: t.Nullable(t.String({ description: "ISO 8601 redemption time, null while unused" })),
   targetNodeId: t.Union([t.String(), t.Null()]),
   consumedNodeId: t.Nullable(t.String({ description: "Node created by redeeming this key, null while unused" })),
-  ownerUserId: t.Optional(t.String({ description: "Creator's user id, present only on the admin `all=1` listing" })),
+  ownerUserId: t.Optional(
+    t.String({
+      description:
+        "The key OWNER's user id, present only on the admin `all=1` listing. This is the future node owner: for a recovery key an ADMIN minted it is the node's owner, not the admin who triggered the mint",
+    }),
+  ),
   ownerLabel: t.Optional(
     t.String({
       description:
-        "Creator's display name, falling back to email, then to the raw user id for a deleted account, present only on the admin `all=1` listing",
+        "The key owner's display name, falling back to email, then to the raw user id for a deleted account, present only on the admin `all=1` listing",
     }),
   ),
 });

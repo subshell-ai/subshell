@@ -496,6 +496,9 @@ describe("/api/nodes registry CRUD", () => {
     expect(await nodes.findById(n.id)).toBeUndefined();
     expect(await keyIsValid(n.key)).toBe(false); // retirement killed the credential too
     const m = await mkNode(aliceId, `del-guard-${crypto.randomUUID().slice(0, 8)}`);
+    // Cookie-only: a machine token never reaches the retire gate (the route's
+    // requireCookieActor refuses it first, before the node is even looked up).
+    expect((await req("DELETE", `/${m.id}`, { bearer: subshellKey })).status).toBe(403);
     expect((await req("DELETE", `/${m.id}`, { cookie: carolCookie })).status).toBe(404);
     expect((await req("DELETE", "/local", { cookie: adminCookie })).status).toBe(400);
   });

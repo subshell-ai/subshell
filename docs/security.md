@@ -533,15 +533,21 @@ section's posture depends on):
   one widening (same-day follow-up ruling 2026-10-09): owner OR any admin, a
   gate `nodeCanRetire` names and `canRetire` renders.** The list puts every
   machine on the operator's screen; a page that shows a machine it cannot
-  retire reads as broken, and retirement is the WEAKER act than the shares
-  that stay owner's: ending your own view of a machine is not deciding who
-  else may use it. A recovery key an admin mints is stored under the NODE's
-  owner (redemption requires `key.ownerUserId === node.ownerUserId`), so the
-  admin is the audited ACTOR and the node owner the key's owner, and the
-  recovery-preserves-ownership contract is untouched. Pinned by
-  `nodes-crud-route.test.ts` ("the LIST carries a foreign private node to an
-  admin…", "re-registration mint is retire-gated", "delete: admin retires a
-  foreign node") and by `node-access.test.ts` (`nodeCanRetire`).
+  retire reads as broken. Retirement replaces a machine's standing rather than
+  deciding who else may USE it, which is why shares stay owner-only. A
+  re-registration mint is genuinely a credential-replacement act (redemption
+  re-homes the row onto whatever machine presents the new key, keeping the
+  owner), and an admin who could already DELETE the machine outright is not
+  being newly widened by being able to rotate it in place instead; the rotate
+  KEY route stays owner-only because it is the weaker half of the same power,
+  not because the admin lacks the stronger one. A recovery key an admin mints
+  is stored under the NODE's owner (redemption requires
+  `key.ownerUserId === node.ownerUserId`), so the admin is the audited ACTOR and
+  the node owner the key's owner, and the recovery-preserves-ownership contract
+  is untouched. Pinned by `nodes-crud-route.test.ts` ("the LIST carries a
+  foreign private node to an admin…", "re-registration mint is retire-gated",
+  "delete: admin retires a foreign node") and by `node-access.test.ts`
+  (`nodeCanRetire`).
 
 **The roster READ is not admin-gated, and it carries display names.** Writes to
 `/api/users` are cookie-admin; `GET /api/users` is deliberately instance-wide

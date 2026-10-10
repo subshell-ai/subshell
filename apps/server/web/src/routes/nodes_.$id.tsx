@@ -122,7 +122,7 @@ function NodeDetailPage() {
               n.kind === "local"
                 ? "The control-plane host cannot be deleted"
                 : !n.canRetire
-                  ? "Only the node's owner can delete it"
+                  ? "Only the node's owner or an admin can delete it"
                   : undefined
             }
           >

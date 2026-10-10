@@ -377,7 +377,8 @@ function heldView(nodeId: string): { reason: HeldReason; agentVersion: string } 
 /**
  * Render one node row for a viewer at a known access level.
  * @param isAdmin - Whether the viewer holds the admin role (drives the
- *  seeded-`local` exception inside `canManage`)
+ *  seeded-`local` exception inside `canManage`, and the admin half of
+ *  `canRetire`, which is true for an admin on ANY kind)
  */
 export async function toNodeView(
   row: NodeTable,

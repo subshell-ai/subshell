@@ -31,8 +31,14 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
   const [accepted, setAccepted] = useState<{ to: string } | null>(null);
   const updating = nodeUpdate.pendingNodeIds.has(node.id);
   const failure = nodeUpdate.failures[node.id];
-  // The same two states the server's `canUpdate` admits: a live socket, or a
-  // held one (`held` is read from the LIVE registry, so it cannot be stale).
+  // The two states the server's `canUpdate` admits: online, or held. It reads
+  // the row `status` projection and the live-registry `held` — the SAME facts
+  // the page's own "offline" badge already shows — so a heartbeat-stalled node
+  // that is momentarily both shows a disabled button and an "offline" badge
+  // TOGETHER; the button never contradicts the status the rest of the page
+  // states, and the route stays authoritative for anyone who reaches it by
+  // other means. The one honest asymmetry: a live-but-stalled node's held=null
+  // + status=offline reads "gone" here, and self-heals on the next poll.
   const reachable = node.status === "online" || node.held !== null;
 
   // TanStack reuses route components across param changes, so navigating to

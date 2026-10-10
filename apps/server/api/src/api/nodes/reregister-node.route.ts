@@ -13,7 +13,13 @@ import { audit } from "@/services/audit.js";
  * The RETIRE gate (real owner or any admin, `nodeCanRetire`), same ruling as
  * delete: the mint touches no existing row and disconnects nothing, and an
  * admin who can already delete this machine outright is not being widened by
- * being allowed to gently replace its credentials. `local` is refused by kind.
+ * being allowed to replace its credentials instead. Redemption is the real
+ * power (it re-homes the node row onto whatever machine presents the new key),
+ * so the admin holding this is the same instance-wide credential reach they
+ * already hold over key rotation's TARGET even though the rotate ROUTE stays
+ * owner-only: delete dominates both, and the security posture does not
+ * constrain an admin (`docs/security.md` §11, no separation of duties). `local`
+ * is refused by kind.
  */
 export const reregisterNodeRoute = new Elysia()
   .use(authGuard)

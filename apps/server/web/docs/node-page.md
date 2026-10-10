@@ -57,7 +57,7 @@ a DIFFERENT rule
 Update card (`node-update-card.tsx`) behind the same `managesNodeSections` rule,
 driving the same `POST /api/nodes/:id/update` the Updates table rows use; that
 route also answers 409 when the node already runs the newest release this server
-can offer, rather reinstalling the same binary. The Update and Re-check buttons
+can offer, rather than reinstalling the same binary. The Update and Re-check buttons
 read the node's LINK state, not just permission (the server's own `canUpdate`
 rule): an ONLINE node or a HELD one (offline but its socket still answers the
 `update` command) can take an update, so its button stays live and the card says
