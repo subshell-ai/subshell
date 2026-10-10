@@ -1,5 +1,13 @@
 # @internal/server
 
+## 1.10.1
+
+### Patch Changes
+
+- [#349](https://github.com/subshell-ai/subshell/pull/349) [`156bc58`](https://github.com/subshell-ai/subshell/commit/156bc588b0966dd2971c9074ceb7344b55c2fef6) Thanks [@theogravity](https://github.com/theogravity)! - The node page no longer shows a "Control plane" card. The server cannot see which address a node dials, so its one field could only ever stand blank next to a sentence admitting that; moving a machine stays with the surfaces that actually know it: `subshell configure --server` on the machine, and the node's own local dashboard, which can name the current address because the config file is in its hands.
+
+- [#348](https://github.com/subshell-ai/subshell/pull/348) [`375d82f`](https://github.com/subshell-ai/subshell/commit/375d82fecfb2f04a48716283dd32b614bb302bcd) Thanks [@theogravity](https://github.com/theogravity)! - A server now hands installing machines the newest node build it can actually talk to. The node-binary shelf used to win unconditionally: a plane updated across a protocol bump kept serving the old agent it (or a hand copy) had left on disk, the one-liner reported a successful install, and the new node sat refusing to connect forever because its server spoke a different protocol. The shelf copy is now asked what it is: a hand-published build that is newer and speaks the server's protocol still wins, but an outdated one yields to the published release (replacing files this server fetched itself, never somebody else's bytes), a copy that cannot connect is never served at all (even air-gapped, the refusal names why instead of installing a doomed agent), and the checksum the installer compares against announces the same answer the download would give. `subshell-server status` flags any shelf copy that could not connect (wrong protocol or below the version floor, naming its version) or answers no version at all, so a stale shelf is visible before a fleet trips over it.
+
 ## 1.10.0
 
 ### Minor Changes
