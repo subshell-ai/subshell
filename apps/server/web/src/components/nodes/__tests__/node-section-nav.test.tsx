@@ -41,11 +41,18 @@ function navNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
     maintenance: false,
     maintenanceAt: null,
     maintenanceSource: null,
+    held: null,
     ...overrides,
-  } as NodeDetail;
+  };
 }
 
-function renderAt(node: NodeDetail, url: string) {
+/**
+ * Mount the nav under the three section routes. Production wires them as FLAT
+ * siblings (node-sections-flat.test.ts keeps it that way); nested here on
+ * purpose: one nav instance survives the navigation the click test performs,
+ * which is exactly what the test is about. Do not "fix" the shape.
+ */
+async function renderAt(node: NodeDetail, url: string) {
   const root = createRootRoute();
   const base = createRoute({
     getParentRoute: () => root,
@@ -67,6 +74,10 @@ function renderAt(node: NodeDetail, url: string) {
     history: createMemoryHistory({ initialEntries: [url] }),
     defaultPreload: false,
   });
+  // Resolve the initial match BEFORE render (the recipe the other component
+  // tests use, e.g. detail-back-header.test.tsx): the first paint then carries
+  // the match, and nothing commits outside act()'s scope afterwards.
+  await router.load();
   return render(<RouterProvider router={router} />);
 }
 
@@ -75,9 +86,9 @@ const pressed = () =>
     (name) => screen.getByRole("button", { name }).getAttribute("aria-pressed") === "true",
   );
 
-/** The router settles its first match on a microtask; wait for the group. */
+/** Mount, and wait for the pill row when the fixture is supposed to get one. */
 async function renderReady(node: NodeDetail, url: string) {
-  renderAt(node, url);
+  await renderAt(node, url);
   if (node.kind === "agent" && (node.access === "owner" || node.access === "edit")) {
     await screen.findByRole("button", { name: "Overview" });
   }
@@ -108,15 +119,11 @@ describe("NodeSectionNav pill activation", () => {
   });
 
   it("renders no pills for a `view` grantee or the control-plane host", async () => {
-    renderAt(navNode({ access: "view" }), "/nodes/node1");
-    // No group appears at any point: query after the router would have
-    // settled its (nav-less) match.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await renderAt(navNode({ access: "view" }), "/nodes/node1");
     expect(screen.queryByRole("button", { name: "Service" })).toBeNull();
     cleanup();
 
-    renderAt(navNode({ kind: "local", access: "owner" }), "/nodes/node1");
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await renderAt(navNode({ kind: "local", access: "owner" }), "/nodes/node1");
     expect(screen.queryByRole("button")).toBeNull();
   });
 });

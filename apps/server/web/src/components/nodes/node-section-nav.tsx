@@ -66,7 +66,7 @@ export function NodeSectionNav({ node }: { node: NodeDetail }): JSX.Element | nu
   // load-bearingness: Overview is active only on the bare base path, so the
   // Overview pill and a section pill can never both light (flat siblings,
   // segment-prefix matching — the same trap the old `exact` pinned;
-  // node-section-nav.test.ts pins this reading per URL).
+  // node-section-nav.test.tsx pins this reading per URL).
   const section: Section =
     location.pathname === `${base}/service` ? "service" : location.pathname === `${base}/logs` ? "logs" : "overview";
 
