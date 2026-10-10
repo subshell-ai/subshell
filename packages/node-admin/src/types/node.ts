@@ -291,11 +291,12 @@ export interface NodeDetail extends Node {
   /**
    * The control-plane address this machine dials.
    *
-   * ABSENT from the plane's view and PRESENT on the node's own dashboard,
-   * which is the whole reason the Control-plane card starts its field empty
-   * there: the plane cannot see which address a node dials — it lives in that
-   * machine's own `config.json` and the wire carries no field for it. The
-   * local view has the file in hand, so it says the current value out loud.
+   * ABSENT from the plane's view and PRESENT on the node's own dashboard:
+   * the plane cannot see which address a node dials (it lives in that
+   * machine's own `config.json` and the wire carries no field for it), while
+   * the local view has the file in hand and says the value out loud. The
+   * optionality is that asymmetry, not a UI shape: the card that renders it
+   * lives on the dashboard.
    */
   serverUrl?: string;
   /** Full grant set (config-capable viewers only) */

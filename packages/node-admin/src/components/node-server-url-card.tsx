@@ -10,19 +10,18 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 
 /**
- * Which control plane this node dials (spec 2026-09-12, node half § 5).
+ * Which control plane this machine dials, and the one field that moves it.
  *
- * **Owner only, and the card says why.** Locally this is an unprivileged edit
- * — `subshell configure --server` rewrites a 0600 file the machine's own user
- * already owns. Doing it from here is a different act: the node then dials
- * whatever host was typed carrying a credential valid on THIS plane, and the
- * machine leaves this instance. An `edit` grantee is trusted to interrupt a
- * machine they were shared; making it someone else's is not that.
- *
- * The field starts EMPTY rather than pre-filled, because the plane does not
- * know the answer: which address a node dials lives in that machine's own
- * `config.json` and is reported by nothing on the wire. Showing a guess there
- * would be inventing the current value.
+ * **This card belongs to the node's own loopback dashboard.** It used to sit
+ * on the plane's node page too, but that surface cannot see the current
+ * address (it lives in the machine's `config.json` and nothing on the wire
+ * reports it), so its field could only stand blank beside a sentence
+ * admitting why (removed 2026-10-09). Here the config file is in hand: the
+ * current address prints below the field, and saving is an unprivileged
+ * local edit, the same act as `subshell configure --server` rewriting a file
+ * the machine's own user owns. It is still the widening act it always was:
+ * the node will dial whatever host is typed carrying the node key it holds,
+ * so the confirm dialog says so before anything is written.
  */
 export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
   const save = useSetNodeServerUrl(node.id);
@@ -84,18 +83,13 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
             disabled={!isOwner}
             onChange={(e) => setUrl(e.target.value)}
           />
-          {node.serverUrl ? (
-            // The node's own dashboard has the config file in hand, so it can
-            // NAME the address the plane's card must leave a blank — the one
-            // difference in what the two surfaces know.
+          {/* The dashboard has the config file in hand, so the current value
+              is always there to name. Absent stays silent rather than
+              guessed: a missing field would be a broken view, not a blank to
+              fill with an apology. */}
+          {node.serverUrl && (
             <p className="text-detail text-muted-foreground">
               Current address: <span className="font-mono">{node.serverUrl}</span>
-            </p>
-          ) : (
-            <p className="text-detail text-muted-foreground">
-              {isOwner
-                ? "This server cannot see which address the node currently uses: that lives in its own config file."
-                : "Only the node's owner can change this."}
             </p>
           )}
         </div>

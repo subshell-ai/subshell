@@ -271,12 +271,14 @@ function NodeDetailPage() {
           />
 
           {/* No control-plane card here on purpose: the plane cannot see which
-              address a node dials (that lives in the machine's own config, so
-              the field could only ever stand blank), and moving a machine is
-              an act for a shell on it: `subshell configure --server`, or the
-              node's own loopback dashboard, which CAN name the current
-              address. Spec 2026-09-12 §5 kept both of those; this removes the
-              third surface that could only guess. */}
+              address a node dials, so the field could only ever stand blank
+              (that answer lives in the machine's own config and nothing on
+              the wire reports it). Moving a machine stays with the surfaces
+              that know
+              the current value: `subshell configure --server`, or the node's
+              own loopback dashboard. The plane's PATCH route survives this
+              card exactly as terminate survived its button; the removal is
+              the operator's call (2026-10-09). */}
 
           <NodeSharingDialog nodeId={n.id} open={shareOpen} onOpenChange={setShareOpen} canManage={n.canManage} />
         </>
