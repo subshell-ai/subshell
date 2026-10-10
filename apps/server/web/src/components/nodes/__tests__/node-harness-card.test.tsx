@@ -317,25 +317,20 @@ describe("NodeHarnessCard", () => {
     }
   });
 
-  it("a stale inventory says so rather than pretending", async () => {
+  // A stale cached detection renders NOTHING on this card (operator's call
+  // 2026-10-10): the first version of this rule added a stale badge to the
+  // Nodes row, the second a caveat paragraph here, and both were removed the
+  // same day, the row because a healthy machine is not a defect and the card
+  // because the rows already say exactly how honest they are. Pinned as an
+  // absence so neither text is "restored" as an oversight.
+  it("a stale detection adds no prose to the card", async () => {
     const { restore } = await mount({
       harnesses: [{ harnessId: "pi", name: "Pi", installed: true }],
       inventoryStale: true,
     });
     try {
-      expect(screen.getByText(/last-known/i)).toBeDefined();
-    } finally {
-      restore();
-    }
-  });
-
-  it("a fresh inventory does not claim staleness", async () => {
-    const { restore } = await mount({
-      harnesses: [{ harnessId: "pi", name: "Pi", installed: true }],
-      inventoryStale: false,
-    });
-    try {
-      expect(screen.queryByText(/last-known/i)).toBeNull();
+      await screen.findByText("Pi");
+      expect(screen.queryByText(/out of date|stale|last check/i)).toBeNull();
     } finally {
       restore();
     }

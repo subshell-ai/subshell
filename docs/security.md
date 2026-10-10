@@ -1174,8 +1174,9 @@ subshell may only be launched in one of them or beneath it.
   relationships remain; the enrollment flow still DEMANDS a name and then ignores
   it on this path (the row's own stands), which is why `GET /install.sh` renders
   a bound key with the node's real name pre-supplied and a "re-registering"
-  banner instead of asking for one that cannot change. A transaction compares the prior credential binding
-  before swapping it; a conflict leaves the existing node intact. Successful
+  banner instead of asking for one that cannot change. A transaction compares
+  the prior credential binding before swapping it; a conflict leaves the
+  existing node intact. Successful
   replacement disables the old bearer, evicts live and held sockets, drains
   pending commands, and revokes other unused recovery keys for that node.
   Recovery is allowed while adding new nodes is disabled: it adds no machine

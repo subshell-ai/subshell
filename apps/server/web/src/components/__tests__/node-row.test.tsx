@@ -111,10 +111,13 @@ describe("NodeRow", () => {
     expect(screen.getByRole("button", { name: "+3 more" })).toBeDefined();
   });
 
-  it("never hides the OS, status, stale or access badges behind the more control", () => {
+  it("never hides the OS, status or access badges behind the more control", () => {
     // Each of these is ONE chip of fixed shape, so none of them is what makes
-    // the row too long — and `inventory stale` is a warning, which must never
-    // need a click to be seen.
+    // the row too long. A STALE detection gets no chip at all (operator's
+    // call 2026-10-10, and the harness card's caveat paragraph went the same
+    // day): the machine may be healthy with only the cached answer old, so no
+    // surface may badge it. The location pickers' greyed options (the launch
+    // form and the preset editor) carry the one honest hedge.
     render(
       <NodeRow
         node={{ ...MANY_HARNESSES, inventoryStale: true, access: "view", canManage: false, canRetire: false }}
@@ -126,8 +129,8 @@ describe("NodeRow", () => {
     );
     expect(screen.getByText(/Apple · arm64/)).toBeDefined();
     expect(screen.getByText("online")).toBeDefined();
-    expect(screen.getByText("inventory stale")).toBeDefined();
     expect(screen.getByText("shared · view")).toBeDefined();
+    expect(screen.queryByText(/stale|outdated/i)).toBeNull();
   });
 
   it("renders the node's whole name beside a full set of chips", () => {
@@ -257,8 +260,7 @@ describe("NodeRow", () => {
 
   it("keeps the maintenance badge out of the '+N more' overflow", async () => {
     // It is a warning, and the rule this row follows is that a warning never
-    // needs a click to be seen — the same reason `inventory stale` rides
-    // beside the status badge instead of among the harness chips.
+    // needs a click to be seen.
     render(
       <NodeRow
         node={{ ...MANY_HARNESSES, maintenance: true }}

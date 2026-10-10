@@ -148,7 +148,7 @@ describe("buildAgentOptions", () => {
   });
   it("a stale inventory makes 'not installed on this node' honest as last-known", () => {
     const stale = node({ harnesses: [], inventoryStale: true });
-    expect(buildAgentOptions([PI], stale)[0]?.reason).toBe("not installed on this node (inventory may be outdated)");
+    expect(buildAgentOptions([PI], stale)[0]?.reason).toBe("not installed on this node (harness list may be outdated)");
   });
   it("the server-side checks hold with NO node picked", () => {
     const absent = buildAgentOptions([plugin({ id: "u", name: "U", installed: false })], null)[0];
@@ -253,7 +253,7 @@ describe("buildNodeOptions", () => {
   });
   it("a stale inventory hedges the node-side missing-agent reason", () => {
     const stale = node({ id: "a9", name: "ghost", harnesses: [], inventoryStale: true });
-    expect(buildNodeOptions([stale], CLAUDE)[0]?.reason).toBe("no Claude Code here (inventory may be outdated)");
+    expect(buildNodeOptions([stale], CLAUDE)[0]?.reason).toBe("no Claude Code here (harness list may be outdated)");
   });
   it("selectable nodes come first, in the caller's order", () => {
     const offline = node({ id: "a2", name: "old", status: "offline", harnesses: [CLAUDE_ON] });
