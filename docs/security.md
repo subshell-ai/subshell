@@ -527,11 +527,21 @@ section's posture depends on):
   operable at all). Non-admin cookie lists are UNCHANGED: a private foreign
   node stays absent, so ids still cannot be probed from the list by anyone
   who is not admin (the rows themselves were already enumerated to admins by
-  the Updates page). Shares, maintenance, rename
-  and delete stay owner-only (admin only on `local`): the boost buys the
-  boosted-`edit` surfaces, exactly as on the detail route. Pinned by
+  the Updates page). Shares, maintenance, rename and the allowlist stay
+  owner-only (admin only on `local`): the boost buys the boosted-`edit`
+  surfaces, exactly as on the detail route. **Delete and re-register are the
+  one widening (same-day follow-up ruling 2026-10-09): owner OR any admin, a
+  gate `nodeCanRetire` names and `canRetire` renders.** The list puts every
+  machine on the operator's screen; a page that shows a machine it cannot
+  retire reads as broken, and retirement is the WEAKER act than the shares
+  that stay owner's: ending your own view of a machine is not deciding who
+  else may use it. A recovery key an admin mints is stored under the NODE's
+  owner (redemption requires `key.ownerUserId === node.ownerUserId`), so the
+  admin is the audited ACTOR and the node owner the key's owner, and the
+  recovery-preserves-ownership contract is untouched. Pinned by
   `nodes-crud-route.test.ts` ("the LIST carries a foreign private node to an
-  admin and never to a plain viewer").
+  admin…", "re-registration mint is retire-gated", "delete: admin retires a
+  foreign node") and by `node-access.test.ts` (`nodeCanRetire`).
 
 **The roster READ is not admin-gated, and it carries display names.** Writes to
 `/api/users` are cookie-admin; `GET /api/users` is deliberately instance-wide
@@ -1145,8 +1155,12 @@ subshell may only be launched in one of them or beneath it.
   leaves behind is the record of what was minted: the mint's audit event carries NO
   metadata, so the key text never enters the audit trail (`create-setup-key.route.ts`).
   Storage and disclosure: the next subsection.
-- **Re-registration keys** (`POST /api/nodes/:id/reregister`) are cookie-owner-only
-  and agent-only. They carry a foreign-key-bound `target_node_id`; deleting the
+- **Re-registration keys** (`POST /api/nodes/:id/reregister`) are cookie
+  retire-gated (owner or any admin, `canRetire`; ruling 2026-10-09, same as
+  delete) and agent-only. An admin's mint is stored under the node's owner, not
+  the admin, because redemption requires `key.ownerUserId === node.ownerUserId`
+  (recovery preserves ownership); the admin is the audited actor. They carry a
+  foreign-key-bound `target_node_id`; deleting the
   node cascades its recovery keys. Minting leaves the current credentials and
   connection active. Redemption validates the machine's public keys first, then
   spends the key and replaces bearer, encryption pin, and delivery identity on
@@ -1400,8 +1414,8 @@ stays enrolled and answers every other command (service control, logs,
 detection, restart, config), but takes no new subshells. Turning it on
 **terminates every subshell running there**, whoever owns them, and the two
 ends that can set it are `PUT /api/nodes/:id/maintenance` (owner only; admin on
-`local`; the same gate as delete and re-share) and the machine's own
-`subshell maintenance on|off`.
+`local`; the `canManage` gate, same as re-share, and NOT the wider `canRetire`
+gate delete sits on) and the machine's own `subshell maintenance on|off`.
 
 Three properties of that pair are worth stating rather than inferring:
 

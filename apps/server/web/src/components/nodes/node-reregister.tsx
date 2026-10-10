@@ -13,15 +13,22 @@ import { useEffect, useRef, useState } from "react";
 import { NodeKeySetup } from "@/components/nodes/node-key-setup";
 import { useReregisterNode } from "@/hooks/use-nodes";
 
-/** Recovery uses the ordinary client enrollment form with a node-bound key. */
+/**
+ * Recovery uses the ordinary client enrollment form with a node-bound key.
+ *
+ * Gated on the RETIRE answer (`canRetire`: owner or any admin, ruling
+ * 2026-10-09), which is exactly the reregister route's own gate. Not
+ * `canManage`: sharing someone else's machine is still their owner's act, but
+ * replacing its credentials is the operator's too.
+ */
 export function NodeReregister({
   nodeId,
   nodeName,
-  canManage,
+  canRetire,
 }: {
   nodeId: string;
   nodeName: string;
-  canManage: boolean;
+  canRetire: boolean;
 }) {
   const mint = useReregisterNode(nodeId);
   const generation = useRef(0);
@@ -83,8 +90,8 @@ export function NodeReregister({
         ) : (
           <Button
             onClick={() => void generate()}
-            disabled={!canManage || pending}
-            title={canManage ? undefined : "Only the node's owner can re-register it"}
+            disabled={!canRetire || pending}
+            title={canRetire ? undefined : "Only the node's owner or an admin can re-register it"}
           >
             {pending ? "Generating…" : "Re-register"}
           </Button>

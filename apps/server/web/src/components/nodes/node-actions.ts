@@ -6,8 +6,9 @@ import type { ActionItem } from "@/components/actions-menu";
  * The one menu for one node, shared by the card row and the table row.
  *
  * The list grew a second view, and every item here carries a SERVER-derived
- * gate (`canManage`, `kind === "local"`) and a destructive flag that pairs
- * with a confirmation two files away. Two copies of that list is two chances
+ * gate (`canManage` for config, `canRetire` for Delete, `kind === "local"`)
+ * and a destructive flag that pairs with a confirmation two files away. Two
+ * copies of that list is two chances
  * for the table to grey what the card does not, or to offer Delete on
  * `local`, so the list is defined once and both views call it. Entity
  * knowledge still belongs to the caller — every handler is passed in, and
@@ -44,7 +45,10 @@ export function nodeActions(
       icon: Trash2,
       destructive: true,
       onSelect: handlers.onDelete,
-      disabled: !node.canManage || node.kind === "local",
+      // The retire gate, NOT `canManage`: delete is owner-or-admin (ruling
+      // 2026-10-09), while the Share/maintenance items above stay owner-only.
+      // The two flags look like they should agree; they deliberately do not.
+      disabled: !node.canRetire || node.kind === "local",
     },
   ];
 }

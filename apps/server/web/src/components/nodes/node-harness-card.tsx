@@ -96,7 +96,10 @@ function installableHere(info: HarnessInfo | undefined): boolean {
  * is a capability regression. `access` is server-derived on the view (admins
  * resolve to `edit` there), so this mirrors the gate without re-deriving
  * admin identity client-side. `local` is excluded outright — its view probes
- * live on every read, and the recheck route answers it 400.
+ * live on every read, and the recheck route answers it 400. Permission alone
+ * does not light the button: detection needs a LIVE socket, and an offline or
+ * HELD node answers nothing but `update`, so the button sits disabled with the
+ * reason in its title rather than trading a press for a 409.
  *
  * **On `local`, and only there, a row that is missing its program also gets
  * an Install button on its own line** (spec 2026-09-15 § 5.3; the button
@@ -138,6 +141,12 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
   // different concept: this gates the Re-check ROUTE, not the section tabs.
   // Do not collapse them into one predicate on the strength of the spelling.
   const canRecheck = data !== undefined && data.kind === "agent" && (data.access === "owner" || data.access === "edit");
+  // Permission is only half the button's truth: re-check is a DETECTION
+  // command over the live socket, and a node with no live socket cannot run
+  // one. A HELD link drops it too (held answers `update` only), so the honest
+  // state set is exactly `online` — same split the Update card draws from the
+  // server's own `canUpdate` rule, with the held half landing the other way.
+  const recheckReachable = data?.status === "online";
   // `canManage` is server-derived and, on `local`, resolves to admin — the
   // same answer the install route's own cookie gate gives.
   const canInstallHere = data?.kind === "local" && data.canManage;
@@ -186,7 +195,8 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
               type="button"
               variant="outline"
               size="sm"
-              disabled={recheck.isPending}
+              disabled={recheck.isPending || !recheckReachable}
+              title={recheckReachable ? undefined : "The machine is not connected, so a re-check cannot run"}
               onClick={() => recheck.mutate()}
             >
               <RefreshCw /> {recheck.isPending ? "Re-checking…" : "Re-check"}

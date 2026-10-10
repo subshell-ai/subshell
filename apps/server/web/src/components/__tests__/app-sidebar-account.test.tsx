@@ -139,7 +139,10 @@ describe("the header account card", () => {
   it("gives a member the version line and never fires the admin updates read", async () => {
     const run = await withRail({ admin: false }, async () => {
       fireEvent.click(accountTrigger());
-      expect(await screen.findByText("Subshell Server 0.11.1 · Test plane")).toBeTruthy();
+      // Version and instance name are separate detail lines (split 2026-10-09
+      // so a long hostname cannot truncate the version away).
+      expect(await screen.findByText("Subshell Server 0.11.1")).toBeTruthy();
+      expect(screen.getByText("Test plane")).toBeTruthy();
       expect(screen.queryAllByRole("menuitem", { name: /Update available/ }).length).toBe(0);
     });
     expect(run?.calls).not.toContain("/api/admin/updates");

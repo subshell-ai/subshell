@@ -38,7 +38,12 @@ export class NodeSetupKeysRepository extends BaseRepository {
    * The row IS the reveal: `key` holds the minted plaintext and there is no
    * second, never-persisted copy to keep straight.
    *
-   * @param ownerUserId - Creator (also the future node owner)
+   * @param ownerUserId - The future node owner. For a NEW-node key that is the
+   *  creator; for a RECOVERY key it MUST be the existing node's owner, never
+   *  the caller (redemption in `services/nodes/reregister-node.ts` requires
+   *  `key.ownerUserId === node.ownerUserId`, so a key minted under a different
+   *  user would be dead on arrival). The reregister route passes the node's
+   *  owner even when an ADMIN triggered the mint.
    * @param ttlMs - Lifetime from now (default {@link SETUP_KEY_TTL_MS})
    * @param targetNodeId - Existing node to recover; null creates a new node
    */

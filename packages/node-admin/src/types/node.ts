@@ -93,11 +93,20 @@ export interface Node {
   /** The caller's effective access (drives which controls render) */
   access: NodeAccess;
   /**
-   * Whether the caller manages this node (delete/re-share): real owner, or an
-   * admin on `local` — server-derived (the same rule the route gate applies),
-   * so the client must never re-derive admin identity.
+   * Whether the caller manages this node's CONFIG (shares/rename/maintenance/
+   * rotate/allowlist): real owner, or an admin on `local` — server-derived (the
+   * same rule the route gate applies), so the client must never re-derive admin
+   * identity. Retiring the machine (delete, re-register) is `canRetire`, a
+   * wider gate admins hold everywhere.
    */
   canManage: boolean;
+  /**
+   * Whether the caller may end or replace this machine on the plane: DELETE and
+   * RE-REGISTER. Real owner, or ANY admin (ruling 2026-10-09). This is the gate
+   * the Delete and Re-register controls enable on — `canManage` is narrower
+   * (someone else's shares stay their act). Server-derived.
+   */
+  canRetire: boolean;
   /**
    * Whether this viewer may start a subshell here — the SERVER's answer, never
    * re-derived on this side.

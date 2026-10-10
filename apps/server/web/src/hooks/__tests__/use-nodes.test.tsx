@@ -31,6 +31,7 @@ const NODE: Node = {
   protocolVersion: 1,
   access: "owner",
   canManage: true,
+  canRetire: true,
   canLaunch: true,
   allowedDirs: [],
   capabilities: ["launch"],

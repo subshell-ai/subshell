@@ -8,8 +8,10 @@ import type { NodeKind, NodeTable } from "@/db/types/nodes.db-types.js";
  * A viewer's effective access to one node (spec 2026-08-31 §2). Viewer-relative:
  * the same node is `owner` to its creator, `edit`/`view` to a grantee, and
  * `none` to everyone else. Admins resolve to `edit` (spec §1: instance-wide
- * effective operator access, not ownership) — delete and re-share stay with the
- * real owner and are enforced by the routes via `nodeCanManage`.
+ * effective operator access, not ownership) — re-share stays with the real
+ * owner via `nodeCanManage`, while delete and re-registration join the admin
+ * through `nodeCanRetireFor` (operator ruling 2026-10-09: an admin who can
+ * see every machine must be able to retire one).
  */
 export type NodeAccess = "owner" | "edit" | "view" | "none";
 
@@ -113,7 +115,12 @@ export function nodeCanConfigure(access: NodeAccess): boolean {
   return access === "owner" || access === "edit";
 }
 
-/** True only for the real owner — delete and re-share (routes layer on the local-node admin exception). */
+/**
+ * True only for the real owner — re-share, rename, maintenance, the allowlist
+ * and key rotation (the routes layer on the local-node admin exception via
+ * `nodeCanManageFor`). DELETE and RE-REGISTER are NOT here: they are the wider
+ * retire gate below, which admins hold on every machine.
+ */
 export function nodeCanManage(access: NodeAccess): boolean {
   return access === "owner";
 }
@@ -131,6 +138,29 @@ export function nodeCanManage(access: NodeAccess): boolean {
  */
 export function nodeCanManageFor(rowKind: NodeKind, access: NodeAccess, isAdmin: boolean): boolean {
   return nodeCanManage(access) || (rowKind === "local" && isAdmin);
+}
+
+/**
+ * THE retire rule, in one place: the real owner, or ANY admin. It gates the two
+ * acts that end or replace a machine's standing on this plane — DELETE and
+ * RE-REGISTER (the #351 admin arm put every machine on every admin's Nodes
+ * page; operator ruling 2026-10-09: the page must then be able to act on what
+ * it shows, or it reads as broken). It deliberately does NOT extend to
+ * `canManage`: managing SHARES of someone else's machine stays the owner's act
+ * (a retirement ends a node; a re-share widens who can use it), and so do
+ * rename, maintenance and the allowlist.
+ *
+ * On `local` this answers the same as `nodeCanManageFor` (the owner there is
+ * the system user; admin-on-local was already true); the routes refuse `local`
+ * with their own 400s before this matters. Both the route gate
+ * (`loadNodeGate`) and the rendered views (`node-view.ts`) derive `canRetire`
+ * from this call so the rule can never drift between them.
+ *
+ * @param access - The viewer's resolved access on the row
+ * @param isAdmin - Whether the viewer holds the admin role
+ */
+export function nodeCanRetire(access: NodeAccess, isAdmin: boolean): boolean {
+  return nodeCanManage(access) || isAdmin;
 }
 
 /** The repositories `loadNodeAccess` needs — injected so tests use a scratch DB. */

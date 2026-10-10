@@ -40,8 +40,9 @@ export interface UserMenuProps {
    * the version line renders only when something can fill it. */
   serverVersion?: string;
   /** The instance name from public settings; "" while unresolved. It rides
-   * the same line as the version - the rail's old instance-name row folded
-   * in here (spec 2026-10-07 §B). */
+   * its OWN detail line under the version (split 2026-10-09: sharing the line
+   * let a long hostname truncate the version away); the rail's old
+   * instance-name row folded in here (spec 2026-10-07 §B). */
   instanceName?: string;
   /** The newer server version, when one is published AND the server says this
    * viewer is an admin. null renders neither the avatar dot nor the menu row;
@@ -73,12 +74,13 @@ export function UserMenu({
   onSignOut,
 }: UserMenuProps): JSX.Element {
   const display = name.trim() || email || "Signed in";
-  // The server fact and the plane's name share one detail line. Either can be
-  // pending while the other has landed, so empty parts drop and the joined
-  // line never carries a stray separator.
-  const versionLine = [serverVersion !== "" ? `Subshell Server ${serverVersion}` : "", instanceName]
-    .filter((part) => part !== "")
-    .join(" · ");
+  // Two detail lines, not one joined: the machine name on a long host
+  // ("mac-builder", or any operator's real hostname) truncated the WHOLE line
+  // and shoved the version's tail off screen when both shared it (operator
+  // report 2026-10-09). Each gets its own row and its own truncation, so a
+  // long name costs itself, never the version. Either can be pending while the
+  // other has landed, so an empty one simply drops its line.
+  const versionLine = serverVersion !== "" ? `Subshell Server ${serverVersion}` : "";
   const avatar = (
     <span
       aria-hidden
@@ -129,6 +131,11 @@ export function UserMenu({
           {versionLine !== "" && (
             <p className="truncate text-detail text-muted-foreground" title={versionLine}>
               {versionLine}
+            </p>
+          )}
+          {instanceName !== "" && (
+            <p className="truncate text-detail text-muted-foreground" title={instanceName}>
+              {instanceName}
             </p>
           )}
         </div>

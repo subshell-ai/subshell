@@ -48,8 +48,10 @@ export const Route = createFileRoute("/nodes_/$id")({
  * `canManage`.
  *
  * Gating is entirely server-derived: invisible nodes 404 (handled as a load
- * error, never a leak), and Share/Delete enable on `Node.canManage` (owner,
- * or admin on `local` — the frontend must not re-derive admin identity).
+ * error, never a leak); Share enables on `Node.canManage` (owner, or admin on
+ * `local`) while Delete and Re-register enable on the wider `Node.canRetire`
+ * (owner or any admin, ruling 2026-10-09) — the frontend must not re-derive
+ * admin identity for either.
  */
 function NodeDetailPage() {
   const { id } = Route.useParams();
@@ -115,8 +117,14 @@ function NodeDetailPage() {
           <Button
             variant="outline"
             onClick={() => void remove()}
-            disabled={!n.canManage || n.kind === "local"}
-            title={n.kind === "local" ? "The control-plane host cannot be deleted" : undefined}
+            disabled={!n.canRetire || n.kind === "local"}
+            title={
+              n.kind === "local"
+                ? "The control-plane host cannot be deleted"
+                : !n.canRetire
+                  ? "Only the node's owner can delete it"
+                  : undefined
+            }
           >
             <Trash2 /> Delete
           </Button>
@@ -239,7 +247,7 @@ function NodeDetailPage() {
 
           {/* Re-registration replaces an agent's credentials while retaining its
               registry entry. The control-plane host is not an agent. */}
-          {n.kind === "agent" && <NodeReregister nodeId={n.id} nodeName={n.name} canManage={n.canManage} />}
+          {n.kind === "agent" && <NodeReregister nodeId={n.id} nodeName={n.name} canRetire={n.canRetire} />}
 
           <NodeHarnessCard nodeId={n.id} />
 
