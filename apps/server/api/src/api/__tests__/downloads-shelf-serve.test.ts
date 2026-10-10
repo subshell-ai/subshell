@@ -38,6 +38,29 @@ function hex(bytes: string): string {
   return h.digest("hex");
 }
 
+/**
+ * Whether a chmod-000 file is actually unreadable HERE. A root process carries
+ * DAC_OVERRIDE and reads it anyway (the CI runners are root — measured on
+ * PR #348's first shard, where the unreadable-copy cells failed as designed
+ * scenarios the runner cannot stage), so the cells that stage unreadability
+ * through file modes skip under such a process rather than assert a lie.
+ */
+const DAC_ENFORCES_READ = (() => {
+  mkdirSync(NODE_ARTIFACTS_DIR, { recursive: true });
+  const probe = join(NODE_ARTIFACTS_DIR, `.dac-probe-${process.pid}`);
+  try {
+    writeFileSync(probe, "x");
+    chmodSync(probe, 0o000);
+    readFileSync(probe);
+    return false; // the mode did not stop the read: no DAC enforcement here
+  } catch {
+    return true;
+  } finally {
+    chmodSync(probe, 0o644);
+    rmSync(probe, { force: true });
+  }
+})();
+
 const realVerify = { ...releaseSeams };
 const acceptSigned: typeof verifyReleaseManifest = async (bytes, sig, _pub, expected) => {
   const parsed = parseReleaseManifest(typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8"));
@@ -259,36 +282,45 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
     expect(sha.status).toBe(404);
   });
 
-  it("air-gapped with UNREADABLE bytes: the copy is treated as absent, never streamed to die mid-download", async () => {
-    setReleaseUrlForTests(null);
-    plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
-    chmodSync(binaryPath, 0o000);
-    try {
-      const res = await get(`/api/downloads/node/${TARGET}`);
-      expect(res.status).toBe(404);
-    } finally {
-      chmodSync(binaryPath, 0o755);
-    }
-  });
+  // skipIf: staged through file modes, which a DAC_OVERRIDE process (root,
+  // the CI runners) cannot make stick. See DAC_ENFORCES_READ.
+  it.skipIf(!DAC_ENFORCES_READ)(
+    "air-gapped with UNREADABLE bytes: the copy is treated as absent, never streamed to die mid-download",
+    async () => {
+      setReleaseUrlForTests(null);
+      plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
+      chmodSync(binaryPath, 0o000);
+      try {
+        const res = await get(`/api/downloads/node/${TARGET}`);
+        expect(res.status).toBe(404);
+      } finally {
+        chmodSync(binaryPath, 0o755);
+      }
+    },
+  );
 
-  it("an honest sidecar over UNREADABLE bytes does not win either: the release replaces the dead copy", async () => {
-    // The NIT-2 edge made into a cell: bytes unhashable, sidecar holds valid
-    // hex. Announcing that hex and "serving" it would die mid-stream, so the
-    // copy is absent, the release answers, and cache semantics let it be
-    // replaced (this server can fetch what the shelf cannot even read).
-    plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
-    writeFileSync(`${binaryPath}.sha256`, `${hex(NEWBODY)}\n`);
-    chmodSync(binaryPath, 0o000);
-    try {
-      const res = await get(`/api/downloads/node/${TARGET}`);
-      expect(res.status).toBe(200);
-      expect(await res.text()).toBe(NEWBODY);
-      const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
-      expect((await sha.text()).trim()).toBe(hex(NEWBODY));
-    } finally {
-      chmodSync(binaryPath, 0o755);
-    }
-  });
+  it.skipIf(!DAC_ENFORCES_READ)(
+    "an honest sidecar over UNREADABLE bytes does not win either: the release replaces the dead copy",
+    async () => {
+      // The NIT-2 edge made into a cell: bytes unhashable, sidecar holds valid
+      // hex. Announcing that hex and "serving" it would die mid-stream, so the
+      // copy is absent, the release answers, and cache semantics let it be
+      // replaced (this server can fetch what the shelf cannot even read).
+      // skipIf: same root-DAC posture as the cell above.
+      plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
+      writeFileSync(`${binaryPath}.sha256`, `${hex(NEWBODY)}\n`);
+      chmodSync(binaryPath, 0o000);
+      try {
+        const res = await get(`/api/downloads/node/${TARGET}`);
+        expect(res.status).toBe(200);
+        expect(await res.text()).toBe(NEWBODY);
+        const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+        expect((await sha.text()).trim()).toBe(hex(NEWBODY));
+      } finally {
+        chmodSync(binaryPath, 0o755);
+      }
+    },
+  );
 
   it("a sidecar lying about its own bytes loses shelf precedence: announcement and bytes agree on the RELEASE", async () => {
     // The shelf actually HOLDS the release bytes, but a stale hand-written
