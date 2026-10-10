@@ -2,7 +2,14 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { DEFAULT_DATABASE_PATH, lingerVerdict, NODE_PROTOCOL_VERSION, NODE_TARGETS } from "@internal/subshell-protocol";
+import {
+  DEFAULT_DATABASE_PATH,
+  lingerVerdict,
+  MIN_NODE_VERSION,
+  NODE_PROTOCOL_VERSION,
+  NODE_TARGETS,
+  nodeVersionSupported,
+} from "@internal/subshell-protocol";
 import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { baseUrlProblem, originProblem } from "@/commands/config-values.js";
 import { resolveConfig } from "@/config-env.js";
@@ -538,15 +545,21 @@ export function runStatus(log: (line: string) => void, deps: StatusDeps): void {
     `node artifacts       = ${published}/${total} published (${dir})` +
       (published < total ? ", install.sh 404s for the rest" : ""),
   );
-  // One line per shelf copy that has something to say, and only when it is
-  // NOT what this server can talk to: silence means the shelf is current,
-  // and a warning nobody needs is the noise that makes warnings unread.
+  // One line per shelf copy that CANNOT CONNECT (the same two facts the serve
+  // resolver enforces: this protocol, this floor) or answers nothing at all.
+  // Silence means every copy could honestly be served, and a warning nobody
+  // needs is the noise that makes warnings unread.
   for (const [target, facts] of Object.entries(claims)) {
     if (facts === null) {
       log(`  ${target}: the copy answers no version; the release wins whenever one is available`);
     } else if (facts.protocol !== NODE_PROTOCOL_VERSION) {
       log(
-        `  ${target}: copy speaks protocol v${facts.protocol}, this server speaks v${NODE_PROTOCOL_VERSION}: ` +
+        `  ${target}: copy is ${facts.version} speaking protocol v${facts.protocol}, this server speaks ` +
+          `v${NODE_PROTOCOL_VERSION}: machines installing from it will be refused at connect`,
+      );
+    } else if (!nodeVersionSupported(facts.version)) {
+      log(
+        `  ${target}: copy is ${facts.version}, below this server's node floor of ${MIN_NODE_VERSION}: ` +
           "machines installing from it will be refused at connect",
       );
     }

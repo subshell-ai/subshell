@@ -90,6 +90,79 @@ export function resetDiskShaCacheForTests(): void {
   diskShaCache.clear();
 }
 
+/** Max entries in {@link artifactSha}'s cache — FIFO-evicted so mtime churn can't grow it. */
+const SHA_CACHE_MAX = 16;
+/** Computed-sha cache, keyed `${binaryPath}:${binaryMtimeMs}[:${sidecarMtimeMs}]`. */
+const shaCache = new Map<string, string>();
+
+/**
+ * The digest this instance ANNOUNCES for a target — and therefore the digest
+ * the serve decision is measured against (spec 2026-10-09: the `.sha256`
+ * answer and the binary answer must be the same fact, or a machine
+ * checksum-skips past the very reconciliation the download applies).
+ *
+ * Null when unpublished — "published" being exactly {@link artifactStat}'s
+ * rule, so the binary route and the sha route never disagree. An on-disk
+ * `subshell-node-cli-<target>.sha256` sidecar wins when it holds a 64-hex
+ * digest (publisher-provided truth); otherwise the digest is computed over
+ * the binary. Both paths cache under the file mtimes, so a swapped binary or
+ * sidecar is noticed on the next request without a stat-free fast path. A
+ * sidecar that lies about its own bytes loses precedence at SERVE time: the
+ * resolver measures the release against this announced value, and the fetch
+ * it then prefers is verified against the signed digest downstream.
+ *
+ * PUBLISH NOTE: the cache keys on MTIME, so an artifact replaced in place
+ * with the SAME mtime keeps serving the cached sha. The publish path must
+ * therefore swap atomically (write to a temp name + rename, or at least
+ * touch the file) rather than overwrite bytes through the existing inode.
+ */
+export async function artifactSha(target: NodeTarget): Promise<string | null> {
+  const path = artifactPath(target);
+  const stat = artifactStat(target);
+  if (!stat) return null;
+  let sideMtime = 0;
+  try {
+    sideMtime = statSync(`${path}.sha256`).mtimeMs;
+  } catch {
+    // No sidecar — computed-digest path; key stays mtime-of-binary only.
+  }
+
+  const key = `${path}:${stat.mtimeMs}${sideMtime ? `:${sideMtime}` : ""}`;
+  const cached = shaCache.get(key);
+  if (cached) return cached;
+
+  let sha: string;
+  const sidecarHex = sideMtime
+    ? (
+        await Bun.file(`${path}.sha256`)
+          .text()
+          .catch(() => "")
+      )
+        .trim()
+        .split(/\s+/)[0]
+        ?.toLowerCase()
+    : undefined;
+  if (sidecarHex && /^[0-9a-f]{64}$/.test(sidecarHex)) {
+    sha = sidecarHex;
+  } else {
+    const digest = await crypto.subtle.digest("SHA-256", await Bun.file(path).arrayBuffer());
+    sha = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  // FIFO cap (Map iterates in insertion order): artifact files are large and
+  // rebuilds churn mtimes, so an unbounded cache would be a slow leak.
+  if (shaCache.size >= SHA_CACHE_MAX) {
+    const oldest = shaCache.keys().next().value;
+    if (oldest !== undefined) shaCache.delete(oldest);
+  }
+  shaCache.set(key, sha);
+  return sha;
+}
+
+/** Drops the announced-digest cache. Only for tests. @internal */
+export function resetAnnouncedShaCacheForTests(): void {
+  shaCache.clear();
+}
+
 /**
  * The targets this instance ACTUALLY serves — the same rule as
  * {@link artifactStat}, widened to the whole closed set. A binary-only

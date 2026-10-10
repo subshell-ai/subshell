@@ -16,7 +16,7 @@ import { NODE_ARTIFACTS_DIR } from "@/constants.js";
 import { db } from "@/db/index.js";
 import { UsersRepository } from "@/db/repositories/users.repository.js";
 import { resetShelfProbeForTests, shelfVersionFacts } from "@/lib/node-artifact-serve.js";
-import { resetDiskShaCacheForTests } from "@/lib/node-artifacts.js";
+import { resetAnnouncedShaCacheForTests, resetDiskShaCacheForTests } from "@/lib/node-artifacts.js";
 import { errorHandlerPlugin } from "@/plugins/error-handler.plugin.js";
 import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "./helpers/auth-tables.js";
@@ -65,6 +65,8 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
   /** Flipped per test: what the fake release's SIGNED manifest claims. */
   let manifestProtocol = NODE_PROTOCOL_VERSION;
   let binHits = 0;
+  /** Flipped per test: the index is fine, the BINARY is unreachable. */
+  let failBin = false;
   let releaseBase = "";
 
   let server: ReturnType<typeof Bun.serve>;
@@ -99,6 +101,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
         }
         if (url.pathname === "/bin") {
           binHits += 1;
+          if (failBin) return new Response("gone", { status: 500 });
           return new Response(NEWBODY);
         }
         if (url.pathname === "/sha") return new Response(`${hex(NEWBODY)}\n`);
@@ -136,11 +139,13 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
     resetReleaseCacheForTests();
     resetShelfProbeForTests();
     resetDiskShaCacheForTests();
+    resetAnnouncedShaCacheForTests();
     rmSync(binaryPath, { force: true });
     rmSync(`${binaryPath}.sha256`, { force: true });
     rmSync(ledgerPath, { force: true });
     manifestProtocol = NODE_PROTOCOL_VERSION;
     binHits = 0;
+    failBin = false;
     setReleaseUrlForTests(`${releaseBase}/releases`);
   });
 
@@ -214,13 +219,39 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
     expect(await res.text()).toBe(NEWBODY);
   });
 
-  it("air-gapped: the shelf is the only source and always wins, behind or not", async () => {
+  it("air-gapped: the shelf is the only source and always wins, behind or ahead", async () => {
     setReleaseUrlForTests(null);
-    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
-    const res = await get(`/api/downloads/node/${TARGET}`);
-    expect(await res.text()).toBe(shelf);
+    const behind = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    expect(await (await get(`/api/downloads/node/${TARGET}`)).text()).toBe(behind);
     const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
-    expect((await sha.text()).trim()).toBe(hex(shelf));
+    expect((await sha.text()).trim()).toBe(hex(behind));
+    resetShelfProbeForTests();
+    const ahead = plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
+    expect(await (await get(`/api/downloads/node/${TARGET}`)).text()).toBe(ahead);
+  });
+
+  it("a sidecar lying about its own bytes loses shelf precedence: announcement and bytes agree on the RELEASE", async () => {
+    // The shelf actually HOLDS the release bytes, but a stale hand-written
+    // sidecar announces something older. Measuring the decision against the
+    // announcement (not the raw bytes) is what keeps a machine's skip honest:
+    // it can only skip to what it would have downloaded.
+    plantShelf(NEWBODY);
+    writeFileSync(`${binaryPath}.sha256`, `${"f".repeat(64)}\n`);
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect((await sha.text()).trim()).toBe(hex(NEWBODY));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(await res.text()).toBe(NEWBODY);
+  });
+
+  it("the release the decision chose cannot be fetched: 404, and the shelf is NOT served under a release announcement", async () => {
+    plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    failBin = true;
+    try {
+      const res = await get(`/api/downloads/node/${TARGET}`);
+      expect(res.status).toBe(404);
+    } finally {
+      failBin = false;
+    }
   });
 
   it("bytes this INSTANCE fetched are cache the release may replace", async () => {

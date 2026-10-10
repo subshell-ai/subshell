@@ -1264,10 +1264,13 @@ server now reads the same release it was telling people to copy from. The
 posture:
 
 - **Nothing is fetched until a machine asks.** There is no warm-up, no
-  boot-time sweep, no admin button and no background poll; the entry point is
-  the download route's 404 branch. A plane whose nodes are all one platform
-  never spends a byte on the others, and a plane nobody enrolls against never
-  reaches the network at all. The request that triggers a fetch is already
+  boot-time sweep, no admin button and no background poll; the entry points
+  are the download routes and the update verb. Since 2026-10-09 the serve
+  decision reads the (TTL-cached, failure-backed-off) index and its manifest
+  on every authenticated download request, but BINARY bytes still move only
+  when a machine is actually served. A plane whose nodes are all one platform
+  never spends a byte on the others, and a plane nobody enrolls against and
+  nobody updates reaches the network not at all. The request that triggers a fetch is already
   authenticated (cookie, unconsumed setup key, or `?update_token=`, per the
   credential list above), so this is not a way for an anonymous caller to
   make the plane fetch anything.

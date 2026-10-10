@@ -12,9 +12,12 @@
  * - **Nothing is fetched until something asks for it.** There is no warm-up,
  *   no boot-time sweep, no background poll. A plane whose nodes are all
  *   linux-x64 never spends a byte on the two darwin builds, and a plane nobody
- *   enrolls against and never updates touches the network not at all. This is
- *   why the entry points are the download route's 404 branch and the update
- *   verb, rather than a routine of their own.
+ *   enrolls against and never updates touches the network not at all. The
+ *   entry points are the download routes (whose serve decision, since
+ *   2026-10-09, reads the cached index on every authenticated request and
+ *   pays the tiny reads at most once per TTL) and the update verb — never a
+ *   routine of their own. Binary BYTES are still lazy: nothing over ~1 KB
+ *   moves until a machine is actually being served.
  * - **The bytes are streamed THROUGH, not staged and then served.** The
  *   alternative — download 80 MB, verify, then serve it — doubles the wait and
  *   holds an HTTP connection open with no bytes on it for as long as a minute,
@@ -128,6 +131,7 @@ export function setReleaseUrlForTests(url: string | null): void {
   if (!IS_TEST) throw new Error("setReleaseUrlForTests is test-only");
   testOverride = url;
   cachedIndex = null;
+  indexFailure = null;
   inFlight.clear();
 }
 
@@ -192,6 +196,10 @@ export interface ReleaseIndex {
 }
 
 let cachedIndex: { at: number; index: ReleaseIndex } | null = null;
+/** Why the last index read failed and until when to not repeat it; see {@link resolveReleases}. */
+let indexFailure: { message: string; until: number } | null = null;
+/** How long a failed index read is remembered. */
+const INDEX_BACKOFF_MS = 60_000;
 
 /** The shape of the releases list this reads. Everything else in the payload is ignored. */
 interface ReleasePayload {
@@ -224,6 +232,11 @@ export async function resolveReleases(): Promise<ReleaseIndex> {
   if (api === null) throw new Error("this server does not fetch releases (SUBSHELL_RELEASE_URL is empty)");
   const now = Date.now();
   if (cachedIndex && now - cachedIndex.at < RELEASE_TTL_MS) return cachedIndex.index;
+  // A failed read is remembered for a minute (see {@link indexFailure}): since
+  // 2026-10-09 the download routes consult the release on EVERY authenticated
+  // request, and without the backoff a no-egress plane would pay the full
+  // metadata timeout per install instead of per minute.
+  if (indexFailure !== null && now < indexFailure.until) throw new Error(indexFailure.message);
 
   let payload: unknown;
   try {
@@ -236,9 +249,15 @@ export async function resolveReleases(): Promise<ReleaseIndex> {
   } catch (error) {
     // Every failure names the URL it tried, the way the registry client does:
     // "could not reach the release source" with no address is unactionable.
-    throw new Error(`could not read the releases from ${api}: ${error instanceof Error ? error.message : error}`);
+    const message = `could not read the releases from ${api}: ${error instanceof Error ? error.message : error}`;
+    indexFailure = { message, until: Date.now() + INDEX_BACKOFF_MS };
+    throw new Error(message);
   }
-  if (!Array.isArray(payload)) throw new Error(`${api} did not answer a list of releases`);
+  if (!Array.isArray(payload)) {
+    const message = `${api} did not answer a list of releases`;
+    indexFailure = { message, until: Date.now() + INDEX_BACKOFF_MS };
+    throw new Error(message);
+  }
 
   const byTag = new Map<string, Map<string, string>>();
   for (const entry of payload as ReleasePayload[]) {
@@ -273,6 +292,7 @@ export async function resolveReleases(): Promise<ReleaseIndex> {
 
   const index: ReleaseIndex = { byComponent, checkedAt: now };
   cachedIndex = { at: now, index };
+  indexFailure = null;
   return index;
 }
 
@@ -282,6 +302,7 @@ export async function resolveReleases(): Promise<ReleaseIndex> {
  */
 export async function refreshReleases(): Promise<ReleaseIndex> {
   cachedIndex = null;
+  indexFailure = null; // an explicit re-check outranks the backoff
   return resolveReleases();
 }
 
@@ -1016,6 +1037,7 @@ export async function downloadVerified(input: DownloadVerifiedInput): Promise<st
 /** Drop the memoized index. Tests, and anything that wants the next read fresh. @internal */
 export function resetReleaseCacheForTests(): void {
   cachedIndex = null;
+  indexFailure = null;
   inFlight.clear();
   publishedAt.clear();
 }

@@ -38,9 +38,11 @@ a target, and both routes answer from that one decision so they can never
 disagree (their existing "404 identically" discipline extends to "digest-match
 identically", which is what `install.sh`'s checksum-skip now depends on):
 
-- Shelf byte-digest equals the compatible release's signed digest → serve disk
-  (fast path unchanged; no network on the hot request beyond the TTL-cached
-  index/manifest).
+- The digest the instance ANNOUNCES for the shelf copy (its bytes, or an
+  honest sidecar's, the very number the installer's skip compares) equals the
+  compatible release's signed digest → serve disk (fast path; no network
+  beyond the TTL-cached index/manifest). A sidecar lying about its bytes
+  loses precedence: the release is served instead of being skipped past.
 - Release exists and is NOT older than the shelf's own reported semver → serve
   the release: stream it; REPLACE the disk file when `.fetched.json` says this
   instance wrote those exact bytes, stream PAST it (never overwrite) when the
@@ -84,9 +86,19 @@ The update-token path is untouched: it is already release-coherent by the
 ## Surfaces changed
 
 `lib/node-artifact-serve.ts` (new: shelf facts + the resolver), both download
-routes (they consult it), one exported ledger read in `services/releases.ts`
-(is this disk file the one we fetched?), `commands/status.ts` (shelf facts per
-target), docs/security.md + rules summary + release-and-ci.md (the doctrine
-sentence changes), this spec, a patch changeset. Tests pin every cell of the
-rule with fake release servers and planted shelf scripts, the existing
-`releaseSeams` armor.
+routes (they consult it; and with no compatible release there is no fallback
+fetch to fail — the resolver already chose disk in that cell, announcement and
+bytes the same file), one exported ledger read in `services/releases.ts` (is
+this disk file the one we fetched?) plus a one-minute backoff on failed index
+reads (the decision now consults the source per request, so a no-egress plane
+must not pay the metadata timeout per install), `commands/status.ts` (shelf
+claims per target), the doctrine sentences in `docs/security.md`,
+`.claude/rules/security-context.md`, `apps/server/api/AGENTS.md` and
+`apps/server/api/docs/node-artifacts.md`, the 404 advisory in
+`install-script.ts`, this spec, a patch changeset. `release-and-ci.md`'s
+publish-dance text stays true untouched. Tests pin every cell of the rule with
+fake release servers and planted shelf scripts, the existing `releaseSeams`
+armor, including the sidecar-truth cell (the decision measures the ANNOUNCED
+digest, because that is what a skip compares against) and the fetch-failure
+cell (a release decision never falls back to shelf bytes under a release
+announcement).

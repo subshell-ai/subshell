@@ -1,4 +1,3 @@
-import { statSync } from "node:fs";
 import { BackendErrorCodes } from "@internal/backend-errors";
 import { NODE_TARGETS, type NodeTarget, nodeArtifactFileName } from "@internal/subshell-protocol";
 import { Elysia, t } from "elysia";
@@ -6,7 +5,7 @@ import { db } from "@/db/index.js";
 import { NodeSetupKeysRepository } from "@/db/repositories/node-setup-keys.repository.js";
 import { apiErrorBody } from "@/lib/api-error.js";
 import { resolveNodeServe } from "@/lib/node-artifact-serve.js";
-import { artifactPath, artifactStat, diskArtifactSha256, staleArtifactRefusal } from "@/lib/node-artifacts.js";
+import { artifactPath, artifactSha, diskArtifactSha256, staleArtifactRefusal } from "@/lib/node-artifacts.js";
 import { extractSessionToken, resolveCookieSession } from "@/lib/session-cookie.js";
 import { apiModels } from "@/schema/index.js";
 import { consumeUpdateToken } from "@/services/nodes/update-tokens.js";
@@ -113,67 +112,6 @@ function unauthorized() {
   } as const;
 }
 
-/** Max entries in {@link shaCache} — FIFO-evicted so mtime churn can't grow it. */
-const SHA_CACHE_MAX = 16;
-/** Computed-sha cache, keyed `${binaryPath}:${binaryMtimeMs}[:${sidecarMtimeMs}]`. */
-const shaCache = new Map<string, string>();
-
-/**
- * SHA-256 (lowercase hex) of a target's binary, or null when unpublished —
- * "published" being exactly {@link artifactStat}'s rule, so the binary route
- * and this one never disagree. An on-disk `subshell-node-cli-<target>.sha256`
- * sidecar wins when it holds a 64-hex digest (publisher-provided truth);
- * otherwise the digest is computed over the binary. Both paths cache under
- * the file mtimes, so a swapped binary or sidecar is noticed on the next
- * request without a stat-free fast path.
- *
- * PUBLISH NOTE: the cache keys on MTIME, so an artifact replaced in place
- * with the SAME mtime keeps serving the cached sha. The publish path must
- * therefore swap atomically (write to a temp name + rename, or at least
- * touch the file) rather than overwrite bytes through the existing inode.
- */
-async function artifactSha(target: NodeTarget): Promise<string | null> {
-  const path = artifactPath(target);
-  const stat = artifactStat(target);
-  if (!stat) return null;
-  let sideMtime = 0;
-  try {
-    sideMtime = statSync(`${path}.sha256`).mtimeMs;
-  } catch {
-    // No sidecar — computed-digest path; key stays mtime-of-binary only.
-  }
-
-  const key = `${path}:${stat.mtimeMs}${sideMtime ? `:${sideMtime}` : ""}`;
-  const cached = shaCache.get(key);
-  if (cached) return cached;
-
-  let sha: string;
-  const sidecarHex = sideMtime
-    ? (
-        await Bun.file(`${path}.sha256`)
-          .text()
-          .catch(() => "")
-      )
-        .trim()
-        .split(/\s+/)[0]
-        ?.toLowerCase()
-    : undefined;
-  if (sidecarHex && /^[0-9a-f]{64}$/.test(sidecarHex)) {
-    sha = sidecarHex;
-  } else {
-    const digest = await crypto.subtle.digest("SHA-256", await Bun.file(path).arrayBuffer());
-    sha = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  // FIFO cap (Map iterates in insertion order): artifact files are large and
-  // rebuilds churn mtimes, so an unbounded cache would be a slow leak.
-  if (shaCache.size >= SHA_CACHE_MAX) {
-    const oldest = shaCache.keys().next().value;
-    if (oldest !== undefined) shaCache.delete(oldest);
-  }
-  shaCache.set(key, sha);
-  return sha;
-}
-
 /** A thrown value's words, for the one log line a failed fetch leaves behind. */
 const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
@@ -239,14 +177,17 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
         // A release that cannot be read is the same OUTCOME as an unpublished
         // build — the machine cannot install — so it is the same 404 rather than
         // a 502 the install script has no branch for. The reason is logged
-        // where an operator can find it. The shelf may still be the answer: a
-        // fetch failure with a shelf that can CONNECT serves the older agent
-        // (outdated beats refused); a shelf the decision passed for protocol
-        // reasons never comes back here.
-        getLogger().warn(`node artifacts: could not fetch ${params.target} from the release: ${errorText(error)}`);
-        if (decision.diskFallback && artifactStat(params.target)) {
-          return new Response(Bun.file(artifactPath(params.target)), { headers });
-        }
+        // where an operator can find it. The shelf deliberately does NOT fall
+        // back in here: this decision already announced the release digest on
+        // `.sha256` (which is what `install.sh` verifies against, and what a
+        // waiting machine's checksum-skip compares), so serving older bytes
+        // under a release announcement would fail the script's own check one
+        // line later. Availability for a connectable shelf lives in the
+        // no-compatible-release branch of the resolver, where the ANNOUNCEMENT
+        // and the BYTES are the same file.
+        getLogger().warn(
+          `node artifacts: could not fetch ${params.target} from the release the serve decision chose (v${decision.releaseVersion}): ${errorText(error)}`,
+        );
         return status(404, apiErrorBody(notPublished(params.target)));
       }
     }
@@ -257,9 +198,10 @@ export const downloadsRoutes = new Elysia({ prefix: "/api/downloads" }).use(apiM
     // the token carries exactly that digest, so this request is measured
     // against the release the COMMAND named, not against whatever the disk
     // holds or the release index now names. The installer path above answers
-    // "whatever this instance publishes", which is the right contract for an
-    // enroll; it is the wrong one for an update, where a disk file from an
-    // older release is refused by the node's own digest check after a full
+    // "the newest build this server can talk to" (spec 2026-10-09); an update
+    // is measured against the specific release the COMMAND ordered, which for
+    // an update is the only right contract: a disk file from a
+    // different release is refused by the node's own digest check after a full
     // ~70 MB download (the live incident of 2026-09-21). So the disk file is
     // a cache here: served when it IS the release, fetched around otherwise.
     //
@@ -401,7 +343,7 @@ for (const target of NODE_TARGETS) {
       detail: {
         operationId: `downloadNodeCliSha256${target.replace(/-/g, "")}`,
         tags: ["downloads"],
-        description: `SHA-256 (64-hex) of the ${target} subshell build (same cookie-or-setup_key gate as the binary)`,
+        description: `SHA-256 (64-hex) of the build the binary route would actually serve for ${target} (same cookie-or-setup_key gate; the same serve decision, spec 2026-10-09)`,
       },
     },
   );

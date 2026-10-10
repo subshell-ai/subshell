@@ -199,8 +199,10 @@ fi
 
 # A re-run after a failed install must not re-fetch the ~100 MB binary that
 # is already sitting there working: ask the server (the SAME key-gated route
-# as the binary; the key is only spent by enrollment) what digest the current
-# release carries, and if $DEST answers to it, skip straight to enrollment.
+# as the binary; the key is only spent by enrollment) what digest the build it
+# WOULD serve carries — since 2026-10-09 the announcement and the bytes come
+# from one decision, so a skip can never land on a stale shelf — and if $DEST
+# answers to it, skip straight to enrollment.
 # Every failure here is a MISS that falls through to today's download path:
 # no $DEST yet, no hash tool, server unreachable, key refused, or a body that
 # is not a bare 64-hex (whatever stands in front of this server may answer
@@ -327,12 +329,14 @@ else
     404)
       rm -f "$TMP" 2>/dev/null || true
       echo "subshell: this server could not provide a $TARGET node binary." >&2
-      echo "    It serves what is in its node-artifacts dir, and downloads a missing build from the" >&2
-      echo "    project's own cli-node-vX.Y.Z release on first use, so this usually means the server" >&2
-      echo "    cannot reach that release (no outbound network, or SUBSHELL_RELEASE_URL is" >&2
-      echo "    empty). Check the server's log for the reason. To supply it by hand instead, run" >&2
-      echo "    'bun run release:cli-node' from a checkout on the server host, or copy the" >&2
-      echo "    'subshell-node-cli-$TARGET' asset from a cli-node-vX.Y.Z GitHub Release into that dir." >&2
+      echo "    It serves the newest node build it can talk to: its node-artifacts dir when that" >&2
+      echo "    copy is current, otherwise its cli-node-vX.Y.Z release, fetched on first use. So" >&2
+      echo "    this means the server cannot reach its release source (no outbound network, or" >&2
+      echo "    SUBSHELL_RELEASE_URL empty) or the copy it holds speaks a protocol this server" >&2
+      echo "    refuses. The server's log and 'subshell-server status' say which. To fix the" >&2
+      echo "    shelf: copy the 'subshell-node-cli-$TARGET' asset of the matching" >&2
+      echo "    cli-node-vX.Y.Z GitHub Release into that dir, or run" >&2
+      echo "    'bun run release:cli-node' from a checkout on the server host." >&2
       echo "    Or install the node for this machine another way and run setup directly:" >&2
       echo "      subshell setup --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
       exit 1

@@ -4,10 +4,12 @@ import {
   NODE_PROTOCOL_VERSION,
   type NodeTarget,
   nodeArtifactFileName,
+  nodeVersionSupported,
   semverLt,
 } from "@internal/subshell-protocol";
 import { autoFetchEnabled, compatibleNodeRelease, fetchedLedgerEntry } from "@/services/releases.js";
-import { artifactPath, artifactStat, diskArtifactSha256Cached } from "./node-artifacts.js";
+import { getLogger } from "@/utils/logger.js";
+import { artifactPath, artifactSha, artifactStat, diskArtifactSha256Cached } from "./node-artifacts.js";
 
 /**
  * What this instance would ACTUALLY serve for one target, decided in one
@@ -26,8 +28,9 @@ import { artifactPath, artifactStat, diskArtifactSha256Cached } from "./node-art
  * The rule, when a release source is configured: the shelf may serve its own
  * bytes, the release, or nothing — whichever of these is true FIRST:
  *
- * 1. the shelf's bytes ARE the compatible release (digest match, no exec
- *    needed) → disk;
+ * 1. the digest the instance ANNOUNCES for the shelf copy (its bytes, or an
+ *    honest sidecar's: the very number `install.sh`'s checksum-skip compares)
+ *    already EQUALS the release's signed digest → disk, no exec needed;
  * 2. the shelf reports (by running it: `<file> version`, the same discipline
  *    the server's self-update applies to a downloaded binary) a NEWER semver
  *    and the server's protocol → disk. This is the hand-publish/dev-loop
@@ -57,9 +60,7 @@ export type NodeServeDecision =
       digest: string;
       /** Cache the fetched bytes over the shelf: true only when there is no shelf file, or this instance fetched the one there. */
       cache: boolean;
-      /** The fetch failed and the shelf file, if any, may still be served (it can connect, or cannot be measured). False when the shelf reports a protocol this server refuses. */
-      diskFallback: boolean;
-      /** Why the release was the answer, for the log line the failure path leaves. */
+      /** Named on the fetch-failure log line, because "the release" needs a which. */
       releaseVersion: string;
     }
   | {
@@ -80,6 +81,21 @@ const VERSION_LINE = /^subshell ([0-9][0-9A-Za-z.+-]*) \(node protocol v(\d+)\)/
 
 const probeCache = new Map<string, ShelfVersionFacts | null>();
 const PROBE_CACHE_MAX = 32;
+/** Shelf identities whose unmeasurability has already been warned once. */
+const warnedUnmeasurable = new Set<string>();
+
+/** The spec's "a warn line logs the unknown": once per file identity, not per request. */
+function noteProbe(target: NodeTarget, key: string, facts: ShelfVersionFacts | null): void {
+  if (facts !== null || warnedUnmeasurable.has(key)) return;
+  warnedUnmeasurable.add(key);
+  if (warnedUnmeasurable.size > PROBE_CACHE_MAX) {
+    const oldest = warnedUnmeasurable.values().next().value;
+    if (oldest !== undefined) warnedUnmeasurable.delete(oldest);
+  }
+  getLogger().warn(
+    `node artifacts: the ${target} shelf copy answers no version line; the serve decision treats it as unmeasurable (the release wins when one is compatible, the copy serves when none is)`,
+  );
+}
 
 function probeCacheKey(target: NodeTarget): string | null {
   const stat = artifactStat(target);
@@ -118,6 +134,7 @@ export async function shelfVersionFacts(target: NodeTarget): Promise<ShelfVersio
   } catch {
     facts = null; // spawn refuses even under runBounded's contract on some platforms
   }
+  noteProbe(target, key, facts);
   return rememberProbe(key, facts);
 }
 
@@ -141,29 +158,39 @@ export function shelfVersionFactsSync(target: NodeTarget): ShelfVersionFacts | n
       stdin: "ignore",
       stdout: "pipe",
       stderr: "ignore",
-      env: {},
+      // Same profile the async twin gets, as far as it has one: `runBounded`
+      // hands the child the allowlisted env plus PATH; the version verb needs
+      // nothing, but the two probes should not differ in what they run with.
+      env: { PATH: process.env.PATH ?? "" },
     });
     if (proc.exitCode === 0) facts = parseVersionLine(proc.stdout.toString());
   } catch {
     facts = null;
   }
+  noteProbe(target, key, facts);
   return rememberProbe(key, facts);
 }
 
-/** Drops the memoized shelf reads. Only for tests. @internal */
+/** Drops the memoized shelf reads and their warn-once marks. Only for tests. @internal */
 export function resetShelfProbeForTests(): void {
   probeCache.clear();
+  warnedUnmeasurable.clear();
 }
 
-/** The shelf answers for itself: it speaks THIS server's protocol and clears its version floor. */
+/**
+ * The shelf answers for itself: it speaks THIS server's protocol and clears
+ * its version floor — the same two facts the connect path enforces
+ * (`nodeVersionSupported` is the floor's one rule, not a restatement).
+ */
 function shelfCanConnect(facts: ShelfVersionFacts | null): boolean {
-  return facts === null || (facts.protocol === NODE_PROTOCOL_VERSION && !semverLt(facts.version, MIN_NODE_VERSION));
+  return facts === null || (facts.protocol === NODE_PROTOCOL_VERSION && nodeVersionSupported(facts.version));
 }
 
 /**
  * The single decision both download routes answer from. Never throws: every
- * release-side failure lands in `none` with its sentence, and every serve
- * path carries its own fallback flag so the route layer holds no policy.
+ * release-side failure lands in `none` with its sentence, and every answer is
+ * a complete verdict (bytes AND announced digest) so the route layer holds no
+ * policy of its own.
  */
 export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDecision> {
   const onDisk = artifactStat(target) !== null;
@@ -210,14 +237,24 @@ export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDec
   }
 
   if (!onDisk) {
-    return { kind: "release", digest: releaseDigest, cache: true, diskFallback: false, releaseVersion };
+    return { kind: "release", digest: releaseDigest, cache: true, releaseVersion };
+  }
+
+  // Measured against what the instance ANNOUNCES (`artifactSha`, sidecar-
+  // preferring): that is the number `install.sh`'s checksum-skip compares its
+  // local file against, and the whole point of the shared resolver is that a
+  // machine skipping on the announcement ends up, by skipping, with exactly
+  // what a download would have served. A sidecar lying about its own bytes
+  // therefore loses shelf precedence (the release is fetched instead of a
+  // skipped-to skip), and the fast path stays exec-free.
+  const announced = await artifactSha(target);
+  if (announced !== null && announced === releaseDigest) {
+    // The shelf IS the release, as far as any consumer can tell: the fast
+    // path, no exec, no fetch.
+    return { kind: "disk" };
   }
 
   const diskDigest = await diskArtifactSha256Cached(target);
-  if (diskDigest !== null && diskDigest === releaseDigest) {
-    // The shelf IS the release: the fast path, no exec, no fetch.
-    return { kind: "disk" };
-  }
 
   const facts = await shelfVersionFacts(target);
   const releaseWinsBecauseShelfCannotConnect = facts !== null && facts.protocol !== NODE_PROTOCOL_VERSION;
@@ -234,12 +271,13 @@ export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDec
 
   // Release wins: it is the newest build this server can talk to and the shelf
   // does not beat it (older, equal-but-different bytes, or refused protocol).
+  // "Ours" is decided on TRUE BYTES against `.fetched.json`: a file edited
+  // after our fetch is the operator's again, whatever the ledger's tag says.
   const ours = diskDigest !== null && (await fetchedLedgerEntry(target))?.digest === diskDigest;
   return {
     kind: "release",
     digest: releaseDigest,
     cache: ours, // our own bytes get replaced; the operator's are streamed past
-    diskFallback: shelfCanConnect(facts),
     releaseVersion,
   };
 }
