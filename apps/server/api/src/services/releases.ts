@@ -699,6 +699,21 @@ async function writeManifest(manifest: FetchedManifest): Promise<void> {
 }
 
 /**
+ * What this instance recorded fetching for a target, or null when the ledger
+ * knows nothing about it.
+ *
+ * The recorded digest is the whole point: a caller compares it against the
+ * bytes ACTUALLY on disk, and only a match makes the file "ours" — something
+ * this instance may replace. An operator who edited the file since our fetch
+ * (or who put it there) reclaimed it, and the stream-past rule of the update
+ * route applies: serve the release through, leave the bytes alone.
+ */
+export async function fetchedLedgerEntry(target: NodeTarget): Promise<{ tag: string; digest: string } | null> {
+  const entry = (await readManifest())[target];
+  return entry ? { tag: entry.tag, digest: entry.digest } : null;
+}
+
+/**
  * Delete cached binaries that came from an older release than `tag`.
  *
  * This is the whole of "remove older binaries", and it runs where the

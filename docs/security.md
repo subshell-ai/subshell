@@ -1319,14 +1319,40 @@ posture:
   from; when a newer tag is resolved, files recorded against an older one are
   removed (not refreshed; the platform comes back when a machine of that
   platform next enrolls). A binary an operator published by hand has no
-  manifest entry and is never touched, and a file on disk always wins over a
-  fetch for enroll and install downloads. An update download carries a
+  manifest entry and is never touched. For enroll and install downloads the
+  shelf's precedence over a fetch is the serve-time rule of the next bullet
+  (2026-10-09), not the unconditional "disk wins" it used to be. An update
+  download carries a
   one-time `?update_token=` that binds the digest the update command named
   (from the signed manifest), and is served release-coherently instead: the
   disk file only when it hashes to that digest, the verified release fetched
   around it otherwise (streamed through, never overwriting the hand-published
   file), and a 409 naming the remedy when the disk copy is stale and the
   release cannot be fetched (2026-09-21).
+- **The shelf answers for itself at serve time (2026-10-09).** "Disk wins,
+  always" meant a plane that had crossed a protocol bump kept handing out an
+  agent its own server refuses at connect: the machine enrolls (REST, no
+  protocol involved), starts, and redials in a `4410` loop forever while the
+  installer reports success. The binary and digest routes now share one
+  resolver (`lib/node-artifact-serve.ts`): the shelf copy is run bounded
+  (`<file> version`, the agent's own line, memoized per path+mtime+size), and
+  it keeps serving while it can honestly claim to be the newest build this
+  server can talk to: bytes that already hash to the compatible release serve
+  without an exec or a fetch; a copy that reports THIS protocol and a higher
+  semver (a hand-published `release:cli-node` build) still wins; every other
+  shelf yields to the compatible release, which REPLACES the on-disk bytes
+  only when `.fetched.json` proves this instance wrote them and is streamed
+  past otherwise. With no compatible release the shelf serves only while it
+  can actually connect (its protocol matches and it clears the floor), and a
+  copy that reports the wrong protocol produces a 404 naming the mismatch
+  instead of an install that can never come online. A copy that answers no
+  version is unassertive, not invalid: the release wins when one exists, the
+  shelf serves when none does. `subshell-server status` prints each shelf
+  copy's claim against the server's protocol so an outdated shelf is visible
+  before a fleet finds it. The digest route answers the SAME decision as the
+  binary route: `install.sh`'s checksum-skip compares the announced digest
+  against its local file, so an announced stale-shelf digest would let a
+  machine skip past the reconciliation the download would have applied.
 
 **The enroll-time loopback trap.** If the configured server URL is
 loopback-ish, a remote node will dutifully dial its own machine. The enroll flow

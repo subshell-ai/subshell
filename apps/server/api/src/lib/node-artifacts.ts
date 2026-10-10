@@ -61,6 +61,35 @@ export async function diskArtifactSha256(target: NodeTarget): Promise<string | n
   return hash.digest("hex");
 }
 
+const diskShaCache = new Map<string, string>();
+const DISK_SHA_CACHE_MAX = 16;
+
+/**
+ * {@link diskArtifactSha256} for repeated asks: the serve resolver runs on
+ * every download AND every `.sha256` probe, and hashing a ~100 MB shelf copy
+ * per request would turn the probe into a CPU attack surface. One hash per
+ * (path, mtime, size), noticed-changed exactly the way the download route's
+ * sha cache notices, FIFO-capped because artifact paths churn.
+ */
+export async function diskArtifactSha256Cached(target: NodeTarget): Promise<string | null> {
+  const stat = artifactStat(target);
+  if (stat === null) return null;
+  const key = `${artifactPath(target)}:${stat.mtimeMs}:${stat.size}`;
+  if (diskShaCache.has(key)) return diskShaCache.get(key) ?? null;
+  const sha = await diskArtifactSha256(target);
+  if (diskShaCache.size >= DISK_SHA_CACHE_MAX) {
+    const oldest = diskShaCache.keys().next().value;
+    if (oldest !== undefined) diskShaCache.delete(oldest);
+  }
+  if (sha !== null) diskShaCache.set(key, sha);
+  return sha;
+}
+
+/** Drops the memoized disk digests. Only for tests. @internal */
+export function resetDiskShaCacheForTests(): void {
+  diskShaCache.clear();
+}
+
 /**
  * The targets this instance ACTUALLY serves — the same rule as
  * {@link artifactStat}, widened to the whole closed set. A binary-only

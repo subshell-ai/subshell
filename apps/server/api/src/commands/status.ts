@@ -2,11 +2,12 @@ import { Database } from "bun:sqlite";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { DEFAULT_DATABASE_PATH, lingerVerdict, NODE_TARGETS } from "@internal/subshell-protocol";
+import { DEFAULT_DATABASE_PATH, lingerVerdict, NODE_PROTOCOL_VERSION, NODE_TARGETS } from "@internal/subshell-protocol";
 import { SYSTEM_USER_EMAIL } from "@/auth/system-user.js";
 import { baseUrlProblem, originProblem } from "@/commands/config-values.js";
 import { resolveConfig } from "@/config-env.js";
 import { DEFAULT_TRUSTED_ORIGINS, NODE_ARTIFACTS_DIR, SUBSHELL_PLUGIN_REGISTRY_URL } from "@/constants.js";
+import { type ShelfVersionFacts, shelfVersionFactsSync } from "@/lib/node-artifact-serve.js";
 import { publishedNodeTargets } from "@/lib/node-artifacts.js";
 import { type ServiceState, SYSTEMD_UNIT_NAME, serviceArtifactPath } from "@/service.js";
 import { listBackups } from "@/services/db-backup.js";
@@ -176,7 +177,19 @@ export interface StatusView {
    * class of deploy-time fact as tmux and the MCP rung: print it before
    * anyone has to discover it.
    */
-  nodeArtifacts: { published: number; total: number; dir: string };
+  nodeArtifacts: {
+    published: number;
+    total: number;
+    dir: string;
+    /**
+     * Per published target, what the shelf copy CLAIMS to be when run
+     * (`<file> version`); null when it answers nothing. The 2026-10-09
+     * lesson: a copy predating a protocol bump installs fine and then
+     * 4410-loops forever, so status prints the claim beside the server's
+     * own protocol before a fleet discovers it.
+     */
+    claims: Record<string, ShelfVersionFacts | null>;
+  };
   /**
    * Whether this instance has an admin account yet — the first question a
    * stuck operator has, and the one `status` could not answer.
@@ -397,6 +410,13 @@ export function collectStatus(deps: StatusDeps): StatusView {
   // accepts, so reporting it valid would promise a boot that fails.
   const portValid = String(portNum) === portRaw.trim() && portNum >= 1 && portNum <= 65535;
   const listening = portValid ? ((deps.probePort ?? syncPortListening)(dialHost, portNum) ?? false) : false;
+  // What the shelf copies claim to be, per published target (spec 2026-10-09:
+  // the server's protocol and a shelf predating it is the deploy-time fact
+  // this command exists to print). Sync by necessity: the view is built in
+  // one synchronous function; see the probe's own caveat.
+  const shelfTargets = publishedNodeTargets();
+  const shelfClaims: Record<string, ShelfVersionFacts | null> = {};
+  for (const target of shelfTargets) shelfClaims[target] = shelfVersionFactsSync(target);
 
   // The config dir is passed so a darwin service installed with
   // `--no-autostart` — whose plist lives there rather than in
@@ -469,9 +489,10 @@ export function collectStatus(deps: StatusDeps): StatusView {
           : { kind: "unknown", reason: installed.reason },
     backups: { count: backups.length, latest: backups[0] ?? null },
     nodeArtifacts: {
-      published: publishedNodeTargets().length,
+      published: shelfTargets.length,
       total: NODE_TARGETS.length,
       dir: NODE_ARTIFACTS_DIR,
+      claims: shelfClaims,
     },
     setup: {
       database: dbExists ? "present" : "missing",
@@ -512,11 +533,24 @@ export function runStatus(log: (line: string) => void, deps: StatusDeps): void {
       : `mcp entrypoint       = UNRESOLVED; subshell create will fail; ${v.mcpError}`,
   );
   log(`plugin registry      = ${v.pluginRegistry}`);
-  const { published, total, dir } = v.nodeArtifacts;
+  const { published, total, dir, claims } = v.nodeArtifacts;
   log(
     `node artifacts       = ${published}/${total} published (${dir})` +
       (published < total ? ", install.sh 404s for the rest" : ""),
   );
+  // One line per shelf copy that has something to say, and only when it is
+  // NOT what this server can talk to: silence means the shelf is current,
+  // and a warning nobody needs is the noise that makes warnings unread.
+  for (const [target, facts] of Object.entries(claims)) {
+    if (facts === null) {
+      log(`  ${target}: the copy answers no version; the release wins whenever one is available`);
+    } else if (facts.protocol !== NODE_PROTOCOL_VERSION) {
+      log(
+        `  ${target}: copy speaks protocol v${facts.protocol}, this server speaks v${NODE_PROTOCOL_VERSION}: ` +
+          "machines installing from it will be refused at connect",
+      );
+    }
+  }
   // The one line that says whether anyone can sign in yet. It names the URL
   // only while opening it is the next thing to do — an instance that has an
   // admin must not keep advertising a wizard that will refuse.
