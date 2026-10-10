@@ -496,3 +496,32 @@ describe("NodeDetailPage node-version floor", () => {
     }
   });
 });
+
+describe("NodeDetailPage owner line", () => {
+  // `ownerLabel` arrives ONLY on an admin's payload (node-view schema, ruling
+  // 2026-10-10): the operator who sees every machine learns whose machine it
+  // is. The page renders what it receives and derives nothing, so the fixture
+  // is the whole test: field present -> line; field absent -> no line.
+  it("names the owner when the payload carries one", async () => {
+    const { restore } = mockFetch(enrolledNode({ access: "edit", ownerLabel: "alice@subshell.local" }));
+    try {
+      renderDetail("node1");
+      await screen.findByText("Your access");
+      expect(screen.getByText("Owner")).toBeDefined();
+      expect(screen.getByText("alice@subshell.local")).toBeDefined();
+    } finally {
+      restore();
+    }
+  });
+
+  it("shows no owner line when the payload carries none", async () => {
+    const { restore } = mockFetch(enrolledNode({ access: "owner" }));
+    try {
+      renderDetail("node1");
+      await screen.findByText("Your access");
+      expect(screen.queryByText("Owner")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+});

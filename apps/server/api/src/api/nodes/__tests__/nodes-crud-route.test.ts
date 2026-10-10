@@ -33,6 +33,7 @@ type View = {
   os: string | null;
   arch: string | null;
   access: string;
+  ownerLabel?: string;
   canManage: boolean;
   canRetire: boolean;
   canLaunch: boolean;
@@ -378,6 +379,32 @@ describe("/api/nodes registry CRUD", () => {
     const seen = (await res.json()) as View;
     expect(seen.access).toBe("edit");
     expect(seen.canManage).toBe(false);
+  });
+
+  /**
+   * `ownerLabel` is an ADMIN fact (ruling 2026-10-10, the setup-key listing's
+   * precedent): the operator whose Nodes list shows every machine must be able
+   * to say WHOSE machine each row is. Everyone else's payload lacks the field
+   * entirely — the owner already reads "owner" from `access`, and a grantee is
+   * not handed a new disclosure by a wording change to an admin's view.
+   */
+  it("ownerLabel: the admin's list and detail name the owner; no other view carries the field", async () => {
+    const n = await mkNode(aliceId, `ol-${crypto.randomUUID().slice(0, 8)}`);
+    await nodeShares.replaceForNode(n.id, [{ granteeUserId: bobId, permission: "view" }], aliceId);
+
+    expect(((await (await req("GET", `/${n.id}`, { cookie: adminCookie })).json()) as View).ownerLabel).toBe(
+      emails.alice, // createUser wrote name = email, and name is the label's first preference
+    );
+    expect((await list(adminCookie)).find((x) => x.id === n.id)?.ownerLabel).toBe(emails.alice);
+
+    const ownerBody = (await (await req("GET", `/${n.id}`, { cookie: aliceCookie })).json()) as Record<string, unknown>;
+    expect("ownerLabel" in ownerBody).toBe(false); // absent, not empty
+    const viewerBody = (await (await req("GET", `/${n.id}`, { cookie: bobCookie })).json()) as Record<string, unknown>;
+    expect("ownerLabel" in viewerBody).toBe(false);
+
+    // `local` pays the same rule: its owner is the `system` service user, and
+    // an admin reading the host's row learns exactly that.
+    expect(typeof (await list(adminCookie)).find((x) => x.id === "local")?.ownerLabel).toBe("string");
   });
 
   it("the LIST carries a foreign private node to an admin and never to a plain viewer", async () => {

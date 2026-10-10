@@ -544,9 +544,15 @@ section's posture depends on):
   is stored under the NODE's owner (redemption requires
   `key.ownerUserId === node.ownerUserId`), so the admin is the audited ACTOR and
   the node owner the key's owner, and the recovery-preserves-ownership contract
-  is untouched. Pinned by `nodes-crud-route.test.ts` ("the LIST carries a
-  foreign private node to an admin…", "re-registration mint is retire-gated",
-  "delete: admin retires a foreign node") and by `node-access.test.ts`
+  is untouched. A node view rendered to an admin additionally carries the
+  owner's label (`ownerLabel`: name, falling back to email, then the raw id for
+  a removed account; `local`'s is the `system` service user), because a list
+  that shows every machine must be able to say WHOSE machine each row is (ruling
+  2026-10-10, the setup-key listing's `?all=1` precedent); every other viewer's
+  payload lacks the field entirely. Pinned by `nodes-crud-route.test.ts` ("the
+  LIST carries a foreign private node to an admin…", "re-registration mint is
+  retire-gated", "delete: admin retires a foreign node", "ownerLabel: the
+  admin's list and detail name the owner…") and by `node-access.test.ts`
   (`nodeCanRetire`).
 
 **The roster READ is not admin-gated, and it carries display names.** Writes to
