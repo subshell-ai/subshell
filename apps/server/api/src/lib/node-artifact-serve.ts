@@ -49,8 +49,11 @@ import { artifactPath, artifactSha, artifactStat, diskArtifactSha256Cached } fro
  *    shelf that reports the wrong protocol gets the refusal the machine would
  *    otherwise discover at `4410`, in the response instead.
  *
- * Air-gapped (`SUBSHELL_RELEASE_URL` empty) the shelf is the only source and
- * always wins, unchanged; `subshell-server status` carries what the shelf
+ * Air-gapped (`SUBSHELL_RELEASE_URL` empty) the shelf is the only source, and
+ * it answers for ITSELF just the same: connectable, self-consistent bytes win,
+ * a copy that denies its sidecar or reports a protocol this server refuses
+ * gets the refusal — a doomed agent is no less doomed when there is no
+ * release to fall back to. `subshell-server status` carries what the shelf
  * claims so a dead shelf is visible before a fleet finds it.
  */
 export type NodeServeDecision =
@@ -189,6 +192,19 @@ function shelfCanConnect(facts: ShelfVersionFacts | null): boolean {
 }
 
 /**
+ * The refusal sentence for a shelf copy that cannot connect. ONE function,
+ * because the air-gap branch and the no-compatible-release branch differ only
+ * in WHY there is nothing else to serve, and the two sentences must not
+ * drift apart on WHAT the copy failed.
+ */
+function unconnectableShelfMessage(target: NodeTarget, facts: ShelfVersionFacts | null, whyNoRelease: string): string {
+  return (
+    `The ${target} build this instance holds reports ${facts?.version} (protocol v${facts?.protocol}); ` +
+    `this server speaks protocol v${NODE_PROTOCOL_VERSION} and needs node ${MIN_NODE_VERSION}+, ${whyNoRelease}`
+  );
+}
+
+/**
  * The single decision both download routes answer from. Never throws: every
  * release-side failure lands in `none` with its sentence, and every answer is
  * a complete verdict (bytes AND announced digest) so the route layer holds no
@@ -202,19 +218,27 @@ export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDec
   // on the ANNOUNCED value with the bytes agreeing is the invariant that
   // makes "skip" and "download" land on the same build everywhere, not just
   // on the fast path. Neither hash call may throw out of here: an unreadable
-  // file is an unmeasurable shelf, not a 500.
+  // file is an ABSENT shelf (see `onShelf`), not a 500.
   const diskDigest = onDisk ? await diskArtifactSha256Cached(target).catch(() => null) : null;
-  const announced = onDisk ? await artifactSha(target).catch(() => diskDigest) : null;
+  // A copy whose bytes cannot be READ cannot be served either: it is treated
+  // as ABSENT, so no decision ever announces (or offers to stream) bytes the
+  // download would refuse mid-flow. This is what makes "no digest, but a
+  // sidecar holds hex" safe — the sidecar loses with the copy it vouches for.
+  const onShelf = onDisk && diskDigest !== null;
+  const announced = onShelf ? await artifactSha(target).catch(() => diskDigest) : null;
   // A binary that does not match its own published `.sha256` is a broken
   // shelf cell, and every digest story goes quiet on it: the release wins,
   // or nothing does. Serving bytes under an announcement that denies them
   // would fail the installer's verify mid-flow with a worse message than
-  // this one, and announcing the bytes would bless the corruption.
-  const shelfInconsistent = diskDigest !== null && announced !== null && announced !== diskDigest;
+  // this one, and announcing the bytes would bless the corruption. (On the
+  // `onShelf` scope `diskDigest` is non-null, so one comparison is enough.)
+  const shelfInconsistent = announced !== null && announced !== diskDigest;
 
   if (!autoFetchEnabled()) {
-    // Air-gapped: the shelf is the only source, which is its whole purpose.
-    if (!onDisk) {
+    // Air-gapped: the shelf is the only source, which is its whole purpose —
+    // but it is the ONLY source of the same rule everywhere else: connectable
+    // bytes or a refusal, never a silent 4410 loop.
+    if (!onShelf) {
       return {
         kind: "none",
         message: `No subshell build for "${target}" is published on this instance, and this server has no release source configured.`,
@@ -228,7 +252,17 @@ export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDec
           "so nothing was served rather than bytes that would fail the installer's own check. Republish.",
       };
     }
-    return { kind: "disk" };
+    const facts = await shelfVersionFacts(target);
+    if (facts === null || shelfCanConnect(facts)) return { kind: "disk" };
+    return {
+      kind: "none",
+      message: unconnectableShelfMessage(
+        target,
+        facts,
+        "and this server has no release source configured, so this copy is the only thing it could hand out. " +
+          "Publish a node build this server can talk to.",
+      ),
+    };
   }
 
   // An unreachable release source is an unknown release, not a failed page:
@@ -250,7 +284,7 @@ export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDec
 
   if (compatible.release === null || releaseDigest === undefined || releaseVersion === null) {
     const why = compatible.reason ?? `the newest node release names no ${nodeArtifactFileName(target)} in its manifest`;
-    if (!onDisk) return { kind: "none", message: why };
+    if (!onShelf) return { kind: "none", message: why };
     if (shelfInconsistent) {
       return {
         kind: "none",
@@ -263,14 +297,16 @@ export async function resolveNodeServe(target: NodeTarget): Promise<NodeServeDec
     if (shelfCanConnect(facts)) return { kind: "disk" };
     return {
       kind: "none",
-      message:
-        `The ${target} build this instance holds reports ${facts?.version} (protocol v${facts?.protocol}); ` +
-        `this server speaks protocol v${NODE_PROTOCOL_VERSION} and needs node ${MIN_NODE_VERSION}+, and it cannot ` +
-        `fetch a release it can talk to (${why}). Publish a node build for this protocol, or set SUBSHELL_RELEASE_URL.`,
+      message: unconnectableShelfMessage(
+        target,
+        facts,
+        `and it cannot fetch a release it can talk to (${why}). ` +
+          "Publish a node build for this protocol, or set SUBSHELL_RELEASE_URL.",
+      ),
     };
   }
 
-  if (!onDisk) {
+  if (!onShelf) {
     return { kind: "release", digest: releaseDigest, cache: true, releaseVersion };
   }
 

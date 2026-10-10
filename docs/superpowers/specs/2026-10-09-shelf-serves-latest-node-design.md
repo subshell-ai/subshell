@@ -59,10 +59,17 @@ identically", which is what `install.sh`'s checksum-skip now depends on):
   when no compatible release exists; the release wins when one does (unknown is
   not a claim of newness). A warn line logs the unknown; `subshell-server
   status` shows it per target.
-- Air-gapped (`SUBSHELL_RELEASE_URL` empty) → disk always wins, as today: the
-  shelf is the only source. `status` still reports what the shelf claims and
-  what the server speaks, so the operator sees a dead shelf before a fleet hits
-  it.
+- Air-gapped (`SUBSHELL_RELEASE_URL` empty) → the shelf is the only source, but
+  it answers for ITSELF the same way (operator ruling, restated 2026-10-09: the
+  plane ALWAYS serves the newest agent it itself understands): disk wins while
+  the copy connects, and one that denies its own sidecar or reports a refused
+  protocol gets the refusal — a doomed agent is no less doomed with no release
+  to fall back to, and the 404 sentence says REPUBLISH/PUBLISH instead of the
+  loop.
+- A copy whose BYTES cannot be read is treated as ABSENT everywhere: no
+  announcement and no disk decision can point at bytes the download itself
+  would refuse mid-stream (this is why an honest sidecar over unreadable bytes
+  loses with the copy it vouches for).
 
 The shelf's identity is read by running the file: `<shelf> version` via
 `runBounded` (the shared spawn-core bounds: allowlisted env, capped output,
@@ -100,8 +107,9 @@ publish-dance text stays true untouched. `downloads-shelf-serve.test.ts` pins
 the rule's cells through the REAL routes with a fake release server and
 planted shelf scripts on the existing `releaseSeams` armor: behind/ahead/equal,
 wrong-protocol both with and without a compatible release, unmeasurable both
-ways, air-gap behind and ahead, below the version floor, a manifest that names
-no asset for the target, the sidecar-truth cells in both directions (a lying
+ways, air-gap behind and ahead, air-gap wrong-protocol and air-gap unreadable
+(both refused), a copy whose bytes cannot be read treated as absent, below the
+version floor, a manifest that names no asset for the target, the sidecar-truth cells in both directions (a lying
 sidecar loses shelf precedence to the release AND to a 404 when none is
 compatible; the decision measures the ANNOUNCED digest, because that is what a
 skip compares against), the fetch-failure cell (a release decision never falls

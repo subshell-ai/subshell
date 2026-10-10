@@ -232,7 +232,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
     expect(await res.text()).toBe(NEWBODY);
   });
 
-  it("air-gapped: the shelf is the only source and always wins, behind or ahead", async () => {
+  it("air-gapped: a connectable shelf is the only source and wins, behind or ahead", async () => {
     setReleaseUrlForTests(null);
     const behind = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
     expect(await (await get(`/api/downloads/node/${TARGET}`)).text()).toBe(behind);
@@ -241,6 +241,53 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
     resetShelfProbeForTests();
     const ahead = plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
     expect(await (await get(`/api/downloads/node/${TARGET}`)).text()).toBe(ahead);
+  });
+
+  it("air-gapped with a wrong-protocol shelf: refused too — a doomed agent is doomed with no release as well", async () => {
+    // The operator rule says ALWAYS the newest build the server understands;
+    // round 3 caught that only this branch of it was untested and (until the
+    // same round's fix) unenforced: the empty-SUBSHELL_RELEASE_URL plane
+    // handing out yesterday's protocol was the identical 4410 incident.
+    setReleaseUrlForTests(null);
+    plantShelf(shelfScript("99.0.0", NODE_PROTOCOL_VERSION - 1));
+    const res = await get(`/api/downloads/node/${TARGET}`);
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { message: string };
+    expect(body.message).toContain("protocol");
+    expect(body.message).toContain("no release source");
+    const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+    expect(sha.status).toBe(404);
+  });
+
+  it("air-gapped with UNREADABLE bytes: the copy is treated as absent, never streamed to die mid-download", async () => {
+    setReleaseUrlForTests(null);
+    plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
+    chmodSync(binaryPath, 0o000);
+    try {
+      const res = await get(`/api/downloads/node/${TARGET}`);
+      expect(res.status).toBe(404);
+    } finally {
+      chmodSync(binaryPath, 0o755);
+    }
+  });
+
+  it("an honest sidecar over UNREADABLE bytes does not win either: the release replaces the dead copy", async () => {
+    // The NIT-2 edge made into a cell: bytes unhashable, sidecar holds valid
+    // hex. Announcing that hex and "serving" it would die mid-stream, so the
+    // copy is absent, the release answers, and cache semantics let it be
+    // replaced (this server can fetch what the shelf cannot even read).
+    plantShelf(shelfScript("10.0.0", NODE_PROTOCOL_VERSION));
+    writeFileSync(`${binaryPath}.sha256`, `${hex(NEWBODY)}\n`);
+    chmodSync(binaryPath, 0o000);
+    try {
+      const res = await get(`/api/downloads/node/${TARGET}`);
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(NEWBODY);
+      const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
+      expect((await sha.text()).trim()).toBe(hex(NEWBODY));
+    } finally {
+      chmodSync(binaryPath, 0o755);
+    }
   });
 
   it("a sidecar lying about its own bytes loses shelf precedence: announcement and bytes agree on the RELEASE", async () => {

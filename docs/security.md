@@ -1303,7 +1303,9 @@ posture:
   base to keep compatible, and an alias is a second thing to read that can
   disagree with the first.
 - **Empty disables it**, and that is the supported air-gapped configuration:
-  the routes then serve only what is on disk, exactly as before. Since
+  the routes then serve only what is on disk, reconciled the same way (2026-10-09):
+  the shelf copy answers for itself, and a copy that denies its own sidecar or
+  cannot connect is refused rather than served. Since
   2026-09-15 it disables strictly more: `subshell-server update` and
   `POST /api/nodes/:id/update` refuse with the reason and name `--from` or a
   hand install. The Nodes dialog's "no agent binary" warning is kept for

@@ -330,10 +330,12 @@ else
       rm -f "$TMP" 2>/dev/null || true
       echo "subshell: this server could not provide a $TARGET node binary." >&2
       echo "    It serves the newest node build it can talk to: its node-artifacts dir when that" >&2
-      echo "    copy is current, otherwise its cli-node-vX.Y.Z release, fetched on first use. So" >&2
-      echo "    this means the server cannot reach its release source (no outbound network, or" >&2
-      echo "    SUBSHELL_RELEASE_URL empty) or the copy it holds speaks a protocol this server" >&2
-      echo "    refuses. The server's log and 'subshell-server status' say which. To fix the" >&2
+      echo "    copy is newer than its release and speaks this server's protocol, otherwise its" >&2
+      echo "    cli-node-vX.Y.Z release, fetched on first use. So this means the server cannot" >&2
+      echo "    reach its release source (no outbound network, or SUBSHELL_RELEASE_URL empty)," >&2
+      echo "    or the copy it holds speaks a protocol this server refuses, or it denies its" >&2
+      echo "    own .sha256 sidecar (republish). The server's log names which; run" >&2
+      echo "    'subshell-server status' to see what the shelf copy claims. To fix the" >&2
       echo "    shelf: copy the 'subshell-node-cli-$TARGET' asset of the matching" >&2
       echo "    cli-node-vX.Y.Z GitHub Release into that dir, or run" >&2
       echo "    'bun run release:cli-node' from a checkout on the server host." >&2

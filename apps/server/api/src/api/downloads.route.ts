@@ -323,7 +323,11 @@ for (const target of NODE_TARGETS) {
         getLogger().warn(`node artifacts: refusing to announce the ${target} digest: ${decision.message}`);
         return status(404, apiErrorBody({ code: BackendErrorCodes.NOT_FOUND_ERROR, message: decision.message }));
       }
-      const local = await artifactSha(target);
+      // `.catch(() => null)`, same never-throw posture as the resolver's own
+      // read: the decision just said disk, so a hash that RACES into an error
+      // answers the fetch tail below rather than a 500 the installer has no
+      // branch for.
+      const local = await artifactSha(target).catch(() => null);
       if (local) return new Response(`${local}\n`, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
       // The disk decision raced with a file removal (or a sidecar-less empty
       // read): answer the digest the fetch would land, the way this route
