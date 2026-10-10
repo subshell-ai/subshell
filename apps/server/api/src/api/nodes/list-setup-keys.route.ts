@@ -91,7 +91,7 @@ function toKeyRow(
  *
  * Two answers, one route. Without `all=1`: the caller's own keys, as always.
  * With `all=1` (audit 2026-09 item 4, operator-approved): every key in the
- * instance with its creator's label — the admin's view of the enrollment
+ * instance with its key owner's label — the admin's view of the enrollment
  * doors outstanding on their machine. That is a real widening (an admin reads
  * keys they did not mint, in the plaintext the plaintext-storage decision
  * already describes) and it is gated exactly like every other admin surface:
@@ -117,7 +117,7 @@ export const listSetupKeyRoute = new Elysia()
         const labels = await new UsersRepository(db).displayNamesByIds([...new Set(rows.map((r) => r.ownerUserId))]);
         return {
           keys: rows.map((row) =>
-            // A deleted creator still owns rows that outlived the account;
+            // A deleted key owner still owns rows that outlived the account;
             // the id is the honest label for one, not a blank.
             toKeyRow(row, { ownerUserId: row.ownerUserId, ownerLabel: labels.get(row.ownerUserId) ?? row.ownerUserId }),
           ),
@@ -136,7 +136,7 @@ export const listSetupKeyRoute = new Elysia()
         operationId: "listNodeSetupKeys",
         tags: ["nodes"],
         description:
-          "Lists node setup keys, each with its key text: the caller's own, or with all=1 every key in the instance with its creator's label (cookie-admin only)",
+          "Lists node setup keys, each with its key text: the caller's own, or with all=1 every key in the instance with its key owner's label (cookie-admin only)",
       },
     },
   );

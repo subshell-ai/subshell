@@ -26,7 +26,7 @@ import {
 import { type SetupKeyOwnerFields, useAllSetupKeys, useDeleteSetupKey, useSetupKeys } from "@/hooks/use-nodes";
 import { usePublicSettings } from "@/hooks/use-public-settings";
 
-/** A listed row: the owner-scoped shape, plus the creator's label on the admin read. */
+/** A listed row: the owner-scoped shape, plus the key owner's label on the admin read. */
 type CardKeyRow = SetupKeyRow & Partial<SetupKeyOwnerFields>;
 
 /**
@@ -91,7 +91,7 @@ function keyState(usedAt: string | null, expiresAt: string): "used" | "expired" 
  * ADMIN's switch to "All instance keys". Before it, a non-admin's outstanding
  * key was a door no admin could close early — the list was owner-scoped and
  * the delete owner-filtered. The switch is gated on the server's own
- * `viewerIsAdmin` (never re-derived here), the read names each row's creator,
+ * `viewerIsAdmin` (never re-derived here), the read names each row's key owner,
  * and the same Revoke button now closes a foreign row.
  */
 export function SetupKeysSection() {

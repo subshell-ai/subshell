@@ -1210,12 +1210,12 @@ subshell may only be launched in one of them or beneath it.
   one action name with `{ foreign: true, ownerUserId }` metadata so the trail
   says whose provider it was, and the row names ids, never the key text. The same
   audit fix gave admins the matching view: `GET /api/nodes/setup-keys?all=1`
-  lists every key in the instance with its creator's label, and a plain
+  lists every key in the instance with its key owner's label, and a plain
   non-admin asking for it gets a 403 rather than a silently-narrowed list. So
-  the doors that revoke are expiry, the creator's own delete, and the admin's
+  the doors that revoke are expiry, the key owner's own delete, and the admin's
   foreign one, and an admin seeing an outstanding key they cannot close is
   no longer a thing. The switch bounds the FUTURE; the ≤24 h window it leaves
-  is closable from the Setup keys card by the creator or by an admin.
+  is closable from the Setup keys card by the key owner or by an admin.
 
   It governs ADDING a node only. Who may launch on one they were shared, and
   what a share confers, are the unchanged axes above.
@@ -1265,7 +1265,7 @@ the digest bought, and what was traded against it:
   enrollment doors (`GET /api/nodes/setup-keys` answers 403 to a machine token), and
   one caller sees its own rows and nobody else's. The one widening is the admin
   view (audit 2026-09 item 4): `?all=1` is cookie-ADMIN only and lists every
-  row with its creator's label: the same plaintext, gated like every other
+  row with its key owner's label: the same plaintext, gated like every other
   instance-wide admin read, and it exists so an outstanding foreign key is
   something an admin can SEE and close rather than only wait out.
 - **The `label` went with it.** The mint dialog's "Node name" became only this column,

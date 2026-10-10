@@ -264,7 +264,7 @@ describe("/api/nodes/setup-keys", () => {
   // Audit 2026-09 item 4, operator-approved: an outstanding foreign key used
   // to be a door NO admin could close before its 24 h expiry — the delete was
   // owner-filtered and the list owner-scoped. Both halves opened at once:
-  // `?all=1` for a cookie admin sees every row with its creator's label, and
+  // `?all=1` for a cookie admin sees every row with its key owner's label, and
   // DELETE closes any row, audited `foreign: true` so the trail says whose
   // door it was.
   describe("the admin instance-wide view and foreign revoke", () => {
