@@ -338,7 +338,7 @@ describe("SetupKeysSection", () => {
     }
   });
 
-  it("an admin can list every account's keys, each naming its creator, and revoke a foreign row", async () => {
+  it("an admin can list every account's keys, each naming its owner, and revoke a foreign row", async () => {
     const mine = row();
     const foreign = row({
       id: "f1",
@@ -361,8 +361,9 @@ describe("SetupKeysSection", () => {
       fireEvent.click(toggle);
       await screen.findByText("nsk_foreign_foreign_foreign_fore_1");
       expect(gets.some((g) => g.includes("/api/nodes/setup-keys?all=1"))).toBe(true);
-      // Whose door it is, on the row itself.
-      expect(screen.getByText(/by bob@subshell.local/)).toBeDefined();
+      // Whose door it is, on the row itself. "for", not "by": the label is the
+      // key OWNER, who for an admin-minted recovery key is not who pressed.
+      expect(screen.getByText(/for bob@subshell.local/)).toBeDefined();
 
       // The same Revoke verb closes the foreign row — that is the whole fix.
       const revokeButtons = screen.getAllByRole("button", { name: "Revoke" });
