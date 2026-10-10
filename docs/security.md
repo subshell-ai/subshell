@@ -1171,7 +1171,10 @@ subshell may only be launched in one of them or beneath it.
   connection active. Redemption validates the machine's public keys first, then
   spends the key and replaces bearer, encryption pin, and delivery identity on
   the same node. Its owner, name, shares, maintenance, creation time, and subshell
-  relationships remain. A transaction compares the prior credential binding
+  relationships remain; the enrollment flow still DEMANDS a name and then ignores
+  it on this path (the row's own stands), which is why `GET /install.sh` renders
+  a bound key with the node's real name pre-supplied and a "re-registering"
+  banner instead of asking for one that cannot change. A transaction compares the prior credential binding
   before swapping it; a conflict leaves the existing node intact. Successful
   replacement disables the old bearer, evicts live and held sockets, drains
   pending commands, and revokes other unused recovery keys for that node.

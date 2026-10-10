@@ -78,11 +78,12 @@ export function NodeReregister({
         {key ? (
           <>
             <p className="text-detail text-muted-foreground">
-              This setup key is tied to {nodeName}, is single-use, and expires after 24 hours. In Subshell Client, open
-              Service → Re-enroll and use this key and the server address below. The existing connection keeps working
-              until the key is used.
+              This setup key is tied to <span className="font-strong">{nodeName}</span>, is single-use, and expires
+              after 24 hours; the current connection keeps working until it is used. Re-register with it in Subshell
+              Client (Service → Re-enroll) or with the Terminal command; either way the machine that redeems it takes
+              over the existing entry, keeping its name, shares and settings.
             </p>
-            <NodeKeySetup keyText={key.key} defaultMethod="desktop" />
+            <NodeKeySetup keyText={key.key} defaultMethod="desktop" reRegisterName={nodeName} />
             <Button variant="outline" size="sm" onClick={() => setCreated(null)}>
               Done, hide the key
             </Button>

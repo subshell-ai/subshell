@@ -298,7 +298,9 @@ describe("NodeDetailPage reregister", () => {
       expect(calls.filter((c) => c.method === "POST" && c.url === "/api/nodes/node1/reregister").length).toBe(1);
       const revealed = await screen.findByText("nsk_recovery_secret");
       expect(revealed.textContent).toBe("nsk_recovery_secret");
-      expect(screen.getByText(/tied to.*single-use/)).toBeDefined();
+      // The reveal sentence names the node in its own bolded span.
+      const tied = await screen.findByText(/This setup key is tied to/);
+      expect(tied.querySelector("span")?.textContent).toBe("box");
       // Done retires the plaintext from the DOM.
       fireEvent.click(screen.getByRole("button", { name: /Done, hide the key/ }));
       await waitFor(() => expect(screen.queryByText("nsk_recovery_secret")).toBeNull());
