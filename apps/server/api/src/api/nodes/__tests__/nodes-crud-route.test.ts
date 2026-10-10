@@ -34,6 +34,7 @@ type View = {
   arch: string | null;
   access: string;
   canManage: boolean;
+  canLaunch: boolean;
   capabilities: string[];
   harnesses: { harnessId: string; installed: boolean; version?: string }[];
   inventoryStale: boolean;
@@ -369,16 +370,22 @@ describe("/api/nodes registry CRUD", () => {
     expect(adminView).toBeDefined();
     expect(adminView?.access).toBe("edit"); // the boost, exactly as on detail
     expect(adminView?.canManage).toBe(false); // edit, never manage/delete/re-share
+    // Launch on an AGENT node rides the boosted access (`nodeCanLaunchOn`:
+    // any share grants launch, and the admin's instance-wide edit counts):
+    // the row the list hands the picker must tell the picker the truth.
+    expect(adminView?.canLaunch).toBe(true);
     expect((await list(bobCookie)).some((x) => x.id === n.id)).toBe(false);
     // Widened WHOSE, never WHAT KIND: a row whose kind is not a real machine
     // (the IN-list is 'local' | 'agent') stays out of the admin list by
     // construction, whatever its owner. The kind is set by raw UPDATE because
-    // it deliberately sits OUTSIDE today's NodeKind union — the guard is
-    // about kinds that do not exist yet, not about today's type system.
+    // it deliberately sits OUTSIDE today's NodeKind union: the guard is about
+    // kinds that do not exist yet, not about today's type system. (The name
+    // avoids "runtime": that word already means the detail route's runtime
+    // report, a different concept.)
     const weird = await mkNode(aliceId, `weird-${crypto.randomUUID().slice(0, 8)}`);
     await db
       .updateTable("nodes")
-      .set({ kind: "runtime" as unknown as NodeTable["kind"] })
+      .set({ kind: "not-a-machine-kind" as unknown as NodeTable["kind"] })
       .where("id", "=", weird.id)
       .execute();
     try {

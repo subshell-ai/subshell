@@ -105,11 +105,13 @@ export class NodesRepository extends BaseRepository {
    * `GET /api/nodes`, mirroring the detail gate (an admin's `GET
    * /api/nodes/:id` on a foreign row already answers 200 with the boosted
    * `edit`; the list answering differently is what hid a held, foreign-owned
-   * machine from the one surface that could manage it). The `kind` IN-list is
+   * machine from the page an operator navigates). The `kind` IN-list is
    * today's whole domain ('local' | 'agent') stated as a filter, not a
-   * comment: when a machine-shaped-but-not row ever exists, it stays out of
-   * listings by construction. Never call this for a non-admin; the visibility
-   * answer for everyone else is `findAccessible`. @internal
+   * comment: a machine-shaped-but-not row would stay out of ADMIN listings by
+   * construction (`findAccessible` carries no kind filter, since only real
+   * machines are ever owned or shared onto a normal account). Never call this
+   * for a non-admin; the visibility answer for everyone else is
+   * `findAccessible`. @internal
    */
   async findAllMachines(): Promise<NodeTable[]> {
     return await this.db
@@ -127,7 +129,7 @@ export class NodesRepository extends BaseRepository {
    * admin-only and asks a question about the whole fleet ("which machines are
    * behind?"), not about one viewer's grants. `local` is excluded because it
    * is not an agent: the control-plane host updates with the server. The
-   * other instance-wide reader is `findAllNonRuntime`, used only by the
+   * other instance-wide reader is `findAllMachines`, used only by the
    * admin arm of `GET /api/nodes`; a non-admin read of "nodes I can see"
    * stays `findAccessible`, which is what keeps a private node invisible.
    */

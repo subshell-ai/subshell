@@ -93,12 +93,16 @@ src/
 └── test-preload.ts # Loaded by bunfig.toml before every test run
 ```
 
-The nodes READ surface widened once (spec 2026-09-25 MCP DX): `GET /api/nodes`
-now answers a bearer machine token with its owner's own nodes (owner-only, no
-shares, no admin boost, disclosure-only), the door the MCP `list_nodes` tool
-rides; `GET /api/nodes/:id` and every nodes write stay cookie-only. The
-accounting is `docs/security.md` §3 and the pins are
-`api/nodes/__tests__/nodes-list-bearer.test.ts`.
+The nodes READ surface widened twice: spec 2026-09-25 (MCP DX) made `GET
+/api/nodes` answer a bearer machine token with its owner's own nodes
+(owner-only, no shares, no admin boost, disclosure-only), the door the MCP
+`list_nodes` tool rides; 2026-10-10 gave the COOKIE list its admin arm: an
+admin sees every machine node (`findAllMachines`), matching the detail gate
+that already gave admins `edit` on foreign rows, while a non-admin's list is
+the unchanged owner/share filter. `GET /api/nodes/:id` and every nodes write
+stay cookie-only. The accounting is `docs/security.md` §3 and the pins are
+`api/nodes/__tests__/nodes-list-bearer.test.ts` plus the admin-arm cell in
+`nodes-crud-route.test.ts`.
 
 The Nodes plane serves the prebuilt `subshell` binaries from
 `NODE_ARTIFACTS_DIR` at `GET /api/downloads/node/*` (cookie,
