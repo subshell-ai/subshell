@@ -42,7 +42,7 @@ someone a machine is quiet while panes are still alive on it. The wording is
 **The node page is Overview + two daemon sections, and the rules live on the
 Overview.** `managesNodeSections` (`node-section-nav.tsx`: an AGENT machine
 AND an `owner`/`edit` viewer) hides the Service and Logs tabs and gates their
-deep links. Hiding a link never gated the URL: once the sections were flat
+deep links. Hiding a pill never gated the URL: once the sections were flat
 routes (2026-09-20), `/nodes/local/service` was typeable and answered with a
 card calling the LIVE control plane "offline, nothing to report". The server
 remains the enforcement (400 for `local`, 403 for `view`); the redirect
