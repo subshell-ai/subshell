@@ -4,10 +4,12 @@ import { Analytics } from "../../components/analytics";
 import { GitHubIcon } from "../../components/icons";
 
 describe("GitHubIcon", () => {
-  test("renders GitHub's classic site mark path at currentColor", () => {
+  test("renders GitHub's Octicons mark at its native size", () => {
     const html = renderToStaticMarkup(<GitHubIcon />);
     expect(html).toContain('viewBox="0 0 16 16"');
-    expect(html).toContain("M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53");
+    expect(html).toContain("M6.766 11.328c-2.063-.25-3.516-1.734-3.516-3.656");
+    expect(html).toContain('width="16" height="16"');
+    expect(html).toContain('fill="currentColor"');
     expect(html).toContain("aria-hidden");
   });
 });
