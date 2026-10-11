@@ -68,12 +68,12 @@ export function NodeAllowedDirs({
         <CardDescription>
           {dirs.length === 0
             ? canEdit
-              ? "All directories are allowed. Subshells can start anywhere the user running the node can access. Add a directory to limit where they can start."
+              ? "All directories are allowed. Subshells can start anywhere the user running the node can access. Add a directory to limit where subshells can start."
               : "All directories are allowed. Subshells can start anywhere the user running the node can access."
-            : "New subshells and restarts start only inside these directories or what is under them. Panes already running are unaffected."}
+            : "New subshells and restarts are limited to the directories below and their subdirectories. Subshells already running aren’t affected."}
           {readOnly ? (
             <p className="text-detail text-muted-foreground">
-              Change these rules on the node's page in the control plane.
+              To change these rules, open this node’s page in the control plane.
             </p>
           ) : !node.canManage ? (
             <p className="text-detail text-muted-foreground">
@@ -145,7 +145,7 @@ export function NodeAllowedDirs({
 
           {dirs.length > 0 && canEdit && (
             <p className="text-detail text-muted-foreground">
-              Removing every directory returns this node to unrestricted.
+              Remove all directories to allow subshells to start anywhere the user running the node can access.
             </p>
           )}
           {error && (

@@ -66,15 +66,15 @@ describe("NodeAllowedDirs", () => {
     // Otherwise an operator tightening the rules on a busy node cannot tell
     // whether they are about to kill live work.
     renderCard({ allowedDirs: ["/srv/work"] });
-    expect(document.body.textContent).toContain("already running are unaffected");
+    expect(document.body.textContent).toContain("already running aren’t affected");
   });
 
-  it("names the control plane as the owner of the rules when read-only", () => {
+  it("explains where to change rules on the read-only dashboard", () => {
     // The machine's OWN dashboard renders this list but must not invite
     // edits the next reconnect would overwrite (spec 2026-09-10: the plane
     // holds the set and re-pushes on `ready`).
     renderCard({ allowedDirs: ["/srv/work"] }, { readOnly: true });
-    expect(document.body.textContent).toContain("Change these rules on the node's page in the control plane.");
+    expect(document.body.textContent).toContain("To change these rules, open this node’s page in the control plane.");
   });
 
   it("does not invite adding when the viewer has no Add control", () => {
