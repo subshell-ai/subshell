@@ -492,13 +492,21 @@ export function buildRoutes(
           if (!isSelf(cfg, params.id)) return notFound();
           try {
             const next = await runConfigure({ server: body.serverUrl });
-            log(`configured: server url is now ${next.serverUrl} (takes effect on the next restart)`);
+            log(
+              `configured: server url is now ${next.serverUrl} (takes effect within one heartbeat, without a restart)`,
+            );
             return Response.json({ serverUrl: next.serverUrl, restartRequired: true });
           } catch (err) {
             return refuse(409, err instanceof Error ? err.message : String(err));
           }
         },
-        { body: t.Object({ serverUrl: t.String({ description: "Control-plane URL to dial on the next restart" }) }) },
+        {
+          body: t.Object({
+            serverUrl: t.String({
+              description: "Control-plane URL the daemon dials within one heartbeat of the write",
+            }),
+          }),
+        },
       )
       .get("/api/self/update", async () => ({
         currentVersion: NODE_VERSION,

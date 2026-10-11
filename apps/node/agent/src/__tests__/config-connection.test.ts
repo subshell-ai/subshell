@@ -27,6 +27,7 @@ describe("connectionIdentity", () => {
       { nodeKey: "subshell_key_b" },
       { serverUrl: "https://other.example" },
       { nodeWsUrl: undefined },
+      { controlPublicKey: '{"kty":"RSA"}' },
       { controlEncryptPublicKey: "BBBB" },
       { encryptKeyPair: { publicKey: "PUB", privateKey: "OTHER" } },
     ]) {
