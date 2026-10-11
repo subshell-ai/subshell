@@ -614,15 +614,23 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // connection-affecting fields (parsed-value equality, never file bytes); on a
   // real change the fields are swapped IN PLACE — every consumer holds this same
   // object, the discipline `persistLink` already follows — and the caller hands
-  // the reconnect loop a fresh dial. A config the loader rejects costs ONE warn
-  // line (deduped by message) and the running identity, never a dropped socket:
-  // a bad write can only ever preserve the status quo. The log names the nodeId
-  // only — the bearer key must never reach a log line.
+  // the reconnect loop a fresh dial. A config the loader rejects, or whose
+  // dial target could not open a socket, costs ONE warn line (deduped by
+  // message) and the running identity, never a dropped socket: a bad write can
+  // only ever preserve the status quo. The log names the nodeId only — the
+  // bearer key must never reach a log line.
   let liveIdentity = connectionIdentity(config);
   let lastBadConfig = "";
   // async because `loadConfig` is: the loader is the same promise-returning
   // reader every CLI command uses, and the seam must not re-implement it.
   const refreshConnectionConfig = async (): Promise<boolean> => {
+    // The identity this reader compared against when it started. A beat and
+    // the loop-seam check can overlap; if a concurrent refresh swapped while
+    // this `loadConfig` was in flight, this reader's disk snapshot is older
+    // than the state it would compare against — yielding costs one beat
+    // (the winner's identity is on disk too, so the next read converges)
+    // where applying it would swap the NEWER credentials back out.
+    const baseline = liveIdentity;
     let fresh: NodeConfig;
     try {
       fresh = await loadConfig();
@@ -647,6 +655,29 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       }
       return false; // whole-bundle rule: a swap half-applied is worse than none
     }
+    // The whole-bundle rule reaches the DIAL TARGET too. `loadConfig` proves
+    // the fields are STRINGS, not that the result opens a socket, and the
+    // WebSocket constructor's throw has no catch between a dial and process
+    // exit (runConnection reject -> the loop -> runDaemon -> cli) — swapping
+    // an un-dialable `serverUrl` in would trade a healthy connection for a
+    // crash loop the service manager respawns into the same death. Validate
+    // exactly what the next dial will dial, and refuse the whole bundle when
+    // it will not. (PR #359 review M1, 2026-10-10.)
+    const dialTarget = resolveWsUrl(fresh);
+    try {
+      const url = new URL(dialTarget);
+      if (url.protocol !== "ws:" && url.protocol !== "wss:") {
+        throw new Error(`scheme "${url.protocol}" is not ws: or wss:`);
+      }
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      if (detail !== lastBadConfig) {
+        lastBadConfig = detail;
+        log(`config reload failed: dial target un-parsable (${detail}); keeping the running identity`);
+      }
+      return false;
+    }
+    if (liveIdentity !== baseline) return false; // stale snapshot — see `baseline`
     lastBadConfig = "";
     liveIdentity = next;
     applyConnectionFields(config, fresh);
@@ -992,6 +1023,12 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
           for (const key of Object.keys(patch) as (keyof NodeConfig)[]) {
             (config as unknown as Record<string, unknown>)[key] = (next as unknown as Record<string, unknown>)[key];
           }
+          // The mirror moved the live identity, so the identity tracker moves
+          // with it: the daemon's OWN §5 heal write is not a foreign change,
+          // and without this the next seam prints a false "config changed;
+          // reconnecting" line for a credential the node just healed itself
+          // (PR #359 review m1, 2026-10-10).
+          liveIdentity = connectionIdentity(config);
         });
         // Gate the redial on the write (see {@link provisioning}): a FAILED store
         // settles the gate quietly too — the negotiator's own persist catch

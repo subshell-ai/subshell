@@ -2051,6 +2051,7 @@ describe("the link handshake (spec 2026-09-24 §4/§5)", () => {
 
   test("(c) legacy self-heal: register on connect 1, BOTH keys on disk, handshake on connect 2", async () => {
     newHome(); // the register's updateConfig reads/writes the agent home
+    const logs = captureLogs();
     const h = await startDaemon({
       saveConfig: true, // the file the §5 write path merges over
       config: { encryptKeyPair: undefined, controlEncryptPublicKey: undefined }, // new binary, OLD config
@@ -2066,6 +2067,12 @@ describe("the link handshake (spec 2026-09-24 §4/§5)", () => {
     // And the self-heal is done: the provisioned config handshakes WITHOUT another register.
     expect(h.plane.firstFrames.filter((f) => f === "register")).toEqual(["register"]);
     expect(h.plane.violations).toEqual([]);
+    // PR #359 review m1 (2026-10-10): the §5 write is the daemon's OWN. The
+    // identity tracker follows the in-memory mirror (persistLink), so no
+    // seam may report it as a foreign change — the false "config changed;
+    // reconnecting" line misleads exactly the operator this feature speaks to.
+    expect(logs.lines.some((l) => l.includes("config changed; reconnecting"))).toBe(false);
+    logs.restore();
   });
 
   test("(e) R11 rotation heal: 4411 refused kx drops the CONTROL PIN only, register re-presents the SAME static, next connect handshakes", async () => {
@@ -2613,6 +2620,27 @@ test("unparsable config on disk is one warn line and keeps the live connection",
   expect(logs.lines.some((l) => l.includes("keeping the running identity"))).toBe(true);
   await saveConfig({ ...h.config, nodeId: "after-good-write" }); // a good write after the bad one lands
   await waitUntil(() => logs.lines.some((l) => l.includes("reconnecting as node after-good-write")), "recover");
+  logs.restore();
+});
+
+test("a parseable-but-un-dialable serverUrl keeps the live connection (the swap gate refuses the whole bundle)", async () => {
+  // PR #359 review M1 (2026-10-10): `loadConfig` proves the fields are
+  // STRINGS, and the WebSocket constructor throw has no catch between the
+  // dial and process exit — a beat that swapped in a hand-written
+  // `"serverUrl": "not a url"` would have dropped a HEALTHY socket and
+  // respawned the service straight into the same death. The gate must make
+  // the seam's stated worst-case (status quo) true for this shape too.
+  const logs = captureLogs();
+  const h = await startDaemon({ heartbeatMs: 30 });
+  await saveConfig({ ...h.config, serverUrl: "not a url" });
+  await sleep(120); // several beats against a file that parses but cannot dial
+  expect(h.plane.opens).toBe(1); // no swap, no close, no redial: the socket lives
+  const warns = logs.lines.filter((l) => l.includes("config reload failed"));
+  expect(warns.length).toBe(1); // deduped like every other refusal
+  expect(logs.lines.some((l) => l.includes("keeping the running identity"))).toBe(true);
+  // The refusal is not sticky: the next legitimate write lands and reconnects.
+  await saveConfig({ ...h.config, nodeId: "dialable-again" });
+  await waitUntil(() => logs.lines.some((l) => l.includes("reconnecting as node dialable-again")), "recover");
   logs.restore();
 });
 
