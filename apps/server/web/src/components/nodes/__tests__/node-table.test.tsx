@@ -64,7 +64,7 @@ describe("NodeTable", () => {
       "Owner",
       "Version",
       "Seen",
-      "Actions",
+      "",
     ]);
     expect(screen.getByText("Ada")).toBeTruthy();
     expect(screen.getByText("You")).toBeTruthy();

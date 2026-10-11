@@ -95,9 +95,7 @@ export function NodeTable({
             <th className="pr-4 pb-2 font-strong">Owner</th>
             <th className="pr-4 pb-2 font-strong">Version</th>
             <th className="pr-4 pb-2 font-strong">Seen</th>
-            <th className="pb-2 text-right font-strong">
-              <span className="sr-only">Actions</span>
-            </th>
+            <th className="pb-2 text-right font-strong" />
           </tr>
         </thead>
         <tbody>
