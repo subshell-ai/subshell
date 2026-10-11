@@ -101,7 +101,7 @@ export function LogRetentionCard(): React.ReactNode {
       );
       void queryClient.invalidateQueries({ queryKey: RETENTION_KEY });
     },
-    onError: (err) => setFailure(errMessage(err, "The retention change was refused.")),
+    onError: (err) => setFailure(errMessage(err, "The retention change did not apply.")),
   });
 
   if (state.isError) {

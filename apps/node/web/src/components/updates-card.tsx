@@ -163,12 +163,12 @@ export function UpdatesCard(): React.ReactNode {
 
         {update.isError && (
           <p role="alert" className="text-destructive text-detail">
-            {errMessage(update.error, "The update was refused.")}
+            {errMessage(update.error, "The update did not run.")}
           </p>
         )}
         {rollback.isError && (
           <p role="alert" className="text-destructive text-detail">
-            {errMessage(rollback.error, "Rollback was refused.")}
+            {errMessage(rollback.error, "The rollback did not run.")}
           </p>
         )}
         {result && <p className="text-detail text-success">{result}</p>}

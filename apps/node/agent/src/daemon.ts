@@ -1125,7 +1125,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // node is too old" case, and swapping files there would be inventing
         // a rollback for an update that never happened.
         updateSettled = true;
-        const reverted = await revertAfterRefusal(config.dataDir, close.reason || "the control plane refused it").catch(
+        const reverted = await revertAfterRefusal(config.dataDir, close.reason || "no reason was given").catch(
           (err: unknown) => {
             log(`could not roll the update back: ${err instanceof Error ? err.message : String(err)}`);
             return null;

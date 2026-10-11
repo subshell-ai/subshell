@@ -2442,6 +2442,27 @@ describe("the update transaction, settled by the daemon (spec 2026-09-15 §5.1/�
     restore();
   });
 
+  test("close 4406 with a marker and an EMPTY reason records the plain fallback", async () => {
+    const { lines, restore } = captureLogs();
+    const h = await startDaemon();
+    await waitForReady(h);
+    const { binary, previous } = stageTransaction(h.config.dataDir);
+    h.plane.socket?.close(4406, "");
+    const deadline = Date.now() + 2000;
+    while (h.exits.length === 0 && Date.now() < deadline) await sleep(5);
+    expect(h.exits).toEqual([1]);
+    expect(readFileSync(binary, "utf8")).toBe(OLD_STUB);
+    expect(existsSync(previous)).toBe(false);
+    const failed = JSON.parse(readFileSync(join(h.config.dataDir, "update-failed.json"), "utf8")) as {
+      reason: string;
+    };
+    // The dashboard prints this reason raw; the no-reason fallback says what
+    // is true and hides no protocol verb behind the sentence.
+    expect(failed.reason).toBe("no reason was given");
+    expect(lines.some((l) => l.includes("would not accept 9.9.9 (no reason was given)"))).toBe(true);
+    restore();
+  });
+
   test("close 4406 WITHOUT a marker touches nothing — it is the ordinary too-old refusal", async () => {
     // A plane refusing an agent nobody just updated is the commonest 4406 by
     // far. Inventing a swap there would move files for an update that never

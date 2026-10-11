@@ -111,6 +111,7 @@ describe("reading a slice of it", () => {
 describe("readableDaemonLogPath", () => {
   it("prefers daemon.log, falls back to the pre-rename agent.log, and never errors on neither", () => {
     const home = mkdtempSync(join(tmpdir(), "subshell-daemonlog-"));
+    const prior = process.env.SUBSHELL_CONFIG_HOME;
     process.env.SUBSHELL_CONFIG_HOME = home;
     try {
       // No file at all: the answer is the current name (an empty read, not a
@@ -123,7 +124,11 @@ describe("readableDaemonLogPath", () => {
       writeFileSync(join(home, "logs", "daemon.log"), "new");
       expect(readableDaemonLogPath()).toBe(join(home, "logs", "daemon.log"));
     } finally {
-      delete process.env.SUBSHELL_CONFIG_HOME;
+      // The package preload installs a sandbox home; dropping the variable
+      // would hand any test added after this one the developer's REAL
+      // ~/.config/subshell.
+      if (prior === undefined) delete process.env.SUBSHELL_CONFIG_HOME;
+      else process.env.SUBSHELL_CONFIG_HOME = prior;
     }
   });
 });
