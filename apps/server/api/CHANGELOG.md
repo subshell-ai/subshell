@@ -1,5 +1,11 @@
 # @internal/server
 
+## 1.10.7
+
+### Patch Changes
+
+- [#366](https://github.com/subshell-ai/subshell/pull/366) [`9ffd530`](https://github.com/subshell-ai/subshell/commit/9ffd530444673d644e8d530d888e3861b3beb9fb) Thanks [@theogravity](https://github.com/theogravity)! - Make the Allowed directories card say when all directories are allowed and explain who can change the rules. Remove the empty body when there are no rules or editing controls.
+
 ## 1.10.6
 
 ### Patch Changes
