@@ -4,16 +4,16 @@ const CONTROLS = [
     body: "Use passwords, passkeys, or your OIDC provider. Control account registration and revoke access when someone leaves.",
   },
   {
-    title: "Choose who can access your sessions",
-    body: "Sessions are private by default. Choose who can view or edit them, and who can launch agents on your machines.",
+    title: "Set machine permissions",
+    body: "Choose who can start subshells on each machine. Signing in doesn’t grant access to every node.",
   },
   {
     title: "Protect connections to your machines",
     body: "Node connections are encrypted and authenticated even when your server uses HTTP. Commands from your server are signed and bound to the intended machine.",
   },
   {
-    title: "See security changes",
-    body: "An audit log records account changes, enrollment, sharing, and other security actions, including who made them.",
+    title: "Review security changes",
+    body: "Check the audit log to see who changed accounts, enrolled machines, shared subshells, or took other security actions.",
   },
 ] as const;
 
@@ -30,11 +30,12 @@ export function SecuritySection() {
           id="security-feature"
           className="mt-3 text-[28px] font-semibold leading-tight tracking-[-.035em] sm:text-[36px]"
         >
-          Decide who can use your server.
+          Manage access to your machines.
         </h2>
         <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
-          Run Subshell on your own infrastructure and connect through your LAN, VPN, or a configured access gate. Choose
-          who can sign in, see a session, and run agents on your machines.
+          Choose how people sign in, from passwords and passkeys to your existing identity provider. Set permissions for
+          the machines they can use and revoke access when needed. Node connections are encrypted and authenticated, and
+          the audit log records security changes.
         </p>
         <a
           href="https://docs.subshell.sh/concepts/security"

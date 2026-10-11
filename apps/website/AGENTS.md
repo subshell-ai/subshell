@@ -24,7 +24,7 @@ it is a site, not one of server/node/client, which is why it sits directly under
   `docs/release-and-ci.md`.
 - The palette in `app/globals.css` is the MARKETING token set, deliberately not
   the SPA design system; `lint:design` does not scan this app.
-- Copy changes are product decisions: Theo approves the words.
+- Apply the shared content guide to routine copy edits. Ask Theo when wording would change product meaning or positioning.
 
 ## Product demonstration clips
 
@@ -71,7 +71,9 @@ sentence structure and connect ideas so the text flows. Avoid textbook
 formality, stock marketing or AI phrases, and repetitive closing summaries.
 
 Use plain, concise language and consistent product terms: Server, Client, node,
-agent, and session. Introduce a node as a machine that runs agents. Use “your
+agent, and subshell. Introduce a subshell as a terminal session running an agent
+or a shell; “session” is fine in explanations after that. Introduce a node as
+a machine that runs agents. Use “your
 server” and “dashboard” in visitor-facing instructions rather than “control
 plane”. Describe what an installation does; keep digest algorithms, binary
 paths, and other implementation details in documentation. Both installation
