@@ -66,7 +66,8 @@ describe("NodeRow", () => {
     );
     expect(screen.getByText("mac mini")).toBeDefined();
     expect(screen.getByText(/Apple · arm64/)).toBeDefined();
-    expect(screen.getByText("online")).toBeDefined();
+    // The status word now rides the dot's announcement, not a chip (Task B2).
+    expect(screen.getByRole("img", { name: "online" })).toBeDefined();
     expect(screen.getByText("claude")).toBeDefined();
     expect(screen.getByText("hermes")).toBeDefined();
     // The one filter left. `opencode` is a plugin this node has whose program
@@ -111,7 +112,7 @@ describe("NodeRow", () => {
     expect(screen.getByRole("button", { name: "+3 more" })).toBeDefined();
   });
 
-  it("never hides the OS, status or access badges behind the more control", () => {
+  it("never hides the OS chip, status dot, or access chip behind the more control", () => {
     // Each of these is ONE chip of fixed shape, so none of them is what makes
     // the row too long. A STALE detection gets no chip at all (operator's
     // call 2026-10-10, and the harness card's caveat paragraph went the same
@@ -128,7 +129,7 @@ describe("NodeRow", () => {
       />,
     );
     expect(screen.getByText(/Apple · arm64/)).toBeDefined();
-    expect(screen.getByText("online")).toBeDefined();
+    expect(screen.getByRole("img", { name: "online" })).toBeDefined();
     expect(screen.getByText("shared · view")).toBeDefined();
     expect(screen.queryByText(/stale|outdated/i)).toBeNull();
   });
@@ -148,7 +149,7 @@ describe("NodeRow", () => {
     expect(screen.getByText("workshop-mac-studio")).toBeDefined();
   });
 
-  it("reads offline as a muted badge and shared access as a badge", () => {
+  it("reads offline on the status dot and shared access as a badge", () => {
     render(
       <NodeRow
         node={{ ...BASE, status: "offline", access: "edit", canManage: false, canRetire: false }}
@@ -158,7 +159,9 @@ describe("NodeRow", () => {
         onMaintenance={() => {}}
       />,
     );
-    expect(screen.getByText("offline")).toBeDefined();
+    // The fixture's lastSeenAt is now, so the dot announces "offline · seen …",
+    // never bare "offline" — hence the prefix regex, not a string.
+    expect(screen.getByRole("img", { name: /^offline · seen / })).toBeDefined();
     expect(screen.getByText("shared · edit")).toBeDefined();
   });
 
