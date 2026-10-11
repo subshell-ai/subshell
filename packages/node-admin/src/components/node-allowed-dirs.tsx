@@ -9,8 +9,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui
  * The node's directory allowlist — which directories subshells may be created
  * under on this machine (spec 2026-09-05).
  *
- * Owner-only to edit (`canManage`, the server's gate too). The controls simply
- * do not render for anyone else), but READ-visible to everyone who can see the
+ * Owner-only to edit (`canManage`, the server's gate too). The controls
+ * do not render for anyone else, but READ-visible to everyone who can see the
  * node: a "directory not allowed" refusal is unexplainable without the rules
  * that caused it.
  *
@@ -68,83 +68,93 @@ export function NodeAllowedDirs({
         <CardDescription>
           {dirs.length === 0
             ? canEdit
-              ? "Subshells on this machine can start anywhere its user can reach. Add a directory to limit them to it and what is inside."
-              : "Subshells on this machine can start anywhere its user can reach."
+              ? "All directories are allowed. Subshells can start anywhere the user running the node can access. Add a directory to limit where they can start."
+              : "All directories are allowed. Subshells can start anywhere the user running the node can access."
             : "New subshells and restarts start only inside these directories or what is under them. Panes already running are unaffected."}
-          {readOnly && (
-            <p className="text-detail text-muted-foreground">These rules are managed by the control plane.</p>
-          )}
+          {readOnly ? (
+            <p className="text-detail text-muted-foreground">
+              Change these rules on the node's page in the control plane.
+            </p>
+          ) : !node.canManage ? (
+            <p className="text-detail text-muted-foreground">
+              {node.kind === "local"
+                ? "Only a server admin can change these rules."
+                : "Only the node owner can change these rules."}
+            </p>
+          ) : null}
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
-        {dirs.length > 0 && (
-          <ul className="space-y-1.5">
-            {dirs.map((dir) => (
-              <li key={dir} className="flex items-center justify-between gap-3 rounded-md border px-3 py-1.5">
-                <code className="truncate font-mono text-detail">{dir}</code>
-                {canEdit && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Remove ${dir}`}
-                    disabled={setDirs.isPending}
-                    onClick={() => void save(dirs.filter((d) => d !== dir))}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+      {(dirs.length > 0 || canEdit || error) && (
+        <CardContent className="space-y-3">
+          {dirs.length > 0 && (
+            <ul className="space-y-1.5">
+              {dirs.map((dir) => (
+                <li key={dir} className="flex items-center justify-between gap-3 rounded-md border px-3 py-1.5">
+                  <code className="truncate font-mono text-detail">{dir}</code>
+                  {canEdit && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      aria-label={`Remove ${dir}`}
+                      disabled={setDirs.isPending}
+                      onClick={() => void save(dirs.filter((d) => d !== dir))}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
 
-        {canEdit &&
-          (adding ? (
-            <div className="space-y-2">
-              {/* The picker is deliberately UNSCOPED here: you have to be able
+          {canEdit &&
+            (adding ? (
+              <div className="space-y-2">
+                {/* The picker is deliberately UNSCOPED here: you have to be able
                   to browse to a directory in order to permit it, and scoping
                   it to the current rules would make the first rule
                   unaddable. */}
-              {renderEditor?.({ value: draft, onChange: setDraft, placeholder: "/home/you/projects" })}
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  disabled={!draft.trim() || setDirs.isPending}
-                  onClick={() => void save([...dirs, draft.trim()])}
-                >
-                  Add directory
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={setDirs.isPending}
-                  onClick={() => {
-                    setAdding(false);
-                    setDraft("");
-                    setError(null);
-                  }}
-                >
-                  Cancel
-                </Button>
+                {renderEditor?.({ value: draft, onChange: setDraft, placeholder: "/home/you/projects" })}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    disabled={!draft.trim() || setDirs.isPending}
+                    onClick={() => void save([...dirs, draft.trim()])}
+                  >
+                    Add directory
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={setDirs.isPending}
+                    onClick={() => {
+                      setAdding(false);
+                      setDraft("");
+                      setError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <Button size="sm" variant="outline" disabled={setDirs.isPending} onClick={() => setAdding(true)}>
-              <Plus className="h-3 w-3" /> Add directory
-            </Button>
-          ))}
+            ) : (
+              <Button size="sm" variant="outline" disabled={setDirs.isPending} onClick={() => setAdding(true)}>
+                <Plus className="h-3 w-3" /> Add directory
+              </Button>
+            ))}
 
-        {dirs.length > 0 && canEdit && (
-          <p className="text-detail text-muted-foreground">
-            Removing every directory returns this node to unrestricted.
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="text-destructive text-detail">
-            {error}
-          </p>
-        )}
-      </CardContent>
+          {dirs.length > 0 && canEdit && (
+            <p className="text-detail text-muted-foreground">
+              Removing every directory returns this node to unrestricted.
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="text-destructive text-detail">
+              {error}
+            </p>
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }
