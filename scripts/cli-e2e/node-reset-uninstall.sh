@@ -34,7 +34,7 @@ seed_state() {
   printf '%s' '{"nodeId":"e2e-node-1","name":"e2e box"}' > "$SUBSHELL_CONFIG_HOME/config.json"
   printf '%s' '{}' > "$SUBSHELL_CONFIG_HOME/data/identity.json"
   printf '%s' 'pane bytes' > "$SUBSHELL_CONFIG_HOME/data/subshells/abc.log"
-  printf '%s' 'agent bytes' > "$SUBSHELL_CONFIG_HOME/logs/agent.log"
+  printf '%s' 'daemon bytes' > "$SUBSHELL_CONFIG_HOME/logs/daemon.log"
   printf '%s' '{"pid":4194305,"startedAt":"2026-01-01T00:00:00Z","nodeId":"e2e-node-1","lastTickAt":"2026-01-01T00:00:00Z"}' > "$SUBSHELL_CONFIG_HOME/daemon.lock"
 }
 
@@ -76,9 +76,9 @@ fi
 [ ! -f "$SUBSHELL_CONFIG_HOME/config.json" ] || fail "config.json survived reset"
 [ ! -d "$SUBSHELL_CONFIG_HOME/data" ] || fail "the data dir survived reset"
 [ -x "$SRV" ] || fail "reset removed the binary it promised to keep"
-[ -f "$SUBSHELL_CONFIG_HOME/logs/agent.log" ] || fail "reset took the agent log it promised to leave"
-grep -q -- "left the agent" "$W/reset.log" || fail "the run did not name the log it keeps: $(cat "$W/reset.log")"
-ok "config, lock and data gone; binary and agent log stay"
+[ -f "$SUBSHELL_CONFIG_HOME/logs/daemon.log" ] || fail "reset took the daemon log it promised to leave"
+grep -q -- "left the daemon" "$W/reset.log" || fail "the run did not name the log it keeps: $(cat "$W/reset.log")"
+ok "config, lock and data gone; binary and daemon log stay"
 
 echo "== 4. uninstall without --reset-data: the binary goes, the bytes stay"
 seed_state
