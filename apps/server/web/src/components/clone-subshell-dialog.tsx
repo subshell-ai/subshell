@@ -111,8 +111,8 @@ export function CloneSubshellDialog({
         <DialogHeader>
           <DialogTitle>Clone</DialogTitle>
           <DialogDescription>
-            Launches a fresh copy with the same agent, preset, node and working directory. Blank name defaults to
-            date/time.
+            Start a new subshell with the same agent, preset, node, and working directory. Leave the name blank to use
+            the date and time.
           </DialogDescription>
         </DialogHeader>
         <dl className="text-sm">

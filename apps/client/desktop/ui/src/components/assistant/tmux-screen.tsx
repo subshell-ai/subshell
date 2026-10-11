@@ -230,7 +230,7 @@ export function TmuxScreen(props: {
   const status = busy
     ? "Installing tmux…"
     : probe && !probe.tmux
-      ? "tmux was not found on the login PATH. This screen continues on its own as soon as it is there."
+      ? "Subshell couldn't find tmux on this machine's login PATH. Setup continues automatically once it's available."
       : "Checking for tmux…";
 
   return (

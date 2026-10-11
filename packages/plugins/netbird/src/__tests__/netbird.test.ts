@@ -241,7 +241,7 @@ describe("NetBirdPlugin.status", () => {
     const status = await plugin.status(CTX);
     expect(status.state).toBe("daemon-down");
     expect(status.hints[0]?.text).toBe(
-      "The NetBird daemon is not running or not reachable. If it is installed, start its service (this page will notice when you do).",
+      "The NetBird daemon isn't responding. If it's installed, start its service; this page updates automatically.",
     );
     expect(status.hints[0]?.command).toBe("sudo netbird service install && sudo netbird service start");
     expect(status.hints[0]?.privileged).toBe(true);
@@ -493,7 +493,9 @@ describe("NetBirdPlugin.publish", () => {
 
   it("refuses, with the state's own sentence, when NetBird is not installed", async () => {
     const { plugin } = scripted({}, { findBinary: async () => null });
-    expect(await plugin.publish?.(CTX)).toMatchObject({ refused: { text: expect.stringContaining("not installed") } });
+    expect(await plugin.publish?.(CTX)).toMatchObject({
+      refused: { text: expect.stringContaining("Install NetBird") },
+    });
   });
 
   it("refuses, naming the next step, when this machine is not enrolled", async () => {

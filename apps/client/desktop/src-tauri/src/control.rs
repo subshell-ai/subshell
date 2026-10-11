@@ -310,7 +310,7 @@ fn existing_node() -> ExistingNode {
 /// **The agent's OWN file comes first, on every platform**, which is the same
 /// order `apps/server/desktop`'s `desktop_logs` reads the server's in and for
 /// the same reason: since 2026-09-12 the agent writes one capped JSON-lines
-/// file (`<config dir>/logs/agent.log`, 0600, 200 KB, replaced when full) and
+/// file (`<config dir>/logs/daemon.log`, 0600, 200 KB, replaced when full) and
 /// that is the file the plane's node log view serves. A person revealing the
 /// log here and a person reading it in a browser must not be looking at two
 /// different documents.
@@ -345,14 +345,17 @@ fn node_log_paths_from(
     home: Option<PathBuf>,
     has_content: impl Fn(&Path) -> bool,
 ) -> (Option<String>, Option<String>) {
-    let own = config.map(|c| c.join("logs").join("agent.log"));
+    let own = config.as_ref().map(|c| c.join("logs").join("daemon.log"));
+    // The file's name before the 2026-10 rename; a node that has not written
+    // under the new name yet still has its real history here.
+    let own_legacy = config.map(|c| c.join("logs").join("agent.log"));
     // `filter` rather than an inner `if` on both rungs, so every branch stays
     // compiled on both platforms — which is what makes a clippy run on either
     // of them mean something.
     let managed = home
         .filter(|_| cfg!(target_os = "macos"))
         .map(|h| h.join("Library").join("Logs").join("subshell.log"));
-    for candidate in [own, managed].into_iter().flatten() {
+    for candidate in [own, own_legacy, managed].into_iter().flatten() {
         if has_content(&candidate) {
             return (Some(candidate.to_string_lossy().into_owned()), None);
         }
@@ -367,9 +370,9 @@ fn node_log_paths_from(
 /// the fallback each has: macOS keeps a second file the plist names, Linux has
 /// the journal and will never grow a file at all.
 const NO_LOG_FILE: &str = if cfg!(target_os = "macos") {
-    "the node has not written a log yet: it appears at ~/.config/subshell/logs/agent.log once the node runs, and the service manager keeps its own copy at ~/Library/Logs/subshell.log"
+    "the node has not written a log yet: it appears at ~/.config/subshell/logs/daemon.log once the node runs, and the service manager keeps its own copy at ~/Library/Logs/subshell.log"
 } else {
-    "the node has not written a log yet: it appears at ~/.config/subshell/logs/agent.log once the node runs; the service manager's own copy is the journal (`journalctl --user -u subshell.service -f`)"
+    "the node has not written a log yet: it appears at ~/.config/subshell/logs/daemon.log once the node runs; the service manager's own copy is the journal (`journalctl --user -u subshell.service -f`)"
 };
 
 /// The paths the window may name, and the ones it may ask to reveal.
@@ -863,10 +866,8 @@ pub fn install_refusal(bundled: Option<&str>, installed: Option<&str>) -> Option
     }
     let (bundled, installed) = (bundled?, installed?);
     Some(format!(
-        "the agent already installed on this machine ({installed}) is newer than the one this app ships \
-         ({bundled}), so installing would downgrade it: an agent older than the control plane expects enrolls, \
-         comes up online and then refuses every launch. Nothing was changed, and the installed agent is the one \
-         this app drives."
+        "This machine already has a newer Subshell daemon ({installed}) than this app includes ({bundled}). \
+         The app will keep using it to avoid a downgrade that could prevent you from launching subshells."
     ))
 }
 
@@ -1890,7 +1891,7 @@ pub enum OpenTarget {
     ConfigDir,
     /// The identity/state directory this node was enrolled with.
     DataDir,
-    /// The agent's own log file, where the platform has one.
+    /// The daemon's own log file, where the platform has one.
     NodeLog,
 }
 
@@ -3395,7 +3396,9 @@ mod path_tests {
         assert_ne!(path.is_some(), hint.is_some());
         match (path, hint) {
             (Some(p), None) => assert!(
-                p.ends_with("/logs/agent.log") || p.ends_with("/Library/Logs/subshell.log"),
+                p.ends_with("/logs/daemon.log")
+                    || p.ends_with("/logs/agent.log")
+                    || p.ends_with("/Library/Logs/subshell.log"),
                 "{p}"
             ),
             (None, Some(h)) => assert!(!h.is_empty()),
@@ -3408,7 +3411,7 @@ mod path_tests {
     // desktop and the browser on two different documents.
     #[test]
     fn the_nodes_own_capped_log_wins_over_the_managers_copy() {
-        let own = PathBuf::from("/home/u/.config/subshell/logs/agent.log");
+        let own = PathBuf::from("/home/u/.config/subshell/logs/daemon.log");
         let (path, hint) = node_log_paths_from(
             Some(PathBuf::from("/home/u/.config/subshell")),
             Some(PathBuf::from("/home/u")),
@@ -3422,11 +3425,11 @@ mod path_tests {
     // the stdout of an agent that died before opening its own file.
     #[test]
     fn the_managers_log_is_the_fallback_where_the_platform_keeps_one() {
-        let own = PathBuf::from("/home/u/.config/subshell/logs/agent.log");
         let (path, hint) = node_log_paths_from(
             Some(PathBuf::from("/home/u/.config/subshell")),
             Some(PathBuf::from("/home/u")),
-            |p| p != own, // the agent has written nothing of its own
+            // the daemon has written nothing of its own, under either name
+            |p| !(p.ends_with("logs/daemon.log") || p.ends_with("logs/agent.log")),
         );
         if cfg!(target_os = "macos") {
             assert_eq!(path.as_deref(), Some("/home/u/Library/Logs/subshell.log"));
@@ -3436,6 +3439,23 @@ mod path_tests {
             assert!(path.is_none());
             assert_eq!(hint.as_deref(), Some(NO_LOG_FILE));
         }
+    }
+
+    // The file's name was `agent.log` before the 2026-10 copy ruling. A node
+    // that has not restarted onto the new spelling yet still has its real
+    // history under the old name, and the desktop must reveal THAT rather
+    // than fall through to the manager's copy.
+    #[test]
+    fn the_pre_rename_log_wins_when_the_new_name_has_nothing_yet() {
+        let (path, hint) = node_log_paths_from(
+            Some(PathBuf::from("/home/u/.config/subshell")),
+            Some(PathBuf::from("/home/u")),
+            // BOTH the old name and the manager's copy have content: the rung
+            // order the ruling keeps is daemon, then pre-rename, then manager.
+            |p| p.ends_with("logs/agent.log") || p.ends_with("Library/Logs/subshell.log"),
+        );
+        assert_eq!(path.as_deref(), Some("/home/u/.config/subshell/logs/agent.log"));
+        assert!(hint.is_none());
     }
 
     // An empty file is not a log: the capped writer truncates to zero and
@@ -3460,7 +3480,7 @@ mod path_tests {
     #[test]
     fn each_platform_is_told_the_right_reason_for_having_no_log_file() {
         assert!(
-            NO_LOG_FILE.contains("~/.config/subshell/logs/agent.log"),
+            NO_LOG_FILE.contains("~/.config/subshell/logs/daemon.log"),
             "{NO_LOG_FILE}"
         );
         if cfg!(target_os = "macos") {

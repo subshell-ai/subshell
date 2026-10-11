@@ -13,7 +13,7 @@ Implement plugins against the published `@subshell-ai/plugin-api` contract.
 | `terminal` | `SubshellPlugin` | A shell or other non-agent program in a session. |
 | `network` | `NetworkPlugin` | A network connection or publication on the server host. |
 
-Types group plugins for people and select the required interface. Capabilities opt into supported features. Installing a harness does not install its executable on every node.
+Types group plugins for people and select the required interface. Capabilities opt into supported features. Installing a harness doesn't install its executable on every node.
 
 Start with [Build a harness plugin](/developers/harness-plugin) for a runnable shell example or [Build a network plugin](/developers/network-plugin) for a fixture-tested network adapter.
 
@@ -24,12 +24,12 @@ The package's `package.json` contains a `subshell` object:
 | Field | Meaning |
 | --- | --- |
 | `apiVersion` | Contract version required by the plugin. The implemented manifest API version is `2`. |
-| `id` | Stable plugin ID, unique within an instance. Do not claim another package's or built-in plugin's ID. |
+| `id` | Stable plugin ID, unique within an instance. Don't claim another package's or built-in plugin's ID. |
 | `type` | One of the three types above. |
 | `name`, `description` | Human-facing identity and explanation. |
 | `entry` | Path to the bundled ESM factory, relative to the package. |
 | `detect` | Binary name, environment override, and known paths used for manifest-driven detection. |
-| `install` | Optional unprivileged installation command and documentation link. This is not a plugin package dependency installer. |
+| `install` | Optional unprivileged installation command and documentation link. This isn't a plugin package dependency installer. |
 | `hostEnv` | Optional names of execution-host environment values needed for path computation. |
 | `network` | Required for network plugins: supported platforms, exposure, login behavior, and optional privileged instructions. |
 
@@ -39,7 +39,7 @@ Network privilege instructions live under `network.privileged`, keyed by platfor
 
 Only HTTP(S) URLs are accepted in `docsUrl`. An invalid manifest URL prevents loading. An invalid URL in a runtime hint is removed while its message remains visible. Use the exported `isDocsUrl` helper to validate links obtained from vendor output before returning them.
 
-The npm package version is independent of `apiVersion`. Package `3.0.0`, used by the tutorials, still exposes manifest API `2`. A host implementing a lower API version refuses the manifest. A higher host version does not guarantee an older interface works: required members and capabilities are checked at load. Rebuild and test across contract changes.
+The npm package version is independent of `apiVersion`. Package `3.0.0`, used by the tutorials, still exposes manifest API `2`. A host implementing a lower API version refuses the manifest. A higher host version doesn't guarantee an older interface works: required members and capabilities are checked at load. Rebuild and test across contract changes.
 
 ## Factory and loading
 
@@ -64,7 +64,7 @@ flowchart TD
   E --> U[Harness launch or network actions]
 ```
 
-Runtime-installed plugin code runs in the server process with its OS privileges. It is not sandboxed. The host service restrictions guide supported behavior; a malicious plugin can bypass them using process privileges. See [Security model](/concepts/security).
+Runtime-installed plugin code runs in the server process with its OS privileges. It isn't sandboxed. The host service restrictions guide supported behavior; a malicious plugin can bypass them using process privileges. See [Security model](/concepts/security).
 
 ## Required harness members
 
@@ -87,7 +87,7 @@ Runtime-installed plugin code runs in the server process with its OS privileges.
 | `harnessSession` | Optional conversation `id` and `mode`, either `start` or `resume`. |
 | `reporter` | Optional host-resolved reporting command and arguments for execution on the pane's machine. |
 
-Return argv without pre-quoting. The host handles quoting at the tmux shell boundary. Do not substitute the server's filesystem or executable paths for target-machine information.
+Return argv without pre-quoting. The host handles quoting at the tmux shell boundary. Don't substitute the server's filesystem or executable paths for target-machine information.
 
 ### MCP, resumption, and reporting
 
@@ -95,7 +95,7 @@ Return argv without pre-quoting. The host handles quoting at the tmux shell boun
 
 Resume support supplies `allocateHarnessSessionId()` and `resumePath(id, cwd, hostEnv)`. The latter is a pure path computation; the host checks existence on the execution machine. Use the supplied conversation ID in both new and resumed launches rather than generating a second unrelated identity.
 
-Attention hooks require `supportsAttentionHooks: true` and actual reporting hooks in the launch. Build those from `reporter.command` and `reporter.args`; omit hooks when it is absent. Do not assume the execution machine has Bun or the server's binary path.
+Attention hooks require `supportsAttentionHooks: true` and actual reporting hooks in the launch. Build those from `reporter.command` and `reporter.args`; omit hooks when it is absent. Don't assume the execution machine has Bun or the server's binary path.
 
 Other optional members include `parseVersion`, `exitStatus`, `presetSettings`, `suggestedEnv`, and `suggestedFlags`. See the [exported types](https://github.com/subshell-ai/subshell/blob/main/packages/plugin-api/src/types.ts) for complete field definitions.
 
@@ -126,7 +126,7 @@ A `NetworkAddress` has canonical origin `url`, `scheme`, human-facing `label`, a
 | `supervise` | Not applicable. | `supervisedProcess(ctx)`. |
 | `guard` | Not applicable. | `requestGuard(ctx)`. |
 
-A mismatched capability or missing required method makes the plugin fail loading. Do not declare a feature to obtain a UI control before implementing it.
+A mismatched capability or missing required method makes the plugin fail loading. Don't declare a feature to obtain a UI control before implementing it.
 
 ## Host services
 
@@ -135,7 +135,7 @@ A mismatched capability or missing required method makes the plugin fail loading
 | `findBinary(name, envOverride, knownPaths)` | Resolve an executable or return `null`. |
 | `detectBinary(...)` | Resolve an executable with a reason when unavailable. |
 | `probeVersion(binary, args?)` | Run a bounded probe and return trimmed output or `null`. |
-| `shellQuote(value)` | Quote one token when you must build an agent hook's shell command. Do not apply it to ordinary argv. |
+| `shellQuote(value)` | Quote one token when you must build an agent hook's shell command. Don't apply it to ordinary argv. |
 | `log.debug`, `log.warn` | Namespaced diagnostics; never log secrets. |
 | `run(argv, opts?)` | Execute an absolute-path command with bounds and an allowlisted environment. Inspect `code`, `stdout`, `stderr`, `timedOut`, and `aborted`. |
 | `secrets.set`, `has`, `delete` | Per-plugin persistent secret storage; no value-reading API. |

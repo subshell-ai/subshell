@@ -74,7 +74,7 @@ export interface SubshellTable {
   /**
    * 1 = launched by an agent over MCP (`create_subshell` on a pane's own token),
    * not a human at the UI. Such panes are cross-agent comms: bell defaults off,
-   * filed under "Cross-agent comms" in the rail. Written once at create; no
+   * filed under "Created by agents" in the rail. Written once at create; no
    * later act rewrites it. See migration 0039.
    */
   crossAgent: number;

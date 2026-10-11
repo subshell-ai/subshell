@@ -194,7 +194,7 @@ describe("instance plugins page", () => {
     }
   });
 
-  it("a typed package name confirms, and says it runs on the control plane", async () => {
+  it("a typed package name confirms, and explains server access", async () => {
     const m = mockServer({ admin: true });
     try {
       renderPage();
@@ -202,7 +202,7 @@ describe("instance plugins page", () => {
       fireEvent.change(field, { target: { value: "@acme/plugin-thing" } });
       fireEvent.click(screen.getByRole("button", { name: /^install$/i }));
       const dialog = await screen.findByRole("dialog");
-      expect(within(dialog).getByText(/control plane/i)).toBeDefined();
+      expect(within(dialog).getByText(/runs its code inside the server/i)).toBeDefined();
       fireEvent.click(within(dialog).getByRole("button", { name: "Install" }));
       // The id the page cannot know is asserted, not guessed silently: the
       // server refuses a package that declares a different one, by name.
@@ -239,7 +239,7 @@ describe("instance plugins page", () => {
       fireEvent.change(field, { target: { value: "@acme/plugin-pi" } });
       fireEvent.click(screen.getByRole("button", { name: /^install$/i }));
       const dialog = await screen.findByRole("dialog");
-      expect(within(dialog).getByText(/control plane/i)).toBeDefined();
+      expect(within(dialog).getByText(/runs its code inside the server/i)).toBeDefined();
       fireEvent.click(within(dialog).getByRole("button", { name: "Install" }));
       // The typed spec survives. A spec-less catalog POST here is the bug.
       await waitFor(() => expect(m.posted()).toEqual({ pluginId: "pi", spec: "@acme/plugin-pi" }));

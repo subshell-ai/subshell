@@ -233,6 +233,6 @@ test("wide → narrow reopen paints within the client's cols; image paste upload
   await expect(actions).toBeVisible();
   await actions.click();
   await p2.getByRole("menuitem", { name: "Close" }).click();
-  await p2.locator("[data-slot='dialog-content'] button", { hasText: /^Close$/ }).click();
+  await p2.locator("[data-slot='dialog-content'] button", { hasText: /^Close subshell$/ }).click();
   await narrow.close();
 });

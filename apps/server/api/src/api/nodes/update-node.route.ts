@@ -186,7 +186,7 @@ export const updateNodeRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: "The control-plane host updates with the server, from Server Settings → Updates",
+            message: "Update this server from Server Settings → Updates",
           }),
         );
       }
@@ -203,7 +203,7 @@ export const updateNodeRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.NODE_OFFLINE,
-            message: "That node is not connected, so nothing can be sent to it; it will not update until it dials back",
+            message: "This node is offline. Wait for it to reconnect before updating it.",
           }),
         );
       }

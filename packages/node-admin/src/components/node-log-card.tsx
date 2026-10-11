@@ -176,8 +176,8 @@ export function NodeLogCard({
         <CardTitle>Log</CardTitle>
         <CardDescription>
           {local
-            ? "What this node logged. One file, capped and replaced when full, so this is recent history rather than everything that ever happened."
-            : "What the node on this machine logged. One file, capped and replaced when full, so this is recent history rather than everything that ever happened."}{" "}
+            ? "Recent log entries from this node. The node replaces the log when it reaches its size limit."
+            : "Recent log entries from this machine's node. The node replaces the log when it reaches its size limit."}{" "}
           · {paused ? "paused" : "following"}
         </CardDescription>
       </CardHeader>
@@ -252,7 +252,7 @@ export function NodeLogCard({
             control in place ahead of the lines, not a promise of output. */}
         {logging && !logging.debug && (
           <p className="text-detail text-muted-foreground">
-            The node writes no debug-level lines yet, so this changes what it would record rather than what it does.
+            This node doesn't write debug entries yet. Changing this setting won't add entries to the log.
           </p>
         )}
         {setDebug.error && (

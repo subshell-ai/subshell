@@ -335,7 +335,7 @@ export function NetworkPluginCard({
       onPendingChange={setSavingSettings}
       requiredOnly={compact}
       {...(row.published
-        ? { reason: `Unpublish ${row.name} to change these: a change cannot reach the running publish.` }
+        ? { reason: `Unpublish ${row.name} before changing these settings so they can take effect.` }
         : {})}
     />
   );
@@ -482,7 +482,7 @@ export function NetworkPluginCard({
         // Supported and offered, but the server sent no status: it has not
         // asked this host yet. Saying so beats rendering the first state as
         // though it were a finding.
-        <p className="text-detail text-muted-foreground">This network has not reported its status yet.</p>
+        <p className="text-detail text-muted-foreground">This network hasn't reported its status yet.</p>
       ) : (
         <>
           {collapseSettings ? null : (
@@ -846,10 +846,10 @@ export function NetworkPluginCard({
                       // serve/tunnel kinds the record names the mechanism and
                       // the published addresses do go down.
                       const proceed = await confirmAction({
-                        title: `Stop publishing Subshell on ${row.name}?`,
+                        title: "Stop publishing Subshell?",
                         description: row.publishImplicit
                           ? `Unpublishing ${row.name} ends its publish record: the addresses keep answering and stay trusted while this machine stays a member. "Disconnect" takes the machine off the network.`
-                          : `The published addresses stop answering, and sign-in from them stops now; addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network.`,
+                          : `The addresses published through ${row.name} stop working, including for sign-in. This machine stays on the network, and addresses routed directly to it keep working.`,
                         confirmLabel: "Unpublish",
                       });
                       if (proceed) begin(() => unpublish.mutate({ id: row.id }));
@@ -885,7 +885,7 @@ export function NetworkPluginCard({
                       (field) => field.type === "secret" && secretIsSet(row, field.key),
                     );
                     const proceed = await confirmAction({
-                      title: `Disconnect this server from ${row.name}?`,
+                      title: "Disconnect this server from the network?",
                       description:
                         `This machine leaves the ${row.name} network, and the addresses this server answered on stop working.` +
                         (storesSecret
@@ -983,7 +983,7 @@ export function NetworkPluginCard({
                   const urls = status.addresses.map((address) => address.url);
                   if (urls.length > 0) {
                     const proceed = await confirmAction({
-                      title: `Disable ${row.name}?`,
+                      title: "Disable this network plugin?",
                       description: disableDescription(row.name, urls, row.published),
                       confirmLabel: "Disable",
                       danger: true,

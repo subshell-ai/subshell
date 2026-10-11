@@ -37,6 +37,15 @@ localStorage, keyed by node ID so an admin's rename moves every label and
 reopens nothing). **While the filter box has text every group forces open AND
 its header goes inert**: a live chevron there would write the collapse behind
 a screen that moves nothing and shut the group the moment the filter cleared.
+When a session has a direct or Everyone grant for the viewer and its node
+isn't in the resolved node list, the sidebar puts it in **Shared with you**.
+This group combines those sessions across nodes and uses the same sorting,
+filtering, and per-group limit. Owned sessions stay in their node groups.
+The API's viewer-specific `sharedWithViewer` field identifies sharing grants;
+broadcasts omit it and sharing changes refresh the viewer's snapshot.
+The grouping waits for a successful node read, so loading isn't treated as
+missing access. The home page keeps its existing machine grouping.
+
 Header labels read `node.name`, never the id, and the unresolved ladder is
 "never succeeded (in flight, or failed with nothing cached) → short id, with
 the full one as the hover title; answered-without-the-id → `unknown node`",

@@ -79,8 +79,9 @@ test("subshell: create -> attach -> terminate -> delete", async ({ page }) => {
   await expect(actions).toBeVisible();
   await actions.click();
   await page.getByRole("menuitem", { name: "Close" }).click();
-  await expect(page.getByText(`Close subshell "${name}"?`)).toBeVisible();
-  await page.locator("[data-slot='dialog-content'] button", { hasText: /^Close$/ }).click();
+  await expect(page.getByRole("heading", { name: "Close this subshell?" })).toBeVisible();
+  await expect(page.getByRole("dialog").getByText(`permanently deletes "${name}"`)).toBeVisible();
+  await page.locator("[data-slot='dialog-content'] button", { hasText: /^Close subshell$/ }).click();
 
   // Prove it is gone.
   await expect(page.getByText(name)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
@@ -117,8 +118,9 @@ test("subshell: Close from the rail leaves the open detail page", async ({ page 
   const railRow = page.locator("aside").getByText(name).first();
   await railRow.click({ button: "right" });
   await page.getByRole("menuitem", { name: "Close" }).click();
-  await expect(page.getByText(`Close subshell "${name}"?`)).toBeVisible();
-  await page.locator("[data-slot='dialog-content'] button", { hasText: /^Close$/ }).click();
+  await expect(page.getByRole("heading", { name: "Close this subshell?" })).toBeVisible();
+  await expect(page.getByRole("dialog").getByText(`permanently deletes "${name}"`)).toBeVisible();
+  await page.locator("[data-slot='dialog-content'] button", { hasText: /^Close subshell$/ }).click();
 
   // The page closes out — the operator's exact complaint, now the assertion.
   await expect(page).not.toHaveURL(/\/subshells\/.+/, { timeout: SPAWN_TIMEOUT });

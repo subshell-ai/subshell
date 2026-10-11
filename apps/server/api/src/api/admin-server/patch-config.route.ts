@@ -71,7 +71,7 @@ function unreadableMessage(err: unknown): string {
  * takes effect — and 400 when config.env exists but cannot be read, which
  * names the FILE rather than a field, because nothing the caller types can
  * fix it. That last one is a 400 rather than a 500 by measurement: the error
- * handler replaces a 500's message with "An internal server error occurred.",
+ * handler replaces a 500's message with "The server couldn't complete the request.",
  * and the message is the only part of this refusal an admin can act on.
  *
  * Audits `server.config.update` with the changed keys. These are addresses,

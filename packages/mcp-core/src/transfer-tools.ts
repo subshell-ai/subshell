@@ -93,7 +93,7 @@ export async function transferFiles(
 
 /** One endpoint object: a machine an agent can name and a path on it. */
 const EndpointArgSchema = z.object({
-  node: z.string().describe("Agent node id or display name from list_nodes; the caller must own it"),
+  node: z.string().describe("Machine node id (kind `agent`) or display name from list_nodes; the caller must own it"),
   path: z
     .string()
     .describe("Absolute directory ON that node; the node's operator allowlist gates it (empty list = unrestricted)"),

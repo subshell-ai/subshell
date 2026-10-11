@@ -223,6 +223,6 @@ describe("NodeUpdateCard", () => {
     mount(node({ status: "offline", held: { reason: "below-floor", agentVersion: "0.0.1" } }));
     const btn = screen.getByRole("button", { name: "Update to latest" }) as HTMLButtonElement;
     expect(btn.disabled).toBe(false);
-    expect(screen.getByText(/the server refuses its agent/)).toBeTruthy();
+    expect(screen.getByText(/will not accept this machine's Subshell daemon version/)).toBeTruthy();
   });
 });

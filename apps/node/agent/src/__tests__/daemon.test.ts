@@ -1266,7 +1266,7 @@ test("status --probe: explicit opt-in dials the plane with a loud stderr warning
   const r = await runCli(["status", "--probe"]);
   expect(r.code).toBe(0);
   expect(r.out).toInclude("ONLINE");
-  expect(r.err).toInclude("KICKS"); // the loud warning ships with every --probe invocation
+  expect(r.err).toInclude("disconnects any daemon"); // the warning ships with every --probe invocation
   expect(h.plane.opens).toBe(opensBefore + 1); // the probe DID dial (opt-in destructiveness)
   const body = JSON.parse((await runCli(["status", "--probe", "--json"])).out) as Record<string, unknown>;
   expect(body.online).toBe(true);
@@ -1285,7 +1285,7 @@ test("status --probe: explicit opt-in dials the plane with a loud stderr warning
   // Backticked, because a bare "subshell run" also matches the line's own
   // "no local subshell running" and would compare the wrong position.
   expect(off.out.indexOf("service start")).toBeLessThan(off.out.indexOf("`subshell run`"));
-  expect(off.out).toInclude("a probe KICKS a remote agent"); // the warning is NOT dropped
+  expect(off.out).toInclude("a probe disconnects a daemon running elsewhere"); // the warning is NOT dropped
   // Probe against a dead port → refusal is a clean offline, still labelled.
   await saveConfig({ ...h.config, serverUrl: "http://localhost:1" });
   const dead = await runCli(["status", "--probe", "--json"]);
@@ -2186,16 +2186,16 @@ describe("4406 refusal message", () => {
   // vN", which named the wrong gate for a version-floor refusal and told them
   // neither the required nor the found version.
   test("relays the server's reason verbatim", () => {
-    expect(updateRequiredMessage("subshell 0.3.0 or newer required (this agent is 0.2.1)")).toContain(
-      "subshell 0.3.0 or newer required (this agent is 0.2.1)",
+    expect(updateRequiredMessage("subshell 0.3.0 or newer required (this node is 0.2.1)")).toContain(
+      "subshell 0.3.0 or newer required (this node is 0.2.1)",
     );
-    expect(updateRequiredMessage("protocol v4 required (this agent speaks v3)")).toContain("this agent speaks v3");
+    expect(updateRequiredMessage("protocol v4 required (this node speaks v3)")).toContain("this node speaks v3");
   });
 
   test("still says something actionable when the server sent no reason", () => {
     const line = updateRequiredMessage(undefined);
     expect(line).toContain("4406");
-    expect(line).toContain("newer subshell");
+    expect(line).toContain("newer Subshell daemon");
     expect(line).not.toContain("undefined");
     expect(updateRequiredMessage("")).toBe(line);
   });
@@ -2413,6 +2413,7 @@ describe("the update transaction, settled by the daemon (spec 2026-09-15 §5.1/�
   });
 
   test("close 4406 with a pending marker ROLLS BACK, records the failure, and exits 1", async () => {
+    const { lines, restore } = captureLogs();
     const h = await startDaemon();
     await waitForReady(h);
     const { binary, previous } = stageTransaction(h.config.dataDir);
@@ -2433,6 +2434,33 @@ describe("the update transaction, settled by the daemon (spec 2026-09-15 §5.1/�
     };
     expect(failed.to).toBe("9.9.9");
     expect(failed.reason).toContain("protocol v11");
+    // The rollback's own record reads from the reader's seat (ruling
+    // 2026-10-10): the server WILL NOT ACCEPT the version, not "the control
+    // plane refused" it.
+    expect(lines.some((l) => l.includes("would not accept 9.9.9"))).toBe(true);
+    expect(lines.some((l) => l.includes("the control plane refused"))).toBe(false);
+    restore();
+  });
+
+  test("close 4406 with a marker and an EMPTY reason records the plain fallback", async () => {
+    const { lines, restore } = captureLogs();
+    const h = await startDaemon();
+    await waitForReady(h);
+    const { binary, previous } = stageTransaction(h.config.dataDir);
+    h.plane.socket?.close(4406, "");
+    const deadline = Date.now() + 2000;
+    while (h.exits.length === 0 && Date.now() < deadline) await sleep(5);
+    expect(h.exits).toEqual([1]);
+    expect(readFileSync(binary, "utf8")).toBe(OLD_STUB);
+    expect(existsSync(previous)).toBe(false);
+    const failed = JSON.parse(readFileSync(join(h.config.dataDir, "update-failed.json"), "utf8")) as {
+      reason: string;
+    };
+    // The dashboard prints this reason raw; the no-reason fallback says what
+    // is true and hides no protocol verb behind the sentence.
+    expect(failed.reason).toBe("no reason was given");
+    expect(lines.some((l) => l.includes("would not accept 9.9.9 (no reason was given)"))).toBe(true);
+    restore();
   });
 
   test("close 4406 WITHOUT a marker touches nothing — it is the ordinary too-old refusal", async () => {

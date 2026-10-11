@@ -633,24 +633,24 @@ describe("SubshellActionsMenu — prompt input availability", () => {
     { status: "terminated" as const },
     { access: "view" as const },
   ]) {
-    it(`does not offer Inject prompt for ${JSON.stringify(unavailable)}`, async () => {
+    it(`does not offer Insert prompt for ${JSON.stringify(unavailable)}`, async () => {
       const { restore } = mockFetch();
       try {
         await renderMenu(makeSubshell(unavailable));
         await openMenu("subshell");
-        expect(screen.queryByRole("menuitem", { name: "Inject prompt..." })).toBeNull();
+        expect(screen.queryByRole("menuitem", { name: "Insert prompt…" })).toBeNull();
       } finally {
         restore();
       }
     });
   }
 
-  it("offers Inject prompt for a live editable pane", async () => {
+  it("offers Insert prompt for a live editable pane", async () => {
     const { restore } = mockFetch();
     try {
       await renderMenu(makeSubshell({ access: "edit" }));
       await openMenu("subshell");
-      expect(screen.getByRole("menuitem", { name: "Inject prompt..." })).toBeTruthy();
+      expect(screen.getByRole("menuitem", { name: "Insert prompt…" })).toBeTruthy();
     } finally {
       restore();
     }

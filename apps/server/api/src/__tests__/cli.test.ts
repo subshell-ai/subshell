@@ -81,7 +81,7 @@ describe("dispatchCli — boot-path passthrough", () => {
       expect(await dispatchCli(argv, deps)).toBe(true);
       // USAGE arrives as ONE log call, so out[0] is the whole block.
       expect(out.length).toBe(1);
-      expect(out[0].startsWith("subshell-server: the Subshell control plane")).toBe(true);
+      expect(out[0].startsWith("subshell-server: the Subshell server")).toBe(true);
       expect(out[0]).toContain("subshell-server service install");
       expect(err).toEqual([]);
       expect(exits).toEqual([0]);

@@ -15,11 +15,8 @@
  * through {@link confirmRestartSubshell}. The live item exists so a pane
  * whose MCP token died can be renewed from the menu instead of being closed.
  *
- * Wording rule: the DESCRIPTION is the consequence. Close names the subshell
- * in its TITLE (the 2026-09-03 design predates the later ruling); prompts
- * added since keep the title a static question and let the body carry the
- * name (ruling 2026-09-30). Never a whole sentence as the heading, because
- * the dialog renders the title large.
+ * Keep titles fixed so long names can't overwhelm the dialog. The body
+ * identifies the subshell and explains the consequences.
  *
  * They render through the app-wide styled dialog (`lib/confirm`), so they
  * are async: `if (await confirmCloseSubshell(name)) …`.
@@ -35,9 +32,9 @@ import { confirmAction } from "@internal/node-admin";
  */
 export function confirmCloseSubshell(name: string): Promise<boolean> {
   return confirmAction({
-    title: `Close subshell "${name}"?`,
-    description: "This stops the process and removes the subshell and its history permanently. It cannot be recovered.",
-    confirmLabel: "Close",
+    title: "Close this subshell?",
+    description: `This stops the process and permanently deletes "${name}" and its history. You can't undo this.`,
+    confirmLabel: "Close subshell",
     danger: true,
   });
 }
@@ -54,8 +51,8 @@ export function confirmCloseSubshell(name: string): Promise<boolean> {
 export function confirmRestartSubshell(name: string): Promise<boolean> {
   return confirmAction({
     title: "Restart this subshell?",
-    description: `This stops the running process in "${name}" and starts the same subshell again in a new pane. Whatever it was mid-way through is lost.`,
-    confirmLabel: "Restart",
+    description: `This stops the process running in "${name}" and starts it again, interrupting its current work. Whether the agent can resume its conversation depends on the agent and its saved history.`,
+    confirmLabel: "Restart subshell",
     danger: true,
   });
 }
@@ -68,20 +65,18 @@ function count(n: number): string {
 /**
  * Confirmation prompt before a bulk restart whose selection contains
  * `live` running subshells out of `total` (the bulk bar's twin of the
- * liveness split; a selection that is all-dead asks nothing). The count is a
- * number, not user data, so the {@link confirmCloseSubshells} title pattern
- * stands.
+ * liveness split; a selection that is all-dead asks nothing). Counts belong
+ * in the body so the title stays fixed.
  */
 export function confirmRestartSubshells(total: number, live: number): Promise<boolean> {
   return confirmAction({
-    title: `Restart ${count(total)}?`,
-    // The "N of them" phrasing only reads for a plural selection; a
-    // single-row bulk selection is necessarily the one live row.
+    title: "Restart the selected subshells?",
+    // A single-row selection is necessarily the one live process.
     description:
       total === 1
-        ? "This stops its running process and starts the subshell again in a new pane. Whatever it was mid-way through is lost."
-        : `${live} of them ${live === 1 ? "is" : "are"} running; this stops those processes and starts the subshells again in new panes. Whatever the running ones were mid-way through is lost.`,
-    confirmLabel: "Restart",
+        ? "This stops the selected subshell's process and starts it again, interrupting its current work. Whether the agent can resume its conversation depends on the agent and its saved history."
+        : `This restarts ${count(total)}, interrupting work in ${live} running ${live === 1 ? "process" : "processes"}. Whether each agent can resume its conversation depends on the agent and its saved history.`,
+    confirmLabel: "Restart subshells",
     danger: true,
   });
 }
@@ -89,9 +84,9 @@ export function confirmRestartSubshells(total: number, live: number): Promise<bo
 /** Confirmation prompt before closing `n` subshells (bulk {@link confirmCloseSubshell}). */
 export function confirmCloseSubshells(n: number): Promise<boolean> {
   return confirmAction({
-    title: `Close ${count(n)}?`,
-    description: "This stops their processes and removes them entirely. They cannot be recovered.",
-    confirmLabel: "Close",
+    title: "Close the selected subshells?",
+    description: `This stops the processes and permanently deletes ${count(n)} and their history. You can't undo this.`,
+    confirmLabel: "Close subshells",
     danger: true,
   });
 }

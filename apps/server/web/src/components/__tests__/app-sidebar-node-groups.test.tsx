@@ -286,35 +286,35 @@ describe("the rail's subshell list, grouped by node", () => {
     );
   });
 
-  it("puts the full node id on the header's hover text when the registry cannot name it", async () => {
+  it("labels the registry-unanswerable node 'node you can't see' with no id anywhere", async () => {
     // The stub answers WITH local/n1, so force the unresolved case: a
-    // subshell on an id nothing holds renders the label ladder's last rung,
-    // and the id must be recoverable on hover.
+    // subshell on an id nothing holds renders the label ladder's last rung —
+    // and the id itself is gone from the header and its hover text (ruling
+    // 2026-10-10: an id that leads to no page names nothing to act on).
     await withRail([subshell({ id: "a", nodeId: "gone-node-xyz" })], async () => {
       await waitFor(() => expect(groupHeaders()).toHaveLength(1));
-      expect(groupHeader("gone-node-xyz").textContent).toContain("node you can't see");
-      // Same popup shape as the cold-failure case: trigger marker on the
-      // button, no leftover native title anywhere in the header.
       const header = groupHeader("gone-node-xyz");
+      expect(header.textContent).toContain("node you can't see");
+      expect(header.textContent).not.toContain("gone-node-xyz");
+      // No native title anywhere in the header; the trigger marker may stay,
+      // the equal-title branch below renders no content for it.
       expect(header.getAttribute("title")).toBeNull();
       expect(header.querySelector("span")?.getAttribute("title")).toBeNull();
-      expect(header.hasAttribute("data-base-ui-tooltip-trigger")).toBe(true);
     });
   });
 
-  it("opens the header reveal on focus, showing the full id", async () => {
+  it("gives an INVISIBLE header no popup — the id it used to reveal leads nowhere", async () => {
     await withRail([subshell({ id: "a", nodeId: "gone-node-xyz" })], async () => {
       await waitFor(() => expect(groupHeaders()).toHaveLength(1));
-      // Focus the BUTTON — what a keyboard user actually focuses. This is
-      // real behavior now because the trigger merged onto it via `render`.
+      // Focus the BUTTON — what a keyboard user actually focuses. Past the
+      // open delay the popup must still be absent: title equals label, so
+      // the header has nothing the heading does not already say.
       fireEvent.focus(groupHeader("gone-node-xyz"));
-      // The full id exists in the DOM nowhere else on the rail while shut —
-      // finding it IS the popup.
-      expect(await screen.findByText("gone-node-xyz")).toBeTruthy();
-      // Leave it SHUT: a tooltip still open when the test ends has its close
-      // dispatch land during the NEXT test's mount, outside any acting scope
-      // (the React act warning this line silences). Blur cancels it.
-      fireEvent.blur(groupHeader("gone-node-xyz"));
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 450));
+      });
+      expect(screen.queryByText("gone-node-xyz")).toBeNull();
+      expect(document.querySelector("[class*='text-body']")).toBeNull();
     });
   });
 

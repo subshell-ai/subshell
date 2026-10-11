@@ -11,7 +11,7 @@ const HTTPS_PORT = 443;
 
 /** One sentence per state this machine can be in that is not ready to publish. */
 const NOT_READY: Partial<Record<NetworkState, string>> = {
-  "not-installed": "Tailscale is not installed on this machine, so there is nothing to publish on.",
+  "not-installed": "Install Tailscale on this machine before publishing this server.",
   "daemon-down": "The Tailscale daemon is not running, so this server cannot be published yet.",
   "needs-privilege": "This server is not allowed to control Tailscale yet, so it cannot publish.",
   "needs-login": "This machine is not on a tailnet yet. Join one first, then publish.",

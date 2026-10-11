@@ -108,7 +108,7 @@ export const renameNodeRoute = new Elysia()
         operationId: "renameNode",
         tags: ["nodes"],
         description:
-          "Rename a node. Owner-only for an enrolled agent; the control-plane host's own row is managed by an admin",
+          "Rename a node. Owner-only for an enrolled machine node; the control-plane host's own row is managed by an admin",
       },
     },
   );

@@ -671,7 +671,7 @@ export function Host(): React.JSX.Element {
       // person can go back to, so it takes Back rather than the Continue that
       // opens a dashboard.
       setPermissionsAfterHandoff(false);
-      // The tray's "Open Server App" names the assistant's own Status overview.
+      // The tray's "Open Server Controls" names the assistant's own Status overview.
       // It maps onto the STANDING Status marker — the same ScreenId the rail's
       // Status select sets — which `route()` resolves to the facts screen on a
       // ready machine and the diagnosis otherwise. It is deliberately NOT a

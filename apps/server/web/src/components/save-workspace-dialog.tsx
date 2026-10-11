@@ -90,7 +90,7 @@ export function SaveWorkspaceDialog({
         <DialogHeader>
           <DialogTitle>Save workspace</DialogTitle>
           <DialogDescription>
-            Name it and it joins your workspaces. The subshells on it are unaffected.
+            Give this layout a name to save it in your workspaces. Its subshells keep running.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">

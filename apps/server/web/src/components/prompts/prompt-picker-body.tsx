@@ -354,8 +354,8 @@ export function PromptPickerBody({
   // picker and keeps its heading. The one-shot pick needs no explanatory
   // subtitle - the title is the whole story; the stacker's sentence says
   // something true (pick again for the next).
-  const heading = step === "custom" ? "Write your own" : mode === "single" ? "Inject prompt" : "Add a prompt";
-  const blurb = "Pick one; press Add prompt again for the next.";
+  const heading = step === "custom" ? "Write your own" : mode === "single" ? "Insert prompt" : "Add a prompt";
+  const blurb = "Choose a prompt, then select Add prompt again to add another.";
 
   return (
     <div className="space-y-3">
@@ -476,7 +476,7 @@ export function PromptPickerBody({
                   <Input
                     value={field.state.value}
                     maxLength={120}
-                    placeholder="Short label for discoverability"
+                    placeholder="A short description to help you find it"
                     aria-label="Prompt description"
                     onChange={(e) => field.handleChange(e.target.value)}
                     onBlur={field.handleBlur}

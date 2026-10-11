@@ -9,7 +9,7 @@ import { type CliResult, run } from "../cli.js";
 import { configPath, loadConfig, saveConfig } from "../config.js";
 import { mapOs } from "../enroll.js";
 import { lockPath } from "../lock.js";
-import { agentLogPath } from "../log-file.js";
+import { readableDaemonLogPath } from "../log-file.js";
 import { DEFAULT_DEPS } from "../service.js";
 import { newHome } from "../test-preload.js";
 import { NODE_VERSION } from "../version.js";
@@ -567,13 +567,13 @@ test("status --json names the paths a reset would delete, even while offline", a
     lockFile: lockPath(),
     dataDir: cfg.dataDir,
     binary: null,
-    agentLog: agentLogPath(),
+    agentLog: readableDaemonLogPath(),
   });
-  expect(isAbsolute(agentLogPath())).toBe(true);
+  expect(isAbsolute(readableDaemonLogPath())).toBe(true);
   // The one file the plane serves is the one this names: `agent_log_read`
-  // reads `agentLogPath()` too, so a second spelling here would send a person
+  // reads `readableDaemonLogPath()` too, so a second spelling here would send a person
   // to a file nobody writes.
-  expect(agentLogPath().startsWith(home)).toBe(true);
+  expect(readableDaemonLogPath().startsWith(home)).toBe(true);
   expect(parsed.binarySource).toBe(null);
   const paths = parsed.paths as Record<string, string | null>;
   expect(isAbsolute(paths.configFile as string)).toBe(true);

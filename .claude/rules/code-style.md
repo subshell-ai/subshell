@@ -263,6 +263,13 @@ as precedent for inline schemas elsewhere.
 
 ## JSDoc Comments
 
+Follow [the repository's writing voice](../../AGENTS.md#writing-voice) in
+comments and JSDoc. Explain the reason or constraint in natural, active English,
+using contractions where they fit. Keep useful technical detail, but avoid
+shouted emphasis, elaborate metaphors, and accounts of who requested a change.
+Describe the behavior a maintainer needs to preserve. For example:
+"Fall back to agent.log until the daemon writes its first log under the new name."
+
 All public classes, methods, and functions should have JSDoc comments that describe:
 - What the class/function does
 - Parameters and their purpose

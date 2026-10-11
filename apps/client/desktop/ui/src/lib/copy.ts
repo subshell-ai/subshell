@@ -57,17 +57,13 @@ export const SETUP_KEY_RE = /^nsk_[A-Za-z0-9_-]{32}$/;
  * here, where the URL is still being chosen.
  */
 export const LOOPBACK_NOTE =
-  "This is a loopback address, so this node will look for a control plane on THIS machine. That is right if you " +
-  "run the server here, and wrong if you copied the URL out of a browser on another machine.";
+  "This address connects to a server on this machine. If your server runs elsewhere, use its network address instead.";
 
 /** What every enrollment screen says about the key, in plain language. */
 export const ENROLL_NOTES: readonly string[] = [
-  "Mint a setup key in the browser first: Nodes → Add node. It stays listed on the Nodes page until it is used, so " +
-    "closing that dialog is not losing the key.",
-  "A setup key is single-use and expires after 24 hours. Anything that fails after the control plane has accepted it " +
-    "spends the key, so the answer is a NEW key, never a retry.",
-  "Whatever you call it here is the row on the Nodes page. The control plane no longer guesses this name, so the " +
-    "choice is asked where the answer is.",
+  "In your server dashboard, open Nodes → Add node to create a setup key. You can find it on the Nodes page after closing the dialog.",
+  "A setup key works once and expires after 24 hours. If setup fails after the server accepts the key, create a new one before trying again.",
+  "Choose a name you'll recognize in the dashboard's Nodes list.",
 ];
 
 /**

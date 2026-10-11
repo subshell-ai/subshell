@@ -40,7 +40,7 @@ describe("checklistItems", () => {
       const [item] = checklistItems(healthy({ tmuxPath: null, platform: "darwin" }));
       expect(item?.id).toBe("tmux");
       expect(item?.remedy).toEqual({ kind: "command", command: "brew install tmux", label: "Install command" });
-      expect(item?.consequence).toMatch(/launch/i);
+      expect(item?.consequence).toMatch(/run subshells/i);
     });
 
     it("offers apt-get on linux", () => {

@@ -42,9 +42,9 @@ export function UninstallPluginDialog({ plugin, onClose }: { plugin: InstancePlu
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Uninstall {plugin.name}?</DialogTitle>
+          <DialogTitle>Uninstall this plugin?</DialogTitle>
           <DialogDescription>
-            This removes the plugin from this instance and stops offering it on every node.
+            This removes "{plugin.name}" from this instance and stops offering it on every node.
           </DialogDescription>
         </DialogHeader>
 
@@ -53,7 +53,9 @@ export function UninstallPluginDialog({ plugin, onClose }: { plugin: InstancePlu
         )}
         {error !== null && (
           <div className="flex items-center justify-between gap-3">
-            <p className="text-destructive text-detail">Could not count what uses it. {errMessage(error, "")}</p>
+            <p className="text-destructive text-detail">
+              Couldn't check which presets use this plugin. {errMessage(error, "")}
+            </p>
             <Button
               variant="link"
               size="sm"

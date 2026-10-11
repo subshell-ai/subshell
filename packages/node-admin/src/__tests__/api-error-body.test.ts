@@ -45,14 +45,14 @@ describe("apiFetch error body parsing", () => {
         {
           errId: "e1",
           code: "INTERNAL_SERVER_ERROR",
-          message: "An internal server error occurred.",
+          message: "The server couldn't complete the request.",
           statusCode: 500,
         },
         { status: 500 },
       )) as never;
 
     const err = await apiFetch<never>("/api/subshells").catch((e) => e as ApiError);
-    expect(err.message).toBe("API 500: An internal server error occurred.");
+    expect(err.message).toBe("API 500: The server couldn't complete the request.");
     expect(err.code).toBe("INTERNAL_SERVER_ERROR");
   });
 

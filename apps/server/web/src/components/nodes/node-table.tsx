@@ -99,7 +99,7 @@ export function NodeTable({
             <th className="pr-4 pb-2 font-strong">Host</th>
             <th className="pr-4 pb-2 font-strong">Platform</th>
             <th className="pr-4 pb-2 font-strong">Status</th>
-            <th className="pr-4 pb-2 font-strong">Agent</th>
+            <th className="pr-4 pb-2 font-strong">Version</th>
             <th className="pr-4 pb-2 font-strong">Seen</th>
             <th className="pb-2 text-right font-strong">
               <span className="sr-only">Actions</span>

@@ -169,7 +169,7 @@ describe("errorHandlerPlugin", () => {
     expect(body.code).toBe("INTERNAL_SERVER_ERROR");
     // The generic message goes to the client; "boom" may still appear in the
     // dev-only `causedBy`/`stack` extras (IS_PROD is false under tests).
-    expect(body.message).toBe("An internal server error occurred.");
+    expect(body.message).toBe("The server couldn't complete the request.");
     expect(body.message).not.toContain("boom");
   });
 

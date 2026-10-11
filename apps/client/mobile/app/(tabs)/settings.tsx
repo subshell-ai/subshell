@@ -51,8 +51,8 @@ export default function Settings() {
     Alert.alert(
       "Instance reachable",
       r.wsBlocked
-        ? "HTTP works but WebSocket upgrades do not — the Live tab stays hidden until the proxy forwards them."
-        : "HTTP and WebSocket upgrades both work.",
+        ? "The server is reachable, but your proxy isn't forwarding terminal connections. Enable WebSocket forwarding to use the Live tab."
+        : "The server and terminal connections are working.",
     );
   }
 
@@ -65,7 +65,7 @@ export default function Settings() {
     const res = await Notifications.requestPermissionsAsync();
     Alert.alert(
       res.granted ? "Notifications allowed" : "Notifications not allowed",
-      res.granted ? "" : "Enable them in system Settings to get the bell on this phone.",
+      res.granted ? "" : "Enable notifications in system Settings to receive alerts on this phone.",
     );
   }
 
@@ -161,7 +161,7 @@ export default function Settings() {
         <View style={{ flex: 1 }}>
           <Text style={{ ...font("label"), color: colors.fg }}>Face ID for terminal &amp; actions</Text>
           <Text style={{ ...font("detail"), color: colors.mutedFg }}>
-            Required by default — turning it off lets any unlock of this phone drive every pane.
+            Required by default. If you turn this off, anyone who unlocks this phone can control your terminals.
           </Text>
         </View>
         <Switch
@@ -193,7 +193,7 @@ export default function Settings() {
           paddingHorizontal: 12,
         }}
       >
-        <Text style={{ ...font("label"), color: colors.fg }}>Push notifications — check / request permission</Text>
+        <Text style={{ ...font("label"), color: colors.fg }}>Check notification permissions</Text>
       </Pressable>
 
       <Pressable

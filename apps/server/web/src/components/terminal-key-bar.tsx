@@ -315,7 +315,7 @@ export function TerminalKeyBar({
             <KeyBarControl
               type="button"
               disabled={disabled || inputless}
-              aria-label="Inject prompt"
+              aria-label="Insert prompt"
               onClick={onInjectPrompt}
               className={BUTTON_CLASS}
             >

@@ -90,16 +90,16 @@ export function subtitleFor(
       // The "what is a node" half the install explainer no longer carries
       // (operator ruling 2026-09-22, the copy trim): the section's own
       // sentence says what the thing it installs IS.
-      return "The node is the small program that connects this machine to the control plane and runs the sessions launched here.";
+      return "The Subshell daemon connects this machine to your server and runs the sessions you launch here.";
     case "plane":
       // The LIST's home (operator ruling 2026-09-22): what the screen is,
       // and the one fact a glance cannot infer — that the node's own address
       // is IN the list, marked, rather than elsewhere.
-      return "Planes this app can connect to. The address this machine's node reports to is marked.";
+      return "Servers you can connect to from this app. The list marks the server this machine's node uses.";
     case "connect":
       return "Enter the address of the Subshell server this app should show.";
     case "about":
-      return "What this app is, which versions are running, and under what terms.";
+      return "App details, installed versions, and licenses.";
     case "update":
       // Deliberately says nothing about whether one exists: half the answer is
       // a NETWORK read the screen itself makes, and a subtitle that claimed

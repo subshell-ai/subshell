@@ -541,13 +541,13 @@ describe("NodeHarnessCard", () => {
     try {
       expect(screen.getByText("not checked")).toBeDefined();
       expect(screen.queryByText("program not found")).toBeNull();
-      expect(screen.getByText(/No detection has covered this plugin here yet/i)).toBeDefined();
+      expect(screen.getByText(/This plugin hasn't been checked on this machine yet/i)).toBeDefined();
     } finally {
       restore();
     }
   });
 
-  it("a probe that ran and did not complete is unknown, not a missing program", async () => {
+  it("a probe that ran and check didn't finish is unknown, not a missing program", async () => {
     // `scanOne`'s catch records `installed: false` with a stamp and NO reason
     // on purpose: the probe itself failed, which is not the same as having
     // looked and not found it. The badge keeps that distinction.
@@ -557,7 +557,7 @@ describe("NodeHarnessCard", () => {
     try {
       expect(screen.getByText("check failed")).toBeDefined();
       expect(screen.queryByText("program not found")).toBeNull();
-      expect(screen.getByText(/did not complete/i)).toBeDefined();
+      expect(screen.getByText(/check didn't finish/i)).toBeDefined();
     } finally {
       restore();
     }

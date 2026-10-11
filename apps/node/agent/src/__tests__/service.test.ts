@@ -597,7 +597,7 @@ describe("uninstallService — guards", () => {
       ["systemctl", "--user", "daemon-reload"],
     ]);
     expect(s.removed).toEqual([UNIT]);
-    expect(res.out).toInclude("(no agent config found, nothing else to clean up)");
+    expect(res.out).toInclude("(no daemon config found, nothing else to clean up)");
   });
 
   test("unsupported platform: exit 1, no removals", async () => {

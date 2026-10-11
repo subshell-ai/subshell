@@ -671,7 +671,7 @@ realpath-resolved form against the root, and a present-but-unresolvable path (a
 broken symlink) is refused because it cannot be proven confined.
 
 `SUBSHELL_FS_ROOT` never confines a **remote node**; that root belongs to this
-host and means nothing on another machine. A node's boundary is its agent user's
+host and means nothing on another machine. A node's boundary is its daemon user's
 filesystem permissions, nothing more.
 
 **Uploads are working-directory-scoped.** Dropped or pasted files land in
@@ -832,7 +832,7 @@ never widens who gets pushed. **Agent-launched panes are born silent**
 later act rewrites it) and created with the bell OFF, because
 agent-to-agent comms are not news a human needs rung for; the owner can still
 turn that pane's bell on, and the flag is what files the pane under
-"Cross-agent comms" in the client. It is a disclosure like the other row
+"Created by agents" in the client. It is a disclosure like the other row
 fields: anyone who can see the row can see it.
 
 **What owner-targeting does not decide is WHERE the metadata goes, and the
@@ -968,8 +968,8 @@ consequences are:
   respawns it. This adds no trust and no
   reach: the plane already runs arbitrary commands on that machine under that
   OS user, and "exit" is the narrowest thing it could be asked to do. The
-  agent refuses unless the service manager reports this very process (an
-  unsupervised agent would be stopped rather than restarted, so it will not
+  daemon refuses unless the service manager reports this very process (an
+  unsupervised daemon would be stopped rather than restarted, so it will not
   exit into nothing), and refuses when the definition would take the node's
   running panes down with it, unless the caller passes `force`. Cookie only,
   owner or `edit`, `local` refused (the control plane manages itself through
@@ -989,14 +989,14 @@ consequences are:
   unreachable. `force` is refused outright on `start` and `install`, which
   cannot end a pane: a flag accepted where it does nothing teaches a caller
   that it is noise.
-- **An enrolled node's agent log is readable over HTTP** (2026-09-12). `GET
-  /api/nodes/:id/logs` serves a byte range of a file the agent now writes
+- **An enrolled node's daemon log is readable over HTTP** (2026-09-12). `GET
+  /api/nodes/:id/logs` serves a byte range of a file the node's daemon writes
   itself (0600, capped at 200 KB, replaced when full), because its console
   output goes to a journal under systemd and a file under launchd, and neither
   is readable from a browser. Most nodes are headless, so this is the only way
   to read one at all. Same accounting as the server's own log: the set of
   people who may read it does not change (0600 on disk, owner or `edit` on the
-  wire); what widens is the set of PLACES they can read it from. An agent logs
+  wire); what widens is the set of PLACES they can read it from. The daemon logs
   launch failures, command refusals and connection errors. It does not log pane
   content, and it does not log argv, which carries a subshell's bearer token,
   and is the one thing that would turn a log read into a credential read.
@@ -1349,7 +1349,7 @@ posture:
 - **`SUBSHELL_RELEASE_URL` was `SUBSHELL_NODE_RELEASE_URL` until 2026-09-15**,
   and the rename is not cosmetic: the same list now answers for the server's
   own `update` and both desktop apps' too (§11.12), so the setting stopped
-  being the node agent's. There is no alias: this project has no installed
+  being the node daemon's. There is no alias: this project has no installed
   base to keep compatible, and an alias is a second thing to read that can
   disagree with the first.
 - **Empty disables it**, and that is the supported air-gapped configuration:
@@ -1358,7 +1358,7 @@ posture:
   cannot connect is refused rather than served. Since
   2026-09-15 it disables strictly more: `subshell-server update` and
   `POST /api/nodes/:id/update` refuse with the reason and name `--from` or a
-  hand install. The Nodes dialog's "no agent binary" warning is kept for
+  hand install. The Nodes dialog's "no node binary" warning is kept for
   precisely that case, where it is still exactly true.
 - **Only a release this plane can TALK TO is offered** (tightened 2026-09-15).
   The old rule was "newest above `MIN_NODE_VERSION`", which could hand a
@@ -1496,7 +1496,7 @@ every act the dashboard performs (service stop, maintenance, repoint, binary
 update, the debug-logging toggle at `dashboard/routes.ts:349`, and the
 self-update rollback `POST /api/self/update/rollback` at `routes.ts:474`) is
 an act that same user can type at the keyboard, the newest two under the
-same guards, and under the same "the audit-free agent log is the record"
+same guards, and under the same "the audit-free daemon log is the record"
 accounting as the rest. The dashboard grants nothing new; it *removes the
 terminal* from the path.
 
@@ -1547,7 +1547,7 @@ The rest is the standing accounting, unchanged by this surface:
   diverge and reappear on the next `ready`.
 - **There is no audit row.** The plane audits every mutation with a named
   actor; this surface has no actor beyond the machine's own user, and its
-  record is the agent log file (§10), which already holds launches and
+  record is the daemon log file (§10), which already holds launches and
   refusals and never holds argv or pane content.
 - **`maintenance on` here kills.** The node's own CLI semantics (flag
   first, then stop every subshell, re-probe each kill) are carried
@@ -2104,7 +2104,7 @@ no block, and the page never sends a path), and every recursive delete is
 refused before the first mutation if it would contain the installed
 `~/.local/bin/subshell-server`. A reset removes accounts, sessions, keys, the
 signing keypair, pane logs and config, and clears this app's own choices; it
-does NOT reach enrolled remote nodes or a same-machine `subshell` node agent,
+does NOT reach enrolled remote nodes or a same-machine `subshell` node daemon,
 which keep their credentials and processes; the confirmation screen says so
 verbatim, because a person wiping the signing keypair is making a fleet-wide
 statement.

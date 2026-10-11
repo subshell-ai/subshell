@@ -83,11 +83,11 @@ async function header(rows: SubshellView[], draft = true) {
   );
 }
 
-it("offers Inject prompt for the focused pane and retires its dialog when focus changes", async () => {
+it("offers Insert prompt for the focused pane and retires its dialog when focus changes", async () => {
   setWorkspaceFocusedId("first");
   await header([row("first"), row("second")]);
   fireEvent.click(await screen.findByRole("button", { name: "Actions for first" }));
-  fireEvent.click(await screen.findByRole("menuitem", { name: "Inject prompt..." }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Insert prompt…" }));
   expect(await screen.findByRole("dialog")).toBeTruthy();
   act(() => setWorkspaceFocusedId("second"));
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -99,7 +99,7 @@ it("preserves read-only gates in a saved workspace", async () => {
   setWorkspaceFocusedId("viewer");
   await header([row("viewer", "view")], false);
   fireEvent.click(await screen.findByRole("button", { name: "Actions for viewer" }));
-  expect(screen.queryByRole("menuitem", { name: "Inject prompt..." })).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: "Insert prompt…" })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Delete" })).toBeNull();
 });
 

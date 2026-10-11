@@ -44,7 +44,10 @@ export default function Connect() {
     const result: ProbeResult = await probeInstance(origin, makeProbeDeps());
     setBusy(false);
     if (!result.ok) {
-      setNote({ text: "Could not reach that instance — check the address and network", color: colors.destructive });
+      setNote({
+        text: "Couldn't reach that server. Check the address and your connection.",
+        color: colors.destructive,
+      });
       return;
     }
     const rec = addInstance(input);
@@ -61,9 +64,7 @@ export default function Connect() {
       keyboardShouldPersistTaps="handled"
     >
       <Text style={{ ...font("display"), color: colors.fg }}>subshell</Text>
-      <Text style={{ ...font("body"), color: colors.mutedFg }}>
-        The companion for your own instance. Type its address once.
-      </Text>
+      <Text style={{ ...font("body"), color: colors.mutedFg }}>Enter your Subshell server's address to connect.</Text>
       <Field
         label="Instance address"
         placeholder="subshell.example.com"
@@ -113,7 +114,7 @@ export default function Connect() {
         </View>
       ) : null}
       <Text style={{ ...font("detail"), color: colors.mutedFg }}>
-        Private hosts (LAN/CGNAT/.local) default to http; everything else upgrades to https.
+        Local and private network addresses use HTTP by default. Other addresses use HTTPS.
       </Text>
     </ScrollView>
   );

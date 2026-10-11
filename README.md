@@ -13,7 +13,7 @@ them from a browser or desktop app.
 </a>
 
 - **Your machines, your data.** Host the server yourself and run agents on its
-  machine or enrolled nodes. Subshell requires no hosted Subshell service.
+  machine or enrolled nodes. You don't need a hosted Subshell account.
 - **Your choice of agents.** Built-in plugins support Claude Code, Codex,
   OpenCode, Hermes, pi, and a plain terminal. Add more through the plugin API.
 - **Work across devices.** Reconnect from a browser or desktop app, arrange
@@ -25,7 +25,7 @@ them from a browser or desktop app.
 
 1. Visit [Subshell downloads](https://subshell.sh) and install **Subshell Server**
    on the machine that will host your instance.
-2. Open the app and follow its setup experience to install the server and
+2. Open the app and follow the setup steps to install the server and
    create your administrator account.
 3. Launch an agent from the dashboard. To run agents on another machine,
    install **Subshell Client** there and [enroll it as a node](https://docs.subshell.sh/get-started/another-machine).
@@ -54,7 +54,7 @@ for development setup and verification. Contributions require the one-time
 [Contributor License Agreement](CLA.md).
 
 For work in this repository, [AGENTS.md](AGENTS.md) contains development
-instructions and routes to app-specific notes. The
+instructions and links to notes for each app. The
 [engineering documentation index](docs/README.md) covers security rationale,
 release mechanics, the design system, and historical decisions.
 

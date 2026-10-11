@@ -263,7 +263,7 @@ describe("CloneSubshellDialog", () => {
         closed = o;
       });
       fireEvent.click(screen.getByRole("button", { name: "Launch clone" }));
-      expect(await screen.findByText(/start its subshell or pick another node/i)).toBeDefined();
+      expect(await screen.findByText(/Start its Subshell daemon or choose another node/i)).toBeDefined();
       expect(closed).toBeUndefined();
     } finally {
       restore();

@@ -88,8 +88,8 @@ export function StackFormDialog({
     <Dialog open={open} onOpenChange={formDialogOpenChange(onOpenChange)}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{editingId ? "Edit stack" : "New stack"}</DialogTitle>
-          <DialogDescription>A stack is a set of prompts combined together.</DialogDescription>
+          <DialogTitle>{editingId ? "Edit stack" : "New prompt stack"}</DialogTitle>
+          <DialogDescription>Combine saved prompts and custom instructions into one prompt.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <form.Field name="label">

@@ -464,10 +464,10 @@ describe("mcp tools (handler-level, real crypto)", () => {
   it("describeToolError turns a 401 into guidance an AGENT can safely act on", () => {
     const msg = describeToolError(new ApiError(401, "no")).message;
     // The whole surface is down (one shared bearer), not just the failing call:
-    expect(msg).toContain("every subshell tool is unavailable");
+    expect(msg).toContain("its Subshell tools are unavailable");
     // The remedy is a human's, and the message says so rather than implying
     // the agent can self-recover.
-    expect(msg).toContain("ask a human to restart");
+    expect(msg).toContain("Ask a human to check your account access and restart this subshell if needed");
     // The footgun this replaces: the OLD copy told the reader to "restart this
     // subshell", the one action that TERMINATES the caller. Pin that the new
     // copy warns off it, so a future edit cannot reintroduce the trap.
@@ -826,9 +826,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     expect(
       describeToolError(new ApiError(400, "Multiple online nodes; pick one (2 are online)", "NODE_REQUIRED")).message,
     ).toMatch(/list_nodes.*node/);
-    expect(describeToolError(new ApiError(409, "That node has no live connection", "NODE_OFFLINE")).message).toMatch(
-      /offline/i,
-    );
+    expect(describeToolError(new ApiError(409, "This node is offline", "NODE_OFFLINE")).message).toMatch(/offline/i);
     expect(describeToolError(new ApiError(409, "Row is not running", "SUBSHELL_NOT_RUNNING")).message).toContain(
       "restart_subshell",
     );
@@ -842,7 +840,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     // remedy is a human updating the node, and the sentence must say so.
     expect(
       describeToolError(
-        new ApiError(409, "the agent on node n predates archive transfer; update the node", "NODE_AGENT_TOO_OLD"),
+        new ApiError(409, "the daemon on node n predates archive transfer; update the node", "NODE_AGENT_TOO_OLD"),
       ).message,
     ).toContain("update the node");
   });

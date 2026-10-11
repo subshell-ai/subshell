@@ -133,8 +133,8 @@ export function NodeServiceCard({
     setFailure(null);
     setDone(null);
     const ok = await confirmAction({
-      title: `${spec.label} the node "${node.name}"?`,
-      description: spec.describe(node.name, kills, local ? "local" : "remote"),
+      title: `${spec.label} on this node?`,
+      description: `Node: "${node.name}". ${spec.describe(node.name, kills, local ? "local" : "remote")}`,
       confirmLabel: spec.destructive && kills ? `${spec.label} anyway` : spec.label,
       danger: spec.destructive === true,
     });
@@ -168,8 +168,8 @@ export function NodeServiceCard({
         <CardTitle>Service</CardTitle>
         <CardDescription>
           {local
-            ? "Drive this machine's service manager. Stopping or uninstalling is one-way from here: this page goes down with the node and comes back only if something else starts it."
-            : "Drive the service manager on that machine. Stopping or uninstalling is one-way from here: nothing in this app can start a node that is not running, because every command travels over the node's own connection."}
+            ? "Manage the Subshell service on this machine. Stopping or uninstalling it also takes this page offline, so you'll need to start the node from a terminal to use it again."
+            : "Manage the Subshell service on this node. If you stop or uninstall it, you'll need access to that machine to start it again."}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -199,7 +199,9 @@ export function NodeServiceCard({
           </p>
         )}
         {wait.outcome === "timeout" && (
-          <p className="text-destructive text-detail">The node has not come back. Check the node on that machine.</p>
+          <p className="text-destructive text-detail">
+            The node hasn't reconnected. Check its service on that machine.
+          </p>
         )}
         {/* Updating the node BINARY is a different act from driving its
             service manager, and it lives in one place for the whole fleet

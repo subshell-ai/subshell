@@ -18,6 +18,20 @@ description: "Install and initialize the Subshell server on a supported host."
 
 Use a factual one-sentence opener as the visible lead subtitle. Keep the metadata description for search and social previews, without displaying a second subtitle. How-to pages continue with prerequisites, numbered actions, expected results, and next steps. Reference pages use lookup tables and command sections.
 
+## Write naturally
+
+Write as if you're explaining something to a peer. Use active voice, familiar words, and contractions like "don't" and "it's" where they sound natural. Connect related ideas and vary sentence length so the prose flows. Avoid textbook introductions, stock AI phrases, and conclusions that repeat what you've already said.
+
+For example, "Run the transfer again to retry" reads more naturally than "re-running it is the retry." Read your draft aloud to catch stiff wording or repetitive sentence patterns. Keep technical terms, conditions, and warnings precise as you revise.
+
+Use the same voice in app messages, website copy, and code comments. App messages should explain what's happening and offer a useful next step when one exists. Comments should explain the reason or constraint another developer needs to understand.
+
+Keep UI titles short and fixed. Use "Close this subshell?" and identify the subshell in the body; long names, addresses, and versions shouldn't expand a heading. Buttons should name the action they perform, such as "Insert prompt" or "Revoke key".
+
+Explain consequences and timing accurately. Generating a setup key doesn't replace a node's credentials until someone uses it. Maintenance tries to stop subshells, but some may keep running. Aim for one or two short sentences, and use more when a warning or condition needs it.
+
+Use "subshell" for UI objects and actions, and explain it as a terminal session running an agent or a shell. Keep wording consistent across menus, dialogs, accessible labels, and guides. The product-copy examples in `apps/docs/STYLE.md` cover confirmations, notifications, and destructive actions.
+
 ## Verify facts
 
 Read the owning app documentation and implementation. Confirm flags, defaults, platform support, UI labels, and permissions. Use `docs/security.md` as the security authority and preserve warnings about trust or destructive operations.
@@ -26,7 +40,13 @@ Keep server, node, and client meanings distinct. Follow `apps/docs/STYLE.md` for
 
 ## MDX and navigation
 
-Use default code blocks, tables, and GitHub alerts. Keep placeholders such as `<path>` and JSON braces inside code. Internal links are root-relative and must resolve to a real page. Do not add draft placeholders or unrelated custom MDX components. Use fenced `mermaid` blocks for diagrams; start each with a `%%` description for its accessible label. Diagrams render to themed SVG during the build and remain visible without JavaScript. Keep an explanation in prose and verify the exported SVG. For screenshots, use the built-in Fumadocs `ImageZoom` component with `unoptimized` inside a native figure; selecting it opens a larger image overlay. Use screenshots only where they clarify controls or layouts. Follow the style guide for cropped figures, alt text, captions, redaction, and the 320px display-height limit. Keep complete instructions in prose. For UI actions, name the interface, navigation path, and control label, and state required permissions; do not assume readers already know where a card or dialog lives.
+Use standard code blocks, tables, and GitHub alerts. Put placeholders such as `<path>` and JSON braces inside code spans or blocks. Internal links must start at the site root and point to a real page. Don't add draft placeholders or unrelated custom MDX components.
+
+For diagrams, use fenced `mermaid` blocks and start each with a `%%` description for its accessible label. The build converts diagrams to themed SVGs that work without JavaScript. Explain the diagram in prose and check the exported image.
+
+Add screenshots when they help readers find controls or understand a layout. Use Fumadocs `ImageZoom` with `unoptimized` inside a native figure so readers can open a larger view. Follow the style guide for cropping, alt text, captions, redaction, and the 320px display-height limit. Keep the full instructions in the text too.
+
+When describing a UI action, name the interface, navigation path, control label, and required permissions. Readers shouldn't have to guess where a card or dialog lives.
 
 Navigation and AI section order are shared in `apps/docs/lib/navigation.ts`. Every section has an index page. The content tests enforce the tree.
 
@@ -54,4 +74,4 @@ Add a changeset for `@internal/docs` only. Update existing repository links when
 
 ## Next steps
 
-Preview with `bun run dev:docs` on port 3400 and review wide and narrow layouts. Read the prose as well as running checks; passing tests does not establish factual accuracy.
+Preview with `bun run dev:docs` on port 3400 and review wide and narrow layouts. Read the prose as well as running checks; passing tests doesn't establish factual accuracy.

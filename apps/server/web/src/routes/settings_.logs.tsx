@@ -66,7 +66,7 @@ function LogsPage() {
       {/* Deliberately not either card's own description reworded — the old
           audit page's comment kept that rule for a duplicated-string reason
           (header text made every e2e locator ambiguous), and it travels. */}
-      <PageHeader title="Logs" subtitle="What this server logged, and what was done to it" />
+      <PageHeader title="Logs" subtitle="Server logs and administrative activity" />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
           <Segmented

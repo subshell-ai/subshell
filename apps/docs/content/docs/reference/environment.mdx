@@ -9,7 +9,7 @@ Look up the environment values used by the server and pane integrations.
 
 Before changing a value, use [Files and paths](/reference/paths) to locate the active configuration and choose the correct environment layer.
 
-Process environment overrides `config.env`, then development `.env`, then defaults. CLI initialization persists production-specific paths and a generated authentication secret; raw boot defaults are not identical to an initialized installation.
+The server checks the process environment first, then `config.env`, the development `.env`, and finally its built-in defaults. CLI initialization saves production paths and generates an authentication secret, so an initialized installation can differ from the defaults below.
 
 | Variable | Default or behavior |
 | --- | --- |
@@ -43,11 +43,11 @@ Process environment overrides `config.env`, then development `.env`, then defaul
 
 Harness manifests declare `CLAUDE_PATH`, `CODEX_PATH`, `OPENCODE_PATH`, `HERMES_PATH`, and `PI_PATH`. Network manifests declare `TAILSCALE_PATH`, `NETBIRD_PATH`, and `CLOUDFLARED_PATH`. Terminal uses `SHELL` to select the execution account's shell.
 
-These select binaries in the applicable execution environment. Setting one in a shell does not automatically change an existing service's environment.
+These select binaries in the applicable execution environment. Setting one in a shell doesn't automatically change an existing service's environment.
 
 ## Pane identity
 
-The host injects `SUBSHELL_API_KEY`, `SUBSHELL_ID`, `SUBSHELL_BASE_URL`, `SUBSHELL_DATA_DIR`, and optional `SUBSHELL_NAME` for MCP. They identify the pane and its storage; do not replace them with a shared system key.
+The host injects `SUBSHELL_API_KEY`, `SUBSHELL_ID`, `SUBSHELL_BASE_URL`, `SUBSHELL_DATA_DIR`, and optional `SUBSHELL_NAME` for MCP. They identify the pane and its storage; don't replace them with a shared system key.
 
 `SUBSHELL_CHANNEL_PIN` defaults to strict peer-key pinning. `trust` disables the pin check and persistence.
 

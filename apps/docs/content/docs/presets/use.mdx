@@ -12,7 +12,7 @@ Reuse a saved preset when starting another subshell.
 3. Review the machine, working directory, and prompts filled from the preset. Change them for this launch if needed.
 4. Launch and confirm that the agent reaches its normal prompt.
 
-Changing a field in the launch form changes that launch; it does not update the saved preset. See [Launch a subshell](/guides/launch).
+Changing a field in the launch form changes that launch; it doesn't update the saved preset. See [Launch a subshell](/guides/launch).
 
 ## Edit or clone
 
@@ -26,7 +26,7 @@ To remove a library entry, choose **Delete preset** from its **⋯** menu and re
 
 ## Use from an agent
 
-MCP's `list_presets` returns your saved preset IDs and `crossCommReady`. A preset is ready for agent-created launches only when its MCP switch is enabled and a machine and directory are saved. Catalog entries are not saved presets: an agent harness catalog entry needs a saved preset before `create_subshell` can launch it, while a plain terminal harness can launch presetless (see [Terminal sessions](/mcp/terminals)).
+MCP's `list_presets` returns your saved preset IDs and `crossCommReady`. A preset is ready for agent-created launches only when its MCP switch is enabled and a machine and directory are saved. Catalog entries aren't saved presets: an agent harness catalog entry needs a saved preset before `create_subshell` can launch it, while a plain terminal harness can launch presetless (see [Terminal sessions](/mcp/terminals)).
 
 ```mermaid
 %% An agent lists the owner's presets, chooses an eligible saved preset ID, requests a helper, and the server checks access and availability before launching on the preset's node.
@@ -43,7 +43,7 @@ sequenceDiagram
   S-->>A: Subshell ID and promptDelivered
 ```
 
-Choose an ID from `list_presets`; do not guess one from the display name. An agent's task can append to the preset's saved prompt or replace it using `prompt_mode`. Check `promptDelivered` when an initial task was requested; a created session does not prove that task arrived.
+Choose an ID from `list_presets`; don't guess one from the display name. An agent's task can append to the preset's saved prompt or replace it using `prompt_mode`. Check `promptDelivered` when an initial task was requested; a created session doesn't prove that task arrived.
 
 The agent that creates a helper must clean it up when the work is done. Follow [Coordinate agents](/mcp/coordinate).
 

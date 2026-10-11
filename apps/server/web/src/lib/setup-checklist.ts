@@ -150,8 +150,7 @@ export function checklistItems(input: ChecklistInputs): ChecklistItem[] {
     items.push({
       id: "tmux",
       title: "Install tmux",
-      consequence:
-        "Nothing can launch on this machine: every subshell runs inside a tmux pane, and the server found no tmux.",
+      consequence: "Install tmux to run subshells on this machine.",
       remedy: command === null ? null : { kind: "command", command, label: "Install command" },
     });
   }
@@ -161,7 +160,7 @@ export function checklistItems(input: ChecklistInputs): ChecklistItem[] {
       id: "agent-cli",
       title: "Install an agent CLI",
       consequence:
-        "No agent was detected here, so a subshell on this machine can only be a plain terminal. Nodes you add have their own answer.",
+        "No agent CLI was found on this machine, but you can still open a plain terminal. Other nodes may have agents installed.",
       remedy: { kind: "link", to: "/nodes/$id", params: { id: "local" }, label: "This machine" },
     });
   }
@@ -171,7 +170,7 @@ export function checklistItems(input: ChecklistInputs): ChecklistItem[] {
       id: "lan-origin",
       title: "Name the address other machines will use",
       consequence:
-        'This server accepts connections from the network, but trusts only its own loopback addresses: a browser on another machine is refused at sign-in with 403 "Invalid origin", which names nothing you could change.',
+        'Add the address your other devices use to reach this server. Without it, signing in from those devices fails with 403 "Invalid origin".',
       remedy: { kind: "link", to: "/settings/service", label: "Addresses" },
       // The other way out, and often the better one: joining a network puts
       // its addresses on the allowlist as part of the act — no publish, no

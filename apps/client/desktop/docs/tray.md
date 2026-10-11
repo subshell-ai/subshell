@@ -1,4 +1,4 @@
-# The tray: route home, the close-to-tray check, the Control Plane submenu
+# The tray: route home, the close-to-tray check, the Servers submenu
 
 Moved from `apps/client/desktop/AGENTS.md`, which keeps the operational
 summary and routes here. The text below is verbatim.
@@ -43,14 +43,14 @@ hide a window into an icon nothing draws. The item shows the CLAMPED value,
 because a check mark claiming behaviour the app will not honour is a check mark
 that lies.
 
-## The tray's Control Plane submenu
+## The tray's Servers submenu
 
 The plane-list ruling (operator, 2026-09-22) reached the tray the same day: the
 flat "Open Subshell Client / Open in Browser" pair stopped being honest the
 moment the list could hold more than one plane, because neither item said
 WHICH. The tray now mirrors the Control Plane section:
 
-- **Control Plane ▸ Open Last / separator / `<address>` ▸ Open in App | Open in
+- **Servers ▸ Open Last / separator / `<address>` ▸ Open in App | Open in
   Browser**: one submenu per address, the node's own connected address FIRST
   (the page's pinned-row rule, same live read: `config.json`, never a probe),
   the stored list behind it, deduped by exact canonical match.

@@ -25,7 +25,7 @@ import { ApiError, errMessage } from "@internal/node-admin";
 export function createSubshellErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     if (err.code === BackendErrorCodes.NODE_OFFLINE) {
-      return "That node is offline. Start its subshell or pick another node.";
+      return "That node is offline. Start its Subshell daemon or choose another node.";
     }
     if (err.code === BackendErrorCodes.NODE_UNREACHABLE) {
       return "The node did not answer. Try again shortly.";

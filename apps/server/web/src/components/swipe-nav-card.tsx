@@ -23,9 +23,8 @@ export function SwipeNavCard() {
       <CardHeader>
         <CardTitle>Swipe between subshells</CardTitle>
         <CardDescription>
-          On a phone, swiping left or right across a subshell&apos;s terminal jumps to the next or previous one in the
-          sidebar&apos;s order. Applies on this device only, and never fights the terminal: vertical swipes still
-          scroll, long-press still selects text.
+          Swipe left or right across a terminal on this phone to switch subshells in sidebar order. This setting applies
+          only to this device; you can still scroll vertically and long-press to select text.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

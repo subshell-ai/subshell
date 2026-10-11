@@ -82,9 +82,9 @@ function NodesPage() {
   async function remove(node: Node) {
     setActionError(null);
     const ok = await confirmAction({
-      title: `Delete node "${node.name}"?`,
-      description: "Its enrollment key is revoked.",
-      confirmLabel: "Delete",
+      title: "Delete this node?",
+      description: `This deletes "${node.name}" and revokes its enrollment key.`,
+      confirmLabel: "Delete node",
       danger: true,
     });
     if (!ok) return;

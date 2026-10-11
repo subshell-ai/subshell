@@ -479,7 +479,9 @@ by any of that:
   `journalctl` sentence IS the remedy, rendered on the facts row and on the
   Service screen's offline card.
 - **`node-log` resolves the node's OWN capped file first**, on every
-  platform (2026-09-18): `~/.config/subshell/logs/agent.log`, the same
+  platform (2026-09-18; named `daemon.log` since the 2026-10 copy ruling, with
+  the pre-rename `agent.log` as the second rung until the daemon writes the
+  new one): `~/.config/subshell/logs/daemon.log`, the same
   JSON-lines file the plane's node log view serves, so the path the facts
   list names and the log a browser reads cannot be two different documents. That is
   the order `apps/server/desktop`'s `desktop_logs` reads the server's log in,

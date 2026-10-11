@@ -115,7 +115,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
                   409,
                   apiErrorBody({
                     code: BackendErrorCodes.NODE_OFFLINE,
-                    message: "The node dropped the connection mid-upload; re-run the upload",
+                    message: "The node disconnected during the upload. Try uploading the file again.",
                   }),
                 )
               : status(
@@ -160,7 +160,7 @@ export const uploadsRoutes = new Elysia({ prefix: "/api/subshells" })
           409,
           apiErrorBody({
             code: BackendErrorCodes.EXISTS_ERROR,
-            message: "Subshell working directory is missing or not writable",
+            message: "The subshell's working directory is missing or isn't writable",
           }),
         );
       }

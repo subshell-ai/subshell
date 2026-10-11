@@ -25,8 +25,7 @@ function NodeLogsPage() {
           <NodeLogCard node={node} />
         ) : (
           <p className="text-muted-foreground text-sm">
-            This node is offline. Its log is read through the node's own connection, so it can only be read while the
-            node is running.
+            This node is offline. You can read its log when it reconnects.
           </p>
         )
       }

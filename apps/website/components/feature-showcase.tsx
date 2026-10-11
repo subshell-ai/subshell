@@ -85,7 +85,7 @@ export function FeatureShowcase() {
             id="workspace-feature"
             className="mt-3 text-[28px] font-semibold leading-tight tracking-[-.035em] sm:text-[36px]"
           >
-            Give every agent a seat at the desk.
+            Work with your agents side by side.
           </h2>
           <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
             Keep Codex, Claude Code, and a terminal together in one workspace. Split panes to follow several sessions at
@@ -108,12 +108,12 @@ export function FeatureShowcase() {
             id="reuse-feature"
             className="mt-3 text-[28px] font-semibold leading-tight tracking-[-.035em] sm:text-[36px]"
           >
-            Set up once. Start faster next time.
+            Save your setup for next time.
           </h2>
           <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
-            Save your project context, review checklist, and preferred response format as reusable prompts. Combine them
-            into a stack, then use a preset to remember the agent settings, machine, and working directory for your next
-            launch.
+            Save your project context, review checklist, and preferred response format as reusable prompts. A stack
+            combines them into one prompt. Use a preset to save the agent settings, machine, and working directory for
+            your next launch.
           </p>
           <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2">
             <DocumentationLink path="/prompts">Build reusable prompts</DocumentationLink>
@@ -161,7 +161,7 @@ export function FeatureShowcase() {
             id="nodes-feature"
             className="mt-3 text-[28px] font-semibold leading-tight tracking-[-.035em] sm:text-[36px]"
           >
-            Your machines. One dashboard.
+            Manage your machines from one dashboard.
           </h2>
           <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
             Run an agent on your workstation, a spare Mac, or a headless Linux machine. Connect each as a node (a

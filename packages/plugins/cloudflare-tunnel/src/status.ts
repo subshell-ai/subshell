@@ -88,7 +88,7 @@ async function readIdentity(host: PluginHost, binary: string): Promise<NetworkSt
  */
 function frontDoorHint(): NetworkHint {
   return {
-    text: "Cloudflare Access is the front door for this address: it decides who may reach the tunnel. Subshell's own sign-in still runs behind it.",
+    text: "Cloudflare Access controls who can reach this address. People must also sign in to Subshell.",
   };
 }
 

@@ -96,7 +96,7 @@ export function SystemKeyCreateDialog({
               <span className="break-all font-mono text-foreground">Authorization: Bearer {created.key}</span>
             </p>
             <p className="text-destructive text-detail">
-              Store it somewhere safe. If it is lost, you will need to create a new key.
+              Store it somewhere safe. If you lose it, you'll need to create a new key.
             </p>
             <DialogFooter>
               <Button onClick={close}>Done</Button>
@@ -106,7 +106,7 @@ export function SystemKeyCreateDialog({
           <form onSubmit={submitCreate}>
             <DialogHeader>
               <DialogTitle>New system key</DialogTitle>
-              <DialogDescription>Give the key a name so you can recognise it later.</DialogDescription>
+              <DialogDescription>Give the key a name so you can recognize it later.</DialogDescription>
             </DialogHeader>
             <div className="space-y-2 py-2">
               <Label htmlFor="key-name">

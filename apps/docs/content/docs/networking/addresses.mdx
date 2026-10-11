@@ -13,7 +13,7 @@ Configure the addresses on which the server listens and accepts browser requests
 | `APP_BASE_URL` | Canonical browser address used for authentication and callbacks. |
 | `TRUSTED_ORIGINS` | Additional browser origins explicitly allowed by the operator. |
 
-`HOST=0.0.0.0` listens on IPv4 interfaces. It does not make every hostname trustworthy. An origin includes scheme, hostname, and port; a URL path is not part of it.
+`HOST=0.0.0.0` listens on IPv4 interfaces. It doesn't make every hostname trustworthy. An origin includes scheme, hostname, and port; a URL path isn't part of it.
 
 ## Edit addresses
 
@@ -30,12 +30,12 @@ The effective registry combines local origins, eligible IPv4 LAN interfaces on w
 
 ## Names and authentication
 
-Passkeys are associated with the configured base URL's hostname. Opening a different trusted hostname does not make those credentials valid for it.
+Passkeys are associated with the configured base URL's hostname. Opening a different trusted hostname doesn't make those credentials valid for it.
 
 OIDC uses the provider's configured canonical entry origin. Review the provider's callback when changing server names.
 
 > [!warning] Origin trust
-> Do not add arbitrary websites to the trusted list to suppress an error. A trusted origin participates in the instance's browser security boundary.
+> Don't add arbitrary websites to the trusted list to suppress an error. A trusted origin participates in the instance's browser security boundary.
 
 ## Next steps
 

@@ -1,5 +1,5 @@
 import { ConsoleTransport, type ILogLayer, LogLayer } from "loglayer";
-import { AGENT_LOG_CAP_BYTES, agentLogPath, CappedFileTransport } from "./log-file.js";
+import { AGENT_LOG_CAP_BYTES, CappedFileTransport, daemonLogPath } from "./log-file.js";
 
 /**
  * Builds the agent's log transport.
@@ -49,7 +49,7 @@ export function createLogTransport(sink: typeof console = console): ConsoleTrans
  * deliberately not reachable that way: what the service manager collects stays
  * at `info` whatever the switch says.
  */
-export const agentLogFile: CappedFileTransport = new CappedFileTransport(agentLogPath(), AGENT_LOG_CAP_BYTES);
+export const agentLogFile: CappedFileTransport = new CappedFileTransport(daemonLogPath(), AGENT_LOG_CAP_BYTES);
 
 export const logger: ILogLayer = new LogLayer({
   // TWO transports, and both are load-bearing. The console is what a person

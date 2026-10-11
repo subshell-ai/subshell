@@ -21,7 +21,7 @@ export function tunnelSettingsFields(): SettingsField[] {
       label: "Hostname",
       placeholder: "subshell.example.com",
       description:
-        "The public hostname the tunnel answers on. Its DNS record and its Access application are created in the Cloudflare dashboard; publishing is refused until Access covers it.",
+        "The public hostname for this tunnel. Create its DNS record and Access application in the Cloudflare dashboard before publishing.",
     },
     {
       key: "teamDomain",
@@ -37,7 +37,7 @@ export function tunnelSettingsFields(): SettingsField[] {
       required: true,
       label: "Access application Audience tag",
       description:
-        "The AUD tag of the Access application that guards this hostname. It is in that application's summary, and every assertion is verified against it.",
+        "Copy the AUD tag from the Access application's summary. Subshell checks this tag when verifying Access tokens.",
     },
     {
       key: TOKEN_SECRET,
@@ -52,7 +52,7 @@ export function tunnelSettingsFields(): SettingsField[] {
       // the PAGE — the settings form states it under every secret, because
       // `subshell-server backup` is the server's fact and no manifest should
       // have to repeat it (review, 2026-09-16).
-      description: "It reaches the tunnel through the connector's own environment, never a command line.",
+      description: "Subshell passes the token to the tunnel through its environment, never as a command-line argument.",
     },
   ];
 }

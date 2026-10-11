@@ -60,7 +60,7 @@ export const nodeLoggingRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: "The control-plane host's logging is changed from Server Settings, not as a node",
+            message: "Change this server's logging settings in Server Settings",
           }),
         );
       }

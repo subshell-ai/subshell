@@ -142,7 +142,7 @@ export function InstalledPluginsCard({
                         // nothing away.
                         if (!checked && p.type === "network") {
                           const proceed = await confirmAction({
-                            title: `Disable ${p.name}?`,
+                            title: "Disable this network plugin?",
                             description: `Disabling stops publishing this server on ${p.name}.`,
                             confirmLabel: "Disable",
                             danger: true,

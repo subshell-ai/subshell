@@ -56,7 +56,7 @@ export function defaultMaintenanceDeps(dataDir: string): MaintenanceDeps {
  * which may be never, and is still the correct thing to have written down.
  */
 const LEARNS_LINE =
-  "the control plane learns of this within about 15 seconds while the agent runs, or when it next connects\n";
+  "the server receives this change within about 15 seconds while the Subshell daemon runs, or when it next connects\n";
 
 /**
  * Runs one `maintenance` invocation.

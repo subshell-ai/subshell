@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CommandContext } from "../commands/context.js";
 import { dispatchCommand } from "../commands/index.js";
-import { AGENT_LOG_CAP_BYTES, agentLogPath } from "../log-file.js";
+import { AGENT_LOG_CAP_BYTES, daemonLogPath, legacyAgentLogPath } from "../log-file.js";
 
 /** Point the config home at a throwaway dir and write a log file inside it. */
 function withLog(text: string): string {
   process.env.SUBSHELL_CONFIG_HOME = mkdtempSync(join(tmpdir(), "subshell-agentlog-"));
-  const path = agentLogPath();
+  const path = daemonLogPath();
   mkdirSync(join(path, ".."), { recursive: true });
   writeFileSync(path, text);
   return path;
@@ -48,6 +48,15 @@ describe("agent_log_read", () => {
     process.env.SUBSHELL_CONFIG_HOME = mkdtempSync(join(tmpdir(), "subshell-agentlog-"));
     const res = await dispatchCommand(ctx(), { type: "agent_log_read", fromByte: 0, maxBytes: 100 });
     expect(res).toEqual({ ok: true, data: { text: "", nextByte: 0, size: 0, truncated: false } });
+  });
+
+  it("reads the pre-rename agent.log until the daemon has written the new name", async () => {
+    process.env.SUBSHELL_CONFIG_HOME = mkdtempSync(join(tmpdir(), "subshell-agentlog-"));
+    const legacy = legacyAgentLogPath();
+    mkdirSync(join(legacy, ".."), { recursive: true });
+    writeFileSync(legacy, "old history");
+    const res = await dispatchCommand(ctx(), { type: "agent_log_read", fromByte: 0, maxBytes: 100 });
+    expect(res).toEqual({ ok: true, data: { text: "old history", nextByte: 11, size: 11, truncated: false } });
   });
 
   // The caller's cap is not the only one. A frame carrying more than the file

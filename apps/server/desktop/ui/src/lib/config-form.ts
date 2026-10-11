@@ -69,7 +69,7 @@ export const CONFIG_FIELDS: ConfigField[] = [
     prefill: true,
     placeholder: "http://localhost:3080",
     wide: true,
-    hint: "The address browsers, phones and remote nodes dial. Passkeys are tied to this host.",
+    hint: "The address browsers, phones, and remote nodes connect to. Passkeys are tied to this host.",
   },
   {
     name: "trustedOrigins",

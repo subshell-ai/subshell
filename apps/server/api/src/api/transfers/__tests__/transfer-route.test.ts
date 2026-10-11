@@ -147,7 +147,7 @@ describe("POST /api/transfers gates", () => {
       }),
     );
     expect(asFrom.status).toBe(400);
-    expect(((await asFrom.json()) as { message: string }).message).toContain("agent nodes");
+    expect(((await asFrom.json()) as { message: string }).message).toContain("machine nodes");
     // Reversed pair: the `to` side names `local`, so the `from` must be a
     // live agent for the call to reach that gate at all (from gates first).
     fakePair(mine, localId, new Uint8Array(1));
@@ -158,7 +158,7 @@ describe("POST /api/transfers gates", () => {
       }),
     );
     expect(asTo.status).toBe(400);
-    expect(((await asTo.json()) as { message: string }).message).toContain("agent nodes");
+    expect(((await asTo.json()) as { message: string }).message).toContain("machine nodes");
   });
 
   it("409s maintenance ahead of offline, and offline for a dead socket", async () => {

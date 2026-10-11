@@ -152,11 +152,11 @@ export function AddressQr({
           className="flex flex-col items-center gap-2 rounded-md border border-dashed px-4 py-6 text-center"
         >
           <QrCode aria-hidden className="h-8 w-8 text-muted-foreground opacity-40" />
-          <p className="text-detail text-warning">No QR code: this server knows no address a phone can open.</p>
+          <p className="text-detail text-warning">No address is available for your phone to open.</p>
           <p className="text-detail text-muted-foreground">
             {settings?.viewerIsAdmin
-              ? "Join a network under Server Settings → Networking, or add an address under Server Settings → Service, and it will appear here."
-              : "An admin can join a network, or add the address you reach it by, and it will appear here."}
+              ? "Open Server Settings → Networking to join a network or add an address in the Addresses card."
+              : "Ask an admin to join a network or add a reachable address under Server Settings → Networking."}
           </p>
         </div>
       )}

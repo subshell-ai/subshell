@@ -129,7 +129,7 @@ fn present(app: AppHandle, action: Plan) {
         Plan::ConfirmStop => {
             let quitting = app.clone();
             app.dialog()
-                .message("Quit Subshell Server? This stops the server it is running.")
+                .message("Quitting Subshell Server will also stop the server. Quit now?")
                 .title("Quit Subshell Server")
                 .kind(MessageDialogKind::Warning)
                 .buttons(MessageDialogButtons::YesNo)
@@ -146,7 +146,7 @@ fn present(app: AppHandle, action: Plan) {
         Plan::ConfirmServiceChoice => {
             let quitting = app.clone();
             app.dialog()
-                .message("A server is running as a background service. Quit and stop it, or quit and leave it running?")
+                .message("Your server is running in the background. Stop it when you quit, or leave it running?")
                 .title("Quit Subshell Server")
                 .kind(MessageDialogKind::Warning)
                 .buttons(MessageDialogButtons::YesNoCancel)

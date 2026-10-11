@@ -21,8 +21,7 @@ export function PluginCatalogCard({ plugins }: { plugins: InstancePluginRow[] })
       <CardHeader>
         <CardTitle>Add from this build</CardTitle>
         <CardDescription>
-          Plugins this server binary carries. Installing copies them into the instance store: one click, no network,
-          nothing third-party.
+          These plugins come bundled with Subshell. You can install them without a download.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

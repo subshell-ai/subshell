@@ -57,7 +57,7 @@ export function launchGuidance(input: {
     ? {
         headline: "There are no nodes available",
         description:
-          "The server is switched off as a place to run subshells, and no node you can launch on has been added. Add a machine, or turn the server back on in its settings.",
+          "This server doesn't allow subshells to run on it, and you don't have an available node. Add a node or enable subshells on the server in Server Settings → General.",
         actionLabel: "Go to Nodes",
         actionTo: "/nodes",
       }

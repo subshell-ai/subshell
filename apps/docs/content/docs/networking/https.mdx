@@ -19,16 +19,16 @@ Use [Files and paths](/reference/paths) to find the server configuration before 
 4. Add any other intentional browser origins to the trusted list.
 5. Restart the server for boot-time changes and test sign-in and terminal attachment.
 
-A proxy outside the server's host cannot reach a loopback-only bind. A container proxy must use an address reachable from its own network namespace.
+A proxy outside the server's host can't reach a loopback-only bind. A container proxy must use an address reachable from its own network namespace.
 
 ## Security
 
 > [!warning] Public exposure
-> Subshell's baseline posture assumes admitted users and trusted execution hosts. Do not expose an unconfigured setup page or treat HTTPS alone as an access policy.
+> Subshell's baseline posture assumes admitted users and trusted execution hosts. Don't expose an unconfigured setup page or treat HTTPS alone as an access policy.
 
 For a public tunnel, use a tested identity gate such as the [Cloudflare Tunnel](/networking/cloudflare) plugin's Access integration.
 
-A working page load does not prove the WebSocket path works. Open a terminal, send input, and confirm streaming output before considering the proxy ready.
+A working page load doesn't prove the WebSocket path works. Open a terminal, send input, and confirm streaming output before considering the proxy ready.
 
 ## Next steps
 

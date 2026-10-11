@@ -69,8 +69,8 @@ describe("LogRetentionCard", () => {
     expect(((await screen.findByLabelText("Days")) as HTMLInputElement).value).toBe("7");
     expect((screen.getByLabelText("Hours") as HTMLInputElement).value).toBe("0");
     expect(screen.getByText("Stored in config.json.")).toBeTruthy();
-    expect(screen.getByText("Default, unset in config.json and the environment.")).toBeTruthy();
-    expect(screen.getByText(/takes effect at the next sweep without a restart/)).toBeTruthy();
+    expect(screen.getByText("Using the default; no configuration or environment override.")).toBeTruthy();
+    expect(screen.getByText(/take effect at the next cleanup without a restart/)).toBeTruthy();
   });
 
   test("the env-forced field is disabled and names its variable; the other half stays editable", async () => {
@@ -97,7 +97,7 @@ describe("LogRetentionCard", () => {
       const put = calls.find((c) => c.method === "PUT");
       expect(put?.body).toBe(JSON.stringify({ hours: 6 }));
     });
-    expect(await screen.findByText(/next hourly sweep uses the new window/)).toBeTruthy();
+    expect(await screen.findByText(/next hourly cleanup uses this retention period/)).toBeTruthy();
   });
 
   test("an untouched form cannot save, and junk cannot either", async () => {
@@ -120,8 +120,8 @@ describe("LogRetentionCard", () => {
     stub({ ...STORED, scheduled: false });
     renderCard();
     await screen.findByLabelText("Days");
-    expect(screen.getByText(/scheduled no sweep when it started/)).toBeTruthy();
-    expect(screen.getByText(/applies when the node next restarts/)).toBeTruthy();
+    expect(screen.getByText(/Automatic cleanup isn't running/)).toBeTruthy();
+    expect(screen.getByText(/Restart it to apply a new retention period/)).toBeTruthy();
     expect(screen.queryByText(/next hourly sweep/)).toBeNull();
   });
 
@@ -130,8 +130,8 @@ describe("LogRetentionCard", () => {
     stub({ ...STORED, forever: true, days: { value: 0, source: "stored", forced: false }, scheduled: false });
     renderCard();
     await screen.findByLabelText("Days");
-    expect(screen.getByText(/no sweep is scheduled here/)).toBeTruthy();
-    expect(screen.getByText(/next restarts/)).toBeTruthy();
+    expect(screen.getByText(/hasn't scheduled cleanup/)).toBeTruthy();
+    expect(screen.getByText(/Restart the node/)).toBeTruthy();
     cleanup();
     // Booted finite, saved forever: the timer is still armed, so leaving
     // forever (and back to a window) lands on the next pass — the sentence the
@@ -139,8 +139,8 @@ describe("LogRetentionCard", () => {
     stub({ ...STORED, forever: true, days: { value: 0, source: "stored", forced: false }, scheduled: true });
     renderCard();
     await screen.findByLabelText("Days");
-    expect(screen.getByText(/hourly sweep runs while this node is up/)).toBeTruthy();
-    expect(screen.getByText(/including a move away from keep-forever/)).toBeTruthy();
+    expect(screen.getByText(/Cleanup runs hourly while this node is running/)).toBeTruthy();
+    expect(screen.getByText(/even when changing from keeping logs indefinitely/)).toBeTruthy();
     expect(screen.queryByText(/next restarts/)).toBeNull();
   });
 
@@ -151,11 +151,11 @@ describe("LogRetentionCard", () => {
     fireEvent.change(screen.getByLabelText("Hours"), { target: { value: "6" } });
     fireEvent.click(screen.getByRole("button", { name: "Save window" }));
     expect(await screen.findByText(/new window applies when the node next restarts/)).toBeTruthy();
-    expect(screen.queryByText(/next hourly sweep uses the new window/)).toBeNull();
+    expect(screen.queryByText(/next hourly cleanup uses this retention period/)).toBeNull();
   });
 
   test("a refusal prints the sentence the machine answered with", async () => {
-    stub(STORED, { status: 409, message: "SUBSHELL_LOG_RETENTION_DAYS is set in this agent's environment" });
+    stub(STORED, { status: 409, message: "SUBSHELL_LOG_RETENTION_DAYS is set in the daemon's environment" });
     renderCard();
     await screen.findByLabelText("Days");
     fireEvent.change(screen.getByLabelText("Days"), { target: { value: "9" } });

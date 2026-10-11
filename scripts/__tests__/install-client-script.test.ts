@@ -512,7 +512,7 @@ describe("install-client.sh", () => {
 
   test("a 404 sidecar is a fetch failure, not an empty digest", async () => {
     // Distinct from the case above: `--fail` must turn the non-2xx into
-    // "could not fetch the checksum", so the reader learns the mirror is
+    // "couldn't fetch the checksum", so the reader learns the mirror is
     // missing the sidecar rather than that it published junk.
     state.sidecarStatus = 404;
     const r = await run({
@@ -520,7 +520,7 @@ describe("install-client.sh", () => {
       shims: { hdiutil: SHIM_HDIUTIL, cp: SHIM_CP },
     });
     expect(r.code).not.toBe(0);
-    expect(r.stderr).toContain("could not fetch the checksum");
+    expect(r.stderr).toContain("couldn't fetch the checksum");
     expect(r.log.filter((l) => APP_LOG_PREFIXES.some((p) => l.startsWith(`${p} `)))).toEqual([]);
   });
 
@@ -532,7 +532,7 @@ describe("install-client.sh", () => {
       },
     });
     expect(r.code).not.toBe(0);
-    expect(r.stderr).toContain("could not fetch the release manifest");
+    expect(r.stderr).toContain("couldn't fetch the release manifest");
     expect(r.requests).toEqual(["/missing"]);
   });
 

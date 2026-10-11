@@ -111,7 +111,7 @@ describe("NodeListRow", () => {
     try {
       renderRow(node());
       await pickMaintenance("mac mini", "Start maintenance…");
-      await waitFor(() => expect(confirm.seen[0]?.description).toContain("4 subshells running here"));
+      await waitFor(() => expect(confirm.seen[0]?.description).toContain("Subshell will try to stop 4 subshells here"));
       await waitFor(() =>
         expect(fetchMock.calls.some((c) => c.method === "PUT" && c.url === "/api/nodes/a1/maintenance")).toBe(true),
       );
@@ -127,7 +127,7 @@ describe("NodeListRow", () => {
     try {
       renderRow(node());
       await pickMaintenance("mac mini", "Start maintenance…");
-      await waitFor(() => expect(confirm.seen[0]?.description).toContain("Any subshells running here"));
+      await waitFor(() => expect(confirm.seen[0]?.description).toContain("any subshells running here"));
     } finally {
       confirm.restore();
       fetchMock.restore();

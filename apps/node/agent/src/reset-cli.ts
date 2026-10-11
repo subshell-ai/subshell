@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { CliResult } from "./cli.js";
 import { clientHome, configPath } from "./config.js";
 import { isPidAlive, lockPath, readLock } from "./lock.js";
-import { agentLogPath } from "./log-file.js";
+import { readableDaemonLogPath } from "./log-file.js";
 import { deleteGuardOk, pathRulesOk } from "./reset-guards.js";
 import { controlService, queryService, type ServiceDeps, uninstallService } from "./service.js";
 import { resolveNodeBinaryPath, UpdateRefused } from "./update.js";
@@ -61,7 +61,7 @@ export interface NodeResetPlan {
   binary: string | null;
   /** Why `binary` is null; the sentence the uninstall prints instead of deleting. */
   binaryReason: string | null;
-  /** The agent's own log: named in the success output as the thing that STAYS. */
+  /** The daemon's own log: named in the success output as the thing that STAYS. */
   agentLog: string;
 }
 
@@ -124,7 +124,7 @@ export async function buildNodeResetPlan(): Promise<NodeResetPlan> {
     binaryReason =
       failure instanceof UpdateRefused
         ? failure.message
-        : `the binary ladder did not answer: ${failure instanceof Error ? failure.message : String(failure)}`;
+        : `couldn't locate the installed binary: ${failure instanceof Error ? failure.message : String(failure)}`;
   }
   return {
     // Resolved the way the delete and the guards both need: as typed is
@@ -134,7 +134,7 @@ export async function buildNodeResetPlan(): Promise<NodeResetPlan> {
     dataDir: resolve(dataDir),
     binary,
     binaryReason,
-    agentLog: agentLogPath(),
+    agentLog: readableDaemonLogPath(),
   };
 }
 
@@ -277,7 +277,7 @@ export async function runNodeReset(
       out.push("not interactive: the data and settings stay; pass --reset-data to delete them");
     } else {
       const answer = await (deps.askConfirm ?? (() => Promise.resolve(false)))(
-        "Delete this node's data too: the data directory (identity, pane logs), the daemon lock, and the node config with its key, the way `reset` does? A reset leaves no copy behind. [y/N]",
+        "Also delete this node's identity, pane logs, daemon lock, and configuration, including its key? This permanently removes the same data as `reset`. [y/N]",
         false,
       );
       if (answer === null) return res(1, out, ["subshell: cancelled; nothing was changed"]);
@@ -496,9 +496,9 @@ export async function runNodeReset(
     // the config home itself, and then the walk legitimately took the log's
     // directory with it; a node that never wrote a log has none to report on.
     if (existsSync(plan.agentLog)) {
-      out.push(`left the agent's own log at ${plan.agentLog}: the record of this act, and no credential in it`);
+      out.push(`left the daemon's own log at ${plan.agentLog}: the record of this act, and no credential in it`);
     } else if (logWasHere) {
-      out.push("the agent's own log went with the data directory it lived in");
+      out.push("the daemon's own log went with the data directory it lived in");
     }
   } else {
     out.push("left the data, key and settings in place; `subshell reset` deletes them");
@@ -529,7 +529,9 @@ export async function runNodeReset(
         }
       }
     } else {
-      out.push(plan.binaryReason ?? "no installed binary: this agent runs from a source checkout, which is left alone");
+      out.push(
+        plan.binaryReason ?? "no installed binary: this daemon runs from a source checkout, which is left alone",
+      );
     }
   }
 

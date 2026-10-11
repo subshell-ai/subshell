@@ -74,8 +74,8 @@ if [ -z "$VERSION" ]; then
   # else. grep -o over the tag_name fields is enough for a flat list of tags,
   # and a tag that does not match the mint shape simply does not appear.
   if ! BODY="$(curl $CURL_PROTO --silent --show-error --location --fail "$API")"; then
-    fail "could not reach the release index at $API" \
-      "Check outbound network, or pass SUBSHELL_SERVER_VERSION=X.Y.Z to skip this lookup."
+    fail "couldn't reach the release index at $API" \
+      "Check your network connection, or set SUBSHELL_SERVER_VERSION=X.Y.Z to skip this lookup."
   fi
   VERSION="$(
     printf '%s' "$BODY" |
@@ -107,7 +107,7 @@ echo "==> downloading $ASSET"
 if ! HTTP="$(curl $CURL_PROTO --silent --show-error --location "$BASE/$ASSET" \
   --output "$TMP" --write-out '%{http_code}')"; then
   rm -f "$TMP"
-  fail "could not download $BASE/$ASSET; nothing was installed." \
+  fail "couldn't download $BASE/$ASSET; nothing was installed." \
     "Check outbound network access to the release host."
 fi
 case "$HTTP" in
@@ -139,7 +139,7 @@ esac
 # publish.
 if ! EXPECTED="$(curl $CURL_PROTO --silent --show-error --location --fail "$BASE/$ASSET.sha256" | tr -d '[:space:]')"; then
   rm -f "$TMP"
-  fail "could not fetch the checksum for $ASSET; nothing was installed."
+  fail "couldn't fetch the checksum for $ASSET; nothing was installed."
 fi
 if [ -z "$EXPECTED" ]; then
   rm -f "$TMP"

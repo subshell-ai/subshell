@@ -78,7 +78,7 @@ export const deleteNodeRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.NODE_ONLINE,
-            message: "Node is online; force-delete only applies to offline nodes (remote terminate lands in phase 2)",
+            message: "This node is online. You can only force-delete an offline node.",
           }),
         );
       }

@@ -73,7 +73,7 @@ export interface SubshellView {
   /**
    * True = the pane was launched by an agent over MCP (the `create_subshell`
    * door), not by a human at the UI: internal cross-agent comms, filed under
-   * "Cross-agent comms" in the rail and created with the bell off. Optional
+   * "Created by agents" in the rail and created with the bell off. Optional
    * for the same reason `shareCount` is — a payload cached by a client older
    * than the field must keep typechecking, and an absent field reads human,
    * which is what every pre-flag pane actually was.
@@ -94,4 +94,6 @@ export interface SubshellView {
   shareCount?: number;
   /** True when one of those grants is the Everyone grant (an uncountable audience). */
   sharedWithEveryone?: boolean;
+  /** True when this viewer has a sharing grant and is not the owner. */
+  sharedWithViewer?: boolean;
 }

@@ -457,21 +457,24 @@ mod tests {
     }
 
     // The CLI's block carries more than the three: `binary` (the installed
-    // CLI) and `agentLog` (the agent's own capped log). Both are reported so a
+    // CLI) and `agentLog` (the daemon's own capped log). Both are reported so a
     // caller can NAME them; neither is deleted. A reset that swept the block
     // would take out the log that records the reset, and on a machine where
-    // the binary sat in the data dir, the agent itself.
+    // the binary sat in the data dir, the daemon itself.
     #[test]
     fn keys_beyond_the_three_are_reported_but_never_deleted() {
         let mut v = full();
         v["paths"]["binary"] = json!("/home/u/.local/bin/subshell");
-        v["paths"]["agentLog"] = json!("/home/u/.config/subshell/logs/agent.log");
+        v["paths"]["agentLog"] = json!("/home/u/.config/subshell/logs/daemon.log");
         let plan = parse_delete_plan(&v).expect("extra keys do not refuse the plan");
         assert_eq!(plan, parse_delete_plan(&full()).unwrap());
         let order = deletion_order(&plan);
         assert_eq!(order.len(), 3);
         for path in &order {
-            assert!(!path.ends_with("logs/agent.log"), "the agent log is not deleted");
+            assert!(
+                !path.ends_with("logs/daemon.log"),
+                "the daemon's own log is not deleted"
+            );
             assert!(!path.ends_with("bin/subshell"), "the installed CLI is not deleted");
         }
     }

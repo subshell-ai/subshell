@@ -19,9 +19,9 @@ Run an agent with Subshell MCP available. Follow [MCP configuration](/mcp/config
 | `update_prompt` | Changes the owner's description, body, or sharing flag. |
 | `delete_prompt` | Deletes the owner's prompt permanently. |
 
-Use IDs returned by `list_prompts`, then call `get_prompt` to read the complete instructions. A preview is not the full task. Reading a prompt does not automatically submit it to another agent.
+Use IDs returned by `list_prompts`, then call `get_prompt` to read the complete instructions. A preview isn't the full task. Reading a prompt doesn't automatically submit it to another agent.
 
-There are no dedicated prompt-stack MCP tools. The prompt tools above operate on individual saved prompts; do not treat a stack ID as a prompt ID. For authorized API automation, stack endpoints are under `/api/prompts/stacks`; see [Build an API integration](/automation/integrations) for authentication and schema discovery.
+There are no dedicated prompt-stack MCP tools. The prompt tools above operate on individual saved prompts; don't treat a stack ID as a prompt ID. For authorized API automation, stack endpoints are under `/api/prompts/stacks`; see [Build an API integration](/automation/integrations) for authentication and schema discovery.
 
 ## Ask an agent to save instructions
 
@@ -32,7 +32,7 @@ Save our repository review instructions as a private reusable prompt named
 "Review changes". Do not include credentials or share it with other accounts.
 ```
 
-The agent can create and edit your entries and read other accounts' shared entries. It cannot edit another owner's prompt. A `shared: true` write publishes the text to every account on the instance; agents should leave it private unless sharing was requested.
+The agent can create and edit your entries and read other accounts' shared entries. It can't edit another owner's prompt. A `shared: true` write publishes the text to every account on the instance; agents should leave it private unless sharing was requested.
 
 Deleting through MCP has the same consequences as deleting in the dashboard, including removing the prompt from stacks and providing no undo.
 

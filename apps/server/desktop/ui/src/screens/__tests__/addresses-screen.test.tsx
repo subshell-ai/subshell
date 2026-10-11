@@ -170,9 +170,7 @@ describe("the form", () => {
   it("refuses Save on a machine without tmux, in the CLI's own words", () => {
     renderAddresses({ probe: makeProbe({ next: "start", tmux: null }) });
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(
-      screen.getByText(/tmux is missing, and the server refuses to write its configuration without it\./),
-    ).toBeDefined();
+    expect(screen.getByText(/Install tmux before saving the server's configuration\./)).toBeDefined();
   });
 
   it("offers Restart with the Force box fail-closed above it, and passes the box's answer to the run", async () => {

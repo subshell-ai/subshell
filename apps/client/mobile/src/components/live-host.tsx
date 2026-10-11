@@ -231,7 +231,7 @@ function RejectedBanner({ status }: { status: SocketStatus }) {
       ? "Not authorized. Sign in again."
       : status.code === 4004
         ? "This subshell is not running."
-        : "The terminal rejected the attach.";
+        : "Couldn't connect to this terminal.";
   return (
     <View style={{ padding: 12, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border }}>
       <Text style={{ ...font("detail"), color: colors.warning }}>{text}</Text>

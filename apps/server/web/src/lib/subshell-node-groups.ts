@@ -20,9 +20,10 @@ export interface SubshellNodeGroup {
   label: string;
   /**
    * The header's hover text: the NAME when the registry resolved it, the
-   * full node id otherwise — the reveal the cards' retired `nodePill` used
-   * to give (`title={subshell.nodeId}`), and the only way to tell which
-   * machine a "node you can't see" or a short-id header actually names.
+   * full node id while a cold registry has not answered yet, and the label
+   * itself for a node that stays invisible — every consumer hides a tooltip
+   * whose title equals the label, and the operator ruled (2026-10-10) that
+   * the id of a node you cannot see is disclosure with nothing to act on.
    */
   title: string;
   /** The rows, in the order they arrived (i.e. the caller's status sort), capped by `limit` */
@@ -57,14 +58,19 @@ export const FALLBACK_NODE_ID = "local";
  *   cannot), and a "deleted node" verdict above `local` after a flaky
  *   `/api/nodes` would be a lie about the one machine that cannot be
  *   deleted;
- * - the registry ANSWERED without the id → "node you can't see". Not
- *   "deleted node": deletion is one cause, but the list is share-filtered, so
- *   a revoked grant (an admin narrowing `local`, a node share pulled under a
- *   live subshell) lands here too. Since 2026-10-09 the pane list is
+ * - the registry ANSWERED without the id → "node you can't see", with the
+ *   label as its own hover text (which the consumers render as no tooltip).
+ *   Not "deleted node": deletion is one cause, but the list is share-filtered,
+ *   so a revoked grant (an admin narrowing `local`, a node share pulled under
+ *   a live subshell) lands here too. Since 2026-10-09 the pane list is
  *   share-filtered for EVERY role, and this is the whole meaning of the
  *   header: the machine exists on someone else's screen, or existed, and this
  *   one cannot see it. "unknown node" claimed that too but also read as "the
- *   machine is gone", which is why the phrase changed.
+ *   machine is gone", which is why the phrase changed. The full id used to
+ *   ride here as hover text — the retired pill's reveal — and it went: an id
+ *   that leads to no page names nothing the reader can act on
+ *   (ruling 2026-10-10). The cold arm above still reveals the full id,
+ *   because there the machine IS the reader's own, merely not loaded yet.
  *
  * Exported beside {@link groupSubshellsByNode} because the Wave C diagnostics
  * HUD names a pane's machine too, and two ladders for one question is how the
@@ -82,8 +88,11 @@ export function nodeLabelFor(
   const known = nodes?.find((n) => n.id === nodeId);
   if (known) return { label: known.name, title: known.name };
   if (unanswered) return { label: nodeId.slice(0, 8), title: nodeId };
-  return { label: "node you can't see", title: nodeId };
+  return { label: "node you can't see", title: "node you can't see" };
 }
+
+/** Reserved sidebar group key; never used as an execution node. */
+export const SHARED_GROUP_ID = "shared-with-you";
 
 /**
  * Groups sidebar subshells by the machine they run on.
@@ -111,24 +120,39 @@ export function nodeLabelFor(
  * @param nodes - the caller's visible nodes, for resolving each bucket's label
  * @param options.limit - max rows per group; omitted = no cap (filter mode)
  * @param options.unanswered - true while the nodes read has not succeeded (see {@link nodeLabelFor})
+ * @param options.groupShared - group explicitly shared sessions on unseen nodes in the sidebar
  */
 export function groupSubshellsByNode(
   subshells: readonly SubshellView[],
   nodes: readonly Node[] | undefined,
-  { limit, unanswered = false }: { limit?: number; unanswered?: boolean } = {},
+  {
+    limit,
+    unanswered = false,
+    groupShared = false,
+  }: { limit?: number; unanswered?: boolean; groupShared?: boolean } = {},
 ): SubshellNodeGroup[] {
   // Insertion-ordered, so the discovery order IS the input's status order and
   // the sort below only has to break ties.
   const buckets = new Map<string, SubshellView[]>();
   for (const sub of subshells) {
-    const nodeId = sub.nodeId || FALLBACK_NODE_ID;
+    const actualNodeId = sub.nodeId || FALLBACK_NODE_ID;
+    const nodeId =
+      groupShared &&
+      !unanswered &&
+      sub.access !== "owner" &&
+      sub.sharedWithViewer === true &&
+      !nodes?.some((node) => node.id === actualNodeId)
+        ? SHARED_GROUP_ID
+        : actualNodeId;
     const bucket = buckets.get(nodeId);
     if (bucket) bucket.push(sub);
     else buckets.set(nodeId, [sub]);
   }
   const groups = [...buckets].map(([nodeId, rows]) => ({
     nodeId,
-    ...nodeLabelFor(nodeId, nodes, unanswered),
+    ...(nodeId === SHARED_GROUP_ID
+      ? { label: "Shared with you", title: "Subshells shared with you" }
+      : nodeLabelFor(nodeId, nodes, unanswered)),
     // The liveliest member decides, whatever position the input's sort left
     // the rows in — see the docblock. `rows` is non-empty by construction.
     rank: Math.min(...rows.map(subshellStatusRank)),
@@ -147,7 +171,7 @@ export function groupSubshellsByNode(
 }
 
 /**
- * The pseudo-node id that keys the rail's "Cross-agent comms" section — its
+ * The pseudo-node id that keys the rail's "Created by agents" section — its
  * collapse preference, its DOM id, and its React key. A real node id is a
  * uuid and can never collide with this string.
  */

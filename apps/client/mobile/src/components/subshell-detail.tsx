@@ -141,7 +141,8 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
           <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 24, gap: 6 }}>
             <Text style={{ ...font("heading"), color: colors.warning }}>Terminal blocked on this instance</Text>
             <Text style={{ ...font("detail"), color: colors.mutedFg, textAlign: "center" }}>
-              WebSocket upgrades do not tunnel. Re-probe from Settings once the proxy forwards them.
+              Your proxy isn't forwarding terminal connections. Enable WebSocket forwarding, then check the connection
+              again in Settings.
             </Text>
           </View>
         ) : (
@@ -199,7 +200,7 @@ export function SubshellDetail({ subshellId, onBack }: { subshellId: string; onB
             onPress={() =>
               confirmAction(
                 "Restart in place?",
-                "Revives the same subshell (same id), resuming the conversation when possible.",
+                "Restart this subshell and resume its conversation when the agent supports it.",
                 "Restart",
                 () => void run("Restart", (cli) => cli.restart(subshellId)),
               )

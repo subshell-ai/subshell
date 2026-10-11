@@ -175,7 +175,8 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
       {/* One trust sentence for the whole dialog (§5's accounting, told at the
           act that makes it true). */}
       <p className="text-detail text-muted-foreground">
-        A provider that asserts an e-mail address links straight into the matching account. Add only issuers you trust.
+        This provider can sign people into existing accounts with matching email addresses. Add only providers you
+        trust.
       </p>
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -252,8 +253,8 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           placeholder="https://id.example/"
         />
         <p className="text-detail text-muted-foreground">
-          The save verifies: discovery must resolve the issuer, and where the provider can check them, so must the
-          credentials. A failure refuses the provider before it exists.
+          Saving checks the issuer and verifies the credentials when the provider supports it. If a check fails, the
+          provider won't be added.
         </p>
         {errorText(["DISCOVERY_FAILED"]) && (
           <p role="alert" className="text-destructive text-detail">
@@ -340,8 +341,8 @@ function ProviderForm({ provider, onDone }: { provider: ProviderAdminView | null
           <div>
             <Label className="font-strong">Allow account creation</Label>
             <p className="text-detail text-muted-foreground">
-              Lets this provider create accounts for people it has never seen. Off means only existing accounts can come
-              through.
+              Let people create accounts through this provider. When this is off, only people with existing accounts can
+              sign in.
             </p>
           </div>
         </div>

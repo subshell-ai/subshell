@@ -39,6 +39,58 @@ Historical specs and plans record decisions; they are not evidence that a
 behavior shipped. Verify current behavior against implementation before
 updating public documentation.
 
+## Writing voice
+
+Write code comments, app copy (including CLI output), website text, and public
+documentation in fluid, natural, conversational English, as if you're speaking
+to a peer. Use active voice and familiar words. Use contractions like "don't"
+and "it's" where they sound natural. Vary sentence length and structure, and
+connect related ideas so the prose flows. Avoid textbook formality, stock AI
+phrases, repetitive sentence patterns, and robotic summaries or conclusions.
+
+In app messages, including backend errors shown in the UI or returned by the
+API, explain what's happening and give a useful next step when one exists.
+Keep error codes, HTTP statuses, and diagnostic fields stable when editing
+messages. Don't expose internal details or promise that retrying is safe when
+the operation may already have changed something.
+In comments, explain the reason, constraint, or surprising behavior a
+maintainer needs to understand. Keep technical terms where they add precision,
+and preserve warnings, conditions, identifiers, and quoted output accurately.
+Read the result aloud: it should sound like something you'd say to a colleague.
+
+Use "subshell" for UI objects and actions. When introducing the term in
+documentation, explain that a subshell is a terminal session running an agent
+or a shell. "Session" is fine in explanations once that relationship is clear.
+
+Keep UI titles short and fixed. Name the action, such as "Close this subshell?"
+or "Generate a new setup key?", and put names, counts, versions, addresses,
+and other variable details in the body. This applies to dialogs, confirmations,
+cards, and action headings; it doesn't prevent an object list from showing its
+names. A name-length limit isn't an exception, and historical specs don't
+override this rule.
+
+Describe the action the control actually takes. Inserting a prompt doesn't
+submit it; generating a setup key doesn't re-register the node yet. Explain
+when a consequence happens, what it affects, and whether it can be undone.
+Distinguish an attempt from a guarantee, and interruption from permanent loss.
+Keep necessary warnings visible at the decision point. Aim for one or two
+short sentences, but use more when clarity or consequences require it.
+
+Keep labels, tooltips, notifications, and guides consistent. Include only
+details useful in that context: a tooltip defining a sidebar group doesn't
+need its notification policy. Don't force a remedy or reassurance into every
+message. Apply these rules to routine copy edits; ask for a wording decision
+when the product meaning, behavior, or positioning is unclear. Follow the
+[content review workflow](apps/docs/STYLE.md#content-review-workflow): show
+full current copy and complete alternatives when asking, recommend an option,
+and carry approved wording through related UI, accessibility labels, docs,
+and existing tests. Treat user choices as continuing guidance rather than
+asking again about equivalent cases.
+
+The public documentation's examples and authoring guidance are in
+[apps/docs/STYLE.md](apps/docs/STYLE.md). UI length and presentation rules live
+in [docs/design-system.md](docs/design-system.md).
+
 ## Project Overview
 
 This is a **Bun-powered TypeScript monorepo** using Turborepo for orchestration. It contains an ElysiaJS API server, the React SPA that server serves, a node daemon (`subshell`), two Tauri desktop apps, a React Native companion, and shared packages: a type-safe Eden Treaty client SDK, the subshell protocol, agent harness plugins, a shared `subshell mcp` server, and backend error handling.
@@ -308,7 +360,7 @@ asks. (`subshell mcp` also self-introduces via the MCP `initialize` briefing.)
 
 **Panes you open are yours to close.** A subshell launched through
 `create_subshell` (which arrives on a pane's own bearer token) is stamped
-cross-agent: it files under "Cross-agent comms" in the rail, is created with
+cross-agent: it files under "Created by agents" in the rail, is created with
 the notification bell OFF (internal chatter is not news to ring a human for;
 they can still turn it on), and no later act un-stamps it. When the exchange is
 done, `terminate_subshell` (keeps the row and history) or `delete_subshell`

@@ -22,8 +22,10 @@ export const PresetSchema = t.Object({
   configIsolation: t.Number({ description: "1 = isolated config sources" }),
   restartOnExit: t.Number({ description: "1 = new subshells auto-restart on exit" }),
   crossCommEnabled: t.Number({ description: "1 = cross-subshell comms (MCP) enabled for this preset" }),
-  nodeId: t.Nullable(t.String({ description: "Optional launch node hint (null = names no node)" })),
-  workingDir: t.Nullable(t.String({ description: "Optional absolute working directory (null = names none)" })),
+  nodeId: t.Nullable(
+    t.String({ description: "Default node for launches; null leaves the choice to the caller or server" }),
+  ),
+  workingDir: t.Nullable(t.String({ description: "Default absolute working directory; null leaves it unset" })),
   promptBlocks: t.Nullable(t.String({ description: "JSON prompt block stack (snapshot bodies; null = no prompt)" })),
   createdAt: t.String({ description: "Created timestamp" }),
   updatedAt: t.String({ description: "Updated timestamp" }),
@@ -66,12 +68,17 @@ export const SubshellSchema = t.Object({
   }),
   nodeOffline: t.Boolean({
     description:
-      "True when the subshell's agent node has no live connection; the subshell may still be running there (spec §5.6); always false for local subshells",
+      "True when the subshell's node is disconnected. The subshell may still be running there. Always false for subshells on the server host.",
   }),
   shareCount: t.Number({
     description:
       "How many grants this subshell carries (0 = private to its owner). Drives the UI's disclosure warning: every grantee can read the pane's full output, and an `edit` grantee its keystroke stream",
   }),
+  sharedWithViewer: t.Optional(
+    t.Boolean({
+      description: "True when a non-owner has a direct or Everyone sharing grant",
+    }),
+  ),
   sharedWithEveryone: t.Boolean({
     description:
       "True when one of the grants is the Everyone grant; the audience is every signed-in user, not a countable list",
@@ -169,7 +176,7 @@ export const WorkspacePaneSchema = t.Object({
   }),
   subshellNodeOffline: t.Boolean({
     description:
-      "True = the subshell's agent node has no live connection (spec §5.6); it may still be RUNNING there, its state is just unobservable from here. Always false for subshells on 'local'",
+      "True when the subshell's node is disconnected. Its process may still be running, but the server can't check it. Always false for subshells on the server host.",
   }),
 });
 

@@ -122,7 +122,7 @@ export async function setLogRetention(
       return {
         ok: false,
         status: 409,
-        message: `${ENV_NAME[f]} is set in this agent's environment, so the retention ${f} cannot be changed here`,
+        message: `${ENV_NAME[f]} is set in the daemon's environment, so the retention ${f} cannot be changed here`,
       };
     }
   }

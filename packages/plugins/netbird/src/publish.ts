@@ -7,7 +7,7 @@ const LEAVE_TIMEOUT_MS = 30_000;
 
 /** One sentence per state this machine can be in that is not ready to publish. */
 const NOT_READY: Partial<Record<NetworkState, string>> = {
-  "not-installed": "NetBird is not installed on this machine, so there is nothing to publish on.",
+  "not-installed": "Install NetBird on this machine before publishing this server.",
   "daemon-down": "The NetBird daemon is not running or not reachable, so this server cannot be published yet.",
   "needs-login": "This machine is not on your NetBird network yet. Join one first, then publish.",
 };

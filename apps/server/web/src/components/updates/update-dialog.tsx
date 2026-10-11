@@ -51,8 +51,9 @@ export function UpdateDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Update to {to}?</DialogTitle>
+          <DialogTitle>Update this server?</DialogTitle>
           <DialogDescription>
+            Update to {to}.{" "}
             {kills
               ? `This server's service definition will close every running subshell when it restarts. Rewrite it by running ${REINSTALL_COMMAND} on this machine, or update anyway.`
               : "The server restarts when the new binary is in place; open subshells keep running."}
@@ -60,8 +61,8 @@ export function UpdateDialog({
         </DialogHeader>
         <p className="text-detail text-muted-foreground">
           The database is backed up to <span className="break-all font-mono">{view.backups.dir}</span> first
-          {view.backups.keep === 0 ? " (all kept)" : ` (${view.backups.keep} kept)`}. If the new version cannot start,
-          it puts {view.current} and that backup back by itself.
+          {view.backups.keep === 0 ? " (all kept)" : ` (${view.backups.keep} kept)`}. If the new version can't start,
+          Subshell restores version {view.current} and the database backup automatically.
         </p>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

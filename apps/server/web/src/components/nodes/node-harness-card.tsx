@@ -180,8 +180,8 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
       <CardHeader>
         <CardTitle>Harnesses</CardTitle>
         <CardDescription>
-          Which agents this machine can run: one row per plugin the instance has installed, matched against what
-          detection found here. Plugins themselves are managed under{" "}
+          Agents available on this machine, based on installed plugins and the most recent check. Manage plugins for all
+          nodes under{" "}
           <Link to="/settings/plugins" className="underline">
             Settings → Plugins
           </Link>
@@ -296,13 +296,13 @@ export function NodeHarnessCard({ nodeId }: { nodeId: string }) {
                   whether the program is here, because nothing established it. */}
                 {!h.installed && !h.reason && h.checkedAt === undefined && (
                   <p className="col-span-full text-detail text-muted-foreground">
-                    No detection has covered this plugin here yet. Opening this page asks for one; an offline node
-                    cannot answer.
+                    This plugin hasn't been checked on this machine yet. Opening this page starts a check if the node is
+                    online.
                   </p>
                 )}
                 {!h.installed && !h.reason && h.checkedAt !== undefined && (
                   <p className="col-span-full text-detail text-muted-foreground">
-                    The probe did not complete, so whether this program is here is unknown.
+                    The check didn't finish. Try Re-check to see whether this program is installed.
                   </p>
                 )}
                 {offerInstall && info && (

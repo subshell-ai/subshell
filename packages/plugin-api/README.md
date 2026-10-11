@@ -27,9 +27,9 @@ manifest fields, interfaces, capabilities, and installation:
 ## Runtime and trust
 
 Default-export a factory and bundle third-party runtime dependencies, including
-helpers from this package. Plugins load into a compiled server without an
-adjacent `node_modules`; unresolved bare imports cannot rely on workspace
-resolution. The host supplies services through `PluginHost`.
+helpers from this package. The compiled server loads
+plugins without a `node_modules` directory beside it, so bare imports won't
+resolve through your workspace. Use `PluginHost` for the services the host provides.
 
 Plugins run in the server process with its OS privileges and no sandbox.
 Host service restrictions are the supported contract, not a security boundary

@@ -185,10 +185,10 @@ export function SupervisionScreen(props: {
           option voice. */}
       <p className="hint">
         {!current.background
-          ? "Currently the Subshell Server Service runs with this app."
+          ? "The server runs while this app is open."
           : current.autostart
-            ? "Currently the Subshell Server Service runs in the background, and starts automatically on startup."
-            : "Currently the Subshell Server Service runs in the background, but does not automatically start on startup."}
+            ? "The Subshell Server Service runs in the background and starts automatically."
+            : "The Subshell Server Service runs in the background but doesn't start automatically."}
       </p>
       {option({
         name: "supervision-mode",
@@ -250,8 +250,8 @@ export function SupervisionScreen(props: {
         onPick: () => pickLaunch("assistant"),
       })}
       <p className="hint">
-        Saved as you change it. It decides the next launch, and only when the server is already running; anything else
-        opens the assistant whatever is chosen here.
+        Changes save automatically and apply the next time you open the app while the server is running. If the server
+        isn't ready, the setup assistant opens instead.
       </p>
       {launchNote && <p className="hint bad-text">{launchNote}</p>}
       {out && <pre className={out.failed ? "output output-bad" : "output"}>{out.text}</pre>}

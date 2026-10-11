@@ -181,12 +181,12 @@ describe("the boot's own update outcome (server-side tracker, design 2026-09-25)
       idleUpdate,
       updateState({ phase: "failed", to: "0.7.0", message: "migrations refused", endedAt: "x" }),
     );
-    expect(screen.getByText(/did not land: migrations refused/)).toBeTruthy();
+    expect(screen.getByText(/didn't finish: migrations refused/)).toBeTruthy();
   });
 
   it("hedges when the boot never reported at all", () => {
     renderRow(serverUpdateView(), idleUpdate, updateState({ phase: "stalled", to: "0.7.0" }));
-    expect(screen.getByText(/outcome is unknown/)).toBeTruthy();
+    expect(screen.getByText(/hasn't reported whether its update finished/)).toBeTruthy();
   });
 
   it("stays quiet while this boot's job is still telling the story", () => {
@@ -195,7 +195,7 @@ describe("the boot's own update outcome (server-side tracker, design 2026-09-25)
       idleUpdate,
       updateState({ phase: "working", to: "0.7.0" }),
     );
-    expect(screen.queryByText(/Updated to|did not land|outcome is unknown/)).toBeNull();
+    expect(screen.queryByText(/Updated to|did not land|hasn't reported whether its update finished/)).toBeNull();
   });
 
   it("yields to the tab that rode the press to its own ending", () => {

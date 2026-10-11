@@ -82,7 +82,7 @@ const CLOUDFLARE_FIELDS: SettingsFieldWire[] = [
     label: "Hostname",
     placeholder: "subshell.example.com",
     description:
-      "The public hostname the tunnel answers on. Its DNS record and its Access application are created in the Cloudflare dashboard; publishing is refused until Access covers it.",
+      "The public hostname for this tunnel. Create its DNS record and Access application in the Cloudflare dashboard before publishing.",
   },
   {
     key: "teamDomain",
@@ -98,7 +98,7 @@ const CLOUDFLARE_FIELDS: SettingsFieldWire[] = [
     required: true,
     label: "Access application Audience tag",
     description:
-      "The AUD tag of the Access application that guards this hostname. It is in that application's summary, and every assertion is verified against it.",
+      "Copy the AUD tag from the Access application's summary. Subshell checks this tag when verifying Access tokens.",
   },
   {
     key: "tunnel-token",
@@ -106,7 +106,7 @@ const CLOUDFLARE_FIELDS: SettingsFieldWire[] = [
     required: true,
     label: "Tunnel token",
     placeholder: "Paste it from Zero Trust → Networks → Tunnels → the tunnel's connector",
-    description: "It reaches the tunnel through the connector's own environment, never a command line.",
+    description: "Subshell passes the token to the tunnel through its environment, never as a command-line argument.",
   },
 ];
 
@@ -1019,7 +1019,7 @@ describe("NetworkPluginCard: the state matrix", () => {
         }),
       );
       const published = screen.getByText("Change settings").closest("details");
-      expect(published?.contains(screen.getByText(/Unpublish Headscale to change these/))).toBe(true);
+      expect(published?.contains(screen.getByText(/Unpublish Headscale before changing these settings/))).toBe(true);
     });
 
     it("keeps the pending act ABOVE the disclosure", async () => {
@@ -1489,7 +1489,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     const dialog = await screen.findByRole("dialog");
     expect(
       within(dialog).getByText(
-        "The published addresses stop answering, and sign-in from them stops now; addresses the network routes to this machine directly keep answering while it stays a member. This machine stays on the network.",
+        "The addresses published through Tailscale stop working, including for sign-in. This machine stays on the network, and addresses routed directly to it keep working.",
       ),
     ).toBeTruthy();
     expect(within(dialog).queryByText(/restart/i)).toBeNull();
@@ -1685,7 +1685,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
         status: { state: "published", addresses: ADDRESSES, hints: [] },
       }),
     );
-    expect(screen.getByText(/Unpublish Tailscale to change these/)).toBeTruthy();
+    expect(screen.getByText(/Unpublish Tailscale before changing these settings/)).toBeTruthy();
     expect((screen.getByLabelText("Hostname") as HTMLInputElement).disabled).toBe(true);
   });
 
@@ -1711,8 +1711,8 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
     await renderCard(row({ state: "joined", status: { state: "joined", addresses: ADDRESSES, hints: [] } }));
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     const dialog = await screen.findByRole("dialog");
-    // The question names the network the person is looking at…
-    expect(within(dialog).getByText("Disconnect this server from Tailscale?")).toBeTruthy();
+    // The title stays fixed; the body names the network.
+    expect(within(dialog).getByText("Disconnect this server from the network?")).toBeTruthy();
     // …and the answer says what leaving DOES, machine-wide — `tailscale
     // logout` is not "this server goes quiet". With no stored credential on
     // this row it says nothing about deleting one.
@@ -1779,7 +1779,7 @@ describe("NetworkPluginCard: the rules that are not about one state", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Disable" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText("Disable Tailscale?")).toBeTruthy();
+    expect(within(dialog).getByText("Disable this network plugin?")).toBeTruthy();
     expect(
       within(dialog).getByText(
         "This server stops publishing on Tailscale, and https://box.tail1234.ts.net and http://100.64.0.1:3080 stop being offered and trusted for sign-in now. Enable it again from this card.",
@@ -2003,6 +2003,8 @@ describe("NetworkPluginCard: the disable reason reaches a screen reader", () => 
     const field = screen.getByLabelText("Hostname");
     const describedBy = field.getAttribute("aria-describedby");
     expect(describedBy).toBeTruthy();
-    expect(document.getElementById(describedBy ?? "")?.textContent).toContain("Unpublish Tailscale to change these");
+    expect(document.getElementById(describedBy ?? "")?.textContent).toContain(
+      "Unpublish Tailscale before changing these settings",
+    );
   });
 });

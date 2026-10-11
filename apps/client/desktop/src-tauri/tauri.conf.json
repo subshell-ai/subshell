@@ -34,7 +34,7 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "Register this machine as a Subshell node",
-    "longDescription": "Subshell Client registers this machine with a Subshell control plane and keeps its agent running, so agents can be launched here from the browser.",
+    "longDescription": "Subshell Client registers this machine with a Subshell control plane and keeps its node daemon running, so agents can be launched here from the browser.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

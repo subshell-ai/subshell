@@ -92,7 +92,7 @@ describe("Nodes page tabs", () => {
     await waitFor(() => expect(screen.getByText("AI PC")).toBeTruthy());
     // The card view renders the node once; the keys section is on its tab,
     // not below the list as it used to be.
-    expect(screen.queryByText("Single-use enrollment credentials, valid 24 h.")).toBeNull();
+    expect(screen.queryByText("Each setup key enrolls one machine, valid 24 h.")).toBeNull();
   });
 
   it("Table switches the same rows to the column grid", async () => {
@@ -107,7 +107,7 @@ describe("Nodes page tabs", () => {
     const router = renderNodes();
     await waitFor(() => expect(screen.getByText("AI PC")).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Setup keys" }));
-    await waitFor(() => expect(screen.getByText(/Single-use enrollment credentials/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Each setup key enrolls one machine/)).toBeTruthy());
     expect(screen.queryByText("AI PC")).toBeNull();
     expect(router.state.location.pathname + router.state.location.searchStr).toBe("/nodes?tab=keys");
   });

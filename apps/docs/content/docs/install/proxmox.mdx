@@ -7,7 +7,7 @@ Deploy Subshell Server in a dedicated Proxmox LXC container.
 
 ## Before you start
 
-Use a Proxmox VE 8 or newer host where you can create containers as root. The server container defaults to a 40 GB disk; the minimum is 16 GB, and a smaller number only fits a thin-provisioned storage you watch. lvm-thin and ZFS allocate only what the container writes, so the default costs the pool nothing it has not used. The helper downloads a Debian template and creates an unprivileged container with nesting enabled for Docker.
+Use a Proxmox VE 8 or newer host where you can create containers as root. The server container defaults to a 40 GB disk; the minimum is 16 GB, and a smaller number only fits a thin-provisioned storage you watch. lvm-thin and ZFS allocate only what the container writes, so the default costs the pool nothing it hasn't used. The helper downloads a Debian template and creates an unprivileged container with nesting enabled for Docker.
 
 Review the [server helper](https://github.com/subshell-ai/subshell/blob/main/proxmox-server.sh) before running it. The server helper and node helper create different kinds of installation.
 
@@ -38,7 +38,7 @@ After signing in as an administrator, open **Server Settings** → **Networking*
 
 ## Maintain the installation
 
-Use the helper's update operation to pull the image and recreate the container. Do not replace the binary inside a running image with the server's CLI update command.
+Use the helper's update operation to pull the image and recreate the container. Don't replace the binary inside a running image with the server's CLI update command.
 
 The helper also exposes backup, restore, and removal operations. Backups contain instance credentials and require protected storage.
 
@@ -56,8 +56,8 @@ Subshell runs in Docker inside the Debian LXC. NetBird or another mesh client
 installed directly in Debian stays installed when the helper updates Subshell,
 because the update replaces the Docker container, not the LXC.
 
-The dashboard's network plugins check inside Docker. They cannot detect or
+The dashboard's network plugins check inside Docker. They can't detect or
 manage a mesh client installed in the surrounding LXC; a “not installed” status
-there does not mean the Debian client stopped working. Manage that client in
+there doesn't mean the Debian client stopped working. Manage that client in
 Debian and add its IPs or domains under **Server Settings → Networking → Addresses**.
 See [Addresses](/networking/addresses) for the browser address settings.

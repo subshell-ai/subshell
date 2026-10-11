@@ -48,7 +48,7 @@ describe("subshell mcp instructions", () => {
     expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("read_channel");
     // Pull delivery is the fact agents get wrong without being told: a post
     // is invisible until the peer reads.
-    expect(SUBSHELL_MCP_INSTRUCTIONS.toLowerCase()).toContain("pull");
+    expect(SUBSHELL_MCP_INSTRUCTIONS.toLowerCase()).toContain("reads and decrypts the message through read_channel");
     // Brevity is part of the contract — this string enters every pane's
     // context on connect; a wall of instructions teaches nothing.
     expect(SUBSHELL_MCP_INSTRUCTIONS.length).toBeLessThan(1200);
@@ -62,7 +62,7 @@ describe("subshell mcp instructions", () => {
 
   it("the briefing owns the spawned-pane cleanup rule (2026-09-25: comms panes the human never hears about)", () => {
     expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("yours to close");
-    expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("Cross-agent comms");
+    expect(SUBSHELL_MCP_INSTRUCTIONS).toContain("Created by agents");
     // The create tool REPEATS the rule for harnesses that read descriptions
     // without the briefing; that half is asserted on the wire in the
     // tools/list case below.
@@ -160,10 +160,10 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect(JSON.stringify(createProps.harness)).toContain("terminal");
     expect(createProps).toHaveProperty("prompt_mode");
     expect(JSON.stringify(createProps.prompt_mode)).toContain("append");
-    expect(byName.create_subshell.description).toContain("PRESETLESS");
-    expect(byName.create_subshell.description).toContain("agent harnesses always launch from a preset");
+    expect(byName.create_subshell.description).toContain("Without a preset, harness is required");
+    expect(byName.create_subshell.description).toContain("Create an agent session from a saved preset");
     expect(byName.create_subshell.description).toContain("list_subshells before retrying");
-    expect(byName.create_subshell.description).toContain("You own their cleanup");
+    expect(byName.create_subshell.description).toContain("You're responsible for cleanup");
     expect(byName.send_to_subshell.description).toContain("SUBSHELL_NOT_RUNNING");
     // The exec tool's shell-contract honesty rides its OWN description, not
     // the briefing (spec 2026-10-02: SUBSHELL_MCP_INSTRUCTIONS stays untouched).
@@ -177,13 +177,13 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     expect(Object.keys(byName.get_subshell.inputSchema.properties).sort()).toEqual(["id", "name"]);
     expect(byName.get_subshell.description).toContain("name");
     expect(byName.restart_subshell.inputSchema.properties).toHaveProperty("prompt");
-    expect(byName.restart_subshell.description).toContain("OWN subshell terminates you");
+    expect(byName.restart_subshell.description).toContain("Don't restart your own subshell: that terminates you");
     // The P3 doc fix: the self-restart's OBSERVED shape (no result; the
     // transport closes because this process dies with the pane) is part of
     // the contract agents get, so it is pinned, not just written.
-    expect(byName.restart_subshell.description).toContain("never returns a tool result");
-    expect(byName.terminate_subshell.description).toContain("row and history stay");
-    expect(byName.delete_subshell.description).toContain("owner-only");
+    expect(byName.restart_subshell.description).toContain("closes the transport before this call can return a result");
+    expect(byName.terminate_subshell.description).toContain("Keep the session record and history");
+    expect(byName.delete_subshell.description).toContain("Only its owner can delete it");
     expect(byName.list_nodes.description).toContain("inventoryStale");
     expect(byName.send_to_subshell.description).toContain("untrusted");
     expect(byName.read_subshell_log.description).toContain("ANSI-stripped");
@@ -191,9 +191,9 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     // about the loop's contract.
     expect(Object.keys(byName.read_subshell_log.inputSchema.properties).sort()).toEqual(["from_byte", "id", "limit"]);
     expect(byName.read_subshell_log.description).toContain("nextByte");
-    expect(byName.list_presets.description).toContain("a plain terminal harness can");
+    expect(byName.list_presets.description).toContain("A plain terminal can launch with harness and no preset");
     expect(byName.list_presets.description).toContain("catalogOnly");
-    expect(byName.list_presets.description).toContain("address them by id");
+    expect(byName.list_presets.description).toContain("Pass a saved preset's id");
     expect(JSON.stringify(byName.create_subshell.inputSchema.properties.preset)).toContain("Preset ID");
     // The prompt tools name the sharing consequence in their own description
     // (the disclosure is the agent-visible decision).
@@ -203,8 +203,8 @@ describe("subshell mcp tool surface (tools/list, spec 2026-09-25)", () => {
     // of a large call, the human-only remedies for both refusal families,
     // and the rule that the agent never renews its OWN token by self-restart
     // (the same transparency the restart_subshell round established).
-    expect(byName.transfer_files.description).toContain("round trips");
+    expect(byName.transfer_files.description).toContain("Round trips");
     expect(byName.transfer_files.description).toContain("update the node");
-    expect(byName.transfer_files.description).toContain("never restart your own pane");
+    expect(byName.transfer_files.description).toContain("Never restart your own pane");
   });
 });

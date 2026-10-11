@@ -158,17 +158,17 @@ describe("the Register screen", () => {
     expect(presses).toBe(0);
   });
 
-  it("warns on a loopback address, live, without blocking the press", () => {
+  it("warns on a This address connects to a server on this machine, live, without blocking the press", () => {
     render(<Host probe={makeProbe()} />);
     fill({ server: "http://localhost:3080" });
     // Said once, under the field it is about — running the control plane and a
     // node on one box is exactly what the desktop pair exists for, so it is a
     // warning and never a refusal.
-    expect(screen.getAllByText(/loopback address/).length).toBe(1);
+    expect(screen.getAllByText(/This address connects to a server on this machine/).length).toBe(1);
     expect(button().disabled).toBe(false);
 
     fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://subshell.example.com" } });
-    expect(screen.queryByText(/loopback address/)).toBeNull();
+    expect(screen.queryByText(/This address connects to a server on this machine/)).toBeNull();
   });
 
   /*
@@ -194,7 +194,7 @@ describe("the Register screen", () => {
     );
     // The operator's sentence (addendum, 2026-09-22), and the retry lecture
     // is gone with it.
-    expect(screen.getByText("Obtain a key from the Control Plane via Nodes → Add node.")).toBeTruthy();
+    expect(screen.getByText("In your server dashboard, open Nodes → Add node to create a setup key.")).toBeTruthy();
     expect(screen.queryByText(/Registering spends the setup key/)).toBeNull();
 
     fill();

@@ -410,11 +410,11 @@ pub fn open_main(app: &AppHandle, origin: &str, base_origin: Option<&str>) -> Re
             if let tauri::webview::DownloadEvent::Finished { path, success, .. } = event {
                 let message = if success {
                     path.map_or_else(
-                        || "Your download is complete. Check Downloads.".to_owned(),
+                        || "Your download is complete. Look in your Downloads folder.".to_owned(),
                         |path| format!("Saved to {}", path.display()),
                     )
                 } else {
-                    "The download could not be saved. Create the backup again and retry the download.".to_owned()
+                    "Couldn't save the download. Create the backup again, then try downloading it.".to_owned()
                 };
                 webview
                     .app_handle()

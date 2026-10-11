@@ -401,6 +401,46 @@ describe("LiveSubshellsFeedProvider", () => {
     expect(client.getQueryData<{ access: string }>(detailKey)?.access).toBe("view");
   });
 
+  it.each([false, true])(
+    "refreshes viewer metadata after a live update when sharedWithViewer was %s",
+    async (sharedBefore) => {
+      stubAuthOk();
+      const client = setup();
+      await waitFor(() => expect(FakeWS.instances.length).toBe(1));
+      const ws = FakeWS.instances[0];
+      const frame = (payload: unknown) =>
+        act(() => {
+          ws.onmessage?.({ data: JSON.stringify(payload) } as MessageEvent);
+        });
+      const detailKey = [...SUBSHELL_QUERY_KEY, "a"];
+      const original = {
+        id: "a",
+        access: "edit",
+        sharedWithViewer: sharedBefore,
+        status: "running",
+        preview: ["held"],
+      };
+      client.setQueryData(detailKey, original);
+      frame({ type: "snapshot", subshells: [original] });
+      frame({ type: "subshell", id: "a", row: { id: "a", name: "Updated name", status: "terminated" } });
+      frame({ type: "subshell-recheck", id: "a" });
+      frame({
+        type: "snapshot",
+        subshells: [{ id: "a", access: "view", sharedWithViewer: !sharedBefore, name: "Old name", status: "running" }],
+      });
+
+      const expected = {
+        access: "view",
+        sharedWithViewer: !sharedBefore,
+        name: "Updated name",
+        status: "terminated",
+        preview: ["held"],
+      };
+      expect(client.getQueryData<SubshellView[]>(SUBSHELLS_QUERY_KEY)?.[0]).toMatchObject(expected);
+      expect(client.getQueryData(detailKey)).toMatchObject(expected);
+    },
+  );
+
   it("does not invent a detail cache entry for a page nobody opened", async () => {
     stubAuthOk();
     const client = setup();

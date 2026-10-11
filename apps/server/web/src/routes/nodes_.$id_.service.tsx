@@ -27,8 +27,8 @@ function NodeServicePage() {
             {!node.runtime && (
               <p className="text-muted-foreground text-sm">
                 {node.status === "online"
-                  ? "This node did not report how it runs."
-                  : "This node is offline, so there is nothing to report and nothing to drive. Offline, these facts would be stale by definition."}
+                  ? "This node hasn't reported how it runs."
+                  : "This node is offline. Its service details and controls will be available when it reconnects."}
               </p>
             )}
           </>

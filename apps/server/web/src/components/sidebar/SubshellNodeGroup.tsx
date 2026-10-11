@@ -23,10 +23,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
  *   follows: `aria-controls` has to resolve to a real element, and `hidden`
  *   takes the links out of the tab order so a shut group is not a keyboard
  *   trap of invisible stops.
- * - **The label carries a hover reveal.** When the registry has not resolved
- *   the node the label is a short id or "node you can't see", and the full id on
- *   hover is the only thing that says WHICH machine — the reveal the cards'
- *   retired `nodePill` used to give, for the same reason. It is a `ui/tooltip`
+ * - **The label carries a hover reveal while the registry is cold**: a short
+ *   id becomes the full one on hover. It does NOT do that for "node you
+ *   can't see": the ladder's third arm makes title equal the label, and the
+ *   equal-title branch below renders no tooltip — an id with no page behind
+ *   it names nothing the reader can act on (ruling 2026-10-10). It is a `ui/tooltip`
  *   popup rather than a native `title` since 2026-09-24 (the row tooltips'
  *   zoom reason, same rail), and it appears ONLY when the title would say
  *   something the label does not — a resolved node's hover used to repeat its
@@ -47,7 +48,9 @@ export function SubshellNodeGroup({
   nodeId: string;
   /** The node's NAME (or the honest fallback when the registry cannot say one) */
   label: string;
-  /** The header's hover text — the name when known, the full node id otherwise */
+  /** The header's hover text — the name when known, the full id only while a cold
+   * registry has not answered; equal to the label for an invisible node, which
+   * the equal-title branch below renders as no tooltip at all. */
   title: string;
   /** How many subshells this node has, BEFORE the per-group cap */
   count: number;

@@ -95,12 +95,16 @@ describe("groupSubshellsByNode — labels", () => {
     expect(groups[0]?.label).toBe("local");
   });
 
-  it("says 'node you can't see', with the id on hover, once the registry ANSWERED without the id", () => {
+  it("says 'node you can't see' and reveals NOTHING more once the registry ANSWERED without the id", () => {
     // Not "deleted node": the list is share-filtered, so a revoked grant
-    // lands here too, and "unknown" claims only what is known.
+    // lands here too, and "unknown" claims only what is known. And the id
+    // leaves the hover text too: title equals label, which every consumer
+    // renders as no tooltip — the id of a node you cannot see leads to no
+    // page and names nothing the reader can act on (ruling 2026-10-10).
     const groups = groupSubshellsByNode([subshell({ nodeId: "gone" })], [node()], { unanswered: false });
     expect(groups[0]?.label).toBe("node you can't see");
-    expect(groups[0]?.title).toBe("gone");
+    expect(groups[0]?.title).toBe("node you can't see");
+    expect(groups[0]?.title).not.toContain("gone");
   });
 
   it("makes the hover title the NAME once the registry resolves it", () => {
@@ -252,5 +256,33 @@ describe("partitionCrossAgent (operator ask 2026-09-25)", () => {
     // rule INTO groupSubshellsByNode.
     const groups = groupSubshellsByNode([subshell({ id: "c", nodeId: "n1", crossAgent: true })], [node()]);
     expect(groups.find((g) => g.nodeId === "n1")?.subshells.map((s) => s.id)).toEqual(["c"]);
+  });
+});
+
+describe("shared sidebar groups", () => {
+  it("combines shared sessions on unseen nodes, requiring an explicit sharing flag", () => {
+    const rows = [
+      subshell({ id: "shared-view", nodeId: "hidden-a", access: "view", sharedWithViewer: true }),
+      subshell({ id: "shared-edit", nodeId: "hidden-b", access: "edit", sharedWithViewer: true }),
+      subshell({ id: "owned", nodeId: "hidden-a" }),
+      subshell({ id: "not-shared", nodeId: "hidden-b", access: "edit", sharedWithViewer: false }),
+      subshell({ id: "legacy", nodeId: "hidden-b", access: "edit" }),
+      subshell({ id: "visible", nodeId: "n1", access: "view", sharedWithViewer: true }),
+    ];
+    const groups = groupSubshellsByNode(rows, [node()], { groupShared: true, limit: 1 });
+    const shared = groups.find((group) => group.label === "Shared with you");
+    expect(shared?.total).toBe(2);
+    expect(shared?.subshells.map((row) => row.id)).toEqual(["shared-view"]);
+    expect(groups.find((group) => group.nodeId === "hidden-a")?.subshells[0]?.id).toBe("owned");
+    expect(groups.find((group) => group.nodeId === "hidden-b")?.total).toBe(2);
+    expect(groups.find((group) => group.nodeId === "n1")?.subshells[0]?.id).toBe("visible");
+  });
+
+  it("waits for the node list and leaves other callers' node grouping unchanged", () => {
+    const rows = [subshell({ access: "view", sharedWithViewer: true, nodeId: "n1" })];
+    expect(groupSubshellsByNode(rows, undefined, { groupShared: true, unanswered: true })[0]?.nodeId).toBe("n1");
+    expect(groupSubshellsByNode(rows, [], {})[0]?.nodeId).toBe("n1");
+    expect(groupSubshellsByNode(rows, [], { groupShared: true })[0]?.label).toBe("Shared with you");
+    expect(groupSubshellsByNode(rows, [node()], { groupShared: true })[0]?.label).toBe("buildbox");
   });
 });

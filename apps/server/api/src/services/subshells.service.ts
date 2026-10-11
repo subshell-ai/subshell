@@ -49,7 +49,9 @@ import { extendSubshellToken, subshellTokenTtlSeconds } from "@/services/subshel
 import { logger } from "@/utils/logger.js";
 
 /** Subshell view shape returned by the manager (single source: toSubshellView). */
-type SubshellView = NonNullable<Awaited<ReturnType<SubshellManagerService["getSubshell"]>>>;
+type SubshellView = NonNullable<Awaited<ReturnType<SubshellManagerService["getSubshell"]>>> & {
+  sharedWithViewer?: boolean;
+};
 
 /** A sharing grant as returned to the client, with the grantee label resolved. */
 interface SubshellShareView {
@@ -127,7 +129,7 @@ function rethrowLaunchRefusal(err: unknown): never {
   if (isNodeOfflineError(err)) {
     throwApiError({
       code: BackendErrorCodes.NODE_OFFLINE,
-      message: "The subshell's node has no live connection; it may still be running the subshell there",
+      message: "This node is offline, but the subshell may still be running on it",
       doNotLog: true,
     });
   }
@@ -271,7 +273,7 @@ export async function resolveLaunchNode(
     if (row.kind === "agent" && !getLive(nodeId)) {
       throwApiError({
         code: BackendErrorCodes.NODE_OFFLINE,
-        message: "That node has no live connection",
+        message: "This node is offline",
         doNotLog: true,
       });
     }
@@ -306,7 +308,7 @@ export async function resolveLaunchNode(
     code: BackendErrorCodes.NODE_REQUIRED,
     message:
       online.length === 0
-        ? "No launch-eligible node; pick one"
+        ? "Choose a node where you can launch subshells"
         : `Multiple online nodes; pick one explicitly (${online.length} are online)`,
     doNotLog: true,
   });
@@ -442,7 +444,7 @@ export class SubshellsService extends BaseService {
     /**
      * True when the launch arrived on a pane's own token (an agent opening a
      * sibling over MCP). The row is stamped cross-agent (what the rail files
-     * under "Cross-agent comms"), and the bell defaults OFF — internal
+     * under "Created by agents"), and the bell defaults OFF — internal
      * cross-agent chatter is not news to ring the human's devices for, though
      * they can still turn it on from the pane's menu.
      */
@@ -648,6 +650,9 @@ export class SubshellsService extends BaseService {
     return views.map((view) => ({
       ...view,
       access: accessBy.get(view.id) ?? ("view" as const),
+      sharedWithViewer:
+        accessBy.get(view.id) !== "owner" &&
+        (sharesBy.get(view.id) ?? []).some((share) => share.granteeUserId === null || share.granteeUserId === viewerId),
       ...shareExposure(sharesBy.get(view.id) ?? []),
     }));
   }
@@ -764,7 +769,7 @@ export class SubshellsService extends BaseService {
     );
     if (!row || access === "none") throw new SubshellError("not_found", "Subshell not found");
     if (!accessAtLeast(access, min)) {
-      throw new HttpError(403, "You do not have permission to do that with this subshell");
+      throw new HttpError(403, "You don't have permission to do that with this subshell");
     }
     return { row, access };
   }
@@ -806,7 +811,13 @@ export class SubshellsService extends BaseService {
     // handing back the grants it looked at, and the disclosure warning needs
     // the audience, not just the caller's own level.
     const shares = (await this.repos.subshellShares.listForSubshells([id])).get(id) ?? [];
-    return { ...subshell, access: access === "none" ? "view" : access, ...shareExposure(shares) };
+    return {
+      ...subshell,
+      access: access === "none" ? "view" : access,
+      sharedWithViewer:
+        access !== "owner" && shares.some((share) => share.granteeUserId === null || share.granteeUserId === viewerId),
+      ...shareExposure(shares),
+    };
   }
 
   /**
@@ -908,7 +919,7 @@ export class SubshellsService extends BaseService {
     if (row.status !== "running" || row.alive !== 1) {
       throwApiError({
         code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
-        message: "The subshell is not running; nothing was typed. Restart it first.",
+        message: "This subshell isn't running. Restart it before sending input. No input was sent.",
         doNotLog: true,
       });
     }
@@ -959,7 +970,7 @@ export class SubshellsService extends BaseService {
     if (row.status !== "running" || row.alive !== 1) {
       throwApiError({
         code: BackendErrorCodes.SUBSHELL_NOT_RUNNING,
-        message: "The subshell is not running; nothing was typed. Restart it first.",
+        message: "This subshell isn't running. Restart it before sending input. No input was sent.",
         doNotLog: true,
       });
     }
@@ -972,8 +983,8 @@ export class SubshellsService extends BaseService {
         // names that instead, because "this pane runs a harness" would be a
         // sentence about a harness nobody can look up (PR #319 review).
         message: harness
-          ? "exec types shell commands into terminal panes; this pane runs a harness"
-          : "exec types shell commands into terminal panes; this pane's harness is not installed",
+          ? "This pane runs an agent. Choose a plain terminal to run shell commands."
+          : "This pane's harness isn't installed, so Subshell can't verify that it's a plain terminal. Choose a plain terminal to run shell commands.",
         doNotLog: true,
       });
     }
@@ -981,7 +992,7 @@ export class SubshellsService extends BaseService {
     if (running) {
       throwApiError({
         code: BackendErrorCodes.EXEC_IN_FLIGHT,
-        message: "Another exec is already waiting on this pane; retry once it finishes",
+        message: "Another command is already running in this terminal. Wait for it to finish before trying again.",
         doNotLog: true,
       });
     }
@@ -1007,7 +1018,7 @@ export class SubshellsService extends BaseService {
     if (!quiet.quiet) {
       throwApiError({
         code: BackendErrorCodes.EXEC_PANE_BUSY,
-        message: "The pane is producing output; nothing was typed. Read it or wait, then retry.",
+        message: "The terminal is still producing output. Read it or wait before trying again. No input was sent.",
         doNotLog: true,
       });
     }
@@ -1288,7 +1299,7 @@ export class SubshellsService extends BaseService {
     if (swapPresetTo !== undefined && isNodeOffline(row.nodeId)) {
       throwApiError({
         code: BackendErrorCodes.NODE_OFFLINE,
-        message: "The subshell's node has no live connection; it may still be running the subshell there",
+        message: "This node is offline, but the subshell may still be running on it",
         doNotLog: true,
       });
     }
@@ -1301,7 +1312,7 @@ export class SubshellsService extends BaseService {
         if (err instanceof RestartInFlightSwapError) {
           throwApiError({
             code: BackendErrorCodes.RESTART_IN_FLIGHT,
-            message: "Another restart for this subshell is already running; try the switch again once it finishes",
+            message: "This subshell is already restarting. Wait for it to finish before switching presets.",
             doNotLog: true,
           });
         }

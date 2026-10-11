@@ -85,7 +85,7 @@ export function PromptFormDialog({
                   id="prompt-description"
                   value={field.state.value}
                   maxLength={120}
-                  placeholder="Short label for discoverability"
+                  placeholder="A short description to help you find it"
                   onChange={(e) => field.handleChange(e.target.value)}
                   onBlur={field.handleBlur}
                 />

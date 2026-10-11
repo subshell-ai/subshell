@@ -691,7 +691,7 @@ describe("HeadscalePlugin.publish", () => {
     // State before anything, as tailscale's does.
     const { plugin, host } = scripted({}, { findBinary: async () => null });
     const outcome = await plugin.publish?.(CTX);
-    expect(outcome).toMatchObject({ refused: { text: expect.stringContaining("not installed") } });
+    expect(outcome).toMatchObject({ refused: { text: expect.stringContaining("Install Tailscale") } });
     expect(lines(host).some((l) => l.includes("serve --bg"))).toBe(false);
   });
 

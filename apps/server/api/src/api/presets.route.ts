@@ -232,7 +232,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
     "/",
     async ({ body, user, actor }) => {
       if (actor !== "cookie") {
-        throw new PresetError("forbidden", "Preset management requires a cookie session", 403);
+        throw new PresetError("forbidden", "Sign in through the dashboard to manage presets", 403);
       }
       const badEnv = findInvalidEnvName(body.env);
       if (badEnv !== undefined) {
@@ -396,7 +396,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
     "/:id",
     async ({ params, body, user, actor }) => {
       if (actor !== "cookie") {
-        throw new PresetError("forbidden", "Preset management requires a cookie session", 403);
+        throw new PresetError("forbidden", "Sign in through the dashboard to manage presets", 403);
       }
       const badEnv = findInvalidEnvName(body.env);
       if (badEnv !== undefined) {
@@ -469,7 +469,7 @@ export const presetRoutes = new Elysia({ prefix: "/api/presets" })
     "/:id",
     async ({ params, user, actor }) => {
       if (actor !== "cookie") {
-        throw new PresetError("forbidden", "Preset management requires a cookie session", 403);
+        throw new PresetError("forbidden", "Sign in through the dashboard to manage presets", 403);
       }
       const repo = new PresetsRepository(db);
       const existing = await repo.findById(params.id);

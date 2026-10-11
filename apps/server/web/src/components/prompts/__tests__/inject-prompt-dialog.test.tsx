@@ -142,10 +142,10 @@ describe("InjectPromptDialog", () => {
     // unmount the subtree and discard the pick), and the confirm step
     // named the prompt and the pane.
     expect(closes).toEqual([]);
-    expect(screen.getByText("Send prompt to agent?")).toBeDefined();
+    expect(screen.getByText("Insert this prompt?")).toBeDefined();
   });
 
-  it("Type into pane sends typed-not-submitted and then closes", async () => {
+  it("Insert prompt sends typed-not-submitted and then closes", async () => {
     const m = mockFetch();
     restore = m.restore;
     const { closes } = renderDialog();
@@ -154,7 +154,7 @@ describe("InjectPromptDialog", () => {
     await settle();
     fireEvent.click(screen.getByText("Kickoff"));
     await settle();
-    fireEvent.click(screen.getByRole("button", { name: "Type into pane" }));
+    fireEvent.click(screen.getByRole("button", { name: "Insert prompt" }));
     await waitFor(() => expect(m.inputPosts.length).toBe(1));
     expect(m.inputPosts[0]).toEqual({ text: "start the task", submit: false });
     await waitFor(() => expect(closes).toEqual([false]));

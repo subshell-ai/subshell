@@ -476,7 +476,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
     return (
       <BackupWorkflow
         title="Restoring Your Server"
-        description="Your server will disconnect while its saved state is replaced."
+        description="Your server will disconnect while Subshell restores the backup."
         footer={
           <>
             <span />
@@ -512,7 +512,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
           description={
             outcome === "completed"
               ? "Select Next to review the restore result."
-              : "The server is stopped, its saved state is restored, and its startup is checked."
+              : "Subshell stops the server, restores the backup, and checks that the server starts."
           }
         >
           <ul className="flex list-disc flex-col gap-2 pl-5 text-muted-foreground">
@@ -544,7 +544,7 @@ export function RestoreBackupCard({ onBusy }: { onBusy?: (busy: boolean) => void
         <BackupProgress
           finished
           title="Your server is ready"
-          description="Restore completed. The restored server confirmed a successful boot."
+          description="Restore complete. The server has restarted successfully."
         >
           <BackupFacts rows={details} />
           <p className="m-0 text-body text-muted-foreground">Sign in with an account from the backup.</p>

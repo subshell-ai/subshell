@@ -37,10 +37,9 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
     setFailure(null);
     setSaved(null);
     const ok = await confirmAction({
-      title: `Point "${node.name}" at ${url.trim()}?`,
-      description:
-        "That machine will dial the new address from its next restart, carrying the node key it holds today, so only name a control plane you trust. If the new plane does not know this node, it goes offline here and stays offline until someone with a shell on that machine points it back.",
-      confirmLabel: "Repoint node",
+      title: "Change this node's server?",
+      description: `After restarting, "${node.name}" will connect to ${url.trim()} using its existing key, so use only a server you trust. If that server doesn't recognize the node, you'll need terminal access to the node's machine to change the address back.`,
+      confirmLabel: "Change server",
       danger: true,
     });
     if (!ok) return;
@@ -69,8 +68,8 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
       <CardHeader>
         <CardTitle>Control plane</CardTitle>
         <CardDescription>
-          The address this machine dials. Changing it keeps the node's identity, so this is a move, never a
-          re-enrollment; it takes effect when the node restarts.
+          Change the server address this node connects to after its next restart. The node keeps its existing identity
+          and credentials.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

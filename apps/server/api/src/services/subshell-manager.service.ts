@@ -352,7 +352,7 @@ export class SubshellManagerService {
     /**
      * 1 = an agent opened this pane over MCP (`create_subshell`), not a human
      * at the UI: the row is stamped cross-agent, which is what files it under
-     * "Cross-agent comms" and (through the caller's `notify` choice) keeps it
+     * "Created by agents" and (through the caller's `notify` choice) keeps it
      * silent. Only creation writes it; a restart reuses the row.
      */
     crossAgent?: number;
@@ -2130,7 +2130,7 @@ export function toSubshellView(
     nameLocked: row.nameLocked === 1,
     notify: row.notify === 1,
     // How this pane was OPENED: an agent over MCP, not a human at the UI. The
-    // rail files these under "Cross-agent comms" and their bell defaults off.
+    // rail files these under "Created by agents" and their bell defaults off.
     crossAgent: row.crossAgent === 1,
     // ISO ts of the attention event that put this subshell in waiting-for-you
     // state (null = not waiting); cleared by the watcher on output-resume/death.

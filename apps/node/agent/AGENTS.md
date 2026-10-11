@@ -98,7 +98,7 @@ deletion targets. **Working on a verb or its flags: read
 
 `src/log.ts` is the node's only log surface: LogLayer with the core
 `ConsoleTransport` plus `CappedFileTransport`, writing
-`<configHome>/logs/agent.log` (JSON lines, 0600, capped at 200 KB and
+`<configHome>/logs/daemon.log` (JSON lines, 0600, capped at 200 KB and
 REPLACED when full): the one bounded file served to the plane by
 `agent_log_read`, a deliberate COPY of the server's AGPL `utils/log-file.ts`
 rather than an import. Debug level is a live switch (`debug-logging.ts`,

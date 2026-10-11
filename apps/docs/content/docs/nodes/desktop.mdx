@@ -32,14 +32,14 @@ The client bundles the node binary. It can enroll even when the control plane ha
 
 Install coding agent CLIs under the node's OS account. Set [Directory restrictions](/nodes/directories) and confirm the appropriate persistence mode before leaving a task running.
 
-The node remains an execution machine, while the server still stores instance configuration and serves the dashboard.
+Agents run on the node. The server stores your instance settings and serves the dashboard.
 
 ## Re-register an existing node
 
 Use re-registration to recover a machine's connection while keeping its existing node entry, name, shares, settings, and session records. You must own the node.
 
 1. In the server dashboard, open **Nodes**, select the existing node, and press **Re-register** on its Overview page.
-2. Confirm **Generate setup key**. Copy the server address and setup key from the Desktop App instructions.
+2. In **Generate a new setup key?**, select **Generate setup key**. Copy the server address and setup key from the Desktop App instructions.
 3. On the machine, open Subshell Client's local window, choose **Service**, and select **Re-enroll…**. If the machine has lost its configuration, use the registration flow instead.
 4. Enter that server address and setup key, supply the requested machine name, and finish registration. The server keeps the existing node name.
 5. Verify that the same node entry returns online.

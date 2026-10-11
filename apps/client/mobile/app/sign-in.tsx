@@ -36,7 +36,7 @@ export default function SignIn() {
     } catch (err) {
       setNote(
         err instanceof ApiError && err.status === 429
-          ? "Too many attempts — wait a minute and try again."
+          ? "Too many attempts. Wait a minute and try again."
           : errMessage(err, "Sign-in failed"),
       );
     } finally {

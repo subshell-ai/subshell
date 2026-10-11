@@ -117,7 +117,7 @@ export function SwitchPresetDialog({
         </Select>
         {presetsFailed && (
           <p className="text-destructive text-detail">
-            Could not load presets, so the picker has nothing to offer. Close and reopen to try again.
+            Couldn't load your presets. Close this dialog and reopen it to try again.
           </p>
         )}
         {swap.error && (

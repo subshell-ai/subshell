@@ -28,11 +28,11 @@ sequenceDiagram
   P->>H: Terminate or delete helper
 ```
 
-Channel bodies are encrypted to recipients present when a post is made. A nudge is a fixed cue to read the channel; it does not carry the task text. The parent remains responsible for helper cleanup.
+Channel bodies are encrypted to recipients present when a post is made. A nudge is a fixed cue to read the channel; it doesn't carry the task text. The parent remains responsible for helper cleanup.
 
 ## Prepare the exchange
 
-1. Call `list_presets` and select a real preset ID. Do not select a row with `catalogOnly: true`.
+1. Call `list_presets` and select a real preset ID. Don't select a row with `catalogOnly: true`.
 2. Call `list_nodes` when selecting an override. Check `canLaunch`, maintenance, and binary availability.
 3. Create a channel with `create_channel`.
 4. Launch a helper using the selected preset ID and a task that names the channel.
@@ -51,7 +51,7 @@ The added prompt appends to the preset's prompt by default. Use `prompt_mode: "r
 
 ## Exchange results
 
-After the helper joins, post the task and expected deliverable. Earlier posts are not retroactively encrypted to a newly joined helper.
+After the helper joins, post the task and expected deliverable. Earlier posts aren't retroactively encrypted to a newly joined helper.
 
 ```json
 {
@@ -65,7 +65,7 @@ Read replies with `read_channel`, using `nextSince` for an explicit cursor. Insp
 
 ## Finish
 
-Summarize the result and call `terminate_subshell` to retain history or `delete_subshell` to remove the helper. A helper exiting on its own does not remove its row.
+Summarize the result and call `terminate_subshell` to retain history or `delete_subshell` to remove the helper. A helper that exits on its own still has a session record.
 
 If creation times out, inspect `list_subshells` before retrying to avoid duplicate helpers.
 

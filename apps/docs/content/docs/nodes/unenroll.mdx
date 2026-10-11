@@ -7,7 +7,7 @@ Remove this machine's stored node enrollment.
 
 ## Before you start
 
-Review running subshells and decide what should happen to them. Stop the daemon before removing its credentials; `--yes` cannot bypass the live-daemon refusal.
+Review running subshells and decide what should happen to them. Stop the daemon before removing its credentials; `--yes` can't bypass the live-daemon refusal.
 
 ## Stop and unenroll
 
@@ -18,14 +18,14 @@ subshell unenroll
 
 For a daemon running in a terminal or another supervisor, stop it there first.
 
-If live panes remain, unenrollment refuses unless you explicitly accept orphaning them with `--yes`. That flag does not signal or stop those panes.
+If panes are still running, unenrollment stops without making changes. Use `--yes` only if you accept leaving those panes running without a node to manage them; the flag doesn't stop them.
 
 > [!warning] Orphaned work
 > Accepting orphaning can leave processes running without their normal node-management connection. Prefer maintenance and a verified stop before unenrollment.
 
 ## What remains
 
-The CLI removes its lock and configuration. It retains the binary, data directory, and service definition. The node's row remains on the control plane until its owner removes it there.
+The CLI removes its lock and configuration. It retains the binary, data directory, and service definition. The node stays in the server's list until its owner removes it.
 
 For desktop cleanup, choose **Window** → **Open Client App** in Subshell Client's menu bar, or **Open Client App** in its tray menu, then select **Reset** in the local window's sidebar. Review its deletion plan; desktop reset can remove additional local enrollment data. It remains separate from a server reset.
 

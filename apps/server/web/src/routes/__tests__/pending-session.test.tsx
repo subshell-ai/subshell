@@ -76,7 +76,7 @@ describe("/pending", () => {
   it("holds the waiting card for a signed-out visitor, with the email", async () => {
     stubWires(false);
     renderPending();
-    await screen.findByText(/awaiting approval by an administrator/i);
+    await screen.findByText(/waiting for an admin's approval/i);
     // The address named by the refusal travels through the search params.
     expect(screen.getByText("ada@example.com")).toBeDefined();
     expect(screen.getByText(/Sign in to Test Plane/)).toBeDefined();

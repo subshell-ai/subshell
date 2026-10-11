@@ -125,15 +125,15 @@ echo "$OUT" | grep -q "/nodes" || fail "setup printed no next step naming the no
 echo "$OUT" | grep -qi "subshell run" && fail "setup still recommends the foreground run"
 ok "setup enrolled and named the nodes page"
 
-echo "== 9. run the agent and confirm it comes online"
-"$NODE" run > "$W/agent.log" 2>&1 &
+echo "== 9. run the daemon and confirm it comes online"
+"$NODE" run > "$W/daemon.log" 2>&1 &
 NODEPID=$!
 ONLINE=no
 for i in $(seq 1 40); do
   if curl -sf -b "$JAR" "$BASE/api/nodes" | grep -q '"status":"online"'; then ONLINE=yes; break; fi
   sleep 0.5
 done
-[ "$ONLINE" = yes ] || { tail -20 "$W/agent.log"; fail "node never came online"; }
+[ "$ONLINE" = yes ] || { tail -20 "$W/daemon.log"; fail "node never came online"; }
 ok "node is online on the control plane"
 
 echo "== 10. node status"

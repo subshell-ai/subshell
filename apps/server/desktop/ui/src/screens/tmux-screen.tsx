@@ -281,7 +281,7 @@ export function TmuxScreen(props: {
             {/* A platform this app does not ship to: the reading link is the whole
                 honest answer. Naming a command here would be a guess in the one place
                 the reader cannot check it. */}
-            <p className="hint">This machine has no package manager this app can drive. In a terminal:</p>
+            <p className="hint">This app can't install tmux with your package manager. Run this in a terminal:</p>
             {plan.command.length > 0 && <span className="code-line">{plan.command.join(" ")}</span>}
             {plan.docsUrl !== "" && (
               <Button type="button" variant="ghost" onClick={() => void ipc.openTmuxDocs().catch(props.onFail)}>

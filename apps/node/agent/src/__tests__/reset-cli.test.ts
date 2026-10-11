@@ -231,7 +231,7 @@ describe("the chain (clear-everything after consent)", () => {
     expect(existsSync(fx.plan.configJson)).toBe(false);
     expect(existsSync(fx.binary)).toBe(true);
     expect(r.out).toContain("subshell setup");
-    expect(r.out).toContain("agent's own log"); // the record that STAYS is named
+    expect(r.out).toContain("daemon's own log"); // the record that STAYS is named
   });
 
   test("a machine with no service definition walks past the absent stop and remove", async () => {
@@ -421,14 +421,14 @@ describe("the uninstall data question", () => {
     const r = await runNodeReset({ uninstall: false }, fx.deps);
     expect(r.code).toBe(0);
     expect(r.out).toContain("went with the data directory");
-    expect(r.out).not.toContain("left the agent's own log at");
+    expect(r.out).not.toContain("left the daemon's own log at");
   });
 
   test("a node that never wrote a log is not CLAIMED to have kept one, nor to have lost one", async () => {
     rmSync(join(fx.root, "config-home", "logs"), { recursive: true, force: true });
     const r = await runNodeReset({ uninstall: false }, fx.deps);
     expect(r.code).toBe(0);
-    expect(r.out).not.toContain("agent's own log");
+    expect(r.out).not.toContain("daemon's own log");
   });
 
   test("reset never asks: clearing the data IS reset", async () => {

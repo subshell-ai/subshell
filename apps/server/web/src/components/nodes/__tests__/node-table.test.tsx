@@ -61,7 +61,7 @@ describe("NodeTable", () => {
       node({ id: "b2", name: "mac mini", os: "linux", arch: "x64", status: "offline" }),
     ]);
     // Headers in the operator's order.
-    for (const h of ["Name", "Host", "Platform", "Status", "Agent", "Seen"]) {
+    for (const h of ["Name", "Host", "Platform", "Status", "Version", "Seen"]) {
       expect(screen.getByRole("columnheader", { name: h })).toBeTruthy();
     }
     expect(screen.getByText("AI PC")).toBeTruthy();

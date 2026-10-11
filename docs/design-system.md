@@ -95,17 +95,17 @@ admitted here.
   six pixels above a quiet "Client version" over its: two label grammars in one
   card, so one row read as a heading and the other as data, and neither was the
   control the bold claimed it was.)*
-- **Copy length**: an explanation of a UI element is at most two sentences,
-  and UI copy uses no em dashes; periods and commas separate clauses. If a control needs more than two sentences, the surplus
-  is documentation or a detail disclosure, not help text. *(Operator ruling,
-  2026-09-21, after a maintenance toggle carried a four-clause essay and a
-  launch-rule card carried five sentences: the paragraph beside a control is
-  read ONCE, at the moment of decision; long run-ons teach people to skim
-  the whole screen.)* A lone em dash standing in a table or detail cell for
-  "nothing here" is a placeholder glyph, not copy: the rule governs sentences,
-  and a placeholder is not one. *(The shipped-copy sweep of 2026-09-25 reviewed
-  every rendered `—` and kept the placeholders; it rewrote only strings that
-  carry words.)*
+- **Copy voice**: follow [the repository's writing voice](../AGENTS.md#writing-voice).
+  Speak to the reader as a peer. Use active verbs, natural contractions, and
+  varied sentence structure. State what's happening and, when there's a useful
+  next step, explain it. For example: "The server doesn't support this machine's
+  Subshell daemon version. You can still update it from here." Keep warnings
+  explicit and technical details accurate. Read messages aloud during review.
+- **Copy length**: aim for one or two short sentences. Use more when needed to
+  explain consequences, timing, or limits clearly; don't hide a warning in
+  documentation or pack it into a run-on sentence to meet a quota. Move
+  optional background into documentation or a disclosure. UI copy uses no em
+  dashes. An absence placeholder in a table isn't prose.
 - **Help text**: everything a control says about itself is `detail`, at ONE
   size: its hint, "set by the environment", a saved-vs-running note, a
   validation error, the same role metadata uses, so a field never mixes sizes.
@@ -129,22 +129,19 @@ admitted here.
   hold both uses. *(An hour of one-tone experiments settled the split: gold
   for everything read as alarm on unfilled fields; red for everything hid
   which fields still needed typing.)*
-- **Dialog title**: static. Never interpolate user data into a DialogTitle
-  unless a spec explicitly asks for it. Data of unknown length in a heading
-  overruns it: a long name wraps the title to a paragraph and pushes the
-  actual content off the first screen. Name the ACT as a question or an
-  imperative ("Send prompt to agent?", "Delete this preset?", "New stack"),
-  and let the body or the named field carry the data - the thing being acted
-  on is already on screen below the title. *(The inject confirm carried
-  `Inject "<prompt>" into "<pane>"` and the launch dialog's create step
-  `New preset for <agent>`: two unknown-length strings per heading, and the
-  first wrapped four lines in live testing. Operator ruling, 2026-09-30.)*
-  The question-shaped confirmations that name ONE bounded subject
-  (`Close "Review pane"?`, `Delete key "desk"?`, `Update to 1.2.3?`) are
-  the family's documented exception: the name is the question's subject and
-  a fixed frame carries it, and the label grammars cap their names (64 or
-  120, by grammar). A new confirmation whose subject could be long names it
-  in the BODY, not the title.
+- **Titles and confirmations**: keep titles short and fixed. Name the action
+  ("Insert this prompt?", "Close this subshell?", "Generate a new setup key?")
+  and put variable details in the body: names, counts, versions, addresses,
+  and package identifiers. Use the same approach for cards and action headings;
+  object names still belong in lists and detail fields. Long names shouldn't
+  change the heading's layout. Name-length limits and older specifications
+  don't create exceptions.
+  The body identifies the target and explains what happens, when it happens,
+  and any relevant limits or permanent loss. Use an explicit action label,
+  such as "Close subshell" or "Revoke key". Distinguish preparing an action
+  from performing it, and an attempted operation from a guaranteed result.
+  See [the content guide](../apps/docs/STYLE.md#product-copy-and-confirmations)
+  for examples.
 - **Tooltip**: the popup carries an arrow pointing back at its control.
   `TooltipContent` draws it by default, and `arrow={false}` is the rare opt-out
   for a surface with no single anchor. A floating box beside a run of elements

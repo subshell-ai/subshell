@@ -111,7 +111,8 @@ export function LockdownCard({ lockdown, machineName }: { lockdown: boolean; mac
           )}
         </div>
         <p className="text-detail text-muted-foreground">
-          Locking down stops every running subshell on every machine and blocks new ones until it ends.
+          Locking down blocks new subshells and attempts to stop all running ones across your machines. Some may keep
+          running if they can't be reached or stopped.
         </p>
         {unstopped > 0 && (
           <p className="font-strong text-destructive text-detail" role="alert">
@@ -144,13 +145,13 @@ const DIALOG_COPY = {
   start: {
     title: "Lock down this instance?",
     description:
-      "Every subshell running on every machine stops immediately, and no new ones can be created until the lockdown ends.",
+      "This blocks new subshells and attempts to stop all running ones across your machines. Some may keep running if they can't be reached or stopped. New subshells stay blocked until you end the lockdown.",
     confirm: "Lock down",
     pending: "Locking down…",
   },
   end: {
     title: "End the lockdown?",
-    description: "New subshells can be created again on every machine.",
+    description: "People can create subshells again wherever they have launch access.",
     confirm: "End lockdown",
     pending: "Ending…",
   },

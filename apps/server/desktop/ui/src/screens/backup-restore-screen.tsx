@@ -516,7 +516,7 @@ export function BackupRestoreScreen(props: {
         });
         setMessage(
           result.started
-            ? "Restore completed. The restored server confirmed a successful boot."
+            ? "Restore complete. The server has restarted successfully."
             : "Restore applied. The server remains stopped; previous state is retained until its next successful boot.",
         );
         setInspection(null);
@@ -609,7 +609,7 @@ export function BackupRestoreScreen(props: {
               <ul className="flex flex-col gap-2 list-disc pl-5 text-body text-muted-foreground">
                 <li>Your server remains available while the backup is captured.</li>
                 {encrypt && <li>The archive is encrypted with your password.</li>}
-                <li>The saved archive is confirmed before success is reported.</li>
+                <li>Subshell checks the saved archive before reporting success.</li>
                 <li>When the backup finishes, select Next to review the result.</li>
               </ul>
             )}
@@ -709,9 +709,9 @@ export function BackupRestoreScreen(props: {
               </div>
             ) : (
               <ul className="flex flex-col gap-2 list-disc pl-5 text-body text-muted-foreground">
-                <li>The backup is prepared and checked before replacement.</li>
-                <li>The server is stopped, its saved state is restored, and compatible sessions are preserved.</li>
-                {start && <li>The server is restarted and checked before success is confirmed.</li>}
+                <li>Subshell checks the backup before replacing your server’s data.</li>
+                <li>Subshell stops the server and restores the backup while preserving compatible sessions.</li>
+                {start && <li>Subshell restarts the server and checks that it runs before reporting success.</li>}
                 <li>When the restore finishes, select Next to review the result.</li>
               </ul>
             )}

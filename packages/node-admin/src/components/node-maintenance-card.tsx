@@ -100,8 +100,8 @@ export function NodeMaintenanceCard({
       <CardHeader>
         <CardTitle>Maintenance</CardTitle>
         <CardDescription>
-          Turning this on blocks new subshells on this machine for everyone, and stops whatever is running. They will
-          not come back on their own when maintenance ends.
+          Maintenance blocks new subshells on this machine for everyone and tries to stop existing ones. Some may keep
+          running if they can't be stopped. Subshells that stop won't restart automatically when maintenance ends.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
