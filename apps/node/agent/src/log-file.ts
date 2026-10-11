@@ -61,6 +61,12 @@ export function legacyAgentLogPath(): string {
  * Every reader — the plane's `agent_log_read` command, the loopback dashboard,
  * `status --json` — takes this instead of {@link daemonLogPath}, so an upgraded
  * node shows its history from the first poll rather than after its first line.
+ *
+ * One accepted cost of the no-migration design: a poller holding an offset into
+ * the old file across the switchover re-reads cleanly only while the new file
+ * is SHORTER than that offset (the truncated flag); if the daemon's startup
+ * burst outgrew the held offset between two polls, that one view skips bytes
+ * until a reload restarts it from 0.
  */
 export function readableDaemonLogPath(): string {
   const current = daemonLogPath();

@@ -842,7 +842,7 @@ describe("mcp tools: the 2026-09-25 agent surface", () => {
     // remedy is a human updating the node, and the sentence must say so.
     expect(
       describeToolError(
-        new ApiError(409, "the agent on node n predates archive transfer; update the node", "NODE_AGENT_TOO_OLD"),
+        new ApiError(409, "the daemon on node n predates archive transfer; update the node", "NODE_AGENT_TOO_OLD"),
       ).message,
     ).toContain("update the node");
   });

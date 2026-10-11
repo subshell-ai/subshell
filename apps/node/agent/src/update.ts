@@ -867,7 +867,7 @@ export async function revertAfterRefusal(
     // renames, or a hand that tidied up). There is nothing to put back, so say
     // so rather than deleting the marker and pretending the update succeeded.
     log(
-      `the control plane refused subshell ${pending.to} and there is no ${pending.previousBinary} to restore; reinstall the daemon by hand`,
+      `the server would not accept subshell ${pending.to}, and there is no ${pending.previousBinary} to restore; reinstall the daemon by hand`,
     );
     return null;
   }
@@ -894,7 +894,7 @@ export async function revertAfterRefusal(
     await writeMarker(failedMarkerPath(dataDir), failure);
     await rm(pendingMarkerPath(dataDir), { force: true }).catch(() => {});
     log(
-      `the control plane refused subshell ${pending.to}, and ${pending.previousBinary} did not answer \`version\`; left ${pending.binary} in place and kept the copy`,
+      `the server would not accept subshell ${pending.to}, and ${pending.previousBinary} did not answer \`version\`; left ${pending.binary} in place and kept the copy`,
     );
     return failure;
   }

@@ -3452,7 +3452,9 @@ mod path_tests {
         let (path, hint) = node_log_paths_from(
             Some(PathBuf::from("/home/u/.config/subshell")),
             Some(PathBuf::from("/home/u")),
-            |p| p.ends_with("logs/agent.log"), // only the old name has content
+            // BOTH the old name and the manager's copy have content: the rung
+            // order the ruling keeps is daemon, then pre-rename, then manager.
+            |p| p.ends_with("logs/agent.log") || p.ends_with("Library/Logs/subshell.log"),
         );
         assert_eq!(
             path.as_deref(),

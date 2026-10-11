@@ -1110,7 +1110,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       if (shuttingDown) stop(0); // graceful: the socket closed cleanly on our request
       if (close.code === NODE_CLOSE_SUPERSEDED) {
         log(
-          `another subshell is already registered as node '${config.nodeId}' (close 4409); exiting, stop the duplicate daemon first`,
+          `another daemon is already registered as node '${config.nodeId}' (close 4409); exiting, stop the duplicate first`,
         );
         stop(1);
       }

@@ -39,7 +39,9 @@ import { runTransfer, type TransferEndpoint } from "@/services/transfers.service
 
 /** One endpoint as the request names it. */
 const EndpointSchema = t.Object({
-  nodeId: t.String({ description: "Agent node id; the caller must own it (local and foreign rows are refused)" }),
+  nodeId: t.String({
+    description: "Machine node id (kind `agent`); the caller must own it (`local` and foreign rows are refused)",
+  }),
   path: t.String({ description: "Absolute directory ON that node; the node's operator allowlist is the authority" }),
 });
 
@@ -102,7 +104,7 @@ async function gateEndpoint(which: "from" | "to", ep: TransferEndpoint, userId: 
         // cannot tell a held-now agent from a dead one that dialed back on the
         // old version before it stopped dialing at all; either way updating is
         // the action, so the remedy names itself without a false present tense.
-        message: `the agent on ${row.name} spoke protocol v${row.protocolVersion} as last reported; update the node (the Nodes page asks a human)`,
+        message: `the daemon on ${row.name} spoke protocol v${row.protocolVersion} as last reported; update the node (the Nodes page asks a human)`,
         doNotLog: true,
       });
     }
@@ -200,7 +202,7 @@ export const postTransferRoute = new Elysia()
         operationId: "createTransfer",
         tags: ["transfers"],
         description:
-          "Relay a directory tree between two agent nodes the caller owns (whole-tree copy, or diff-sync on per-file SHA-256); extraction is additive and nothing at the destination is ever deleted",
+          "Relay a directory tree between two machine nodes the caller owns (whole-tree copy, or diff-sync on per-file SHA-256); extraction is additive and nothing at the destination is ever deleted",
       },
     },
   );

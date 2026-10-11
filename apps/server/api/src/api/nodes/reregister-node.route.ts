@@ -37,7 +37,7 @@ export const reregisterNodeRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: "The server node cannot re-register as an agent",
+            message: "The server's own node entry cannot re-register; only a machine node can",
           }),
         );
       }

@@ -410,7 +410,7 @@ function transferFailed(err: NodeRpcError, nodeId: string, verb = "command"): ne
     // sentence about a verb nobody named.
     throwApiError({
       code: BackendErrorCodes.NODE_AGENT_TOO_OLD,
-      message: `the agent on node ${nodeId} predates archive transfer; update the node`,
+      message: `the daemon on node ${nodeId} predates archive transfer; update the node`,
       doNotLog: true,
     });
   }
