@@ -104,11 +104,13 @@ export async function expectSubshellRunning(page: Page, timeout: number): Promis
  * and the rename is the actions menu's "Edit title" dialog.
  */
 export async function renameSubshell(page: Page, name: string): Promise<void> {
-  // Present in both layouts — waiting on it means the header has rendered, so
-  // the inline editor's absence below is a layout fact rather than a race.
-  const actions = page.getByRole("button", { name: /^Actions for / }).first();
+  // Wait for the detail header, not a sidebar row's action button. The rail
+  // can render before navigation finishes, which made the rename fall back
+  // to a dialog that disappeared when the detail page mounted.
+  const main = page.getByRole("main");
+  const actions = main.getByRole("button", { name: /^Actions for / });
   await actions.waitFor();
-  const inline = page.getByRole("button", { name: "Rename subshell" });
+  const inline = main.getByRole("button", { name: "Rename subshell" });
   if (await inline.isVisible()) {
     await inline.click();
     // Button and input carry the same aria-label; only one is ever mounted.
