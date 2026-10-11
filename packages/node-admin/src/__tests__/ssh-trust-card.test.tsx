@@ -34,6 +34,7 @@ function node(over: Partial<NodeDetail> = {}): NodeDetail {
     protocolVersion: 18,
     access: "owner",
     canManage: true,
+    canRetire: true,
     canLaunch: true,
     capabilities: [],
     allowedDirs: [],
