@@ -177,6 +177,9 @@ async function choose(label: string, name: string) {
     for (const type of ["mousedown", "mouseup", "click"])
       field.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true }));
   });
+  // Let the picker finish focusing and restoring its selected label before
+  // typing the search, or that opening work can overwrite the query.
+  await settle();
   fireEvent.change(field, { target: { value: name } });
   await settle();
   fireEvent.click(await screen.findByRole("option", { name }));
