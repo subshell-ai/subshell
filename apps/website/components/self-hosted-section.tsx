@@ -13,7 +13,7 @@ export function SelfHostedSection() {
           id="self-hosted-feature"
           className="mt-3 text-[28px] font-semibold leading-tight tracking-[-.035em] sm:text-[36px]"
         >
-          Make yourself at home.
+          Run Subshell on your own infrastructure.
         </h2>
         <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
           Subshell is free and open source. Run your server on your own infrastructure, keep your session history there,

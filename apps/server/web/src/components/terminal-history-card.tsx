@@ -115,8 +115,8 @@ export function TerminalHistoryCard({
       <CardHeader>
         <CardTitle>Terminal history</CardTitle>
         <CardDescription>
-          How much scrollback your terminals load when they open a subshell; lower opens faster, and the live view is
-          never affected. This account-wide choice applies on every device and to every subshell you own.
+          Choose how much history to load when opening your subshells on any device. Fewer lines load faster without
+          affecting live output.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

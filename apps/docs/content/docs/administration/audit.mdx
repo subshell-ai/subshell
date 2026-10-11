@@ -16,17 +16,17 @@ Use an administrator session. Audit records describe actions on the control plan
 3. Review the actor, action, target, and time associated with the operation.
 4. Page through results when investigating a sequence of changes.
 
-Account creation and recovery, configuration changes, plugin actions, and other audited operations provide a record of instance management. Credentials such as provider client secrets are not serialized into audit payloads.
+The audit trail records account creation and recovery, configuration changes, plugin actions, and other administrative work. It doesn't include credentials such as provider client secrets.
 
 ## Correlate failures
 
-API error responses include a machine-readable code and an error ID. Logged server errors can be correlated through the error ID. Expected client errors are not necessarily logged, so the absence of a matching system-log entry does not prove a request succeeded.
+API errors include a code and an error ID. Use the ID to find the matching server log entry, if one exists. The server doesn't log every expected client error, so a missing entry doesn't mean the request succeeded.
 
 Keep timestamps, response codes, and the relevant operation when reporting an issue. Avoid copying authentication headers or secret configuration values.
 
 ## Limits
 
-The audit trail is stored by the same instance it describes. It is not an independent tamper-proof ledger. Direct terminal input and filesystem changes by agents are outside its comprehensive coverage.
+The instance stores its own audit trail, so the trail isn't an independent, tamper-proof record. It doesn't capture every terminal command or file change an agent makes.
 
 ## Next steps
 

@@ -1,10 +1,9 @@
 # @subshell-ai/plugin-cloudflare-tunnel
 
 The Cloudflare Tunnel network plugin for Subshell: publishes this server on a
-public hostname you own, with a Cloudflare Access application as the front
-door. Part of Subshell's built-in plugin set (this package is also published
-standalone for tooling; nothing at runtime imports it as a bare specifier;
-see `@subshell-ai/plugin-api`).
+public hostname you own. Cloudflare Access controls who can reach it, and
+Subshell still requires sign-in. The plugin ships with Subshell and is also
+available as a package. See `@subshell-ai/plugin-api` for the runtime contract.
 
 ## What it does
 
@@ -30,9 +29,8 @@ see `@subshell-ai/plugin-api`).
 
 ## What is unmeasured (§ 10.5, spec 2026-09-15)
 
-No live Cloudflare account was available while this was built, so two
-assumptions remain measurements-not-taken, and the code is shaped to degrade
-honestly rather than to pretend:
+The initial implementation wasn't tested against a live Cloudflare account.
+These two assumptions still need verification:
 
 - **The pre-flight's exact status codes and header names.** The reader takes
   the `Location` header or any `cf-access-*` header *if present* as the
@@ -51,8 +49,6 @@ honestly rather than to pretend:
 
 ## npm bootstrap status
 
-This package is in `.changeset/config.json`'s `ignore` list: its `0.0.1`
-hand-publish and trusted-publisher configuration (the operator step recorded
-in spec 2026-09-15 § 10c) have not happened. Until they do, `0.1.0` is not
-separately installable from npm; nothing a user does depends on that, because
-the plugin ships compiled into the server binary as a built-in.
+This package participates in the repository's Changesets versioning.
+Subshell bundles it with the server, so users don't need to install the npm
+package separately.

@@ -57,7 +57,7 @@ function KeySetupDialog({
           <DialogDescription>
             {targetNodeId
               ? "This key re-registers an existing node and keeps its name and settings. In Subshell Client, open Service → Re-enroll and use this key."
-              : "The key is listed here until it is used, so these steps can be rebuilt at any time before then. The machine names itself when it enrolls."}
+              : "You can return to these instructions while the key is unused and valid. The machine's name appears in Nodes after enrollment."}
           </DialogDescription>
         </DialogHeader>
         <NodeKeySetup keyText={keyText} defaultMethod={targetNodeId ? "desktop" : "terminal"} />
@@ -128,10 +128,17 @@ export function SetupKeysSection() {
     const unused = state === "unused";
     const ok = await confirmAction({
       title: unused ? "Revoke this setup key?" : "Remove this setup key?",
-      description: unused
-        ? `${key} will no longer enroll a node. It is deleted here and refused at enrollment.`
-        : `${key} is ${state}, so there is nothing to revoke. This only deletes its record from this list.`,
-      confirmLabel: unused ? "Revoke" : "Remove",
+      description: (
+        <>
+          <p>
+            {unused
+              ? "Machines can no longer use this key to connect to your server."
+              : `${state === "used" ? "This key has already been used." : "This key has expired."} Removing it clears it from the list without affecting any connected machines.`}
+          </p>
+          <p className="mt-2 break-all font-mono">{key}</p>
+        </>
+      ),
+      confirmLabel: unused ? "Revoke key" : "Remove key",
       danger: unused,
     });
     if (!ok) return;
@@ -150,8 +157,8 @@ export function SetupKeysSection() {
       <CardHeader>
         <CardTitle>Setup keys</CardTitle>
         <CardDescription>
-          Single-use enrollment credentials, valid 24 h. Each key stays listed here until it is used, expires, or is
-          revoked, so the Add-node dialog is not the only place one can be read.
+          Each setup key enrolls one machine and expires after 24 hours. You can find unused keys here after closing the
+          Add node dialog.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

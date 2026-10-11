@@ -169,8 +169,8 @@ describe("the tmux screen", () => {
   it("says what it did not find, and that it is still watching", () => {
     fakeIpc();
     renderApp(<TmuxScreen shell={shell} probe={noTmux} onInstall={() => {}} busy={false} />);
-    expect(screen.getByRole("status").textContent).toContain("was not found on the login PATH");
-    expect(screen.getByRole("status").textContent).toContain("continues on its own");
+    expect(screen.getByRole("status").textContent).toContain("couldn't find tmux on this machine's login PATH");
+    expect(screen.getByRole("status").textContent).toContain("continues automatically");
   });
 
   it("says it is checking while the probe has not answered yet", () => {
@@ -360,7 +360,7 @@ describe("the tmux screen on a Mac with no Homebrew", () => {
     on(MAC_UA);
     fakeIpc();
     renderApp(<TmuxScreen shell={shell} probe={brewless} onInstall={() => {}} busy={false} />);
-    expect(screen.getByRole("status").textContent).toContain("continues on its own");
+    expect(screen.getByRole("status").textContent).toContain("continues automatically");
   });
 });
 

@@ -27,14 +27,14 @@ flowchart TD
   V --> A[Node runs agent as its OS user]
 ```
 
-The setup key enrolls the machine; the node then uses its own credential for its connection. A browser-only device does not need enrollment.
+The setup key enrolls the machine; the node then uses its own credential for its connection. A browser-only device doesn't need enrollment.
 
 ## Control access
 
 [Directory restrictions](/nodes/directories) limit where new sessions can launch. [Share a node](/nodes/sharing) controls which users can run sessions there.
 
 > [!warning] Enrollment trust
-> Enrolling a machine delegates agent execution to the control plane. Agents run with the node account's permissions; command signing does not sandbox their filesystem access.
+> Enrolling a machine delegates agent execution to the control plane. Agents run with the node account's permissions; command signing doesn't sandbox their filesystem access.
 
 ## Operate a node
 

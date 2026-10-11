@@ -39,9 +39,8 @@ export function MouseSamplingCard() {
       <CardHeader>
         <CardTitle>Mouse movement reporting</CardTitle>
         <CardDescription>
-          How many times a second pointer movement is sent into a terminal: each report costs the pane a process on the
-          server, so a lower number keeps typing responsive while the mouse is moving. Clicks, scrolling and keystrokes
-          are never affected.
+          Choose how often to send mouse movements to the terminal; a lower rate can keep typing responsive while you
+          move the mouse. This setting doesn’t affect clicks, scrolling, or keystrokes.
         </CardDescription>
       </CardHeader>
       <CardContent>

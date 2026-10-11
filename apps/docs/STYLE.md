@@ -1,6 +1,7 @@
 # Subshell documentation style guide
 
-This guide governs public documentation language and presentation.
+This guide governs public documentation language and presentation and follows
+[the repository's writing voice](../../AGENTS.md#writing-voice).
 `AGENTS.md` defines the technical authoring contract. Use both when writing or
 reviewing pages. The reference models are Tailscale and NetBird: plain,
 professional documentation organized around the reader's tasks.
@@ -80,10 +81,21 @@ serve different purposes rather than paraphrasing one another on screen.
 
 ## Language and grammar
 
+Write in fluid, natural, conversational English, as if you're explaining
+something to a peer. Use active voice and contractions like "don't," "it's,"
+and "you'll" where they sound natural. Keep the tone helpful and direct.
+Conversational writing still needs precise terms and complete explanations.
+
 Use familiar words, active verbs, and connected sentences. Keep each paragraph
 focused on one point. Split a sentence when it contains separate actions or
 nested qualifications. Sentence length is a readability check, not a quota.
 Avoid a sequence of short fragments that makes a guide sound like advertising.
+
+Vary sentence length and structure. Don't start every paragraph the same way
+or turn each explanation into an identical problem-and-solution formula.
+Read the prose aloud to catch awkward phrasing. Avoid textbook introductions,
+stock AI phrases, and conclusions that repeat what the reader just read. End
+when the explanation is complete, or offer a useful next step.
 
 Use present tense for behavior and imperative verbs for steps. Name the result
 when it helps the reader verify an action. Keep qualifiers such as “by default,”
@@ -110,27 +122,112 @@ internal shorthand such as “admin boost,” “scope ceiling,” “wiring,”
 “foreign row” in user guides. Technical references may use precise terms
 when they define them or describe an actual schema.
 
-## Status and problem sentences
+## Product copy and confirmations
 
-Write a status or problem sentence from the reader's seat: name what is true of
-their machine or session, then what they can do about it. Do not describe what
-the protocol layer or the server's internals did.
+Use the same voice across the app, website, CLI, backend errors, notifications,
+MCP descriptions, package READMEs, and code comments. Write for what the reader
+needs to understand or do at that moment. Keep technical detail when it helps
+them decide; leave implementation mechanics to developer-facing content.
 
-- Write the outcome, not the mechanism. Internal verbs (refuse, reject,
-  handshake, redial, hold, boost) belong in code and engineering notes.
-- Name the thing instead of leaning on a pronoun: “this machine's Subshell
-  daemon version,” not “its agent.” A reader should never have to solve whose
-  “it” is before the sentence means anything.
-- A negative status ends on the action that remains, stated plainly.
+Keep titles short and fixed. Put names, counts, versions, addresses, and
+other variable details in the body, where they can wrap without overwhelming
+the heading. This applies to dialogs, confirmations, cards, and action
+headings, not the names displayed in object lists. Neither a name-length cap
+nor an old specification is an exception.
 
-- Good: “The server will not accept this machine's Subshell daemon version.
-  You can still update it from here.”
-- Avoid: “This node is connected, but the server refuses its agent. Update is
-  the one command this connection still accepts.” The first version says what
-  is wrong and what works; the second makes the reader decode a possessive, a
-  protocol verb, and a punning “command.”
+A confirmation names the immediate action, identifies its target in the body,
+and explains its consequences. Make timing clear: generating a setup key is
+a different step from using it. Keep deletion, access, and trust warnings
+visible before the reader acts. Say "tries to stop" when stopping can fail.
+Say "interrupts" when work is interrupted; reserve "permanently deletes" for
+data that is actually deleted. Don't promise that an agent will resume a
+conversation when that depends on its saved history.
 
-These rules govern dashboard strings, CLI and installer output, and docs alike.
+Prefer explicit button labels such as "Insert prompt", "Close subshell",
+"Revoke key", and "Remove key". Use the same term in the menu, confirmation,
+accessible label, and guide. An insertion that doesn't press Enter isn't
+"Send". A used or expired key is removed from the list; a usable key is revoked.
+
+Aim for one or two short sentences, not a rigid sentence limit. Add a sentence
+when it makes consequences or conditions easier to understand. Don't compress
+warnings into run-ons or move essential information behind a disclosure.
+Tooltips should answer the local question: "Subshells opened by another
+subshell" defines the sidebar group without explaining its notification policy.
+
+These examples illustrate the preferred style. They aren't proof that every
+surface already uses the wording; verify the implementation when quoting UI.
+
+| Context | Preferred wording |
+| --- | --- |
+| Prompt insertion | **Insert this prompt?** This adds the prompt to the subshell without submitting it. Review it there, then press Enter when you're ready. |
+| Prompt stack | **New prompt stack**. Combine saved prompts and custom instructions into one prompt. |
+| Attention notification | Waiting for you |
+| Completed-turn notification | Ready for your next message |
+| Closing a subshell | **Close this subshell?** This stops the process and permanently deletes "Build agent" and its history. You can't undo this. |
+| Maintenance | Maintenance blocks new subshells on this machine for everyone and tries to stop existing ones. Some may keep running if they can't be stopped. Subshells that stop won't restart automatically when maintenance ends. |
+| Expired setup key | This key has expired. Removing it clears it from the list without affecting any connected machines. |
+
+Use "subshell" for UI objects and actions. Introduce it as a terminal session
+running an agent or a shell; "session" is fine in explanatory prose after that.
+
+## Content review workflow
+
+Apply routine improvements autonomously within the requested scope. Fix stiff
+phrasing, unclear action labels, inconsistent terminology, and unnecessary
+detail using this guide. Don't ask the user to choose between equivalent
+sentences when the intended meaning is clear.
+
+1. Read the current copy in context and verify the behavior it describes.
+   Check the surrounding screen or procedure, permissions, timing, and failure
+   cases. A wording choice can't resolve an unknown implementation fact.
+2. Make routine edits directly. Ask only when the wording would decide product
+   meaning, an ambiguous term, behavior, or marketing positioning. Continue
+   independent edits while that question is pending.
+3. When asking, show the full current text and complete alternatives. For a
+   dialog, include its title, description, and button labels; for a
+   notification, include the relevant title and body. Explain the difference
+   briefly, recommend an option, and label choices so the user can answer
+   easily. Use clearly identified example names in place of variable values.
+   Keep each batch small enough to compare.
+4. Treat the user's choices and refinements as continuing guidance. Apply them
+   to equivalent cases without asking again. Carry approved wording through
+   related menus, dialogs, tooltips, accessibility labels, public guides, and
+   existing test expectations. Preserve error codes, statuses, identifiers,
+   and behavior when the task is copy editing.
+5. Update this guide when a decision establishes a reusable rule, and remove
+   conflicting guidance from current documentation. Keep historical specs as
+   history rather than rewriting them to describe today's preference.
+6. Review the resulting copy in context and run the relevant repository checks.
+   Report what changed and any verification limits. Don't manufacture more
+   choices to prolong a review; say when no further product decisions need
+   the user's attention.
+
+## Status messages and comments
+
+In app copy and documentation, say what's happening in terms the reader can
+use. Give a next step when one exists, and keep the message short enough to
+read at a glance. Use pronouns when their meaning is clear; name the machine,
+session, or program when it isn't. Don't invent a remedy to complete a formula.
+
+These examples show how to make copy more natural without losing its meaning:
+
+| Before | After |
+| --- | --- |
+| “The server will not accept this machine's Subshell daemon version. You can still update it from here.” | “The server doesn't support this machine's Subshell daemon version. You can still update it from here.” |
+| “The update did not run.” | “The update didn't run.” |
+| “left the daemon's own log at PATH: the record of this act, and no credential in it” | “Kept the daemon log at PATH. It records this reset and contains no credentials.” |
+| “re-running it is the retry” | “Run the transfer again to retry.” |
+
+Code comments use the same voice for a different reader: another developer.
+Explain why the code works this way, including constraints and edge cases.
+Keep precise protocol terms where they help. For example, write “Fall back to
+agent.log until the daemon writes its first log under the new name.” There's
+no need to recount the copy review that prompted the rename. Avoid all-caps
+emphasis and metaphors such as “the ladder's third arm” when you mean a
+fallback branch.
+
+Examples aren't replacement text for quoted output. Verify the actual behavior
+and update any matching UI, tests, or quotations together when changing a message.
 
 ## Page structure and instructions
 
@@ -225,7 +322,7 @@ Use diagrams for plugin loading, command flow, and dependencies when they clarif
 
 Keep Presets and Reusable Prompts as distinct task-oriented sections. A preset records agent configuration and optional launch defaults; a reusable prompt records task instructions. A library stack references current saved prompts, while selecting a prompt or stack into a launch form or preset copies its text. Explain that distinction when describing edits, reuse, and deletion.
 
-Distinguish typing from submitting: the dashboard's **Inject prompt...** action types text without Enter; the reader reviews it and submits it in the pane. Sharing means every account on the instance, not a selected group. Withdrawing library access cannot recall already-copied text. Prompt instructions are not enforceable security permissions.
+Distinguish typing from submitting: the dashboard's **Insert prompt…** action types text without Enter; the reader reviews it and submits it in the pane. Sharing means every account on the instance, not a selected group. Withdrawing library access cannot recall already-copied text. Prompt instructions are not enforceable security permissions.
 
 Use coding-agent examples with a stated task and meaningful settings. Screenshots should show the configuration or workflow the prose explains, with enough context to identify it; an isolated generic field or trivial shell flag is not a useful example. Document dashboard controls before CLI alternatives when both serve the task, including update pages and their unavailable states.
 

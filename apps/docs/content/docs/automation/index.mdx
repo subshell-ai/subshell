@@ -21,7 +21,7 @@ A system key is an integration credential, not an administrator cookie. Administ
 
 ## Reliable operations
 
-Inspect the current state after a timeout before retrying a create or restart. A connection failure does not prove the server made no change.
+Inspect the current state after a timeout before retrying a create or restart. A connection failure doesn't prove the server made no change.
 
 Keep credential handling separate from command logging, and use an isolated instance to test destructive operations. A terminal input API writes to a live process rather than placing a message in a queue.
 

@@ -142,9 +142,9 @@ function UsersPage() {
                 <CardTitle>Users</CardTitle>
                 <CardDescription>
                   {error
-                    ? "Couldn't load the roster. Check your connection or sign in again."
+                    ? "Couldn't load the accounts. Check your connection or sign in again."
                     : isLoading
-                      ? "Loading the roster…"
+                      ? "Loading accounts…"
                       : `${envelope?.users.length ?? 0} accounts on this instance`}
                 </CardDescription>
               </CardHeader>
@@ -163,7 +163,7 @@ function UsersPage() {
                     ? "Couldn't load the approval queue. Check your connection or sign in again."
                     : pendingIsLoading
                       ? "Loading the queue…"
-                      : "Approving makes them a member. Rejecting keeps the row here as the record; nothing in this queue deletes one"}
+                      : "Approve an account to let that person sign in as a member. Rejected accounts stay in this list for reference."}
                 </CardDescription>
               </CardHeader>
               {!pendingError && !pendingIsLoading && (

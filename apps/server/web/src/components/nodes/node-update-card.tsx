@@ -85,8 +85,8 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
       <CardHeader>
         <CardTitle>Updates</CardTitle>
         <CardDescription>
-          Replace this machine's Subshell node with the newest release this server can offer. The daemon restarts itself
-          into the new binary when the install finishes.
+          Update the Subshell daemon on this machine to the newest release available from this server. The daemon
+          restarts when the update finishes.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

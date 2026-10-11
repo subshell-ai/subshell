@@ -106,7 +106,7 @@ export function TmuxStep({
               being unable to run anything. */}
           <p className="text-detail text-muted-foreground">
             Subshells cannot launch on this machine without it.{" "}
-            {hint === null && <>Install tmux on this machine and this screen will pick it up.</>}
+            {hint === null && <>Install tmux on this machine; this screen updates automatically.</>}
           </p>
           {hint !== null && (
             <>

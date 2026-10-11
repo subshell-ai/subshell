@@ -63,11 +63,10 @@ export interface CliResult {
   /** Text for stderr. */
   err: string;
   /**
-   * The invocation started a process-lifetime handle — the MCP stdio
-   * transport — whose completion IS the success condition: `connect()`
-   * resolves once attached and the SDK's stdin listener is what keeps the
-   * process alive. An entry that sees this MUST NOT write or exit; exiting
-   * would kill the live transport (the T18 parity bug).
+   * Keep the process alive for the MCP stdio transport. `connect()` resolves
+   * after attachment, while the SDK's stdin listener keeps the process running.
+   * The entrypoint must neither write to stdout nor exit when this is set:
+   * either would disrupt the transport (the T18 parity regression).
    */
   keepAlive?: boolean;
 }
@@ -77,30 +76,30 @@ const USAGE = `subshell: node daemon
 usage:
   subshell setup --server <url> --key <nsk_…> [--name <n>] [--data-dir <d>]
                  [--no-service] [--yes] [--json]
-                          the whole enrollment: checks tmux, asks what to call
-                          this machine, enrolls, then offers to run it in the
-                          background and start it at login. Without --name it ASKS (default:
-                          the hostname); --yes, --json or no terminal make the
-                          name required instead. --no-service skips the service
-                          question; --yes / a non-TTY take its default (yes).
+                          check tmux, name this machine, and enroll it. Then
+                          choose whether to run it in the background at login.
+                          Without --name, setup asks for a name and suggests the
+                          hostname. With --yes, --json, or no terminal, --name is
+                          required. --no-service skips service installation;
+                          --yes or no terminal accepts the service default (yes).
   subshell enroll --server <url> --key <nsk_…> --name <n> [--data-dir <d>] [--json]
-                          enrollment ONLY: the primitive that setup composes; it
-                          asks nothing, so --name is required
+                          enroll without interactive setup.
+                          This command doesn't prompt, so --name is required
   subshell configure [--server <url>] [--key <node key>] [--json]
-                          change how an ALREADY-enrolled node reaches its control
-                          plane. --server repoints it; --key stores a ROTATED node
-                          key (the value Rotate key shows once. NOT a setup key,
-                          which enrolls a new node). Keeps this node's identity and
-                          spends no setup key; restart the node to apply. Does NOT
-                          rename: the plane owns a node's name (the Nodes page).
+                          change how an enrolled node connects to its server.
+                          --server changes the address; --key stores the node key
+                          shown by Rotate key, not a setup key for enrollment.
+                          The node keeps its identity and uses no setup key.
+                          Restart the node to apply changes. To rename it,
+                          use the Nodes page in your server dashboard.
   subshell run [--dashboard-port <n>]
                           the daemon; --dashboard-port (or SUBSHELL_DASHBOARD_PORT)
                           moves the loopback dashboard off :3090
   subshell dashboard [--dashboard-port <n>]
-                          the loopback dashboard WITHOUT the daemon: reads and
-                          maintenance work, restart/update say "not supervised".
-                          For a stopped or broken daemon: the machine's page
-                          should not need the machine's plane socket
+                          open the local dashboard without starting the daemon.
+                          You can view details and manage maintenance even if
+                          the daemon isn't working. Restart and update remain
+                          unavailable because this process isn't supervised
   subshell service install [--no-autostart]   (systemd user unit / launchd agent)
                           --no-autostart runs it now but not at login
   subshell service uninstall
@@ -114,27 +113,27 @@ usage:
                           else, launches nothing, and STOPS every subshell
                           running here (listed first; --yes is the confirmation)
   subshell maintenance off [--json]     put it back in service
-  subshell maintenance status [--json]  what this machine's mirror says
+  subshell maintenance status [--json]  show this machine's maintenance status
   subshell unenroll [--yes] [--json]
                           stop being a node: deletes this machine's node config
                           (its node key's only home) and the daemon lock. Keeps
                           the data directory, the panes, and the installed
-                          binary; the control plane's row stays until its owner
-                          deletes it there. Refuses while a daemon runs or
+                          binary. The node stays listed on the server until its
+                          owner deletes it there. Refuses while a daemon runs or
                           subshells are live; --yes is the confirmation.
   subshell reset
-                          stop being a node the way the Client app's Reset does:
-                          stops the daemon, closes this machine's pane servers,
-                          removes the service definition, and deletes the data
-                          directory (identity and pane logs), the daemon lock,
-                          and the node config with its key (LAST). Everything
-                          the node role wrote HERE goes; the plane's row and
-                          other machines' panes do not. The binary stays, so
-                          subshell setup can enroll again. The machine's NAME
-                          must be typed (--confirm <name> when headless); --yes
-                          cannot confirm a reset.
+                          reset this machine's node, as in Subshell Client:
+                          stop the daemon, close this machine's pane servers,
+                          remove the service, and delete the data directory
+                          (identity and pane logs), daemon lock, and node config.
+                          Reset deletes the config and its key last. The server's node
+                          entry and other machines' panes stay untouched.
+                          The binary stays, so subshell setup can enroll again.
+                          Type the machine's name to confirm, or use
+                          --confirm <name> without a terminal.
+                          --yes cannot confirm a reset.
   subshell uninstall [--reset-data]
-                          reset PLUS the installed binary and any .previous
+                          reset plus the installed binary and any .previous
                           an update left. Asks separately whether the data goes
                           too (default: keep it); --reset-data answers that
                           question yes without a terminal. The same typed-name
@@ -791,7 +790,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
       case "uninstall": {
         // The node role's destructive verbs (issue #232), twin to the
         // control plane's. `--yes` is refused HERE by name (see the flag
-        // table); consent is the machine's NAME, typed or --confirm'd.
+        // table); consent is the machine's name, typed or --confirm'd.
         if (parsed.flags.yes === "1") {
           return fail(
             1,

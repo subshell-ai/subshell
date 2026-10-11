@@ -131,9 +131,7 @@ describe("the choice rows", () => {
     // role=switch span Base UI names through the same label.
     expect((document.getElementById("sup-login") as HTMLInputElement).checked).toBe(true);
     expect(
-      screen.getByText(
-        "Currently the Subshell Server Service runs in the background, and starts automatically on startup.",
-      ),
+      screen.getByText("The Subshell Server Service runs in the background and starts automatically."),
     ).toBeDefined();
   });
 
@@ -161,14 +159,10 @@ describe("the choice rows", () => {
       supervisionForm: { background: true, autostart: true },
     });
     expect(
-      screen.getByText(
-        "Currently the Subshell Server Service runs in the background, but does not automatically start on startup.",
-      ),
+      screen.getByText("The Subshell Server Service runs in the background but doesn't start automatically."),
     ).toBeDefined();
     expect(
-      screen.queryByText(
-        "Currently the Subshell Server Service runs in the background, and starts automatically on startup.",
-      ),
+      screen.queryByText("The Subshell Server Service runs in the background and starts automatically."),
     ).toBeNull();
     // And the draft still rides the switch: this is a pending choice, not a
     // disabled readout.
@@ -177,7 +171,7 @@ describe("the choice rows", () => {
 
   it("says so plainly when the machine runs with the app", () => {
     renderSupervision({ probe: makeProbe({ supervision: "app", service: null }) });
-    expect(screen.getByText("Currently the Subshell Server Service runs with this app.")).toBeDefined();
+    expect(screen.getByText("The server runs while this app is open.")).toBeDefined();
   });
 
   it("picks the app mode through the model's dependency rule", () => {

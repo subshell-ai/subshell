@@ -6,9 +6,9 @@ Headscale is the open-source control server for the Tailscale protocol. This
 plugin drives the **`tailscale` client binary** (the same one the Tailscale
 plugin drives, at the same install locations; there is no `headscale` package
 to install on a client machine) pointed at a control server you run. It
-implements the `type: "network"` contract (spec 2026-09-15 § 4): it describes
-argv, parses output and names a required setting; the control-plane host is
-what executes, bounds and audits every act.
+implements the `type: "network"` contract: the plugin describes commands and
+parses their output, while the server runs them, applies limits, and records
+the actions in its audit log.
 
 ## What it needs
 
@@ -16,8 +16,8 @@ what executes, bounds and audits every act.
   daemon-install steps; installing the client is privileged, so the server
   never runs it).
 - A **Control server URL** saved under Settings → Networking → Headscale.
-  Without it the join refuses: a bare `tailscale up` would not be "unset", it
-  would enroll this machine into Tailscale's SaaS instead of your tailnet.
+  You must set this before joining. Without it, `tailscale up` would enroll
+  this machine into Tailscale's hosted service instead of your tailnet.
 - An interactive join is finished by an **admin** (`headscale nodes register …`
   on the control server), so the needs-login row says so. A pre-auth
   (`tskey-…`) key joins without a human on either end.
@@ -33,8 +33,7 @@ checks it.** This row answers `joined` only when that URL canonicalizes to your
 configured Control server URL; a daemon reporting Tailscale's own service, or
 any other control server, reports needs-login here instead, and its serve
 config is never read, so a foreign machine can neither phantom-"Join" nor
-phantom-"Publish" (the measured case that forced this). What stays ambiguous is
-what the read cannot answer: a CLI too old for `debug prefs`, a refused read or
+phantom-"Publish" (the measured case that forced this). Some cases remain ambiguous: a CLI too old for `debug prefs`, a refused read or
 an unparseable body leaves a Running daemon reading `joined` on whichever row
 asks, exactly as before: the fail-open the rule lives on. Nothing else can
 make the two rows agree on one daemon, because a Headscale configured at

@@ -179,7 +179,7 @@ export function useCreateSubshell() {
       // server answers `promptDelivered: false` for "no prompt" too, so the
       // warning may only ride a launch that actually stacked one.
       if (promptLaunchMissed(input.promptBlocks, created.promptDelivered)) {
-        toast.warning('The prompt did not land. Use "Inject prompt" to type it in.');
+        toast.warning('The prompt wasn\'t entered. Use "Insert prompt" to type it in.');
       }
       void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY });
       // The new preset row belongs in every preset list the app has open.

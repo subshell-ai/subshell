@@ -109,10 +109,10 @@ Three consequences, all load-bearing:
   the window easier to reach.
 - **The tray no longer has a disabled item.** "Open Dashboard" was disabled
   until a probe said the server was ready, so on a broken machine the one
-  thing on the tray could not be pressed. It is "Open Control Plane In App" now
+  thing on the tray could not be pressed. It is "Open Dashboard in App" now
   and always enabled, because `open_home` answers for both states of the machine,
   which also retired `set_server_ready` and the `DashboardItem` it held. A
-  second in-app door, "Open Server App", sits beside it: it arms the assistant's
+  second in-app door, "Open Server Controls", sits beside it: it arms the assistant's
   standing **Status** screen through `reset::arm_and_raise(app, Some("status"))`
   and raises the bundled window (no probe and no server question, the client
   tray's "Open Client App" carried to this side). It must NOT be a bare
@@ -140,7 +140,7 @@ near-exception to the rule above (a tray door whose only window route was the
 recovery screen, which renders only while the server is not answering), so a
 server that answers yet refuses every sign-in left the tray as the way in. That
 reason is gone: the assistant's rail carries it as **Addresses**, and the tray's
-"Open Server App" raises the assistant to that same rail on any onboarded
+"Open Server Controls" raises the assistant to that same rail on any onboarded
 machine, answers-but-refuses included. The screen is still deliberately NOT
 "Server Settings",
 which is the View menu's ⌘4 into the SPA's session-gated routes (see the

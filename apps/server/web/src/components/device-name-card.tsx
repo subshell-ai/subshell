@@ -35,9 +35,8 @@ export function DeviceNameCard(): JSX.Element {
       <CardHeader>
         <CardTitle>This device&apos;s name</CardTitle>
         <CardDescription>
-          Shown to anyone else watching a subshell you have open, so they can tell which device is holding the
-          terminal&apos;s size; two windows on one machine look identical until you name them. Defaults to your browser
-          and platform, stored on this device only, and never sent anywhere but the subshells you attach to.
+          Name this device so others watching the same subshell can tell which device sets the terminal size. The name
+          defaults to your browser and platform, stays saved on this device, and is shared only with subshells you open.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

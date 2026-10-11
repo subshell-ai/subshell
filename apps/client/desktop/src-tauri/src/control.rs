@@ -866,10 +866,8 @@ pub fn install_refusal(bundled: Option<&str>, installed: Option<&str>) -> Option
     }
     let (bundled, installed) = (bundled?, installed?);
     Some(format!(
-        "the Subshell daemon already installed on this machine ({installed}) is newer than the one this app \
-         ships ({bundled}), so installing would downgrade it: a daemon older than the control plane expects \
-         enrolls, comes up online and then runs nothing you launch. Nothing was changed, and the installed \
-         daemon is the one this app drives."
+        "This machine already has a newer Subshell daemon ({installed}) than this app includes ({bundled}). \
+         The app will keep using it to avoid a downgrade that could prevent you from launching subshells."
     ))
 }
 

@@ -36,7 +36,7 @@ tar -xOf example-plugin-docs-shell-1.0.0.tgz package/package.json
 
 Check that `subshell.entry` names the bundled file and that the manifest API version matches the host contract. In these examples, package `@subshell-ai/plugin-api@3.0.0` exposes manifest API `2`; the two versions are independent.
 
-All third-party runtime dependencies must be bundled. The compiled server does not provide neighboring `node_modules` for a plugin to resolve. A build that leaves `import ... from "some-package"` in the output needs additional bundling. Node built-ins such as `node:net` can remain imports.
+All third-party runtime dependencies must be bundled. The compiled server doesn't provide neighboring `node_modules` for a plugin to resolve. A build that leaves `import ... from "some-package"` in the output needs additional bundling. Node built-ins such as `node:net` can remain imports.
 
 ## Publish to a registry
 
@@ -56,9 +56,9 @@ Subshell accepts a package name, an exact version, or a distribution tag:
 @your-scope/plugin-docs-shell@next
 ```
 
-It does not accept semver ranges, local directories, `file:` specifications, Git URLs, or tarball URLs as install specifications. A local `npm pack` archive is an inspection artifact, not a dashboard installation source.
+It doesn't accept semver ranges, local directories, `file:` specifications, Git URLs, or tarball URLs as install specifications. A local `npm pack` archive is an inspection artifact, not a dashboard installation source.
 
-The registry must provide npm-compatible package metadata, a tarball URL, and `dist.integrity` using SHA-512. Subshell verifies that digest before extraction and checks the manifest and factory before replacing installed code. Integrity confirms that the archive matches the registry metadata; it is not a publisher signature or a security review.
+The registry must provide npm-compatible package metadata, a tarball URL, and `dist.integrity` using SHA-512. Subshell verifies that digest before extraction and checks the manifest and factory before replacing installed code. Integrity confirms that the archive matches the registry metadata; it isn't a publisher signature or a security review.
 
 For local distribution testing, serve the package through an npm-compatible test registry. On the isolated server host, configure `SUBSHELL_PLUGIN_REGISTRY_URL` and restart the server. See [Files and paths](/reference/paths) for the server's configuration file. This setting affects registry installs across the instance; avoid changing it on a production server for a tutorial.
 
@@ -71,7 +71,7 @@ For local distribution testing, serve the package through an npm-compatible test
 5. Select **Install** and review the third-party code confirmation.
 6. Verify that the plugin appears without a load error and is enabled.
 
-A package cannot replace a built-in implementation by claiming its ID. The package's manifest ID must match the requested ID. Installed code lives under the server data directory's `plugins` folder; persistent plugin state lives separately. See [Files and paths](/reference/paths).
+A package can't replace a built-in implementation by claiming its ID. The package's manifest ID must match the requested ID. Installed code lives under the server data directory's `plugins` folder; persistent plugin state lives separately. See [Files and paths](/reference/paths).
 
 ```mermaid
 %% An administrator selects a package; the server resolves registry metadata, verifies archive integrity, validates the staged plugin, and installs code used by all nodes.
@@ -83,7 +83,7 @@ flowchart TD
   S --> N[Use execution data on enrolled nodes]
 ```
 
-The server owns plugin code. A remote node receives detection and launch data; it does not need a second package installation.
+The server owns plugin code. A remote node receives detection and launch data; it doesn't need a second package installation.
 
 ## Verify behavior from the installed package
 
@@ -104,17 +104,17 @@ Also test a remote node, a missing executable, invalid preset values, and the ca
 
 | Symptom | Check |
 | --- | --- |
-| Package cannot be resolved | Registry URL, package spelling, exact version or tag, and registry access. |
-| Missing integrity or digest mismatch | Registry metadata and the bytes served by its tarball URL. Do not bypass verification. |
+| Package can't be resolved | Registry URL, package spelling, exact version or tag, and registry access. |
+| Missing integrity or digest mismatch | Registry metadata and the bytes served by its tarball URL. Don't bypass verification. |
 | Wrong plugin ID | Requested **Plugin id** and `subshell.id` in the packed manifest. |
-| Entry cannot load | Archive paths, ESM output, and unbundled runtime dependencies. |
+| Entry can't load | Archive paths, ESM output, and unbundled runtime dependencies. |
 | Missing method or invalid capability | Required interface and capability requirements in [Plugin API](/developers/plugin-api). |
-| Installed harness cannot launch | Executable detection on the selected machine, preset validation, directory access, and argv construction. |
+| Installed harness can't launch | Executable detection on the selected machine, preset validation, directory access, and argv construction. |
 | Replacement remains stale | Restart the isolated server when the plugin reports that a restart is required; imported modules are cached. |
 
 ## Maintain the package
 
-Keep the manifest ID stable, publish new package versions, and document changes to dependencies, permissions, settings, and agent CLI support. Re-run packed-package and compiled-host checks after upgrades. Do not claim compatibility with host or vendor versions you have not tested.
+Keep the manifest ID stable, publish new package versions, and document changes to dependencies, permissions, settings, and agent CLI support. Re-run packed-package and compiled-host checks after upgrades. Don't claim compatibility with host or vendor versions you haven't tested.
 
 ## Next steps
 

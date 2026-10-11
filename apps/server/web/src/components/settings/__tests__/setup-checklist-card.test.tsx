@@ -146,7 +146,7 @@ describe("SetupChecklistCard", () => {
       await mount();
       expect(await screen.findByText("Finish setting up")).toBeDefined();
       expect(screen.getByText("Install tmux")).toBeDefined();
-      expect(screen.getByText(/every subshell runs inside a tmux pane/i)).toBeDefined();
+      expect(screen.getByText(/Install tmux to run subshells on this machine/i)).toBeDefined();
       expect(screen.getByText("sudo apt-get install -y tmux")).toBeDefined();
     } finally {
       restore();

@@ -7,7 +7,7 @@ Grant other users access to a subshell you own.
 
 ## Before you start
 
-Only the owner can change sharing. The recipient needs an account on the same instance. Administrators can operate sessions but do not acquire ownership or the right to change their shares.
+Only the owner can change sharing. The recipient needs an account on the same instance. Administrators need a sharing grant to view or control someone else's session. Only the owner can change its shares.
 
 ## Grant access
 
@@ -34,11 +34,11 @@ Only the owner can change sharing. The recipient needs an account on the same in
 > [!warning] Terminal disclosure
 > View access exposes terminal output, including any secrets displayed there. Edit access also allows input into the running process.
 
-Attached viewers can see other viewers' device names and terminal dimensions. Notifications remain owner-targeted and are not added by a sharing grant.
+Attached viewers can see other viewers' device names and terminal dimensions. Notifications remain owner-targeted and aren't added by a sharing grant.
 
 ## Revoke access
 
-Remove the relevant grants in the sharing dialog. An agent's pane token can list shared sessions, but it cannot inspect or change another user's session through that grant.
+Remove the relevant grants in the sharing dialog. An agent's pane token can list shared sessions, but it can't inspect or change another user's session through that grant.
 
 ## Next steps
 

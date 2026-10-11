@@ -120,7 +120,7 @@ export function settingsSaveRefusal(probe: Probe | null, blind = false): string 
   // configuring BLIND (see `settingsUnreadable`) has a form on it and must be
   // able to save what is in it.
   if (!blind && !settingsKnown(probe)) return "Reading this machine's configuration…";
-  if (probe.tmux === null) return "tmux is missing, and the server refuses to write its configuration without it.";
+  if (probe.tmux === null) return "Install tmux before saving the server's configuration.";
   return null;
 }
 

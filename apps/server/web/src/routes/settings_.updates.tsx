@@ -42,7 +42,7 @@ function UpdatesPage() {
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-6 p-6">
-      <PageHeader title="Updates" subtitle="What this instance is running, and what it could be running." />
+      <PageHeader title="Updates" subtitle="Installed versions and available updates." />
       {viewerIsAdmin === undefined ? null : isAdmin ? (
         <>
           {error && (

@@ -58,7 +58,7 @@ async function requireVapidConfigured(): Promise<void> {
     // Same posture as the /config probe: an unconfigured instance is a
     // normal state, but the underlying failure is still worth a log line.
     logger.withError(err).warn("push subscribe refused: VAPID unconfigured");
-    throw new HttpError(503, "Push notifications are not configured on this instance");
+    throw new HttpError(503, "Push notifications aren't configured on this server");
   }
 }
 

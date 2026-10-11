@@ -7,7 +7,7 @@ Build and test a contribution in the public Subshell repository.
 
 ## Before you start
 
-Install Git and the Bun version required by the root `package.json` (at least `1.4.0`). Install tmux if you will run subshells or end-to-end tests. Desktop development also needs the platform's Tauri and Rust prerequisites; follow the owning desktop app's `AGENTS.md`.
+Install Git and the Bun version required by the root `package.json` (at least `1.4.0`). Install tmux if you'll run subshells or end-to-end tests. Desktop development also needs the platform's Tauri and Rust prerequisites; follow the owning desktop app's `AGENTS.md`.
 
 Clone the [repository](https://github.com/subshell-ai/subshell) and install its dependencies:
 
@@ -53,7 +53,7 @@ The arrows show code or API dependencies, not network encryption. Server means t
 
 ## Run an isolated server
 
-Use a temporary database, configuration directory, and tmux directory. Do not point scripted tests at your running instance on port `3080`.
+Use a temporary database, configuration directory, and tmux directory. Don't point scripted tests at your running instance on port `3080`.
 
 First build the dashboard and its workspace dependencies from the repository root:
 
@@ -81,7 +81,7 @@ Open `http://127.0.0.1:3200` and complete setup with a sample administrator acco
 
 These values configure the development server process. See [Files and paths](/reference/paths) for persistent service configuration and storage locations. The temporary directory contains test data and secrets; remove it only after stopping the test server and its subshells.
 
-For the repository's normal watch workflow, `bun run start` starts the configured development tasks. It uses the normal service ports, so first check for conflicts with installed services. The dashboard's Vite proxy targets port `3080`; changing only `SERVER_PORT` does not retarget that proxy. The isolated workflow above uses the API's built dashboard instead.
+For the repository's normal watch workflow, `bun run start` starts the configured development tasks. It uses the normal service ports, so first check for conflicts with installed services. The dashboard's Vite proxy targets port `3080`; changing only `SERVER_PORT` doesn't retarget that proxy. The isolated workflow above uses the API's built dashboard instead.
 
 ## Run a specific interface
 
@@ -118,7 +118,7 @@ bunx playwright install chromium
 bun run test:e2e
 ```
 
-Read `e2e/AGENTS.md` first. Its stack starts its own backend on port `3199` with a temporary database. Do not use an already-running server at that port as the test target.
+Read `e2e/AGENTS.md` first. Its stack starts its own backend on port `3199` with a temporary database. Don't use an already-running server at that port as the test target.
 
 Documentation changes use the checks in [Write documentation](/developers/documentation). New database migrations need both a file in the migration directory and registration in the server's static migration map.
 
@@ -126,7 +126,7 @@ Documentation changes use the checks in [Write documentation](/developers/docume
 
 Complete the one-time [CLA](https://github.com/subshell-ai/subshell/blob/main/CLA.md). Server implementations under `apps/server` are AGPL-3.0-only; other directories are Apache-2.0. An additional permission covers API type declarations, not server implementation. Moving a file across that boundary changes its license.
 
-For a user-visible change, add a changeset for the app that ships it, or `@internal/docs` for documentation. Ignored packages cannot consume changesets; dashboard changes belong to the server app's changeset. Do not edit generated changelogs or create release tags by hand.
+For a user-visible change, add a changeset for the app that ships it, or `@internal/docs` for documentation. Ignored packages can't consume changesets; dashboard changes belong to the server app's changeset. Don't edit generated changelogs or create release tags by hand.
 
 Describe the problem, resulting behavior, and validation in your pull request. Include material limitations so reviewers can assess the change.
 

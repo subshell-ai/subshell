@@ -289,7 +289,7 @@ describe("the assistant frame", () => {
     await boot({ probe: makeProbe({ step: "offline", status: { ...STOPPED.status, online: false } }) });
     await openSection("Service");
     expect(screen.getByText("Offline")).toBeTruthy();
-    expect(screen.getByText(/no local daemon is heartbeating/)).toBeTruthy();
+    expect(screen.getByText(/Subshell daemon isn't responding/)).toBeTruthy();
     expect(buttonOrNull("Restart")).not.toBeNull();
   });
 });
@@ -637,7 +637,7 @@ describe("the register form asks the three answers once", () => {
     // The register screen carries the ONE sentence (the old re-enroll
     // screen's notes column retired with its door): where to obtain a key.
     await openRegisterForm();
-    expect(screen.getByText(/Obtain a key from the Control Plane via Nodes/)).toBeTruthy();
+    expect(screen.getByText(/open Nodes → Add node to create a setup key/)).toBeTruthy();
   });
 
   // A warning, never a block.
@@ -648,7 +648,7 @@ describe("the register form asks the three answers once", () => {
     typeInto("Setup key", GOOD_KEY);
     typeInto("Node name", "workstation");
 
-    await waitFor(() => expect(screen.getByText(/This is a loopback address/)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/This address connects to a server on this machine/)).toBeTruthy());
     expect(button("Continue").disabled).toBe(false);
     pressRegisterChain();
     await waitFor(() => expect(fake.callsTo("node_enroll").length).toBe(1));
@@ -1371,7 +1371,10 @@ describe("the first run", () => {
                 node: null,
                 requiresConfirmation: true,
                 confirmations: [
-                  { kind: "loopback-server", message: "http://localhost:3080 is a loopback address, so this node…" },
+                  {
+                    kind: "loopback-server",
+                    message: "This address connects to a server on this machine, so this node…",
+                  },
                 ],
               },
         node_service: () => ({ ok: true, stdout: "installed the service", stderr: "" }),
@@ -1818,7 +1821,7 @@ describe("the screens", () => {
     // the probe's own interval re-reads the machine, which is what makes the
     // state live. The wiring is pinned in `use-node-state.test.tsx`.
     expect(buttonOrNull("Refresh")).toBeNull();
-    expect(screen.getByText(/cannot say whether it is already a node/)).toBeTruthy();
+    expect(screen.getByText(/couldn't report whether this machine is already registered/)).toBeTruthy();
   });
 
   it("settles after a start rather than reporting the service still stopped", async () => {
@@ -1880,15 +1883,15 @@ describe("the screens", () => {
   });
 
   // A step this build predates lands on the screen that shows the facts and
-  // the last output, which are what make an unrecognised state diagnosable —
+  // the last output, which are what make an unrecognized state diagnosable —
   // `status` now, where the sentence is the screen's own card rather than the
   // service screen's subtitle, and where nothing that spends anything is
   // offered over a state the app cannot read.
-  it("says it does not recognise a step this build predates", async () => {
+  it("says it does not recognize a step this build predates", async () => {
     await boot({ probe: makeProbe({ step: "quantum-superposition" as never }) });
-    // The unrecognised-state card is the Service section's now.
+    // The unrecognized-state card is the Service section's now.
     await openSection("Service");
-    expect(screen.getByText(/does not recognise the state "quantum-superposition"/)).toBeTruthy();
+    expect(screen.getByText(/does not recognize the state "quantum-superposition"/)).toBeTruthy();
     expect(screen.getByText(/older than the node CLI it is managing/)).toBeTruthy();
     expect(screen.getByText("Unknown")).toBeTruthy();
     // No refresh affordance over an unreadable state either: the poll is the
@@ -1945,7 +1948,7 @@ describe("the facts", () => {
     // The refusal sentence is the facts list's row, on Status (the landing
     // is Control Plane).
     await openSection("Status");
-    expect(screen.getByText(/NOT FOUND: enroll refuses/)).toBeTruthy();
+    expect(screen.getByText(/Not found: install tmux before enrolling/)).toBeTruthy();
   });
 
   it("shows the node name only when this session chose it", async () => {

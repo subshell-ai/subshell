@@ -59,5 +59,5 @@ The workspace header offers the focused pane’s shared `SubshellActionsMenu` in
 both dock and phone-tab presentations. Focus must name a pane in the current
 workspace; a stale focus from another workspace cannot expose its actions.
 Changing the focused subshell remounts the menu, closing dialogs for the old
-pane. Inject prompt keeps the existing permissions and confirmation flow, and
+pane. Insert prompt keeps the existing permissions and confirmation flow, and
 touch copy mode uses the same persisted per-subshell setting as the key bar.

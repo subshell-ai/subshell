@@ -83,7 +83,7 @@ The history controls are grouped between dividers: top, Page Up, Page Down,
 and bottom. Page buttons scroll local terminal history by one screen, without
 sending Page Up/Down keystrokes to the program in the pane.
 
-Inject prompt opens the same picker and confirmation as the action menu. It
+Insert prompt opens the same picker and confirmation as the action menu. It
 types the selected text without submitting it; the operator presses Enter when
 ready. Only live panes with input access offer it, and copy mode disables the
 button while preserving its position.

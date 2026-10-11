@@ -7,7 +7,7 @@ Clean up helper sessions created during agent coordination.
 
 ## Creation and visibility
 
-A subshell created with a pane's own token is marked as cross-agent communication. It appears under **Cross-agent comms** and starts with its notification bell off.
+A subshell created with a pane's own token is marked as cross-agent communication. It appears under **Created by agents** and starts with its notification bell off.
 
 That classification remains even if the owner changes its notification preference later. It records how the helper was created.
 
@@ -15,19 +15,19 @@ That classification remains even if the owner changes its notification preferenc
 
 1. Confirm the helper's result has been collected.
 2. Record any output you need to keep.
-3. Call `terminate_subshell` to stop it while retaining its row and history.
+3. Call `terminate_subshell` to stop it while keeping its session record and history.
 4. Use `delete_subshell` instead if the owner intends permanent removal.
 
-The agent that opens a helper is responsible for cleaning it up. Do not assume an idle prompt or completed task removes the session.
+The agent that opens a helper is responsible for cleaning it up. Don't assume an idle prompt or completed task removes the session.
 
 ## Exited helpers
 
-A helper process can exit while its row remains `status: "running"` with `alive: false`. `send_to_subshell` refuses that state. An authorized `restart_subshell` revives it using the same ID.
+A helper process can exit while its record still shows `status: "running"` with `alive: false`. You can't send input to an exited process. When authorized, use `restart_subshell` to restart it with the same ID.
 
 Restart can accept a new prompt. Inspect `promptDelivered` afterward rather than assuming the text was accepted.
 
 > [!warning] Self restart
-> Restarting your own subshell terminates the process making the request. Do not use self-restart as a way to refresh tools during an active task.
+> Restarting your own subshell terminates the process making the request. Don't use self-restart as a way to refresh tools during an active task.
 
 Deletion is owner-only and removes captured history. Retained terminated logs remain subject to the server's retention policy.
 

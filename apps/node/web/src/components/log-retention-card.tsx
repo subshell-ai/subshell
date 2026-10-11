@@ -48,7 +48,7 @@ const RETENTION_KEY = ["self-log-retention"];
 function sourceLine(field: RetentionField, name: string): string {
   if (field.source === "env") return `Set by this machine's environment (${name}).`;
   if (field.source === "stored") return "Stored in config.json.";
-  return "Default, unset in config.json and the environment.";
+  return "Using the default; no configuration or environment override.";
 }
 
 /** A draft input is a string until Save parses it; null means untouched. */
@@ -94,9 +94,9 @@ export function LogRetentionCard(): React.ReactNode {
       setFailure(null);
       setSaved(
         next.forever
-          ? "Saved. Nothing will be deleted from here on."
+          ? "Saved. Automatic cleanup will keep all pane logs."
           : next.scheduled
-            ? "Saved. The next hourly sweep uses the new window."
+            ? "Saved. The next hourly cleanup uses this retention period."
             : "Saved. The new window applies when the node next restarts.",
       );
       void queryClient.invalidateQueries({ queryKey: RETENTION_KEY });
@@ -137,8 +137,8 @@ export function LogRetentionCard(): React.ReactNode {
       <CardHeader>
         <CardTitle>Pane log retention</CardTitle>
         <CardDescription>
-          A pane's transcript on this machine is deleted once the pane has been gone for longer than days × 24h + hours.
-          A running pane's log is never swept, and 0 days with 0 hours keeps every log forever.
+          Keep pane logs for this many days and hours after their last update. Running panes keep their logs; set both
+          values to 0 to keep all logs indefinitely.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -180,10 +180,10 @@ export function LogRetentionCard(): React.ReactNode {
         {invalid && <p className="text-destructive text-detail">Each field must be a whole number of 0 or more.</p>}
         <p className="text-detail text-muted-foreground">
           {d.scheduled
-            ? "The hourly sweep runs while this node is up. A saved window takes effect at the next sweep without a restart, including a move away from keep-forever."
+            ? "Cleanup runs hourly while this node is running. Changes take effect at the next cleanup without a restart, even when changing from keeping logs indefinitely."
             : d.forever
-              ? "Keep-forever is in effect, so no sweep is scheduled here. A new window applies when the node next restarts."
-              : "This node scheduled no sweep when it started, so nothing is being deleted on it right now. A saved window applies when the node next restarts."}
+              ? "This node keeps logs indefinitely and hasn't scheduled cleanup. Restart the node to apply a new retention period."
+              : "Automatic cleanup isn't running on this node. Restart it to apply a new retention period."}
         </p>
         {saved && <p className="text-detail text-success">{saved}</p>}
         {failure && (

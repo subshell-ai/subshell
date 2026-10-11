@@ -37,11 +37,11 @@ import { logger } from "@/utils/logger.js";
 export type NotifyKind = "turn_complete" | "needs_attention" | "exited" | "crashed" | "crashed_final" | "maintenance";
 
 const BODY: Record<NotifyKind, string> = {
-  turn_complete: "Done, waiting for you",
-  needs_attention: "Needs your approval",
-  exited: "Subshell exited",
-  crashed: "Crashed, auto-restarting",
-  crashed_final: "Crashed",
+  turn_complete: "Ready for your next message",
+  needs_attention: "Waiting for you",
+  exited: "Session ended",
+  crashed: "Session stopped unexpectedly. Restarting…",
+  crashed_final: "Session stopped unexpectedly",
   maintenance: "Stopped for node maintenance",
 };
 

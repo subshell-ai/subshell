@@ -26,16 +26,16 @@ describe("resetRows / refusal", () => {
     expect(refusal(good as never)).toBeNull();
   });
   it("refuses, with the same sentence, for absent or partial blocks (R17)", () => {
-    expect(refusal({} as never)).toContain("does not report");
-    expect(refusal({ paths: { ...paths, dataDir: "" } } as never)).toContain("does not report");
-    expect(refusal({ paths: { ...paths, dataDir: "relative" } } as never)).toContain("does not report");
+    expect(refusal({} as never)).toContain("hasn't reported");
+    expect(refusal({ paths: { ...paths, dataDir: "" } } as never)).toContain("hasn't reported");
+    expect(refusal({ paths: { ...paths, dataDir: "relative" } } as never)).toContain("hasn't reported");
   });
   it("refuses without a usable listen port — no dial, no plan", () => {
     // The exact shapes a chain cannot verify a stop with: the block missing,
     // the CLI's invalid-port null, and zero.
-    expect(refusal({ configEnv: { path: "/c/config.env" }, paths } as never)).toContain("does not report");
-    expect(refusal({ ...good, listen: { port: null } } as never)).toContain("does not report");
-    expect(refusal({ ...good, listen: { port: 0 } } as never)).toContain("does not report");
+    expect(refusal({ configEnv: { path: "/c/config.env" }, paths } as never)).toContain("hasn't reported");
+    expect(refusal({ ...good, listen: { port: null } } as never)).toContain("hasn't reported");
+    expect(refusal({ ...good, listen: { port: 0 } } as never)).toContain("hasn't reported");
   });
 });
 

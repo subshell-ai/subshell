@@ -57,7 +57,7 @@ export const restartRoute = new Elysia()
           409,
           apiErrorBody({
             code: BackendErrorCodes.RESTART_UNAVAILABLE,
-            message: view.restart.reason ?? "This server is not running under a service manager",
+            message: view.restart.reason ?? "This server isn't running under a service manager",
           }),
         );
       }

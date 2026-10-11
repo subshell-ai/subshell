@@ -286,10 +286,10 @@ export async function runSetup(opts: SetupOptions, deps: SetupDeps): Promise<Cli
     // The enrollment is DONE and the key is spent, so "it failed" without
     // saying what survived would send someone back to mint a second key.
     lines.push(
-      `The background service was not installed (see the error below). The enrollment is saved. Retry with: ${SERVICE_HINT}`,
+      `The background service wasn't installed; see the error below. This machine is enrolled. Try again with: ${SERVICE_HINT}`,
     );
   } else if (skip === "declined") {
-    lines.push(`No background service installed. To run the daemon in the background later: ${SERVICE_HINT}`);
+    lines.push(`No background service installed. To run the Subshell daemon in the background later: ${SERVICE_HINT}`);
   } else if (service) {
     lines.push(service.out.trimEnd());
   }

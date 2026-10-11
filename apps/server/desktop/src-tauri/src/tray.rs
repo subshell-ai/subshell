@@ -62,11 +62,11 @@ use subshell_desktop_core::tray::tray_support;
 /// Dashboard".** The first dispatched an action INTO the SPA, so being
 /// enabled required more than a running server — a server with no users yet
 /// is sitting on the setup wizard, and nothing this side can see
-/// distinguishes those states. The second is now "Open Control Plane In App",
+/// distinguishes those states. The second is now "Open Dashboard in App",
 /// always enabled, because `control::open_home` decides between the dashboard
 /// and the assistant from a fresh probe: an item that needed a probe to know
 /// whether it could be pressed needed the probe that now happens when it is.
-/// (Beside it sits "Open Server App", which skips the probe and raises the
+/// (Beside it sits "Open Server Controls", which skips the probe and raises the
 /// assistant window directly — see [`SERVER_APP_ID`].)
 pub struct KeepItem(CheckMenuItem<Wry>);
 
@@ -158,11 +158,11 @@ const BROWSER_ID: &str = "tray:browser";
 ///
 /// Both are always enabled, and they answer two different questions:
 ///
-/// - **"Open Control Plane In App"** is `control::open_home`: a fresh probe
+/// - **"Open Dashboard in App"** is `control::open_home`: a fresh probe
 ///   decides between the dashboard (server answering) and the assistant (not),
 ///   so it is the door that goes wherever this machine is actually meant to
 ///   be. This is the item that used to read "Open Subshell Server".
-/// - **"Open Server App"** raises this app's OWN bundled assistant window
+/// - **"Open Server Controls"** raises this app's OWN bundled assistant window
 ///   directly, no probe and no server question — the client tray's "Open Client
 ///   App" carried to this side, the door that was otherwise reachable only
 ///   through Check-for-Updates. It arms the **Status** overview through
@@ -175,10 +175,10 @@ const BROWSER_ID: &str = "tray:browser";
 /// (what [`on_menu`] dispatches on), and the armed word, so a rename cannot
 /// quietly move a label onto the other's act.
 const OPEN_HOME_ID: &str = "tray:open";
-const OPEN_HOME_LABEL: &str = "Open Control Plane In App";
+const OPEN_HOME_LABEL: &str = "Open Dashboard in App";
 const SERVER_APP_ID: &str = "tray:app";
-const SERVER_APP_LABEL: &str = "Open Server App";
-/// The screen "Open Server App" arms — the assistant's own standing overview.
+const SERVER_APP_LABEL: &str = "Open Server Controls";
+/// The screen "Open Server Controls" arms — the assistant's own standing overview.
 /// A named constant so the test pins the WORD the dispatch passes, exactly as
 /// [`UPDATE_SCREEN`] is.
 const SERVER_APP_SCREEN: &str = "status";
@@ -196,10 +196,10 @@ pub fn build(app: &AppHandle) -> tauri::Result<()> {
     // person who wants the native window whatever the probe would have chosen,
     // armed on the standing Status screen so it stays open on a running server.
     let server_app = MenuItem::with_id(app, SERVER_APP_ID, SERVER_APP_LABEL, true, None::<&str>)?;
-    // Directly under "Open Control Plane In App", because it is the same
+    // Directly under "Open Dashboard in App", because it is the same
     // destination through a different door: this window's page, in the browser
     // the person keeps their profiles and passwords in. Always enabled for the
-    // same reason "Open Control Plane In App" is — the Rust side falls back to
+    // same reason "Open Dashboard in App" is — the Rust side falls back to
     // `/` and to a fresh probe's origin, so there is no state in which this
     // needs a probe to know whether it can be pressed.
     let browser = MenuItem::with_id(app, BROWSER_ID, "Open in Browser", true, None::<&str>)?;
@@ -505,16 +505,16 @@ mod tests {
     }
 
     /// The two in-app doors carry the labels the operator named and ids that
-    /// route to two different acts. "Open Control Plane In App" is the
-    /// probe-decided door (`open_home`, no screen word); "Open Server App" arms
+    /// route to two different acts. "Open Dashboard in App" is the
+    /// probe-decided door (`open_home`, no screen word); "Open Server Controls" arms
     /// the standing **Status** screen through `arm_and_raise`. Pinning both the
     /// labels and the words here keeps a rename from quietly moving one label
-    /// onto the other's destination — and keeps "Open Server App" landing on a
+    /// onto the other's destination — and keeps "Open Server Controls" landing on a
     /// standing screen rather than the bare-open handoff that closes itself.
     #[test]
     fn the_two_in_app_doors_are_named_and_distinct() {
-        assert_eq!(OPEN_HOME_LABEL, "Open Control Plane In App");
-        assert_eq!(SERVER_APP_LABEL, "Open Server App");
+        assert_eq!(OPEN_HOME_LABEL, "Open Dashboard in App");
+        assert_eq!(SERVER_APP_LABEL, "Open Server Controls");
         // Both ids are namespaced, and the new one collides with nothing that
         // already dispatches in `on_menu`.
         assert!(OPEN_HOME_ID.starts_with("tray:"));
@@ -523,7 +523,7 @@ mod tests {
         for other in [BROWSER_ID, UPDATE_ID, "tray:keep", RESET_ID, crate::zoom::IN_ID] {
             assert_ne!(SERVER_APP_ID, other);
         }
-        // "Open Server App" arms a STANDING screen: the word must survive
+        // "Open Server Controls" arms a STANDING screen: the word must survive
         // `parse_screen` to `Status`, not fall to `Home` (which would bounce).
         assert_eq!(
             crate::reset::parse_screen(Some(SERVER_APP_SCREEN.to_string())),

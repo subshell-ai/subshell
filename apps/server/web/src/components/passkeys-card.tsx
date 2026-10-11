@@ -81,8 +81,8 @@ export function PasskeysCard() {
       <CardHeader>
         <CardTitle>Passkeys</CardTitle>
         <CardDescription>
-          Sign in without a password. A passkey belongs to one device and to the address this instance serves from, so
-          from a different address (e.g. localhost vs the domain) your passkeys won&apos;t be found.
+          Sign in without a password using a passkey on this device. Use the same server address you used to register
+          it; a different address, such as localhost instead of your domain, won't find it.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

@@ -10,7 +10,7 @@ afterEach(cleanup);
  * its own block with the LABEL bolded at the font's strong weight (the
  * design system has one bold), the FIRST ": " is the only split point so a
  * value that itself contains ": " stays whole, and a line the renderer does
- * not recognise is kept, never dropped.
+ * not recognize is kept, never dropped.
  */
 describe("TooltipLabelledLines", () => {
   it("bolds our label constants at the first colon-space", () => {

@@ -7,9 +7,9 @@ Build a working harness plugin that launches Bash with an optional login-shell s
 
 ## Before you start
 
-Install Bun, have Bash available on the execution machine, and use an isolated Subshell instance for installation tests. You do not need an agent-provider account for this example.
+Install Bun, have Bash available on the execution machine, and use an isolated Subshell instance for installation tests. You don't need an agent-provider account for this example.
 
-Both `terminal` and `agent-harness` plugins implement `SubshellPlugin`. This example uses `terminal` because it launches a real shell. To support a coding agent, use `agent-harness`, declare its binary detection, and implement its actual CLI dialect. Changing the manifest type alone does not implement an agent integration.
+Both `terminal` and `agent-harness` plugins implement `SubshellPlugin`. This example uses `terminal` because it launches a real shell. To support a coding agent, use `agent-harness`, declare its binary detection, and implement its actual CLI dialect. Changing the manifest type alone doesn't implement an agent integration.
 
 Read [Plugin API](/developers/plugin-api) for the required methods and capability gates.
 
@@ -111,9 +111,9 @@ const createPlugin: HarnessPluginFactory = () => ({
 export default createPlugin;
 ```
 
-`buildCommand` returns separate arguments. A binary path containing spaces stays one argument; do not pre-quote it. The host quotes tokens when constructing the tmux launch command. The host sets the working directory and merges execution environment values.
+`buildCommand` returns separate arguments. A binary path containing spaces stays one argument; don't pre-quote it. The host quotes tokens when constructing the tmux launch command. The host sets the working directory and merges execution environment values.
 
-`validatePreset` combines generic validation with the setting's own type check. The `settings` capability requires `presetSettings`. This plugin deliberately declares no MCP, attention, or resume capability because Bash does not implement those agent features.
+`validatePreset` combines generic validation with the setting's own type check. The `settings` capability requires `presetSettings`. This plugin deliberately declares no MCP, attention, or resume capability because Bash doesn't implement those agent features.
 
 ```mermaid
 %% The server loads the harness and builds arguments. The selected execution machine resolves Bash, starts the session, and streams output back through the server.
@@ -188,7 +188,7 @@ Add features one at a time:
 | Attention hooks | Use the supplied reporter command and arguments in the agent's hook format. Omit hooks if no reporter is supplied. |
 | Agent settings | Validate types and values, map them into arguments or configuration, and return matching editor fields. |
 
-Do not assume Bun or a particular Subshell binary exists on a remote execution machine. `reporter` and the MCP launch specification are host-resolved for that machine. Use [Plugin API](/developers/plugin-api) for signatures and [built-in agent implementations](https://github.com/subshell-ai/subshell/tree/main/packages/plugins) for verified dialect examples.
+Don't assume Bun or a particular Subshell binary exists on a remote execution machine. `reporter` and the MCP launch specification are host-resolved for that machine. Use [Plugin API](/developers/plugin-api) for signatures and [built-in agent implementations](https://github.com/subshell-ai/subshell/tree/main/packages/plugins) for verified dialect examples.
 
 ## Next steps
 

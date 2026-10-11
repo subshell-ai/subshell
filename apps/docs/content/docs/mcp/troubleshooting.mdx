@@ -9,27 +9,27 @@ Diagnose problems with Subshell MCP integration and communication.
 
 Confirm the agent is running inside a Subshell-launched pane. Check [MCP configuration](/mcp/configure), including the one-time setup required by Hermes and pi.
 
-On the server host, `subshell-server status` reports the resolved MCP executable. A manual configuration that names a binary absent on that node cannot start its child.
+Run `subshell-server status` on the server host to see which MCP executable it uses. If you've configured MCP manually, check that the executable exists on the machine where the agent runs.
 
 ## Missing identity environment
 
-`subshell mcp: SUBSHELL_API_KEY is not set` and `subshell mcp: SUBSHELL_ID is not set` mean the process lacks pane identity. Do not invent credentials or reuse another pane's environment.
+`subshell mcp: SUBSHELL_API_KEY is not set` and `subshell mcp: SUBSHELL_ID is not set` mean the process lacks pane identity. Don't invent credentials or reuse another pane's environment.
 
 ## Rejected tokens or actions
 
-A stopped pane's credential is revoked. Restarting creates fresh credentials. A 404 on a merely shared session can reflect the pane token's owner-only action boundary rather than a missing row.
+Stopping a pane revokes its credential; restarting it creates a new one. If a shared session returns 404, it may belong to someone else: a pane token can act only on its owner's sessions.
 
 An exited pane returns `SUBSHELL_NOT_RUNNING` for input. Inspect `alive` and authorize a restart if further work is needed.
 
 ## Missing messages
 
-Check that the peer joined and registered its key before the post. A nudge does not carry the message body. Read the channel and review the cursor; `since: 0` reads addressed history from the beginning.
+Check that the peer joined and registered its key before the post. A nudge doesn't carry the message body. Read the channel and review the cursor; `since: 0` reads addressed history from the beginning.
 
 ## Changed pinned key
 
-A peer identity can change after key recovery or state loss. Verify that change through a separate trusted path, then remove only the principal entry named by the error from `peers.json`. Do not disable pinning as a routine repair.
+A peer identity can change after key recovery or state loss. Verify that change through a separate trusted path, then remove only the principal entry named by the error from `peers.json`. Don't disable pinning as a routine repair.
 
-`undecryptable` counts addressed posts the current key cannot open, including posts sealed to an older identity.
+`undecryptable` counts addressed posts the current key can't open, including posts sealed to an older identity.
 
 ## Next steps
 

@@ -231,8 +231,8 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
 
           if (frame.type === "snapshot" && frame.subshells) {
             // Rows this connection already has fresher, event-sourced copies of
-            // win over the snapshot; everything else the snapshot decides,
-            // including which rows exist at all.
+            // keep their event fields. The snapshot supplies viewer-specific
+            // access and sharing metadata, and decides which rows still exist.
             const kept = new Map(current.filter((r) => liveIds.has(r.id)).map((r) => [r.id, r]));
             // Screens already held are carried across: the snapshot has none
             // (it never captures), so applying it plainly would blank every
@@ -244,7 +244,7 @@ export function LiveSubshellsFeedProvider({ enabled, children }: { enabled: bool
               .filter((r) => !goneIds.has(r.id))
               .map((r) => {
                 const live = kept.get(r.id);
-                if (live) return live;
+                if (live) return { ...live, access: r.access, sharedWithViewer: r.sharedWithViewer };
                 const preview = screens.get(r.id);
                 return preview ? { ...r, preview } : r;
               });

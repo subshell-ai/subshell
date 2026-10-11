@@ -101,7 +101,7 @@ export function UpdatesCard(): React.ReactNode {
           <span className="text-body text-foreground">
             Running <span className="font-mono text-detail">v{d.currentVersion}</span> · protocol v{d.protocolVersion}
           </span>
-          {!d.connected && <Badge variant="warning">offline from its plane</Badge>}
+          {!d.connected && <Badge variant="warning">disconnected from its server</Badge>}
         </div>
 
         {d.pending && (
@@ -174,8 +174,7 @@ export function UpdatesCard(): React.ReactNode {
         {result && <p className="text-detail text-success">{result}</p>}
 
         <p className="text-detail text-muted-foreground">
-          This page cannot ask the control plane which node version it accepts; that compatibility check lives in the
-          server's Settings → Updates.
+          To check which node versions your server supports, open Server Settings → Updates in the server dashboard.
         </p>
       </CardContent>
     </Card>

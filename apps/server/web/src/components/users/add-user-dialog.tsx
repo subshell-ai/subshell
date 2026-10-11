@@ -101,7 +101,9 @@ export function AddUserDialog({
         <form onSubmit={(e) => void submit(e)}>
           <DialogHeader>
             <DialogTitle>Add user</DialogTitle>
-            <DialogDescription>Creates a credential account that can sign in immediately.</DialogDescription>
+            <DialogDescription>
+              Create an account that can sign in immediately with an email address and password.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             {/* Role leads: it is the one decision the admin makes ABOUT this

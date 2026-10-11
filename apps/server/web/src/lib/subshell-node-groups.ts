@@ -91,6 +91,9 @@ export function nodeLabelFor(
   return { label: "node you can't see", title: "node you can't see" };
 }
 
+/** Reserved sidebar group key; never used as an execution node. */
+export const SHARED_GROUP_ID = "shared-with-you";
+
 /**
  * Groups sidebar subshells by the machine they run on.
  *
@@ -117,24 +120,39 @@ export function nodeLabelFor(
  * @param nodes - the caller's visible nodes, for resolving each bucket's label
  * @param options.limit - max rows per group; omitted = no cap (filter mode)
  * @param options.unanswered - true while the nodes read has not succeeded (see {@link nodeLabelFor})
+ * @param options.groupShared - group explicitly shared sessions on unseen nodes in the sidebar
  */
 export function groupSubshellsByNode(
   subshells: readonly SubshellView[],
   nodes: readonly Node[] | undefined,
-  { limit, unanswered = false }: { limit?: number; unanswered?: boolean } = {},
+  {
+    limit,
+    unanswered = false,
+    groupShared = false,
+  }: { limit?: number; unanswered?: boolean; groupShared?: boolean } = {},
 ): SubshellNodeGroup[] {
   // Insertion-ordered, so the discovery order IS the input's status order and
   // the sort below only has to break ties.
   const buckets = new Map<string, SubshellView[]>();
   for (const sub of subshells) {
-    const nodeId = sub.nodeId || FALLBACK_NODE_ID;
+    const actualNodeId = sub.nodeId || FALLBACK_NODE_ID;
+    const nodeId =
+      groupShared &&
+      !unanswered &&
+      sub.access !== "owner" &&
+      sub.sharedWithViewer === true &&
+      !nodes?.some((node) => node.id === actualNodeId)
+        ? SHARED_GROUP_ID
+        : actualNodeId;
     const bucket = buckets.get(nodeId);
     if (bucket) bucket.push(sub);
     else buckets.set(nodeId, [sub]);
   }
   const groups = [...buckets].map(([nodeId, rows]) => ({
     nodeId,
-    ...nodeLabelFor(nodeId, nodes, unanswered),
+    ...(nodeId === SHARED_GROUP_ID
+      ? { label: "Shared with you", title: "Subshells shared with you" }
+      : nodeLabelFor(nodeId, nodes, unanswered)),
     // The liveliest member decides, whatever position the input's sort left
     // the rows in — see the docblock. `rows` is non-empty by construction.
     rank: Math.min(...rows.map(subshellStatusRank)),
@@ -153,7 +171,7 @@ export function groupSubshellsByNode(
 }
 
 /**
- * The pseudo-node id that keys the rail's "Cross-agent comms" section — its
+ * The pseudo-node id that keys the rail's "Created by agents" section — its
  * collapse preference, its DOM id, and its React key. A real node id is a
  * uuid and can never collide with this string.
  */

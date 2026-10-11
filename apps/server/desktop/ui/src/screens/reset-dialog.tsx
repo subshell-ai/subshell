@@ -67,7 +67,7 @@ export function ResetDialog(props: {
   const refusalLine =
     why ??
     (hostname === ""
-      ? "This machine's name could not be read, so there is nothing reset can confirm against; it refuses rather than arming on an empty box."
+      ? "Couldn't read this machine's name. Reset is unavailable until Subshell can verify the name you enter."
       : "");
   const rows = why === null && st ? resetRows(st) : [];
   const armedOk = armed(typed, hostname);
@@ -110,7 +110,7 @@ export function ResetDialog(props: {
         )}
         <div className="wizard-copy text-sm muted-text mb-2.5">
           {
-            "Enrolled remote nodes and a node daemon on this machine keep running and are NOT touched. Only the locations listed above are deleted, permanently; the installed server binary stays."
+            "Remote nodes and any Subshell node daemon on this machine keep running. Reset permanently deletes only the locations listed above and keeps the installed server binary."
           }
         </div>
         <label className="mb-1 block text-sm" htmlFor="reset-confirm">

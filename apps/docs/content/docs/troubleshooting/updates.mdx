@@ -3,7 +3,7 @@ title: "Update troubleshooting"
 description: "Diagnose refused updates, signature failures, container installs, and pending restart phases."
 ---
 
-Diagnose an update that is refused or has not completed.
+Find out why an update couldn't start or hasn't finished.
 
 ## Read the installation type
 
@@ -11,19 +11,19 @@ A standalone CLI replaces its binary. A desktop flow updates the app and bundled
 
 An update command inside a container can report availability without applying a binary replacement. Pull and recreate the image instead.
 
-## Live-pane refusal
+## Running sessions prevent an update
 
-An updater or service restart can refuse disruption to running panes. Review them and use maintenance or an explicit stop. `--force` accepts the stated consequences; it does not prove that work is safe to interrupt.
+An update or restart may stop before making changes if it would interrupt running sessions. Review that work, then use maintenance or stop the sessions when it's safe. Use `--force` only if you accept the interruption described in the warning.
 
 ## Signature or download failure
 
-Check the configured release source and asset target. Do not bypass a signature failure. Use a coherent set of artifacts from a trusted release.
+Check the configured release source and asset target. Don't bypass a signature failure. Use a coherent set of artifacts from a trusted release.
 
 An empty release URL disables network fetching. Use the documented local-file path for an intentionally air-gapped installation.
 
 ## Update staged but not running
 
-`--no-restart` installs bytes without restarting. An absent or stopped service may also leave restart to you. Check the executing version after the new process starts rather than only the version of a file on disk.
+`--no-restart` installs the update but leaves the current process running. You may also need to restart manually if the service is missing or stopped. After restarting, check the running version to confirm the update took effect.
 
 ## Rollback
 

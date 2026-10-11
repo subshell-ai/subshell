@@ -202,7 +202,7 @@ function PromptsPage() {
     try {
       await update.mutateAsync({ id: row.id, draft: { ...promptDraftFromRow(row), shared: !row.shared } });
     } catch (err) {
-      setActionError(errMessage(err, "The share setting could not be changed"));
+      setActionError(errMessage(err, "Couldn't change the sharing setting."));
     }
   }
 
@@ -210,11 +210,11 @@ function PromptsPage() {
     setActionError(null);
     const inStacks = stacksForPrompt(row.id).length;
     const ok = await confirmAction({
-      title: `Delete prompt "${row.description}"?`,
+      title: "Delete this prompt?",
       description:
         inStacks > 0
-          ? `It leaves the ${inStacks} ${inStacks === 1 ? "stack" : "stacks"} it is in. Nothing already launched is affected, and this cannot be undone.`
-          : "Nothing already launched is affected, and this cannot be undone.",
+          ? `This deletes "${row.description}" and removes it from ${inStacks} ${inStacks === 1 ? "stack" : "stacks"}. Existing sessions aren't affected. You can't undo this.`
+          : `This deletes "${row.description}". Existing sessions aren't affected. You can't undo this.`,
       confirmLabel: "Delete",
       danger: true,
     });
@@ -235,15 +235,15 @@ function PromptsPage() {
       // rows the re-share rule promises to keep).
       await stackUpdate.mutateAsync({ id: stack.id, patch: { shared: !("shared" in stack && stack.shared) } });
     } catch (err) {
-      setActionError(errMessage(err, "The share setting could not be changed"));
+      setActionError(errMessage(err, "Couldn't change the sharing setting."));
     }
   }
 
   async function removeStack(stack: StackRow) {
     setActionError(null);
     const ok = await confirmAction({
-      title: `Delete stack "${stack.label}"?`,
-      description: "The prompts themselves are kept. This cannot be undone.",
+      title: "Delete this prompt stack?",
+      description: `This deletes "${stack.label}" but keeps its saved prompts. You can't undo this.`,
       confirmLabel: "Delete",
       danger: true,
     });
@@ -462,7 +462,7 @@ function PromptsPage() {
     <main className="mx-auto w-full max-w-4xl space-y-6 p-6">
       <PageHeader
         title="Prompts"
-        subtitle="Saved prompts for subshell injection"
+        subtitle="Save prompts to reuse in your subshells"
         action={
           // One "New" (operator ruling 2026-09-29: the two-button pair read
           // as clutter). The dropdown carries the KIND choice; the per-view
@@ -481,7 +481,7 @@ function PromptsPage() {
                 )}
                 {activeView !== "single" && (
                   <DropdownMenuItem onSelect={() => setStackDialog({})}>
-                    <Layers className="h-4 w-4" /> New stack
+                    <Layers className="h-4 w-4" /> New prompt stack
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -614,12 +614,12 @@ function PromptsPage() {
       )}
       {refetchFailed && !isLoading && !isError && (
         <p role="alert" className="text-destructive text-detail">
-          The prompts list could not be loaded, so editing a stack member that points at one is unavailable.
+          Couldn't load your prompts. Try again before editing a prompt in a stack.
         </p>
       )}
       {chipsFeedMissing && !isLoading && !isError && (
         <p className="text-detail text-muted-foreground">
-          The stacks list could not be loaded, so membership counts are hidden.
+          Couldn't load your stacks, so prompt membership counts aren't available.
         </p>
       )}
 
@@ -635,10 +635,10 @@ function PromptsPage() {
           }
           description={
             activeView === "stacked"
-              ? "A stack is a named, ordered set of prompts a subshell receives as one text. Deleting a prompt later removes it from the stacks it is in."
+              ? "Combine saved prompts and custom instructions into one prompt. Deleting a saved prompt removes it from every stack that uses it."
               : activeView === "all"
                 ? undefined
-                : "A prompt is saved text you can type into a new subshell or inject into a running one. The description is required; it is what the list shows."
+                : "Save a prompt to use when starting a subshell or to type into one already running. Add a short description so you can find it in the list."
           }
           actionLabel={activeView === "stacked" ? "Create your first stack" : "Create your first prompt"}
           onAction={() => (activeView === "stacked" ? setStackDialog({}) : setShowCreate(true))}

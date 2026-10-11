@@ -135,7 +135,7 @@ describe("PATCH /api/admin/server/config", () => {
    * A read failure is the FILE's problem, not any submitted value's, so it
    * must not come back as CONFIG_INVALID, which the form renders against the
    * field it names. It is a 400 rather than a 500 because the error handler
-   * replaces a 500's message with "An internal server error occurred." — and
+   * replaces a 500's message with "The server couldn't complete the request." — and
    * the message is the only actionable part of this refusal.
    */
   it("refuses without naming a field when config.env exists but cannot be read", async () => {

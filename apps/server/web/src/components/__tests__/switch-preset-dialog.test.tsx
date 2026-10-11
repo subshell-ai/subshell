@@ -215,7 +215,7 @@ describe("SwitchPresetDialog", () => {
       await renderDialog(makeSubshell());
       // The errored posture looks like the in-flight one (data stays
       // undefined); the sentence is what separates them.
-      expect(await screen.findByText(/could not load presets/i)).toBeDefined();
+      expect(await screen.findByText(/couldn't load your presets/i)).toBeDefined();
       expect(trigger().hasAttribute("disabled")).toBe(true);
       expect(confirmButton().hasAttribute("disabled")).toBe(true);
     } finally {

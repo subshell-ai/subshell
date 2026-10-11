@@ -7,28 +7,28 @@ Diagnose terminal input and rendering problems.
 
 ## Input unavailable
 
-Check whether the process is alive and whether you have edit access. A view-only share intentionally prevents input.
+Check that the session's process is running and that you have edit access. View-only access lets you watch but doesn't let you type.
 
 On touch devices, **Enable text copying** switches away from input mode. Choose **Enable text input** when you want to type again.
 
 An offline node makes its stream unreachable even if its process continues on the machine.
 
-## Page loads but output does not stream
+## Page loads but output doesn't stream
 
-Verify WebSocket forwarding through the proxy and confirm that the API can mint the terminal's single-use token. A successful static page load does not test either operation.
+Verify WebSocket forwarding through the proxy and confirm that the API can mint the terminal's single-use token. A successful static page load doesn't test either operation.
 
 Try the server's direct trusted address from an appropriate device to isolate a proxy problem.
 
 ## Terminal becomes smaller
 
-The pane shares one grid across visible viewers. A smaller attached view can determine the grid size for everyone. Review the attached device information and close an unnecessary visible view.
+Everyone watching a terminal shares its size. If someone opens it in a smaller window, the terminal can shrink for everyone. Check the attached devices and close any views you no longer need.
 
 ## Corrupted display
 
-Record the agent, component versions, and whether corruption appears after reconnect or resize. Server journal entries for terminal attachment can help diagnose geometry and replay.
+Note the agent and component versions, and whether the display breaks after reconnecting or resizing. Terminal connection entries in the server log can help identify sizing or output-replay problems.
 
 > [!warning] Screen dumps
-> Attach-debug output can include secrets and project contents. Do not enable it or upload its files without reviewing what will be captured.
+> Attach-debug output can include secrets and project contents. Don't enable it or upload its files without reviewing what will be captured.
 
 ## Next steps
 

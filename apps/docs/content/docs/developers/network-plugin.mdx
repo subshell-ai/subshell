@@ -9,7 +9,7 @@ Build a network adapter and test its lifecycle against a scripted CLI fixture.
 
 Install Bun and read [Plugin API](/developers/plugin-api). Network plugins run on the server host, not on enrolled nodes. They implement `NetworkPlugin`, whose required members are `capabilities`, `status`, `join`, and `leave`.
 
-This tutorial uses a fictional `example-mesh` CLI with explicit fixture responses. It produces a compilable plugin and executable tests, but it does not create a VPN or verify a vendor service. Replace the fixture dialect with a real CLI and verify it on an isolated network before installing or publishing the adapter for users.
+This tutorial uses a fictional `example-mesh` CLI with explicit fixture responses. It produces a compilable plugin and executable tests, but it doesn't create a VPN or verify a vendor service. Replace the fixture dialect with a real CLI and verify it on an isolated network before installing or publishing the adapter for users.
 
 ## Declare the package
 
@@ -74,7 +74,7 @@ The fixture contract is:
 | `publish --port PORT` | Publishes the server; a following status must confirm publication. |
 | `unpublish` | Removes publication. |
 
-The fixture distinguishes join from publish to exercise both methods. Some real private meshes already make the server reachable on join; their `publishImplicit` manifest behavior and address policy must match the vendor. Do not add a fictional publication step to a CLI that has none.
+The fixture distinguishes join from publish to exercise both methods. Some real private meshes already make the server reachable on join; their `publishImplicit` manifest behavior and address policy must match the vendor. Don't add a fictional publication step to a CLI that has none.
 
 ## Implement the adapter
 
@@ -270,7 +270,7 @@ bun run build
 npm pack --dry-run
 ```
 
-These tests verify parsing, missing installation, invalid address data, current-port handling, join confirmation, publication refusal, command failure, and unpublication. They do not prove real network reachability or a vendor's authentication flow. Add captured, nonsensitive fixtures for the supported vendor versions and verify the real lifecycle before distribution.
+These tests verify parsing, missing installation, invalid address data, current-port handling, join confirmation, publication refusal, command failure, and unpublication. They don't prove real network reachability or a vendor's authentication flow. Add captured, nonsensitive fixtures for the supported vendor versions and verify the real lifecycle before distribution.
 
 ```mermaid
 %% An installed network progresses from login to joined to published; unpublish returns it to joined and leave removes membership. Failures should return actionable state or refusal rather than invented success.
@@ -283,15 +283,15 @@ flowchart LR
 
 ## Add credentials, settings, or supervision
 
-`NetworkContext` supplies `port`, current non-secret `settings`, and secret-presence checks. Persistent secrets use `host.secrets.set`, `has`, and `delete`; there is no `get`. Secret files are permission-protected, not encrypted at rest. The example join key is transient argv and can be visible to local process inspection; do not log it or persist it in settings.
+`NetworkContext` supplies `port`, current non-secret `settings`, and secret-presence checks. Persistent secrets use `host.secrets.set`, `has`, and `delete`; there is no `get`. Secret files are permission-protected, not encrypted at rest. The example join key is transient argv and can be visible to local process inspection; don't log it or persist it in settings.
 
 A long-running child belongs in `supervisedProcess(ctx)`. Return an absolute `command`, `args`, and optional `secretFileArgs` or `secretEnv` naming stored secrets. The host injects values and owns the child lifecycle. Declare `supervise`, and reconstruct the specification at boot from the current context.
 
-For public exposure, declare `guard` and return `requestGuard(ctx)` as well as verifying publication prerequisites. The implemented guard kind is `cloudflare-access`, with `hostname`, `teamDomain`, and `aud`; the contract is not an arbitrary request-middleware hook. See [Cloudflare Tunnel](/networking/cloudflare) and [Security model](/concepts/security).
+For public exposure, declare `guard` and return `requestGuard(ctx)` as well as verifying publication prerequisites. The implemented guard kind is `cloudflare-access`, with `hostname`, `teamDomain`, and `aud`; the contract isn't an arbitrary request-middleware hook. See [Cloudflare Tunnel](/networking/cloudflare) and [Security model](/concepts/security).
 
-Privileged setup belongs in `network.privileged` as instructions the UI prints for a person. `install.command` is a runnable, unprivileged installer; privilege-elevation commands at shell boundaries are refused. `host.run` also refuses elevation binaries. Do not spawn children or write `config.env` yourself.
+Privileged setup belongs in `network.privileged` as instructions the UI prints for a person. `install.command` is a runnable, unprivileged installer; privilege-elevation commands at shell boundaries are refused. `host.run` also refuses elevation binaries. Don't spawn children or write `config.env` yourself.
 
-Report canonical HTTP(S) origins and safe HTTP(S) hint links. Enabled plugin records contribute addresses to the live trusted-origin registry; they do not overwrite the administrator's explicit origins. `secureContext` describes browser eligibility for features such as passkeys, not whether the network itself encrypts transport.
+Report canonical HTTP(S) origins and safe HTTP(S) hint links. Enabled plugin records contribute addresses to the live trusted-origin registry; they don't overwrite the administrator's explicit origins. `secureContext` describes browser eligibility for features such as passkeys, not whether the network itself encrypts transport.
 
 ## Validate a real integration
 

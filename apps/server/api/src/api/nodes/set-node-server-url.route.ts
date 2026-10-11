@@ -109,7 +109,7 @@ export const setNodeServerUrlRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: "The control-plane host is configured from Server Settings, not as a node",
+            message: "Configure this server from Server Settings",
           }),
         );
       }

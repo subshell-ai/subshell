@@ -12,7 +12,7 @@ subshell-server status
 subshell-server service status
 ```
 
-The first command shows the configuration that a boot would resolve, including source layers, paths, tmux, and MCP diagnostics. It does not boot the server. Service status asks the manager about the installed service.
+The first command shows the configuration that a boot would resolve, including source layers, paths, tmux, and MCP diagnostics. It doesn't boot the server. Service status asks the manager about the installed service.
 
 `--json` provides machine-readable output. Secrets are masked rather than returned in plaintext.
 
@@ -37,7 +37,7 @@ Locate the active configuration with [Files and paths](/reference/paths) before 
 > [!warning] Sensitive output
 > Pane transcripts can contain commands, project data, and typed secrets. Terminal attach debug dumps can include screen contents. Review and redact logs before sharing them.
 
-Terminated pane logs default to 30-day retention; `SUBSHELL_LOG_RETENTION_DAYS=0` disables that sweep. Running panes are not swept.
+Terminated pane logs default to 30-day retention; `SUBSHELL_LOG_RETENTION_DAYS=0` disables that sweep. Running panes aren't swept.
 
 ## Next steps
 

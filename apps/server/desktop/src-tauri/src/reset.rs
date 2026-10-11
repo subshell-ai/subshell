@@ -1004,7 +1004,7 @@ mod tests {
         assert_eq!(parse_screen(Some("supervision".into())), Screen::Supervision);
         assert_eq!(parse_screen(Some("permissions".into())), Screen::Permissions);
         assert_eq!(parse_screen(Some("settings".into())), Screen::Settings);
-        // "status" is the tray's "Open Server App" word — the assistant's own
+        // "status" is the tray's "Open Server Controls" word — the assistant's own
         // standing overview. It parses to Status, NOT Home (a bounce).
         assert_eq!(parse_screen(Some("status".into())), Screen::Status);
         assert_eq!(parse_screen(Some("/etc".into())), Screen::Home);

@@ -24,8 +24,8 @@ Look up the terms used throughout Subshell documentation.
 | Pane token | The scoped credential supplied to one subshell's integrations. |
 | System key | An administrator-managed integration key for the system identity. |
 | Trusted origin | An allowed browser scheme, host, and port. |
-| Maintenance | A node state that stops its work and refuses new launches. |
-| Lockdown | An instance policy that stops running subshells and refuses launches. |
+| Maintenance | A node state that blocks new launches and tries to stop running subshells. Some may keep running. |
+| Lockdown | An instance policy that blocks launches and restarts and tries to stop running subshells. Some may keep running. |
 
 The server-host node defaults to the display name **Server**. `local` remains an internal identifier, not a label to derive for users.
 

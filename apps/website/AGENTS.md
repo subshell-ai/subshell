@@ -60,6 +60,16 @@ manual pause/resume, and preference handling after replacing clips.
 
 ## Website copy
 
+Use the shared [content guide](../docs/STYLE.md#product-copy-and-confirmations)
+for wording decisions. Keep action headings fixed and put variable details in
+the body. Describe verified capabilities and ask about positioning when a
+copy change would alter the product promise.
+
+Follow [the repository's writing voice](../../AGENTS.md#writing-voice). Write
+as you'd speak to a peer, using active verbs and natural contractions. Vary
+sentence structure and connect ideas so the text flows. Avoid textbook
+formality, stock marketing or AI phrases, and repetitive closing summaries.
+
 Use plain, concise language and consistent product terms: Server, Client, node,
 agent, and session. Introduce a node as a machine that runs agents. Use “your
 server” and “dashboard” in visitor-facing instructions rather than “control

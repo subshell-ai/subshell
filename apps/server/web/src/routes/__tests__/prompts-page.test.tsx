@@ -174,7 +174,7 @@ describe("/prompts error unions", () => {
       renderPage("/prompts?view=stacked");
       // Stacks loaded, prompts did not: no banner (the view shows stacks), but
       // the member-edit degradation is stated, not hidden.
-      expect(await screen.findByText(/editing a stack member that points at one is unavailable/)).toBeDefined();
+      expect(await screen.findByText(/Try again before editing a prompt in a stack/)).toBeDefined();
     } finally {
       restore2();
     }
@@ -237,7 +237,7 @@ describe("/prompts error unions", () => {
     try {
       renderPage("/prompts?view=stacked&tab=shared");
       expect(await screen.findByText("Ada's set")).toBeDefined();
-      expect(screen.getByText(/editing a stack member that points at one is unavailable/)).toBeDefined();
+      expect(screen.getByText(/Try again before editing a prompt in a stack/)).toBeDefined();
     } finally {
       restore2();
     }
@@ -248,7 +248,7 @@ describe("/prompts error unions", () => {
     try {
       renderPage("/prompts?view=single");
       expect(await screen.findByText("Kickoff")).toBeDefined();
-      expect(screen.getByText(/membership counts are hidden/)).toBeDefined();
+      expect(screen.getByText(/prompt membership counts aren't available/)).toBeDefined();
       // And no "In N stacks" chip was earned by the missing list.
       expect(screen.queryByRole("button", { name: /^In \d+ stacks?$/ })).toBeNull();
     } finally {
@@ -373,11 +373,11 @@ describe("/prompts create action (spec 2026-09-29: one New button)", () => {
       await screen.findByText("Kickoff");
       // The pair is gone; the one button replaced it.
       expect(screen.queryByRole("button", { name: "New prompt" })).toBeNull();
-      expect(screen.queryByRole("button", { name: "New stack" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "New prompt stack" })).toBeNull();
       openNew();
       await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(2));
       expect(screen.getByRole("menuitem", { name: "New prompt" })).toBeDefined();
-      expect(screen.getByRole("menuitem", { name: "New stack" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "New prompt stack" })).toBeDefined();
     } finally {
       restore();
     }
@@ -396,7 +396,7 @@ describe("/prompts create action (spec 2026-09-29: one New button)", () => {
       await screen.findByText("Morning set");
       openNew();
       await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(1));
-      expect(screen.getByRole("menuitem", { name: "New stack" })).toBeDefined();
+      expect(screen.getByRole("menuitem", { name: "New prompt stack" })).toBeDefined();
     } finally {
       restore();
     }
@@ -418,8 +418,8 @@ describe("/prompts create action (spec 2026-09-29: one New button)", () => {
       await screen.findByText("Kickoff");
       openNew();
       await waitFor(() => expect(screen.getAllByRole("menuitem").length).toBe(2));
-      fireEvent.click(screen.getByRole("menuitem", { name: "New stack" }));
-      expect(await screen.findByRole("heading", { name: "New stack" })).toBeDefined();
+      fireEvent.click(screen.getByRole("menuitem", { name: "New prompt stack" }));
+      expect(await screen.findByRole("heading", { name: "New prompt stack" })).toBeDefined();
     } finally {
       restore();
     }

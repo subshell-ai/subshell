@@ -7,7 +7,7 @@ Manage the plugins available to your Subshell instance.
 
 ## Before you start
 
-Use an administrator cookie session. Plugins run inside the control-plane process with the server's privileges.
+Sign in to the dashboard as an administrator. Plugins run in the server's process with all of its privileges.
 
 > [!warning] Plugin trust
 > Installing a plugin runs third-party code in the process holding the node signing keys. A malicious plugin can affect the instance and its enrolled nodes.
@@ -20,15 +20,15 @@ Use an administrator cookie session. Plugins run inside the control-plane proces
 4. Enable or disable it for the instance.
 5. Review the impact before uninstalling.
 
-There is one plugin store on the control plane. Nodes do not hold their own installed sets or plugin enable flags.
+The server stores plugins and controls which ones are enabled for all nodes. You don't need to install or enable them separately on each node.
 
-Enabling a harness does not install its CLI on each node. Availability combines the instance's plugin state with binary detection on the target machine.
+Enabling a harness doesn't install its CLI on each node. Availability combines the instance's plugin state with binary detection on the target machine.
 
 ## Built-ins and uninstalling
 
-Built-ins are available without a network fetch and seeded once. An empty store after deliberate uninstallation is not automatically filled again on every boot.
+Built-in plugins are available without a download and are installed on first startup. If you uninstall them, restarting the server won't add them back.
 
-The host validates plugin capability declarations when loading code. Network plugins have a different interface from harness plugins and do not appear in agent launch pickers.
+The host validates plugin capability declarations when loading code. Network plugins have a different interface from harness plugins and don't appear in agent launch pickers.
 
 ## Next steps
 

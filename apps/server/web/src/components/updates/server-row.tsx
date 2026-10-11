@@ -196,8 +196,8 @@ export function ServerRow({
             {serverUpdate.phase === "done"
               ? `Updated to ${serverUpdate.to}.`
               : serverUpdate.phase === "failed"
-                ? `The update to ${serverUpdate.to} did not land: ${serverUpdate.message ?? "the boot recorded no reason"}.`
-                : `The server was updating itself and this boot never told us how it ended; the outcome is unknown. Check the running version.`}
+                ? `The update to ${serverUpdate.to} didn't finish: ${serverUpdate.message ?? "the boot recorded no reason"}.`
+                : `The server hasn't reported whether its update finished. Check the running version.`}
           </p>
         )}
 

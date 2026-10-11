@@ -35,8 +35,7 @@ export function AddNetworkCard() {
       <CardHeader>
         <CardTitle>Add a network</CardTitle>
         <CardDescription>
-          Networks this server binary carries. Installing copies one into the instance store: one click, no network,
-          nothing third-party.
+          These network plugins come bundled with Subshell. You can install them without a download.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

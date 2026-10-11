@@ -13,16 +13,16 @@ Use the administrator email address and password chosen during server setup. The
 
 1. Confirm that you opened the intended Subshell instance. Accounts and passwords belong to that instance.
 2. Check the email address, Caps Lock, and whether your password manager supplied an older password.
-3. Check the reported error. **Invalid origin** concerns the browser address; resetting the password does not fix it.
+3. Check the reported error. **Invalid origin** concerns the browser address; resetting the password doesn't fix it.
 4. If password sign-in is unavailable, use another enabled sign-in method linked to your account. Disabling the email provider's sign-in option prevents ordinary password sign-in even when the password is correct. See [Sign-in providers](/administration/sign-in-providers).
 
-Closing registration does not prevent existing accounts from signing in.
+Closing registration doesn't prevent existing accounts from signing in.
 
 ### You forgot the admin password
 
-If another administrator can sign in, ask them to open **Server Settings** → **Users** in the dashboard sidebar, open your account's **⋯** menu, and choose **Reset password**. This applies to accounts with a password login and signs out all of that account's existing sessions. An administrator cannot use this action on their own account; changing your own password requires the current password. Open the profile menu at the bottom of the dashboard sidebar, choose **Account settings**, and use **Change password**.
+If another administrator can sign in, ask them to open **Server Settings** → **Users** in the dashboard sidebar, open your account's **⋯** menu, and choose **Reset password**. This applies to accounts with a password login and signs out all of that account's existing sessions. An administrator can't use this action on their own account; changing your own password requires the current password. Open the profile menu at the bottom of the dashboard sidebar, choose **Account settings**, and use **Change password**.
 
-If no administrator can sign in, follow [Account recovery](/administration/recovery). You need access to the server host's configuration and the email address of an existing administrator. Recovery does not create a new admin account.
+If no administrator can sign in, follow [Account recovery](/administration/recovery). You need access to the server host's configuration and the email address of an existing administrator. Recovery doesn't create a new admin account.
 
 > [!warning] Recovery changes the password
 > Signing in with `SUBSHELL_EMERGENCY_PASSWORD` overwrites the administrator's stored password. Remove the emergency value from every configuration layer that supplies it, restart the server, and verify the recovery warning clears.
@@ -31,7 +31,7 @@ If no administrator can sign in, follow [Account recovery](/administration/recov
 
 Use [Files and paths](/reference/paths) to locate the running instance's configuration. Verify that you changed the correct server's configuration, restarted its process, and entered the existing administrator's email and the exact configured emergency value. A process environment value overrides one saved in `config.env`.
 
-Follow the full [Account recovery](/administration/recovery) procedure, including disabling recovery afterward. Do not widen trusted origins to fix an incorrect password.
+Follow the full [Account recovery](/administration/recovery) procedure, including disabling recovery afterward. Don't widen trusted origins to fix an incorrect password.
 
 ## Invalid origin
 
@@ -39,17 +39,17 @@ A page can load while an authentication request returns **Invalid origin**. Comp
 
 If you can sign in as an administrator, open **Server Settings** → **Networking** in the server dashboard's sidebar. In the **Addresses** card, edit **Other addresses browsers will use** to add the intended browser origin.
 
-If you cannot sign in, run `subshell-server configure` on the server host instead. Use [Files and paths](/reference/paths) to locate its active configuration. A wildcard bind does not trust arbitrary names. Network plugin records contribute their own addresses live.
+If you can't sign in, run `subshell-server configure` on the server host instead. Use [Files and paths](/reference/paths) to locate its active configuration. A wildcard bind doesn't trust arbitrary names. Network plugin records contribute their own addresses live.
 
 ## Loopback on another device
 
 `localhost` and `127.0.0.1` refer to the device making the request. Choose a LAN or mesh address when opening a server from another machine.
 
-Changing only an installer download hostname does not necessarily change the server URL baked into its instructions. Select the correct address in **Add node** before copying its command.
+Changing only an installer download hostname doesn't necessarily change the server URL baked into its instructions. Select the correct address in **Add node** before copying its command.
 
 ## Passkeys
 
-Passkeys use the configured `APP_BASE_URL` hostname. A different trusted alias does not make the credential valid there. Use the configured address and a secure browser context.
+Passkeys use the configured `APP_BASE_URL` hostname. A different trusted alias doesn't make the credential valid there. Use the configured address and a secure browser context.
 
 ## Provider failures
 

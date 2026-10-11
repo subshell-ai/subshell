@@ -37,16 +37,16 @@ describe("TerminalKeyBar", () => {
     const sent: string[] = [];
     const props = { disabled: false, onBytes: (text: string) => sent.push(text), onInjectPrompt: () => opened++ };
     const { rerender } = render(<TerminalKeyBar {...props} />);
-    fireEvent.click(screen.getByRole("button", { name: "Inject prompt" }));
+    fireEvent.click(screen.getByRole("button", { name: "Insert prompt" }));
     expect(opened).toBe(1);
     expect(sent).toEqual([]);
     rerender(<TerminalKeyBar {...props} suppressInput />);
-    const button = screen.getByRole("button", { name: "Inject prompt" }) as HTMLButtonElement;
+    const button = screen.getByRole("button", { name: "Insert prompt" }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
     expect(opened).toBe(1);
     rerender(<TerminalKeyBar {...props} readOnly />);
-    expect(screen.queryByRole("button", { name: "Inject prompt" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Insert prompt" })).toBeNull();
   });
 
   it("refreshes without sending input in copy mode, view access, or offline", () => {

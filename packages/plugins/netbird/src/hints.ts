@@ -53,7 +53,7 @@ export function notInstalledHints(): NetworkHint[] {
 export function daemonDownHints(detail: string): NetworkHint[] {
   const hints: NetworkHint[] = [
     {
-      text: "The NetBird daemon is not running or not reachable. If it is installed, start its service (this page will notice when you do).",
+      text: "The NetBird daemon isn't responding. If it's installed, start its service; this page updates automatically.",
       command: "sudo netbird service install && sudo netbird service start",
       docsUrl: INSTALL_DOCS_URL,
       privileged: true,

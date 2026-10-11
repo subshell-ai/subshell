@@ -54,7 +54,7 @@ export function ChoiceScreen(props: { shell: FrameShell; onChoose: (choice: Firs
         <ChoiceOption
           icon={<Server aria-hidden />}
           label="Connect to a server"
-          detail="Just opens a Subshell server's dashboard. Nothing is installed or registered."
+          detail="Open a Subshell server's dashboard without installing anything or registering this machine."
           disabled={busy}
           onSelect={() => onChoose("watch")}
         />

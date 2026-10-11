@@ -83,7 +83,7 @@ function refusalFor(err: NodeRpcError, paneSafety: "keeps" | "kills" | "unknown"
   if (err.code === "unsupported") {
     return {
       code: BackendErrorCodes.NODE_AGENT_TOO_OLD,
-      message: "This node's binary predates the service command; update the node on that machine to drive it here",
+      message: "Update Subshell on this node to manage its service here",
     };
   }
   if (err.detail === NODE_RESULT_NOT_SUPERVISED) {
@@ -156,7 +156,7 @@ export const serviceNodeRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: "The control-plane host is managed from Server Settings, not as a node",
+            message: "Manage this server from Server Settings",
           }),
         );
       }

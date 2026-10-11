@@ -49,7 +49,7 @@ function AuthPage() {
     <main className="mx-auto w-full max-w-5xl space-y-6 p-6">
       <PageHeader
         title="Auth"
-        subtitle="Identity providers for auth"
+        subtitle="Manage how people sign in"
         action={
           isAdmin ? (
             <Button onClick={() => setDialog({ open: true, provider: null })}>

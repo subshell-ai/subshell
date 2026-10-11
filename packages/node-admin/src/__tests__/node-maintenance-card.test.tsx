@@ -216,8 +216,8 @@ describe("NodeMaintenanceCard", () => {
       renderCard(node({ runningSubshells: 2 }));
       fireEvent.click(screen.getByRole("switch"));
       await waitFor(() => expect(putBodies(fetchMock.calls)).toEqual(['{"on":true}']));
-      expect(confirm.seen[0]?.title).toBe('Start maintenance on "mac mini"?');
-      expect(confirm.seen[0]?.description).toContain("2 subshells running here will be stopped");
+      expect(confirm.seen[0]?.title).toBe("Start maintenance?");
+      expect(confirm.seen[0]?.description).toContain("Subshell will try to stop 2 subshells here");
     } finally {
       confirm.restore();
       fetchMock.restore();

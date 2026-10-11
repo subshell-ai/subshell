@@ -124,8 +124,8 @@ describe("the host's correction ratchet", () => {
     await waitFor(() => expect(routeOf()).toBe("update"));
   });
 
-  it("arms the tray's Open Server App onto the standing Status screen, and never opens the dashboard", async () => {
-    // The tray's "Open Server App" word is "status"; applyScreen maps it onto
+  it("arms the tray's Open Server Controls onto the standing Status screen, and never opens the dashboard", async () => {
+    // The tray's "Open Server Controls" word is "status"; applyScreen maps it onto
     // the standing Status marker (the ScreenId the rail's Status select sets).
     // On a READY machine it must render the facts screen WITHOUT handing off —
     // otherwise open_main_now closes the window this press just opened, the very

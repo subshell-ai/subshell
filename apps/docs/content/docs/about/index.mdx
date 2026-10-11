@@ -5,7 +5,7 @@ description: "Learn what Subshell does, why you might use it, and how persistent
 
 Subshell gives you a shared web interface for running CLI coding agents and terminal sessions on machines you own.
 
-You launch a session, choose where it runs, and interact with its terminal from a browser or Subshell Client. Subshell keeps the session available when you close the browser tab, so you can return to the same running process from another device.
+A subshell is a terminal session running an agent or a shell. You launch a subshell, choose where it runs, and interact with its terminal from a browser or Subshell Client. Subshell keeps the session available when you close the browser tab, so you can return to the same running process from another device.
 
 <figure className="docs-screenshot">
   <ImageZoom src="/screenshots/active-codex-dashboard.png" alt="Full Subshell dashboard with an active Codex session reviewing a TypeScript function, session navigation, workspaces, nodes, and presets in the sidebar." width="1280" height="800" loading="lazy" decoding="async" unoptimized />
@@ -16,7 +16,7 @@ You launch a session, choose where it runs, and interact with its terminal from 
 
 Subshell is self-hosted and open source. You run the server on your own infrastructure and control its accounts, configuration, and access to enrolled machines. The [source code](https://github.com/subshell-ai/subshell) is public, so you can inspect how it works, contribute improvements, or modify it under its licenses. Server code is AGPL-3.0-only; the rest of the project is Apache-2.0. See [Contribute to Subshell](/developers/contribute) for licensing and contribution details.
 
-Use Subshell to keep coding agents running beyond a single terminal window, work across machines, or manage several sessions together. Agent CLIs still use their own provider accounts; self-hosting Subshell does not make a cloud-based agent run locally.
+Use Subshell to keep coding agents running beyond a single terminal window, work across machines, or manage several sessions together. Agent CLIs still use their own provider accounts; self-hosting Subshell doesn't make a cloud-based agent run locally.
 
 | What you want to do | How Subshell helps |
 | --- | --- |
@@ -73,7 +73,7 @@ This is useful when one agent needs to delegate a bounded task or ask another se
 
 ## Understand the trust boundary
 
-Agents run real programs with their execution account's permissions. Subshell does not sandbox their filesystem access. Enrolling a node gives the trusted server the ability to launch programs under that node's account, and sharing a session exposes its terminal output to the recipients.
+Agents run real programs with their execution account's permissions. Subshell doesn't sandbox their filesystem access. Enrolling a node gives the trusted server the ability to launch programs under that node's account, and sharing a session exposes its terminal output to the recipients.
 
 Read [Security model](/concepts/security) before enrolling machines or sharing sensitive work.
 

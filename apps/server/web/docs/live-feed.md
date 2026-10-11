@@ -18,8 +18,9 @@ pane's screen server-side. Three consequences the client owns:
 
 - **A snapshot must not clobber a newer event.** The socket subscribes BEFORE
   the list read, so the read may predate an event delivered first; the client
-  keeps any row it has received an event for since this connect and lets the
-  snapshot decide the rest, including which rows exist. No sequence numbers.
+  keeps event fields for any row it has received an event for since this
+  connect. The snapshot supplies viewer-specific `access` and
+  `sharedWithViewer`, and decides which rows exist. No sequence numbers.
 - **A broadcast carries no `access`**: one payload reaches every subscriber,
   so the per-viewer stamp cannot ride it. The client keeps the access it holds;
   a row arriving before any snapshot is skipped rather than guessed at.

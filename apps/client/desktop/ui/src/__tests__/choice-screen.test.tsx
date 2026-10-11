@@ -52,7 +52,7 @@ describe("the Choice screen", () => {
   it("says what each option does to this machine", () => {
     renderChoice();
     expect(screen.getByText(/Registers this machine as a node/)).toBeTruthy();
-    expect(screen.getByText(/Nothing is installed or registered/)).toBeTruthy();
+    expect(screen.getByText(/without installing anything or registering this machine/)).toBeTruthy();
   });
 
   it("disables both options while an action is in flight", () => {

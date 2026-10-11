@@ -50,9 +50,8 @@ export function NodeReregister({
     const attempt = generation.current;
     if (
       !(await confirmAction({
-        title: `Re-register ${nodeName}?`,
-        description:
-          "Create a setup key for this node. Using it replaces this node's credentials and disconnects its current connection. Its entry, name, shares, and settings are kept.",
+        title: "Generate a new setup key?",
+        description: `This key lets you re-register "${nodeName}". Its current connection keeps working until you use the key. Using it replaces the node's credentials and disconnects the existing connection, while keeping its name, shares, and settings.`,
         confirmLabel: "Generate setup key",
       }))
     )

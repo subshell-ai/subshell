@@ -28,7 +28,11 @@ export function SystemApiKeysCard() {
 
   async function onDelete(id: string, keyName: string) {
     setRowErrors((prev) => ({ ...prev, [id]: "" }));
-    const ok = await confirmAction({ title: `Delete key "${keyName}"?`, confirmLabel: "Delete" });
+    const ok = await confirmAction({
+      title: "Delete this API key?",
+      description: `This deletes "${keyName}". Requests using this key will no longer be authorized.`,
+      confirmLabel: "Delete key",
+    });
     if (!ok) return;
     try {
       await remove.mutateAsync(id);

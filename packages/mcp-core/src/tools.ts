@@ -24,25 +24,19 @@ export interface ToolDeps {
 }
 
 /**
- * Maps an ApiError to the plain-English guidance agents act on. The `code`
- * branches map exactly the eight values they name (NODE_REQUIRED,
- * NODE_OFFLINE, NODE_IN_MAINTENANCE, SUBSHELL_NOT_RUNNING, NODE_AGENT_TOO_OLD,
- * EXEC_PANE_BUSY, EXEC_TERMINAL_ONLY, EXEC_IN_FLIGHT), each of which
- * the server's `throwApiError` paths ride to the wire under that name;
- * RESTART_IN_FLIGHT rides by name too but gets no branch of its own here,
- * it answers through the 409 status branch like any other 409. The
- * create-path refusals an exception class carries (`harness_disabled`,
- * `node_launch_disabled`, `preset_harness_mismatch`) do NOT reach the wire
- * under those names: the error handler genericizes status-carriers by
- * status (a 409 answers `EXISTS_ERROR`), so those ride through the status
- * branches with their message, which is where their remedy sentence already
- * lives. Nothing is mapped that cannot arrive.
+ * Add guidance for API errors that agents can act on.
+ *
+ * Match only codes the server exposes. RESTART_IN_FLIGHT uses the generic
+ * 409 branch. Create-path errors such as harness_disabled,
+ * node_launch_disabled, and preset_harness_mismatch reach clients through
+ * their HTTP status, not those internal names. Their messages already explain
+ * the remedy, so preserve them in the status-based fallback.
  */
 export function describeToolError(err: unknown): Error {
   if (err instanceof ApiError) {
     if (err.code === "NODE_REQUIRED") {
       return new Error(
-        `subshell: no launch-eligible node picked (${err.message}); call list_nodes and pass 'node' to create_subshell`,
+        `subshell: choose a node where you can launch subshells (${err.message}); call list_nodes and pass 'node' to create_subshell`,
       );
     }
     if (err.code === "NODE_OFFLINE") {
@@ -64,7 +58,7 @@ export function describeToolError(err: unknown): Error {
       // list_nodes rows carry no version, so pointing at one asked the agent
       // to check a fact the tool does not report.
       return new Error(
-        `subshell: the daemon on the target node predates this command (${err.message}); ask a human to update that node's daemon, or choose a machine node whose panes already answer this verb`,
+        `subshell: the Subshell daemon on the target node doesn't support this command (${err.message}); ask a human to update its Subshell daemon, or choose a node that supports this command`,
       );
     }
     if (err.code === "EXEC_PANE_BUSY") {
@@ -79,7 +73,7 @@ export function describeToolError(err: unknown): Error {
     }
     if (err.code === "EXEC_IN_FLIGHT") {
       return new Error(
-        `subshell: another exec is already waiting on this pane (${err.message}); retry once it finishes`,
+        `subshell: another command is already running in this terminal (${err.message}); retry once it finishes`,
       );
     }
     if (err.status === 401) {
@@ -93,13 +87,13 @@ export function describeToolError(err: unknown): Error {
       // restart_subshell contract), so the message must not point at it. The
       // remedy belongs to a human, and saying so is the whole fix.
       return new Error(
-        "subshell: this pane's MCP token is revoked or expired, so every subshell tool is unavailable until it is renewed. You cannot renew it from inside the pane, and calling restart_subshell on your own pane would terminate you: ask a human to restart this subshell.",
+        "subshell: this pane's MCP credentials were rejected, so its Subshell tools are unavailable. Ask a human to check your account access and restart this subshell if needed. You can't renew the token from inside the pane. Never call restart_subshell on your own pane: it would terminate you.",
       );
     }
     if (err.status === 403) return new Error(`subshell: permission denied: ${err.message}`);
     if (err.status === 404) return new Error(`subshell: not found: ${err.message}; find ids with list_subshells`);
     if (err.status === 409)
-      return new Error(`subshell: conflict: ${err.message}; list_nodes and list_presets answer what is available`);
+      return new Error(`subshell: conflict: ${err.message}; use list_nodes and list_presets to check what's available`);
     return new Error(`subshell: API error ${err.status}: ${err.message}`);
   }
   return err instanceof Error ? err : new Error(String(err));

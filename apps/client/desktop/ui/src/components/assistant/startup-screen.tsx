@@ -89,8 +89,9 @@ export function StartupScreen(props: {
            */}
           {!IS_MACOS && (
             <p className="text-detail text-muted-foreground leading-relaxed">
-              It comes back at login but dies at logout unless this user lingers;{" "}
-              <span className="font-mono">loginctl enable-linger $USER</span> makes it come back at boot instead.
+              The service stops when you log out unless you enable lingering;{" "}
+              <span className="font-mono">loginctl enable-linger $USER</span> lets it start at boot and keep running
+              after logout.
             </p>
           )}
         </div>

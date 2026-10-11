@@ -56,7 +56,7 @@ const OTHERS_GROUP_ID = "others";
 
 /**
  * The rail's whole subshell section: the mode control, the filter box, the
- * Needs Attention spotlight, the Cross-agent comms section and the machine
+ * Needs Attention spotlight, the Created by agents section and the machine
  * groups, in one of THREE renderings behind a single choice.
  *
  * - `rows` (the default): text rows — the shape the rail has always had.
@@ -150,11 +150,9 @@ export function RailSubshells({
   const { human: railHuman, comms: railComms } = partitionCrossAgent(railRows);
   const commsGroup = {
     nodeId: CROSS_AGENT_GROUP_ID,
-    label: "Cross-agent comms",
-    // The header's hover line is the whole explanation; two sentences max,
-    // per the design system's rule for UI text.
-    title:
-      "Panes an agent opened over MCP to talk to another agent. Created with the bell off; toggle it from a row's menu.",
+    label: "Created by agents",
+    // Explain what belongs in this group.
+    title: "Subshells opened by another subshell",
     total: railComms.length,
     // The same per-group cap the machines get, and the same exemption while
     // filtering: a search that hid its own ninth match lies.
@@ -167,6 +165,7 @@ export function RailSubshells({
   // keystroke — the frame it costs is one the rail re-renders for anyway.
   const nodeGroups = groupSubshellsByNode(railHuman, nodeData?.nodes, {
     limit: q ? undefined : RECENT_LIMIT,
+    groupShared: true,
     // "Unanswered" means NO successful read has ever committed: in flight, or
     // failed with nothing cached. It cannot be `isPending || isError` — a
     // background REFRESH that fails on a populated cache reports `isError`
@@ -522,7 +521,7 @@ export function RailSubshells({
                   selected={selectedIds.has(sub.id)}
                   focused={focusedId === sub.id}
                   focusOnOpen={onWorkspace && selectedIds.has(sub.id)}
-                  nodeLabel={group.label}
+                  nodeLabel={machineLabel(sub)}
                   agentLabel={agentLabel(sub.harnessId)}
                   presetLabel={presetLabel(sub.presetId)}
                 />
@@ -624,11 +623,9 @@ export function RailSubshells({
                 focusedId={focusedId}
                 focusOnClick={onWorkspace}
                 labelsFor={(sub) => ({
-                  // The group header already names the machine — same label,
-                  // one source of truth for header and tooltip. The letter is
-                  // the PANE's own (operator live review: grouped cells
-                  // without letters were blank colour squares).
-                  nodeLabel: group.label,
+                  // Shared groups can span machines; resolve each row's node
+                  // independently of its group heading.
+                  nodeLabel: machineLabel(sub),
                   agentLabel: agentLabel(sub.harnessId),
                   presetLabel: presetLabel(sub.presetId),
                   initial: paneInitial(sub.name),

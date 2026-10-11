@@ -33,7 +33,8 @@ import { derivePluginId, isSafePluginId, parseNpmSpec } from "@/lib/plugin-spec"
  * gate and the action can disagree about nothing.
  */
 
-const NO_USABLE_ID = "That package name gives no usable plugin id. Name the id the plugin declares.";
+const NO_USABLE_ID =
+  "Couldn't determine the plugin ID from this package name. Enter the ID from the plugin's documentation.";
 
 /** Where a typed spec lands: a built-in row by fast path, or third-party
  *  under an id that is derived, typed, or missing. */
@@ -94,9 +95,8 @@ export function InstallByNameForm({ plugins }: { plugins: InstancePluginRow[] })
       if (target.id === undefined || !isSafePluginId(target.id)) return; // the gate already refuses
       const installId = target.id; // narrowed before the closure: the confirm's .then sees a string
       void confirmAction({
-        title: `Install ${value}?`,
-        description:
-          "The package is fetched from the npm registry, and its code runs on the control plane: in the server's own process, with the reach that process has (the instance database and the key that signs commands for every enrolled node). This is the same trust decision as installing the agent CLI the plugin drives.",
+        title: "Install this plugin?",
+        description: `This downloads "${value}" from npm and runs its code inside the server, with access to the instance database and the key that signs commands for every enrolled node. Only install plugins you trust.`,
         confirmLabel: "Install",
         danger: true,
       }).then((ok) => {
@@ -119,10 +119,7 @@ export function InstallByNameForm({ plugins }: { plugins: InstancePluginRow[] })
     <Card>
       <CardHeader>
         <CardTitle>Install from npm</CardTitle>
-        <CardDescription>
-          A package this build does not carry, fetched from the registry the server is configured for and installed into
-          the instance store.
-        </CardDescription>
+        <CardDescription>Install a plugin from this server's configured npm registry.</CardDescription>
       </CardHeader>
       <CardContent>
         <form
@@ -156,8 +153,8 @@ export function InstallByNameForm({ plugins }: { plugins: InstancePluginRow[] })
                   onChange={(e) => field.handleChange(e.target.value)}
                 />
                 <p className="text-detail text-muted-foreground">
-                  Only if the package declares a different id than its name suggests. A mismatch is refused by name, and
-                  the refusal says what to type here.
+                  Only needed if the plugin ID differs from the package name. If they don't match, the error will show
+                  the ID to enter.
                 </p>
                 {fieldError(field.state.meta.errors) && (
                   <p role="alert" className="text-destructive text-detail">

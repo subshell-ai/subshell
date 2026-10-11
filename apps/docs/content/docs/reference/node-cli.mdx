@@ -33,7 +33,7 @@ subshell enroll --server <url> --key <setup-key> --name <name>
                 [--data-dir <dir>] [--json]
 ```
 
-`setup` asks for a name and offers service installation. Supply `--name` with `--yes`, `--json`, or noninteractive setup. `enroll` always requires the name and does not offer a service.
+`setup` asks for a name and offers service installation. Supply `--name` with `--yes`, `--json`, or noninteractive setup. `enroll` always requires the name and doesn't offer a service.
 
 ## configure
 
@@ -67,7 +67,7 @@ Install starts the daemon. Autostart changes future login behavior without stopp
 
 ## maintenance
 
-`maintenance on [--yes] [--json]` stops running subshells and refuses new launches. Without `--yes`, live panes are listed and the command refuses before changes. `off` restores launch availability; `status` reports local state. Both support `--json`.
+`maintenance on [--yes] [--json]` blocks new launches and tries to stop running subshells. Some may keep running if they can't be stopped. Without `--yes`, live panes are listed and the command refuses before changes. `off` allows launches again but doesn't restart stopped subshells; `status` reports local state. All three support `--json`.
 
 ## update
 
@@ -85,7 +85,7 @@ Check before disrupting work. Local files require your own provenance check. `--
 
 `reset` stops local work, removes the service, and clears local node data while retaining the binary. `uninstall` also removes the binary and asks separately about data, defaulting to keep it. Both require the machine name, with `--confirm <name>` for a headless run; neither accepts `--yes`. Uninstall supports `--reset-data`.
 
-The node's record remains on the server until its owner removes it. These commands do not reset another machine or the control plane.
+The node's record remains on the server until its owner removes it. These commands don't reset another machine or the control plane.
 
 ## Pane integration
 

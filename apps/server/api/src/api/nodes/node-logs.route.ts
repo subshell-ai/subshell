@@ -67,7 +67,7 @@ export const nodeLogsRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: "The control-plane host's own log is at Server Settings → Service, not here",
+            message: "View this server's log in Server Settings → Logs",
           }),
         );
       }
@@ -85,7 +85,7 @@ export const nodeLogsRoute = new Elysia()
             502,
             apiErrorBody({
               code: BackendErrorCodes.NODE_UNREACHABLE,
-              message: "That node answered with a log slice this server could not read",
+              message: "Couldn't read the log data returned by this node",
             }),
           );
         }

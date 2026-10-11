@@ -89,8 +89,8 @@ trap 'rm -rf "$TMPD"' EXIT
 
 MANIFEST_PROTO="$(proto_for "$MANIFEST_URL")"
 if ! curl $MANIFEST_PROTO --silent --show-error --location --fail "$MANIFEST_URL" -o "$TMPD/releases.json"; then
-  fail "could not fetch the release manifest from $MANIFEST_URL" \
-    "Check outbound network, or pass SUBSHELL_CLIENT_VERSION=X.Y.Z to skip the lookup."
+  fail "couldn't fetch the release manifest from $MANIFEST_URL" \
+    "Check your network connection, or set SUBSHELL_CLIENT_VERSION=X.Y.Z to skip the lookup."
 fi
 
 # schemaVersion must be exactly 1: an unknown shape is refused rather than
@@ -145,7 +145,7 @@ ASSET_PROTO="$(proto_for "$BASE")"
 echo "==> downloading $ASSET"
 if ! HTTP="$(curl $ASSET_PROTO --silent --show-error --location "$BASE/$ASSET" \
   --output "$TMPD/$ASSET" --write-out '%{http_code}')"; then
-  fail "could not download $BASE/$ASSET; nothing was installed."
+  fail "couldn't download $BASE/$ASSET; nothing was installed."
 fi
 case "$HTTP" in
   200) ;;
@@ -164,7 +164,7 @@ esac
 # and blame the mirror's content for its absence. The fetch names a missing
 # sidecar; only a DELIVERED one can then be judged not-a-digest.
 if ! curl $ASSET_PROTO --silent --show-error --location --fail "$BASE/$ASSET.sha256" -o "$TMPD/sidecar.sha256"; then
-  fail "could not fetch the checksum for $ASSET; nothing was installed."
+  fail "couldn't fetch the checksum for $ASSET; nothing was installed."
 fi
 EXPECTED="$(tr -d '[:space:]' < "$TMPD/sidecar.sha256")"
 case "$EXPECTED" in

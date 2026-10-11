@@ -62,7 +62,7 @@ const FORM_ID = "register-form";
  * spends-single-use retry lecture: where a key comes from, and that is all
  * it says.
  */
-const KEY_IS_SPENT = "Obtain a key from the Control Plane via Nodes → Add node.";
+const KEY_IS_SPENT = "In your server dashboard, open Nodes → Add node to create a setup key.";
 
 export function RegisterScreen(props: {
   shell: FrameShell;

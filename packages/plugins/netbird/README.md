@@ -4,10 +4,9 @@ The NetBird network plugin for Subshell. A `type: "network"` built-in: it
 connects the control-plane host to a NetBird network and publishes Subshell on
 it, so a device on that network can reach this server.
 
-It **describes; the host executes.** Every command goes through `host.run`, the
-publish returns the addresses a join already made reachable and runs no command,
-and nothing here spawns a process, writes a file, stores a credential, or edits
-the server's own configuration. Identity, platforms, exposure and the privileged
+The plugin runs commands through `host.run`. Publishing returns the addresses
+made reachable by joining; it doesn't run another command. The host manages
+processes, files, credentials, and server configuration. Identity, platforms, exposure and the privileged
 install steps live in `package.json`'s `subshell` block: a page renders "not
 available on this platform" and prints the root-requiring install commands without
 importing any of this code.
@@ -43,7 +42,7 @@ importing any of this code.
   [the vendor's DNS page](https://docs.netbird.io/how-to/manage-dns-in-your-network)
   because that group is an account-console setting, not something on this machine.
 
-## Measured, and what is still not
+## Verified behavior and remaining assumptions
 
 **Measured against a live daemon on 2026-09-16 (NetBird 0.66.4).** `netbird
 status --json` answers with `netbirdIp` **CIDR-suffixed** (verbatim
@@ -74,15 +73,13 @@ the shape is settled:
 
 ## Publish state comes from the host's record
 
-The plugin can only ever observe `joined`. The `joined → published` distinction
-lives entirely in the host's trusted-origins config, which a plugin may not
-read, so a NetBird that has been published still reports `joined` on the next
-status read, and this is inherent to a plugin whose publish has no
-daemon-visible effect (see the design notes in `src/status.ts`).
+The plugin can only observe `joined`. The host tracks publication in its own
+record, which the plugin can't read. Publishing doesn't change the NetBird
+daemon, so subsequent plugin status checks still report `joined`. See the
+implementation notes in `src/status.ts`.
 
-What closes it is the manifest's `publishImplicit: true`: it tells the host
-that for this plugin its own publish record IS the published state, and the
-host upgrades `joined` to `published` when, and only when, that record
+The manifest's `publishImplicit: true` tells the host to use its publication
+record. The host upgrades `joined` to `published` when, and only when, that record
 exists. A plugin without the flag (Tailscale, whose `serve` state is readable)
 is never upgraded, so a serve reset from a terminal still shows honestly as
 `joined`. The mechanism is `publishStateVisible` in

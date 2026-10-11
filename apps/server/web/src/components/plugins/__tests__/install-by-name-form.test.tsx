@@ -48,7 +48,7 @@ describe("InstallByNameForm gating", () => {
     expect(installButton()).not.toBeNull();
     expect(installButton()?.disabled).toBe(true);
     expect(screen.getByRole("alert").textContent).toBe(
-      "That package name gives no usable plugin id. Name the id the plugin declares.",
+      "Couldn't determine the plugin ID from this package name. Enter the ID from the plugin's documentation.",
     );
     // Naming the id the plugin declares opens the gate.
     fireEvent.change(idField(), { target: { value: "acme-pi" } });

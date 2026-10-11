@@ -51,15 +51,17 @@ describe("buildNotificationPayload", () => {
     const p = buildNotificationPayload({ id: "sid", name: "resume-verify" }, "turn_complete");
     expect(p).toEqual({
       title: "resume-verify",
-      body: "Done, waiting for you",
+      body: "Ready for your next message",
       url: "/subshells/sid",
       tag: "sid",
     });
-    expect(buildNotificationPayload({ id: "s", name: "x" }, "needs_attention").body).toBe("Needs your approval");
-    expect(buildNotificationPayload({ id: "s", name: "x" }, "exited").body).toBe("Subshell exited");
-    expect(buildNotificationPayload({ id: "s", name: "x" }, "crashed").body).toBe("Crashed, auto-restarting");
+    expect(buildNotificationPayload({ id: "s", name: "x" }, "needs_attention").body).toBe("Waiting for you");
+    expect(buildNotificationPayload({ id: "s", name: "x" }, "exited").body).toBe("Session ended");
+    expect(buildNotificationPayload({ id: "s", name: "x" }, "crashed").body).toBe(
+      "Session stopped unexpectedly. Restarting…",
+    );
     // Exhausted backoff: the bare truth, no restart promised (final-review fix).
-    expect(buildNotificationPayload({ id: "s", name: "x" }, "crashed_final").body).toBe("Crashed");
+    expect(buildNotificationPayload({ id: "s", name: "x" }, "crashed_final").body).toBe("Session stopped unexpectedly");
   });
 });
 

@@ -130,7 +130,7 @@ describe("MobileInstallDialog", () => {
     // absent code actually raises — and names the remedy, not just the lack.
     renderDialog({ origin: "http://localhost:3080", trustedOrigins: ["http://127.0.0.1:3080"] });
     const note = screen.getByTestId("no-address-note");
-    expect(note.textContent).toMatch(/phone can open/i);
+    expect(note.textContent).toMatch(/for your phone to open/i);
     // Joining a network IS a fix now — no publish step stands between them.
     expect(note.textContent).toMatch(/join a network/i);
     expect(screen.queryByRole("img", { name: /QR code/ })).toBeNull();
@@ -181,7 +181,7 @@ describe("MobileInstallDialog", () => {
   it("tells an admin that joining a network is enough", () => {
     renderDialog({ origin: "http://localhost:3080", trustedOrigins: ["http://127.0.0.1:3080"], admin: true });
     const note = screen.getByTestId("no-address-note");
-    expect(note.textContent).toMatch(/Join a network under Server Settings → Networking/);
+    expect(note.textContent).toMatch(/Server Settings → Networking to join a network/);
     expect(note.textContent).not.toMatch(/publish/i);
   });
 });

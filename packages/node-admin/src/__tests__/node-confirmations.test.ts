@@ -25,11 +25,12 @@ afterEach(() => {
 });
 
 describe("confirmStartMaintenance", () => {
-  it("asks the question with the node's name in the title, not in a paragraph", async () => {
+  it("keeps the title fixed and identifies the node in the description", async () => {
     const c = captured();
     restore = c.restore;
     await confirmStartMaintenance({ name: "mac mini", isLocal: false, runningSubshells: 2 });
-    expect(c.seen[0]?.title).toBe('Start maintenance on "mac mini"?');
+    expect(c.seen[0]?.title).toBe("Start maintenance?");
+    expect(c.seen[0]?.description).toContain('On "mac mini":');
     expect(c.seen[0]?.confirmLabel).toBe("Start maintenance");
     expect(c.seen[0]?.danger).toBe(true);
   });
@@ -41,11 +42,11 @@ describe("confirmStartMaintenance", () => {
     const description = c.seen[0]?.description ?? "";
     // Parked rows are counted server-side, so "3 running" would be a claim
     // the number does not support.
-    expect(description).toContain("3 subshells running here will be stopped and their owners notified.");
+    expect(description).toContain("Subshell will try to stop 3 subshells here and notify their owners.");
     expect(description).not.toContain("3 running");
     expect(description).toContain("Nobody can launch here until maintenance ends.");
-    // The two-sentence rule cut the reassurance clause; what the switch does
-    // (refuse launches, keep everything else answering) is docs/security's job.
+    expect(description).toContain("Some may keep running if they can't be stopped.");
+    expect(description).toContain("Subshells that stop won't restart automatically when maintenance ends.");
     expect(description).not.toContain("keeps working");
   });
 
@@ -53,7 +54,7 @@ describe("confirmStartMaintenance", () => {
     const c = captured();
     restore = c.restore;
     await confirmStartMaintenance({ name: "mac mini", isLocal: false, runningSubshells: 1 });
-    expect(c.seen[0]?.description).toContain("1 subshell running here will be stopped");
+    expect(c.seen[0]?.description).toContain("Subshell will try to stop 1 subshell here");
   });
 
   it("drops the stopping clause entirely at zero", async () => {
@@ -71,7 +72,7 @@ describe("confirmStartMaintenance", () => {
     restore = c.restore;
     await confirmStartMaintenance({ name: "mac mini", isLocal: false, runningSubshells: undefined });
     const description = c.seen[0]?.description ?? "";
-    expect(description).toContain("Any subshells running here will be stopped and their owners notified.");
+    expect(description).toContain("Subshell will try to stop any subshells running here and notify their owners.");
     expect(description).not.toContain("Nothing is running here.");
   });
 

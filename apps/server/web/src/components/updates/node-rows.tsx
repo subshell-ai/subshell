@@ -62,7 +62,7 @@ function updateLine(row: NodeUpdateRow, update: UpdateTrackerState): string {
     case "done":
       return `Updated to ${update.to}.`;
     case "failed":
-      return `The update to ${update.to} did not land: ${update.message ?? "the node gave no reason"}.`;
+      return `The update to ${update.to} didn't finish: ${update.message ?? "the node gave no reason"}.`;
     case "stalled":
       return `The update was accepted, but ${row.name} has not reported ${update.to} yet. It may still be restarting; reload to check.`;
   }

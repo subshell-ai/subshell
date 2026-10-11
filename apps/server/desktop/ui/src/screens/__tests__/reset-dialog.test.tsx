@@ -103,14 +103,14 @@ describe("the dialog and its gates", () => {
     expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("refuses to arm when the server does not report its data locations", () => {
+  it("refuses to arm when the server hasn't reported its data locations", () => {
     renderReset({ probe: makeProbe({ next: "start", hostname: "testhost", status: null }) });
     // No promises without the block to promise from.
     expect(document.querySelector("ul.wizard-copy.list-disc")?.children.length ?? 0).toBe(0);
     expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
     // The verdict renders TWICE, as the old screen did: the refusal line above,
     // and the reason beside the control it disables.
-    expect(screen.getAllByText(/Reset refuses to guess at a filesystem\./)).toHaveLength(2);
+    expect(screen.getAllByText(/Reset can't safely delete it\./)).toHaveLength(2);
   });
 
   it("lists the five promises once the paths are complete, and holds the button until the name matches", () => {
@@ -128,7 +128,7 @@ describe("the dialog and its gates", () => {
 
   it("names an unreadable hostname as its own refusal", () => {
     renderReset({ probe: { ...RESETTABLE, hostname: "" } });
-    expect(screen.getByText(/This machine's name could not be read/)).toBeDefined();
+    expect(screen.getByText(/Couldn't read this machine's name/)).toBeDefined();
     typeHostname("testhost");
     expect((screen.getByRole("button", { name: "Reset everything" }) as HTMLButtonElement).disabled).toBe(true);
   });

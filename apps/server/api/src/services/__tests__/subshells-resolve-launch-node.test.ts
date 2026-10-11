@@ -346,13 +346,13 @@ describe("resolveLaunchNode — implicit local (step 2) and auto-pick (step 3)",
     });
   });
 
-  it("local switch OFF + no online agents → 400 ApiError NODE_REQUIRED ('pick one')", async () => {
+  it("local switch OFF + no online agents → 400 ApiError NODE_REQUIRED ('choose a node')", async () => {
     await deps.shares.replaceForNode(LOCAL_NODE_ID, [], systemId);
     try {
       const err = await grab(() => resolveLaunchNode({ userId: ownerId, machineActor: false }, deps));
       expect(apiErr(err).code).toBe(BackendErrorCodes.NODE_REQUIRED);
       expect((err as ApiError).statusCode).toBe(400);
-      expect((err as Error).message).toMatch(/pick one/i);
+      expect((err as Error).message).toMatch(/choose a node/i);
     } finally {
       await deps.shares.replaceForNode(LOCAL_NODE_ID, [{ granteeUserId: null, permission: "edit" }], systemId);
     }

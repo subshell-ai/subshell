@@ -74,7 +74,7 @@ const UPDATE_ID: &str = "tray:update";
 /// The plane-list tray ruling (operator, 2026-09-22): the two flat items
 /// ("Open Subshell Client", "Open in Browser") did not say WHICH plane they
 /// opened, which stopped being acceptable the day the list grew past one.
-/// The tray now mirrors the Control Plane section: a **Control Plane**
+/// The tray lists configured servers in a **Servers**
 /// submenu of the saved addresses — the node's own connected one first, the
 /// same pinned-row rule as the page — each opening **Open in App | Open in
 /// Browser**. The ids carry the canonical URL, so a click acts on exactly
@@ -82,7 +82,7 @@ const UPDATE_ID: &str = "tray:update";
 /// build and the click.
 const PLANE_APP_PREFIX: &str = "tray:plane-app:";
 const PLANE_BROWSER_PREFIX: &str = "tray:plane-browser:";
-const CONTROL_PLANE_TITLE: &str = "Control Plane";
+const CONTROL_PLANE_TITLE: &str = "Servers";
 /// The empty-list child's id — a disabled label, never a press target.
 const PLANE_NONE_ID: &str = "tray:plane-none";
 /// "Open Last" — the address of the last deliberate plane open, through the
@@ -114,7 +114,7 @@ pub fn plane_entries(planes: &[String], connected: Option<&str>) -> Vec<String> 
     out
 }
 
-/// The Control Plane submenu, read LIVE: the stored list from the app's own
+/// The Servers submenu, read live: the stored list from the app's own
 /// settings, the connected address from the node's config file — no probe,
 /// no window, nothing async. Refreshed by [`refresh`] on every change to
 /// either (plane add/remove, enroll, un-enroll).
@@ -137,7 +137,7 @@ fn control_plane_submenu(app: &AppHandle) -> tauri::Result<Submenu<Wry>> {
         // reads as a bug; a greyed line says what is true. Open Last can
         // still stand above it — an address can leave the list without
         // un-happening the visit — so the submenu is never wholly dead.
-        let none = MenuItem::with_id(app, PLANE_NONE_ID, "No control planes yet", false, None::<&str>)?;
+        let none = MenuItem::with_id(app, PLANE_NONE_ID, "No servers added yet", false, None::<&str>)?;
         return Submenu::with_items(app, CONTROL_PLANE_TITLE, true, &[&open_last, &none]);
     }
     let separator = PredefinedMenuItem::separator(app)?;

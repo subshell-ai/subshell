@@ -164,25 +164,25 @@ export interface CliDeps {
   spawnInstall?: (argv: readonly string[]) => number;
 }
 
-const USAGE = `subshell-server: the Subshell control plane
+const USAGE = `subshell-server: the Subshell server
 
 usage:
-  subshell-server                run the server (boot path: no subcommand)
+  subshell-server                run the server
   subshell-server help           print this usage and exit (also --help and -h)
   subshell-server version        print the version and exit (also --version and -v)
   subshell-server license        print the copyright and licence and exit
-  subshell-server status         print the resolved config view and exit (--json for machine output)
-  subshell-server init           first run: config home + auth secret + config.env + the service
+  subshell-server status         show the effective configuration and exit (--json for machine output)
+  subshell-server init           set up configuration, an authentication secret, and an optional service
   subshell-server configure      (re)write config.env; interactive unless --yes
-  subshell-server update         install a newer server over this one (--check to look only)
+  subshell-server update         update the server (--check only checks for updates)
   subshell-server backup         capture a full instance archive (optional password encryption)
   subshell-server restore        inspect or restore a full archive or database-only snapshot
   subshell-server reset          stop the server and delete its data and settings, keeping the binary;
-                                 the machine's NAME must be typed (--confirm <name> when headless)
-  subshell-server uninstall      stop the server, remove the service and the installed binary, and ASK
+                                 the machine's name must be typed (--confirm <name> when headless)
+  subshell-server uninstall      stop the server, remove the service and the installed binary, and ask
                                  whether the data and settings go too (default: keep them); the same
-                                 typed-name consent; --yes is refused for both
-  subshell-server service install    background the server (systemd user unit / launchd agent);
+                                 name confirmation; --yes can't confirm either operation
+  subshell-server service install    run the server in the background (systemd user unit / launchd agent);
                                      --no-autostart to run it now but not at login
   subshell-server service uninstall  stop it and remove the service definition
   subshell-server service enable     start it at login (does not touch the running process)
@@ -201,12 +201,12 @@ usage:
 init/configure flags: --port <n> --host <h> --base-url <url> --db-path <path>
                       --trusted-origins <origin,origin>   other addresses browsers will
                                                           use (empty clears the list)
-                      --yes                    answers EVERY question yes: the file/built-in
+                      --yes                    answers every question yes: the file/built-in
                                                defaults, the tmux install, and for init the
                                                background service and the ~/.local/bin PATH write
 init-only flags:      --service / --no-service            install the background service,
                                                           or skip it (default: ask; a run
-                                                          with nobody to ask skips, loudly)
+                                                          without a terminal skips installation and prints a notice)
 
 update flags:         --check                  report what is available and stop
                       --to <version>           install this published version
@@ -234,23 +234,23 @@ restore flags:       --inspect [--json]       validate and show public metadata;
                       --password-file <path|-> archive decryption password
                       --recover-admin <id> --temporary-password-file <path|->
                                                existing administrator only; recovery defaults off
-                      --start / --no-start     default: start and verify the serving boot
-                      --yes                    consent to replacement of the displayed paths
-                      --force                  separate consent to interrupt active panes
+                      --start / --no-start     default: start the server and check that it runs
+                      --yes                    confirm replacement of the displayed paths
+                      --force                  separately confirm interrupting active panes
                       --json                   machine output, never interactive
-                      Password values never belong on argv. Files must be owned by this OS
+                      Never pass passwords as command-line arguments. Files must be owned by this OS
                       user with no group/other access. Only one password may use stdin.
                       Staged restores use the choices already prepared in Server Settings.
 
 reset/uninstall flags: --confirm <machine-name>  the machine's name, for a run with no TTY to
                       type it into; without it (and without a terminal) both verbs refuse and
                       change nothing. --reset-data answers uninstall's data question yes without
-                      a terminal; without it a headless uninstall KEEPS the data and settings.
+                      a terminal; without it a headless uninstall keeps the data and settings.
                       On a reset the flag is refused: a reset always clears the data. --yes is
-                      REFUSED on both: it cannot stand in for the name.
+                      unavailable for both: enter the machine's name to confirm.
 
 verbose:              --verbose after a verb (init/configure/update, and every service
-                      verb) raises this run's CONSOLE logging to debug level, HTTP request
+                      verb) raises this run's console logging to debug level, HTTP request
                       lines included. Leading the command it boots the server the same
                       way. SUBSHELL_VERBOSE=1 (or =true) is the same switch for the
                       whole process, flag or env. It never touches server.log's level or
@@ -638,7 +638,7 @@ export async function dispatchCli(argv: string[], deps: CliDeps = {}): Promise<b
     }
     case "reset":
     case "uninstall": {
-      // The destructive verbs (issue #232). Consent is the machine's NAME, so
+      // The destructive verbs (issue #232). Consent is the machine's name, so
       // `--yes` — the flag that answers every OTHER question — is refused
       // HERE by name, never ignored: a flag a rushed operator reaches for and
       // that silently did not apply must say so, the way `service install`

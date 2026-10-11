@@ -220,7 +220,7 @@ describe("settingsFields", () => {
     const plugin = createPlugin(createTestHost()) as NetworkPlugin;
     const token = plugin.settingsFields?.().find((f) => f.key === "tunnel-token");
     expect(token?.description).toBe(
-      "It reaches the tunnel through the connector's own environment, never a command line.",
+      "Subshell passes the token to the tunnel through its environment, never as a command-line argument.",
     );
     expect(token?.description).not.toContain("subshell-server backup");
   });
@@ -369,7 +369,9 @@ describe("status", () => {
     const status = await plugin.status(ctx());
     // Access is a front door, not a session (§ 6) — said where the address is
     // rendered, not discovered at the login screen.
-    expect(status.hints.some((h) => h.text.includes("front door") && h.text.includes("sign-in"))).toBe(true);
+    expect(
+      status.hints.some((h) => h.text.includes("controls who can reach") && h.text.includes("sign in to Subshell")),
+    ).toBe(true);
     // And the § 5.6 trap: the port the tunnel routes to lives in the
     // dashboard, not in the token, so a port change never reaches it.
     expect(status.hints.some((h) => h.text.includes("port") && h.text.toLowerCase().includes("dashboard"))).toBe(true);

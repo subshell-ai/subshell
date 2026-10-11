@@ -1,8 +1,7 @@
 /**
  * Confirmation prompts for the node acts that reach past the person clicking
- * them, sibling to `lib/subshell-confirmations.ts` and following its rule:
- * the TITLE is the question with the node's name in it, the DESCRIPTION is
- * the one-sentence consequence.
+ * them. Keep the title fixed and identify the node in the description,
+ * along with the consequences.
  *
  * Only ONE node act needs asking, and it is asked from two places — the row's
  * overflow menu on `/nodes` and the Maintenance card on a node's page — which
@@ -33,11 +32,12 @@ import { subshellCount } from "./node-maintenance";
  * about.
  */
 function stoppingClause(runningSubshells: number | undefined): string {
-  if (runningSubshells === undefined) return "Any subshells running here will be stopped and their owners notified.";
+  if (runningSubshells === undefined)
+    return "Subshell will try to stop any subshells running here and notify their owners.";
   if (runningSubshells === 0) return "Nothing is running here.";
   // "N subshells", never "N running": the server counts parked rows too, so
   // the stronger word would claim more than the number supports.
-  return `${subshellCount(runningSubshells)} running here will be stopped and their owners notified.`;
+  return `Subshell will try to stop ${subshellCount(runningSubshells)} here and notify their owners.`;
 }
 
 /**
@@ -60,12 +60,16 @@ export function confirmStartMaintenance({
   isLocal: boolean;
   runningSubshells: number | undefined;
 }): Promise<boolean> {
-  const description = `${stoppingClause(runningSubshells)} Nobody${
+  const stoppingLimits =
+    runningSubshells === 0
+      ? ""
+      : " Some may keep running if they can't be stopped. Subshells that stop won't restart automatically when maintenance ends.";
+  const description = `${stoppingClause(runningSubshells)}${stoppingLimits} Nobody${
     isLocal ? ", admins included," : ""
   } can launch here until maintenance ends.`;
   return confirmAction({
-    title: `Start maintenance on "${name}"?`,
-    description,
+    title: "Start maintenance?",
+    description: `On "${name}": ${description}`,
     confirmLabel: "Start maintenance",
     danger: true,
   });

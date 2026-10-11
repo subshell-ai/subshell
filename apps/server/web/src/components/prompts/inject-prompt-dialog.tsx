@@ -12,7 +12,7 @@ import {
 import type { PromptBlock } from "@/lib/prompt-stack";
 
 /**
- * The subshell menu's "Inject prompt..." (spec 2026-09-28): the shared
+ * The subshell menu's "Insert prompt…" (spec 2026-09-28): the shared
  * picker BODY on a Dialog in single-select, then a confirm step that says
  * exactly what the button does. The text is TYPED, never submitted: a
  * submitted line can corrupt a harness mid-turn, so the person reviews it
@@ -48,7 +48,7 @@ export function InjectPromptDialog({
     } catch (err) {
       // The row died or its node went dark since the menu drew: the server's
       // own sentence, on the dialog that failed.
-      setError(errMessage(err, "The prompt could not be typed into the pane"));
+      setError(errMessage(err, "Couldn't insert the prompt into the subshell."));
     } finally {
       setBusy(false);
     }
@@ -72,9 +72,10 @@ export function InjectPromptDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Send prompt to agent?</DialogTitle>
+          <DialogTitle>Insert this prompt?</DialogTitle>
           <DialogDescription>
-            This types into the pane without sending. Press Enter there when you are ready.
+            This adds the prompt to the subshell without submitting it. Review it there, then press Enter when you're
+            ready.
           </DialogDescription>
         </DialogHeader>
         <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap break-words rounded-md border bg-muted/40 p-3 font-mono text-sm">
@@ -90,7 +91,7 @@ export function InjectPromptDialog({
             Back
           </Button>
           <Button onClick={() => void send()} disabled={busy}>
-            {busy ? "Typing…" : "Type into pane"}
+            {busy ? "Inserting…" : "Insert prompt"}
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -102,7 +102,7 @@ describe("row update state, read from the server's tracker", () => {
 
   it("states a failed update with the server's reason", () => {
     renderRows(fleet(updateState({ phase: "failed", message: "nothing respawns this agent", endedAt: "x" })));
-    expect(screen.getByText(/did not land: nothing respawns this agent/)).toBeTruthy();
+    expect(screen.getByText(/didn't finish: nothing respawns this agent/)).toBeTruthy();
   });
 
   it("says nothing extra when no update was ordered", () => {

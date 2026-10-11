@@ -5,7 +5,7 @@
  * addendum: the arrangement stated, the run-at-login switch under it, the
  * lifecycle verbs for an installed service, the install-service door for a
  * machine whose node is unsupervised, and NO reveal bar (Status's facts carry
- * the paths). The install/no-node split and the unrecognised step are pinned
+ * the paths). The install/no-node split and the unrecognized step are pinned
  * at the app level, where the whole page is under test.
  */
 import { afterEach, describe, expect, it, setSystemTime } from "bun:test";
@@ -200,11 +200,7 @@ describe("the run-at-login switch", () => {
     // The card's exact current-condition sentence and the exact help the
     // armed switch owes (copy wave review, item 5: the pattern's variants
     // must be pinned, not sampled).
-    expect(
-      screen.getByText(
-        "Currently the Subshell Node Service runs in the background, and starts automatically on startup.",
-      ),
-    ).toBeTruthy();
+    expect(screen.getByText("The Subshell Node Service runs in the background and starts automatically.")).toBeTruthy();
     expect(
       screen.getByText(
         "Turning this off leaves it running in the background, but it will not start again after a startup.",
@@ -217,9 +213,7 @@ describe("the run-at-login switch", () => {
   it("states the disarmed condition, and what the press arms", () => {
     mount({ probe: makeProbe({ service: service({ autostart: false }) }) });
     expect(
-      screen.getByText(
-        "Currently the Subshell Node Service runs in the background, but does not automatically start on startup.",
-      ),
+      screen.getByText("The Subshell Node Service runs in the background but doesn't start automatically."),
     ).toBeTruthy();
     expect(screen.getByText("Turning this on starts it automatically every time the machine starts.")).toBeTruthy();
   });
@@ -246,7 +240,7 @@ describe("the run-at-login switch", () => {
     expect(sw?.hasAttribute("data-disabled")).toBe(true);
     expect(
       screen.getByText(
-        "Currently the Subshell Node Service runs in the background. Whether it starts on startup is not reported.",
+        "The Subshell Node Service runs in the background, but hasn't reported whether it starts automatically.",
       ),
     ).toBeTruthy();
     // Unknown speaks through the card alone: the switch's help line is EMPTY
@@ -476,13 +470,13 @@ describe("while the section's own act is in flight", () => {
   it("the offline sentences wait out the act, and say their piece after", () => {
     const offline = makeProbe({ step: "offline" });
     mount({ probe: offline, busy: true, active: "restart" });
-    expect(screen.queryByText(/service manager reports the node as running/i)).toBeNull();
-    expect(screen.queryByText(/A node that starts, fails/i)).toBeNull();
+    expect(screen.queryByText(/service manager says the node is running/i)).toBeNull();
+    expect(screen.queryByText(/The node may be failing and restarting/i)).toBeNull();
     // The arrangement it always states is NOT part of the hush.
     expect(screen.getByText(/runs in the background/i)).toBeTruthy();
     cleanup();
     mount({ probe: offline });
-    expect(screen.getByText(/service manager reports the node as running/i)).toBeTruthy();
+    expect(screen.getByText(/service manager says the node is running/i)).toBeTruthy();
   });
 
   // The follow-up ruling, from the same live window: busy is not the whole
@@ -494,18 +488,18 @@ describe("while the section's own act is in flight", () => {
     setSystemTime(new Date("2026-09-22T12:00:00Z"));
     const ended = { label: "restart", at: Date.now() };
     const { again } = mountView({ probe: offline, busy: true, active: "restart" });
-    expect(screen.queryByText(/service manager reports the node as running/i)).toBeNull();
+    expect(screen.queryByText(/service manager says the node is running/i)).toBeNull();
     // The act settles. The spinner is gone; the daemon is still booting.
     again({ probe: offline, busy: false, active: null, actEnded: ended });
-    expect(screen.queryByText(/service manager reports the node as running/i)).toBeNull();
+    expect(screen.queryByText(/service manager says the node is running/i)).toBeNull();
     // The grace ends on a later poll, and the sentence arrives in the
     // screen's warning dress ("it should probably be written as a yellow
     // warning"), not as body text.
     setSystemTime(new Date("2026-09-22T12:00:16Z"));
     again({ probe: offline, busy: false, active: null, actEnded: ended });
-    const line = screen.getByText(/service manager reports the node as running/i);
+    const line = screen.getByText(/service manager says the node is running/i);
     expect(line.closest("[class*='warning']")).not.toBeNull();
-    expect(screen.getByText(/A node that starts, fails/i)).toBeTruthy();
+    expect(screen.getByText(/The node may be failing and restarting/i)).toBeTruthy();
   });
 
   it("a stop keeps no grace: its answer is on the card the moment the act ends", () => {
@@ -517,9 +511,9 @@ describe("while the section's own act is in flight", () => {
     const offline = makeProbe({ step: "offline" });
     setSystemTime(new Date("2026-09-22T12:00:00Z"));
     const { again } = mountView({ probe: offline, busy: true, active: "stop" });
-    expect(screen.queryByText(/service manager reports the node as running/i)).toBeNull();
+    expect(screen.queryByText(/service manager says the node is running/i)).toBeNull();
     again({ probe: offline, busy: false, active: null, actEnded: { label: "stop", at: Date.now() } });
-    expect(screen.getByText(/service manager reports the node as running/i)).toBeTruthy();
+    expect(screen.getByText(/service manager says the node is running/i)).toBeTruthy();
   });
 });
 

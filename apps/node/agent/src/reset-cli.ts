@@ -124,7 +124,7 @@ export async function buildNodeResetPlan(): Promise<NodeResetPlan> {
     binaryReason =
       failure instanceof UpdateRefused
         ? failure.message
-        : `the binary ladder did not answer: ${failure instanceof Error ? failure.message : String(failure)}`;
+        : `couldn't locate the installed binary: ${failure instanceof Error ? failure.message : String(failure)}`;
   }
   return {
     // Resolved the way the delete and the guards both need: as typed is
@@ -277,7 +277,7 @@ export async function runNodeReset(
       out.push("not interactive: the data and settings stay; pass --reset-data to delete them");
     } else {
       const answer = await (deps.askConfirm ?? (() => Promise.resolve(false)))(
-        "Delete this node's data too: the data directory (identity, pane logs), the daemon lock, and the node config with its key, the way `reset` does? A reset leaves no copy behind. [y/N]",
+        "Also delete this node's identity, pane logs, daemon lock, and configuration, including its key? This permanently removes the same data as `reset`. [y/N]",
         false,
       );
       if (answer === null) return res(1, out, ["subshell: cancelled; nothing was changed"]);

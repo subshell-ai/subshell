@@ -13,14 +13,14 @@ import { createSubshellErrorMessage } from "@/lib/create-subshell-error";
  */
 describe("createSubshellErrorMessage", () => {
   it("turns a 409 NODE_OFFLINE into the actionable node line", () => {
-    const err = new ApiError(409, "Node is offline", { code: "NODE_OFFLINE", errId: "e1" });
+    const err = new ApiError(409, "This node is offline", { code: "NODE_OFFLINE", errId: "e1" });
     expect(createSubshellErrorMessage(err, "Failed to create subshell")).toBe(
-      "That node is offline. Start its subshell or pick another node.",
+      "That node is offline. Start its Subshell daemon or choose another node.",
     );
   });
 
   it("turns a NODE_UNREACHABLE into the retry-soon line", () => {
-    const err = new ApiError(409, "Node did not respond", { code: "NODE_UNREACHABLE" });
+    const err = new ApiError(409, "This node didn't respond", { code: "NODE_UNREACHABLE" });
     expect(createSubshellErrorMessage(err, "Failed to create subshell")).toBe(
       "The node did not answer. Try again shortly.",
     );
@@ -29,7 +29,7 @@ describe("createSubshellErrorMessage", () => {
   it("turns a 409 NODE_IN_MAINTENANCE into the line naming both ways out", () => {
     // The node is up and answering everything else, so "offline" copy would
     // send the reader to look at a machine that is fine.
-    const err = new ApiError(409, "Node is in maintenance", { code: "NODE_IN_MAINTENANCE" });
+    const err = new ApiError(409, "This node is in maintenance", { code: "NODE_IN_MAINTENANCE" });
     expect(createSubshellErrorMessage(err, "Failed to create subshell")).toBe(
       "That node is in maintenance. Pick another node, or end maintenance from its node page.",
     );

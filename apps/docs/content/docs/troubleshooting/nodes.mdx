@@ -13,13 +13,13 @@ A terminal-started daemon can work while the service is absent. A service may us
 
 ## Connectivity
 
-Verify the node can reach the server's address. It connects outward to the control plane, so a loopback URL referring to the node itself cannot reach a remote server.
+Verify the node can reach the server's address. It connects outward to the control plane, so a loopback URL referring to the node itself can't reach a remote server.
 
 A duplicate daemon or restored copy of the same identity can displace an existing connection. Avoid `status --probe` as a routine test because it also connects as that identity.
 
-## Version refusal
+## Incompatible node version
 
-Check both minimum node release and exact protocol compatibility. A refused node can remain held for updating while still unavailable for launches. Use the offered compatible update instead of bypassing the gate.
+Check the minimum node version and protocol version required by your server. An incompatible node can stay connected for updates, but can't launch subshells. Install the compatible version offered by the server.
 
 ## Missing installation binary
 
@@ -27,7 +27,7 @@ The server can lazily fetch and verify missing node binaries from its configured
 
 ## Launch availability
 
-Online status is not enough. Maintenance, node grants, instance lockdown, and harness detection can make a node unlaunchable.
+Online status isn't enough. Maintenance, node grants, instance lockdown, and harness detection can make a node unlaunchable.
 
 ## Next steps
 

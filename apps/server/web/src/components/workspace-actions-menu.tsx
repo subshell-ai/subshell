@@ -79,8 +79,8 @@ export function WorkspaceActionsMenu({
       <QrLinkDialog
         open={qrOpen}
         onOpenChange={setQrOpen}
-        title={`Open "${workspace.name}" elsewhere`}
-        description="Scan to open this workspace on another device. It still asks whoever scans it to sign in."
+        title="Open this workspace on another device"
+        description={`Scan to open "${workspace.name}" on another device. You'll need to sign in if you haven't already.`}
         path={`/workspaces/${workspace.id}`}
       />
     </>

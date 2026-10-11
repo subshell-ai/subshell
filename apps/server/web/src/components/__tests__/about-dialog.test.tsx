@@ -48,6 +48,7 @@ afterEach(() => {
 describe("AboutDialog", () => {
   it("names the instance and the CLI version, with the licence and links, in a browser", () => {
     renderAbout("Mozilla/5.0");
+    expect(screen.getByRole("heading", { name: "About Subshell" })).toBeTruthy();
     expect(screen.getByText("Prod plane")).toBeTruthy();
     // In a browser the CLI line is the whole truth — there is no app wrapping
     // anything here.

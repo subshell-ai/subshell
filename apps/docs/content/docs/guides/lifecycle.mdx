@@ -3,7 +3,7 @@ title: "Session lifecycle"
 description: "Understand disconnecting, restarting, terminating, and permanently closing a subshell."
 ---
 
-Manage a subshell's process and stored history without confusing them with browser tabs.
+Choose whether to disconnect, restart, or permanently close a subshell.
 
 ## Process and record lifecycle
 
@@ -18,28 +18,28 @@ flowchart TD
   R -->|Dashboard Close| D[Process stops; record and log deleted]
 ```
 
-Retained logs are subject to retention limits. Restarting a session does not guarantee that its agent can resume a conversation.
+Retained logs are subject to retention limits. Restarting a session doesn't guarantee that its agent can resume a conversation.
 
 ## Disconnect a viewer
 
-Closing a browser tab disconnects that viewer. It does not stop the agent or remove the subshell. The machine must remain running for its process to continue.
+Closing a browser tab disconnects that viewer. It doesn't stop the agent or remove the subshell. The machine must remain running for its process to continue.
 
 ## Restart a session
 
 When a process exits, the subshell may remain listed with `status: "running"` and `alive: false`. In the server dashboard's sidebar, choose **Subshells**, open the session's **⋯** menu, and choose **Restart** to revive it in place. A terminated subshell offers **Start again**.
 
-A restart keeps the subshell ID and launches from its stored harness, preset, and directory. Conversation resumption depends on harness support and the survival of the agent's transcript. Credentials rotate on restart.
+Restarting a running subshell interrupts its current work. The subshell keeps its ID and starts again with its saved agent, preset, and working directory. Whether the agent can resume its conversation depends on the agent and its saved history. Subshell also replaces the session's credentials.
 
 ## Close permanently
 
 > [!warning] Permanent removal
-> **Close** stops the process and removes the subshell's row and captured history. The confirmation states that it cannot be recovered.
+> **Close** stops the process and removes the subshell's record and captured history. You can't undo this.
 
-To close a session you own, open its **⋯** menu on the **Subshells** page and choose **Close**. Only the owner can close a subshell. Removing a subshell also removes its workspace pane references. This does not delete the project's files or the agent CLI's separate conversation storage.
+To close a session you own, open its **⋯** menu on the **Subshells** page and choose **Close**, then review the warning and select **Close subshell**. Only the owner can close a subshell. Removing a subshell also removes its workspace pane references. This doesn't delete the project's files or the agent CLI's separate conversation storage.
 
-## Stop while retaining the row
+## Stop a session and keep its record
 
-MCP's `terminate_subshell` and the REST terminate endpoint stop the process and retain its row. Their delete operations remove it. The dashboard's **Close** action permanently deletes the subshell.
+Use MCP's `terminate_subshell` or the REST terminate endpoint to stop a process and keep its session record. Their delete operations remove the record. In the dashboard, **Close** permanently deletes the subshell.
 
 Captured logs of retained terminated subshells are subject to the retention settings listed in [Environment variables](/reference/environment).
 

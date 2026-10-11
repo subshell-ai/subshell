@@ -10,26 +10,26 @@ Diagnose missing browser or PWA notifications.
 1. Open the profile menu at the bottom of the server dashboard's sidebar and choose **Preferences**. In the **Notifications** section, confirm **Subshell notifications** is on.
 2. Choose **Subshells** in the sidebar and open the session's **⋯** menu. **Mute notifications** means its bell is on; **Notify when done** turns it on.
 3. Check browser or OS notification permission for this device.
-4. Return to **Preferences** → **Notifications** and check the device's notification state. Use **Enable notifications on this device** if it is not enabled.
+4. Return to **Preferences** → **Notifications** and check the device's notification state. Use **Enable notifications on this device** if it isn't enabled.
 5. Verify that the harness produces the event you expect.
 
-Sharing a subshell does not subscribe you to its notifications. Alerts go to its owner. Agent-created helpers start muted.
+Sharing a subshell doesn't subscribe you to its notifications. Alerts go to its owner. Created by agents helpers start muted.
 
 ## Browser support
 
 Remote web push requires a suitable secure context. An HTTP LAN or mesh address may display the application while lacking notification support.
 
-On iPhone and iPad, install the web app on the home screen and request permission from that installed web app. A regular browser tab is not equivalent.
+On iPhone and iPad, install the web app on the home screen and request permission from that installed web app. A regular browser tab isn't equivalent.
 
 ## Agent events
 
-Terminal is a plain shell and does not report agent turn completion. Other harnesses differ in their attention-hook support. Waiting on active background work can also keep an agent from reporting completion.
+Terminal is a plain shell and doesn't report agent turn completion. Other harnesses differ in their attention-hook support. Waiting on active background work can also keep an agent from reporting completion.
 
-Do not infer process death from the absence of a push. Inspect the subshell's activity and liveness.
+Don't infer process death from the absence of a push. Inspect the subshell's activity and liveness.
 
 ## Server delivery
 
-Administrators can open **Server Settings** → **Logs** in the dashboard sidebar and inspect system output for delivery failures. Preserve the instance's web-push state when backing up or moving it, and do not publish private delivery credentials in reports.
+Administrators can open **Server Settings** → **Logs** in the dashboard sidebar and inspect system output for delivery failures. Preserve the instance's web-push state when backing up or moving it, and don't publish private delivery credentials in reports.
 
 ## Next steps
 

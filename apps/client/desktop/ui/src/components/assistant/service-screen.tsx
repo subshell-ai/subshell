@@ -107,9 +107,9 @@ const TONE_BADGE: Record<string, "success" | "warning" | "destructive" | "muted"
 function serviceProblem(step: ProbeStep): string | null {
   switch (step) {
     case "offline":
-      return "The service manager reports the node as running, but no local daemon is heartbeating.";
+      return "The service manager says the node is running, but the Subshell daemon isn't responding.";
     case "no-service":
-      return "Currently there is no Subshell Node Service. The node only runs when you start it yourself.";
+      return "The Subshell Node Service isn't installed. The node runs only when you start it yourself.";
     default:
       return null;
   }
@@ -119,10 +119,7 @@ function serviceProblem(step: ProbeStep): string | null {
 function serviceDetail(step: ProbeStep): string | null {
   switch (step) {
     case "offline":
-      return (
-        "A node that starts, fails and is restarted on a timer looks exactly like this. Its own log says why: a " +
-        "missing tmux, an unreachable control plane, or a node key the server no longer recognises."
-      );
+      return "The node may be failing and restarting repeatedly. Check its log for details, such as missing tmux, an unreachable server, or an invalid node key.";
     case "no-service":
       return "Installing the Subshell Node Service runs it in the background and brings it back if it stops.";
     default:
@@ -137,11 +134,11 @@ function serviceDetail(step: ProbeStep): string | null {
  */
 function arrangementBody(atLogin: boolean | null): string {
   if (atLogin === null) {
-    return "Currently the Subshell Node Service runs in the background. Whether it starts on startup is not reported.";
+    return "The Subshell Node Service runs in the background, but hasn't reported whether it starts automatically.";
   }
   return atLogin
-    ? "Currently the Subshell Node Service runs in the background, and starts automatically on startup."
-    : "Currently the Subshell Node Service runs in the background, but does not automatically start on startup.";
+    ? "The Subshell Node Service runs in the background and starts automatically."
+    : "The Subshell Node Service runs in the background but doesn't start automatically.";
 }
 
 export function ServiceScreen(props: {
@@ -264,7 +261,7 @@ export function ServiceScreen(props: {
       {probe && !known && (
         <div className="mt-6 rounded-md border border-warning/40 bg-warning/10 p-3">
           <p className="text-detail leading-relaxed">
-            This app does not recognise the state "{probe.step}", which usually means it is older than the node CLI it
+            This app does not recognize the state "{probe.step}", which usually means it is older than the node CLI it
             is managing.
           </p>
         </div>
@@ -273,8 +270,8 @@ export function ServiceScreen(props: {
       {mute && (
         <div className="mt-6 rounded-md border border-warning/40 bg-warning/10 p-3">
           <p className="text-detail leading-relaxed">
-            Nothing has been changed. This app will not offer to register a machine whose node CLI cannot say whether it
-            is already a node: enrolling overwrites the existing configuration and discards its node key.
+            The node CLI couldn't report whether this machine is already registered, so registration is unavailable.
+            Registering it again would overwrite its configuration and node key.
           </p>
         </div>
       )}
@@ -497,8 +494,8 @@ export function ServiceScreen(props: {
             <p role="status" aria-label="Loopback control plane" className="mt-2 flex items-start gap-2">
               <TriangleAlert aria-hidden className="mt-0.5 size-3.5 shrink-0 text-warning" />
               <span className="text-detail text-muted-foreground">
-                This is a loopback address, so this node looks for a control plane on this machine. That is right if the
-                server runs here, and wrong if the address came from a browser somewhere else.
+                This address connects to a server on this machine. If your server runs elsewhere, use its network
+                address instead.
               </span>
             </p>
           )}

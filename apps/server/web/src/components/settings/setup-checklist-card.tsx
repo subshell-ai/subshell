@@ -104,7 +104,7 @@ export function SetupChecklistCard() {
       <CardHeader>
         <CardTitle>Finish setting up</CardTitle>
         <CardDescription>
-          What this instance still needs. Items leave this list when the machine changes; there is nothing to dismiss.
+          Finish these steps to set up your server. Completed items disappear automatically.
         </CardDescription>
       </CardHeader>
       <CardContent>

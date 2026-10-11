@@ -207,7 +207,7 @@ function LoginPage() {
               load-bearing: while it is pending or failed, the form is
               unchanged and fully usable. */}
           <CardTitle>Sign in to {instanceName ?? "Subshell"}</CardTitle>
-          <CardDescription>Manage your agent harness subshells.</CardDescription>
+          <CardDescription>Open your agents and terminal sessions.</CardDescription>
         </CardHeader>
         <CardContent>
           {/* The generic round-trip refusal lives ABOVE the provider block, not in

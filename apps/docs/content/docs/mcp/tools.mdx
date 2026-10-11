@@ -9,7 +9,7 @@ Look up the tools exposed by the Subshell MCP server.
 
 These are MCP calls, not shell commands. JSON examples are tool arguments; replace example IDs with values returned by the corresponding list tool.
 
-A pane authenticates as its owner with a scoped token. Enumeration may include shared sessions that detail and write operations cannot reach. Node enumeration is owner-only. Instance administration requires an admin cookie and is not provided by these tools.
+A pane uses a scoped token to act as its owner. Session lists can include shared sessions that the pane can't inspect or change, and node lists include only the owner's nodes. These tools don't provide instance administration, which requires an admin cookie session.
 
 Successful MCP responses contain JSON encoded in a text content block. Failures produce actionable tool errors.
 
@@ -23,7 +23,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 | `list_presets` | List saved presets and harness catalog entries. |
 | `create_subshell` | Launch a helper from a saved preset ID. |
 | `restart_subshell` | Revive a session in place. |
-| `terminate_subshell` | Stop the process and retain the row. |
+| `terminate_subshell` | Stop the process and keep the session record. |
 | `delete_subshell` | Remove the session and captured history. |
 | `read_subshell_log` | Read the tail of captured pane output. |
 | `send_to_subshell` | Type into a live owned session. |
@@ -44,7 +44,7 @@ Successful MCP responses contain JSON encoded in a text content block. Failures 
 
 Arguments: `{}`. Returns an array with `id`, `name`, `harnessId`, `nodeId`, `nodeOffline`, `status`, `activity`, `alive`, `workingDir`, `preview`, `waitingSince`, `exitCode`, `access`, `lastOutputAt`, and `crossAgent`.
 
-A false `alive` can accompany a running row. Inspect liveness before sending input. List visibility includes owner and shared rows, but inspecting or changing another user's shared session is refused.
+A session can have `status: running` even after its process exits, so check `alive` before sending input. The list includes your own and shared sessions, but you can't use a pane token to inspect or change another user's shared session.
 
 ## get_subshell
 
@@ -54,7 +54,7 @@ Pass exactly one of `id` or `name`:
 { "id": "SUBSHELL_ID" }
 ```
 
-Returns the same session view as `list_subshells`. Name matching uses exact spelling first, then case-insensitive matching. A tie is refused; use an ID.
+Returns the same session view as `list_subshells`. Names match exact spelling first, then ignore case. If more than one session matches, use its ID.
 
 ## list_nodes
 
@@ -92,15 +92,15 @@ The helper is marked cross-agent and created with notifications off. Its creator
 
 Pass required `id` and optional `prompt`. Returns `{ id, promptDelivered }`.
 
-Restart kills the existing process tree and relaunches the same row. A supplied prompt is typed after the new process settles. Restarting your own pane terminates the caller.
+Restart stops the existing process tree and relaunches the same session. Subshell types any supplied prompt once the new process is ready. Don't restart your own pane: doing so terminates the process making the call.
 
 ## terminate_subshell
 
-Pass `{ "id": "SUBSHELL_ID" }`. Returns the operation's `{ ok }` result. Stops the process, revokes its pane token, and retains the row. Terminate requires edit access under the token's owner boundary.
+Pass `{ "id": "SUBSHELL_ID" }`. Returns the operation's `{ ok }` result. Stops the process, revokes its pane token, and keeps the session record. Terminate requires edit access under the token's owner boundary.
 
 ## delete_subshell
 
-Pass `{ "id": "SUBSHELL_ID" }`. Returns `{ ok }`. Stops a running process first, then permanently removes its row and captured history. Deletion is owner-only.
+Pass `{ "id": "SUBSHELL_ID" }`. Returns `{ ok }`. Stops a running process first, then permanently removes its session record and captured history. Deletion is owner-only.
 
 ## read_subshell_log
 
@@ -110,7 +110,7 @@ Pass `{ "id": "SUBSHELL_ID" }` for the tail, or add `from_byte` (a previous `nex
 
 Pass required `id` and `text`, plus optional `submit`. The default is `submit: true`, which sends Enter after the text. Returns `{ ok: true }`.
 
-Text and Enter are ordered input operations, not an atomic transaction. An exited pane refuses with `SUBSHELL_NOT_RUNNING`; restart it before retrying when authorized.
+Text and Enter are ordered input operations, not an atomic transaction. If the pane has exited, the call returns `SUBSHELL_NOT_RUNNING`. Restart it before retrying when you're authorized to do so.
 
 ## transfer_files
 
@@ -120,23 +120,38 @@ Text and Enter are ordered input operations, not an atomic transaction. An exite
 | `to` | Required object | Destination node and absolute destination directory. |
 | `sync` | Optional boolean | `true` ships only files whose SHA-256 differs; absent copies the whole source tree. |
 
-Returns `{ sync, archiveBytes, files, bytes, changed }`. The tree rides one streamed archive through the control plane; neither machine needs `tar` or `rsync`.
+Returns `{ sync, archiveBytes, files, bytes, changed }`. Subshell sends the directory tree through the server as one streamed archive. Neither machine needs `tar` or `rsync`.
 
-Both endpoints must be machine nodes the caller owns, online, and out of maintenance; the control-plane host and the browser are not transfer endpoints. Each node's operator directory list gates its side, and an empty list means unrestricted. Extraction is additive: matching files at the destination are overwritten and nothing is deleted, so re-running a finished `sync` converges and copies nothing.
+Both endpoints must be enrolled nodes you own, online, and out of maintenance. You can't transfer files to or from the server host or browser. Each node's allowed-directory list limits which paths you can use; an empty list allows any path.
 
-The call is synchronous and capped at 4 GiB uncompressed per archive. An interrupted transfer leaves no partial destination tree; re-running it is the retry. A refusal naming `update the node` means one endpoint's daemon predates this feature; a permissions refusal on your own call means your pane's token predates the feature and a human must restart it.
+The transfer overwrites matching destination files without deleting other files. Running `sync` again after a completed transfer copies nothing unless files have changed.
+
+The call waits for the transfer to finish and allows up to 4 GiB of uncompressed data per archive. An interrupted transfer leaves no partial destination tree. Run the transfer again to retry.
+
+If an error says `update the node`, ask a human to update that endpoint's Subshell daemon. If your own call fails because its pane token lacks this feature's permissions, ask a human to restart the pane. Don't restart your own pane.
 
 ## exec_in_terminal
 
-Pass required `subshell_id` and `command`, plus optional `timeout_ms` (integer milliseconds; the server clamps it into 1000 to 300000, default 30000, rather than refusing an out-of-range ask). Returns `{ status, exitCode, output, truncated, nextByte }`: on `completed`, `exitCode` is the shell's status for the command; on `timed_out` it is null and the command keeps running untouched.
+Pass `subshell_id` and `command`, with optional `timeout_ms` in whole milliseconds. The default timeout is 30,000 ms; values outside 1,000–300,000 ms are adjusted to the nearest limit.
 
-Like `send_to_subshell` this is an edit act on a pane that must run a plain terminal harness, be running, and be quiet. Otherwise it refuses with nothing typed: `SUBSHELL_NOT_RUNNING`, `EXEC_TERMINAL_ONLY` (an agent pane would eat the line), `EXEC_IN_FLIGHT` (another exec already holds the pane), or `EXEC_PANE_BUSY` (read it or wait, then retry). A `timed_out` answer is a success: nothing further is sent, and `output` carries what printed so far, which can end mid-line. `output` holds the newest lines inside 256 KiB (`truncated` names the drop) and includes the shell's echo of the typed command. `nextByte` is the raw log offset just past the sentinel line, or where the wait stopped; pass it as `read_subshell_log`'s `from_byte` to continue exactly.
+Returns `{ status, exitCode, output, truncated, nextByte }`. When `status` is `completed`, `exitCode` contains the command's shell exit status. When it's `timed_out`, `exitCode` is null and the command keeps running.
 
-The completion sentinel speaks POSIX `$?`, so a fish pane answers `timed_out` once its command completes. Interactive programs (password prompts, editors, TUIs) belong to `send_to_subshell` plus `read_subshell_log`; see [Terminal sessions](/mcp/terminals).
+You need edit access to a running, idle pane using a plain terminal harness. If the pane isn't ready, the tool types nothing and returns one of these errors:
+
+- `SUBSHELL_NOT_RUNNING`: restart the pane when authorized.
+- `EXEC_TERMINAL_ONLY`: choose a terminal pane rather than an agent pane.
+- `EXEC_IN_FLIGHT`: wait for the command already using this pane.
+- `EXEC_PANE_BUSY`: read its output or wait, then retry.
+
+A `timed_out` response returns the output collected so far and sends no further input. The output may end mid-line and includes the shell's echo of your command. It contains the most recent output up to 256 KiB; `truncated` tells you whether older output was omitted.
+
+`nextByte` points just past the completion marker, or to where reading stopped. Pass it as `from_byte` to `read_subshell_log` to continue reading.
+
+The completion marker uses POSIX `$?`, so a fish shell returns `timed_out` even after the command finishes. For interactive programs such as editors or password prompts, use `send_to_subshell` and `read_subshell_log`. See [Terminal sessions](/mcp/terminals).
 
 ## list_channels
 
-Arguments: `{}`. Returns channel rows with `id`, `name`, `createdBy`, `createdAt`, `memberCount`, and `lastSeq`. Discovery does not decrypt channel bodies.
+Arguments: `{}`. Returns channel rows with `id`, `name`, `createdBy`, `createdAt`, `memberCount`, and `lastSeq`. Discovery doesn't decrypt channel bodies.
 
 ## create_channel
 
@@ -144,7 +159,7 @@ Pass `{ "name": "change-review" }`. Returns `{ name }` and joins the creator. Na
 
 ## join_channel
 
-Pass `{ "name": "change-review" }`. Returns `{ joined: true }`. Joining does not make the identity a recipient of older posts.
+Pass `{ "name": "change-review" }`. Returns `{ joined: true }`. Joining doesn't make the identity a recipient of older posts.
 
 ## post_channel
 
@@ -171,17 +186,17 @@ Arguments: `{}`. Returns `{ own, shared }`. Brief rows include ID, description, 
 
 ## get_prompt
 
-Pass `{ "id": "PROMPT_ID" }`. Returns the full prompt row including its body. Own prompts and other users' shared prompts are readable; another user's private prompt is not.
+Pass `{ "id": "PROMPT_ID" }`. Returns the full prompt row including its body. Own prompts and other users' shared prompts are readable; another user's private prompt isn't.
 
 ## create_prompt
 
-Pass required `description` and `body`, plus optional `shared` defaulting to false. The description is 1–120 characters; the body is 1–20,000. Returns the created prompt row.
+Pass required `description` and `body`, plus optional `shared` defaulting to false. The description is 1–120 characters; the body is 1–20,000. Returns the created prompt.
 
 `shared: true` publishes the body to every account on the instance. Leave it false unless the user intends that disclosure.
 
 ## update_prompt
 
-Pass required `id` and at least one of `description`, `body`, or `shared`. Uses the same text limits as creation and returns the updated owned row. It cannot modify another user's prompt.
+Pass required `id` and at least one of `description`, `body`, or `shared`. Uses the same text limits as creation and returns your updated prompt. It can't modify another user's prompt.
 
 ## delete_prompt
 
@@ -189,7 +204,7 @@ Pass `{ "id": "PROMPT_ID" }`. Returns `{ ok: true }`. Permanently deletes an own
 
 ## Errors
 
-401 means authentication was rejected. 403 means the action or scope was refused. 404 can mean the row is outside the caller's ownership boundary. 409 can mean an unavailable process or conflicting operation.
+A 401 means authentication failed. A 403 means your credentials don't allow the action. A 404 can mean the resource belongs to someone else, even if it appears in a list. A 409 can mean the process is unavailable or another operation conflicts with the request.
 
 Launch errors can name `NODE_REQUIRED`, `NODE_OFFLINE`, or `NODE_IN_MAINTENANCE`. Input to an exited process names `SUBSHELL_NOT_RUNNING`. Read the supplied remedy and inspect current state before retrying.
 

@@ -19,11 +19,10 @@ export function ReconnectOverlay(): React.ReactNode {
         <Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" aria-hidden />
         <p className="font-strong text-foreground text-label">The node is not responding</p>
         <p className="text-detail text-muted-foreground">
-          Waiting for it to come back. This page reloads itself the moment the node answers.
+          Waiting for the node to reconnect. This page reloads automatically when it's available.
         </p>
         <p className="text-detail text-muted-foreground">
-          If you stopped or uninstalled the service, it will not come back on its own: start it again from a shell on
-          this machine.
+          If you stopped or uninstalled the service, start it again from a terminal on this machine.
         </p>
         <button
           type="button"

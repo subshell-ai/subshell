@@ -832,7 +832,7 @@ never widens who gets pushed. **Agent-launched panes are born silent**
 later act rewrites it) and created with the bell OFF, because
 agent-to-agent comms are not news a human needs rung for; the owner can still
 turn that pane's bell on, and the flag is what files the pane under
-"Cross-agent comms" in the client. It is a disclosure like the other row
+"Created by agents" in the client. It is a disclosure like the other row
 fields: anyone who can see the row can see it.
 
 **What owner-targeting does not decide is WHERE the metadata goes, and the

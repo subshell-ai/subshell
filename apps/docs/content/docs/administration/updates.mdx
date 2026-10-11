@@ -3,11 +3,11 @@ title: "Update the server"
 description: "Check and apply server updates from the dashboard, desktop assistant, CLI, or container workflow."
 ---
 
-Update the server using the mechanism appropriate to its installation.
+Update your server through the dashboard, desktop app, or the tool you used to install it.
 
 ## Before you start
 
-Review running sessions and make a backup. Updating can restart the server and may refuse disruptive work unless explicitly accepted.
+Review running sessions and make a backup before updating. If the update would interrupt active sessions, Subshell asks you to accept that disruption before continuing.
 
 ## Update from the dashboard
 
@@ -23,13 +23,13 @@ Sign in as an administrator. In the server dashboard sidebar, open **Server Sett
 
 The update restarts the server, temporarily interrupting dashboard access. Whether local subshells keep running depends on the service definition; the page explains that before confirmation. **Update anyway** accepts the disruptive case. Resolve the service configuration or finish active work before choosing it.
 
-If updating is unavailable, the row explains why. A container or unsupported installation needs its own update workflow below. If the server does not return, check `subshell-server status` on its host and follow [Update troubleshooting](/troubleshooting/updates).
+If updating is unavailable, the row explains why. A container or unsupported installation needs its own update workflow below. If the server doesn't return, check `subshell-server status` on its host and follow [Update troubleshooting](/troubleshooting/updates).
 
 ### Inside Subshell Server
 
-In the desktop app's dashboard, the table shows **Subshell Server App** and **Subshell Server CLI** together with the bundled-version explanation. **Open the update assistant**, when offered, opens the desktop assistant that handles the app and its bundled server. A newer standalone server release can exist before the app bundles it; the displayed newest version does not mean the assistant can install that release independently.
+In the desktop app's dashboard, the table shows **Subshell Server App** and **Subshell Server CLI** together with the bundled-version explanation. **Open the update assistant**, when offered, opens the desktop assistant that handles the app and its bundled server. A newer standalone server release can exist before the app bundles it; the displayed newest version doesn't mean the assistant can install that release independently.
 
-A browser cannot open a desktop assistant on another machine. Desktop rows provide release information; use the desktop app's own update workflow to install its update. See [subshell.sh](https://subshell.sh) for downloads.
+A browser can't open a desktop assistant on another machine. Desktop rows provide release information; use the desktop app's own update workflow to install its update. See [subshell.sh](https://subshell.sh) for downloads.
 
 For enrolled execution machines in the same table, follow [Node updates](/nodes/updates).
 
@@ -42,13 +42,13 @@ subshell-server update
 
 The updater verifies signed release information, creates a full instance backup archive, replaces the binary, and completes the update when the new server starts.
 
-`--to <version>` requires that version to match the newest server release in the configured index. It does not fetch an arbitrary historical release.
+`--to <version>` requires that version to match the newest server release in the configured index. It doesn't fetch an arbitrary historical release.
 
 `--from <file>` uses a local file and requires you to verify its provenance. `--no-restart` leaves restart to the caller. `--force` can allow a downgrade or override a live-pane refusal.
 
 ## Desktop app
 
-In Subshell Server's tray menu, choose **Check for Updates…**, or select the available-update item when one is offered. This opens the desktop assistant's update screen for the app and bundled server. The assistant handles the app and server phases. Updating only a standalone CLI release does not change a binary bundled in an older desktop installer.
+In Subshell Server's tray menu, choose **Check for Updates…**, or select the available-update item when one is offered. This opens the desktop assistant's update screen for the app and bundled server. The assistant handles the app and server phases. Updating only a standalone CLI release doesn't change a binary bundled in an older desktop installer.
 
 ## Containers
 
@@ -59,7 +59,7 @@ docker compose pull
 docker compose up -d
 ```
 
-The Proxmox server helper has its own image-update operation. Do not run a binary self-update inside the image.
+The Proxmox server helper has its own image-update operation. Don't run a binary self-update inside the image.
 
 ## Rollback
 

@@ -116,7 +116,7 @@ export const updateRoute = new Elysia()
             code: deployment.containerized
               ? BackendErrorCodes.UPDATE_CONTAINERIZED
               : BackendErrorCodes.RESTART_UNAVAILABLE,
-            message: deployment.restart.reason ?? "This server is not running under a service manager",
+            message: deployment.restart.reason ?? "This server isn't running under a service manager",
           }),
         );
       }

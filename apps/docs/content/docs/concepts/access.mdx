@@ -13,7 +13,7 @@ View grants include output and live terminal viewing. Edit adds input, rename, r
 
 ## Administrators
 
-Administrators manage the instance. They have no special reach into sessions: a session resolves from ownership and sharing alone, the same for every role (ruling 2026-10-09), and another user's unshared session is as invisible to an administrator as to a stranger. Reaching one means signing in as that user. Ownership-only operations were always the owner's.
+Administrators manage the instance. To view or control someone else's session, they need the same sharing grants as other users. Ask the owner to share it. Only the owner can delete the session, change its sharing, or control its notification bell.
 
 Administrative endpoints require a cookie session with the admin role. Bearer credentials are refused there.
 
@@ -21,13 +21,13 @@ Administrative endpoints require a cookie session with the admin role. Bearer cr
 
 A pane token resolves to its owner's identity for permitted operations, without administrator privileges or another user's sharing grants for session details and changes. It can act on other sessions owned by the same user.
 
-The session list deliberately includes shared rows visible to the owner. A listed foreign row can therefore return 404 when the pane tries to inspect or operate it.
+The session list includes shared sessions that the pane's owner can see. If a session belongs to someone else, the pane may receive a 404 when it tries to inspect or change it, even though it appears in the list.
 
-Node enumeration with a pane token is owner-only. The server-host node belongs to the system identity by default and is not automatically in a human pane's node list.
+Node enumeration with a pane token is owner-only. The server-host node belongs to the system identity by default and isn't automatically in a human pane's node list.
 
 ## System keys
 
-A system integration key belongs to the system service identity. It does not inherit the administrator's human resource ownership.
+A system integration key belongs to the system service identity. It doesn't inherit the administrator's human resource ownership.
 
 Node sharing permits execution on a machine; session sharing permits viewing or editing a particular session. They are separate grants.
 

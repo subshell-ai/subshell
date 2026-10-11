@@ -1,17 +1,17 @@
 ---
 title: "Node maintenance"
-description: "Take a node out of service and stop its running subshells before disruptive work."
+description: "Block new subshells and stop existing ones before working on a machine."
 ---
 
 Take a node out of service before performing disruptive maintenance.
 
 ## Before you start
 
-Review the subshells running on the machine and notify their owners. Maintenance stops running sessions and refuses new launches.
+Review the subshells on the machine and notify their owners. Maintenance blocks new launches and tries to stop existing sessions. Some may keep running if they can't be stopped.
 
 ## Enter maintenance
 
-In the server dashboard's sidebar, choose **Nodes**, select the machine, and open **Overview**. In the **Maintenance** card, turn on **Maintenance mode** and review the count of running subshells before confirming.
+In the server dashboard's sidebar, choose **Nodes**, select the machine, and open **Overview**. In the **Maintenance** card, turn on **Maintenance mode** and review the subshell count and consequences before selecting **Start maintenance**.
 
 On the node itself:
 
@@ -26,9 +26,9 @@ subshell maintenance on --yes
 ```
 
 > [!warning] Sessions stop
-> Entering maintenance stops the subshells running on this node. Record any work that depends on an active process before proceeding.
+> Entering maintenance tries to stop all subshells on this node, including other people's sessions. Save any work that depends on a running process before proceeding.
 
-If a stop fails, inspect the reported failures. A partial failure must not be treated as a machine with no running work.
+Check the result before working on the machine. If Subshell reports that a session couldn't be stopped, check whether it's still running.
 
 ## Return to service
 
@@ -39,7 +39,7 @@ subshell maintenance off
 subshell maintenance status
 ```
 
-The daemon continues answering management commands while maintenance is enabled. Leaving maintenance permits new launches; it does not automatically recreate every stopped process.
+The daemon continues answering management commands while maintenance is enabled. Ending maintenance allows new launches. Subshells that stopped won't restart automatically.
 
 ## Next steps
 

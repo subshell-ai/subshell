@@ -59,7 +59,7 @@ function PendingPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-detail text-muted-foreground">
-            Your sign-in is awaiting approval by an administrator. Nothing to do but wait.
+            Your account is waiting for an admin's approval. Once it's approved, you can sign in again.
           </p>
           {email && <p className="font-strong text-label">{email}</p>}
           <Button

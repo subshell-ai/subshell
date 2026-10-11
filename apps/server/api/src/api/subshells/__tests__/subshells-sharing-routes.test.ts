@@ -86,8 +86,12 @@ describe("subshell sharing — access matrix over routes", () => {
 
   it("a view grantee reads (get + log) but cannot rename, toggle the bell, or delete", async () => {
     expect((await req("GET", "/s_view", carolCookie)).status).toBe(200);
-    const got = (await (await req("GET", "/s_view", carolCookie)).json()) as { access: string };
+    const got = (await (await req("GET", "/s_view", carolCookie)).json()) as {
+      access: string;
+      sharedWithViewer: boolean;
+    };
     expect(got.access).toBe("view");
+    expect(got.sharedWithViewer).toBe(true);
     expect((await req("GET", "/s_view/log", carolCookie)).status).toBe(200);
     expect((await req("PATCH", "/s_view/name", carolCookie, { name: "hijack" })).status).toBe(403);
     expect((await req("PATCH", "/s_view/notify", carolCookie, { notify: false })).status).toBe(403);
@@ -95,8 +99,12 @@ describe("subshell sharing — access matrix over routes", () => {
   });
 
   it("an edit grantee renames, but cannot touch the bell or delete", async () => {
-    const got = (await (await req("GET", "/s_edit", bobCookie)).json()) as { access: string };
+    const got = (await (await req("GET", "/s_edit", bobCookie)).json()) as {
+      access: string;
+      sharedWithViewer: boolean;
+    };
     expect(got.access).toBe("edit");
+    expect(got.sharedWithViewer).toBe(true);
     expect((await req("PATCH", "/s_edit/name", bobCookie, { name: "renamed by bob" })).status).toBe(200);
     expect((await req("PATCH", "/s_edit/notify", bobCookie, { notify: false })).status).toBe(403);
     expect((await req("DELETE", "/s_edit", bobCookie)).status).toBe(403);
@@ -105,8 +113,12 @@ describe("subshell sharing — access matrix over routes", () => {
   });
 
   it("the owner has full control (access 'owner'; the bell is theirs)", async () => {
-    const got = (await (await req("GET", "/s_edit", aliceCookie)).json()) as { access: string };
+    const got = (await (await req("GET", "/s_edit", aliceCookie)).json()) as {
+      access: string;
+      sharedWithViewer: boolean;
+    };
     expect(got.access).toBe("owner");
+    expect(got.sharedWithViewer).toBe(false);
     expect((await req("PATCH", "/s_edit/notify", aliceCookie, { notify: false })).status).toBe(200);
     expect((await new SubshellsRepository(db).findById("s_edit"))?.notify).toBe(0);
   });
@@ -132,6 +144,8 @@ describe("subshell sharing — access matrix over routes", () => {
     // it is not a private room either.
     const asGuest = (await (await req("GET", "/s_edit", bobCookie)).json()) as { shareCount: number };
     expect(asGuest.shareCount).toBe(1);
+    const guestList = (await (await req("GET", "", bobCookie)).json()) as { id: string; sharedWithViewer: boolean }[];
+    expect(guestList.find((row) => row.id === "s_edit")?.sharedWithViewer).toBe(true);
 
     const list = (await (await req("GET", "", aliceCookie)).json()) as {
       id: string;
@@ -154,7 +168,9 @@ describe("subshell sharing — access matrix over routes", () => {
       shareCount: number;
       sharedWithEveryone: boolean;
     };
-    expect(got).toMatchObject({ shareCount: 1, sharedWithEveryone: true });
+    expect(got).toMatchObject({ shareCount: 1, sharedWithEveryone: true, sharedWithViewer: false });
+    const guest = await (await req("GET", "/s_everyone", bobCookie)).json();
+    expect(guest).toMatchObject({ access: "view", sharedWithViewer: true });
   });
 
   it("a subshell not shared to a viewer is invisible: 404, not 403", async () => {

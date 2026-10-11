@@ -119,7 +119,7 @@ describe("SetupKeysSection", () => {
       renderCard();
       expect(await screen.findByText("nsk_alpha_alpha_alpha_alpha_1")).toBeDefined();
       expect(screen.getByRole("button", { name: "Copy setup key" })).toBeDefined();
-      expect(screen.getByText(/Single-use enrollment credentials/i)).toBeDefined();
+      expect(screen.getByText(/Each setup key enrolls one machine/i)).toBeDefined();
       expect(screen.queryByText(/shown once/i)).toBeNull();
     } finally {
       restore();
@@ -162,8 +162,8 @@ describe("SetupKeysSection", () => {
       // description, which is where a long mono value reads as a detail
       // rather than a wrapped blob where a question should be.
       expect(confirmations[0].title).toBe("Revoke this setup key?");
-      expect(confirmations[0].description).toContain("nsk_alpha_alpha_alpha_alpha_1");
-      expect(confirmations[0].confirmLabel).toBe("Revoke");
+      expect(render(confirmations[0].description).container.textContent).toContain("nsk_alpha_alpha_alpha_alpha_1");
+      expect(confirmations[0].confirmLabel).toBe("Revoke key");
       expect(confirmations[0].danger).toBe(true);
     } finally {
       restore();
@@ -189,8 +189,10 @@ describe("SetupKeysSection", () => {
       fireEvent.click(screen.getByRole("button", { name: "Remove" }));
       await waitFor(() => expect(deletes).toEqual(["/api/nodes/setup-keys/b"]));
       expect(confirmations[0].title).toBe("Remove this setup key?");
-      expect(confirmations[0].description).toContain("used, so there is nothing to revoke");
-      expect(confirmations[0].confirmLabel).toBe("Remove");
+      expect(render(confirmations[0].description).container.textContent).toContain(
+        "This key has already been used. Removing it clears it from the list without affecting any connected machines.",
+      );
+      expect(confirmations[0].confirmLabel).toBe("Remove key");
       expect(confirmations[0].danger).toBe(false);
     } finally {
       restore();

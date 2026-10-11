@@ -184,9 +184,15 @@ export enum BackendErrorCodes {
   NETWORK_UNCONFIGURED = "NETWORK_UNCONFIGURED",
 }
 
+/**
+ * These fallback messages can appear directly in the UI. Use plain,
+ * conversational language and add a next step only when it applies to every
+ * caller of the code. Routes can supply more specific guidance. Copy edits
+ * must preserve the codes and HTTP statuses that clients rely on.
+ */
 export const BackendErrorCodeDefs = {
   [BackendErrorCodes.ACCESS_DENIED]: {
-    message: "Access denied",
+    message: "You don't have permission to do that",
     statusCode: 403,
   },
   [BackendErrorCodes.APPROVAL_NOOP]: {
@@ -194,7 +200,7 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.BAD_REQUEST]: {
-    message: "Bad request",
+    message: "The request is invalid",
     statusCode: 400,
   },
   [BackendErrorCodes.CONFIG_INVALID]: {
@@ -206,19 +212,19 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.CREDENTIALS_REJECTED]: {
-    message: "The OIDC token endpoint rejected the supplied client credentials",
+    message: "The sign-in provider rejected the client ID or secret",
     statusCode: 400,
   },
   [BackendErrorCodes.DISCOVERY_FAILED]: {
-    message: "OIDC discovery could not resolve this issuer",
+    message: "Couldn't load the sign-in provider's configuration",
     statusCode: 400,
   },
   [BackendErrorCodes.EMAIL_ROW_IMMUTABLE_KIND]: {
-    message: "The E-mail provider's kind cannot be changed",
+    message: "You can't change the email provider's type",
     statusCode: 400,
   },
   [BackendErrorCodes.EMAIL_ROW_UNDELETABLE]: {
-    message: "The E-mail provider can be closed but never deleted",
+    message: "You can disable the email provider, but you can't delete it",
     statusCode: 400,
   },
   [BackendErrorCodes.EXISTS_ERROR]: {
@@ -230,7 +236,7 @@ export const BackendErrorCodeDefs = {
     statusCode: 400,
   },
   [BackendErrorCodes.INTERNAL_SERVER_ERROR]: {
-    message: "Internal server error",
+    message: "The server couldn't complete the request",
     statusCode: 500,
   },
   [BackendErrorCodes.INVALID_CREDENTIALS]: {
@@ -250,7 +256,7 @@ export const BackendErrorCodeDefs = {
     statusCode: 404,
   },
   [BackendErrorCodes.PROVIDER_NOT_FOUND]: {
-    message: "Auth provider not found",
+    message: "Sign-in provider not found",
     statusCode: 404,
   },
   [BackendErrorCodes.NODE_LAUNCH_NOT_READY]: {
@@ -262,7 +268,7 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_AGENT_TOO_OLD]: {
-    message: "This node's binary is too old for this command",
+    message: "Update the Subshell daemon on this node to use this command",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_NAME_TAKEN]: {
@@ -270,27 +276,27 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_OFFLINE]: {
-    message: "Node is offline",
+    message: "This node is offline",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_IN_MAINTENANCE]: {
-    message: "Node is in maintenance",
+    message: "This node is in maintenance",
     statusCode: 409,
   },
   [BackendErrorCodes.SUBSHELL_NOT_RUNNING]: {
-    message: "The subshell is not running",
+    message: "This subshell isn't running",
     statusCode: 409,
   },
   [BackendErrorCodes.EXEC_TERMINAL_ONLY]: {
-    message: "exec types into terminal panes only",
+    message: "Run commands in a plain terminal, not an agent session",
     statusCode: 400,
   },
   [BackendErrorCodes.EXEC_PANE_BUSY]: {
-    message: "The pane is producing output; exec typed nothing",
+    message: "The terminal is still producing output. No command was sent",
     statusCode: 409,
   },
   [BackendErrorCodes.EXEC_IN_FLIGHT]: {
-    message: "Another exec is already waiting on this pane",
+    message: "Another command is already running in this terminal",
     statusCode: 409,
   },
   [BackendErrorCodes.SUBSHELL_STOPPED_WHILE_STARTING]: {
@@ -298,11 +304,11 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_NO_SERVICE]: {
-    message: "Node has no service definition installed",
+    message: "This node doesn't have a service installed",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_NOT_SUPERVISED]: {
-    message: "This node is not running under a service manager",
+    message: "This node isn't running under a service manager",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_ONLINE]: {
@@ -310,15 +316,15 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_OUTDATED]: {
-    message: "The subshell app on this node is too old for this feature",
+    message: "Update Subshell on this node to use this feature",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_REQUIRED]: {
-    message: "No launch-eligible node; pick one",
+    message: "Choose a node where you can launch subshells",
     statusCode: 400,
   },
   [BackendErrorCodes.NODE_RUNNING_SUBSHELLS]: {
-    message: "Node has running subshells",
+    message: "This node still has running subshells",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_RESTART_KILLS_PANES]: {
@@ -326,7 +332,7 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_UNREACHABLE]: {
-    message: "Node did not respond",
+    message: "This node didn't respond",
     statusCode: 409,
   },
   [BackendErrorCodes.AUTOSTART_UNAVAILABLE]: {
@@ -338,7 +344,7 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.RESTART_UNAVAILABLE]: {
-    message: "This server is not running under a service manager",
+    message: "This server isn't running under a service manager",
     statusCode: 409,
   },
   [BackendErrorCodes.RESTART_IN_FLIGHT]: {
@@ -358,22 +364,22 @@ export const BackendErrorCodeDefs = {
     statusCode: 401,
   },
   [BackendErrorCodes.SLUG_TAKEN]: {
-    message: "That provider id is already taken",
+    message: "A sign-in provider already uses that ID",
     statusCode: 409,
   },
   // Every update refusal is a 409: the request is well-formed and the caller
   // is allowed to make it — the host is simply not in a state where it can be
   // honoured. Same shape as RESTART_UNAVAILABLE, which they sit beside.
   [BackendErrorCodes.UPDATE_SOURCE_DISABLED]: {
-    message: "This server does not fetch releases",
+    message: "Release downloads are disabled on this server",
     statusCode: 409,
   },
   [BackendErrorCodes.UPDATE_CONTAINERIZED]: {
-    message: "This server runs inside a container; the image is the unit of update",
+    message: "Update this server by replacing its container image",
     statusCode: 409,
   },
   [BackendErrorCodes.UPDATE_BINARY_UNKNOWN]: {
-    message: "No installed binary this server could replace",
+    message: "Couldn't find an installed server binary to update",
     statusCode: 409,
   },
   [BackendErrorCodes.UPDATE_IN_PROGRESS]: {
@@ -393,26 +399,26 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_UPDATE_UNAVAILABLE]: {
-    message: "No node release can be offered",
+    message: "No compatible node release is available",
     statusCode: 409,
   },
   [BackendErrorCodes.NODE_UPDATE_FAILED]: {
-    message: "The node could not apply the update",
+    message: "The node couldn't install the update",
     statusCode: 409,
   },
   // Every network refusal is a 409 for the reason the update ones are: the
   // request is well formed and the caller is allowed to make it — this host
   // is simply not in a state where it can be honoured.
   [BackendErrorCodes.PLATFORM_UNSUPPORTED]: {
-    message: "This plugin cannot run on this platform",
+    message: "This plugin doesn't support this platform",
     statusCode: 409,
   },
   [BackendErrorCodes.NETWORK_NOT_READY]: {
-    message: "This network is not ready on this host",
+    message: "This network isn't ready on this machine",
     statusCode: 409,
   },
   [BackendErrorCodes.NETWORK_UNCONFIGURED]: {
-    message: "This network needs configuring first",
+    message: "Configure this network before continuing",
     statusCode: 409,
   },
 };

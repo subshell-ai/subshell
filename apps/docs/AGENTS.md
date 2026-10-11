@@ -25,9 +25,12 @@ helper cleanup, encrypted channels, and the distinction between nudges and posts
 
 ## Voice and factual accuracy
 
-`STYLE.md` governs prose. Use plain second-person language and a one-sentence
-factual opener. How-tos state prerequisites, numbered actions, expected results,
-and next steps. Reference pages use lookup tables and command sections.
+`STYLE.md` governs prose and applies the repository's conversational writing
+voice. Write as you'd speak to a peer, using active verbs, natural contractions,
+and varied sentence structure. Use second person for instructions and a
+one-sentence factual opener. How-tos state prerequisites, numbered actions,
+expected results, and next steps. Reference pages use lookup tables and command
+sections.
 
 - Server means the control plane; node means an execution machine; client
   means a person's interface. Never give these words a second meaning.

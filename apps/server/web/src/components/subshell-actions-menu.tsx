@@ -191,7 +191,7 @@ export function SubshellActionsMenu({
     // stop-without-close. The hook asks before a live restart (it kills the
     // running process) and asks nothing for a dead revive, so the red item
     // styling rides the same liveness split as the consequence does. The
-    // LIVE half is withheld on an offline node, the way Inject prompt is:
+    // LIVE half is withheld on an offline node, the way Insert prompt is:
     // the restart pre-gates offline nodes 409, and the menu shows mutation
     // errors nowhere, so promising "stops the running process" here would
     // end in a silent nothing. The dead half stays offered offline exactly
@@ -217,14 +217,14 @@ export function SubshellActionsMenu({
     // 2026-09-23): a running pane is revived from the new preset, a dead one
     // is started with it. It replaces nothing; "Edit preset …" edits the
     // DEFINITION, this changes which one the row uses.
-    // Inject prompt (spec 2026-09-28): the terminal-input gate (an `edit`
+    // Insert prompt (spec 2026-09-28): the terminal-input gate (an `edit`
     // act, foreign rows never reach the menu), and only a live pane takes
     // typed text, so a dead row does not offer it.
     ...(canEdit && subshell.status === "running" && subshell.alive && !subshell.nodeOffline
       ? [
           {
             icon: ArrowDownToLine,
-            label: "Inject prompt...",
+            label: "Insert prompt…",
             onSelect: () => setInjectOpen(true),
           },
         ]
@@ -313,8 +313,8 @@ export function SubshellActionsMenu({
       <QrLinkDialog
         open={qrOpen}
         onOpenChange={setQrOpen}
-        title={`Open "${subshell.name}" elsewhere`}
-        description="Scan to open this subshell on another device. It still asks whoever scans it to sign in."
+        title="Open this subshell on another device"
+        description={`Scan to open "${subshell.name}" on another device. You'll need to sign in if you haven't already.`}
         path={`/subshells/${subshell.id}`}
       />
     </>

@@ -68,7 +68,8 @@ export const recheckNodeRoute = new Elysia()
           400,
           apiErrorBody({
             code: BackendErrorCodes.BAD_REQUEST,
-            message: "The local node's harness state is probed live on every read; no re-check needed",
+            message:
+              "This server checks its installed agents whenever you open the page. No separate re-check is needed.",
           }),
         );
       }

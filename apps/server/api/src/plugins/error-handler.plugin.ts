@@ -164,7 +164,7 @@ export const errorHandlerPlugin = new Elysia({ name: "error-handler" })
     // a TypeError, whatever. Never show its message to the client.
     const internalError = createApiError({
       code: BackendErrorCodes.INTERNAL_SERVER_ERROR,
-      message: "An internal server error occurred.",
+      message: "The server couldn't complete the request.",
       causedBy: error,
     });
 

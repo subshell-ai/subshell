@@ -168,7 +168,7 @@ export function probeFacts(args: {
   // does not burn a one-time setup key — and on every launch this node accepts.
   out.push({
     key: "tmux",
-    value: probe.tmux ?? "NOT FOUND: enroll refuses, and a node without it accepts no launches",
+    value: probe.tmux ?? "Not found: install tmux before enrolling or launching subshells",
     tone: probe.tmux ? undefined : "bad",
   });
 
