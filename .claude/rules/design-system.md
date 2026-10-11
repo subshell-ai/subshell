@@ -21,6 +21,8 @@ the system lacks what you need, add the token to every surface in one change.
 
 **Every UI explanation is at most two sentences, and UI copy uses no em dashes** (operator ruling 2026-09-21); surplus becomes docs or a disclosure, never help text. A lone em dash in a table or detail cell is an absence placeholder, not copy (the 2026-09-25 shipped-copy sweep kept the placeholders and rewrote only strings carrying words).
 
+**Status copy writes from the reader's seat** (operator ruling 2026-10-10): name what is true of their machine or session, then what they can do; no protocol verbs. "The server will not accept this machine's Subshell daemon version. You can still update it from here.", never "the server refuses its agent" (whose? refuses what?). "**Agent**" means the AI agent a pane drives, never the node daemon: the daemon is the **daemon** (or **node daemon**), and a space-tight column header reads **Version**. Full rule and worked example: `apps/docs/STYLE.md`.
+
 Line items are `label` over `detail`, differing by weight and colour. **Every
 explanation a control gives about itself is `detail`** (its help text, a
 "set by the environment" note, a saved-vs-running line, a validation error),

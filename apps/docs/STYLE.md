@@ -16,10 +16,19 @@ Use these terms consistently:
 | Term | Meaning |
 | --- | --- |
 | Server | The control plane, including its API, database, and web interface. |
-| Node | A machine running agents through the `subshell` daemon. |
+| Node | A machine enrolled on the server, kept connected by the daemon. |
+| Daemon (node daemon) | The `subshell` background program that keeps a node connected and runs its subshells. |
 | Client | A person's interface to a server. |
 | Subshell | An agent or shell session, including its stored identity and history. |
 | Pane | The terminal view or process context when that distinction matters. |
+| Agent | The AI coding agent a subshell pane drives. Never the node daemon. |
+
+The word *agent* means the AI agent inside a subshell, and nothing else. The
+node's background program is the **daemon** (or **node daemon** when other
+daemons are nearby); a version display may say **version** where the full word
+does not fit. Do not write "node agent", "the agent on that machine", or an
+"Agent" column header for the daemon: readers meet AI agents everywhere in
+Subshell, and the double meaning is a defect, not a shorthand.
 
 Use **Subshell Server** and **Subshell Client** for the desktop app names.
 Use lowercase server, node, client, and subshell for the general concepts.
@@ -100,6 +109,28 @@ Do not use “simply,” “just,” “seamless,” “robust,” “leverage,�
 internal shorthand such as “admin boost,” “scope ceiling,” “wiring,” or
 “foreign row” in user guides. Technical references may use precise terms
 when they define them or describe an actual schema.
+
+## Status and problem sentences
+
+Write a status or problem sentence from the reader's seat: name what is true of
+their machine or session, then what they can do about it. Do not describe what
+the protocol layer or the server's internals did.
+
+- Write the outcome, not the mechanism. Internal verbs (refuse, reject,
+  handshake, redial, hold, boost) belong in code and engineering notes.
+- Name the thing instead of leaning on a pronoun: “this machine's Subshell
+  daemon version,” not “its agent.” A reader should never have to solve whose
+  “it” is before the sentence means anything.
+- A negative status ends on the action that remains, stated plainly.
+
+- Good: “The server will not accept this machine's Subshell daemon version.
+  You can still update it from here.”
+- Avoid: “This node is connected, but the server refuses its agent. Update is
+  the one command this connection still accepts.” The first version says what
+  is wrong and what works; the second makes the reader decode a possessive, a
+  protocol verb, and a punning “command.”
+
+These rules govern dashboard strings, CLI and installer output, and docs alike.
 
 ## Page structure and instructions
 
