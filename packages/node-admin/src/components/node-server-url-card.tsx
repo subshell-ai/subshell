@@ -39,7 +39,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
     const ok = await confirmAction({
       title: `Point "${node.name}" at ${url.trim()}?`,
       description:
-        "That machine will dial the new address from its next restart, carrying the node key it holds today, so only name a control plane you trust. If the new plane does not know this node, it goes offline here and stays offline until someone with a shell on that machine points it back.",
+        "That machine will dial the new address on its next heartbeat beat, within about fifteen seconds and without a restart, carrying the node key it holds today, so only name a control plane you trust. If the new plane does not know this node, it goes offline here and stays offline until someone with a shell on that machine points it back.",
       confirmLabel: "Repoint node",
       danger: true,
     });
@@ -53,7 +53,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
     }
   }
 
-  /** Restarting is what applies it, and it is the obvious next thing to want. */
+  /** The beat already applies it; a restart is still the obvious next thing to want. */
   async function restart(): Promise<void> {
     setFailure(null);
     try {
@@ -70,7 +70,8 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
         <CardTitle>Control plane</CardTitle>
         <CardDescription>
           The address this machine dials. Changing it keeps the node's identity, so this is a move, never a
-          re-enrollment; it takes effect when the node restarts.
+          re-enrollment; the node picks it up on its next heartbeat beat, within about fifteen seconds and without a
+          restart.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -99,7 +100,7 @@ export function NodeServerUrlCard({ node }: { node: NodeDetail }): JSX.Element {
           </Button>
           {saved && (
             <Button variant="outline" disabled={service.isPending} onClick={() => void restart()}>
-              Restart to apply
+              Restart anyway
             </Button>
           )}
         </div>

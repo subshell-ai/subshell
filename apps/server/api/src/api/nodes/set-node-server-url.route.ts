@@ -16,8 +16,12 @@ const ConfigBodySchema = t.Object({
 
 const ConfigResponseSchema = t.Object({
   serverUrl: t.String({ description: "The address as the node stored it" }),
+  // Copy wave 2026-10-10 kept this field and its `true` value untouched: the node
+  // now hot-reloads within one heartbeat beat without a restart, and a
+  // coordinated contract wave retires it.
   restartRequired: t.Literal(true, {
-    description: "The new address takes effect when the node restarts; this call does not restart it",
+    description:
+      "Deprecated, always true: the node hot-reloads the new address on its next heartbeat beat, within about fifteen seconds and without a restart; this call does not restart it",
   }),
 });
 
@@ -77,10 +81,10 @@ export function validateNodeServerUrl(value: string): { url: string } | { error:
  * node (`runConfigure` shares `normalizeServer` with enroll), so the two
  * cannot disagree about a spelling.
  *
- * **It does not restart the node.** The new address takes effect on the next
- * start, and choosing when is the operator's — a machine that vanished
- * mid-request because it silently re-dialed elsewhere is the surprise this
- * whole surface exists to remove.
+ * **It does not restart the node.** The running daemon hot-reloads the written
+ * config and re-dials on its next heartbeat beat, within fifteen seconds, so
+ * the address takes effect without a restart — the re-dial is the daemon's
+ * beat, not a hidden process kill.
  *
  * **No SPA page calls this since 2026-10-09**, when the node page's
  * Control-plane card left the server dashboard (a server that cannot see the
@@ -168,7 +172,7 @@ export const setNodeServerUrlRoute = new Elysia()
         operationId: "setNodeServerUrl",
         tags: ["nodes"],
         description:
-          "Repoint an enrolled node at another control plane (owner only; never the local node; takes effect on the node's next restart)",
+          "Repoint an enrolled node at another control plane (owner only; never the local node; the node applies it on its next heartbeat beat, without a restart)",
       },
     },
   );
