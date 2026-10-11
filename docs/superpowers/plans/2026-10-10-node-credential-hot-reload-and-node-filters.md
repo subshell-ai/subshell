@@ -222,6 +222,8 @@ test("a formatting-only config rewrite (same fields, reordered keys) costs no re
 
 (`writeFileSync`, `readFileSync` are already imported at the top of the file; `saveConfig`/`configPath` too.)
 
+**Non-vacuous before flip:** every test that rewrites the config while a socket is live must FIRST wait for the connection to be established (the file's established-socket idiom — e.g. `await waitFor<NodeEvent>(h, (e) => e.type === "heartbeat")`, or mirror how adjacent tests wait for `ready`). A beat can only fire on an established socket; a test that flips the file before the daemon ever connected asserts nothing.
+
 - [ ] **Step 2: Run to verify the first three fail**
 
 Run: `cd apps/node/agent && bun test src/__tests__/daemon.test.ts`
