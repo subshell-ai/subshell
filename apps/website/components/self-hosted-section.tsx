@@ -15,9 +15,6 @@ export function SelfHostedSection() {
           or Proxmox.
         </p>
         <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-[14px] text-[var(--orchid)]">
-          <a href="https://docs.subshell.sh/install" className="underline underline-offset-4 hover:text-[var(--frost)]">
-            Choose an installation →
-          </a>
           <a
             href="https://github.com/subshell-ai/subshell"
             className="underline underline-offset-4 hover:text-[var(--frost)]"
