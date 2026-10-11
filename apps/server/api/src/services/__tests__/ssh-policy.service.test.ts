@@ -12,6 +12,7 @@ const gate = (over: Partial<NodeGate> = {}): NodeGate => ({
   isAdmin: false,
   shares: [],
   canManage: false,
+  canRetire: false,
   ...over,
 });
 
