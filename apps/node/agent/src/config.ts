@@ -221,6 +221,50 @@ export async function loadConfig(): Promise<NodeConfig> {
 }
 
 /**
+ * The fields whose on-disk change means the LIVE connection identity of a
+ * running daemon is stale (design 2026-10-10 §A): everything needed to dial,
+ * authenticate, and seal a link. Non-connection fields (name, dataDir, …) are
+ * deliberately excluded — they must never cost a redial.
+ */
+export function connectionIdentity(c: NodeConfig): string {
+  return JSON.stringify([
+    c.serverUrl,
+    c.nodeWsUrl ?? null,
+    c.nodeId,
+    c.nodeKey,
+    c.controlPublicKey,
+    c.controlEncryptPublicKey ?? null,
+    // Explicit tuple, not object order: a key-order-only reformat is not a change.
+    c.encryptKeyPair ? [c.encryptKeyPair.publicKey, c.encryptKeyPair.privateKey] : null,
+  ]);
+}
+
+/**
+ * In-place swap of exactly the connection fields from `source` onto `target`.
+ * In-place because every consumer of the daemon's config holds THIS object
+ * (`persistLink` in daemon.ts established the discipline); replacing the
+ * reference would strand half the closures on the old bundle. Fields the disk
+ * no longer carries are deleted, never left stale.
+ */
+export function applyConnectionFields(target: NodeConfig, source: NodeConfig): void {
+  const t = target as unknown as Record<string, unknown>;
+  const s = source as unknown as Record<string, unknown>;
+  for (const key of [
+    "serverUrl",
+    "nodeWsUrl",
+    "nodeId",
+    "nodeKey",
+    "controlPublicKey",
+    "controlEncryptPublicKey",
+    "encryptKeyPair",
+  ] as const) {
+    const value = s[key];
+    if (value === undefined) delete t[key];
+    else t[key] = value;
+  }
+}
+
+/**
  * One retention field: a non-negative integer, or `undefined` for
  * absent/junk. `0` must survive (it is half of the keep-forever pair), and
  * nothing here is ever fatal — a hand-edit that mistypes a number lands on
