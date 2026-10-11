@@ -4,6 +4,7 @@ import type { JSX } from "react";
 import { ActionsMenu } from "@/components/actions-menu";
 import { nodeActions } from "@/components/nodes/node-actions";
 import { osLabel } from "@/components/nodes/node-row";
+import { NodeStatusDot } from "@/components/nodes/node-status-dot";
 import { useMaintenanceFlip } from "@/components/nodes/use-maintenance-flip";
 
 /**
@@ -54,7 +55,7 @@ function NodeTableRow({
       </td>
       <td className="py-2 pr-4">
         <div className="flex items-center gap-2">
-          <Badge variant={node.status === "online" ? "success" : "muted"}>{node.status}</Badge>
+          <NodeStatusDot node={node} />
           {node.maintenance && <Badge variant="warning">maintenance</Badge>}
         </div>
       </td>

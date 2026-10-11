@@ -3,6 +3,7 @@ import { Badge, badgeVariants, cn, relativeElapsed } from "@internal/node-admin"
 import { useState } from "react";
 import { ActionsMenu } from "@/components/actions-menu";
 import { nodeActions } from "@/components/nodes/node-actions";
+import { NodeStatusDot } from "@/components/nodes/node-status-dot";
 
 /**
  * OS label (spec 2026-08-31 §9): darwin reads as "Apple" (the honest brand of
@@ -24,8 +25,8 @@ export function osLabel(os: string | null): string {
 const INLINE_HARNESSES = 3;
 
 /**
- * One row of the Nodes list: name + hostname line, the OS/arch chip, the
- * status badge, chips for the harnesses whose program was detected, the access badge, and
+ * One row of the Nodes list: name + status dot, the hostname line, the
+ * OS/arch chip, chips for the harnesses whose program was detected, the access badge, and
  * the overflow menu. Share is gated on `node.canManage` and Delete on the wider
  * `node.canRetire` (owner OR any admin) — both the SERVER's answers so the row keeps
  * the surfaces the routes actually let the viewer use; shown DISABLED rather than
@@ -47,7 +48,7 @@ const INLINE_HARNESSES = 3;
  * now, fixed-width and unshrinkable, and wrapping is contained in the middle
  * column alone.
  *
- * Only the harness chips truncate, behind "+N more": the OS/arch, status,
+ * Only the harness chips truncate, behind "+N more": the OS/arch,
  * `maintenance` and ownership badges are each one chip of fixed shape, and a
  * WARNING must never hide behind a "more" control. A stale cached detection
  * is badged NOTHING at all, here or on the node page's harness card (both
@@ -97,7 +98,10 @@ export function NodeRow({
           flex child's automatic minimum is its content, so without it a long
           name widens this column instead of ellipsing inside it. */}
       <div className="w-40 min-w-0 shrink-0 sm:w-48">
-        <p className="truncate font-strong">{node.name}</p>
+        <div className="flex items-center gap-2">
+          <NodeStatusDot node={node} />
+          <p className="truncate font-strong">{node.name}</p>
+        </div>
         <p className="truncate text-detail text-muted-foreground">
           {node.hostname ?? node.id}
           {node.lastSeenAt ? ` · seen ${relativeElapsed(node.lastSeenAt)}` : ""}
@@ -114,11 +118,10 @@ export function NodeRow({
           {osLabel(node.os)}
           {node.arch ? ` · ${node.arch}` : ""}
         </Badge>
-        <Badge variant={node.status === "online" ? "success" : "muted"}>{node.status}</Badge>
-        {/* Beside the status rather than among the harness chips, for the
+        {/* Ahead of the harness chips rather than among them, for the
             reason the docblock gives: this is a warning, and a warning that
             needs a click to be seen is not one. A node in maintenance looks
-            entirely healthy otherwise — `online`, every harness detected —
+            entirely healthy otherwise — online dot, every harness detected —
             so without this chip the row says nothing about why nobody can
             launch there. */}
         {node.maintenance && <Badge variant="warning">maintenance</Badge>}

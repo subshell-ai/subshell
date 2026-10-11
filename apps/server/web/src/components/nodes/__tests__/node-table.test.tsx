@@ -78,7 +78,8 @@ describe("NodeTable", () => {
 
   it("the maintenance warning rides the status cell — a machine in maintenance is otherwise all-green", () => {
     renderTable([node({ maintenance: true })]);
-    expect(screen.getByText("online")).toBeTruthy();
+    // The status word now rides the dot's announcement, not a chip (Task B2).
+    expect(screen.getByRole("img", { name: "online" })).toBeTruthy();
     expect(screen.getByText("maintenance")).toBeTruthy();
     cleanup();
   });
