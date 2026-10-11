@@ -1,5 +1,25 @@
 # @internal/docs
 
+## 0.7.1
+
+### Patch Changes
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - Clarify lockdown's limits, use “Ready for your next message” for completed agent turns, and rename the sidebar group to “Created by agents” with a simpler tooltip. Use “Insert prompt” consistently in the interface and guide, change attention notifications to “Waiting for you”, and explain that maintenance may not stop every subshell or restart stopped ones. Rename the native server menu entry to “Open Server Controls” and explain the term “subshell” in the documentation.
+  
+  Clarify that a prompt stack combines instructions into one prompt, and simplify setup-key revocation and removal confirmations.
+  
+  Keep confirmation titles fixed and move names, addresses, counts, and versions into the body. Clarify restart interruptions, node re-registration timing, prompt deletion, plugin trust, and update recovery.
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - Make CLI help, installer messages, desktop menus and dialogs, notifications, and MCP tool descriptions easier to follow. Clarify command timeouts and agent cleanup, refresh README wording, and align documentation with current interface labels.
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - Expand the documentation contributor guide with guidance on conversational writing, active voice, natural contractions, and examples that also apply to app copy and code comments.
+  
+  Document fixed UI titles, precise action wording, and consequence-first confirmations, with examples and a flexible length guideline.
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - Make setup, settings, status messages, and website documentation clearer and more conversational. Simplify technical explanations, use active voice and natural contractions, and update outdated navigation references while preserving security warnings and operational details.
+  
+  Align public maintenance, restart, node recovery, and prompt-stack guides with the current interface, and clarify website sharing and prompt explanations.
+
 ## 0.7.0
 
 ### Minor Changes

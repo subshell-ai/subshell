@@ -1,7 +1,7 @@
 {
   "name": "@subshell-ai/plugin-headscale",
   "description": "Headscale network plugin for Subshell",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "license": "Apache-2.0",
   "type": "module",
   "main": "dist/index.js",

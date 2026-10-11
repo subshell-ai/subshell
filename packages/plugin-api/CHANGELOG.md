@@ -1,5 +1,11 @@
 # @subshell-ai/plugin-api
 
+## 3.0.1
+
+### Patch Changes
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - Make CLI help, installer messages, desktop menus and dialogs, notifications, and MCP tool descriptions easier to follow. Clarify command timeouts and agent cleanup, refresh README wording, and align documentation with current interface labels.
+
 ## 3.0.0
 
 ### Major Changes

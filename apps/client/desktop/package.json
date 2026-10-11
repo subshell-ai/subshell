@@ -1,7 +1,7 @@
 {
   "name": "@internal/desktop-client",
   "description": "Subshell Client: a Tauri shell that registers this machine as a subshell node and manages its node daemon",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "license": "Apache-2.0",
   "type": "module",
   "private": true,

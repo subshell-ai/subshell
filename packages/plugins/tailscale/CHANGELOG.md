@@ -1,5 +1,13 @@
 # @subshell-ai/plugin-tailscale
 
+## 1.0.1
+
+### Patch Changes
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - Make setup, settings, status messages, and website documentation clearer and more conversational. Simplify technical explanations, use active voice and natural contractions, and update outdated navigation references while preserving security warnings and operational details.
+  
+  Align public maintenance, restart, node recovery, and prompt-stack guides with the current interface, and clarify website sharing and prompt explanations.
+
 ## 1.0.0
 
 ### Major Changes
