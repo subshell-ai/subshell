@@ -122,20 +122,12 @@ describe("ssh panes in subshell views: the non-owner access downgrade", () => {
     expect(got.ssh).toBe(false);
   });
 
-  it("the admin's effective edit on a foreign ssh pane reads as view too (the boost is not ownership)", async () => {
+  it("admins need a grant to see foreign SSH and ordinary panes", async () => {
     const cookie = await signIn(adminEmail, pw);
-    try {
-      const sshRow = await get("/s_ssh", cookie);
-      expect(sshRow.access).toBe("view");
-      expect(sshRow.ssh).toBe(true);
-      // Same admin, ordinary pane: still the resolved `edit` (pinning that the
-      // downgrade is keyed to the ssh column, not to the viewer's role).
-      const plain = await get("/s_plain", cookie);
-      expect(plain.access).toBe("edit");
-      expect(plain.ssh).toBe(false);
-    } finally {
-      await deleteUserByEmailOrId(adminEmail);
-    }
+    expect((await req("GET", "/s_ssh", cookie)).status).toBe(404);
+    expect((await req("GET", "/s_plain", cookie)).status).toBe(404);
+    const rows = (await (await req("GET", "", cookie)).json()) as { id: string }[];
+    expect(rows.some((row) => row.id === "s_ssh" || row.id === "s_plain")).toBe(false);
   });
 
   it("the LIST path downgrades the same way (one helper, both doors; the MCP list rides this route)", async () => {
