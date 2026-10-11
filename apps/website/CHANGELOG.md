@@ -1,5 +1,11 @@
 # @internal/website
 
+## 0.2.11
+
+### Patch Changes
+
+- [#362](https://github.com/subshell-ai/subshell/pull/362) [`c05eb71`](https://github.com/subshell-ai/subshell/commit/c05eb71d10ad42a189166c07e965d826a954cea9) Thanks [@theogravity](https://github.com/theogravity)! - Clarify the website’s workspace, sharing, installation, and hosting copy, and use subshell terminology consistently.
+
 ## 0.2.10
 
 ### Patch Changes
