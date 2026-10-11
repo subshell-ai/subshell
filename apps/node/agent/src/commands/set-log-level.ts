@@ -3,7 +3,7 @@ import { log } from "../log.js";
 import type { Cmd, CommandContext, CommandResult } from "./context.js";
 
 /**
- * `set_log_level`: turn debug-level lines in this agent's own log file on or off.
+ * `set_log_level`: turn debug-level lines in the daemon's own log file on or off.
  *
  * Live — it flips the file transport's level, no restart — and persisted in
  * `config.json`, because the sessions worth debugging are the ones that end in

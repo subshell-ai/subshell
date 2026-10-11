@@ -1266,7 +1266,7 @@ test("status --probe: explicit opt-in dials the plane with a loud stderr warning
   const r = await runCli(["status", "--probe"]);
   expect(r.code).toBe(0);
   expect(r.out).toInclude("ONLINE");
-  expect(r.err).toInclude("KICKS"); // the loud warning ships with every --probe invocation
+  expect(r.err).toInclude("disconnects any daemon"); // the warning ships with every --probe invocation
   expect(h.plane.opens).toBe(opensBefore + 1); // the probe DID dial (opt-in destructiveness)
   const body = JSON.parse((await runCli(["status", "--probe", "--json"])).out) as Record<string, unknown>;
   expect(body.online).toBe(true);
@@ -1285,7 +1285,7 @@ test("status --probe: explicit opt-in dials the plane with a loud stderr warning
   // Backticked, because a bare "subshell run" also matches the line's own
   // "no local subshell running" and would compare the wrong position.
   expect(off.out.indexOf("service start")).toBeLessThan(off.out.indexOf("`subshell run`"));
-  expect(off.out).toInclude("a probe KICKS a remote agent"); // the warning is NOT dropped
+  expect(off.out).toInclude("a probe disconnects a daemon running elsewhere"); // the warning is NOT dropped
   // Probe against a dead port → refusal is a clean offline, still labelled.
   await saveConfig({ ...h.config, serverUrl: "http://localhost:1" });
   const dead = await runCli(["status", "--probe", "--json"]);

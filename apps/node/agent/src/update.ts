@@ -280,7 +280,7 @@ export async function resolveNodeBinary(
   } catch {
     throw new UpdateRefused(
       NODE_RESULT_DOWNLOAD_FAILED,
-      `${dir} is not writable by this user, so the agent binary there cannot be replaced`,
+      `${dir} is not writable by this user, so the daemon binary there cannot be replaced`,
     );
   }
   return { binary, dir, source };
@@ -337,7 +337,7 @@ export async function resolveNodeBinaryPath(
     if (argv.length > 1 && looksLikeEntryScript(argv[1] as string)) {
       throw new UpdateRefused(
         NODE_RESULT_NOT_COMPILED,
-        "the installed service runs this agent from a source checkout, not a compiled binary; update the checkout instead",
+        "the installed service runs this daemon from a source checkout, not a compiled binary; update the checkout instead",
       );
     }
     binary = argv[0] as string;
@@ -347,7 +347,7 @@ export async function resolveNodeBinaryPath(
     if (prefix.args.length > 0) {
       throw new UpdateRefused(
         NODE_RESULT_NOT_COMPILED,
-        "this agent is running from a source checkout, not a compiled binary; update the checkout instead",
+        "this daemon is running from a source checkout, not a compiled binary; update the checkout instead",
       );
     }
     binary = prefix.command;
@@ -363,7 +363,7 @@ export async function resolveNodeBinaryPath(
  * `?update_token=nut_…` into the URL it sends (spec §5.3), and every refusal
  * below names the URL it was working on — which is right, since "which address
  * could not be reached" is the whole diagnosis. But those sentences travel:
- * the executor logs one into `<configHome>/logs/agent.log`, which any node
+ * the executor logs one into `<configHome>/logs/daemon.log`, which any node
  * owner or `edit` grantee reads over HTTP, and a token in a log file outlives
  * the ten minutes that were supposed to bound it.
  *
@@ -525,7 +525,7 @@ async function verifySignedManifest(
   if (source.manifest === null) {
     throw new UpdateRefused(
       NODE_RESULT_MANIFEST_UNVERIFIED,
-      "the update carried no signed release manifest, so this agent will not install bytes it cannot tie to the publisher",
+      "the update carried no signed release manifest, so the daemon will not install bytes it cannot tie to the publisher",
     );
   }
   const target = hostReleaseTarget(process.platform, process.arch);
@@ -867,7 +867,7 @@ export async function revertAfterRefusal(
     // renames, or a hand that tidied up). There is nothing to put back, so say
     // so rather than deleting the marker and pretending the update succeeded.
     log(
-      `the control plane refused subshell ${pending.to} and there is no ${pending.previousBinary} to restore; reinstall the agent by hand`,
+      `the control plane refused subshell ${pending.to} and there is no ${pending.previousBinary} to restore; reinstall the daemon by hand`,
     );
     return null;
   }
@@ -970,7 +970,7 @@ export async function rollbackUpdate(
   if (!(await probe(previous))) {
     throw new UpdateRefused(
       NODE_RESULT_NOT_COMPILED,
-      `${previous} did not answer \`version\`, so it cannot be installed back; the running agent was left in place: install a fresh binary with \`subshell update --from <file>\``,
+      `${previous} did not answer \`version\`, so it cannot be installed back; the running daemon was left in place: install a fresh binary with \`subshell update --from <file>\``,
     );
   }
   const marker =

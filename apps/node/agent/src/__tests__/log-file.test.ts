@@ -1,8 +1,14 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { AGENT_LOG_CAP_BYTES, CappedFileTransport, readNodeLogSlice } from "../log-file.js";
+import {
+  AGENT_LOG_CAP_BYTES,
+  CappedFileTransport,
+  daemonLogPath,
+  readableDaemonLogPath,
+  readNodeLogSlice,
+} from "../log-file.js";
 
 /** A throwaway directory per case, so nothing here shares a file. */
 function dir(): string {
@@ -19,7 +25,7 @@ function ship(transport: CappedFileTransport, message: string): void {
   } as never);
 }
 
-describe("the agent's own log file", () => {
+describe("the daemon's own log file", () => {
   it("writes JSON lines the plane's parser can read", () => {
     const path = join(dir(), "agent.log");
     const t = new CappedFileTransport(path, AGENT_LOG_CAP_BYTES);
@@ -96,5 +102,28 @@ describe("reading a slice of it", () => {
     expect(slice.truncated).toBe(true);
     expect(slice.nextByte).toBe(0);
     expect(slice.text).toBe("");
+  });
+});
+
+// The 2026-10 rename made the file `daemon.log`; nothing WRITES the old name,
+// but a node that has not restarted since the upgrade must still show its
+// history, which is what this reader-side ladder pins.
+describe("readableDaemonLogPath", () => {
+  it("prefers daemon.log, falls back to the pre-rename agent.log, and never errors on neither", () => {
+    const home = mkdtempSync(join(tmpdir(), "subshell-daemonlog-"));
+    process.env.SUBSHELL_CONFIG_HOME = home;
+    try {
+      // No file at all: the answer is the current name (an empty read, not a
+      // missing-file error).
+      expect(readableDaemonLogPath()).toBe(daemonLogPath());
+      mkdirSync(join(home, "logs"), { recursive: true });
+      writeFileSync(join(home, "logs", "agent.log"), "pre-rename history");
+      expect(readableDaemonLogPath()).toBe(join(home, "logs", "agent.log"));
+      // The daemon's first line onto the new name wins immediately.
+      writeFileSync(join(home, "logs", "daemon.log"), "new");
+      expect(readableDaemonLogPath()).toBe(join(home, "logs", "daemon.log"));
+    } finally {
+      delete process.env.SUBSHELL_CONFIG_HOME;
+    }
   });
 });

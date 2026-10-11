@@ -133,7 +133,7 @@ describe("an enrolled, online machine", () => {
           configDir: "/home/u/.config/subshell",
           configFile: "/home/u/.config/subshell/config.json",
           dataDir: "/home/u/.config/subshell/data",
-          nodeLog: "/home/u/.local/state/subshell/agent.log",
+          nodeLog: "/home/u/.local/state/subshell/daemon.log",
           nodeLogHint: null,
         },
       }),

@@ -5,7 +5,7 @@ import { BlankTransport, type LogLayerTransportParams, type LogLevelType } from 
 import { clientHome } from "./config.js";
 
 /**
- * The agent's own log file: ONE file, JSON lines, capped and REPLACED when
+ * The daemon's own log file: ONE file, JSON lines, capped and REPLACED when
  * full (spec 2026-09-12, node half § 4).
  *
  * **Why this exists at all.** The agent logs to the console, and what happens
@@ -32,16 +32,40 @@ import { clientHome } from "./config.js";
 export const AGENT_LOG_CAP_BYTES = 204_800;
 
 /**
- * `<configHome>/logs/agent.log` — one file, every platform.
+ * `<configHome>/logs/daemon.log` — one file, every platform.
  *
  * Under the CONFIG home rather than the configured `dataDir`, because logging
  * starts before `config.json` is read and has to work on a machine that has
  * never been enrolled: a daemon that cannot say why it failed to load its
  * config is the one you most need the log for. The directory is the one
  * `saveConfig` already keeps at 0700.
+ *
+ * The file was `agent.log` until the 2026-10 copy ruling made *agent* mean the
+ * AI agent a pane drives and nothing else. The name changed with the word;
+ * readers fall back to {@link legacyAgentLogPath} so a daemon's history
+ * survives its first restart onto the new spelling without a rename step.
  */
-export function agentLogPath(): string {
+export function daemonLogPath(): string {
+  return join(clientHome(), "logs", "daemon.log");
+}
+
+/** The daemon's log file name before the 2026-10 rename. No daemon WRITES it anymore. */
+export function legacyAgentLogPath(): string {
   return join(clientHome(), "logs", "agent.log");
+}
+
+/**
+ * Which log file to READ: the current one once it exists, else the pre-rename
+ * file, else the current path (an empty result, never a missing-file error).
+ *
+ * Every reader — the plane's `agent_log_read` command, the loopback dashboard,
+ * `status --json` — takes this instead of {@link daemonLogPath}, so an upgraded
+ * node shows its history from the first poll rather than after its first line.
+ */
+export function readableDaemonLogPath(): string {
+  const current = daemonLogPath();
+  if (!existsSync(current) && existsSync(legacyAgentLogPath())) return legacyAgentLogPath();
+  return current;
 }
 
 /**

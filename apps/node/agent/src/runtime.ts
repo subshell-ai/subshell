@@ -8,7 +8,7 @@
 import type { NodeRuntimeReport } from "@internal/subshell-protocol";
 import { configPath } from "./config.js";
 import { currentDebugLogging } from "./debug-logging.js";
-import { agentLogPath } from "./log-file.js";
+import { readableDaemonLogPath } from "./log-file.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { AGENT_LOG_HINT, DEFAULT_DEPS, queryService, type ServiceState } from "./service.js";
 
@@ -24,7 +24,7 @@ export interface RuntimeDeps {
   which?: (name: string) => string | null;
   /** The agent config file (default `configPath()`). */
   configPath?: string;
-  /** The agent's own log file (default `agentLogPath()`). */
+  /** The daemon's own log file (default `readableDaemonLogPath()`). */
   agentLogPath?: string;
   /** The debug-logging state (default the live one). */
   debugLogging?: { debug: boolean; source: "process env" | "setting" | "default" };
@@ -79,7 +79,7 @@ export async function collectRuntime(deps: RuntimeDeps = {}): Promise<NodeRuntim
     // `agent_log_read` serves and the one the plane's log view shows. `logPath`
     // above stays what it was (the manager's redirect, or nothing), because a
     // person debugging a service definition wants exactly that one.
-    agentLogPath: deps.agentLogPath ?? agentLogPath(),
+    agentLogPath: deps.agentLogPath ?? readableDaemonLogPath(),
     // Read here rather than stored on the report's way out: the switch is
     // applied live, so the answer is whatever the transport is set to NOW.
     logging: deps.debugLogging ?? currentDebugLogging(),

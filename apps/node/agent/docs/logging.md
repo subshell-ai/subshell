@@ -18,7 +18,7 @@ nowhere in particular, which is why `collectRuntime` reports a `logHint`
 telling a person to go run `journalctl`. Most nodes are headless, so "read this
 machine's log" has to work from a browser, and it cannot be built on an
 artifact that only exists on macOS. So the node writes one bounded file of its
-own: `<configHome>/logs/agent.log`, JSON lines, 0600, capped at 200 KB and
+own: `<configHome>/logs/daemon.log`, JSON lines, 0600, capped at 200 KB and
 REPLACED when full, the same everywhere, served to the plane by
 `agent_log_read` and reported as `runtime.agentLogPath`. It is a deliberate
 COPY of the server's `utils/log-file.ts` rather than an import: that file is

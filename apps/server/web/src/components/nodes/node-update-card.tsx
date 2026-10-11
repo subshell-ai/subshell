@@ -85,7 +85,7 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
       <CardHeader>
         <CardTitle>Updates</CardTitle>
         <CardDescription>
-          Replace this machine's Subshell node with the newest release this server can offer. The agent restarts itself
+          Replace this machine's Subshell node with the newest release this server can offer. The daemon restarts itself
           into the new binary when the install finishes.
         </CardDescription>
       </CardHeader>
@@ -112,8 +112,7 @@ export function NodeUpdateCard({ node }: { node: NodeDetail }): JSX.Element {
           // the press: the button looks alive on a row labeled offline, and
           // without this line that reads as a rendering defect.
           <p className="text-detail text-muted-foreground">
-            This node is connected, but the server refuses its agent. Update is the one command this connection still
-            accepts.
+            The server will not accept this machine's Subshell daemon version. You can still update it from here.
           </p>
         )}
         {accepted && (

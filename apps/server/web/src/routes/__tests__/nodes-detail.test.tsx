@@ -383,7 +383,7 @@ describe("NodeDetailPage admin shape (ruling 2026-10-09)", () => {
       renderDetail("node1");
       const update = await screen.findByRole("button", { name: /Update to latest/ });
       expect(update.hasAttribute("disabled")).toBe(false);
-      expect(screen.getByText(/the server refuses its agent/)).toBeDefined();
+      expect(screen.getByText(/will not accept this machine's Subshell daemon version/)).toBeDefined();
       // Detection is not `update`: a held link drops it, so Re-check says so
       // instead of trading a press for a 409.
       const recheck = screen.getByRole("button", { name: /Re-check/ });
@@ -402,7 +402,7 @@ describe("NodeDetailPage admin shape (ruling 2026-10-09)", () => {
       const update = await screen.findByRole("button", { name: /Update to latest/ });
       expect(update.hasAttribute("disabled")).toBe(true);
       expect(screen.getByRole("button", { name: /Re-check/ }).hasAttribute("disabled")).toBe(true);
-      expect(screen.queryByText(/the server refuses its agent/)).toBeNull();
+      expect(screen.queryByText(/will not accept this machine's Subshell daemon version/)).toBeNull();
     } finally {
       restore();
     }

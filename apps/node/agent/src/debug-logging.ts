@@ -95,7 +95,7 @@ export async function loadAndApplyDebugLogging(): Promise<void> {
 export async function setDebugLogging(debug: boolean): Promise<DebugLoggingState> {
   if (currentDebugLogging().source === "process env") {
     throw new Error(
-      "SUBSHELL_DEBUG_LOGGING is set in this agent's environment, so debug logging cannot be changed here",
+      "SUBSHELL_DEBUG_LOGGING is set in the daemon's environment, so debug logging cannot be changed here",
     );
   }
   // `updateConfig`, not a held snapshot: a retention save landing between this

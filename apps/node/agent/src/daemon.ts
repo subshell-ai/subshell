@@ -326,8 +326,8 @@ const HAS_MCP = true;
  */
 export function updateRequiredMessage(reason: string | undefined): string {
   return reason
-    ? `the control plane refused this agent (close 4406): ${reason}; exiting`
-    : `the control plane refused this agent (close 4406); a newer subshell is required; exiting`;
+    ? `the server will not accept this machine's Subshell daemon version (close 4406): ${reason}; exiting`
+    : `the server will not accept this machine's Subshell daemon version (close 4406); a newer subshell is required; exiting`;
 }
 
 function readyEvent(
@@ -1110,7 +1110,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       if (shuttingDown) stop(0); // graceful: the socket closed cleanly on our request
       if (close.code === NODE_CLOSE_SUPERSEDED) {
         log(
-          `another subshell is already registered as node '${config.nodeId}' (close 4409); exiting, stop the duplicate agent first`,
+          `another subshell is already registered as node '${config.nodeId}' (close 4409); exiting, stop the duplicate daemon first`,
         );
         stop(1);
       }

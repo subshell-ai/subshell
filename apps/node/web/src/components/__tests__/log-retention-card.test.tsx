@@ -155,7 +155,7 @@ describe("LogRetentionCard", () => {
   });
 
   test("a refusal prints the sentence the machine answered with", async () => {
-    stub(STORED, { status: 409, message: "SUBSHELL_LOG_RETENTION_DAYS is set in this agent's environment" });
+    stub(STORED, { status: 409, message: "SUBSHELL_LOG_RETENTION_DAYS is set in the daemon's environment" });
     renderCard();
     await screen.findByLabelText("Days");
     fireEvent.change(screen.getByLabelText("Days"), { target: { value: "9" } });

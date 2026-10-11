@@ -15,7 +15,7 @@ import type { NodeConfig } from "../config.js";
 import { runConfigure } from "../configure.js";
 import { currentDebugLogging, setDebugLogging } from "../debug-logging.js";
 import { log } from "../log.js";
-import { AGENT_LOG_CAP_BYTES, agentLogPath, readNodeLogSlice } from "../log-file.js";
+import { AGENT_LOG_CAP_BYTES, readableDaemonLogPath, readNodeLogSlice } from "../log-file.js";
 import { writeMaintenance } from "../maintenance.js";
 import { defaultMaintenanceDeps, runMaintenance } from "../maintenance-cli.js";
 import { readRetentionState, setLogRetention, sweepIsScheduled } from "../retention-settings.js";
@@ -331,7 +331,7 @@ export function buildRoutes(
           // No cap on `fromByte` at the boundary: a cursor past EOF reads as
           // empty, and `readNodeLogSlice` clamps a negative one — the file's
           // own reader is the size authority.
-          return Response.json(await readNodeLogSlice(agentLogPath(), fromByte, maxBytes));
+          return Response.json(await readNodeLogSlice(readableDaemonLogPath(), fromByte, maxBytes));
         },
         {
           query: t.Object({

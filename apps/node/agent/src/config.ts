@@ -56,7 +56,7 @@ export interface NodeConfig {
    */
   nodeWsUrl?: string;
   /**
-   * Whether debug-level lines reach the agent's own log file.
+   * Whether debug-level lines reach the daemon's own log file.
    *
    * Absent means off, which is also what an older config means. Persisted
    * rather than per-process because the sessions worth debugging end in a

@@ -525,7 +525,7 @@ export async function setAutostart(deps: ServiceDeps, enabled: boolean): Promise
 export async function uninstallService(deps: ServiceDeps): Promise<CliResult> {
   // The note rides every success line when the config is gone; error paths
   // keep their message about the actual failure.
-  const noConfigNote = (await deps.hasConfig()) ? "" : "(no agent config found, nothing else to clean up)\n";
+  const noConfigNote = (await deps.hasConfig()) ? "" : "(no daemon config found, nothing else to clean up)\n";
 
   if (deps.platform === "linux") {
     const path = unitPath(deps.home);

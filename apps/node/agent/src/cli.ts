@@ -8,7 +8,7 @@ import { startNodeDashboard } from "./dashboard/server.js";
 import { runEnroll } from "./enroll.js";
 import { clearLock, isPidAlive, lockPath, readLock } from "./lock.js";
 import { logger } from "./log.js";
-import { agentLogPath } from "./log-file.js";
+import { readableDaemonLogPath } from "./log-file.js";
 import { tightenServiceLogMode } from "./log-hygiene.js";
 import {
   defaultMaintenanceDeps,
@@ -99,7 +99,7 @@ usage:
   subshell dashboard [--dashboard-port <n>]
                           the loopback dashboard WITHOUT the daemon: reads and
                           maintenance work, restart/update say "not supervised".
-                          For a stopped or broken agent: the machine's page
+                          For a stopped or broken daemon: the machine's page
                           should not need the machine's plane socket
   subshell service install [--no-autostart]   (systemd user unit / launchd agent)
                           --no-autostart runs it now but not at login
@@ -972,7 +972,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           const line = `rolled back to ${to} at ${binary}`;
           const restart = await controlService(sdeps, "restart", { force: parsed.flags.force === "1" });
           const note =
-            restart.code === 0 ? "restarted the agent" : "restart it where you started it to run the previous version";
+            restart.code === 0 ? "restarted the daemon" : "restart it where you started it to run the previous version";
           if (json)
             return { code: 0, out: `${JSON.stringify({ rolledBack: true, binary, to, note }, null, 2)}\n`, err: "" };
           return { code: 0, out: `${line}\n${note}\n`, err: "" };
@@ -1031,7 +1031,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
           }
           const line = available
-            ? `subshell ${offer.version} is available (${offer.where}); this agent is ${NODE_VERSION}`
+            ? `subshell ${offer.version} is available (${offer.where}); this daemon is ${NODE_VERSION}`
             : `subshell ${NODE_VERSION} is the newest available`;
           return { code: 0, out: `${line}\n${planeHint}`, err: "" };
         }
@@ -1086,7 +1086,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
           return { code: 0, out: `${JSON.stringify(body, null, 2)}\n`, err: "" };
         }
         const lines = [`installed subshell ${applied.to} at ${applied.binary} (was ${applied.from})`];
-        if (applied.restarted) lines.push("restarted the agent; it will reconnect on the new version");
+        if (applied.restarted) lines.push("restarted the daemon; it will reconnect on the new version");
         else if (parsed.flags.noRestart === "1")
           lines.push("not restarted (--no-restart); restart it to run the new version");
         else lines.push(applied.note ?? "restart it where you started it to run the new version");
@@ -1129,8 +1129,8 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
         } else if (parsed.flags.probe) {
           errOut =
             "subshell: --probe opens a live node socket, and the control plane keeps the NEWEST " +
-            "connection, so this KICKS any subshell running elsewhere for this node (terminal " +
-            "4409 for it). Only probe when you are certain no other agent is running.\n";
+            "connection, so this disconnects any daemon running elsewhere for this node (terminal " +
+            "4409 for it). Only probe when you are certain no other daemon is running.\n";
           probe = await probeOnline(cfg);
           online = probe;
           line = online
@@ -1145,7 +1145,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
             `node ${cfg.nodeId} "${cfg.name}": OFFLINE (no local subshell running; ` +
             `start it with \`subshell service start\`, or \`subshell service install\` if no ` +
             `service is installed yet, or run \`subshell run\` in the foreground. ` +
-            `Pass --probe to ask the control plane instead; a probe KICKS a remote agent!)`;
+            `Pass --probe to ask the control plane instead; a probe disconnects a daemon running elsewhere!)`;
         }
         if (parsed.flags.json) {
           // The update transaction's state, for the same reason `paths` is
@@ -1224,7 +1224,7 @@ export async function run(argv: string[], deps: RunDeps = {}): Promise<CliResult
                * key rather than swept is what makes this safe to add, and a
                * test on each side pins it.
                */
-              agentLog: agentLogPath(),
+              agentLog: readableDaemonLogPath(),
             },
             update: { pending, lastFailure },
           };
