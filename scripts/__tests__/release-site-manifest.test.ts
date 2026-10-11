@@ -55,7 +55,9 @@ describe("release.yml site-manifest wiring", () => {
 
   test("commit retry is bounded and never forced", () => {
     const job = yml.slice(yml.indexOf("  site-manifest:"));
-    expect(job).toContain("pull --rebase origin main");
+    expect(job).toContain("git fetch origin main");
+    expect(job).toContain("git checkout --detach FETCH_HEAD");
+    expect(job).not.toContain("pull --rebase");
     expect(job).toMatch(/for attempt in 1 2 3/);
     expect(job).not.toMatch(/git push --force/);
   });

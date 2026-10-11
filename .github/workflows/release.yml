@@ -1857,26 +1857,24 @@ jobs:
         with:
           bun-version: 1.4.0
 
-      # Generates from REMOTE tags (`git ls-remote`, never the API,
-      # site-releases.ts header). Commit with a bounded rebase retry: a cut
-      # runs for over an hour, and main moves under this checkout in that
-      # window (a merged PR, or another run's own refresh commit landing after
-      # this job's plan step read the tags). A third collision is not a
-      # (real-world shape: two pushes interleaving twice inside one second)
-      # so a hard failure there is the honest outcome, not a force.
+      # Regenerate on current main after a rejected push. This file is generated,
+      # so rebasing its old contents against another refresh creates conflicts.
       - name: Generate, commit, verify
         run: |
           set -euo pipefail
-          bun scripts/site-releases.ts
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add releases.json
-          git diff --cached --quiet && { echo "releases.json already current"; exit 0; }
-          git commit -m "chore: refresh releases.json [skip ci]"
           for attempt in 1 2 3; do
+            git fetch origin main
+            # This job owns its clean checkout and only creates generated commits.
+            # Leave any rejected commit behind, preserving every change on main.
+            git checkout --detach FETCH_HEAD
+            bun scripts/site-releases.ts
+            git add releases.json
+            git diff --cached --quiet && { echo "releases.json already current"; exit 0; }
+            git commit -m "chore: refresh releases.json [skip ci]"
             if git push origin HEAD:main; then break; fi
             [ "$attempt" = 3 ] && { echo "::error::releases.json push failed after 3 attempts"; exit 1; }
-            git pull --rebase origin main
             sleep "$((attempt * 5))"
           done
           # Verify our own commit landed where visitors will read it, BYTE
