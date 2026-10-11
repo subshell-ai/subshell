@@ -223,12 +223,11 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   // which is exactly what this test minted and what the teardown below matches.
   const subshellName = `e2e-remote-${nonce}`;
 
-  // ── 1. API truth: the server's own address is loopback under the e2e stack,
-  // which is what makes the address dropdown carry exactly one row (step 2):
-  // nothing else is reachable, and the old amber warning is gone.
+  // The stack uses loopback, but host discovery can also offer trusted
+  // network addresses. Check the selected address rather than assuming one row.
   const pub = await request.get("/api/settings/public");
   expect(pub.ok(), await pub.text()).toBe(true);
-  const { appBaseUrl } = (await pub.json()) as { appBaseUrl: string };
+  const { appBaseUrl, trustedOrigins } = (await pub.json()) as { appBaseUrl: string; trustedOrigins: string[] };
   expect(appBaseUrl).toBe(BASE_URL); // Task 3: appBaseUrl ≡ APP_BASE_URL ≡ the stack's origin
 
   // ── 2. Add-node dialog mints the key the agent will redeem; the rendered
@@ -248,13 +247,15 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
   await expect(command).toContainText(/setup_key=nsk_/);
   const setupKey = (((await command.textContent()) ?? "").match(/setup_key=(nsk_[^"&\s]+)/)?.[1] ?? "").trim();
   expect(setupKey, "plaintext key rides the command").toMatch(/^nsk_/);
-  await expect(command).toContainText(`${BASE_URL}/install.sh?setup_key=${setupKey}`);
-  // The dropdown stands where the amber loopback paragraph used to be. Its
-  // one row is the base URL (a loopback-only stack knows no reachable
-  // address), and the command carries no `&server=` — the selection IS
-  // APP_BASE_URL, and a deviation is the only thing worth carrying.
-  await expect(dialog.locator('[data-slot="select-trigger"]')).toBeVisible();
-  await expect(command).not.toContainText("&server=");
+  const addressPicker = dialog.getByRole("combobox", { name: "Select Subshell server address" });
+  await expect(addressPicker).toBeVisible();
+  const selectedAddress = (await addressPicker.locator('[data-slot="select-value"]').textContent())?.trim();
+  expect([appBaseUrl, ...trustedOrigins]).toContain(selectedAddress);
+  const installUrl = new URL(((await command.textContent()) ?? "").match(/curl -fsSL "([^"]+)"/)?.[1] ?? "");
+  expect(installUrl.origin).toBe(selectedAddress);
+  expect(installUrl.pathname).toBe("/install.sh");
+  expect(installUrl.searchParams.get("setup_key")).toBe(setupKey);
+  expect(installUrl.searchParams.get("server")).toBe(selectedAddress === appBaseUrl ? null : selectedAddress);
   await dialog.getByRole("button", { name: "Done" }).click();
 
   // ── 3. The install script AS SERVED by this instance (Task 4 pins, through
@@ -447,8 +448,9 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     await expect(actions).toBeVisible();
     await actions.click();
     await page.getByRole("menuitem", { name: "Close" }).click();
-    await expect(page.getByText(`Close subshell "${subshellName}"?`)).toBeVisible();
-    await page.locator("[data-slot='dialog-content'] button", { hasText: /^Close$/ }).click();
+    await expect(page.getByRole("heading", { name: "Close this subshell?" })).toBeVisible();
+    await expect(page.getByRole("dialog").getByText(`permanently deletes "${subshellName}"`)).toBeVisible();
+    await page.locator("[data-slot='dialog-content'] button", { hasText: /^Close subshell$/ }).click();
     await expect(page.getByText(subshellName)).toHaveCount(0, { timeout: SPAWN_TIMEOUT });
     await pollUntil(
       `pane "${pane}" outlived close on the node`,

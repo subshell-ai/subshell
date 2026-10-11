@@ -148,6 +148,6 @@ test("a negotiated attach speaks CBOR both ways and the pane answers", async ({ 
   await expect(actions).toBeVisible();
   await actions.click();
   await p.getByRole("menuitem", { name: "Close" }).click();
-  await p.locator("[data-slot='dialog-content'] button", { hasText: /^Close$/ }).click();
+  await p.locator("[data-slot='dialog-content'] button", { hasText: /^Close subshell$/ }).click();
   await wide.close();
 });

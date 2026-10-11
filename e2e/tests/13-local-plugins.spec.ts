@@ -67,7 +67,7 @@ test.describe("instance plugins", () => {
       // selectable again (step 4).
       await piRow(page).getByRole("button", { name: "Uninstall pi" }).click();
       const dialog = page.getByRole("dialog");
-      await expect(dialog.getByRole("heading", { name: "Uninstall pi?" })).toBeVisible();
+      await expect(dialog.getByRole("heading", { name: "Uninstall this plugin?" })).toBeVisible();
       await expect(dialog.getByText("stops offering it on every node")).toBeVisible();
       await expect(dialog.getByLabel("Keep the presets, unavailable until reinstalled")).toBeChecked();
       await dialog.getByRole("button", { name: "Uninstall" }).click();
