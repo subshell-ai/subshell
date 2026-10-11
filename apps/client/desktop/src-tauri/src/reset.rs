@@ -471,7 +471,10 @@ mod tests {
         let order = deletion_order(&plan);
         assert_eq!(order.len(), 3);
         for path in &order {
-            assert!(!path.ends_with("logs/daemon.log"), "the daemon's own log is not deleted");
+            assert!(
+                !path.ends_with("logs/daemon.log"),
+                "the daemon's own log is not deleted"
+            );
             assert!(!path.ends_with("bin/subshell"), "the installed CLI is not deleted");
         }
     }

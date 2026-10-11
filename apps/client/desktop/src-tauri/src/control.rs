@@ -3456,10 +3456,7 @@ mod path_tests {
             // order the ruling keeps is daemon, then pre-rename, then manager.
             |p| p.ends_with("logs/agent.log") || p.ends_with("Library/Logs/subshell.log"),
         );
-        assert_eq!(
-            path.as_deref(),
-            Some("/home/u/.config/subshell/logs/agent.log")
-        );
+        assert_eq!(path.as_deref(), Some("/home/u/.config/subshell/logs/agent.log"));
         assert!(hint.is_none());
     }
 
