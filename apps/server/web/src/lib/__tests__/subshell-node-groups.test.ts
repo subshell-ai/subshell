@@ -95,12 +95,16 @@ describe("groupSubshellsByNode — labels", () => {
     expect(groups[0]?.label).toBe("local");
   });
 
-  it("says 'node you can't see', with the id on hover, once the registry ANSWERED without the id", () => {
+  it("says 'node you can't see' and reveals NOTHING more once the registry ANSWERED without the id", () => {
     // Not "deleted node": the list is share-filtered, so a revoked grant
-    // lands here too, and "unknown" claims only what is known.
+    // lands here too, and "unknown" claims only what is known. And the id
+    // leaves the hover text too: title equals label, which every consumer
+    // renders as no tooltip — the id of a node you cannot see leads to no
+    // page and names nothing the reader can act on (ruling 2026-10-10).
     const groups = groupSubshellsByNode([subshell({ nodeId: "gone" })], [node()], { unanswered: false });
     expect(groups[0]?.label).toBe("node you can't see");
-    expect(groups[0]?.title).toBe("gone");
+    expect(groups[0]?.title).toBe("node you can't see");
+    expect(groups[0]?.title).not.toContain("gone");
   });
 
   it("makes the hover title the NAME once the registry resolves it", () => {
