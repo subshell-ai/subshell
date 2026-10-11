@@ -64,7 +64,7 @@ export function describeToolError(err: unknown): Error {
       // list_nodes rows carry no version, so pointing at one asked the agent
       // to check a fact the tool does not report.
       return new Error(
-        `subshell: the agent on the target node predates this command (${err.message}); ask a human to update that node's agent, or choose an agent node whose panes already answer this verb`,
+        `subshell: the daemon on the target node predates this command (${err.message}); ask a human to update that node's daemon, or choose a machine node whose panes already answer this verb`,
       );
     }
     if (err.code === "EXEC_PANE_BUSY") {

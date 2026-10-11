@@ -339,7 +339,7 @@ function SubshellsPage() {
  * lib/subshell-node-groups.ts). Renders nothing when the group is empty. The
  * heading is the node's NAME (a rename moves it), never uppercased: it is a
  * proper noun the operator chose, not a status band. Its hover reveal is the
- * full node id whenever the registry could not resolve a name — a `ui/tooltip`
+ * full node id only while a cold registry has not answered — a `ui/tooltip`
  * popup, not a native `title` (same 2026-09-24 zoom reason as the rail rows),
  * and absent entirely when the title would only repeat the heading.
  */

@@ -125,7 +125,7 @@ echo "$OUT" | grep -q "/nodes" || fail "setup printed no next step naming the no
 echo "$OUT" | grep -qi "subshell run" && fail "setup still recommends the foreground run"
 ok "setup enrolled and named the nodes page"
 
-echo "== 9. run the agent and confirm it comes online"
+echo "== 9. run the daemon and confirm it comes online"
 "$NODE" run > "$W/daemon.log" 2>&1 &
 NODEPID=$!
 ONLINE=no

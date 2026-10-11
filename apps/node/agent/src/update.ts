@@ -825,7 +825,7 @@ export async function applyUpdate(input: ApplyUpdateInput): Promise<AppliedUpdat
       to: input.version,
       binary,
       restarted: false,
-      note: (res.err.trim() || res.out.trim() || "the service manager refused the restart").split("\n")[0] ?? "",
+      note: (res.err.trim() || res.out.trim() || "the service manager would not restart it").split("\n")[0] ?? "",
     };
   }
   return { from: NODE_VERSION, to: input.version, binary, restarted: true };
@@ -902,7 +902,7 @@ export async function revertAfterRefusal(
   const failure: UpdateFailure = { ...pending, reason, failedAt: new Date().toISOString() };
   await writeMarker(failedMarkerPath(dataDir), failure);
   await rm(pendingMarkerPath(dataDir), { force: true }).catch(() => {});
-  log(`rolled back to subshell ${pending.from}: the control plane refused ${pending.to} (${reason})`);
+  log(`rolled back to subshell ${pending.from}: the server would not accept ${pending.to} (${reason})`);
   return failure;
 }
 

@@ -327,7 +327,7 @@ const HAS_MCP = true;
 export function updateRequiredMessage(reason: string | undefined): string {
   return reason
     ? `the server will not accept this machine's Subshell daemon version (close 4406): ${reason}; exiting`
-    : `the server will not accept this machine's Subshell daemon version (close 4406); a newer subshell is required; exiting`;
+    : `the server will not accept this machine's Subshell daemon version (close 4406); a newer Subshell daemon is required; exiting`;
 }
 
 function readyEvent(

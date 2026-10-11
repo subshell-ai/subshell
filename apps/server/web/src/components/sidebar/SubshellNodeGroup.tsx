@@ -48,7 +48,9 @@ export function SubshellNodeGroup({
   nodeId: string;
   /** The node's NAME (or the honest fallback when the registry cannot say one) */
   label: string;
-  /** The header's hover text — the name when known, the full node id otherwise */
+  /** The header's hover text — the name when known, the full id only while a cold
+   * registry has not answered; equal to the label for an invisible node, which
+   * the equal-title branch below renders as no tooltip at all. */
   title: string;
   /** How many subshells this node has, BEFORE the per-group cap */
   count: number;

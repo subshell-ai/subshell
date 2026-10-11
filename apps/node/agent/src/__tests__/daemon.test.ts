@@ -2186,16 +2186,16 @@ describe("4406 refusal message", () => {
   // vN", which named the wrong gate for a version-floor refusal and told them
   // neither the required nor the found version.
   test("relays the server's reason verbatim", () => {
-    expect(updateRequiredMessage("subshell 0.3.0 or newer required (this agent is 0.2.1)")).toContain(
-      "subshell 0.3.0 or newer required (this agent is 0.2.1)",
+    expect(updateRequiredMessage("subshell 0.3.0 or newer required (this node is 0.2.1)")).toContain(
+      "subshell 0.3.0 or newer required (this node is 0.2.1)",
     );
-    expect(updateRequiredMessage("protocol v4 required (this agent speaks v3)")).toContain("this agent speaks v3");
+    expect(updateRequiredMessage("protocol v4 required (this node speaks v3)")).toContain("this node speaks v3");
   });
 
   test("still says something actionable when the server sent no reason", () => {
     const line = updateRequiredMessage(undefined);
     expect(line).toContain("4406");
-    expect(line).toContain("newer subshell");
+    expect(line).toContain("newer Subshell daemon");
     expect(line).not.toContain("undefined");
     expect(updateRequiredMessage("")).toBe(line);
   });
@@ -2413,6 +2413,7 @@ describe("the update transaction, settled by the daemon (spec 2026-09-15 ยง5.1/ย
   });
 
   test("close 4406 with a pending marker ROLLS BACK, records the failure, and exits 1", async () => {
+    const { lines, restore } = captureLogs();
     const h = await startDaemon();
     await waitForReady(h);
     const { binary, previous } = stageTransaction(h.config.dataDir);
@@ -2433,6 +2434,12 @@ describe("the update transaction, settled by the daemon (spec 2026-09-15 ยง5.1/ย
     };
     expect(failed.to).toBe("9.9.9");
     expect(failed.reason).toContain("protocol v11");
+    // The rollback's own record reads from the reader's seat (ruling
+    // 2026-10-10): the server WILL NOT ACCEPT the version, not "the control
+    // plane refused" it.
+    expect(lines.some((l) => l.includes("would not accept 9.9.9"))).toBe(true);
+    expect(lines.some((l) => l.includes("the control plane refused"))).toBe(false);
+    restore();
   });
 
   test("close 4406 WITHOUT a marker touches nothing โ€” it is the ordinary too-old refusal", async () => {

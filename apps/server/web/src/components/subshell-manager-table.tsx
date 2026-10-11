@@ -132,7 +132,7 @@ export function SubshellManagerTable({
               (sections ? sections : [{ key: "*", label: "", title: "", subshells }]).map((sec) => (
                 <Fragment key={sec.key}>
                   {/* The section band — same label and same hover reveal
-                      (full node id only when the name did not resolve) as
+                      (full node id only while a cold registry has not answered) as
                       the tile heading for the same section, so switching
                       views changes the shape, not the words. */}
                   {/* The band's own token call, settled by the operator after
