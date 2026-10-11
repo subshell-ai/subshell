@@ -3,13 +3,12 @@ export function SelfHostedSection() {
   return (
     <section
       aria-labelledby="self-hosted-feature"
-      className="grid items-center gap-8 border-t border-[var(--hairline)] pt-12 lg:grid-cols-[1.5fr_.8fr] lg:gap-14"
+      className="grid items-start gap-8 border-t border-[var(--hairline)] pt-12 lg:grid-cols-[1.2fr_1fr] lg:gap-14"
     >
-      <div className="lg:col-start-2 lg:row-start-1">
-        <p className="font-mono text-[12px] uppercase tracking-[.12em] text-[var(--orchid)]">Self-hosted</p>
+      <div>
         <h2
           id="self-hosted-feature"
-          className="mt-3 text-[28px] font-semibold leading-tight tracking-[-.035em] sm:text-[36px]"
+          className="text-[28px] font-semibold leading-tight tracking-[-.035em] sm:text-[36px]"
         >
           Self-hosted and open source.
         </h2>
@@ -29,21 +28,23 @@ export function SelfHostedSection() {
           </a>
         </div>
       </div>
-      <div className="space-y-8 lg:col-start-1 lg:row-start-1">
+      <dl className="grid gap-5 border-t border-[var(--hairline)] pt-6 text-[14px] leading-[1.8] lg:border-t-0 lg:border-l lg:pt-0 lg:pl-8">
         <div>
-          <h3 className="text-[20px] font-semibold">Your subshell history</h3>
-          <p className="mt-2 max-w-[58ch] text-[15px] leading-[1.8] text-[var(--dim)]">
-            Your server stores your subshell history.
-          </p>
+          <dt className="font-semibold">History</dt>
+          <dd className="mt-1 text-[var(--dim)]">Your server stores your subshell history.</dd>
         </div>
         <div>
-          <h3 className="text-[20px] font-semibold">Open code, clear licenses</h3>
-          <p className="mt-2 max-w-[58ch] text-[15px] leading-[1.8] text-[var(--dim)]">
+          <dt className="font-semibold">Licenses</dt>
+          <dd className="mt-1 text-[var(--dim)]">
             Server code is licensed under AGPL-3.0-only. Clients, the node daemon, and the rest of the project use
-            Apache-2.0. Your agent's provider account and usage costs remain separate.
-          </p>
+            Apache-2.0.
+          </dd>
         </div>
-      </div>
+        <div>
+          <dt className="font-semibold">Agent costs</dt>
+          <dd className="mt-1 text-[var(--dim)]">Your agent's provider account and usage costs remain separate.</dd>
+        </div>
+      </dl>
     </section>
   );
 }
