@@ -1,5 +1,11 @@
 # @internal/server
 
+## 1.10.6
+
+### Patch Changes
+
+- [#363](https://github.com/subshell-ai/subshell/pull/363) [`f8c4202`](https://github.com/subshell-ai/subshell/commit/f8c4202d751ebb0fae68160e142e27c3988e01aa) Thanks [@theogravity](https://github.com/theogravity)! - Show nodes in a table with an online or offline dot beside each name. Show each node's owner in the table. Remove the tile view and separate status column, while keeping maintenance warnings visible.
+
 ## 1.10.5
 
 ### Patch Changes
