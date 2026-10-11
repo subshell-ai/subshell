@@ -107,10 +107,12 @@ export async function renameSubshell(page: Page, name: string): Promise<void> {
   // Wait for the detail header, not a sidebar row's action button. The rail
   // can render before navigation finishes, which made the rename fall back
   // to a dialog that disappeared when the detail page mounted.
-  const main = page.getByRole("main");
-  const actions = main.getByRole("button", { name: /^Actions for / });
+  const header = page.locator("header").filter({
+    has: page.getByRole("link", { name: "Back to subshells", exact: true }),
+  });
+  const actions = header.getByRole("button", { name: /^Actions for / });
   await actions.waitFor();
-  const inline = main.getByRole("button", { name: "Rename subshell" });
+  const inline = header.getByRole("button", { name: "Rename subshell" });
   if (await inline.isVisible()) {
     await inline.click();
     // Button and input carry the same aria-label; only one is ever mounted.

@@ -47,9 +47,11 @@ async function mount(admin = true, inspectionFails = false) {
       <ServerIdentityRecovery />
     </QueryClientProvider>,
   );
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 30));
-  });
+  await waitFor(() => expect(client.getQueryState(["settings-public"])?.status).toBe("success"));
+  if (admin) {
+    if (inspectionFails) await screen.findByText(/A corrupt identity must be restored from a valid backup/);
+    else await screen.findByRole("button", { name: "Repair server identity registration" });
+  }
   return { state, posts, client };
 }
 it("requires verified current disk fingerprints, permits retry409, and never repairs peer pins", async () => {
