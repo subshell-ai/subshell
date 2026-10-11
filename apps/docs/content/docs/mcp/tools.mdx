@@ -122,9 +122,9 @@ Text and Enter are ordered input operations, not an atomic transaction. An exite
 
 Returns `{ sync, archiveBytes, files, bytes, changed }`. The tree rides one streamed archive through the control plane; neither machine needs `tar` or `rsync`.
 
-Both endpoints must be agent nodes the caller owns, online, and out of maintenance; the control-plane host and the browser are not transfer endpoints. Each node's operator directory list gates its side, and an empty list means unrestricted. Extraction is additive: matching files at the destination are overwritten and nothing is deleted, so re-running a finished `sync` converges and copies nothing.
+Both endpoints must be machine nodes the caller owns, online, and out of maintenance; the control-plane host and the browser are not transfer endpoints. Each node's operator directory list gates its side, and an empty list means unrestricted. Extraction is additive: matching files at the destination are overwritten and nothing is deleted, so re-running a finished `sync` converges and copies nothing.
 
-The call is synchronous and capped at 4 GiB uncompressed per archive. An interrupted transfer leaves no partial destination tree; re-running it is the retry. A refusal naming `update the node` means one endpoint's agent predates this feature; a permissions refusal on your own call means your pane's token predates the feature and a human must restart it.
+The call is synchronous and capped at 4 GiB uncompressed per archive. An interrupted transfer leaves no partial destination tree; re-running it is the retry. A refusal naming `update the node` means one endpoint's daemon predates this feature; a permissions refusal on your own call means your pane's token predates the feature and a human must restart it.
 
 ## exec_in_terminal
 

@@ -127,7 +127,7 @@ export const NodeViewSchema = t.Object({
   }),
   canLaunch: t.Boolean({
     description:
-      "Whether the caller may start a subshell here. Any share grants it on an agent node; on `local` it is the GRANTED access alone, so switching off launching on the server applies to admins too, which is why this node can be visible and unlaunchable at once",
+      "Whether the caller may start a subshell here. Any share grants it on a machine node; on `local` it is the GRANTED access alone, so switching off launching on the server applies to admins too, which is why this node can be visible and unlaunchable at once",
   }),
   capabilities: t.Array(t.String({ description: "Capability string" }), {
     description: "Capability strings from `ready` (empty when none reported)",
@@ -269,7 +269,7 @@ export const GetNodeResponseSchema = t.Object({
   runtime: t.Optional(
     t.Object(NodeRuntimeSchema.properties, {
       description:
-        "How the node runs, present only while the node is online, only for config-capable viewers, and only on agent nodes",
+        "How the node runs, present only while the node is online, only for config-capable viewers, and only on machine nodes",
     }),
   ),
   runningSubshells: t.Optional(

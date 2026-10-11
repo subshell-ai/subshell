@@ -110,7 +110,7 @@ export function ResetDialog(props: {
         )}
         <div className="wizard-copy text-sm muted-text mb-2.5">
           {
-            "Enrolled remote nodes and a node agent on this machine keep running and are NOT touched. Only the locations listed above are deleted, permanently; the installed server binary stays."
+            "Enrolled remote nodes and a node daemon on this machine keep running and are NOT touched. Only the locations listed above are deleted, permanently; the installed server binary stays."
           }
         </div>
         <label className="mb-1 block text-sm" htmlFor="reset-confirm">

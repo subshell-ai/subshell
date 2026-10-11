@@ -337,7 +337,7 @@ export function buildRoutes(
           query: t.Object({
             fromByte: t.Optional(t.Numeric({ description: "Byte offset to read from (0 = start; clamped at EOF)" })),
             maxBytes: t.Optional(
-              t.Numeric({ description: "Max bytes to return (capped at the agent log's own limit)" }),
+              t.Numeric({ description: "Max bytes to return (capped at the daemon log's own cap)" }),
             ),
           }),
         },
