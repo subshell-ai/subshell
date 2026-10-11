@@ -1,15 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import type { Node } from "@internal/node-admin";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import { NodeTable } from "@/components/nodes/node-table";
 
-/**
- * The table view of the Nodes list: the fleet-at-a-glance columns the card
- * row cannot offer (aligned across machines), and the two facts its fixed
- * grid must still never hide — the `maintenance` warning and the seen-age
- * word when nothing has ever been seen.
- */
+/** Node state stays accessible without a separate status column. */
 function node(overrides: Partial<Node> = {}): Node {
   return {
     id: "a1",
@@ -49,22 +44,35 @@ function renderTable(nodes: Node[]) {
 }
 
 describe("NodeTable", () => {
-  it("renders one aligned row per node: name, host, platform, status, agent, seen", () => {
+  it("renders one aligned row per node: name, host, platform, owner, version, seen", () => {
     renderTable([
       node({
         id: "a1",
         name: "AI PC",
         hostname: "ai-pc",
+        ownerLabel: "Ada",
         agentVersion: "0.15.0",
         lastSeenAt: new Date().toISOString(),
       }),
       node({ id: "b2", name: "mac mini", os: "linux", arch: "x64", status: "offline" }),
     ]);
     // Headers in the operator's order.
-    for (const h of ["Name", "Host", "Platform", "Status", "Version", "Seen"]) {
-      expect(screen.getByRole("columnheader", { name: h })).toBeTruthy();
-    }
-    expect(screen.getByText("AI PC")).toBeTruthy();
+    expect(screen.getAllByRole("columnheader").map((header) => header.textContent)).toEqual([
+      "Name",
+      "Host",
+      "Platform",
+      "Owner",
+      "Version",
+      "Seen",
+      "",
+    ]);
+    expect(screen.getByText("Ada")).toBeTruthy();
+    expect(screen.getByText("You")).toBeTruthy();
+    expect(screen.queryByRole("columnheader", { name: "Status" })).toBeNull();
+    const onlineCell = screen.getByText("AI PC").closest("td");
+    const offlineCell = screen.getByText("mac mini").closest("td");
+    expect(onlineCell && within(onlineCell).getByRole("img", { name: "Online" })).toBeTruthy();
+    expect(offlineCell && within(offlineCell).getByRole("img", { name: "Offline" })).toBeTruthy();
     expect(screen.getByText("ai-pc")).toBeTruthy();
     expect(screen.getByText("Apple · arm64")).toBeTruthy();
     expect(screen.getByText("v0.15.0")).toBeTruthy();
@@ -76,10 +84,18 @@ describe("NodeTable", () => {
     cleanup();
   });
 
-  it("the maintenance warning rides the status cell — a machine in maintenance is otherwise all-green", () => {
+  it("leaves the owner unknown when the server doesn't disclose it", () => {
+    renderTable([node({ access: "view", agentVersion: "1.0.0" })]);
+    const cells = screen.getAllByRole("cell");
+    expect(cells[3]?.textContent).toBe("—");
+    expect(screen.queryByText("You")).toBeNull();
+    cleanup();
+  });
+
+  it("keeps maintenance visible in the name cell alongside connection status", () => {
     renderTable([node({ maintenance: true })]);
-    expect(screen.getByText("online")).toBeTruthy();
-    expect(screen.getByText("maintenance")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Online" })).toBeTruthy();
+    expect(screen.getByText("maintenance").closest("td")).toBe(screen.getByText("mac mini").closest("td"));
     cleanup();
   });
 });

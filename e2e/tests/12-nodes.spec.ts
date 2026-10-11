@@ -105,12 +105,13 @@ test("nodes: the server's own node renders online; Add-node mints a setup key + 
   // row and the rail is free to name the plane whatever an admin chooses.
   const body = page.locator("main");
 
-  // The boot-seeded control-plane node: name + hostname line + online badge.
+  // The boot-seeded control-plane node: name, hostname, and online dot.
   // The row shows the HOSTNAME rather than claiming to be "this machine",
   // which is false for anyone not sitting at the server.
   await expect(body.getByText("Server", { exact: true })).toBeVisible();
   await expect(body.getByText("this machine", { exact: false })).not.toBeVisible();
-  await expect(body.getByText("online", { exact: true })).toBeVisible();
+  await expect(body.getByRole("img", { name: "Online", exact: true })).toBeVisible();
+  await expect(body.getByRole("columnheader")).toHaveText(["Name", "Host", "Platform", "Owner", "Version", "Seen", ""]);
 
   // Add node → the screen itself. There is no first step any more (2026-09-18):
   // the dialog opens on the instructions and the mint is one press IN them; the
@@ -341,19 +342,12 @@ test("nodes: real agent from source enrolls, comes online, and hosts a remote la
     expect(probed?.harnesses.find((h) => h.harnessId === "pi")).toMatchObject({ installed: true });
     expect(probed?.inventoryStale).toBe(false);
 
-    // ── 5. The /nodes page renders the row: name, online badge, pi chip.
-    // The harness chips truncate at three with the rest behind "+N more" (six
-    // of them used to crush the name column to one character), so reveal them
-    // when the control is there. Whether pi lands inside the inline three
-    // depends on what else this dev host has on its PATH, which is exactly the
-    // identity a spec must not pin.
+    // The table shows the enrolled node with its online dot.
+    // Harness availability is checked above and exercised by the launch below.
     await page.goto("/nodes");
-    const nodeRowUi = page.locator("div.rounded-lg", { has: page.getByText(nodeName, { exact: true }) });
+    const nodeRowUi = page.getByRole("row").filter({ has: page.getByText(nodeName, { exact: true }) });
     await expect(nodeRowUi).toHaveCount(1);
-    await expect(nodeRowUi.getByText("online", { exact: true })).toBeVisible();
-    const moreHarnesses = nodeRowUi.getByRole("button", { name: /^\+\d+ more$/ });
-    if (await moreHarnesses.count()) await moreHarnesses.click();
-    await expect(nodeRowUi.getByText("pi", { exact: true })).toBeVisible();
+    await expect(nodeRowUi.getByRole("img", { name: "Online", exact: true })).toBeVisible();
 
     // ── 6. Remote launch through the browser: /new, the pi AGENT (no preset
     // — presets are optional since spec 2026-09-13), the e2e node, a temp

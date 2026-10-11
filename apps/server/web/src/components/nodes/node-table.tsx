@@ -1,26 +1,10 @@
 import type { Node } from "@internal/node-admin";
-import { Badge, relativeElapsed } from "@internal/node-admin";
+import { Badge, cn, relativeElapsed } from "@internal/node-admin";
 import type { JSX } from "react";
 import { ActionsMenu } from "@/components/actions-menu";
 import { nodeActions } from "@/components/nodes/node-actions";
 import { osLabel } from "@/components/nodes/node-row";
 import { useMaintenanceFlip } from "@/components/nodes/use-maintenance-flip";
-
-/**
- * The Nodes list as a table — the second view of the same rows, chosen by the
- * page's tab group (operator's ask, 2026-09-22). The card row (`NodeListRow`)
- * is the scan-a-few-at-a-time view with its harness chips and full second
- * line; this is the fleet-at-a-glance view where the columns line up across
- * machines and the questions are the same for every row: name, host, what it
- * runs, whether it is up, and which node CLI is on it.
- *
- * The columns carry the SAME server-derived facts the card reads — nothing
- * re-derived here — and deliberately drop the per-harness chips (that is the
- * card's job; a fixed grid cannot grow a variable-length middle the way the
- * card's wrapping column does). The `maintenance` warning is NOT dropped: a
- * machine in maintenance reads entirely online otherwise, and a status the
- * table hides is a status that surprises someone when a launch fails.
- */
 
 /** One table row, with the maintenance flip bound to it. */
 function NodeTableRow({
@@ -45,18 +29,28 @@ function NodeTableRow({
   return (
     <tr className="border-b last:border-0">
       <td className="max-w-[16rem] py-2 pr-4">
-        <p className="truncate font-strong">{node.name}</p>
+        <div className="flex items-center gap-2">
+          <span
+            role="img"
+            aria-label={node.status === "online" ? "Online" : "Offline"}
+            title={node.status === "online" ? "Online" : "Offline"}
+            className={cn("size-2 shrink-0 rounded-full", node.status === "online" ? "bg-success" : "bg-destructive")}
+          />
+          <p className="truncate font-strong">{node.name}</p>
+        </div>
+        {node.maintenance && (
+          <Badge variant="warning" className="mt-1">
+            maintenance
+          </Badge>
+        )}
       </td>
       <td className="py-2 pr-4 text-detail text-muted-foreground">{node.hostname ?? node.id}</td>
       <td className="py-2 pr-4 text-detail text-muted-foreground">
         {osLabel(node.os)}
         {node.arch ? ` · ${node.arch}` : ""}
       </td>
-      <td className="py-2 pr-4">
-        <div className="flex items-center gap-2">
-          <Badge variant={node.status === "online" ? "success" : "muted"}>{node.status}</Badge>
-          {node.maintenance && <Badge variant="warning">maintenance</Badge>}
-        </div>
+      <td className="py-2 pr-4 text-detail text-muted-foreground">
+        {node.ownerLabel ?? (node.access === "owner" ? "You" : "—")}
       </td>
       <td className="py-2 pr-4 text-detail text-muted-foreground">
         {node.agentVersion ? `v${node.agentVersion}` : "—"}
@@ -98,12 +92,10 @@ export function NodeTable({
             <th className="pr-4 pb-2 font-strong">Name</th>
             <th className="pr-4 pb-2 font-strong">Host</th>
             <th className="pr-4 pb-2 font-strong">Platform</th>
-            <th className="pr-4 pb-2 font-strong">Status</th>
+            <th className="pr-4 pb-2 font-strong">Owner</th>
             <th className="pr-4 pb-2 font-strong">Version</th>
             <th className="pr-4 pb-2 font-strong">Seen</th>
-            <th className="pb-2 text-right font-strong">
-              <span className="sr-only">Actions</span>
-            </th>
+            <th className="pb-2 text-right font-strong" />
           </tr>
         </thead>
         <tbody>

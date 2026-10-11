@@ -5,13 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { Route } from "@/routes/nodes";
 import { setFetchRouter } from "@/test-setup";
 
-/**
- * The Nodes page is three grouped views (operator's ask, 2026-09-22): the
- * card list, a table of the same rows, and the setup-key ledger. The tab is
- * URL state with cards as the plain path, and what is on screen must follow
- * it — the test pins the wiring, because a tab group whose clicks change
- * nothing is the exact bug a Segmented control invites.
- */
+/** The table and setup keys follow URL state, including old view links. */
 const NODE = {
   id: "a1",
   name: "AI PC",
@@ -87,20 +81,21 @@ function renderNodes(initialPath = "/nodes") {
 }
 
 describe("Nodes page tabs", () => {
-  it("the plain path is the card view, and the Setup keys card is NOT on it", async () => {
+  it("the plain path shows the table without a tile option or setup keys", async () => {
     renderNodes();
     await waitFor(() => expect(screen.getByText("AI PC")).toBeTruthy());
-    // The card view renders the node once; the keys section is on its tab,
-    // not below the list as it used to be.
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Tiled view" })).toBeNull();
     expect(screen.queryByText("Each setup key enrolls one machine, valid 24 h.")).toBeNull();
   });
 
-  it("Table switches the same rows to the column grid", async () => {
-    renderNodes();
-    await waitFor(() => expect(screen.getByText("AI PC")).toBeTruthy());
+  it("List returns from setup keys to the default table", async () => {
+    const router = renderNodes("/nodes?tab=keys");
+    await screen.findByRole("button", { name: "List view" });
     fireEvent.click(screen.getByRole("button", { name: "List view" }));
     await waitFor(() => expect(screen.getByRole("columnheader", { name: "Platform" })).toBeTruthy());
     expect(screen.getByText("Linux · x64")).toBeTruthy();
+    expect(router.state.location.searchStr).toBe("");
   });
 
   it("Setup keys shows the ledger and hides the node list; the URL carries the tab", async () => {
@@ -112,8 +107,11 @@ describe("Nodes page tabs", () => {
     expect(router.state.location.pathname + router.state.location.searchStr).toBe("/nodes?tab=keys");
   });
 
-  it("arriving at ?tab=list lands on the table without a click", async () => {
-    renderNodes("/nodes?tab=list");
-    await waitFor(() => expect(screen.getByRole("columnheader", { name: "Platform" })).toBeTruthy());
-  });
+  for (const tab of ["list", "tiles"]) {
+    it(`old ?tab=${tab} links show the table`, async () => {
+      renderNodes(`/nodes?tab=${tab}`);
+      await screen.findByRole("table");
+      expect(screen.queryByRole("button", { name: "Tiled view" })).toBeNull();
+    });
+  }
 });
