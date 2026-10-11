@@ -163,15 +163,15 @@ describe("SshTrustSection", () => {
     expect(screen.queryByText(/Pin replaced/)).toBeNull();
   });
 
-  it("names the audit consequence: a re-pair replaces the stored pin, audited by peer", () => {
+  it("explains that re-pairing replaces the saved identity after verification", () => {
     renderSection(node());
-    expect(screen.getByText(/replaces the stored pin/)).toBeDefined();
-    expect(screen.getByText(/names the peer/)).toBeDefined();
+    expect(screen.getByText(/replaces the saved identity/)).toBeDefined();
+    expect(screen.getByText(/Verify both machines’ fingerprints/)).toBeDefined();
   });
 
-  it("marks its own rendering for display only, pointing at the two dashboards", () => {
+  it("explains how to verify reported fingerprints independently", () => {
     renderSection(node());
-    expect(screen.getByText(/for display only/)).toBeDefined();
-    expect(screen.getByText(/own dashboard/)).toBeDefined();
+    expect(screen.getByText(/To verify them independently/)).toBeDefined();
+    expect(screen.getByText(/To verify them independently/).textContent).toContain("own dashboard");
   });
 });

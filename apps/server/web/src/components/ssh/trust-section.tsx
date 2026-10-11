@@ -34,14 +34,13 @@ export function SshTrustSection({ node }: { node: NodeDetail }) {
         }
       />
       <p className="text-detail text-muted-foreground">
-        These fingerprints are reported through this server, for display only. To verify them independently
-        (out-of-band), open each machine’s own dashboard and compare its fingerprints with the saved copy on the other
-        machine.
+        This server displays the fingerprints reported by each machine. To verify them independently, open each
+        machine’s own dashboard and compare its fingerprints with the saved copy on the other machine.
       </p>
       {isOwner && node.sshTrust.peers.length > 0 && (
         <p className="text-detail text-muted-foreground">
-          A re-pair replaces the stored pin (saved identity) for one peer machine. Verify both machines’ fingerprints
-          first. The record names the peer.
+          Re-pairing replaces the saved identity for one peer machine. Verify both machines’ fingerprints before you
+          re-pair them.
         </p>
       )}
     </div>
@@ -72,7 +71,9 @@ function PeerRepairButton({ nodeId, peer, label }: { nodeId: string; peer: NodeS
         <RefreshCw className={cn("h-3.5 w-3.5", repair.isPending && "animate-spin")} /> Re-pair
       </Button>
       {repair.isError && (
-        <p className="text-destructive text-detail">{errMessage(repair.error, "The re-pair did not land.")}</p>
+        <p className="text-destructive text-detail">
+          {errMessage(repair.error, "Couldn't replace the saved identity. Try again.")}
+        </p>
       )}
       {repair.isSuccess && <p className="text-detail text-muted-foreground">Pin replaced for {label}.</p>}
     </div>

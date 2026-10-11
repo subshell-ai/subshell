@@ -96,7 +96,7 @@ export async function prepareRelayLeg(args: {
       status: 409,
       code: BackendErrorCodes.SSH_RELAY_IDENTITY_MISSING,
       message:
-        "That key home or connecting machine has not registered its relay identity yet. Re-enroll it, or wait for its next check-in to deliver the key.",
+        "One of the machines hasn’t registered its SSH relay identity. Wait for it to reconnect, then check its SSH settings if the identity is still missing.",
     });
   }
   // The pin door (spec §9, Task 12): read the destination's stored pin,
@@ -156,22 +156,22 @@ function relayRefusalCopy(code: SshRelayRefusal["code"]): string {
     case "access-denied":
       return "SSH launch access changed while the connection was opening. Check access to both machines and retry.";
     case "quota":
-      return "That machine already carries its full share of live relay sessions. Wait for one to close and retry.";
+      return "That machine has reached its limit for SSH relay connections. Close one or wait for it to finish, then try again.";
     case "handshake":
-      return "The key home or the connecting machine did not complete the relay handshake. Check both machines are online and retry.";
+      return "The machines couldn't establish the SSH relay. Check that both are online and try again.";
     case "node-off":
-      return "SSH was switched off on one of the machines between the gate and the relay open.";
+      return "SSH was switched off on one of the machines while connecting. Enable it and try again.";
     case "no-node":
     case "no-datadir":
-      return "One of the machines is not fully connected; retry once it reports in.";
+      return "One of the machines hasn't finished connecting to the server. Wait for it to connect and try again.";
     case "same-node":
-      return "The key home and the connecting machine are the same machine; this connection needs no relay.";
+      return "Choose the connecting machine’s own keys to use keys from that machine.";
     case "bad-socket-path":
-      return "The connecting machine answered a socket path the server could not verify. Nothing was launched.";
+      return "The server couldn't verify the connecting machine's SSH relay socket. No subshell was started.";
     case "bad-pane-id":
     case "bad-fingerprints":
-      return "The relay refused the session's identifiers as malformed; the launch was refused.";
+      return "The SSH relay received invalid session details. No subshell was started.";
     case "bad-host-pin":
-      return "The relay refused the destination host pin as malformed; the launch was refused.";
+      return "The destination's saved host key is invalid. No subshell was started.";
   }
 }

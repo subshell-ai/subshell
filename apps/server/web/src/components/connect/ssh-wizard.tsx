@@ -243,8 +243,8 @@ export function SshWizard({
             </>
           )}
           <p className="text-detail text-muted-foreground">
-            Readiness does not test destination authentication. Connecting uses this machine’s SSH configuration,
-            including any local commands configured with Match exec.
+            We haven't checked whether you can sign in to the destination. Connecting uses this machine’s SSH
+            configuration, including any local commands configured with Match exec.
           </p>
         </FieldGroup>
       )}

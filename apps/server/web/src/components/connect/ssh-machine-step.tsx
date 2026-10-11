@@ -63,7 +63,7 @@ export function SshMachineSetup({
   if (!machine)
     return (
       <p role="alert" className="text-destructive text-detail">
-        The selected machine is no longer available to you. Go Back and choose another machine.
+        The selected machine is no longer available to you. Go back and choose another machine.
       </p>
     );
   const onlyNeedsEnable =
@@ -81,7 +81,7 @@ export function SshMachineSetup({
       <p className="font-strong text-body">{machine.node.name}</p>
       {machine.canConnect ? (
         <p role="status" className="text-detail">
-          Ready to run SSH. Authentication to a destination has not been tested.
+          This machine is ready to run SSH. We haven't checked whether you can sign in to the destination.
         </p>
       ) : (
         <>
@@ -128,7 +128,7 @@ export function SshMachineSetup({
       )}
       {enable.isError && (
         <p role="alert" className="text-destructive text-detail">
-          {errMessage(enable.error, "SSH could not be enabled. Retry when the machine is available.")}
+          {errMessage(enable.error, "Couldn't enable SSH. Try again when the machine is available.")}
         </p>
       )}
     </div>

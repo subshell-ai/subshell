@@ -548,11 +548,11 @@ export const BackendErrorCodeDefs = {
     statusCode: 502,
   },
   [BackendErrorCodes.SSH_NO_RESTART]: {
-    message: "SSH panes are not restarted; launch again to reconnect",
+    message: "SSH subshells can't restart. Start a new SSH subshell to reconnect",
     statusCode: 409,
   },
   [BackendErrorCodes.SSH_OWNER_INPUT_ONLY]: {
-    message: "SSH panes accept input from their owner only",
+    message: "Only the owner can type in this SSH subshell",
     statusCode: 403,
   },
   [BackendErrorCodes.SSH_KEYS_OVER_LIMIT]: {
@@ -564,7 +564,7 @@ export const BackendErrorCodeDefs = {
     statusCode: 400,
   },
   [BackendErrorCodes.SSH_RELAY_OPEN_FAILED]: {
-    message: "The relay refused to open; the pane was not launched",
+    message: "Couldn't open the SSH relay. The subshell wasn't started",
     statusCode: 409,
   },
   [BackendErrorCodes.SSH_RELAY_IDENTITY_MISSING]: {
@@ -572,11 +572,11 @@ export const BackendErrorCodeDefs = {
     statusCode: 409,
   },
   [BackendErrorCodes.SSH_HOST_PIN_MISSING]: {
-    message: "The key home has no recorded host key for that destination",
+    message: "The machine supplying your keys has no saved host key for that destination",
     statusCode: 409,
   },
   [BackendErrorCodes.SSH_HOST_PIN_CHANGED]: {
-    message: "The host key for that destination does not match the stored pin",
+    message: "The destination's host key doesn't match the saved pin",
     statusCode: 409,
   },
   [BackendErrorCodes.SSH_HOST_PIN_INVALID]: {
@@ -584,11 +584,11 @@ export const BackendErrorCodeDefs = {
     statusCode: 400,
   },
   [BackendErrorCodes.SSH_UPGRADE_EGRESS]: {
-    message: "The destination cannot reach this server, so it cannot install Subshell",
+    message: "The destination can't reach this server to install Subshell",
     statusCode: 409,
   },
   [BackendErrorCodes.SSH_UPGRADE_FAILED]: {
-    message: "Setting up Subshell here did not finish",
+    message: "Subshell setup didn't finish",
     statusCode: 409,
   },
 };

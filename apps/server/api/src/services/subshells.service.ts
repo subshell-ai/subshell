@@ -952,7 +952,7 @@ export class SubshellsService extends BaseService {
     if (!paneInputAllowed(row, viewerId, actor !== "cookie")) {
       throwApiError({
         code: BackendErrorCodes.SSH_OWNER_INPUT_ONLY,
-        message: "SSH panes accept input from their owner only",
+        message: "Only the owner can type in this SSH subshell",
         doNotLog: true,
       });
     }

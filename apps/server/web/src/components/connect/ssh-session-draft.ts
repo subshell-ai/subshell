@@ -41,13 +41,13 @@ export function sshKeySelectionProblem(fingerprints: string[], identities?: SshA
   const cap = sshSelectionError(fingerprints);
   if (cap) return cap;
   if (identities && fingerprints.some((fingerprint) => !identities.some((key) => key.fingerprint === fingerprint)))
-    return "A selected key is no longer available. Restore it to the SSH agent or explicitly update your selection.";
+    return "A selected key is no longer available. Load it into the SSH agent again or choose different keys.";
   return null;
 }
 
 export function sshKeySourceProblem(draft: SshSessionDraft): string | null {
   return draft.keyHome && draft.keyHome === draft.nodeId
-    ? "The selected key machine is also the connecting machine. Explicitly choose the connecting machine’s own keys or another key machine to continue. Your selected fingerprints are preserved."
+    ? "You’ve selected the same machine for the connection and the keys. Choose its own keys or another key machine to continue. Your previous key selection is saved."
     : null;
 }
 

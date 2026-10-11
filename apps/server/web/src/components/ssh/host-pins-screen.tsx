@@ -31,19 +31,10 @@ import { fieldErrorToned, makeForm, useSubmitDisabled } from "@/lib/form";
 import { REQUIREMENT_CAPTION_CLASS } from "@/lib/requirement-tone";
 import type { SshHostPin } from "@/lib/ssh";
 
-/**
- * Destination trust (spec 2026-10-08 §9): the caller's host-key pins, each a
- * canonical `user@host:port` and the pinned key's `SHA256:` fingerprint. The
- * key line itself never reaches this screen by construction; the view carries
- * only the public identifier. Pins are per destination and independent of the
- * grants, so this card stands beside the grants card, not inside it.
- *
- * Delete is the TOFU recovery's first half: removing a pin lets the next
- * capture at a fresh key re-decide trust, so the confirm says that, with the
- * destination in the body under a static title. The add door is the §9 "or an
- * explicit pin" path - the way out for a destination whose trust lives under
- * an SSH HostKeyAlias, where the key home's capture cannot find the row
- * (F2/T12): the operator supplies the known_hosts line themselves.
+/** Saved destination host keys, scoped to the signed-in user.
+ * Removing a pin allows Subshell to capture the key again on the next relay
+ * connection. Users must verify a changed key before removing its pin.
+ * A supplied known_hosts entry also supports destinations that use HostKeyAlias.
  */
 export function HostPinsScreen() {
   const query = useSshHostPins();
@@ -69,8 +60,8 @@ export function HostPinsScreen() {
           <SshQueryStatus query={query} label="destination trust" />
         ) : pins.length === 0 ? (
           <p className="text-detail text-muted-foreground">
-            No pinned destinations yet. Subshell saves the destination’s verified host key when permission is approved
-            or first used.
+            No pinned destinations yet. When you first connect using keys from another machine, Subshell saves the
+            destination’s host key from that machine’s known_hosts file.
           </p>
         ) : (
           <ul className="space-y-4">
@@ -94,7 +85,7 @@ function PinRow({ pin }: { pin: SshHostPin }) {
       // Static title; the destination rides the body (ruling 2026-09-30).
       title: "Remove this pin?",
       description: `"${pin.destination}" will need its host key verified again. Confirm the replacement with the destination’s administrator before reconnecting.`,
-      confirmLabel: "Remove",
+      confirmLabel: "Remove pin",
       danger: true,
     });
     if (!ok) return;
@@ -113,7 +104,7 @@ function PinRow({ pin }: { pin: SshHostPin }) {
         </div>
         {remove.isError && remove.variables === pin.destination && (
           <p role="alert" className="text-destructive text-detail">
-            {errMessage(remove.error, "The pin could not be removed.")}
+            {errMessage(remove.error, "Couldn't remove the pin.")}
           </p>
         )}
       </div>
@@ -175,7 +166,7 @@ function AddPinDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
         await create.mutateAsync({ destination, hostKey });
         onOpenChange(false);
       } catch (err) {
-        setServerError(errMessage(err, "The pin could not be added."));
+        setServerError(errMessage(err, "Couldn't add the pin."));
       }
     },
   });
@@ -187,8 +178,8 @@ function AddPinDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
         <DialogHeader>
           <DialogTitle>Add destination pin</DialogTitle>
           <DialogDescription>
-            A host key you supply yourself. Use this when the destination is trusted under an SSH HostKeyAlias and the
-            key home cannot capture it.
+            Add a host key you’ve verified with the destination’s administrator. Use this when the machine supplying
+            your keys can’t find the destination’s key, for example when its SSH config uses HostKeyAlias.
           </DialogDescription>
         </DialogHeader>
         <form.Field name="destination">

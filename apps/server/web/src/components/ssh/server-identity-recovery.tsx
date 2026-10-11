@@ -94,9 +94,9 @@ export function ServerIdentityRecovery() {
       <CardContent>
         <FieldGroup>
           <p className="text-detail text-muted-foreground">
-            Compare the disk fingerprints with the server’s identity file through a trusted channel. Repair deliberately
-            replaces the registered identity and closes existing SSH relays involving this server. Each peer keeps its
-            saved pins until its owner verifies and repairs them separately.
+            Compare these fingerprints with the server’s identity file through a trusted channel. Repairing the
+            registration replaces its saved identity and closes this server’s existing SSH relays. Each peer keeps its
+            saved identity for this server until its owner verifies and repairs it separately.
           </p>
           {identity.isPending && (
             <p role="status" className="text-detail">
@@ -105,13 +105,13 @@ export function ServerIdentityRecovery() {
           )}
           {identity.isError && (
             <p role="alert" className="text-destructive text-detail">
-              {errMessage(identity.error, "The identity could not be inspected.")} A corrupt identity must be restored
-              from a valid backup before registration can be repaired.
+              {errMessage(identity.error, "Couldn't read the server’s SSH identity.")} A corrupt identity must be
+              restored from a valid backup before registration can be repaired.
             </p>
           )}
           {identity.data && !identity.data.matches && (
             <>
-              <p className="text-detail">The identity on disk does not match the server’s registered identity.</p>
+              <p className="text-detail">The identity on disk doesn’t match the server’s registered identity.</p>
               <IdentityFacts label="Identity on disk" pair={identity.data.own} />
               <IdentityFacts label="Registered identity" pair={identity.data.registered} />
               <form.Field name="verified">
@@ -139,8 +139,8 @@ export function ServerIdentityRecovery() {
           )}
           {repair.isError && (
             <p role="alert" className="text-destructive text-detail">
-              {errMessage(repair.error, "Registration repair did not finish.")} Retry after reading the current
-              fingerprints again.
+              {errMessage(repair.error, "Couldn’t repair the identity registration.")} Read the current fingerprints
+              again before retrying.
             </p>
           )}
           {repair.isSuccess && (

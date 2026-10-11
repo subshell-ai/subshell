@@ -44,10 +44,7 @@ export function SshEnrollmentStep({
               </Button>
               {enrollment.create.isError && (
                 <p role="alert" className="text-destructive text-detail">
-                  {errMessage(
-                    enrollment.create.error,
-                    "The setup key could not be generated. Retry Generate setup key.",
-                  )}
+                  {errMessage(enrollment.create.error, "Couldn't generate a setup key. Try again.")}
                 </p>
               )}
             </>
@@ -60,11 +57,11 @@ export function SshEnrollmentStep({
           <p role="status" className="text-detail">
             {enrollment.consumedNodeId
               ? machines.find((m) => m.node.id === enrollment.consumedNodeId)?.node.status === "online"
-                ? "Machine enrolled and online. Continue to prepare SSH."
-                : "Machine enrolled. Waiting for this machine to come online."
+                ? "The machine is enrolled and online. Continue to set up SSH."
+                : "The machine is enrolled. Waiting for it to come online."
               : enrollment.row?.usedAt
-                ? "This key was consumed without a matching machine. Retry its status or choose an existing machine."
-                : "Waiting for this setup key to enroll a machine."}
+                ? "This key was used, but we couldn't find the machine it enrolled. Check its status again or choose an existing machine."
+                : "Waiting for a machine to use this setup key."}
           </p>
           <Button
             type="button"

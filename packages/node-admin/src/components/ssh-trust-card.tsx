@@ -60,7 +60,7 @@ export function NodeSshTrustCard({
         <p className="text-detail text-muted-foreground">
           {trust.stale
             ? "This machine is offline. These are the last fingerprints it reported."
-            : "Fingerprints of this machine's relay keys and every peer it pins. Compare them against what each machine prints about the same keys itself."}
+            : "These fingerprints identify this machine and its saved SSH relay peers. Compare them with the fingerprints shown on each machine's own dashboard."}
         </p>
         <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
           <FingerprintFact
@@ -76,7 +76,7 @@ export function NodeSshTrustCard({
           {trust.peers.length === 0 ? (
             <div className="col-span-full">
               <dt className="text-muted-foreground">Pinned peers</dt>
-              <dd className="mt-1 text-detail text-muted-foreground">No SSH relay peers pinned yet.</dd>
+              <dd className="mt-1 text-detail text-muted-foreground">No saved SSH relay peers yet.</dd>
             </div>
           ) : (
             trust.peers.map((peer) => (

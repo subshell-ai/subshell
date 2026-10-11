@@ -366,21 +366,21 @@ export function hostPinRefusal(err: SshHostPinError): SshHostPinRefusal {
         status: 409,
         code: BackendErrorCodes.SSH_HOST_PIN_MISSING,
         message:
-          "The key home has no recorded host key for that destination. Connect to it once from the key home, or supply its host key on the trust screen.",
+          "The machine supplying your keys has no saved host key for that destination. Connect to it once from that machine and verify its key, or add a verified host key in Settings → SSH.",
       };
     case "ambiguous":
       return {
         status: 409,
         code: BackendErrorCodes.SSH_HOST_PIN_MISSING,
         message:
-          "The key home recorded more than one host key for that destination. Resolve its known_hosts entry, then ask again.",
+          "The machine supplying your keys has multiple host keys saved for this destination. Verify the correct key and update its known_hosts entry, then try again.",
       };
     case "changed":
       return {
         status: 409,
         code: BackendErrorCodes.SSH_HOST_PIN_CHANGED,
         message:
-          "The key home now reports a different host key for that destination than the stored pin. Verify out of band, delete the pin, and retry the connection to trust the verified key.",
+          "The destination’s host key has changed. Verify the new key with its administrator through a trusted channel before removing the saved pin and reconnecting.",
       };
     case "invalid-line":
       return { status: 400, code: BackendErrorCodes.SSH_HOST_PIN_INVALID, message: err.message };
@@ -388,26 +388,28 @@ export function hostPinRefusal(err: SshHostPinError): SshHostPinRefusal {
       return {
         status: 409,
         code: BackendErrorCodes.NODE_OFFLINE,
-        message: "The key home has no live connection right now; bring its Subshell app online and ask again.",
+        message: "The machine supplying your keys is offline. Start its Subshell daemon and try again.",
       };
     case "unsupported":
       return {
         status: 409,
         code: BackendErrorCodes.NODE_OUTDATED,
-        message: "The Subshell app on the key home is too old to report host keys. Update it from its machine page.",
+        message: "Update Subshell on the machine supplying your keys from its node page to read host keys.",
       };
     case "timeout":
       return {
         status: 409,
         code: BackendErrorCodes.NODE_UNREACHABLE,
-        message: "The key home did not answer the host-key request in time; check its connection and ask again.",
+        message:
+          "The machine supplying your keys didn't answer the host-key request in time. Check its connection and try again.",
       };
     case "refused":
     case "malformed":
       return {
         status: 502,
         code: BackendErrorCodes.SSH_NODE_REFUSED,
-        message: "The key home refused the host-key request. Check that SSH is switched on there.",
+        message:
+          "The machine supplying your keys refused the host-key request. Check that SSH is enabled on that machine.",
       };
   }
 }

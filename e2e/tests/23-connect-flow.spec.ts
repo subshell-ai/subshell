@@ -29,7 +29,7 @@ test.skip(missing.length > 0, `SSH binaries absent on this host (${missing.join(
 /** The exact strings the page ships (components/connect/* + components/ssh-pane-labels.tsx). */
 const SSH_DISCLOSURE_COPY =
   "Connecting uses this machine’s SSH configuration, including any local commands configured with Match exec.";
-const SSH_VIEW_ONLY_COPY = "SSH sessions take input from their owner only.";
+const SSH_VIEW_ONLY_COPY = "Only the owner can type in this SSH subshell.";
 const MACHINE_OFF_REASON = "SSH is off on this machine. An admin can enable it in machine settings.";
 /** The seeded control-plane host's display name (seed-local.ts): the picker reads names, not ids. */
 const LOCAL_NODE_NAME = "Server";

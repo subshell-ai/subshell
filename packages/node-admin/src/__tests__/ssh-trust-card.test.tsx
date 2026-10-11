@@ -119,6 +119,6 @@ describe("SshTrustCard", () => {
   it("an empty peer set says so plainly instead of rendering a lone header", () => {
     render(<NodeSshTrustCard node={node({ sshTrust: { ...LIVE_TRUST, peers: [] } })} />);
     expect(screen.getByText(FP_OWN_SIGN)).toBeDefined();
-    expect(screen.getByText(/no ssh relay peers pinned yet/i)).toBeDefined();
+    expect(screen.getByText(/no saved ssh relay peers yet/i)).toBeDefined();
   });
 });

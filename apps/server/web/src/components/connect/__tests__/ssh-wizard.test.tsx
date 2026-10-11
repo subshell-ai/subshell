@@ -302,7 +302,7 @@ it("preserves an explicit subset when the connecting machine becomes its key sou
     start: false,
   });
   await choose("Connect through", "keys");
-  expect(screen.getByText(/selected key machine is also the connecting machine/)).toBeTruthy();
+  expect(screen.getByText(/selected the same machine for the connection and the keys/)).toBeTruthy();
   expect((screen.getByLabelText("Use SSH keys from") as HTMLInputElement).value).toBe("keys");
   expect((screen.getByRole("button", { name: "Start SSH subshell" }) as HTMLButtonElement).disabled).toBe(true);
   await click("Start SSH subshell");
@@ -341,9 +341,9 @@ it("blocks same-machine initial choices until own keys are explicitly chosen", a
   await click("Connect to a destination");
   await next();
   await next();
-  expect(screen.getByText(/selected key machine is also the connecting machine/)).toBeTruthy();
+  expect(screen.getByText(/selected the same machine for the connection and the keys/)).toBeTruthy();
   await click("Use connecting machine’s own keys");
-  expect(screen.queryByText(/selected key machine is also the connecting machine/)).toBeNull();
+  expect(screen.queryByText(/selected the same machine for the connection and the keys/)).toBeNull();
   expect(calls.some((call) => call.path === "/api/ssh/launch")).toBe(false);
   await click("Start SSH subshell");
   expect(calls.find((call) => call.path === "/api/ssh/launch")?.body).toEqual({ node: "keys", destination: "keep-me" });
@@ -464,7 +464,7 @@ it("matches only its consumed setup key, retains key/method across Back, and dis
   expect(screen.getByRole("button", { name: "Desktop App" }).getAttribute("aria-pressed")).toBe("true");
   state.machines = [machine("unrelated")];
   await click("Retry enrollment status");
-  expect(screen.getByText("Waiting for this setup key to enroll a machine.")).toBeTruthy();
+  expect(screen.getByText("Waiting for a machine to use this setup key.")).toBeTruthy();
   expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
   state.consumedNodeId = "enrolled";
   state.machines.push({
@@ -472,7 +472,7 @@ it("matches only its consumed setup key, retains key/method across Back, and dis
     node: { ...machine("enrolled", false).node, status: "offline" },
   });
   await click("Retry enrollment status");
-  expect(screen.getByText("Machine enrolled. Waiting for this machine to come online.")).toBeTruthy();
+  expect(screen.getByText("The machine is enrolled. Waiting for it to come online.")).toBeTruthy();
   await next();
   expect(screen.getByText("enrolled")).toBeTruthy();
   expect(calls.filter((c) => c.path === "/api/nodes/setup-keys" && c.method === "POST")).toHaveLength(1);

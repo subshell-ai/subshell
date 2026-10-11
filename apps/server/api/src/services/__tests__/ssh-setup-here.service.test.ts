@@ -321,7 +321,7 @@ describe("setupHere door order (pane first, gates before any key)", () => {
     const res = await setupHere({ viewerId: owner, paneId });
     expect(res.ok).toBe(false);
     if (res.ok) return;
-    expect(coded(res.refusal).message).toContain("SSH-terminal pane");
+    expect(coded(res.refusal).message).toContain("Open an SSH subshell");
   });
 });
 
@@ -442,8 +442,8 @@ describe("setupHere relay mode", () => {
       const refusal = coded(res.refusal);
       expect(refusal.status).toBe(409);
       expect(refusal.code).toBe(BackendErrorCodes.SSH_UPGRADE_EGRESS);
-      expect(refusal.message).toContain("could not reach");
-      expect(refusal.message).toContain("untouched");
+      expect(refusal.message).toContain("couldn't reach");
+      expect(refusal.message).toContain("Your SSH subshell keeps running.");
       // The working pane: the row is unchanged, and B saw ONLY the exec arms
       // - no input, no terminate, no launch, no touch of any kind.
       const row = await new SubshellsRepository(db).findById(paneId);
@@ -614,7 +614,7 @@ describe("setupHere relay mode", () => {
       if (res.ok) return;
       const refusal = coded(res.refusal);
       expect(refusal.code).toBe(BackendErrorCodes.SSH_UPGRADE_FAILED);
-      expect(refusal.message).toContain("without enrolling");
+      expect(refusal.message).toContain("no machine enrolled");
       expect((await keys.listByUser(owner)).length).toBe(keysBefore);
     } finally {
       await clearUpgradeRows();
@@ -690,7 +690,7 @@ describe("setupHere direct mode (B's own keys, no relay)", () => {
       if (res.ok) return;
       const refusal = coded(res.refusal);
       expect(refusal.code).toBe(BackendErrorCodes.SSH_UPGRADE_EGRESS);
-      expect(refusal.message).toContain("could not reach");
+      expect(refusal.message).toContain("couldn't reach");
       expect(refusal.message).toContain(APP_BASE_URL);
       const audits = await upgradeRows();
       expect(audits).toHaveLength(1);

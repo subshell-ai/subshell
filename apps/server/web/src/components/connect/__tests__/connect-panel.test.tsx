@@ -608,11 +608,12 @@ describe("refusals and disclosure (contracts 4, 5)", () => {
       await clickConnect();
       const line = await screen.findByText(
         (_text, el) =>
-          el?.tagName === "P" && (el.textContent ?? "").startsWith("Config needs settings Subshell does not run:"),
+          el?.tagName === "P" &&
+          (el.textContent ?? "").startsWith("This SSH configuration uses settings Subshell doesn't support:"),
       );
       expect(line.className).toContain("text-destructive"); // a hard server refusal: red
       expect(line.textContent).toContain("Setting29"); // the WHOLE list, not the 200-char slice
-      expect(line.textContent).toContain("Edit them on the connecting machine and retry.");
+      expect(line.textContent).toContain("Update them on the connecting machine and try again.");
     } finally {
       restore();
     }
@@ -626,9 +627,7 @@ describe("refusals and disclosure (contracts 4, 5)", () => {
     try {
       await commitTyped("web01");
       await clickConnect();
-      expect(
-        await screen.findByText("mac mini has no live connection right now. Bring its Subshell app online and retry."),
-      ).toBeDefined();
+      expect(await screen.findByText("mac mini is offline. Start its Subshell daemon and try again.")).toBeDefined();
     } finally {
       restore();
     }

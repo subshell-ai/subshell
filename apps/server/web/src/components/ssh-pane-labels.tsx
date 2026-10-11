@@ -1,7 +1,7 @@
 import type { SubshellView } from "@/types/subshell";
 
 /** The header sentence a non-owner of an ssh pane sees (spec 2026-10-07 §5.4). */
-export const SSH_VIEW_ONLY_COPY = "SSH sessions take input from their owner only.";
+export const SSH_VIEW_ONLY_COPY = "Only the owner can type in this SSH subshell.";
 
 /**
  * The ssh facts a pane header states beside its other labels: an SSH badge

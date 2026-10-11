@@ -172,7 +172,7 @@ export async function setupHere(args: {
     return coded(
       409,
       BackendErrorCodes.SSH_UPGRADE_FAILED,
-      "Setting up Subshell here is an act on an SSH-terminal pane; this pane is not one.",
+      "Open an SSH subshell to set up Subshell on its destination.",
     );
   }
   let snapshot: SshConnectionSnapshotWire | null = null;
@@ -195,7 +195,7 @@ export async function setupHere(args: {
     return coded(
       409,
       BackendErrorCodes.SSH_UPGRADE_FAILED,
-      "This pane's approved destination could not be read back from its row; open the connection again and run the act fresh.",
+      "Couldn't read this subshell's saved SSH destination. Start a new SSH subshell and try setup again.",
     );
   }
 
@@ -208,7 +208,7 @@ export async function setupHere(args: {
     return coded(
       409,
       BackendErrorCodes.NODE_OFFLINE,
-      "That machine has not reported its data directory yet; retry once it is fully connected.",
+      "That machine hasn't finished connecting to the server. Wait for it to connect and try again.",
     );
   }
   const destination = sshCanonicalDestination({ host: snapshot.host, port: snapshot.port, user: snapshot.user });
@@ -238,7 +238,7 @@ export async function setupHere(args: {
       return coded(
         409,
         BackendErrorCodes.SSH_RELAY_OPEN_FAILED,
-        `Setting up Subshell here signs with ${gateA.value.row.name}'s keys over the relay, and that key home must be online for it. Bring it online and run the act again.`,
+        `Setup needs SSH keys from ${gateA.value.row.name}. Bring that machine online and try again.`,
       );
     }
     const leg = await prepareRelayLeg({
@@ -401,7 +401,7 @@ export async function setupHere(args: {
       return coded(
         409,
         BackendErrorCodes.SSH_UPGRADE_FAILED,
-        "The install did not finish within its deadline on the connecting machine; nothing was enrolled by this act.",
+        "Installation timed out. No machine was enrolled. Check the destination before trying again.",
       );
     }
     await deps.sleepMs(deps.pollMs);
@@ -431,7 +431,7 @@ export async function setupHere(args: {
         coded(
           409,
           BackendErrorCodes.SSH_UPGRADE_FAILED,
-          "The install ran out of time on the connecting machine; nothing was enrolled by this act.",
+          "Installation timed out. No machine was enrolled. Check the destination before trying again.",
         ),
       );
     }
@@ -446,7 +446,7 @@ export async function setupHere(args: {
         coded(
           409,
           BackendErrorCodes.SSH_UPGRADE_EGRESS,
-          `The destination could not reach ${APP_BASE_URL}, so it cannot install Subshell. Nothing was enrolled; the connection and its pane are untouched.`,
+          `The destination couldn't reach ${APP_BASE_URL} to install Subshell. No machine was enrolled. Your SSH subshell keeps running.`,
         ),
       );
     }
@@ -456,7 +456,7 @@ export async function setupHere(args: {
         coded(
           409,
           BackendErrorCodes.SSH_UPGRADE_FAILED,
-          "The enrollment key was rejected during the install (invalid, expired, or already used); nothing was enrolled.",
+          "The installer rejected the setup key because it was invalid, expired, or already used. No machine was enrolled. Try setup again to use a new key.",
         ),
       );
     }
@@ -466,7 +466,7 @@ export async function setupHere(args: {
         coded(
           409,
           BackendErrorCodes.SSH_UPGRADE_FAILED,
-          "This server had no node build for the destination's platform; supply it from the server's machine page and run the act again.",
+          "This server couldn't provide a node build for the destination's platform. Ask an admin to check the server logs and available node downloads, then try again.",
         ),
       );
     }
@@ -476,7 +476,7 @@ export async function setupHere(args: {
         coded(
           409,
           BackendErrorCodes.SSH_UPGRADE_FAILED,
-          "The destination has no tmux, which every node needs; install it there and run the act again.",
+          "Install tmux on the destination, then try setup again. Subshell needs it to run terminal sessions.",
         ),
       );
     }
@@ -486,7 +486,7 @@ export async function setupHere(args: {
         coded(
           409,
           BackendErrorCodes.SSH_UPGRADE_FAILED,
-          "You already own a node named for this destination; delete or rename that machine entry and run the act again.",
+          "You already own a node with this name. Rename the existing node or remove it if you no longer need it, then try setup again.",
         ),
       );
     }
@@ -495,7 +495,7 @@ export async function setupHere(args: {
       coded(
         409,
         BackendErrorCodes.SSH_UPGRADE_FAILED,
-        "The install on the destination stopped before enrolling; nothing was enrolled by this act.",
+        "Installation stopped before the destination enrolled. Check the destination before trying setup again.",
       ),
     );
   }
@@ -522,6 +522,6 @@ export async function setupHere(args: {
   return coded(
     409,
     BackendErrorCodes.SSH_UPGRADE_FAILED,
-    "The install finished without enrolling a machine with the key this act minted; nothing was enrolled.",
+    "The installer finished, but no machine enrolled with its setup key. Check the destination before trying setup again.",
   );
 }

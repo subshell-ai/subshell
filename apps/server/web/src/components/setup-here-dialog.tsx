@@ -66,8 +66,8 @@ export function SetupHereDialog({
           <DialogTitle>Set up Subshell here?</DialogTitle>
           {!enrolled && !error && (
             <DialogDescription>
-              Runs the Subshell installer on the connected machine using this pane's authorization. It enrolls as a node
-              you own; the connection and this pane keep running.
+              This runs the Subshell installer on the connected machine using this SSH subshell’s access. The machine
+              becomes a node you own. Your SSH subshell keeps running.
             </DialogDescription>
           )}
         </DialogHeader>
@@ -105,8 +105,8 @@ export function SetupHereDialog({
         {enrolled && (
           <p className="text-detail">
             {enrolled.connected === false
-              ? "The machine enrolled, but its connection has not been confirmed. "
-              : "The machine enrolled and connected. "}
+              ? "The machine is enrolled, but we haven’t confirmed its connection. "
+              : "The machine is enrolled and connected. "}
             <Link
               to="/nodes/$id"
               params={{ id: enrolled.nodeId }}

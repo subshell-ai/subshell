@@ -211,28 +211,27 @@ export function machinePinRepairRefusal(err: SshMachinePinRepairError): SshMachi
       return {
         status: 409,
         code: BackendErrorCodes.NODE_OFFLINE,
-        message:
-          "That machine has no live connection right now; a re-pair is delivered to it directly. Bring it online and ask again.",
+        message: "That machine must be online to replace its saved identity. Start its Subshell daemon and try again.",
       };
     case "unsupported":
       return {
         status: 409,
         code: BackendErrorCodes.NODE_OUTDATED,
-        message:
-          "The Subshell app on that machine is too old to repair a machine pin. Update it from its machine page.",
+        message: "Update Subshell on that machine from its node page before replacing its saved identity.",
       };
     case "timeout":
       return {
         status: 409,
         code: BackendErrorCodes.NODE_UNREACHABLE,
-        message: "That machine did not answer the re-pair in time; check its connection and ask again.",
+        message: "That machine didn't respond in time. Check its connection and try again.",
       };
     case "refused":
     case "malformed":
       return {
         status: 502,
         code: BackendErrorCodes.SSH_NODE_REFUSED,
-        message: "The machine refused the re-pair. Verify the peer's registered key out of band before asking again.",
+        message:
+          "The machine refused to replace the saved identity. Verify the peer’s registered key through a trusted channel before trying again.",
       };
   }
 }

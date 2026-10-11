@@ -47,7 +47,7 @@ export function sshPolicy(
   if (state.held) block(BackendErrorCodes.NODE_PROTOCOL_HELD, "Update Subshell on this machine before using SSH.");
   else if (!state.online) block(BackendErrorCodes.NODE_OFFLINE, "Start Subshell on this machine to bring it online.");
   else if (!state.ready)
-    block(BackendErrorCodes.NODE_OFFLINE, "Wait for this machine to finish connecting and report its data directory.");
+    block(BackendErrorCodes.NODE_OFFLINE, "Wait for this machine to finish connecting to the server.");
   return { canConnect: blockers.length === 0, canConfigure: gate.canManage, blockers };
 }
 

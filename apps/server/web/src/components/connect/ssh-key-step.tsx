@@ -66,7 +66,7 @@ export function SshKeyStep({
             .map((fingerprint) => (
               <div key={fingerprint} className="flex flex-col items-start gap-2">
                 <p className="break-all font-mono text-detail text-muted-foreground">{fingerprint}</p>
-                <p className="text-detail text-muted-foreground">Selected key unavailable in this SSH agent.</p>
+                <p className="text-detail text-muted-foreground">This SSH agent no longer has the selected key.</p>
                 <Button
                   type="button"
                   variant="outline"

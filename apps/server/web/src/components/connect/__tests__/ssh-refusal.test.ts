@@ -23,7 +23,7 @@ describe("sshLaunchRefusal", () => {
     const err = new ApiError(422, raw.slice(0, 200), { body: JSON.parse(raw) });
     const copy = sshLaunchRefusal(err, machine({}));
     expect(copy).toEqual({
-      text: "Config needs settings Subshell does not run: ProxyCommand, LocalForward, RemoteForward. Edit them on the connecting machine and retry.",
+      text: "This SSH configuration uses settings Subshell doesn't support: ProxyCommand, LocalForward, RemoteForward. Update them on the connecting machine and try again.",
       field: "destination",
     });
   });
@@ -32,7 +32,7 @@ describe("sshLaunchRefusal", () => {
     const err = new ApiError(422, "", { body: { outcome: { accepted: false, code: "config_missing", settings: [] } } });
     const copy = sshLaunchRefusal(err, machine({}));
     expect(copy?.text).toBe(
-      "Subshell cannot run this destination as its config stands. Edit that config on the connecting machine and retry.",
+      "Subshell can't connect using this SSH configuration. Update it on the connecting machine and try again.",
     );
     expect(copy?.field).toBe("destination");
   });
@@ -44,7 +44,7 @@ describe("sshLaunchRefusal", () => {
 
   it("400 names the destination as invalid, not the machine", () => {
     expect(sshLaunchRefusal(new ApiError(400, "x", { code: "ALIAS_UNSAFE" }), machine({}))).toEqual({
-      text: "That destination is not a valid name to connect to.",
+      text: "Enter a valid SSH destination, such as deploy@example.com:22.",
       field: "destination",
     });
   });
@@ -64,7 +64,7 @@ describe("sshLaunchRefusal", () => {
     });
   });
 
-  it("403 with the gate ON is the owner-door: no share reaches SSH", () => {
+  it("403 with SSH enabled does not guess which access rule blocked the request", () => {
     expect(sshLaunchRefusal(new ApiError(403, "x", { code: "SSH_GATE_OFF" }), machine({}))).toEqual({
       text: "You can't connect from this machine.",
       field: "machine",
@@ -80,20 +80,20 @@ describe("sshLaunchRefusal", () => {
 
   it("409 arms name the machine and their own cause", () => {
     expect(sshLaunchRefusal(new ApiError(409, "x", { code: "NODE_OFFLINE" }), machine({}))?.text).toBe(
-      "mac mini has no live connection right now. Bring its Subshell app online and retry.",
+      "mac mini is offline. Start its Subshell daemon and try again.",
     );
     expect(sshLaunchRefusal(new ApiError(409, "x", { code: "NODE_PROTOCOL_HELD" }), machine({}))?.text).toBe(
-      "mac mini runs a Subshell version this server does not speak. Update it from its machine page and retry.",
+      "mac mini runs a Subshell version this server doesn't support. Update it from its node page and try again.",
     );
     expect(sshLaunchRefusal(new ApiError(409, "x", { code: "NODE_OUTDATED" }), machine({}))?.text).toBe(
-      "The Subshell app on mac mini is too old to speak SSH. Update it from its machine page.",
+      "Update Subshell on mac mini from its node page to use SSH.",
     );
     expect(sshLaunchRefusal(new ApiError(409, "x", { code: "NODE_UNREACHABLE" }), machine({}))?.text).toBe(
-      "mac mini did not answer the SSH request in time. Check its connection and retry.",
+      "mac mini didn't answer the SSH request in time. Check its connection and try again.",
     );
     // No machine facts (the row vanished) keeps the sentence grammatical.
     expect(sshLaunchRefusal(new ApiError(409, "x", { code: "NODE_OFFLINE" }), null)?.text).toBe(
-      "That machine has no live connection right now. Bring its Subshell app online and retry.",
+      "That machine is offline. Start its Subshell daemon and try again.",
     );
   });
 
@@ -103,12 +103,12 @@ describe("sshLaunchRefusal", () => {
     // exists, it just takes no new panes, so the offline sentence would lie.
     const copy = sshLaunchRefusal(new ApiError(409, "x", { code: "NODE_IN_MAINTENANCE" }), machine({}));
     expect(copy?.text).toBe(
-      "mac mini is in maintenance and takes no new panes. Wait for it to come out of maintenance.",
+      "mac mini is in maintenance, so you can't start new subshells on it. Try again when maintenance ends.",
     );
     expect(copy?.text).not.toContain("no live connection");
     // The vanish-the-row fallback stays grammatical too.
     expect(sshLaunchRefusal(new ApiError(409, "x", { code: "NODE_IN_MAINTENANCE" }), null)?.text).toBe(
-      "That machine is in maintenance and takes no new panes. Wait for it to come out of maintenance.",
+      "That machine is in maintenance, so you can't start new subshells on it. Try again when maintenance ends.",
     );
   });
 
@@ -124,13 +124,13 @@ describe("sshLaunchRefusal", () => {
   });
 
   it("an unexpected failure gets the generic red line, never an API string", () => {
-    expect(sshLaunchRefusal(new Error("boom"), machine({}))?.text).toBe("The connection could not be started.");
+    expect(sshLaunchRefusal(new Error("boom"), machine({}))?.text).toBe("Couldn't start the SSH connection.");
     expect(sshLaunchRefusal(new ApiError(500, "Internal"), machine({}))?.text).toBe(
-      "The connection could not be started.",
+      "Couldn't start the SSH connection.",
     );
   });
 
-  it("every shipped sentence is at most two sentences and dash-free", () => {
+  it("refusal copy uses ordinary punctuation", () => {
     // Named codes too, so the per-branch arms are all in the sweep, not just
     // the default ones.
     const cases: [number, string][] = [
@@ -152,7 +152,6 @@ describe("sshLaunchRefusal", () => {
     });
     for (const text of texts) {
       expect(text).not.toMatch(/[─—–]/); // U+2500, U+2014, U+2013
-      expect(text.split(/[.!?] /).length).toBeLessThanOrEqual(2);
     }
   });
 

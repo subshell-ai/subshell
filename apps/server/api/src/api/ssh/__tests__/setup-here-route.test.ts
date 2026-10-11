@@ -121,7 +121,7 @@ describe("POST /api/ssh/setup-here doors", () => {
     const res = await post({ paneId }, { cookie: ownerCookie });
     expect(res.status).toBe(409);
     const body = (await res.json()) as { code?: string; message?: string };
-    expect(body.message).toContain("SSH-terminal pane");
+    expect(body.message).toContain("Open an SSH subshell");
   });
 });
 

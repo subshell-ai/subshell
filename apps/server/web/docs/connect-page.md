@@ -1,17 +1,26 @@
 # The Connect page
 
-Surface doc for `apps/server/web`, spec 2026-10-07 §7 (`/connect`, plan 3).
+The Connect page and SSH launch dialogs use the same connection form and setup
+wizard. Users choose a destination, the machine that connects to it, and
+optionally another machine whose SSH agent supplies the keys.
 
-The page asks one question first: a destination, chosen from the caller's
-saved rows, their recent rows, and the picked machine's SSH config aliases -
-or typed free, which the list mirrors as its own row until it is committed.
-One POST launches: the connecting machine resolves the token on the human's
-own SSH config, and the panel renders the server's refusal (the blocked
-`settings` list included, read from the parsed body) rather than guessing.
+Destination suggestions include saved destinations, recent connections, and
+aliases from the selected machine’s SSH config. Users can also type a
+destination. The server resolves it on the connecting machine before launching.
+The form displays the server’s refusal and any blocked SSH settings so users
+know what to change.
 
-Two UI facts worth keeping deliberate: a machine whose SSH is off stays in
-the disclosure greyed with its reason, never hidden (spec 2026-10-07 §4.3);
-and the destination field is an input-plus-panel, not the shared combobox,
-because Base UI's held input loses typed text when its items swap on every
-keystroke (the posture is the working-directory field's, for the same
-reason).
+Keep unavailable machines visible with their reason. The setup wizard can
+enable SSH when the user has configuration access, or enroll another machine.
+Preparing a machine never starts a connection automatically: the user reviews
+their choices and selects **Start SSH subshell**.
+
+The destination field uses an input and suggestion panel rather than the shared
+combobox. Base UI’s held input loses typed text when its items change on each
+keystroke; the working-directory field uses the same approach.
+
+Use **connecting machine** for the machine that runs SSH and **machine supplying
+your keys** when explaining the optional remote key source. The code’s
+`keyHome` identifier doesn’t need to appear in user-facing explanations. An
+**SSH agent** is the program that holds SSH keys, distinct from an AI agent or
+the Subshell daemon.

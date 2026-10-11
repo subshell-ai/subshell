@@ -166,7 +166,9 @@ export function ConnectPanel({
         label: n.name,
         disabled: n.id === nodeId || !machineCanConnect(n.id),
         reason:
-          n.id === nodeId ? "Choose own keys explicitly or another key machine." : (machineBlocker(n.id) ?? undefined),
+          n.id === nodeId
+            ? "Choose this machine’s own keys or another key machine."
+            : (machineBlocker(n.id) ?? undefined),
       })),
   ];
   const keySourceProblem = sshKeySourceProblem(draft);

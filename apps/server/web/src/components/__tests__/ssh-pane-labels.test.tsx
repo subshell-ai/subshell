@@ -26,9 +26,9 @@ describe("SshPaneLabels", () => {
   it("tells a view-only ssh viewer why typing is off", () => {
     render(<SshPaneLabels subshell={row({ ssh: true, access: "view" })} />);
     expect(screen.queryByText("SSH")).not.toBeNull();
-    expect(screen.queryByText("SSH sessions take input from their owner only.")).not.toBeNull();
+    expect(screen.queryByText("Only the owner can type in this SSH subshell.")).not.toBeNull();
     // One sentence pinned exactly (copy rule), and no em/en dash in it.
-    expect(SSH_VIEW_ONLY_COPY).toBe("SSH sessions take input from their owner only.");
+    expect(SSH_VIEW_ONLY_COPY).toBe("Only the owner can type in this SSH subshell.");
     expect(SSH_VIEW_ONLY_COPY).not.toMatch(/[–—]/);
   });
 

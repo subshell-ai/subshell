@@ -94,12 +94,12 @@ describe("SetupHereDialog", () => {
     await settle();
   }
 
-  it("asks once with a static title and two sentences, then posts the pane id", async () => {
+  it("explains setup under a static title, then posts the pane id", async () => {
     const { calls, restore } = mockFetch({ body: { nodeId: "new-node-1" } });
     try {
       await renderDialog(makeSshPane());
       expect(screen.getByText("Set up Subshell here?")).toBeTruthy();
-      expect(screen.getByText(/keep running/)).toBeTruthy();
+      expect(screen.getByText(/keeps running/)).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "Set up Subshell" }));
       await settle();
       const post = calls.find((c) => c.url === "/api/ssh/setup-here");
@@ -132,7 +132,7 @@ describe("SetupHereDialog", () => {
     try {
       await renderDialog(makeSshPane());
       fireEvent.click(screen.getByRole("button", { name: "Set up Subshell" }));
-      expect(await screen.findByText(/connection has not been confirmed/)).toBeTruthy();
+      expect(await screen.findByText(/haven’t confirmed its connection/)).toBeTruthy();
       expect(screen.queryByText("The machine enrolled and connected.")).toBeNull();
       expect(screen.getByRole("link", { name: "Open its page" }).getAttribute("href")).toContain("/nodes/offline-node");
       expect(screen.queryByRole("button", { name: "Set up Subshell" })).toBeNull();

@@ -6,7 +6,7 @@ import type { SshResolveOutcome } from "@/lib/ssh";
  * The launch refusal, in the client's words. `POST /api/ssh/launch` answers
  * every no with a status and a code the panel can name (the response map in
  * `apps/server/api/src/api/ssh/launch.route.ts`); this file is the ONE place
- * that maps them to copy, one sentence pair per branch, so the panel renders
+ * that maps them to copy, each cause and its next step, so the panel renders
  * a cause and a remedy rather than an `API 409:` string.
  *
  * The 422 is the special case: its body is not the error envelope but the
@@ -39,8 +39,8 @@ export type SshMachineFacts = Pick<Node, "name" | "kind" | "sshEnabled">;
  *  code-only arms (empty settings) name the fact and the place to fix it. */
 function refusalFromOutcome(outcome: Extract<SshResolveOutcome, { accepted: false }>): string {
   return outcome.settings.length > 0
-    ? `Config needs settings Subshell does not run: ${outcome.settings.join(", ")}. Edit them on the connecting machine and retry.`
-    : "Subshell cannot run this destination as its config stands. Edit that config on the connecting machine and retry.";
+    ? `This SSH configuration uses settings Subshell doesn't support: ${outcome.settings.join(", ")}. Update them on the connecting machine and try again.`
+    : "Subshell can't connect using this SSH configuration. Update it on the connecting machine and try again.";
 }
 
 /**
@@ -62,7 +62,7 @@ export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null):
     switch (err.status) {
       case 400:
         // ALIAS_UNSAFE: the token was refused before the machine was asked.
-        return { text: "That destination is not a valid name to connect to.", field: "destination" };
+        return { text: "Enter a valid SSH destination, such as deploy@example.com:22.", field: "destination" };
       case 403: {
         if (err.code === "SSH_GATE_OFF" && machine !== null && !machine.sshEnabled) {
           // The gate's off-door. Naming WHO flips it follows the row's kind:
@@ -76,8 +76,8 @@ export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null):
             field: "machine",
           };
         }
-        // The owner-door (the code is shared) or any other 403: the machine
-        // is open to someone else, and a share is not a remedy here.
+        // Other 403s can come from launch access or instance policy.
+        // Avoid naming a cause without enough information.
         return { text: "You can't connect from this machine.", field: "machine" };
       }
       case 404:
@@ -87,17 +87,17 @@ export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null):
         switch (err.code) {
           case "NODE_PROTOCOL_HELD":
             return {
-              text: `${name} runs a Subshell version this server does not speak. Update it from its machine page and retry.`,
+              text: `${name} runs a Subshell version this server doesn't support. Update it from its node page and try again.`,
               field: "machine",
             };
           case "NODE_OUTDATED":
             return {
-              text: `The Subshell app on ${name} is too old to speak SSH. Update it from its machine page.`,
+              text: `Update Subshell on ${name} from its node page to use SSH.`,
               field: "machine",
             };
           case "NODE_UNREACHABLE":
             return {
-              text: `${name} did not answer the SSH request in time. Check its connection and retry.`,
+              text: `${name} didn't answer the SSH request in time. Check its connection and try again.`,
               field: "machine",
             };
           case "NODE_IN_MAINTENANCE":
@@ -106,13 +106,13 @@ export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null):
             // just takes no new panes - saying "no live connection" here
             // would name the wrong fact and the wrong wait.
             return {
-              text: `${name} is in maintenance and takes no new panes. Wait for it to come out of maintenance.`,
+              text: `${name} is in maintenance, so you can't start new subshells on it. Try again when maintenance ends.`,
               field: "machine",
             };
           default:
             // NODE_OFFLINE and any other 409: no live link to carry the ask.
             return {
-              text: `${name} has no live connection right now. Bring its Subshell app online and retry.`,
+              text: `${name} is offline. Start its Subshell daemon and try again.`,
               field: "machine",
             };
         }
@@ -138,5 +138,5 @@ export function sshLaunchRefusal(err: unknown, machine: SshMachineFacts | null):
         break;
     }
   }
-  return { text: "The connection could not be started.", field: "machine" };
+  return { text: "Couldn't start the SSH connection.", field: "machine" };
 }

@@ -243,21 +243,21 @@ export function rpcRefusal(err: SshRpcError): SshAnswer<never> {
     return codedRefusal(
       409,
       BackendErrorCodes.NODE_OFFLINE,
-      "That machine has no live connection right now; bring its Subshell app online and retry.",
+      "That machine is offline. Start its Subshell daemon and try again.",
     );
   }
   if (err.kind === "unsupported") {
     return codedRefusal(
       409,
       BackendErrorCodes.NODE_OUTDATED,
-      "The Subshell app on that machine is too old to speak SSH. Update it from its machine page.",
+      "Update Subshell on that machine from its node page to use SSH.",
     );
   }
   if (err.kind === "timeout") {
     return codedRefusal(
       409,
       BackendErrorCodes.NODE_UNREACHABLE,
-      "That machine did not answer the SSH request in time; check its connection and retry.",
+      "That machine didn't answer the SSH request in time. Check its connection and try again.",
     );
   }
   // refused / malformed: the machine's own answer (`ssh disabled on this
@@ -360,7 +360,7 @@ export async function sshResolveDestination(
 }
 
 const UNSAFE_DESTINATION_COPY =
-  "That destination is not a token ssh can be given safely: no leading dash, no whitespace or control characters, at most 253 characters.";
+  "Use an SSH destination of at most 253 characters. It can't start with a dash or contain whitespace or control characters.";
 
 /**
  * `POST /api/ssh/launch` — gate, resolve, compose, launch, ledger, audit.
@@ -390,7 +390,11 @@ export async function sshLaunch(args: {
     return codedRefusal(400, BackendErrorCodes.ALIAS_UNSAFE, UNSAFE_DESTINATION_COPY);
   }
   if (args.fingerprints !== undefined && args.keyHomeNodeId === undefined) {
-    return codedRefusal(400, BackendErrorCodes.SSH_KEYS_INVALID, "Choose a key home before selecting SSH keys.");
+    return codedRefusal(
+      400,
+      BackendErrorCodes.SSH_KEYS_INVALID,
+      "Choose a machine to supply your SSH keys before selecting them.",
+    );
   }
   // Explicit own-machine key homes use the direct account path. A supplied subset cannot be broadened.
   if (args.keyHomeNodeId === row.id) {
@@ -418,7 +422,7 @@ export async function sshLaunch(args: {
     return codedRefusal(
       409,
       BackendErrorCodes.NODE_OFFLINE,
-      "That machine has not reported its data directory yet; retry once it is fully connected.",
+      "That machine hasn't finished connecting to the server. Wait for it to connect and try again.",
     );
   }
   const subshellId = crypto.randomUUID();
