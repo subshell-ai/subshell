@@ -1,5 +1,30 @@
 # @internal/node
 
+## 1.5.1
+
+### Patch Changes
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - The node's own log file is `logs/daemon.log` where it was `logs/agent.log`, the name matching the word. Nothing migrates the file: every reader (the plane's log view, the machine's loopback dashboard, `subshell status`, reset, the desktop app) falls back to the old name until the daemon has written the new one, so an upgraded node shows its history from the first poll rather than after its first line.
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - The word "agent" now means the AI agent a subshell pane drives, and nothing else. The node's background program is the **daemon** (or node daemon), everywhere a person reads about it: the Nodes table's `Agent` column is **Version**, the update card says the daemon restarts itself, a refused version reads "The server will not accept this machine's Subshell daemon version. You can still update it from here.", `subshell setup` asks "Run the Subshell daemon in the background and start it at login?", and the daemon's own refusal lines, probe warnings, update errors and both desktop apps' descriptions and reset confirmations say daemon too. Status sentences were rewritten from the reader's seat: what is true of their machine, then what they can still do, with no protocol verbs. The rule and its worked example live in `apps/docs/STYLE.md`.
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - Clarify lockdown's limits, use “Ready for your next message” for completed agent turns, and rename the sidebar group to “Created by agents” with a simpler tooltip. Use “Insert prompt” consistently in the interface and guide, change attention notifications to “Waiting for you”, and explain that maintenance may not stop every subshell or restart stopped ones. Rename the native server menu entry to “Open Server Controls” and explain the term “subshell” in the documentation.
+  
+  Clarify that a prompt stack combines instructions into one prompt, and simplify setup-key revocation and removal confirmations.
+  
+  Keep confirmation titles fixed and move names, addresses, counts, and versions into the body. Clarify restart interruptions, node re-registration timing, prompt deletion, plugin trust, and update recovery.
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - Clarify backend error messages shown in apps and API responses. Replace internal jargon with plain language, add useful next steps, and correct the server log navigation hint while keeping error codes and HTTP statuses unchanged.
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - Make CLI help, installer messages, desktop menus and dialogs, notifications, and MCP tool descriptions easier to follow. Clarify command timeouts and agent cleanup, refresh README wording, and align documentation with current interface labels.
+
+- [#360](https://github.com/subshell-ai/subshell/pull/360) [`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1) Thanks [@theogravity](https://github.com/theogravity)! - Make setup, settings, status messages, and website documentation clearer and more conversational. Simplify technical explanations, use active voice and natural contractions, and update outdated navigation references while preserving security warnings and operational details.
+  
+  Align public maintenance, restart, node recovery, and prompt-stack guides with the current interface, and clarify website sharing and prompt explanations.
+- Updated dependencies [[`814194d`](https://github.com/subshell-ai/subshell/commit/814194dd8e281ebeb354ff136101b37c5767a3c1)]:
+  - @subshell-ai/plugin-api@3.0.1
+  - @internal/pane-runtime@1.0.0
+
 ## 1.5.0
 
 ### Minor Changes
