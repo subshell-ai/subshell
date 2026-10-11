@@ -8,7 +8,7 @@ export function PhoneCard() {
         webm={false}
         width={390}
         height={844}
-        label="Subshell mobile browser sending a prompt to Codex, showing a notification sample, and switching to Claude Code workspace tabs"
+        label="Sending a prompt to Codex, previewing a notification, and switching to the Claude Code tab in a mobile browser"
       />
       <p className="mt-2.5 text-center text-[12px] text-[var(--dimmer)]">Subshell in your mobile browser</p>
     </div>

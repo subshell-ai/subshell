@@ -16,8 +16,8 @@ export function SelfHostedSection() {
           Run Subshell on your own infrastructure.
         </h2>
         <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
-          Subshell is free and open source. Run your server on your own infrastructure, keep your session history there,
-          and manage your own accounts. Read the code, adapt it to your workflow, and contribute improvements.
+          Subshell is free and open source. Your server stores your subshell history, and you manage the accounts that
+          can access it. You can read the code, adapt it to your workflow, and contribute improvements.
         </p>
         <div className="mt-5 flex flex-wrap gap-x-6 gap-y-2 text-[14px] text-[var(--orchid)]">
           <a href="https://docs.subshell.sh/install" className="underline underline-offset-4 hover:text-[var(--frost)]">

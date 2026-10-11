@@ -59,7 +59,7 @@ test("the fork names jobs, not product names, and states the picked role", async
 test("picking the client chip says what the client is, node enrollment included", async () => {
   await mounted();
   fireEvent.click(screen.getByRole("button", { name: "Client / Node" }));
-  expect(screen.getByText("Manage sessions and run agents on this machine.")).toBeDefined();
+  expect(screen.getByText("Manage subshells and run agents on this machine.")).toBeDefined();
   expect(screen.getByText("curl -fsSL https://subshell.sh/install-client.sh | bash")).toBeDefined();
   // Exactly one role sentence stands: both rendering at once would re-ask the fork's own question.
   expect(screen.queryByText("Host your dashboard and manage your agents.")).toBeNull();

@@ -4,16 +4,16 @@ const CONTROLS = [
     body: "Use passwords, passkeys, or your OIDC provider. Control account registration and revoke access when someone leaves.",
   },
   {
-    title: "Choose who can access your sessions",
-    body: "Sessions are private by default. Choose who can view or edit them, and who can launch agents on your machines.",
+    title: "Choose who can access your subshells",
+    body: "Subshells are private by default. You decide who can view or edit them and who can start new ones on your machines.",
   },
   {
     title: "Protect connections to your machines",
     body: "Node connections are encrypted and authenticated even when your server uses HTTP. Commands from your server are signed and bound to the intended machine.",
   },
   {
-    title: "See security changes",
-    body: "An audit log records account changes, enrollment, sharing, and other security actions, including who made them.",
+    title: "Review security changes",
+    body: "Check the audit log to see who changed accounts, enrolled machines, shared subshells, or took other security actions.",
   },
 ] as const;
 
@@ -34,7 +34,7 @@ export function SecuritySection() {
         </h2>
         <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
           Run Subshell on your own infrastructure and connect through your LAN, VPN, or a configured access gate. Choose
-          who can sign in, see a session, and run agents on your machines.
+          who can sign in, view a subshell, and run agents on your machines.
         </p>
         <a
           href="https://docs.subshell.sh/concepts/security"

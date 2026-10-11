@@ -28,8 +28,8 @@ const SHOTS = {
     name: "session-sharing",
     width: 855,
     height: 593,
-    alt: "Session sharing dialog with separate View and View + edit permissions",
-    caption: "Choose who can watch and who can type into the session.",
+    alt: "Subshell sharing dialog with separate View and View + edit permissions",
+    caption: "Choose who can watch and who can type into the subshell.",
   },
   nodes: {
     name: "node-enrollment",
@@ -88,8 +88,8 @@ export function FeatureShowcase() {
             Work with your agents side by side.
           </h2>
           <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
-            Keep Codex, Claude Code, and a terminal together in one workspace. Split panes to follow several sessions at
-            once, compare their output, and move between tasks without losing your place.
+            A subshell is a terminal session running an agent or a shell. Keep Codex, Claude Code, and a shell together
+            in one workspace, with split panes so you can follow their progress and compare output.
           </p>
           <div className="mt-5">
             <DocumentationLink path="/guides/workspaces">Explore workspaces</DocumentationLink>
@@ -131,19 +131,19 @@ export function FeatureShowcase() {
         className="grid items-center gap-8 border-t border-[var(--hairline)] pt-12 lg:grid-cols-[.8fr_1.5fr] lg:gap-14"
       >
         <div>
-          <p className="font-mono text-[12px] uppercase tracking-[.12em] text-[var(--orchid)]">Session sharing</p>
+          <p className="font-mono text-[12px] uppercase tracking-[.12em] text-[var(--orchid)]">Subshell sharing</p>
           <h2
             id="sharing-feature"
             className="mt-3 text-[28px] font-semibold leading-tight tracking-[-.035em] sm:text-[36px]"
           >
-            Bring someone into the session.
+            Share a subshell with a teammate.
           </h2>
           <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
-            Let a teammate follow the live terminal and its history, or grant edit access so they can type into the same
-            session. Sessions are private by default. You choose who gets access from the accounts on your server.
+            Subshells are private by default. Share one with a teammate on your server so they can follow the live
+            terminal and read its history. Give them edit access if you want them to type into it too.
           </p>
           <div className="mt-5">
-            <DocumentationLink path="/guides/sharing">How to share a session</DocumentationLink>
+            <DocumentationLink path="/guides/sharing">How to share a subshell</DocumentationLink>
           </div>
         </div>
         <div className="w-full max-w-[620px] justify-self-center">
@@ -164,9 +164,9 @@ export function FeatureShowcase() {
             Manage your machines from one dashboard.
           </h2>
           <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
-            Run an agent on your workstation, a spare Mac, or a headless Linux machine. Connect each as a node (a
-            machine that runs agents), then choose the machine and project directory when you launch. Follow the output
-            and send input from the same dashboard on your phone or desktop.
+            Run an agent on your workstation, a spare Mac, or a headless Linux machine. Each machine you connect is a
+            node. Choose a node and project directory when you start a subshell, then follow its output and type into it
+            from your phone or desktop.
           </p>
           <div className="mt-5">
             <DocumentationLink path="/nodes">How to connect a machine</DocumentationLink>

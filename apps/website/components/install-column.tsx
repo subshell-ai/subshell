@@ -103,11 +103,11 @@ export function InstallColumn({ manifest: initial }: { manifest: ReleasesManifes
       <p className="mb-3 max-w-[38ch] text-[12px] text-[var(--dimmer)]">
         {kind === "server"
           ? "Host your dashboard and manage your agents."
-          : "Manage sessions and run agents on this machine."}
+          : "Manage subshells and run agents on this machine."}
       </p>
       {kind === "client" && (
         <p className="mb-3 max-w-[38ch] text-[12px] text-[var(--dimmer)]">
-          For a single-machine setup, the{" "}
+          If you’re using one machine, the{" "}
           <button
             type="button"
             className="text-[var(--frost)] hover:text-[var(--orchid)] focus-visible:outline-2 focus-visible:outline-offset-2"
