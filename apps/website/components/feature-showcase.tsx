@@ -136,11 +136,11 @@ export function FeatureShowcase() {
             id="sharing-feature"
             className="mt-3 text-[28px] font-semibold leading-tight tracking-[-.035em] sm:text-[36px]"
           >
-            Share a subshell with a teammate.
+            Work together in the same subshell.
           </h2>
           <p className="mt-5 max-w-[44ch] text-[15px] leading-[1.8] text-[var(--dim)]">
-            Subshells are private by default. Share one with a teammate on your server so they can follow the live
-            terminal and read its history. Give them edit access if you want them to type into it too.
+            Share a subshell with a teammate on your server so they can follow the live terminal and read its history.
+            Give them edit access when you want them to type alongside you.
           </p>
           <div className="mt-5">
             <DocumentationLink path="/guides/sharing">How to share a subshell</DocumentationLink>
