@@ -53,7 +53,7 @@ describe("NodeAllowedDirs", () => {
     // The invariant most likely to be misread by a human. If the card implied
     // "nothing is permitted", an operator would think the node was broken.
     renderCard({ allowedDirs: [] });
-    expect(document.body.textContent).toContain("anywhere its user can reach");
+    expect(document.body.textContent).toContain("All directories are allowed.");
   });
 
   it("lists the rules in force", () => {
@@ -66,15 +66,15 @@ describe("NodeAllowedDirs", () => {
     // Otherwise an operator tightening the rules on a busy node cannot tell
     // whether they are about to kill live work.
     renderCard({ allowedDirs: ["/srv/work"] });
-    expect(document.body.textContent).toContain("already running are unaffected");
+    expect(document.body.textContent).toContain("already running aren’t affected");
   });
 
-  it("names the control plane as the owner of the rules when read-only", () => {
+  it("explains where to change rules on the read-only dashboard", () => {
     // The machine's OWN dashboard renders this list but must not invite
     // edits the next reconnect would overwrite (spec 2026-09-10: the plane
     // holds the set and re-pushes on `ready`).
     renderCard({ allowedDirs: ["/srv/work"] }, { readOnly: true });
-    expect(document.body.textContent).toContain("managed by the control plane");
+    expect(document.body.textContent).toContain("To change these rules, open this node’s page in the control plane.");
   });
 
   it("does not invite adding when the viewer has no Add control", () => {
@@ -82,8 +82,16 @@ describe("NodeAllowedDirs", () => {
     // the machine's own dashboard render no button, so they read no
     // invitation either (the copy gate is the controls' gate, same `canEdit`).
     renderCard({ canManage: false, allowedDirs: [] });
-    expect(document.body.textContent).toContain("anywhere its user can reach");
+    expect(document.body.textContent).toContain("All directories are allowed.");
     expect(document.body.textContent).not.toContain("Add a directory");
+    expect(screen.getByText("Only the node owner can change these rules.")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /add directory/i })).toBeNull();
+  });
+
+  it("explains the server node's admin-only rule", () => {
+    renderCard({ kind: "local", canManage: false, access: "edit" });
+    expect(screen.getByText("Only a server admin can change these rules.")).toBeDefined();
+    expect(screen.queryByRole("button", { name: /add directory/i })).toBeNull();
   });
 
   it("offers editing controls to a manager", () => {
@@ -95,6 +103,7 @@ describe("NodeAllowedDirs", () => {
   it("shows a non-manager the rules but no way to change them", () => {
     renderCard({ canManage: false, access: "edit", allowedDirs: ["/srv/work"] });
     expect(screen.getByText("/srv/work")).toBeDefined();
+    expect(screen.getByText("Only the node owner can change these rules.")).toBeDefined();
     expect(screen.queryByRole("button", { name: /add directory/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Remove/ })).toBeNull();
   });
