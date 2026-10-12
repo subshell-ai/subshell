@@ -357,14 +357,15 @@ describe("machine disclosure (contract 1)", () => {
     }
   });
 
-  it("shows server-derived management actions for the server host", async () => {
+  it("summarizes unavailable machines without listing their individual blockers", async () => {
     const { restore } = await renderPanel({
       nodes: [node({ id: "local", name: "Server", kind: "local", sshEnabled: false }), HOST_B],
       settings: { viewerIsAdmin: true },
     });
     try {
       expect(screen.getByText("Connect over SSH")).toBeTruthy();
-      expect(screen.queryByText(/SSH is off here/)).toBeTruthy();
+      expect(screen.getByText("None of your nodes can start an SSH connection yet.")).toBeTruthy();
+      expect(screen.queryByText(/SSH is off here/)).toBeNull();
       expect(screen.queryByRole("button", { name: "Open Server settings" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Open studio settings" })).toBeNull();
       expect(screen.getByRole("button", { name: "Set up SSH" })).toBeTruthy();

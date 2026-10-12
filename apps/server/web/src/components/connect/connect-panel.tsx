@@ -320,7 +320,7 @@ export function ConnectPanel({
         </Button>
       </div>
     );
-  if (enabledCount === 0) return <NoSshTargets machines={machines ?? []} onWizard={() => setWizard(true)} />;
+  if (enabledCount === 0) return <NoSshTargets onWizard={() => setWizard(true)} />;
 
   return (
     <div className="flex flex-col gap-4">
