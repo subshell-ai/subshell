@@ -1,5 +1,13 @@
 # @internal/docs
 
+## 0.7.2
+
+### Patch Changes
+
+- [#368](https://github.com/subshell-ai/subshell/pull/368) [`ebc8ca5`](https://github.com/subshell-ai/subshell/commit/ebc8ca50bd9ca3455b3adab94dc0f53b96fb1730) Thanks [@theogravity](https://github.com/theogravity)! - Block node updates while the server is updating and explain when to try them again. Show a readable message instead of raw HTML when an API request receives an error page.
+  
+  Show Start or Stop and Install or Uninstall service based on the node’s reported state. Refresh service status while the node runs, and keep destructive actions behind confirmation dialogs.
+
 ## 0.7.1
 
 ### Patch Changes
