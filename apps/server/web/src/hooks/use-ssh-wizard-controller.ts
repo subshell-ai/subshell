@@ -9,13 +9,10 @@ import {
   sshWizardSteps,
 } from "@/components/connect/ssh-session-draft";
 import type { SshWizardProps } from "@/components/connect/ssh-wizard";
-import { usePublicSettings } from "@/hooks/use-public-settings";
 import { useSshNodeRoster } from "@/hooks/use-ssh";
-import { useSshEnrollment } from "@/hooks/use-ssh-enrollment";
 import { makeForm, useSubmitDisabled } from "@/lib/form";
-import { canAddNode } from "@/lib/node-enrollment";
 
-/** Adaptive navigation and validation outlive every individual step, including enrollment. */
+/** Adaptive navigation and validation outlive every individual step, including readiness updates. */
 export function useSshWizardController({
   intent: initialIntent,
   draft,
@@ -30,10 +27,6 @@ export function useSshWizardController({
   const [current, setCurrent] = useState<SshWizardStep>(
     initialIntent === "connect" ? "destination" : initialIntent ? "machine" : "intent",
   );
-  const [adding, setAdding] = useState(false);
-  const enrollment = useSshEnrollment();
-  const { data: settings } = usePublicSettings();
-  const mayAdd = canAddNode(settings);
   const machine = machines.find((m) => m.node.id === draft.nodeId);
   const keyMachine = machines.find((m) => m.node.id === draft.keyHome);
   const remote = !!draft.keyHome;
@@ -48,7 +41,7 @@ export function useSshWizardController({
       ? draft.keyHome
       : null,
   );
-  const steps = sshWizardSteps(intent, draft, current, adding);
+  const steps = sshWizardSteps(intent, draft, current);
   const index = Math.max(0, steps.indexOf(current));
   const values = useMemo(() => ({ draft, current }), [draft, current]);
   function problems(value: typeof values): Record<string, string> {
@@ -68,20 +61,10 @@ export function useSshWizardController({
     return {};
   }
   function lifecycleBlocked(): boolean {
-    if (
-      readiness.isPending ||
-      readiness.isError ||
-      busy ||
-      enrollment.create.isPending ||
-      (current === "review" && launchBlocked)
-    )
-      return true;
-    if (current === "enrollment")
-      return !enrollment.consumedNodeId || !machines.some((m) => m.node.id === enrollment.consumedNodeId);
+    if (readiness.isPending || readiness.isError || busy || (current === "review" && launchBlocked)) return true;
     if (current === "machine") return !machine?.canConnect;
-    if (["machine-setup", "review", "readiness"].includes(current) && !machine?.canConnect) return true;
+    if (["review", "readiness"].includes(current) && !machine?.canConnect) return true;
     if (current === "key-source" && !keyMachine?.canConnect) return true;
-    if (current === "key-setup" && !keyMachine?.canConnect) return true;
     if (intent !== "prepare" && ["keys", "review", "readiness"].includes(current) && remote)
       return (
         !keyMachine?.canConnect ||
@@ -95,12 +78,6 @@ export function useSshWizardController({
     if (Object.keys(problems(values)).length > 0 || lifecycleBlocked()) return;
     if (current === "review") {
       await onStart();
-      return;
-    }
-    if (current === "enrollment" && enrollment.consumedNodeId) {
-      setAdding(false);
-      onDraftChange({ ...draft, nodeId: enrollment.consumedNodeId });
-      setCurrent("machine-setup");
       return;
     }
     setCurrent(steps[index + 1] ?? "readiness");
@@ -129,9 +106,6 @@ export function useSshWizardController({
     intent,
     current,
     setCurrent,
-    setAdding,
-    enrollment,
-    mayAdd,
     machine,
     keyMachine,
     keySourceProblem,

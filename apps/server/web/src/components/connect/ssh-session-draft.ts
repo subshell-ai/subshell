@@ -64,11 +64,8 @@ export type SshWizardStep =
   | "intent"
   | "destination"
   | "machine"
-  | "enrollment"
-  | "machine-setup"
   | "key-choice"
   | "key-source"
-  | "key-setup"
   | "keys"
   | "review"
   | "readiness";
@@ -76,11 +73,8 @@ export const SSH_STEP_LABELS: Record<SshWizardStep, string> = {
   intent: "What would you like to do?",
   destination: "Choose a destination",
   machine: "Choose a node to connect from",
-  enrollment: "Add a machine",
-  "machine-setup": "Enable SSH connections",
   "key-choice": "Choose where to get keys",
   "key-source": "Choose a machine for keys",
-  "key-setup": "Enable access to SSH keys",
   keys: "Choose your SSH keys",
   review: "Review your connection",
   readiness: "Your SSH setup",
@@ -91,18 +85,14 @@ export function sshWizardSteps(
   intent: SshWizardIntent | null,
   draft: SshSessionDraft,
   current: SshWizardStep,
-  adding: boolean,
 ): SshWizardStep[] {
   if (!intent) return ["intent"];
   const steps: SshWizardStep[] = ["intent"];
   if (intent === "connect") steps.push("destination");
   steps.push("machine");
-  if (adding) steps.push("enrollment");
-  if (current === "machine-setup") steps.push("machine-setup");
   if (intent === "connect") steps.push("key-choice");
   if (intent === "remote-keys" || (intent === "connect" && (draft.keyHome || current === "key-source"))) {
     steps.push("key-source");
-    if (current === "key-setup") steps.push("key-setup");
     steps.push("keys");
   }
   steps.push(intent === "connect" ? "review" : "readiness");

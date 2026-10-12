@@ -350,8 +350,7 @@ describe("machine disclosure (contract 1)", () => {
       await settle();
       fireEvent.click(screen.getByRole("button", { name: "Enable SSH on a node" }));
       await settle();
-      expect((screen.getByRole("button", { name: "Add a machine" }) as HTMLButtonElement).disabled).toBe(true);
-      expect(screen.getByText(/Adding nodes is turned off/)).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Add a machine" })).toBeNull();
     } finally {
       restore();
     }

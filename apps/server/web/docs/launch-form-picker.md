@@ -173,9 +173,9 @@ automatically, and a disappeared selected key blocks launch. The server can
 connect or supply remote agent keys under the same launch-access rule as nodes.
 Saved destination management lives in Settings → SSH.
 
-**SSH Wizard** is available from empty, partial, and ready connection forms,
+**Set up SSH** is available from empty, partial, and ready connection forms,
 personal SSH settings, and each node's overview. It stays inside the caller's
-existing dialog: Connect to a destination, Prepare a machine for SSH, and Use
+existing dialog: Connect to a destination, Enable SSH on a node, and Use
 keys from another machine share one draft and adapt their steps to current
 readiness. Setup completion never launches a pane. Prepare ends with Done or
 Connect now; remote keys ends with Use this setup, returning to the same form.
@@ -187,10 +187,9 @@ and remember choice.
 Enabling SSH is an explicit owner/admin configuration act, independent of launch
 access. Offline, maintenance, version, missing-access, and read-failure blockers
 remain visible and retryable; selections never silently change when readiness
-changes. Enrollment embeds the shared setup-key fields, preserves the generated
-key and chosen method/address across Back, and matches that exact key's
-`consumedNodeId`. Enrollment and coming online are separate states. The instance's
-enrollment policy disables adding a machine while keeping existing choices usable.
+changes. Node selection includes the authorized Enable SSH action and keeps
+Continue disabled until the selected node is ready. Adding nodes belongs on the
+Nodes page, outside SSH setup.
 Polling lives only on mounted open SSH surfaces.
 
 Remote key enumeration reads the Subshell process's SSH agent. An empty roster

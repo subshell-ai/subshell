@@ -456,42 +456,6 @@ it("preserves wizard draft during readiness failures and an offline selected mac
   expect((screen.getByLabelText("SSH destination") as HTMLInputElement).value).toBe("keep-me");
 });
 
-it("matches only its consumed setup key, retains key/method across Back, and distinguishes enrolled offline", async () => {
-  const { state, calls } = await setup({ machines: [] });
-  await click("Enable SSH on a node");
-  await click("Add a machine");
-  await click("Generate setup key");
-  await click("Desktop App");
-  expect(screen.getByText("nsk_mine")).toBeTruthy();
-  await click("Back");
-  await click("Add a machine");
-  expect(screen.getByText("nsk_mine")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Desktop App" }).getAttribute("aria-pressed")).toBe("true");
-  state.machines = [machine("unrelated")];
-  await click("Retry enrollment status");
-  expect(screen.getByText("Waiting for a machine to use this setup key.")).toBeTruthy();
-  expect((screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement).disabled).toBe(true);
-  state.consumedNodeId = "enrolled";
-  state.machines.push({
-    ...machine("enrolled", false),
-    node: { ...machine("enrolled", false).node, status: "offline" },
-  });
-  await click("Retry enrollment status");
-  expect(screen.getByText("The machine is enrolled. Waiting for it to come online.")).toBeTruthy();
-  await next();
-  expect(screen.getByText("enrolled")).toBeTruthy();
-  expect(calls.filter((c) => c.path === "/api/nodes/setup-keys" && c.method === "POST")).toHaveLength(1);
-});
-
-it("disabled enrollment explains policy and preserves existing-machine preparation", async () => {
-  await setup({ initial: { node: "desk" }, enrollmentAllowed: false });
-  await click("Enable SSH on a node");
-  expect((screen.getByRole("button", { name: "Add a machine" }) as HTMLButtonElement).disabled).toBe(true);
-  expect(screen.getByText(/Adding nodes is turned off/)).toBeTruthy();
-  await next();
-  expect(screen.getByRole("heading", { name: "Your SSH setup" })).toBeTruthy();
-});
-
 it("settings/node entry preselects its machine and Done returns to settings", async () => {
   const { calls } = await setup({ initial: { node: "keys" }, settingsEntry: true });
   expect(calls.some((c) => c.path === "/api/ssh/readiness")).toBe(false);
@@ -530,12 +494,10 @@ it("holds one launch through an asynchronous creation callback and cannot submit
   });
 });
 
-it("returning from Add a machine continues with the selected existing node", async () => {
+it("keeps node enrollment out of SSH setup", async () => {
   await setup({ initial: { node: "desk" } });
   await click("Enable SSH on a node");
-  await click("Add a machine");
-  await click("Back");
-  expect(screen.queryByText(/Next: Add a machine/)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Add a machine" })).toBeNull();
   await next();
   expect(screen.getByRole("heading", { name: "Your SSH setup" })).toBeTruthy();
 });

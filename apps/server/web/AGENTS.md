@@ -431,7 +431,7 @@ returns to the form and requires a fresh Start SSH subshell click. Settings
 and machine pages open the same wizard. Old `/connect` links open the same
 subshell dialog through `/new?kind=ssh`. Failed reads must stay distinct from
 empty lists, with retry actions. Read `docs/launch-form-picker.md` for the
-shared draft, readiness, enrollment, and launch-callback contracts.
+shared draft, readiness, and launch-callback contracts.
 
 “Set up Subshell here” can be dismissed while running. Its owner-scoped status
 read observes stages selected by the server, never installer output. Reopening

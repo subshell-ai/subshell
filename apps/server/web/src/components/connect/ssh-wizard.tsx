@@ -2,7 +2,6 @@ import { Button } from "@internal/node-admin";
 import { KeyRound, Network, Server } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { SshDestinationStep } from "@/components/connect/ssh-destination-step";
-import { SshEnrollmentStep } from "@/components/connect/ssh-enrollment-step";
 import { SshKeyStep } from "@/components/connect/ssh-key-step";
 import { SshMachineSetup, SshMachineStep } from "@/components/connect/ssh-machine-step";
 import {
@@ -15,7 +14,6 @@ import {
 import { SshQueryStatus } from "@/components/ssh/query-status";
 import { FieldGroup } from "@/components/ui/field";
 import { useSshWizardController } from "@/hooks/use-ssh-wizard-controller";
-import { NODE_ENROLLMENT_OFF_COPY } from "@/lib/node-enrollment";
 import type { SshMachineReadiness } from "@/lib/ssh";
 
 export interface SshWizardProps {
@@ -27,7 +25,7 @@ export interface SshWizardProps {
   onDraftChange: (draft: SshSessionDraft) => void;
   /** Readiness is supplied by the mounted content host. */
   machines: SshMachineReadiness[];
-  /** Retrying never discards the draft or enrollment key. */
+  /** Retrying never discards the draft. */
   readiness: { isPending: boolean; isError: boolean; refetch: () => unknown };
   /** Actual launch only; setup completion never invokes it. */
   onStart: () => Promise<void>;
@@ -64,9 +62,6 @@ export function SshWizard({
     intent,
     current,
     setCurrent,
-    setAdding,
-    enrollment,
-    mayAdd,
     machine,
     keyMachine,
     keySourceProblem,
@@ -160,7 +155,6 @@ export function SshWizard({
             machines={machines}
             value={draft.nodeId}
             onChange={(nodeId) => {
-              setAdding(false);
               patch({ nodeId });
             }}
             label={intent === "prepare" ? "Node to set up" : "Connect from"}
@@ -172,24 +166,8 @@ export function SshWizard({
           {machine && !machine.canConnect && (
             <SshMachineSetup machine={machine} retry={readiness.refetch} onLeave={onLeave} />
           )}
-          <Button
-            type="button"
-            variant="outline"
-            disabled={!mayAdd}
-            onClick={() => {
-              setAdding(true);
-              setCurrent("enrollment");
-            }}
-          >
-            Add a machine
-          </Button>
-          {!mayAdd && <p className="text-detail text-muted-foreground">{NODE_ENROLLMENT_OFF_COPY}</p>}
         </FieldGroup>
       )}
-      {current === "enrollment" && (
-        <SshEnrollmentStep enrollment={enrollment} mayAdd={mayAdd} machines={machines} readiness={readiness} />
-      )}
-      {current === "machine-setup" && <SshMachineSetup machine={machine} retry={readiness.refetch} onLeave={onLeave} />}
       {current === "key-choice" && (
         <div className="flex flex-col gap-2">
           <Button
@@ -221,7 +199,6 @@ export function SshWizard({
           )}
         </>
       )}
-      {current === "key-setup" && <SshMachineSetup machine={keyMachine} retry={readiness.refetch} onLeave={onLeave} />}
       {current === "keys" && (
         <SshKeyStep
           nodeId={!keySourceProblem && keyMachine?.canConnect ? draft.keyHome : null}
@@ -266,7 +243,6 @@ export function SshWizard({
             variant="outline"
             disabled={busy}
             onClick={() => {
-              if (current === "enrollment") setAdding(false);
               if (current === "key-source" && intent === "connect") setCurrent("key-choice");
               else setCurrent(steps[index - 1] ?? "intent");
             }}
