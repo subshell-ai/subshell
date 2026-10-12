@@ -251,7 +251,7 @@ codesign --verify --strict --verbose=2 "$DIST/$ARTIFACT" || fail "codesign --ver
 # it (notarizeAndStapleDmg). This validates that step from the OUTSIDE — the
 # same posture that caught Tauri's app-staple step never checking its own
 # exit status.
-xcrun stapler validate "$DIST/$ARTIFACT" || fail "the notarization ticket is not stapled to the image"
+bun "$(dirname "$0")/validate-dmg-staple.ts" "$DIST/$ARTIFACT" || fail "could not validate the image's notarization ticket"
 
 [ -x "$APP_BUNDLE/Contents/MacOS/$SIDECAR" ] || fail "the sidecar is missing or not executable inside the bundle"
 # The arch of the nested sidecar is the one thing a mislabeled build would

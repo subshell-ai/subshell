@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   createMemoryHistory,
@@ -98,8 +98,19 @@ function renderRail(initialPath: string, footerEnd?: () => ReactNode) {
 
 const accountTrigger = () => screen.getByRole("button", { name: /Account: Admin/ });
 
+let restoreQuickAdd: () => void;
+beforeEach(() => {
+  const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+    openLaunch: () => {},
+    openNewWorkspace: () => {},
+  });
+  restoreQuickAdd = () => spy.mockRestore();
+});
+
 afterEach(() => {
   cleanup();
+  // Keep the mock alive until pending renders can no longer reach the sidebar.
+  restoreQuickAdd();
   localStorage.removeItem("subshell.sidebarCollapsed");
   setFetchRouter(null);
 });
@@ -110,18 +121,10 @@ describe("the header account card", () => {
     body: () => Promise<void> | void,
   ) => {
     const calls = stubFetch(opts);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
-      openLaunch: () => {},
-      openNewWorkspace: () => {},
-    });
-    try {
-      const router = renderRail("/", opts.footer ? () => <span data-testid="plane-row" /> : undefined);
-      await waitFor(() => expect(accountTrigger()).toBeTruthy());
-      await body();
-      return { calls, router };
-    } finally {
-      spy.mockRestore();
-    }
+    const router = renderRail("/", opts.footer ? () => <span data-testid="plane-row" /> : undefined);
+    await waitFor(() => expect(accountTrigger()).toBeTruthy());
+    await body();
+    return { calls, router };
   };
 
   it("replaces the footer card and leaves the browser rail footerless", async () => {

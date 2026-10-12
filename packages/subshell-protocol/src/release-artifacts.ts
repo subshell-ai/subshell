@@ -341,19 +341,27 @@ export async function notarizeAndStapleDmg(
     deps.log(`notarytool did not report "status: Accepted":\n${submit.output}`);
     return false;
   }
+  if (!(await runStaplerWithRetry("staple", dmgPath, deps))) return false;
+  deps.log("notarization accepted and stapled to the image");
+  return true;
+}
+
+/** Both ticket attachment and validation contact Apple. Transport retries
+ * never turn a failed validation into a successful one. */
+export async function runStaplerWithRetry(
+  action: "staple" | "validate",
+  dmgPath: string,
+  deps: NotaryToolDeps,
+): Promise<boolean> {
   // Apple can accept the image and then drop the ticket-download connection.
-  // Retry only that transport failure on the same accepted image; a missing
-  // or invalid signature must still refuse publication immediately.
+  // Retry only that transport failure; invalid signatures still fail at once.
   for (let attempt = 1; attempt <= 5; attempt++) {
-    const staple = await deps.runCapture(["xcrun", "stapler", "staple", dmgPath]);
-    if (staple.code === 0) {
-      deps.log("notarization accepted and stapled to the image");
-      return true;
-    }
-    deps.log(`stapler staple failed (exit ${staple.code}):\n${staple.output}`);
-    if (staple.code !== 68 || !/NSURLErrorDomain Code=-1005\b/.test(staple.output) || attempt === 5) return false;
+    const result = await deps.runCapture(["xcrun", "stapler", action, dmgPath]);
+    if (result.code === 0) return true;
+    deps.log(`stapler ${action} failed (exit ${result.code}):\n${result.output}`);
+    if (result.code !== 68 || !/NSURLErrorDomain Code=-1005\b/.test(result.output) || attempt === 5) return false;
     const delay = attempt * 15_000;
-    deps.log(`Apple's ticket connection dropped; retrying stapling in ${delay / 1000}s (${attempt + 1}/5).`);
+    deps.log(`Apple's ticket connection dropped; retrying ${action} in ${delay / 1000}s (${attempt + 1}/5).`);
     await (deps.sleep ?? sleep)(delay);
   }
   return false;

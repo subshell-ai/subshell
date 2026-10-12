@@ -13,6 +13,7 @@ import {
   parseScope,
   publishArtifacts,
   runSignHook,
+  runStaplerWithRetry,
   selectBundleOutput,
 } from "../release-artifacts.js";
 import { semverLt } from "../versions.js";
@@ -309,6 +310,31 @@ describe("notarizeAndStapleDmg", () => {
     expect(await notarizeAndStapleDmg(DMG, f.deps, CREDS)).toBe(false);
     expect(delays).toEqual([]);
     expect(f.calls).toHaveLength(2);
+  });
+
+  test("validation retries the same read-only command after a dropped connection", async () => {
+    const f = fake();
+    const delays: number[] = [];
+    f.deps.sleep = async (ms) => {
+      delays.push(ms);
+    };
+    const run = f.deps.runCapture;
+    f.deps.runCapture = async (argv) => {
+      const result = await run(argv);
+      return f.calls.length === 1 ? { code: 68, output: "Error Domain=NSURLErrorDomain Code=-1005" } : result;
+    };
+    expect(await runStaplerWithRetry("validate", DMG, f.deps)).toBe(true);
+    expect(delays).toEqual([15_000]);
+    expect(f.calls).toEqual([
+      ["xcrun", "stapler", "validate", DMG],
+      ["xcrun", "stapler", "validate", DMG],
+    ]);
+  });
+
+  test("validation refuses an invalid ticket immediately", async () => {
+    const f = fake({ staple: { code: 65, output: "Ticket validation failed" } });
+    expect(await runStaplerWithRetry("validate", DMG, f.deps)).toBe(false);
+    expect(f.calls).toHaveLength(1);
   });
 
   // Accepted but never stapled = Gatekeeper answers online or not at all;
