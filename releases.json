@@ -1,37 +1,37 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-12T04:28:50.237Z",
+  "generatedAt": "2026-10-12T05:01:20.837Z",
   "components": {
     "cli-server": {
-      "version": "1.10.8",
-      "tag": "cli-server-v1.10.8",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-server-v1.10.8",
+      "version": "1.10.9",
+      "tag": "cli-server-v1.10.9",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-server-v1.10.9",
       "installScript": "install-server.sh"
     },
     "cli-node": {
-      "version": "1.5.3",
-      "tag": "cli-node-v1.5.3",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-node-v1.5.3"
+      "version": "1.5.4",
+      "tag": "cli-node-v1.5.4",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/cli-node-v1.5.4"
     },
     "desktop-server": {
-      "version": "1.4.10",
-      "tag": "desktop-server-v1.4.10",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-server-v1.4.10",
+      "version": "1.4.11",
+      "tag": "desktop-server-v1.4.11",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-server-v1.4.11",
       "desktopAssets": [
-        "Subshell-Server-Desktop-1.4.10-darwin-arm64.dmg",
-        "Subshell-Server-Desktop-1.4.10-darwin-x64.dmg",
-        "subshell-server-desktop_1.4.10_amd64.deb"
+        "Subshell-Server-Desktop-1.4.11-darwin-arm64.dmg",
+        "Subshell-Server-Desktop-1.4.11-darwin-x64.dmg",
+        "subshell-server-desktop_1.4.11_amd64.deb"
       ]
     },
     "desktop-client": {
-      "version": "1.2.9",
-      "tag": "desktop-client-v1.2.9",
-      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-client-v1.2.9",
+      "version": "1.2.10",
+      "tag": "desktop-client-v1.2.10",
+      "url": "https://github.com/subshell-ai/subshell/releases/tag/desktop-client-v1.2.10",
       "installScript": "install-client.sh",
       "desktopAssets": [
-        "Subshell-Client-Desktop-1.2.9-darwin-arm64.dmg",
-        "Subshell-Client-Desktop-1.2.9-darwin-x64.dmg",
-        "subshell-client-desktop_1.2.9_amd64.deb"
+        "Subshell-Client-Desktop-1.2.10-darwin-arm64.dmg",
+        "Subshell-Client-Desktop-1.2.10-darwin-x64.dmg",
+        "subshell-client-desktop_1.2.10_amd64.deb"
       ]
     }
   }
