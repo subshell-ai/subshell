@@ -16,7 +16,7 @@
  * grown inside the section the act belongs to. The sentence above about
  * modals still argues correctly about NATIVE ones and their dismissal-first
  * shape; the answer is that the sentences moved INTO the dialog, which is
- * what makes the ruling sound. Escape and a backdrop press are the cancel.
+ * what makes the ruling sound. Escape and the Cancel button dismiss it; backdrop presses do nothing.
  * The class-positioned overlay is also why the CSP note below still holds:
  * `style-src` blocks style ATTRIBUTES, so this dialog (like the plane row's
  * action menu) positions itself with classes only, never a measuring popper.

@@ -33,7 +33,7 @@ export function TitleDialog({
   currentName: string;
   /** Dialog open state, owned by the caller */
   open: boolean;
-  /** Called on close (Cancel, backdrop, Escape) and after a successful save */
+  /** Called on close (Cancel, Close, or Escape) and after a successful save */
   onOpenChange: (open: boolean) => void;
 }) {
   const queryClient = useQueryClient();
