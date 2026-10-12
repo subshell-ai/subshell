@@ -1,5 +1,17 @@
 # @internal/desktop-server
 
+## 1.4.12
+
+### Patch Changes
+
+- [#342](https://github.com/subshell-ai/subshell/pull/342) [`3daf01e`](https://github.com/subshell-ai/subshell/commit/3daf01eea16c66624fb7df184b82cc5f27b12b2e) Thanks [@theogravity](https://github.com/theogravity)! - Make selected tabs and segmented choices clearly visible throughout the web interface, including Terminal / Desktop App. Choices retain their original icons with the stronger selected highlight. Workspace tabs use the same selected treatment on phones and in tiled layouts, including unfocused groups.
+  
+  Use the same clear selected state for desktop setup choices and mobile tabs, agent, preset, and node choices, preserving their icons and accessibility states.
+  
+  Keep dialogs and modal sheets open when clicking outside them across the dashboard, node dashboard, and desktop apps. Close them through an explicit Close, Cancel, or Done control.
+- Updated dependencies [[`3daf01e`](https://github.com/subshell-ai/subshell/commit/3daf01eea16c66624fb7df184b82cc5f27b12b2e), [`2b7da8e`](https://github.com/subshell-ai/subshell/commit/2b7da8ed8838704f270ee2b7787e322f00bddf99), [`cfacd31`](https://github.com/subshell-ai/subshell/commit/cfacd31df0511bb768d53384096a4295b562ebdd), [`2b7da8e`](https://github.com/subshell-ai/subshell/commit/2b7da8ed8838704f270ee2b7787e322f00bddf99)]:
+  - @internal/server@1.10.10
+
 ## 1.4.11
 
 ### Patch Changes
