@@ -6,6 +6,7 @@ import {
   NodeMaintenanceCard,
   NodeRuntimeCard,
   NodeServiceCard,
+  NodeSshTrustCard,
   relativeElapsed,
   useNode,
 } from "@internal/node-admin";
@@ -25,7 +26,8 @@ export const Route = createFileRoute("/")({ component: StatusPage });
  * not make you click between tabs. The cards are the shared ones, unmodified —
  * which is the point of the extraction.
  */
-function StatusPage() {
+/** Exported for the dashboard test; the route wires it as its component. */
+export function StatusPage() {
   const node = useNode("self");
 
   if (node.isError) {
@@ -76,6 +78,8 @@ function StatusPage() {
       ) : (
         <p className="text-body text-muted-foreground">This node did not report how it runs.</p>
       )}
+
+      <NodeSshTrustCard node={n} />
 
       <NodeLogCard node={n} local />
     </>

@@ -413,3 +413,34 @@ tap-only strip never takes draggable tabs off a window holding a mouse.
 **Working on the terminal, dockview, touch/swipe handling, or shared-grid
 sizing, and before ANY `dockview-react` upgrade (which a standing hand-run
 probe gates): read apps/server/web/docs/terminal-gotchas.md first.**
+
+## SSH relay launch and setup
+
+The SSH terminal choice in New subshell can use loaded SSH-agent keys from
+another machine the user can launch on. Both the connecting machine and key
+source follow existing machine launch access; configuration stays owner/admin.
+There are no separate SSH grants or approvals. The default omits `keyHome`
+and uses the connecting machine's own keys. A relay launch carries explicit
+fingerprints, retained for “Set up Subshell here”; never silently substitute or
+widen the selection when keys disappear or a machine goes offline.
+
+The reusable SSH wizard lives inside the existing dialog and preserves the
+launch choices and workspace/split context. Its intents cover connecting,
+preparing a machine, and selecting another machine's keys. Finishing setup
+returns to the form and requires a fresh Start SSH subshell click. Settings
+and machine pages open the same wizard. Old `/connect` links open the same
+subshell dialog through `/new?kind=ssh`. Failed reads must stay distinct from
+empty lists, with retry actions. Read `docs/launch-form-picker.md` for the
+shared draft, readiness, enrollment, and launch-callback contracts.
+
+“Set up Subshell here” can be dismissed while running. Its owner-scoped status
+read observes stages selected by the server, never installer output. Reopening
+or refreshing joins the same running operation; a duplicate POST also joins it.
+Completed results remain for one hour in the running server process. This is
+not a durable job across server restarts: after a restart, check Nodes and the
+destination before retrying an interrupted install. Keep that limitation honest
+in any future recovery UI.
+
+Enrollment without a confirmed connection is terminal status `enrolled`, with
+the node id retained. Link to that node and its service recovery; do not offer
+another install or describe it as connected.

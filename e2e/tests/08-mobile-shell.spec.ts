@@ -146,20 +146,19 @@ test("launch dialog survives the agent dropdown's scroll shift", async ({ page }
   const scroller = page.locator("[data-slot='dialog-content'] > div").first();
   await expect(scroller).toBeVisible();
 
-  // Scroll DOWN by whatever this dialog can actually travel, rather than by a
-  // fixed 25px: the form's field count decides the overflow, so a hardcoded
-  // offset silently clamps (and the assertion then compares two clamped
-  // values) the day a field is added or removed. A zero here would mean the
-  // dialog no longer overflows at this height and the test proves nothing.
-  const parked = await scroller.evaluate((el) => {
-    el.scrollTop = Math.min(25, el.scrollHeight - el.clientHeight);
-    return el.scrollTop;
-  });
+  // Keep the real trigger visible before parking the dialog. The launch-type
+  // tabs moved Agent below this short viewport; a fixed25px scroll tapped
+  // outside the viewport and never opened the dropdown at all.
+  const agent = page.getByRole("combobox", { name: "Agent" });
+  await agent.scrollIntoViewIfNeeded();
+  await expect(agent).toBeInViewport();
+  const parked = await scroller.evaluate((el) => el.scrollTop);
   expect(parked).toBeGreaterThan(0);
   const combo = await page.getByRole("combobox", { name: "Agent" }).boundingBox();
   expect(combo).toBeTruthy();
   if (!combo) throw new Error("Agent combobox has no bounding box");
   await page.touchscreen.tap(combo.x + combo.width / 2, combo.y + combo.height / 2);
+  await expect(page.getByRole("listbox")).toBeVisible();
   await page.waitForTimeout(400);
   await scroller.evaluate((el) => {
     el.scrollTop = el.scrollHeight;

@@ -1,0 +1,368 @@
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildSshConfigPath } from "@internal/pane-runtime";
+import type { SshConnectionSnapshotWire } from "@internal/subshell-protocol";
+import { SUBSHELL_SERVER_DATA_DIR } from "@/constants.js";
+import { db } from "@/db/index.js";
+import { runMigrations } from "@/db/migrate.js";
+import { PresetsRepository } from "@/db/repositories/presets.repository.js";
+import { SubshellsRepository } from "@/db/repositories/subshells.repository.js";
+import { LOCAL_NODE_ID } from "@/db/types/nodes.db-types.js";
+import { FakeNodeLauncher, nodeOnline } from "@/services/__tests__/helpers/node-fakes.js";
+import { prepareLocalPlugins } from "@/services/nodes/local-plugins.js";
+import { subshellSshConfigPath } from "@/services/nodes/subshell-paths.js";
+import { EMPTY_PRESET } from "@/services/preset-definition.js";
+import { SubshellManagerService } from "@/services/subshell-manager.service.js";
+
+/**
+ * The manager's ssh launch plumbing (Task 7): what `createSubshell` does with
+ * the ssh service's composed facts, and which row fact the delete sweep reads.
+ *
+ * The composition itself (`composeSshLaunch`) and its call from the HTTP
+ * surface are pinned elsewhere (`ssh-launch.service.test.ts`,
+ * `api/ssh/__tests__/ssh-routes.test.ts`). This file pins the three manager
+ * promises: the `presetFlags` launch preset is a FRESH object (EMPTY_PRESET
+ * is shared and frozen — a mutation there would leak ssh flags into every
+ * later presetless launch), the composed ssh member and the merged pane env
+ * reach the {@link LaunchPlan} untouched, and `subshells.ssh` (migration
+ * 0048's JSON column) is the snapshot's home.
+ *
+ * The delete-path half pins the kind fact: `row.ssh !== null`, NOT
+ * `row.harnessId === "ssh"` — a hand-built row that names the ssh harness
+ * without a snapshot gets no config cleanup, and a snapshot on any harness
+ * row gets it.
+ *
+ * The third describe pins the DEATH-transition sweep: a local ssh pane going
+ * dead through the shared `#applyDeath` removes its config dir even when the
+ * exit report's own sweep never fired (the lost-`pane-died`-hook case), and an
+ * agent row going dead there sweeps nothing on this host.
+ */
+
+const OWNER = "u-ssh-plumb";
+const testDir = mkdtempSync(join(tmpdir(), "subshell-mgr-ssh-"));
+let subshellsRepo: SubshellsRepository;
+const created: string[] = [];
+
+const SNAPSHOT: SshConnectionSnapshotWire = {
+  alias: "work",
+  host: "example.test",
+  user: null,
+  port: 22,
+  identityFiles: [],
+  certificateFiles: [],
+  authAgentSocket: null,
+  knownHostsFiles: [],
+  hostKeyAlias: null,
+  proxyJumps: [],
+  proxyCommand: null,
+  forwards: null,
+  tunnels: null,
+  localCommands: null,
+  remoteCommand: null,
+  sendEnv: null,
+  setEnv: null,
+  escapes: null,
+};
+
+/** A live socket so the AGENT branch of `#planMcp` has `ready` facts to read. */
+function plumbOnline(): () => void {
+  return nodeOnline("node-plumb");
+}
+
+function mkManager(): { manager: SubshellManagerService; launcher: FakeNodeLauncher } {
+  const launcher = new FakeNodeLauncher(testDir);
+  const manager = new SubshellManagerService({
+    subshells: subshellsRepo,
+    presets: new PresetsRepository(db),
+    launcher,
+    tokens: { issue: async () => "subshell_stub", revoke: async () => {} },
+    audit: async () => {},
+  });
+  return { manager, launcher };
+}
+
+beforeAll(async () => {
+  await runMigrations();
+  await prepareLocalPlugins();
+  subshellsRepo = new SubshellsRepository(db);
+});
+
+afterAll(async () => {
+  for (const id of created) await subshellsRepo.delete(id).catch(() => {});
+  rmSync(testDir, { recursive: true, force: true });
+});
+
+describe("createSubshell ssh plumbing", () => {
+  it("threads the composed ssh member, the flag preset and the extra pane env into the LaunchPlan, and writes the snapshot column", async () => {
+    const id = crypto.randomUUID();
+    created.push(id);
+    const { manager, launcher } = mkManager();
+    const configPath = buildSshConfigPath("/home/plumb/.subshell", id);
+    const flags = ["-F", configPath, "-p", "22", "--", "example.test"];
+    const off = plumbOnline();
+    const created_ = await manager.createSubshell({
+      subshellId: id,
+      userId: OWNER,
+      harnessId: "ssh",
+      presetId: null,
+      workingDir: tmpdir(),
+      nodeId: "node-plumb",
+      ssh: { configPath, fileContent: "Host *\n", snapshot: SNAPSHOT },
+      presetFlags: flags,
+      extraPaneEnv: { SSH_AUTH_SOCK: "/run/user/501/sock" },
+    });
+    off();
+    expect(created_.id).toBe(id); // the caller's pre-assigned id IS the row id
+
+    const plan = launcher.plans[0];
+    expect(plan?.ssh).toEqual({ configPath, fileContent: "Host *\n" }); // the snapshot itself stays off the wire member
+    expect(plan?.preset.flags).toEqual(flags);
+    expect(plan?.subshellEnv.SSH_AUTH_SOCK).toBe("/run/user/501/sock");
+    // The SUBSHELL_* infrastructure env is still there — the ssh pane is a
+    // token-holding row (decision 10), just with no MCP registration.
+    expect(plan?.subshellEnv.SUBSHELL_ID).toBe(id);
+    expect(plan?.mcp).toBeUndefined();
+
+    const row = await subshellsRepo.findById(id);
+    expect(JSON.parse(String(row?.ssh))).toEqual(SNAPSHOT);
+    expect(row?.harnessId).toBe("ssh");
+  });
+
+  it("the flag preset is a fresh object — EMPTY_PRESET is shared and must stay flagless", async () => {
+    expect(EMPTY_PRESET.flags).toEqual([]); // frozen, and still empty
+    const id = crypto.randomUUID();
+    created.push(id);
+    const { manager, launcher } = mkManager();
+    const off = plumbOnline();
+    await manager.createSubshell({
+      subshellId: id,
+      userId: OWNER,
+      harnessId: "ssh",
+      presetId: null,
+      workingDir: tmpdir(),
+      nodeId: "node-plumb",
+      ssh: { configPath: buildSshConfigPath("/d", id), fileContent: "x\n", snapshot: SNAPSHOT },
+      presetFlags: ["-F", "/d/ssh/x/config", "--", "h"],
+    });
+    off();
+    expect(EMPTY_PRESET.flags).toEqual([]); // untouched by the compose above
+    expect(launcher.plans[0]?.preset).not.toBe(EMPTY_PRESET);
+  });
+
+  it("an ordinary launch grows nothing: no ssh member, no SSH_AUTH_SOCK, NULL snapshot", async () => {
+    const id = crypto.randomUUID();
+    created.push(id);
+    const { manager, launcher } = mkManager();
+    await manager.createSubshell({
+      subshellId: id,
+      userId: OWNER,
+      harnessId: "terminal",
+      presetId: null,
+      workingDir: tmpdir(),
+    });
+    const plan = launcher.plans[0];
+    expect(plan?.ssh).toBeUndefined();
+    expect(plan?.subshellEnv.SSH_AUTH_SOCK).toBeUndefined();
+    const row = await subshellsRepo.findById(id);
+    expect(row?.ssh).toBeNull(); // the column is the kind fact: NULL = not an ssh pane
+  });
+
+  it("a null agent socket adds no SSH_AUTH_SOCK (only a named socket rides)", async () => {
+    const id = crypto.randomUUID();
+    created.push(id);
+    const { manager, launcher } = mkManager();
+    const off = plumbOnline();
+    await manager.createSubshell({
+      subshellId: id,
+      userId: OWNER,
+      harnessId: "ssh",
+      presetId: null,
+      workingDir: tmpdir(),
+      nodeId: "node-plumb",
+      ssh: { configPath: buildSshConfigPath("/d", id), fileContent: "x\n", snapshot: SNAPSHOT },
+      presetFlags: ["--", "h"],
+    });
+    off();
+    expect(launcher.plans[0]?.subshellEnv.SSH_AUTH_SOCK).toBeUndefined();
+  });
+});
+
+describe("a death transition sweeps the LOCAL ssh config dir (#applyDeath)", () => {
+  // The exit REPORT path (service.reportExit) sweeps on its own; this covers the
+  // gap it cannot: a `pane-died` hook LOST entirely, so no report ever fires and
+  // only the 60 s reconcile learns the process is gone. The reconcile drives the
+  // SAME shared `#applyDeath` that `applySelfReportedExit` flows into, so calling
+  // the manager directly (bypassing the service's sweep) proves the transition
+  // itself removes the dir. CI e2e spec 22 flaked when this was the only missing
+  // sweep: natural death whose hook was lost left <dataDir>/ssh/<id> on disk.
+  function localDir(id: string): string {
+    return join(SUBSHELL_SERVER_DATA_DIR, "ssh", id);
+  }
+
+  it("a running LOCAL ssh pane going dead removes its config dir", async () => {
+    const id = crypto.randomUUID();
+    created.push(id);
+    await subshellsRepo.create({
+      id,
+      userId: OWNER,
+      harnessId: "ssh",
+      name: "lost-hook row",
+      workingDir: tmpdir(),
+      tmuxSocket: `subshell-${id.slice(0, 8)}`,
+      status: "running",
+      alive: 1,
+      nodeId: LOCAL_NODE_ID,
+      ssh: JSON.stringify(SNAPSHOT),
+    });
+    mkdirSync(localDir(id), { recursive: true });
+    writeFileSync(subshellSshConfigPath(id), "Host *\n");
+    const { manager } = mkManager();
+    await manager.applySelfReportedExit(id, 0, new Date().toISOString());
+    expect(existsSync(localDir(id))).toBe(false); // #applyDeath, not the service, removed it
+    const row = await subshellsRepo.findById(id);
+    expect(row?.alive).toBe(0);
+  });
+
+  it("an AGENT ssh pane going dead sweeps NOTHING on this host (the node cleans its own disk)", async () => {
+    const id = crypto.randomUUID();
+    created.push(id);
+    await subshellsRepo.create({
+      id,
+      userId: OWNER,
+      harnessId: "ssh",
+      name: "remote lost-hook row",
+      workingDir: tmpdir(),
+      tmuxSocket: `subshell-${id.slice(0, 8)}`,
+      status: "running",
+      alive: 1,
+      nodeId: "node-remote-death",
+      ssh: JSON.stringify(SNAPSHOT),
+    });
+    // A dir carrying the pane's id on THIS host's disk must survive: it is not
+    // this plane's to remove. #applyDeath's sweep guard is what declines it.
+    mkdirSync(localDir(id), { recursive: true });
+    const { manager } = mkManager();
+    await manager.applySelfReportedExit(id, 1, new Date().toISOString());
+    // The death DID land through #applyDeath (proving the sweep's decline was
+    // exercised, not skipped because the transition never ran) yet the agent
+    // row's dir stands on this host.
+    expect((await subshellsRepo.findById(id))?.alive).toBe(0);
+    expect(existsSync(localDir(id))).toBe(true);
+    rmSync(localDir(id), { recursive: true, force: true });
+  });
+
+  it("the reconcile no-socket path sweeps too (it stamps alive->dead without #applyDeath)", async () => {
+    // The one alive->dead stamp that does NOT funnel through #applyDeath: a row
+    // with no socket cannot be alive, so the sweep fast-path retires it directly.
+    // It must still remove a local ssh pane's config dir, or the "whichever hand
+    // first notices removes it" guarantee has a hole. A dedicated user keeps
+    // reconcile() from touching any other test's (socketed, real-tmux) rows.
+    const id = crypto.randomUUID();
+    created.push(id);
+    const user = "u-ssh-nosocket";
+    await subshellsRepo.create({
+      id,
+      userId: user,
+      harnessId: "ssh",
+      name: "no-socket local ssh",
+      workingDir: tmpdir(),
+      tmuxSocket: null, // -> the no-socket branch, before any tmux probe
+      status: "running",
+      alive: 1,
+      nodeId: LOCAL_NODE_ID,
+      ssh: JSON.stringify(SNAPSHOT),
+    });
+    mkdirSync(localDir(id), { recursive: true });
+    const { manager } = mkManager();
+    await manager.reconcile(user);
+    expect(existsSync(localDir(id))).toBe(false);
+    expect((await subshellsRepo.findById(id))?.alive).toBe(0);
+  });
+});
+
+describe("deleteSubshell reads the row's ssh COLUMN as the kind fact", () => {
+  it("a LOCAL row with a snapshot gets its config DIR swept — whatever its harness id claims", async () => {
+    const id = crypto.randomUUID();
+    created.push(id);
+    await subshellsRepo.create({
+      id,
+      userId: OWNER,
+      // NOT "ssh": the column, not the id, says the pane owned a config.
+      harnessId: "terminal",
+      name: "snapshot row",
+      workingDir: tmpdir(),
+      tmuxSocket: null,
+      status: "terminated",
+      alive: 0,
+      nodeId: LOCAL_NODE_ID,
+      ssh: JSON.stringify(SNAPSHOT),
+    });
+    // The dir the LocalLauncher would have written, on the SERVER's own disk
+    // (the sweep is byte-derived, not launcher-provided).
+    mkdirSync(join(SUBSHELL_SERVER_DATA_DIR, "ssh", id), { recursive: true });
+    writeFileSync(subshellSshConfigPath(id), "Host *\n");
+    const { manager, launcher } = mkManager();
+    expect(await manager.deleteSubshell(OWNER, id)).toBe(true);
+    // The config path is NO LONGER in the launcher's unlink list (a file unlink
+    // left the DIR); the sweep function took the whole directory instead.
+    expect(launcher.removedPaths.at(-1)).toEqual([launcher.logPath(id)]);
+    expect(existsSync(join(SUBSHELL_SERVER_DATA_DIR, "ssh", id))).toBe(false);
+  });
+
+  it("an AGENT row with a snapshot passes the kind flag through subshellArtifacts", async () => {
+    const nodeId = "node-ssh-del";
+    const off = nodeOnline(nodeId, []);
+    const id = crypto.randomUUID();
+    created.push(id);
+    await subshellsRepo.create({
+      id,
+      userId: OWNER,
+      harnessId: "ssh",
+      name: "remote ssh pane",
+      workingDir: tmpdir(),
+      tmuxSocket: "subshell-x",
+      status: "terminated",
+      alive: 0,
+      nodeId,
+      ssh: JSON.stringify(SNAPSHOT),
+    });
+    const { manager, launcher } = mkManager();
+    expect(await manager.deleteSubshell(OWNER, id)).toBe(true);
+    // The ssh config rides the triple at the node-derived path (fake mirrors
+    // RemoteLauncher's composition from its `/node-data` facts).
+    expect(launcher.removedPaths.at(-1)).toEqual([
+      launcher.logPath(id),
+      `/node-data/mcp/${id}.json`,
+      `/node-data/subshells/${id}.meta.json`,
+      buildSshConfigPath("/node-data", id),
+    ]);
+    off();
+  });
+
+  it("a row that merely NAMES the ssh harness but holds no snapshot is not an ssh pane (the re-point's negative arm)", async () => {
+    const id = crypto.randomUUID();
+    created.push(id);
+    await subshellsRepo.create({
+      id,
+      userId: OWNER,
+      harnessId: "ssh",
+      name: "harness-only row",
+      workingDir: tmpdir(),
+      tmuxSocket: null,
+      status: "terminated",
+      alive: 0,
+      nodeId: LOCAL_NODE_ID,
+      ssh: null,
+    });
+    // A dir carrying the pane's NAME exists, but the row owns no config: the
+    // sweep's guard, not the launcher list, is what keeps it standing.
+    mkdirSync(join(SUBSHELL_SERVER_DATA_DIR, "ssh", id), { recursive: true });
+    const { manager, launcher } = mkManager();
+    expect(await manager.deleteSubshell(OWNER, id)).toBe(true);
+    expect(launcher.removedPaths.at(-1)).toEqual([launcher.logPath(id)]); // no config path
+    expect(existsSync(join(SUBSHELL_SERVER_DATA_DIR, "ssh", id))).toBe(true); // sweep refused
+    rmSync(join(SUBSHELL_SERVER_DATA_DIR, "ssh", id), { recursive: true, force: true });
+  });
+});

@@ -1,5 +1,7 @@
 import { Button, errMessage } from "@internal/node-admin";
 import { type JSX, useState } from "react";
+import { ConnectPanel } from "@/components/connect/connect-panel";
+import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
 import { DirectionSelect } from "@/components/subshell-picker/direction-select";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
@@ -9,6 +11,7 @@ import {
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/launch-form-rules";
 import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
+import { type SubshellKind, SubshellKindPicker } from "@/components/subshell-picker/subshell-kind-picker";
 import {
   Dialog,
   DialogContent,
@@ -75,6 +78,8 @@ export function AddSubshellDialog({
   const { data: subshells, isError: subshellsFailed, isLoading: subshellsLoading } = useSubshellsList();
   const create = useCreateSubshell();
 
+  const [sshDraft, setSshDraft] = useState(() => sshSessionDraft({ node: initialForm?.nodeId }));
+  const [kind, setKind] = useState<SubshellKind>("agent");
   const [mode, setMode] = useState<Mode>("existing");
   const [direction, setDirection] = useState<SplitDirection>("right");
   const [query, setQuery] = useState("");
@@ -88,7 +93,9 @@ export function AddSubshellDialog({
 
   /** Resets everything the next open should not inherit. */
   function reset() {
+    setSshDraft(sshSessionDraft({ node: initialForm?.nodeId }));
     setMode("existing");
+    setKind("agent");
     setQuery("");
     setForm({ ...emptyNewSubshellForm(), ...initialForm });
     setBusyId(null);
@@ -153,6 +160,7 @@ export function AddSubshellDialog({
       // A half-filled launch form is not disposable (ruling 2026-09-30):
       // only a deliberate act closes this - X, Cancel, or a successful add.
       onOpenChange={formDialogOpenChange((next) => {
+        if (creating) return;
         onOpenChange(next);
         if (!next) reset();
       })}
@@ -164,16 +172,22 @@ export function AddSubshellDialog({
         </DialogHeader>
 
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <Segmented
-            ariaLabel="What to add"
-            options={[
-              { value: "existing", label: "Existing subshell" },
-              { value: "new", label: "New subshell" },
-            ]}
-            value={mode}
-            onChange={setMode}
-          />
-          <DirectionSelect value={direction} onChange={setDirection} />
+          <fieldset disabled={creating || busyId !== null}>
+            <Segmented
+              ariaLabel="What to add"
+              options={[
+                { value: "existing", label: "Existing subshell" },
+                { value: "new", label: "New subshell" },
+              ]}
+              value={mode}
+              onChange={(next) => {
+                if (!creating) setMode(next);
+              }}
+            />
+          </fieldset>
+          <fieldset disabled={creating || busyId !== null}>
+            <DirectionSelect value={direction} onChange={setDirection} />
+          </fieldset>
         </div>
 
         {mode === "existing" ? (
@@ -184,7 +198,7 @@ export function AddSubshellDialog({
             // remote pick is made; an unmade pick — "" — is the local default).
             // Display filtering only: the list is already visibility-filtered
             // server-side and this never substitutes for authz.
-            nodeId={form.nodeId || "local"}
+            nodeId={kind === "ssh" ? undefined : form.nodeId || "local"}
             query={query}
             onQueryChange={setQuery}
             loadFailed={subshellsFailed}
@@ -193,12 +207,38 @@ export function AddSubshellDialog({
             busyId={busyId}
           />
         ) : (
-          <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
+          <div className="flex flex-col gap-4">
+            <SubshellKindPicker value={kind} onChange={setKind} disabled={creating} />
+            {kind === "ssh" && open ? (
+              <ConnectPanel
+                draft={sshDraft}
+                onDraftChange={setSshDraft}
+                onPendingChange={setCreating}
+                initial={{ node: form.nodeId || undefined }}
+                onLeave={() => onOpenChange(false)}
+                onCreated={async (id) => {
+                  try {
+                    await onAdd(id, direction);
+                    onOpenChange(false);
+                    reset();
+                  } catch (err) {
+                    setError(
+                      `SSH subshell was created but could not be added (${errMessage(err, "unknown error")}). Add it from the list instead.`,
+                    );
+                    setForm({ ...form, nodeId: "" });
+                    setMode("existing");
+                  }
+                }}
+              />
+            ) : (
+              <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
+            )}
+          </div>
         )}
 
         {error && <p className="text-destructive text-detail">{error}</p>}
 
-        {mode === "new" && (
+        {mode === "new" && kind === "agent" && (
           <DialogFooter>
             <Button
               variant="outline"

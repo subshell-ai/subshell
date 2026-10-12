@@ -7,10 +7,12 @@ import { getNodeRoute } from "@/api/nodes/get-node.route.js";
 import { getNodeSharesRoute } from "@/api/nodes/get-node-shares.route.js";
 import { listNodesRoute } from "@/api/nodes/list-nodes.route.js";
 import { listSetupKeyRoute } from "@/api/nodes/list-setup-keys.route.js";
+import { localSshIdentityRoute } from "@/api/nodes/local-ssh-identity.route.js";
 import { nodeLoggingRoute } from "@/api/nodes/node-logging.route.js";
 import { nodeLogsRoute } from "@/api/nodes/node-logs.route.js";
 import { recheckNodeRoute } from "@/api/nodes/recheck-node.route.js";
 import { renameNodeRoute } from "@/api/nodes/rename-node.route.js";
+import { repairNodeMachinePinRoute } from "@/api/nodes/repair-node-machine-pin.route.js";
 import { reregisterNodeRoute } from "@/api/nodes/reregister-node.route.js";
 import { rotateNodeKeyRoute } from "@/api/nodes/rotate-node-key.route.js";
 import { serviceNodeRoute } from "@/api/nodes/service-node.route.js";
@@ -18,6 +20,7 @@ import { setNodeAllowedDirsRoute } from "@/api/nodes/set-node-allowed-dirs.route
 import { setNodeMaintenanceRoute } from "@/api/nodes/set-node-maintenance.route.js";
 import { setNodeServerUrlRoute } from "@/api/nodes/set-node-server-url.route.js";
 import { setNodeSharesRoute } from "@/api/nodes/set-node-shares.route.js";
+import { setNodeSshEnabledRoute } from "@/api/nodes/set-node-ssh-enabled.route.js";
 import { updateNodeRoute } from "@/api/nodes/update-node.route.js";
 import { routeDiscoveryRoute } from "./route-discovery.route.js";
 
@@ -35,6 +38,7 @@ import { routeDiscoveryRoute } from "./route-discovery.route.js";
  * modules on this instance rather than growing a flat chain upstream.
  */
 export const nodesRoutes = new Elysia({ prefix: "/api/nodes" })
+  .use(localSshIdentityRoute)
   .use(enrollRoute)
   .use(routeDiscoveryRoute)
   .use(createSetupKeyRoute)
@@ -48,6 +52,8 @@ export const nodesRoutes = new Elysia({ prefix: "/api/nodes" })
   .use(setNodeSharesRoute)
   .use(setNodeAllowedDirsRoute)
   .use(setNodeMaintenanceRoute)
+  .use(setNodeSshEnabledRoute)
+  .use(repairNodeMachinePinRoute)
   .use(rotateNodeKeyRoute)
   .use(reregisterNodeRoute)
   .use(recheckNodeRoute)

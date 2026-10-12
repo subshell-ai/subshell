@@ -19,6 +19,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Share2, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { SshWizardDialog } from "@/components/connect/ssh-wizard-dialog";
 import { DirectoryPickerInput } from "@/components/directory-picker-input";
 import { EditableText } from "@/components/editable-text";
 import { NodeHarnessCard } from "@/components/nodes/node-harness-card";
@@ -28,6 +29,8 @@ import { osLabel } from "@/components/nodes/node-row";
 import { managesNodeSections } from "@/components/nodes/node-section-nav";
 import { NodeSharingDialog } from "@/components/nodes/node-sharing-dialog";
 import { NodeUpdateCard } from "@/components/nodes/node-update-card";
+import { ServerIdentityRecovery } from "@/components/ssh/server-identity-recovery";
+import { SshTrustSection } from "@/components/ssh/trust-section";
 import { useDeleteNode, useRenameNode } from "@/hooks/use-nodes";
 import { SUBSHELLS_QUERY_KEY } from "@/lib/query-keys";
 
@@ -88,6 +91,7 @@ function NodeDetailPage() {
   return (
     <NodePageShell
       id={id}
+      errorContent={id === "local" ? <ServerIdentityRecovery /> : undefined}
       title={
         // Rename is owner-gated: `canManage` is exactly that gate — a real
         // owner on an agent node, or an admin on `local`, whose boost is
@@ -248,6 +252,7 @@ function NodeDetailPage() {
           {/* The flip's fallout on THIS surface: every subshell of the viewer's
               that ran here went `terminated` the instant the PUT answered, and
               nothing else on the page refetches the sidebar list. */}
+          <SshWizardDialog initial={{ node: n.id }} />
           <NodeMaintenanceCard
             node={n}
             onMaintenanceChanged={() => void queryClient.invalidateQueries({ queryKey: SUBSHELLS_QUERY_KEY })}
@@ -262,6 +267,19 @@ function NodeDetailPage() {
           {n.kind === "agent" && <NodeReregister nodeId={n.id} nodeName={n.name} canRetire={n.canRetire} />}
 
           <NodeHarnessCard nodeId={n.id} />
+
+          {/* The §4.6 machine trust block (spec 2026-10-08): own and pinned
+              peers' key fingerprints, for the out-of-band compare each side
+              can verify against its own machine. The server serializes the
+              field only for owner/edit on agent nodes, so a `view` grantee
+              never receives it and the card renders nothing; the card's own
+              kind/access check is the belt. Live report while the machine is
+              connected, durable mirror marked stale when it is not. The
+              section adds the plane-only halves: the "display only" honesty
+              line (§4.6: this rendering proves nothing, the two dashboards
+              do) and the owner-only re-pair act on each peer (§4.5). */}
+          <SshTrustSection node={n} />
+          {n.kind === "local" && <ServerIdentityRecovery />}
 
           {/* The node's RULES live on its page, not in a tab of one card:
               the allowlist gates launches on this machine including the

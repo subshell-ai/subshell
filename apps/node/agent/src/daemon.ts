@@ -10,13 +10,23 @@ import {
   type NodeEvent,
   type NodeMaintenanceWire,
   type NodeRuntimeReport,
+  type NodeSshEnabledWire,
+  parseRelayFrame,
+  relayFrameRefIfOverCap,
   SeqTracker,
   verifyCommand,
 } from "@internal/subshell-protocol";
 import { backoffDelay } from "./backoff.js";
 import type { CommandContext, CommandResult, CommandWs } from "./commands/context.js";
 import { dispatchCommand } from "./commands/index.js";
-import { buildSubshellsReport, maybeReportMaintenance, seedMaintenanceMemo } from "./commands/report.js";
+import {
+  buildSubshellsReport,
+  maybeReportMaintenance,
+  maybeReportSshEnabled,
+  seedMaintenanceMemo,
+  seedSshEnabledMemo,
+} from "./commands/report.js";
+import { RelaySessions } from "./commands/ssh-relay.js";
 import { stopAllTails } from "./commands/tail.js";
 import { sweepStaleTransfers } from "./commands/transfer-sweep.js";
 import { cleanupStaleUploads } from "./commands/write-file.js";
@@ -30,10 +40,13 @@ import { binaryPayload, createLinkNegotiator, type LinkNegotiator, type LinkNego
 import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
 import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } from "./pane-log-retention.js";
+import { createDaemonRelaySend } from "./relay-send.js";
 import { noteSweepScheduled } from "./retention-settings.js";
 import { type NodeRoute, NodeRouteSelector } from "./route-selection.js";
 import { collectRuntime, refreshServiceRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
+import { sweepOrphanSshDirs } from "./ssh-dir-retention.js";
+import { buildSshFingerprintReport } from "./ssh-fingerprint-report.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { completeUpdate, revertAfterRefusal } from "./update.js";
 import { NODE_VERSION } from "./version.js";
@@ -200,6 +213,13 @@ export interface DaemonDeps {
    * "plaintext mode": spec §6 forbids a v14 socket ever running unsealed.
    */
   link?: (args: LinkNegotiatorArgs) => LinkNegotiator;
+  /**
+   * The relay-session registry the inbound `relay` frames route into (spec
+   * 2026-10-08 §5.1/§5.2; default: a fresh {@link RelaySessions}).
+   * @internal test seam: the daemon test injects a capturing registry to pin
+   * the routing decision; production runs on the one this call constructs.
+   */
+  relaySessions?: RelaySessions;
 }
 
 interface WsClose {
@@ -339,6 +359,7 @@ function readyEvent(
   config: NodeConfig,
   runtime: NodeRuntimeReport | null,
   maintenance: NodeMaintenanceWire | undefined,
+  sshEnabled: NodeSshEnabledWire | undefined,
 ): Extract<NodeEvent, { type: "ready" }> {
   return {
     type: "ready",
@@ -385,6 +406,13 @@ function readyEvent(
     // every launch here, and a plane told nothing about that has no row to
     // reconcile and no reason to push the clean file that repairs it.
     ...(maintenance ? { maintenance } : {}),
+    // This machine's SSH-capability mirror (spec 2026-10-07 §4.3), carried
+    // exactly as maintenance is: OMITTED when absent (an off file or no file —
+    // silence means REFUSED here, and a row that says on answers it with the
+    // push), and an UNREADABLE file carried as the refusal it acts on under
+    // its own mtime, so the plane can repair the file instead of holding a
+    // silent disagreement until the next reconnect.
+    ...(sshEnabled ? { sshEnabled } : {}),
   };
 }
 
@@ -433,6 +461,30 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // Keep process identity stable while refreshing the service manager's facts.
   const runtime = deps.runtime === undefined ? await collectRuntime().catch(() => null) : deps.runtime;
 
+  // The `ready` frame's runtime, with the §4.6 trust block merged in when
+  // this machine can state it. Recomputed PER DIAL, unlike `runtime` itself:
+  // the process facts cannot change while the pid does not, but peers get
+  // paired (and re-paired) during a process's life, and a trust block frozen
+  // at boot would under-report the pin store the whole comparison is about.
+  let sshRuntime: NodeRuntimeReport | null = runtime;
+
+  /**
+   * The runtime report plus this machine's live trust block, or the bare
+   * report when the block cannot be built. A failure is logged once per dial
+   * and never costs the connection: a machine whose pin file is corrupt still
+   * comes online and keeps launching; only its trust card stays empty, on the
+   * plane and on its own dashboard alike.
+   */
+  async function withSshFingerprint(report: NodeRuntimeReport | null): Promise<NodeRuntimeReport | null> {
+    if (report === null) return null; // no runtime report to ride: no block, no key reads
+    try {
+      return { ...report, sshFingerprint: await buildSshFingerprintReport(config.dataDir) };
+    } catch (err) {
+      log(`ready: ssh trust block unavailable: ${err instanceof Error ? err.message : String(err)}`);
+      return report;
+    }
+  }
+
   // PER-PROCESS lifetimes (mixing these up is a security bug — see VerifyContext in node-signing):
   const jtiLru = new JtiLru(); // survives every reconnect: a replayed jti never gets a second evaluation
   const seqTracker = new SeqTracker(); // per-CONNECTION value; reset on every open below
@@ -440,6 +492,13 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // from here (and so does execute(), should the LRU ever evict inside the TTL window) —
   // a jti that has run once NEVER runs twice.
   const idempotent = new Map<string, CommandResult>();
+
+  // The relay-session registry (spec 2026-10-08 §5.1/§5.2): PER-DAEMON, like
+  // the idempotence map: a relay session belongs to the pairing, not to the
+  // socket it first rode, and the plane re-pumps frames on the fresh link.
+  // Inbound `relay` frames route through it (see `onFrame`); B proxies (and
+  // from Task 7, the A responder) register into it by routing ref.
+  const relaySessions = deps.relaySessions ?? new RelaySessions(log);
 
   // PER-PROCESS executor context (spec §3.4/§7): built once, survives every
   // reconnect. `ws` is a STABLE wrapper routing to the CURRENT socket —
@@ -476,6 +535,16 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     tails: new Map(),
     uploads: new Map(),
     runtime,
+    // The relay plumbing (spec 2026-10-08 §5.1, Task 8): the per-daemon
+    // registry (sessions survive reconnects - the plane re-pumps on the fresh
+    // socket) plus the DELIVER-OR-THROW pump. The pump reads the CURRENT
+    // socket and link through a getter, exactly like the stale-socket guard in
+    // `send` above: a frame sent after this socket died targets the new link
+    // if one exists, and throws if none does (acceptance (c)).
+    relay: {
+      sessions: relaySessions,
+      sendRelayFrame: createDaemonRelaySend(() => ({ ws: currentWs, link })),
+    },
     requestRestart: () => {
       // Deferred, because the daemon is the only sender of `result`: the
       // executor returns `{ ok: true }`, the frame leaves on this turn, and
@@ -576,6 +645,26 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     }, deps.retentionMs ?? PANE_LOG_RETENTION_PASS_MS);
     retentionTimer.unref?.();
   }
+  // Orphaned per-pane ssh config dirs (spec 2026-10-07 decision 4's
+  // machine-side half): `remove_paths` unlinks FILES, so a delete-after-
+  // death removed `<ssh>/<id>/config` and left the DIR behind forever. The
+  // agent drops those dirs here — boot pass plus the same hourly beat as the
+  // retention timer above, unref'd and fire-and-forget like it (and like the
+  // transfer sweep), because a wedged fs probe must not cost the node its
+  // first connection. Deliberately NOT inside the `forever` gate above it:
+  // the pane-log keep-forever pair is an operator choice about TRANSCRIPTS,
+  // and it says nothing about a dead pane's empty config dir — that sweep's
+  // only grace is the one-hour launch-window floor inside the pass itself.
+  const sweepSshDirs = (): Promise<{ removed: number }> => sweepOrphanSshDirs(config.dataDir, ctx.meta, Date.now());
+  void sweepSshDirs().catch((err: unknown) => {
+    log(`ssh dir sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+  });
+  const sshDirSweepTimer = setInterval(() => {
+    void sweepSshDirs().catch((err: unknown) => {
+      log(`ssh dir sweep failed: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  }, deps.retentionMs ?? PANE_LOG_RETENTION_PASS_MS);
+  sshDirSweepTimer.unref?.();
   // SERIAL command executor (spec §3.4): verified commands queue here so pane
   // effects land in arrival order across the whole daemon life — surviving
   // reconnects. A command verified pre-`seqTracker.reset` executing post-reset
@@ -906,14 +995,34 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     return null;
   };
 
-  /** One ADMITTED frame: jws extraction → verify → execute (spec §4). */
+  /** One ADMITTED frame: relay routing (spec 2026-10-08 §5.1) OR jws → verify → execute (§4). */
   const onFrame = async (ws: WsLike, data: string): Promise<void> => {
-    let jws: unknown;
+    let parsed: unknown;
     try {
-      jws = (JSON.parse(data) as { jws?: unknown }).jws;
+      parsed = JSON.parse(data);
     } catch {
-      jws = undefined;
+      parsed = undefined;
     }
+    // The `relay` link frame is NOT a command (§5.1: no per-message signing,
+    // the link authenticates the machine, origin rides the inner ES256
+    // signature): it must never draw the command grammar's `verify: malformed`
+    // answer, which the plane reads as a command anomaly. Recognized by its
+    // `type` BEFORE the JWS path; a relay-shaped-but-malformed candidate is
+    // relay noise (dropped with a line; over-cap ones name their ref, the
+    // session's named close itself is the broker's), and every non-relay frame
+    // falls through to the untouched command path below.
+    if (typeof parsed === "object" && parsed !== null && (parsed as { type?: unknown }).type === "relay") {
+      const frame = parseRelayFrame(parsed as object);
+      if (frame !== null) relaySessions.onInboundRelayFrame(frame);
+      else {
+        const overCapRef = relayFrameRefIfOverCap(parsed);
+        if (overCapRef !== null)
+          log(`relay frame over the size cap for ref ${overCapRef}: refused (§5.1; the named close is the broker's)`);
+        else log("malformed relay frame dropped");
+      }
+      return;
+    }
+    const jws = (parsed as { jws?: unknown } | undefined)?.jws;
     if (typeof jws !== "string") {
       send(ws, { type: "error", code: "verify", message: "malformed" });
       return;
@@ -1122,7 +1231,10 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         // The mirror is read SYNCHRONOUSLY too, and by the seeder itself: the
         // value `ready` carries and the memo that stops the first heartbeat
         // repeating it are one read, so they cannot disagree.
-        send(ws, readyEvent(config, runtime, seedMaintenanceMemo(ctx)));
+        // The SSH mirror rides the same synchronous read + seed as the
+        // maintenance one (spec 2026-10-07 §4.3): the value `ready` carries and
+        // the memo that stops the first heartbeat repeating it are one read.
+        send(ws, readyEvent(config, sshRuntime, seedMaintenanceMemo(ctx), seedSshEnabledMemo(ctx)));
         // Connect-time `subshells_report` (spec §3.3): re-projects the panes
         // that survived an agent restart so the control plane heals its rows.
         // Fire-and-forget with catch-log — a scan failure (junk meta, tmux
@@ -1157,7 +1269,18 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
         heartbeat = setInterval(() => {
           const tickAt = new Date(nowMs()).toISOString();
           // Liveness must not wait for a service manager that might be slow.
-          send(ws, { type: "heartbeat", ts: tickAt, ...(runtime ? { runtime } : {}) });
+          send(ws, {
+            type: "heartbeat",
+            ts: tickAt,
+            ...(runtime
+              ? {
+                  runtime: {
+                    ...runtime,
+                    ...(sshRuntime?.sshFingerprint ? { sshFingerprint: sshRuntime.sshFingerprint } : {}),
+                  },
+                }
+              : {}),
+          });
           void refreshRuntime();
           setDaemonState({ connected: true, lastHeartbeatAt: tickAt });
           writeLiveness(); // every heartbeat tick doubles as the local-liveness refresh
@@ -1186,6 +1309,11 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
                 `config reload failed: ${err instanceof Error ? err.message : String(err)}; keeping the running identity`,
               );
             });
+          // The SSH gate's belt (spec 2026-10-07 §4.3): quieter by construction
+          // (no writer but the plane, so the steady state announces nothing),
+          // and this tick is its ONLY mid-session path — there are no deaths
+          // for it to ride ahead of, because an SSH flip kills no panes.
+          maybeReportSshEnabled(ctx);
         }, heartbeatMs);
         // Periodic `inventory` push — the "every 5 min" leg of spec §7
         // (P3-T8c). The timer's lifecycle mirrors the heartbeat's — armed
@@ -1269,6 +1397,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       if (shuttingDown) stop(0);
       await provisioning; // §5: R7's provisioning close must not redial past its own key write
       await refreshConnectionConfig();
+      sshRuntime = await withSshFingerprint(runtime);
       const configuredWsUrl = resolveWsUrl(config);
       const scope = connectionIdentity(config);
       // Repointing and credential reloads must discard the previous route scope.

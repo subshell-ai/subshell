@@ -361,7 +361,8 @@ else
       echo "    cli-node-vX.Y.Z GitHub Release into that dir, or run" >&2
       echo "    'bun run release:cli-node' from a checkout on the server host." >&2
       echo "    Or install the node for this machine another way and run setup directly:" >&2
-      echo "      subshell setup --server $SERVER --key $KEY\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
+      # Keep credentials out of captured setup output. The user supplies this placeholder.
+      echo "      subshell setup --server $SERVER --key <setup key>\${DATA_DIR:+ --data-dir \\"$DATA_DIR\\"}" >&2
       exit 1
       ;;
     *)

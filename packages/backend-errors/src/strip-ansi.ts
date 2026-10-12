@@ -4,9 +4,9 @@
  * output, so the two consumers must agree on what counts as escape noise.
  *
  * Strips CSI sequences (`ESC [ ... final-byte`, including DEC private modes
- * like `ESC [ ? 1049 h`), OSC title sequences (`ESC ] ... BEL`), and carriage
- * returns. Safe for arbitrary terminal output; exported as a pure function so
- * it can be unit-tested.
+ * like `ESC [ ? 1049 h`), OSC sequences (`ESC ] ...` ended by either BEL or
+ * ST = `ESC \`), and carriage returns. Safe for arbitrary terminal output;
+ * exported as a pure function so it can be unit-tested.
  */
 
 /**
@@ -19,9 +19,17 @@
  */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI CSI escape sequences
 const csiRegex = /\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g;
-/** OSC title sequences (BEL-terminated). */
-// biome-ignore lint/suspicious/noControlCharactersInRegex: OSC title sequences (BEL-terminated)
-const oscRegex = /\x1b\][^\x07]*\x07/g;
+/**
+ * OSC strings, terminated either way: BEL (xterm's titles) or ST = `ESC \`
+ * (ECMA-48's terminator, what shell-integration output like OSC 133/3008
+ * emits). A BEL-only scan ran PAST an ST terminator and swallowed every byte
+ * up to the next BEL — measured deleting a whole printed line in spec 22's
+ * ssh pane. Lazy matching ends the sequence at the nearest terminator, and
+ * one with neither stays untouched: a swallowed tail is worse than a stray
+ * escape.
+ */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: OSC terminators (BEL and ST)
+const oscRegex = /\x1b\][\s\S]*?(?:\x07|\x1b\\)/g;
 
 export function stripAnsi(s: string): string {
   return s.replace(csiRegex, "").replace(oscRegex, "").replace(/\r/g, "");

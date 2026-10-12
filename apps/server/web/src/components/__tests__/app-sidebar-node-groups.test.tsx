@@ -194,6 +194,7 @@ const withRail = async (
   const restoreFetch = stubFetch(subshells, state);
   const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
     openLaunch: () => {},
+    openSshLaunch: () => {},
     openNewWorkspace: () => {},
   });
   try {
@@ -660,7 +661,11 @@ describe("the eye toggle (operator ask 2026-09-27)", () => {
   it("reads a hidden section back from storage on the next mount", async () => {
     localStorage.setItem(HIDDEN_KEY, JSON.stringify({ subshells: true }));
     const restore = stubFetch([subshell({ id: "a", name: "one", nodeId: "local" })]);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch: () => {},
+      openSshLaunch: () => {},
+      openNewWorkspace: () => {},
+    });
     try {
       await renderRail();
       // The eye is ALWAYS drawn (it is the way back); it says Show, and the
@@ -701,7 +706,11 @@ describe("the Drafts section (operator ask 2026-09-27)", () => {
       draft("w1", "2026-08-28T16:45:00.000Z"),
       draft("w2", "2026-09-01T09:05:00.000Z"),
     ]);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch: () => {},
+      openSshLaunch: () => {},
+      openNewWorkspace: () => {},
+    });
     try {
       await renderRail("/");
       await waitFor(() => expect(document.querySelector("a[href='/workspaces/w1']")).toBeTruthy());
@@ -717,7 +726,11 @@ describe("the Drafts section (operator ask 2026-09-27)", () => {
 
   it("highlights the draft you are standing in", async () => {
     const restore = stubFetch([], { failNodes: false }, [], undefined, [draft("w1", "2026-08-28T16:45:00.000Z")]);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch: () => {},
+      openSshLaunch: () => {},
+      openNewWorkspace: () => {},
+    });
     try {
       await renderRail("/workspaces/w1");
       await waitFor(() => expect(document.querySelector("a[href='/workspaces/w1']")).toBeTruthy());
@@ -732,7 +745,11 @@ describe("the Drafts section (operator ask 2026-09-27)", () => {
 
   it("collapses a Workspaces section on its header and remembers it", async () => {
     const restore = stubFetch([], { failNodes: false }, [], undefined, [draft("w1", "2026-08-28T16:45:00.000Z")]);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch: () => {},
+      openSshLaunch: () => {},
+      openNewWorkspace: () => {},
+    });
     try {
       await renderRail("/");
       await waitFor(() => expect(document.getElementById("ws-group-drafts")).toBeTruthy());
@@ -767,7 +784,11 @@ describe("the Drafts section (operator ask 2026-09-27)", () => {
       updatedAt: "2026-09-25T00:00:00.000Z",
     };
     const restore = stubFetch([], { failNodes: false }, [saved], undefined, [draft("d1", "2026-08-28T16:45:00.000Z")]);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch: () => {},
+      openSshLaunch: () => {},
+      openNewWorkspace: () => {},
+    });
     try {
       await renderRail("/workspaces/s1");
       await waitFor(() => expect(document.querySelector("a[href='/workspaces/d1']")).toBeTruthy());
@@ -786,7 +807,11 @@ describe("the Drafts section (operator ask 2026-09-27)", () => {
       draft("w1", "2026-08-28T16:45:00.000Z"),
       draft("w2", "2026-08-28T16:45:30.000Z"),
     ]);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch: () => {},
+      openSshLaunch: () => {},
+      openNewWorkspace: () => {},
+    });
     try {
       await renderRail("/");
       await waitFor(() => expect(document.querySelector("a[href='/workspaces/w2']")).toBeTruthy());
@@ -808,7 +833,11 @@ describe("the Drafts section (operator ask 2026-09-27)", () => {
     // so a user with nothing saved typing a non-matching query unmounted the
     // section — the input they were typing in — with no way to clear it.
     const restore = stubFetch([], { failNodes: false }, [], undefined, [draft("d1", "2026-08-28T16:45:00.000Z")]);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch: () => {},
+      openSshLaunch: () => {},
+      openNewWorkspace: () => {},
+    });
     try {
       await renderRail("/");
       const input = await screen.findByLabelText("Filter workspaces");
@@ -832,7 +861,11 @@ describe("the Drafts section (operator ask 2026-09-27)", () => {
       updatedAt: "2026-09-25T00:00:00.000Z",
     };
     const restore = stubFetch([], { failNodes: false }, [saved]);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch: () => {},
+      openSshLaunch: () => {},
+      openNewWorkspace: () => {},
+    });
     try {
       await renderRail("/");
       await waitFor(() => expect(screen.getByText("My saved")).toBeTruthy());
@@ -880,7 +913,11 @@ describe("the workspace search filter (operator ask 2026-09-27)", () => {
       draft("d1", "Doc-thing", "2026-08-28T16:45:00.000Z"),
       draft("d2", "Other", "2026-08-28T16:45:30.000Z"),
     ]);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch: () => {},
+      openSshLaunch: () => {},
+      openNewWorkspace: () => {},
+    });
     try {
       await renderRail("/");
       const savedHeader = () => screen.getByRole("button", { name: /^Saved/ }) as HTMLButtonElement;
@@ -906,7 +943,11 @@ describe("the workspace search filter (operator ask 2026-09-27)", () => {
   it("filters the workspace list as you type, over the whole set", async () => {
     const rows = [ws("w1", "Alpha", "2026-09-20T00:00:00.000Z"), ws("w2", "Docs", "2026-09-25T00:00:00.000Z")];
     const restore = stubFetch([], { failNodes: false }, rows);
-    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({ openLaunch: () => {}, openNewWorkspace: () => {} });
+    const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
+      openLaunch: () => {},
+      openSshLaunch: () => {},
+      openNewWorkspace: () => {},
+    });
     try {
       await renderRail();
       const input = await screen.findByLabelText("Filter workspaces");

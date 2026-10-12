@@ -102,6 +102,7 @@ let restoreQuickAdd: () => void;
 beforeEach(() => {
   const spy = spyOn(quickAdd, "useQuickAdd").mockReturnValue({
     openLaunch: () => {},
+    openSshLaunch: () => {},
     openNewWorkspace: () => {},
   });
   restoreQuickAdd = () => spy.mockRestore();

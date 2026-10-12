@@ -182,6 +182,113 @@ export enum BackendErrorCodes {
    * this act cannot invent, so it is refused before anything runs.
    */
   NETWORK_UNCONFIGURED = "NETWORK_UNCONFIGURED",
+  /**
+   * A `/api/ssh` act on a machine SSH is not open for, or not open for THIS
+   * caller: SSH is off, launch access is missing, or instance policy
+   * disables launches. One code for these
+   * causes; the message names the true one, because naming WHY is the
+   * surface's job (spec §12) and the code is the machine-readable half.
+   */
+  SSH_GATE_OFF = "SSH_GATE_OFF",
+  /**
+   * A `/api/ssh` act against a HELD agent: the plane refuses to speak that
+   * machine's protocol, so no ssh command can be sent and none is. The
+   * message names the remedy — update the node (spec 2026-10-07 decision 6).
+   */
+  NODE_PROTOCOL_HELD = "NODE_PROTOCOL_HELD",
+  /**
+   * A `/api/ssh` destination (or alias) that the wire grammar cannot carry:
+   * blank, over the 253-char cap, leading `-` (option-like), or carrying
+   * whitespace/control characters. Refused before the machine is asked, so
+   * the token never reaches `ssh -G` or a config parse.
+   */
+  ALIAS_UNSAFE = "ALIAS_UNSAFE",
+  /**
+   * The connecting machine answered an ssh command with its own `ok:false`
+   * (its ssh-enabled mirror says no, no ssh binary, a malformed answer): the
+   * plane's row cannot overrule the machine. The agent's own text is never
+   * echoed; the message names the human's remedy.
+   */
+  SSH_NODE_REFUSED = "SSH_NODE_REFUSED",
+  /**
+   * `POST /api/subshells/:id/restart` on an ssh pane (spec 2026-10-07
+   * decision 7): the pane's session lives on the far end of a socket, so a
+   * restart would spawn a new ssh process nobody asked to reconnect. Launch
+   * again from the launcher instead. Keyed to the `subshells.ssh` column.
+   */
+  SSH_NO_RESTART = "SSH_NO_RESTART",
+  /**
+   * A pane-input act (REST input, exec, MCP-via-REST, WS keystroke) on an
+   * ssh pane by a caller who is not the row's OWNER account, or by ANY
+   * machine credential (spec 2026-10-07 §5.4, decision 5: the far side of an
+   * ssh pane runs under the owner's own trust; the pane's key must not type
+   * into itself either). Keyed to the `subshells.ssh` column like the
+   * restart refusal; the WS door drops the frame rather than answering this
+   * code, exactly as it drops a `view` grantee's keystrokes.
+   */
+  SSH_OWNER_INPUT_ONLY = "SSH_OWNER_INPUT_ONLY",
+  /**
+   * A connection selecting MORE than `SSH_MAX_SELECTED_FINGERPRINTS` keys
+   * (spec 2026-10-08 §5.4): a named refusal before opening the relay,
+   * never a silent truncation of the operator's selection.
+   */
+  SSH_KEYS_OVER_LIMIT = "SSH_KEYS_OVER_LIMIT",
+  /**
+   * A selected fingerprint outside the `SHA256:` display grammar (agent-wire
+   * base64; `isSshFingerprints`). Refused before any write; the value
+   * itself is never echoed into the message.
+   */
+  SSH_KEYS_INVALID = "SSH_KEYS_INVALID",
+  /**
+   * The relay broker refused to open (spec 2026-10-08 §5.3): quota, gate,
+   * handshake, or a refused side. The pane was not launched; the message
+   * names which door. No session exists.
+   */
+  SSH_RELAY_OPEN_FAILED = "SSH_RELAY_OPEN_FAILED",
+  /**
+   * A relay launch aimed at a machine that has no registered relay identity
+   * (spec 2026-10-08 §4.2/§4.3: no `node:` record, or its signing slot is
+   * still empty). The remedy is on the machine: re-enroll, or let its next
+   * `ready` fill the slot.
+   */
+  SSH_RELAY_IDENTITY_MISSING = "SSH_RELAY_IDENTITY_MISSING",
+  /**
+   * A relay connection refused because the key home has no recorded host
+   * key for the destination. The connecting machine requires a pin from
+   * the key home and cannot fall back to its own ambient TOFU. The remedy the message names: connect to
+   * the destination once from the key home, or supply the key on the trust
+   * screen.
+   */
+  SSH_HOST_PIN_MISSING = "SSH_HOST_PIN_MISSING",
+  /**
+   * The host-key capture found the destination pinned to a DIFFERENT key
+   * (spec 2026-10-08 §9): the TOFU hard block at the plane's edge, the mirror
+   * of the block OpenSSH itself raises on B. Nothing is overwritten; recovery
+   * is verify the new key, delete the old pin on the trust screen and retry.
+   */
+  SSH_HOST_PIN_CHANGED = "SSH_HOST_PIN_CHANGED",
+  /**
+   * A host-key line (an explicit pin, or a canonical destination) the wire
+   * grammar refuses: not one bounded printable line, a comment or blank, a
+   * smuggled newline. Refused before any write (spec 2026-10-08 §9).
+   */
+  SSH_HOST_PIN_INVALID = "SSH_HOST_PIN_INVALID",
+  /**
+   * The "Set up Subshell here" act's named EGRESS refusal (spec 2026-10-08
+   * §7): the destination cannot reach the plane URL, so the install cannot
+   * run and no key was ever spent on an enrollment. Deliberately a code of
+   * its own: the spec requires this cause to read differently from any key
+   * error, and the working pane is untouched either way.
+   */
+  SSH_UPGRADE_EGRESS = "SSH_UPGRADE_EGRESS",
+  /**
+   * The "Set up Subshell here" act stopped at a NAMED stage short of an
+   * enrolled, connected node (spec 2026-10-08 §7): the install failed, the
+   * enrollment was refused, or the new node never reported `ready` within
+   * the bounded wait. The message names which stage; the setup key is
+   * nowhere in it, and the interactive pane is untouched.
+   */
+  SSH_UPGRADE_FAILED = "SSH_UPGRADE_FAILED",
 }
 
 /**
@@ -419,6 +526,69 @@ export const BackendErrorCodeDefs = {
   },
   [BackendErrorCodes.NETWORK_UNCONFIGURED]: {
     message: "Configure this network before continuing",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_GATE_OFF]: {
+    message: "Subshell SSH is off on this machine",
+    statusCode: 403,
+  },
+  [BackendErrorCodes.NODE_PROTOCOL_HELD]: {
+    message: "This node is held for speaking a protocol this server does not",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.ALIAS_UNSAFE]: {
+    message: "That SSH destination is not a safe token",
+    statusCode: 400,
+  },
+  // The machine's own refusal is not a client error and not a server fault:
+  // the request was valid, the connecting host answered no. 502 says the
+  // upstream (the node) refused, which is exactly the shape.
+  [BackendErrorCodes.SSH_NODE_REFUSED]: {
+    message: "The connecting machine refused the SSH request",
+    statusCode: 502,
+  },
+  [BackendErrorCodes.SSH_NO_RESTART]: {
+    message: "SSH subshells can't restart. Start a new SSH subshell to reconnect",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_OWNER_INPUT_ONLY]: {
+    message: "Only the owner can type in this SSH subshell",
+    statusCode: 403,
+  },
+  [BackendErrorCodes.SSH_KEYS_OVER_LIMIT]: {
+    message: "Too many SSH keys selected",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.SSH_KEYS_INVALID]: {
+    message: "That SSH key selection is invalid",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.SSH_RELAY_OPEN_FAILED]: {
+    message: "Couldn't open the SSH relay. The subshell wasn't started",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_RELAY_IDENTITY_MISSING]: {
+    message: "That machine has no registered relay identity yet",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_HOST_PIN_MISSING]: {
+    message: "The machine supplying your keys has no saved host key for that destination",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_HOST_PIN_CHANGED]: {
+    message: "The destination's host key doesn't match the saved pin",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_HOST_PIN_INVALID]: {
+    message: "That host-key entry is not a valid known_hosts line",
+    statusCode: 400,
+  },
+  [BackendErrorCodes.SSH_UPGRADE_EGRESS]: {
+    message: "The destination can't reach this server to install Subshell",
+    statusCode: 409,
+  },
+  [BackendErrorCodes.SSH_UPGRADE_FAILED]: {
+    message: "Subshell setup didn't finish",
     statusCode: 409,
   },
 };

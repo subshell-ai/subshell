@@ -1,11 +1,14 @@
 import { createContext, type ReactNode, useContext, useMemo, useState } from "react";
 import { LaunchSubshellDialog } from "@/components/sidebar/launch-subshell-dialog";
 import { NewWorkspaceDialog } from "@/components/sidebar/new-workspace-dialog";
+import type { sshConnectSearch } from "@/lib/ssh-connect-search";
 
 /** Triggers for the rail's quick-add dialogs, callable from anywhere. */
 export interface QuickAddApi {
   /** Open the New-subshell launch dialog. */
   openLaunch: () => void;
+  /** Open the same launch dialog with SSH choices restored. */
+  openSshLaunch: (initial?: ReturnType<typeof sshConnectSearch>) => void;
   /** Open the New-workspace dialog. */
   openNewWorkspace: () => void;
 }
@@ -32,6 +35,7 @@ export function useQuickAdd(): QuickAddApi {
  * sidebar, closing the drawer no longer unmounts a dialog that just opened.
  */
 export function QuickAddProvider({ children }: { children: ReactNode }): ReactNode {
+  const [initialSsh, setInitialSsh] = useState<ReturnType<typeof sshConnectSearch> | undefined>();
   const [launchOpen, setLaunchOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   // A fresh object here would be a new context value on every render of this
@@ -39,13 +43,23 @@ export function QuickAddProvider({ children }: { children: ReactNode }): ReactNo
   // desktop bridge re-subscribed its listener on each one. Setters are stable,
   // so the empty dependency list is honest.
   const api = useMemo<QuickAddApi>(
-    () => ({ openLaunch: () => setLaunchOpen(true), openNewWorkspace: () => setWorkspaceOpen(true) }),
+    () => ({
+      openLaunch: () => {
+        setInitialSsh(undefined);
+        setLaunchOpen(true);
+      },
+      openSshLaunch: (initial = {}) => {
+        setInitialSsh(initial);
+        setLaunchOpen(true);
+      },
+      openNewWorkspace: () => setWorkspaceOpen(true),
+    }),
     [],
   );
   return (
     <QuickAddContext.Provider value={api}>
       {children}
-      <LaunchSubshellDialog open={launchOpen} onOpenChange={setLaunchOpen} />
+      {launchOpen && <LaunchSubshellDialog open onOpenChange={setLaunchOpen} initialSsh={initialSsh} />}
       <NewWorkspaceDialog open={workspaceOpen} onOpenChange={setWorkspaceOpen} />
     </QuickAddContext.Provider>
   );

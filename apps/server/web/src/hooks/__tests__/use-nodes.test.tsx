@@ -40,6 +40,7 @@ const NODE: Node = {
   maintenance: false,
   maintenanceAt: null,
   maintenanceSource: null,
+  sshEnabled: false,
   held: null,
 };
 

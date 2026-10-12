@@ -23,12 +23,22 @@ export class ApiError extends Error {
    * thing to quote when reporting a bug; undefined for legacy text failures.
    */
   readonly errId?: string;
-  constructor(status: number, body: string, meta: { code?: string; errId?: string } = {}) {
+  /**
+   * The parsed JSON body itself when the failure carried one — the machine-
+   * readable payload the display message cannot hold: the message is the
+   * raw text sliced to 200 chars, while a structured refusal (the SSH 422
+   * `{outcome}` with its `settings` list) can run longer than that. Readers
+   * that need the WHOLE answer (`err.body`) must not parse the message.
+   * Undefined for legacy plain-text bodies (nothing to keep).
+   */
+  readonly body?: unknown;
+  constructor(status: number, body: string, meta: { code?: string; errId?: string; body?: unknown } = {}) {
     super(`API ${status}: ${body.slice(0, 200)}`);
     this.name = "ApiError";
     this.status = status;
     this.code = meta.code;
     this.errId = meta.errId;
+    this.body = meta.body;
   }
 }
 
@@ -65,6 +75,7 @@ export function isAbortError(err: unknown): boolean {
  * fields. Every backend failure now carries `{errId, code, message, statusCode}`;
  * Legacy plain text stays readable; HTML from a proxy or a restarting server
  * gets a useful fallback instead of displaying page markup.
+ * Parsed JSON also rides as `body` for callers handling structured SSH refusals.
  */
 /**
  * Exported for the one caller that cannot use {@link apiFetch}: the agent
@@ -72,7 +83,15 @@ export function isAbortError(err: unknown): boolean {
  * arrives as an ordinary status code with this body, and it should surface as
  * the same `ApiError` every other call produces.
  */
-export function parseErrorBody(raw: string, contentType = ""): { message: string; code?: string; errId?: string } {
+export function parseErrorBody(
+  raw: string,
+  contentType = "",
+): {
+  message: string;
+  code?: string;
+  errId?: string;
+  body?: unknown;
+} {
   if (contentType.toLowerCase().includes("text/html") || /^\s*</.test(raw)) {
     return { message: HTML_RESPONSE_MESSAGE };
   }
@@ -84,6 +103,10 @@ export function parseErrorBody(raw: string, contentType = ""): { message: string
         message: typeof message === "string" ? message : raw,
         code: typeof code === "string" ? code : undefined,
         errId: typeof errId === "string" ? errId : undefined,
+        // The whole parsed object rides along: `message` is a DISPLAY string
+        // sliced to 200 chars by ApiError, and a structured refusal body
+        // (the SSH 422 `{outcome}`) can be longer than the display allows.
+        body: parsed,
       };
     }
   } catch {
@@ -108,13 +131,14 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     throw new NetworkError(err);
   }
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    const { message, code, errId } = parseErrorBody(body, res.headers.get("content-type") ?? "");
-    throw new ApiError(res.status, message, { code, errId });
+    const raw = await res.text().catch(() => "");
+    const { message, code, errId, body } = parseErrorBody(raw, res.headers.get("content-type") ?? "");
+    throw new ApiError(res.status, message, { code, errId, body });
   }
   if (res.headers.get("content-type")?.toLowerCase().includes("text/html")) {
     throw new ApiError(res.status, HTML_RESPONSE_MESSAGE);
   }
+  if (res.status === 204) return undefined as unknown as T;
   return (await res.json()) as T;
 }
 

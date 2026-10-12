@@ -34,6 +34,7 @@ function navNode(overrides: Partial<NodeDetail> = {}): NodeDetail {
     access: "owner",
     canManage: true,
     canRetire: true,
+    sshEnabled: false,
     canLaunch: true,
     allowedDirs: [],
     capabilities: [],

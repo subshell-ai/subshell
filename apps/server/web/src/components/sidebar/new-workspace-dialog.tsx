@@ -1,6 +1,8 @@
 import { apiPost, Button, errMessage } from "@internal/node-admin";
 import { useNavigate } from "@tanstack/react-router";
 import { type JSX, useState } from "react";
+import { ConnectPanel } from "@/components/connect/connect-panel";
+import { sshSessionDraft } from "@/components/connect/ssh-session-draft";
 import { ExistingSubshellList } from "@/components/subshell-picker/existing-subshell-list";
 import {
   canSubmit,
@@ -9,6 +11,7 @@ import {
   type NewSubshellFormValue,
 } from "@/components/subshell-picker/launch-form-rules";
 import { NewSubshellForm } from "@/components/subshell-picker/new-subshell-form";
+import { type SubshellKind, SubshellKindPicker } from "@/components/subshell-picker/subshell-kind-picker";
 import {
   Dialog,
   DialogContent,
@@ -58,6 +61,8 @@ export function NewWorkspaceDialog({
   const { data: workspaces } = useWorkspaces();
   const create = useCreateSubshell();
 
+  const [sshDraft, setSshDraft] = useState(() => sshSessionDraft());
+  const [kind, setKind] = useState<SubshellKind>("agent");
   const [mode, setMode] = useState<Mode>("existing");
   const [query, setQuery] = useState("");
   const [form, setForm] = useState<NewSubshellFormValue>(emptyNewSubshellForm());
@@ -71,7 +76,9 @@ export function NewWorkspaceDialog({
   const [createdId, setCreatedId] = useState<string | null>(null);
 
   function reset() {
+    setSshDraft(sshSessionDraft());
     setMode("existing");
+    setKind("agent");
     setQuery("");
     setForm(emptyNewSubshellForm());
     setSelected([]);
@@ -149,6 +156,7 @@ export function NewWorkspaceDialog({
       // A half-filled launch form is not disposable (ruling 2026-09-30):
       // only a deliberate act closes this - X, Cancel, or a successful add.
       onOpenChange={formDialogOpenChange((next) => {
+        if (creating || launching) return;
         onOpenChange(next);
         if (!next) reset();
       })}
@@ -159,16 +167,19 @@ export function NewWorkspaceDialog({
           <DialogDescription>Start it with subshells already tiled in, or empty.</DialogDescription>
         </DialogHeader>
 
-        <Segmented
-          ariaLabel="What to add"
-          options={[
-            { value: "existing", label: "Existing subshells" },
-            { value: "new", label: "New subshell" },
-          ]}
-          value={mode}
-          onChange={setMode}
-        />
-
+        <fieldset disabled={creating || launching}>
+          <Segmented
+            ariaLabel="What to add"
+            options={[
+              { value: "existing", label: "Existing subshells" },
+              { value: "new", label: "New subshell" },
+            ]}
+            value={mode}
+            onChange={(next) => {
+              if (!launching) setMode(next);
+            }}
+          />
+        </fieldset>
         {createdId ? (
           // The workspace exists; the error line above says which adds failed.
           <p className="text-muted-foreground text-sm">The workspace is created. Enter it to add the rest.</p>
@@ -183,7 +194,23 @@ export function NewWorkspaceDialog({
             onToggle={toggle}
           />
         ) : (
-          <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
+          <div className="flex flex-col gap-4">
+            <SubshellKindPicker value={kind} onChange={setKind} disabled={launching} />
+            {kind === "ssh" && open ? (
+              <ConnectPanel
+                draft={sshDraft}
+                onDraftChange={setSshDraft}
+                onPendingChange={setLaunching}
+                onLeave={() => onOpenChange(false)}
+                onCreated={(id) => {
+                  setSelected((prev) => [...prev, id]);
+                  setMode("existing");
+                }}
+              />
+            ) : (
+              <NewSubshellForm value={form} onChange={setForm} onLeave={() => onOpenChange(false)} />
+            )}
+          </div>
         )}
 
         {error && <p className="text-destructive text-detail">{error}</p>}
@@ -206,7 +233,7 @@ export function NewWorkspaceDialog({
               >
                 Cancel
               </Button>
-              {mode === "new" && (
+              {mode === "new" && kind === "agent" && (
                 <Button
                   onClick={() => void launchAndAdd()}
                   disabled={launching || !canSubmit(form)}

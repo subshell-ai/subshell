@@ -11,7 +11,7 @@ import { assertSafeHostPath } from "./paths.js";
 import type { BackupAdmin } from "./types.js";
 
 /** Latest supported application migration; its registration is pinned by the engine tests. */
-export const LATEST_BACKUP_MIGRATION = "0046-backup-recovery";
+export const LATEST_BACKUP_MIGRATION = "0053-drop-ssh-grants";
 
 /** Snapshot a live SQLite database using VACUUM INTO, including committed WAL state. */
 export async function snapshotDatabase(sourcePath: string, destinationPath: string): Promise<void> {
@@ -85,6 +85,8 @@ export function requiredIdentityPaths(path: string): string[] {
         required.push("data/node-encryption.json");
       }
     }
+    if (tables.has("identities") && db.query("SELECT 1 FROM identities WHERE principal_id = 'node:local'").get())
+      required.push("data/ssh-relay/identity.json");
     const panes = tables.has("subshells") ? "subshells" : tables.has("sessions") ? "sessions" : null;
     if (tables.has("identities") && panes) {
       requireMetadataColumns(schema, "identities", ["principal_id"]);

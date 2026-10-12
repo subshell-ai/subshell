@@ -31,6 +31,7 @@ function row(overrides: Partial<Parameters<typeof toSubshellView>[0]> = {}) {
     waitingSince: null,
     lastPushUrgency: null,
     crossAgent: 0,
+    ssh: null,
     ...overrides,
   } satisfies Parameters<typeof toSubshellView>[0];
 }
@@ -49,6 +50,16 @@ describe("toSubshellView notification fields", () => {
   it("maps crossAgent 1/0 to a boolean (an MCP-launched pane files as cross-agent comms)", () => {
     expect(toSubshellView(row({ crossAgent: 1 }), "running").crossAgent).toBe(true);
     expect(toSubshellView(row({ crossAgent: 0 }), "running").crossAgent).toBe(false);
+  });
+
+  it("maps the ssh snapshot column to a presence boolean and never echoes the snapshot (spec 2026-10-07)", () => {
+    // The rule keys on PRESENCE, not parseability: an unparseable string is
+    // still an ssh pane (validation belongs to the launch boundary).
+    expect(toSubshellView(row({ ssh: "x" }), "running").ssh).toBe(true);
+    const mapped = toSubshellView(row({ ssh: '{"destination":"dev.example.com"}' }), "running");
+    expect(mapped.ssh).toBe(true);
+    expect(JSON.stringify(mapped)).not.toContain("dev.example.com");
+    expect(toSubshellView(row(), "running").ssh).toBe(false);
   });
 
   it("defaults access to 'owner' and honours an explicit override (sharing, spec 2026-08-31)", () => {

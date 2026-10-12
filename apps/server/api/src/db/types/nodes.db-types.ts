@@ -87,6 +87,28 @@ export interface NodeTable {
   maintenanceAt: string | null;
   /** Which end wrote the standing value ({@link MaintenanceSource}); null when none has. */
   maintenanceSource: MaintenanceSource | null;
+  /**
+   * 1 = SSH egress and key use are enabled on this machine (spec 4.3).
+   * Opt-in per node, never a fleet default: 0 for every row that predates
+   * the column, so an upgrade leaves the whole fleet (and the control-plane
+   * host) with SSH off until someone flips it.
+   */
+  sshEnabled: number;
+  /**
+   * ISO 8601 of the write that last changed {@link sshEnabled} (the wire's
+   * `changedAt`), or null when the flag was never written. The stamp rides
+   * the flag on every push, the shape {@link maintenanceAt} has for
+   * maintenance.
+   */
+  sshEnabledAt: string | null;
+  /**
+   * JSON mirror of the ssh-fingerprint block from this node's last runtime
+   * report (spec 2026-10-08 §4.5), so the trust card survives an offline node
+   * or a plane restart. NULL until a post-M2 agent reports. Serialized only
+   * under the same owner-or-`edit` gate as the live runtime field, never
+   * `view` and never `local`. Populated by the report-handling task.
+   */
+  sshFingerprint: string | null;
   /** ISO 8601 creation time */
   createdAt: string;
   /** ISO 8601 last update time */

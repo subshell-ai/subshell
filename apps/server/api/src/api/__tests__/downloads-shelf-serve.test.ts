@@ -195,7 +195,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
     app.handle(new Request(`http://localhost${path}`, { headers: { cookie: `better-auth.session_token=${cookie}` } }));
 
   it("a shelf BEHIND the release serves the release, and the digest route announces the SAME answer", async () => {
-    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    const shelf = plantShelf(shelfScript(MIN_NODE_VERSION, NODE_PROTOCOL_VERSION));
     const res = await get(`/api/downloads/node/${TARGET}`);
     expect(await res.text()).toBe(NEWBODY);
     // Operator bytes, no ledger entry: streamed PAST, never overwritten.
@@ -233,7 +233,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
 
   it("no compatible release AND a wrong-protocol shelf: both routes refuse, naming the mismatch", async () => {
     manifestProtocol = NODE_PROTOCOL_VERSION - 1;
-    plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION - 1));
+    plantShelf(shelfScript(MIN_NODE_VERSION, NODE_PROTOCOL_VERSION - 1));
     const res = await get(`/api/downloads/node/${TARGET}`);
     expect(res.status).toBe(404);
     const body = (await res.json()) as { code: string; message: string };
@@ -244,7 +244,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
 
   it("no compatible release but a shelf that CAN connect: the shelf serves (dev-loop and air-gap-adjacent cells)", async () => {
     manifestProtocol = NODE_PROTOCOL_VERSION - 1;
-    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    const shelf = plantShelf(shelfScript(MIN_NODE_VERSION, NODE_PROTOCOL_VERSION));
     const res = await get(`/api/downloads/node/${TARGET}`);
     expect(await res.text()).toBe(shelf);
   });
@@ -257,7 +257,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
 
   it("air-gapped: a connectable shelf is the only source and wins, behind or ahead", async () => {
     setReleaseUrlForTests(null);
-    const behind = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    const behind = plantShelf(shelfScript(MIN_NODE_VERSION, NODE_PROTOCOL_VERSION));
     expect(await (await get(`/api/downloads/node/${TARGET}`)).text()).toBe(behind);
     const sha = await get(`/api/downloads/node/${TARGET}.sha256`);
     expect((await sha.text()).trim()).toBe(hex(behind));
@@ -336,7 +336,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
   });
 
   it("the release the decision chose cannot be fetched: 404, and the shelf is NOT served under a release announcement", async () => {
-    plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    plantShelf(shelfScript(MIN_NODE_VERSION, NODE_PROTOCOL_VERSION));
     failBin = true;
     try {
       const res = await get(`/api/downloads/node/${TARGET}`);
@@ -347,7 +347,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
   });
 
   it("bytes this INSTANCE fetched are cache the release may replace", async () => {
-    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    const shelf = plantShelf(shelfScript(MIN_NODE_VERSION, NODE_PROTOCOL_VERSION));
     writeFileSync(
       ledgerPath,
       JSON.stringify({ [TARGET]: { tag: "cli-node-v0.0.1", digest: hex(shelf), fetchedAt: "x" } }),
@@ -360,7 +360,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
 
   it("release unreachable with a connectable shelf: the older agent still installs (outdated beats refused)", async () => {
     setReleaseUrlForTests("http://127.0.0.1:1/releases");
-    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    const shelf = plantShelf(shelfScript(MIN_NODE_VERSION, NODE_PROTOCOL_VERSION));
     const res = await get(`/api/downloads/node/${TARGET}`);
     expect(res.status).toBe(200);
     expect(await res.text()).toBe(shelf);
@@ -368,7 +368,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
 
   it("release unreachable with a wrong-protocol shelf: still the 404, never the refusal-loop installer", async () => {
     setReleaseUrlForTests("http://127.0.0.1:1/releases");
-    plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION - 1));
+    plantShelf(shelfScript(MIN_NODE_VERSION, NODE_PROTOCOL_VERSION - 1));
     const res = await get(`/api/downloads/node/${TARGET}`);
     expect(res.status).toBe(404);
   });
@@ -394,7 +394,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
 
   it("an inconsistent shelf AND no compatible release: refused, and the sentence says REPUBLISH", async () => {
     manifestProtocol = NODE_PROTOCOL_VERSION - 1;
-    plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    plantShelf(shelfScript(MIN_NODE_VERSION, NODE_PROTOCOL_VERSION));
     writeFileSync(`${binaryPath}.sha256`, `${"f".repeat(64)}\n`);
     const res = await get(`/api/downloads/node/${TARGET}`);
     expect(res.status).toBe(404);
@@ -409,7 +409,7 @@ describe("/api/downloads/node — the shelf answers for itself", () => {
     // precedence entirely (rule 1's broken cell) — and because these bytes
     // are the OPERATOR's (no ledger entry), the release is streamed through
     // without touching them: the operator republishes, the server does not.
-    const shelf = plantShelf(shelfScript("1.0.0", NODE_PROTOCOL_VERSION));
+    const shelf = plantShelf(shelfScript(MIN_NODE_VERSION, NODE_PROTOCOL_VERSION));
     writeFileSync(`${binaryPath}.sha256`, `${"f".repeat(64)}\n`);
     const res = await get(`/api/downloads/node/${TARGET}`);
     expect(await res.text()).toBe(NEWBODY);

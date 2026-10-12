@@ -3,7 +3,7 @@ import { NODE_NAME_MAX_UNITS, normalizeNodeName } from "@internal/subshell-proto
 import { ensureSodium } from "@internal/subshell-protocol/node-link-crypto";
 import { Elysia, t } from "elysia";
 import { HttpError } from "@/api/auth-guard.js";
-import { assertImportablePublicJwk } from "@/api/public-jwk.js";
+import { assertImportablePublicJwk, assertImportableSigningJwk } from "@/api/public-jwk.js";
 import type { CreatedApiKey, NodeKeyMetadata } from "@/auth/apikey-store.js";
 import { getAuth } from "@/auth.js";
 import { APP_BASE_URL } from "@/constants.js";
@@ -50,6 +50,18 @@ const EnrollBodySchema = t.Object({
     maxLength: 2048,
     description: "JSON-serialized P-256 ECDH-ES PUBLIC JWK (no private component) for sealed delivery to this node",
   }),
+  // Optional so a pre-M2 agent still enrolls (spec 2026-10-08 §4.3): the
+  // identities slot stays NULL until the §4.3 bootstrap delivers the key over
+  // the node link. A PRESENT value is decoded and imported below (like
+  // `publicKey` above), BEFORE the setup key is spent.
+  signingPublicKey: t.Optional(
+    t.String({
+      minLength: 16,
+      maxLength: 2048,
+      description:
+        "JSON-serialized P-256 ES256 PUBLIC JWK (no private component): the machine's SSH relay signing key, registered in the same node: identity record",
+    }),
+  ),
   // Optional so a pre-v14 one-liner still enrolls (spec 2026-09-24 §5): the row
   // then stores NULL and the node registers its static on first connect. A
   // PRESENT value is decoded and length-checked below — like `publicKey` above,
@@ -201,6 +213,38 @@ export const enrollRoute = new Elysia().use(apiModels).post(
       );
     }
 
+    // The relay signing key (spec 2026-10-08 §4.1/§4.2), validated in the SAME
+    // pre-consume position as publicKey above: a malformed value must not burn
+    // the single-use setup key. An absent field is the pre-M2 posture (NULL
+    // slot, filled later by the §4.3 bootstrap), never a refusal.
+    let signingPublicKey: string | null = null;
+    if (body.signingPublicKey !== undefined) {
+      let signingParsed: unknown;
+      try {
+        signingParsed = JSON.parse(body.signingPublicKey);
+      } catch {
+        return status(
+          400,
+          apiErrorBody({
+            code: BackendErrorCodes.INPUT_VALIDATION_ERROR,
+            message: "signingPublicKey must be a JSON JWK",
+          }),
+        );
+      }
+      try {
+        await assertImportableSigningJwk(signingParsed);
+      } catch (err) {
+        return status(
+          400,
+          apiErrorBody({
+            code: BackendErrorCodes.INPUT_VALIDATION_ERROR,
+            message: err instanceof HttpError ? err.message : "signingPublicKey must be a valid P-256 public JWK",
+          }),
+        );
+      }
+      signingPublicKey = body.signingPublicKey;
+    }
+
     // The link-encryption static (spec 2026-09-24 §3), validated in the SAME
     // pre-consume position as publicKey above — a malformed body must not burn
     // the single-use key. Shape is schema-checked (43-44 chars); the decode
@@ -269,6 +313,9 @@ export const enrollRoute = new Elysia().use(apiModels).post(
             agentVersion: body.agentVersion,
           },
           encryptPublicKey,
+          // Both identity halves swap together on re-registration (§4.2); the
+          // validated value, or NULL for a pre-M2 body.
+          signingPublicKey,
         );
         return status(201, { ...result, controlPublicKey, controlEncryptPublicKey, wsUrl });
       } catch (err) {
@@ -304,9 +351,12 @@ export const enrollRoute = new Elysia().use(apiModels).post(
         encryptPublicKey,
       });
       nodeRowCreated = true;
+      // The signing key lands in the SAME node: record (§4.2): enroll is the
+      // trust event the key inherits, and node deletion cascades both halves.
       await new IdentitiesRepository(db).register({
         principalId: `node:${nodeId}`,
         publicKey: body.publicKey,
+        signingPublicKey,
         displayName: name,
       });
       // Node key: long-lived (no expiresIn — revocation is delete-node,

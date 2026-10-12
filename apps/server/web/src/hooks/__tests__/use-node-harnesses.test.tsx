@@ -38,6 +38,7 @@ const NODE: NodeDetail = {
   maintenance: false,
   maintenanceAt: null,
   maintenanceSource: null,
+  sshEnabled: false,
   held: null,
 };
 

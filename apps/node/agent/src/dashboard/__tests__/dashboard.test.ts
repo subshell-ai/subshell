@@ -1,15 +1,24 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { generateKeyPairSync } from "node:crypto";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fingerprintJwk } from "@internal/subshell-protocol";
 import type { UpdateExecContext } from "../../commands/update.js";
 import { type NodeConfig, saveConfig } from "../../config.js";
+import { MachinePinStore } from "../../machine-pin-store.js";
 import { noteSweepScheduled } from "../../retention-settings.js";
 import { newHome } from "../../test-preload.js";
 import { NODE_VERSION } from "../../version.js";
 import { refuseRequest } from "../guards.js";
 import { buildRoutes } from "../routes.js";
 import { getDaemonState, registerRestart, setDaemonState } from "../state.js";
+
+/** A fresh P-256 public key as its raw JWK string. */
+function freshJwk(): string {
+  const { publicKey } = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+  return JSON.stringify(publicKey.export({ format: "jwk" }));
+}
 
 /**
  * The dashboard's routes against a throwaway enrolled config — the contract
@@ -92,6 +101,39 @@ test("GET /api/nodes/:id answers the local view — online, owner-managed, serve
   // The field the plane's view cannot always carry and this one always can.
   expect(v.serverUrl).toBe("http://plane.invalid");
   expect(v.runningSubshells).toBe(0);
+});
+
+test("the view carries the §4.6 trust block from the node-local store (spec 2026-10-08 §4.6)", async () => {
+  const cfg = await enrolled();
+  const a = freshJwk();
+  const b = freshJwk();
+  new MachinePinStore(cfg.dataDir).pin("f0000000-0000-4000-8000-000000000001", { signing: a, encryption: b });
+  const v = await (await call(cfg, "GET", "/api/nodes/self")).json();
+  expect(v.sshTrust.stale).toBe(false); // the machine answering about ITSELF is never stale
+  expect(v.sshTrust.peers).toEqual([
+    {
+      nodeId: "f0000000-0000-4000-8000-000000000001",
+      signing: await fingerprintJwk(a),
+      encryption: await fingerprintJwk(b),
+    },
+  ]);
+  // Own halves from this machine's identity files, not from anything a plane said.
+  const enc = (JSON.parse(readFileSync(join(cfg.dataDir, "identity.json"), "utf8")) as { publicJwk: string }).publicJwk;
+  const sig = (
+    JSON.parse(readFileSync(join(cfg.dataDir, "node-signing-identity.json"), "utf8")) as { publicJwk: string }
+  ).publicJwk;
+  expect(v.sshTrust.own.encryption).toBe(await fingerprintJwk(enc));
+  expect(v.sshTrust.own.signing).toBe(await fingerprintJwk(sig));
+});
+
+test("a corrupt pin file costs the trust field, never the page", async () => {
+  const cfg = await enrolled();
+  writeFileSync(join(cfg.dataDir, "ssh-machine-pins.json"), "}{");
+  const r = await call(cfg, "GET", "/api/nodes/self");
+  expect(r.status).toBe(200);
+  const v = await r.json();
+  expect("sshTrust" in v).toBe(false); // absent, not a broken half-block
+  expect(v.id).toBe("node-abc"); // the rest of the view renders
 });
 
 test("the maintenance flip round-trips through the real mirror, and `off` carries stopped: []", async () => {
