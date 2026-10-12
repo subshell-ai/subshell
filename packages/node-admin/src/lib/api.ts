@@ -4,6 +4,8 @@
  * better-auth session cookie is sent automatically.
  */
 
+const HTML_RESPONSE_MESSAGE =
+  "The server couldn't complete the request. If it's restarting or updating, wait for it to come back.";
 /**
  * An apiFetch failure with the HTTP status kept as a number — callers that
  * branch on the code (403 → "admin only") read `status` instead of parsing the
@@ -61,8 +63,8 @@ export function isAbortError(err: unknown): boolean {
 /**
  * Splits a failed response body into the display message and the structured
  * fields. Every backend failure now carries `{errId, code, message, statusCode}`;
- * anything that is not that shape (a proxy error page, an older body) falls
- * back to the raw text so the `API <status>: <detail>` copy never changes form.
+ * Legacy plain text stays readable; HTML from a proxy or a restarting server
+ * gets a useful fallback instead of displaying page markup.
  */
 /**
  * Exported for the one caller that cannot use {@link apiFetch}: the agent
@@ -70,7 +72,10 @@ export function isAbortError(err: unknown): boolean {
  * arrives as an ordinary status code with this body, and it should surface as
  * the same `ApiError` every other call produces.
  */
-export function parseErrorBody(raw: string): { message: string; code?: string; errId?: string } {
+export function parseErrorBody(raw: string, contentType = ""): { message: string; code?: string; errId?: string } {
+  if (contentType.toLowerCase().includes("text/html") || /^\s*</.test(raw)) {
+    return { message: HTML_RESPONSE_MESSAGE };
+  }
   try {
     const parsed: unknown = JSON.parse(raw);
     if (parsed && typeof parsed === "object") {
@@ -104,8 +109,11 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    const { message, code, errId } = parseErrorBody(body);
+    const { message, code, errId } = parseErrorBody(body, res.headers.get("content-type") ?? "");
     throw new ApiError(res.status, message, { code, errId });
+  }
+  if (res.headers.get("content-type")?.toLowerCase().includes("text/html")) {
+    throw new ApiError(res.status, HTML_RESPONSE_MESSAGE);
   }
   return (await res.json()) as T;
 }

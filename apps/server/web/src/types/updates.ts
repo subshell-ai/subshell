@@ -74,6 +74,8 @@ export interface BackupFile {
 
 /** `GET /api/admin/server/update` — can this server replace itself, and with what. */
 export interface ServerUpdateView {
+  /** Includes CLI and desktop updates; absent from older server responses. */
+  updating?: boolean;
   /** Where releases are read from; `enabled` false is the air-gapped instance. */
   source: { url: string | null; enabled: boolean };
   /** The version the server is now. */

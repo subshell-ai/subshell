@@ -1,3 +1,4 @@
+import { NODE_UPDATE_SERVER_BUSY_MESSAGE } from "@internal/backend-errors";
 import { Button } from "@internal/node-admin";
 import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
@@ -90,7 +91,7 @@ function updateLine(row: NodeUpdateRow, update: UpdateTrackerState): string {
  * release's Notes link (one for the section: every row is offered the same
  * release page), and Update all.
  */
-export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
+export function NodeRows({ fleet, serverUpdating = false }: { fleet: NodeUpdates; serverUpdating?: boolean }) {
   const nodeUpdate = useNodeUpdate();
   // True while THIS tab's batch has unsettled POSTs. Row busy no longer
   // reads this (the tracker owns busy); it only labels the header and keeps
@@ -106,6 +107,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
   const anyBusy = batch || fleet.rows.some(rowBusy);
 
   async function updateAll(): Promise<void> {
+    if (serverUpdating) return;
     // The run clears prior refusals first, or a refusal from before stays
     // pinned on a row this run never even asked.
     nodeUpdate.reset();
@@ -137,7 +139,11 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
             </a>
           )}
           {fleet.rows.length > 0 && (
-            <Button variant="outline" disabled={updatable.length === 0 || anyBusy} onClick={() => void updateAll()}>
+            <Button
+              variant="outline"
+              disabled={updatable.length === 0 || anyBusy || serverUpdating}
+              onClick={() => void updateAll()}
+            >
               {batch && <LoaderCircle aria-hidden className="mr-1.5 size-3.5 animate-spin" />}
               {batch ? "Updating…" : `Update all (${updatable.length})`}
             </Button>
@@ -145,6 +151,9 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
         </div>
       </div>
 
+      {serverUpdating && (
+        <p className="col-span-full text-detail text-muted-foreground">{NODE_UPDATE_SERVER_BUSY_MESSAGE}</p>
+      )}
       {fleet.release === null && (
         <p className="col-span-full text-detail text-muted-foreground">
           No node release can be offered: {endOnce(fleet.reason ?? "no reason was given")}
@@ -182,9 +191,10 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={!row.canUpdate.ok || batch || updating}
-                title={row.canUpdate.reason ?? undefined}
+                disabled={!row.canUpdate.ok || batch || updating || serverUpdating}
+                title={serverUpdating ? NODE_UPDATE_SERVER_BUSY_MESSAGE : (row.canUpdate.reason ?? undefined)}
                 onClick={() => {
+                  if (serverUpdating) return;
                   void nodeUpdate.update(row.id).catch(() => {
                     // The failure map keeps the refusal and the row renders
                     // it; the rejection is the hook's batch contract, not
@@ -200,7 +210,7 @@ export function NodeRows({ fleet }: { fleet: NodeUpdates }) {
                 {updating ? "Updating…" : "Update"}
               </Button>
             </div>
-            {!row.canUpdate.ok && row.canUpdate.reason !== null && (
+            {!serverUpdating && !row.canUpdate.ok && row.canUpdate.reason !== null && (
               <p className="col-span-full truncate text-detail text-muted-foreground">{row.canUpdate.reason}</p>
             )}
             {tracked != null && (

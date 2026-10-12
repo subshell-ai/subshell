@@ -168,6 +168,9 @@ const FailedUpdateSchema = t.Object({
 
 /** `GET /api/admin/server/update` — can this server replace itself, and with what. */
 export const ServerUpdateViewSchema = t.Object({
+  updating: t.Boolean({
+    description: "Whether an API job or a pending CLI/desktop transaction is updating the server",
+  }),
   source: t.Object(
     {
       url: t.Nullable(t.String(), { description: "SUBSHELL_RELEASE_URL, or null when it is empty (air-gapped)" }),

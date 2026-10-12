@@ -127,9 +127,9 @@ describe("NodeServiceCard", () => {
     expect(screen.queryByText("Service")).toBeNull();
   });
 
-  it("offers every verb, and disables Restart with the reason when not supervised", async () => {
+  it("shows Stop and Uninstall for a running service, and gates Restart on supervision", async () => {
     await renderServiceCard({ ...base, runtime: runtime({ supervised: false }) });
-    for (const label of ["Restart", "Start", "Stop", "Install service", "Uninstall service"]) {
+    for (const label of ["Restart", "Stop", "Uninstall service"]) {
       expect(verbButton(label)).toBeTruthy();
     }
     expect(verbButton("Restart").disabled).toBe(true);
@@ -147,7 +147,16 @@ describe("NodeServiceCard", () => {
     expect(verbButton("Uninstall service").disabled).toBe(true);
     // The reachable verbs stay available to the same grantee.
     expect(verbButton("Restart").disabled).toBe(false);
-    expect(verbButton("Start").disabled).toBe(false);
+    expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Install service" })).toBeNull();
+  });
+
+  it("disables actions when the service state is unknown", async () => {
+    await renderServiceCard({ ...base, runtime: runtime({ service: { ...killing(), state: "unknown" } }) });
+    for (const label of ["Restart", "Start", "Uninstall service"]) {
+      expect(verbButton(label).disabled).toBe(true);
+      expect(verbButton(label).title).toContain("couldn't check the service status");
+    }
   });
 
   it("never sends force on a verb that cannot close a subshell", async () => {
@@ -167,7 +176,9 @@ describe("NodeServiceCard", () => {
 
     // A definition that WOULD kill panes — so `force` would be sent for a
     // destructive verb, and must still not be for this one.
-    await renderServiceCard({ ...base, runtime: runtime({ service: killing() }) });
+    await renderServiceCard({ ...base, runtime: runtime({ service: { ...killing(), state: "stopped" } }) });
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(verbButton("Uninstall service")).toBeTruthy();
     fireEvent.click(verbButton("Start"));
     await waitFor(() => expect(posted).toEqual([{ verb: "start" }]));
   });
@@ -216,7 +227,11 @@ describe("NodeServiceCard", () => {
       setConfirmHandler(previousConfirm);
     });
 
-    await renderServiceCard({ ...base, runtime: runtime() });
+    await renderServiceCard({
+      ...base,
+      runtime: runtime({ service: { ...killing(), installed: false, state: "not-installed" } }),
+    });
+    expect(verbButton("Start").disabled).toBe(true);
     fireEvent.click(verbButton("Install service"));
     await waitFor(() => expect(asked).toHaveLength(1));
     expect(asked[0]).toContain("comes back on its own");
@@ -244,4 +259,37 @@ describe("NodeServiceCard", () => {
     await waitFor(() => expect(verbButton("Restart").disabled).toBe(false));
     expect(posted).toEqual([]);
   });
+  for (const label of ["Restart", "Stop", "Uninstall service"]) {
+    it(`waits for confirmation before ${label}, and cancellation sends no request`, async () => {
+      const posted: unknown[] = [];
+      const originalFetch = globalThis.fetch;
+      restore.push(() => {
+        globalThis.fetch = originalFetch;
+      });
+      globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+        if (init?.method === "POST") posted.push(JSON.parse(String(init.body)));
+        return new Response(JSON.stringify({ ok: true }));
+      }) as typeof globalThis.fetch;
+      let answer: ((value: boolean) => void) | undefined;
+      const previous = setConfirmHandler((options) => {
+        expect(options.danger).toBe(true);
+        expect(options.title).not.toContain(base.name);
+        expect(String(options.description)).toContain(base.name);
+        return new Promise<boolean>((resolve) => {
+          answer = resolve;
+        });
+      });
+      restore.push(() => {
+        setConfirmHandler(previous);
+      });
+      await renderServiceCard({ ...base, runtime: runtime() });
+      fireEvent.click(verbButton(label));
+      await waitFor(() => expect(answer).toBeDefined());
+      expect(posted).toEqual([]);
+      expect(verbButton(label).disabled).toBe(true);
+      answer?.(false);
+      await waitFor(() => expect(verbButton(label).disabled).toBe(false));
+      expect(posted).toEqual([]);
+    });
+  }
 });

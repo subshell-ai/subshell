@@ -20,6 +20,7 @@ import {
   updateTrackerSeams,
 } from "@/services/nodes/update-tracker.js";
 import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
+import { resetUpdateJobForTests, tryClaimServerUpdate } from "@/services/server-update.js";
 import { SERVER_VERSION } from "@/version.js";
 import { type AdminServerFixture, bearerRequest, setupAdminServerFixture } from "../admin-server/__tests__/fixture.js";
 import { authedRequest } from "./helpers/auth-tables.js";
@@ -89,6 +90,7 @@ describe("GET /api/admin/updates", () => {
     resetReleaseCacheForTests();
   });
   afterEach(() => {
+    resetUpdateJobForTests();
     adminUpdatesSeams.getHeldRows = realHeld;
     // The tracker is module-global like the held map; a leaked entry would
     // make the "rows carry null" case answer differently for whichever file
@@ -157,6 +159,16 @@ describe("GET /api/admin/updates", () => {
     const body2 = await read(fx.adminCookie);
     const byId2 = new Map(body2.nodes.rows.map((r) => [r.id, r]));
     expect(byId2.get(ppc)?.target).toBeNull();
+  });
+
+  it("disables node updates while the server update owns the job slot", async () => {
+    const id = await agent({ name: `blocked-${crypto.randomUUID()}`, version: "0.8.0" });
+    expect(tryClaimServerUpdate("99.0.0")).toBe(true);
+    const body = await read(fx.adminCookie);
+    expect(body.nodes.rows.find((row) => row.id === id)?.canUpdate).toEqual({
+      ok: false,
+      reason: "The server is updating. Wait until it finishes before updating nodes.",
+    });
   });
 
   it("never lists `local` — the control-plane host updates with the server", async () => {

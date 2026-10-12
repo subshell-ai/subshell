@@ -31,7 +31,7 @@ import { clearLock, writeLock } from "./lock.js";
 import { log } from "./log.js";
 import { createRetentionPass, PANE_LOG_RETENTION_PASS_MS, resolveLogRetention } from "./pane-log-retention.js";
 import { noteSweepScheduled } from "./retention-settings.js";
-import { collectRuntime } from "./runtime.js";
+import { collectRuntime, refreshServiceRuntime } from "./runtime.js";
 import { selfInvokePrefix } from "./self-invoke.js";
 import { SubshellMetaStore } from "./subshell-meta.js";
 import { completeUpdate, revertAfterRefusal } from "./update.js";
@@ -421,10 +421,7 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
   // users, leave it on disk).
   const controlPublicKey = parsePinnedKey(config.controlPublicKey);
 
-  // How this process runs (spec 2026-09-12 § 6.1), collected ONCE before the
-  // connect loop: one `service status` spawn per process, not per reconnect,
-  // and the answer cannot change while the pid does not. A failed read
-  // degrades to null — the `ready` simply carries no `runtime`.
+  // Keep process identity stable while refreshing the service manager's facts.
   const runtime = deps.runtime === undefined ? await collectRuntime().catch(() => null) : deps.runtime;
 
   // PER-PROCESS lifetimes (mixing these up is a security bug — see VerifyContext in node-signing):
@@ -731,7 +728,17 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
     }
   };
 
-  /** Run ONE verified command; every jti lands in the idempotence map (uniform, cheap). */
+  let runtimeRefresh: Promise<void> | undefined;
+  const refreshRuntime = (): Promise<void> => {
+    // An injected report belongs to the caller; tests must never query the host service.
+    if (!runtime || deps.runtime !== undefined) return Promise.resolve();
+    runtimeRefresh ??= refreshServiceRuntime(runtime).finally(() => {
+      runtimeRefresh = undefined;
+    });
+    return runtimeRefresh;
+  };
+
+  /** Run one verified command; cache the result before accepting a replay. */
   const execute = async (ws: WsLike, claims: CommandClaims): Promise<void> => {
     const cached = idempotent.get(claims.jti);
     if (cached) {
@@ -739,11 +746,16 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
       send(ws, { type: "result", ref: claims.jti, ...cached });
       return;
     }
+    if (claims.cmd.type === "service") await refreshRuntime();
     const result = await dispatchCommand(ctx, claims.cmd);
     idempotent.set(claims.jti, result);
     if (idempotent.size > IDEMPOTENCE_CAP) {
       const oldest = idempotent.keys().next().value as string | undefined;
       if (oldest !== undefined) idempotent.delete(oldest);
+    }
+    if (claims.cmd.type === "service" && claims.cmd.verb !== "restart") {
+      await refreshRuntime();
+      send(ws, { type: "heartbeat", ts: new Date(nowMs()).toISOString(), ...(runtime ? { runtime } : {}) });
     }
     send(ws, { type: "result", ref: claims.jti, ...result });
   };
@@ -1017,7 +1029,9 @@ export async function runDaemon(config: NodeConfig, deps: DaemonDeps = {}): Prom
           .then(() => pushInventory("inventory push failed"));
         heartbeat = setInterval(() => {
           const tickAt = new Date(nowMs()).toISOString();
-          send(ws, { type: "heartbeat", ts: tickAt });
+          // Liveness must not wait for a service manager that might be slow.
+          send(ws, { type: "heartbeat", ts: tickAt, ...(runtime ? { runtime } : {}) });
+          void refreshRuntime();
           setDaemonState({ connected: true, lastHeartbeatAt: tickAt });
           writeLiveness(); // every heartbeat tick doubles as the local-liveness refresh
           // The BELT for a maintenance flip (spec 2026-09-14 §4.3). The other

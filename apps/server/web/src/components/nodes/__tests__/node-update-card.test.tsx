@@ -226,3 +226,17 @@ describe("NodeUpdateCard", () => {
     expect(screen.getByText(/will not accept this machine's Subshell daemon version/)).toBeTruthy();
   });
 });
+
+it("explains the server update blocker and enables updates after it clears", () => {
+  const client = new QueryClient();
+  const result = render(
+    withNode(
+      client,
+      node({ updateBlockedReason: "The server is updating. Wait until it finishes before updating nodes." }),
+    ),
+  );
+  expect((screen.getByRole("button", { name: "Update to latest" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(screen.getByText("The server is updating. Wait until it finishes before updating nodes.")).toBeTruthy();
+  result.rerender(withNode(client, node({ updateBlockedReason: null })));
+  expect((screen.getByRole("button", { name: "Update to latest" }) as HTMLButtonElement).disabled).toBe(false);
+});

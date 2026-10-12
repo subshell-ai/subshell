@@ -104,7 +104,7 @@ export interface NodeFacts {
    */
   homeDir?: string;
   /**
-   * How the agent PROCESS runs, reported once per connect in `ready` (spec
+   * How the agent process runs, reported in `ready` and refreshed by heartbeats (spec
    * 2026-09-12 § 6.1): its service manager's view of it, whether exiting
    * would be a restart, and where its config, log and binary live.
    *

@@ -26,6 +26,7 @@ import { NodeRpcError, sendCommand, UPDATE_COMMAND_TIMEOUT_MS } from "@/services
 import { mintUpdateToken } from "@/services/nodes/update-tokens.js";
 import { beginUpdate, updateOutcomeUnknown, updateRefused, updateSwapped } from "@/services/nodes/update-tracker.js";
 import { autoFetchEnabled, compatibleNodeRelease, fetchDigest } from "@/services/releases.js";
+import { nodeUpdateBlockReason } from "@/services/server-update.js";
 
 const UpdateBodySchema = t.Object({
   force: t.Optional(
@@ -191,6 +192,11 @@ export const updateNodeRoute = new Elysia()
         );
       }
       if (!nodeCanConfigure(gate.access)) throw new ForbiddenError();
+
+      const serverUpdateReason = nodeUpdateBlockReason();
+      if (serverUpdateReason !== null) {
+        return status(409, apiErrorBody({ code: BackendErrorCodes.UPDATE_IN_PROGRESS, message: serverUpdateReason }));
+      }
 
       // Reachable at all? A held socket counts — it is the case this exists
       // for — and it is checked HERE rather than being left to `sendCommand`'s
@@ -371,6 +377,16 @@ export const updateNodeRoute = new Elysia()
             }),
           );
         }
+      }
+
+      // Release and digest lookups await the network. Check again before issuing
+      // a download token or command in case a server update started meanwhile.
+      const latestServerUpdateReason = nodeUpdateBlockReason();
+      if (latestServerUpdateReason !== null) {
+        return status(
+          409,
+          apiErrorBody({ code: BackendErrorCodes.UPDATE_IN_PROGRESS, message: latestServerUpdateReason }),
+        );
       }
 
       // The SAME base the enroll script bakes, so the loopback trap is the one

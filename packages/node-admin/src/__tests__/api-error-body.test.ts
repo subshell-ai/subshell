@@ -39,6 +39,28 @@ describe("apiFetch error body parsing", () => {
     expect(err.errId).toBeUndefined();
   });
 
+  for (const status of [404, 502, 503, 200]) {
+    it(`replaces an HTML response with a readable message (HTTP ${status})`, async () => {
+      globalThis.fetch = (async () =>
+        new Response("<!DOCTYPE html><html><body>Proxy unavailable</body></html>", {
+          status,
+          headers: { "content-type": "text/html" },
+        })) as never;
+      const err = await apiFetch<never>("/api/nodes/n1/update", { method: "POST" }).catch((e) => e as ApiError);
+      expect(err).toBeInstanceOf(ApiError);
+      expect(err.status).toBe(status);
+      expect(err.message).toContain("If it's restarting or updating, wait for it to come back.");
+      expect(err.message).not.toContain("<html>");
+    });
+  }
+
+  it("recognizes an HTML error even without its content type", async () => {
+    globalThis.fetch = (async () => new Response("  <h1>Bad gateway</h1>", { status: 502 })) as never;
+    const err = await apiFetch<never>("/api/x").catch((e) => e as ApiError);
+    expect(err.message).not.toContain("<h1>");
+    expect(err.status).toBe(502);
+  });
+
   it("handles a 500-shaped structured body with the generic message", async () => {
     globalThis.fetch = (async () =>
       Response.json(

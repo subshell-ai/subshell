@@ -13,7 +13,12 @@ import { NodesRepository } from "@/db/repositories/nodes.repository.js";
 import { isNodeOffline, listHeld } from "@/services/nodes/node-registry.js";
 import { readView, type UpdateStateView, updateTrackerSeams } from "@/services/nodes/update-tracker.js";
 import { compatibleNodeRelease, releaseSourceUrl, resolveReleases } from "@/services/releases.js";
-import { collectServerUpdateView, type ReleaseRef, releaseRef } from "@/services/server-update.js";
+import {
+  collectServerUpdateView,
+  nodeUpdateBlockReason,
+  type ReleaseRef,
+  releaseRef,
+} from "@/services/server-update.js";
 
 /**
  * `GET /api/admin/updates` — everything the Updates page renders, in ONE read
@@ -214,6 +219,7 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
     // route test injects it to move entries across the stall boundary).
     const states = readView(updateTrackerSeams.now());
 
+    const updateBlockedReason = nodeUpdateBlockReason();
     const rows = nodes.map((node) => {
       const heldRow = held.get(node.id) ?? null;
       // A held node's os/arch come from the socket it was refused on, because
@@ -232,14 +238,17 @@ export const adminUpdatesRoutes = new Elysia({ prefix: "/api/admin" }).use(requi
         online,
         held: heldRow === null ? null : { reason: heldRow.reason },
         updateAvailable: rels.node !== null && agentVersion !== null && semverLt(agentVersion, rels.node.version),
-        canUpdate: canUpdate(
-          rels,
-          target,
-          agentVersion,
-          online,
-          heldRow !== null,
-          node.protocolVersion ?? heldRow?.protocolVersion ?? null,
-        ),
+        canUpdate:
+          updateBlockedReason !== null
+            ? { ok: false, reason: updateBlockedReason }
+            : canUpdate(
+                rels,
+                target,
+                agentVersion,
+                online,
+                heldRow !== null,
+                node.protocolVersion ?? heldRow?.protocolVersion ?? null,
+              ),
         update: wireUpdateState(states.nodes[node.id]),
       };
     });

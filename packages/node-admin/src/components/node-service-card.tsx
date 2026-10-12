@@ -39,8 +39,8 @@ const VERBS: VerbSpec[] = [
     destructive: true,
     describe: (name, kills) =>
       kills
-        ? `This node's service definition will close every subshell running on ${name}. Reinstall the definition on that machine to fix this, or restart anyway.`
-        : "Subshells running there keep running; the node is offline for a few seconds.",
+        ? `This node's service definition may close every subshell running on ${name}. Reinstall the definition on that machine to fix this, or restart anyway.`
+        : "Subshells will keep running. The node will go offline briefly while it restarts.",
   },
   {
     verb: "start",
@@ -59,7 +59,7 @@ const VERBS: VerbSpec[] = [
     oneWay: true,
     destructive: true,
     describe: (name, kills, here) =>
-      `${kills ? `This will close every subshell running ${here === "local" ? "here" : `on ${name}`}. ` : ""}Nothing here can start it again: ${
+      `${kills ? `This may close every subshell running ${here === "local" ? "here" : `on ${name}`}. ` : ""}Nothing here can start it again: ${
         here === "local"
           ? "this page is served by the node, so it goes down with it; start it from a shell on this machine."
           : "that needs a shell on that machine."
@@ -73,7 +73,7 @@ const VERBS: VerbSpec[] = [
     describe: (name, kills, here) =>
       `${
         kills
-          ? `This will close every subshell running ${here === "local" ? "here" : `on ${name}`}, and the node will not come back after a reboot. `
+          ? `This may close every subshell running ${here === "local" ? "here" : `on ${name}`}, and the node will not come back after a reboot. `
           : "Removes the service definition, so the node will not come back after a reboot. "
       }Nothing here can reinstall it once the node is gone: ${
         here === "local" ? "that needs a shell on this machine." : "that needs a shell on that machine."
@@ -120,6 +120,7 @@ export function NodeServiceCard({
   const runtime = node.runtime;
   const service = useNodeService(node.id);
   const wait = useNodeRestartWait(node.id);
+  const [confirming, setConfirming] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
@@ -129,7 +130,8 @@ export function NodeServiceCard({
   const isOwner = node.access === "owner";
 
   async function run(spec: VerbSpec): Promise<void> {
-    if (!runtime) return;
+    if (!runtime || confirming || service.isPending || wait.waiting || blocked(spec)) return;
+    setConfirming(true);
     setFailure(null);
     setDone(null);
     const ok = await confirmAction({
@@ -138,6 +140,7 @@ export function NodeServiceCard({
       confirmLabel: spec.destructive && kills ? `${spec.label} anyway` : spec.label,
       danger: spec.destructive === true,
     });
+    setConfirming(false);
     if (!ok) return;
     try {
       // `force` only where it means something: the server refuses it on the
@@ -155,6 +158,11 @@ export function NodeServiceCard({
 
   /** Why this button cannot be pressed, or undefined when it can. */
   function blocked(spec: VerbSpec): string | undefined {
+    if (runtime?.service.state === "unknown") {
+      return "We couldn't check the service status. Check the service on this machine.";
+    }
+    if (spec.verb === "start" && !runtime?.service.installed) return "Install the service before starting it.";
+    if (runtime?.service.state === "stopping") return "Wait until the service finishes stopping.";
     if (spec.verb === "restart" && !runtime?.supervised) {
       return `Nothing on ${local ? "this" : "that"} machine is supervising this node, so exiting would stop it rather than restart it`;
     }
@@ -174,13 +182,19 @@ export function NodeServiceCard({
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          {VERBS.map((spec) => {
+          {VERBS.filter((spec) => {
+            if (spec.verb === "start") return runtime.service.state !== "running";
+            if (spec.verb === "stop") return runtime.service.state === "running";
+            if (spec.verb === "install") return runtime.service.installed !== true;
+            if (spec.verb === "uninstall") return runtime.service.installed === true;
+            return true;
+          }).map((spec) => {
             const why = blocked(spec);
             return (
               <Button
                 key={spec.verb}
                 variant="outline"
-                disabled={why !== undefined || service.isPending || wait.waiting}
+                disabled={why !== undefined || confirming || service.isPending || wait.waiting}
                 title={why}
                 onClick={() => void run(spec)}
               >

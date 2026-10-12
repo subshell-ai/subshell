@@ -56,13 +56,7 @@ function maintenanceFields(dataDir: string): {
   return { maintenance: true, maintenanceAt: read.changedAt ?? null, maintenanceSource: null };
 }
 
-/**
- * `collectRuntime` spawns the service manager's status query, so the view
- * memoizes it on the SPA's own poll cadence (5 s). The daemon's copy is
- * frozen per process because the `ready` frame must be comparable; this one
- * must survive `service start` — a definition installed while the page is
- * open is news, and a frozen report would sit there denying it.
- */
+/** Cache standalone dashboard probes for five seconds to avoid spawning on every poll. */
 const RUNTIME_MEMO_MS = 5_000;
 let runtimeMemo: { at: number; report: Awaited<ReturnType<typeof collectRuntime>> | null } | null = null;
 
@@ -77,12 +71,7 @@ export async function liveRuntime(): Promise<Awaited<ReturnType<typeof collectRu
   return report;
 }
 
-/**
- * The dashboard's `runtime` field. Prefers the daemon's FROZEN report (the
- * `ready` frame's own bytes — so the page shows exactly what the plane is
- * being told) while its `startedAt` still names this process, and falls back
- * to a fresh collect for the no-daemon path (tests, future modes).
- */
+/** Use the daemon's shared report, whose service facts refresh on heartbeats. */
 async function runtimeForView() {
   return getDaemonState().runtime ?? (await liveRuntime());
 }

@@ -196,19 +196,16 @@ notice. **Working on the dashboard: read
 
 ## What `ready` reports about this process (`src/runtime.ts`)
 
-`ready.runtime` (spec 2026-09-12 §6.1) answers "how is this node running":
-supervised or not, the manager's view of the unit, the config and log paths,
-tmux, and the binary this process re-enters. `collectRuntime` builds it ONCE,
-before the connect loop, from one `service status` spawn.
+`ready.runtime` answers how this node is running: its service manager, config
+and log paths, tmux, and binary. `collectRuntime` builds the first report before
+the connect loop. The daemon refreshes service facts on heartbeats and around
+service commands, and includes the updated report in heartbeat frames. This lets
+both dashboards notice when someone installs or starts the service.
 
-**Once, and then frozen: the same object is resent on every reconnect.** That
-is what lets the control plane compare `startedAt` for EQUALITY rather than
-against a tolerance, and the SPA's restart waiter has no other signal: a node
-that goes offline and comes back is only distinguishable from a flapping socket
-by that field changing. Re-deriving the report per connection would make a
-reconnect look like a restart, and the wait would end early with nothing
-naming the cause. Collecting per process is also honest on its own terms:
-nothing in the report can change while the pid does not.
+**`startedAt` stays fixed for the process.** Service state can change while the
+pid stays the same. Refreshing it must never change the timestamp that the SPA
+uses to distinguish a real restart from a reconnect. Failed refreshes mark the
+service state and pane safety unknown and clear the supervision claim.
 
 A failed read degrades to no `runtime` at all rather than a null-filled one:
 the field is optional on the wire, and the plane shows no card. `parseNodeEvent`

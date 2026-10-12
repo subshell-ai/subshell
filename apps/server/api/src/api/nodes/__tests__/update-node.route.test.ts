@@ -38,6 +38,13 @@ import { ensureLocalNode } from "@/services/nodes/seed-local.js";
 import { resetUpdateTokensForTests } from "@/services/nodes/update-tokens.js";
 import { readView, recordNodeReady, resetForTests } from "@/services/nodes/update-tracker.js";
 import { releaseSeams, resetReleaseCacheForTests, setReleaseUrlForTests } from "@/services/releases.js";
+import {
+  collectServerUpdateView,
+  currentUpdateJob,
+  resetUpdateJobForTests,
+  tryClaimServerUpdate,
+} from "@/services/server-update.js";
+import { beginUpdate as beginServerTransaction, clearPending } from "@/services/update-transaction.js";
 import { deleteUserByEmailOrId, setupAuthTables, signIn } from "../../__tests__/helpers/auth-tables.js";
 
 /**
@@ -249,6 +256,9 @@ describe("POST /api/nodes/:id/update", () => {
   });
 
   afterEach(() => {
+    resetUpdateJobForTests();
+    clearPending();
+    releaseSeams.verifyManifest = acceptSigned;
     resetNodeRegistryForTests();
     resetUpdateTokensForTests();
     resetForTests();
@@ -403,6 +413,66 @@ describe("POST /api/nodes/:id/update", () => {
     // Past the gate, refused for being disconnected — which is the next check.
     expect(res.status).toBe(409);
     expect(await codeOf(res)).toBe("NODE_OFFLINE");
+  });
+
+  it("blocks a node update while the server updates, even with force, and reports the blocker in node details", async () => {
+    useNoRelease();
+    const id = await mkNode();
+    const sock = goOnline(id);
+    expect(tryClaimServerUpdate("99.0.0")).toBe(true);
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: { force: true } });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: "UPDATE_IN_PROGRESS",
+      message: "The server is updating. Wait until it finishes before updating nodes.",
+    });
+    expect(sock.sent).toEqual([]);
+    expect(readView(Date.now()).nodes[id]).toBeUndefined();
+    const detail = await req("GET", `/api/nodes/${id}`, { cookie: aliceCookie });
+    expect(await detail.json()).toMatchObject({
+      updateBlockedReason: "The server is updating. Wait until it finishes before updating nodes.",
+    });
+    const job = currentUpdateJob();
+    if (!job) throw new Error("missing update job");
+    job.phase = "failed";
+    const recovered = await req("GET", `/api/nodes/${id}`, { cookie: aliceCookie });
+    expect(await recovered.json()).toMatchObject({ updateBlockedReason: null });
+  });
+
+  it("blocks node updates during a CLI or desktop update recorded on disk", async () => {
+    useNoRelease();
+    const id = await mkNode();
+    beginServerTransaction({
+      from: "1.0.0",
+      to: "2.0.0",
+      binary: "/test/server",
+      previousBinary: "/test/server.previous",
+      backup: null,
+      startedAt: new Date().toISOString(),
+      origin: "cli",
+      forced: false,
+    });
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    expect(await codeOf(res)).toBe("UPDATE_IN_PROGRESS");
+    expect((await collectServerUpdateView()).updating).toBe(true);
+    clearPending();
+    expect((await collectServerUpdateView()).updating).toBe(false);
+  });
+
+  it("rechecks the server update after waiting for release verification", async () => {
+    useFakeRelease();
+    const id = await mkNode();
+    const sock = goOnline(id);
+    releaseSeams.verifyManifest = async (...args) => {
+      tryClaimServerUpdate("99.0.0");
+      return acceptSigned(...args);
+    };
+    const res = await req("POST", `/api/nodes/${id}/update`, { cookie: aliceCookie, body: {} });
+    expect(res.status).toBe(409);
+    expect(await codeOf(res)).toBe("UPDATE_IN_PROGRESS");
+    expect(sock.sent).toEqual([]);
+    expect(readView(Date.now()).nodes[id]).toBeUndefined();
   });
 
   it("neither live nor held → 409 NODE_OFFLINE", async () => {

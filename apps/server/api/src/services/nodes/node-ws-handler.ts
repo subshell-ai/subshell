@@ -975,9 +975,12 @@ export async function handleNodeMessage(deps: NodeWsDeps, ws: NodeWsSocket, raw:
       else logger.debug(`node ws: ready from ${nodeId} with no lifecycle hook to reconcile maintenance`);
       return;
     }
-    case "heartbeat":
+    case "heartbeat": {
+      const conn = ws.data.nodeConn;
+      if (conn?.agent && event.runtime) conn.agent.runtime = event.runtime;
       await deps.nodes.touch(nodeId);
       return;
+    }
     case "inventory":
       // Since the agent lost its plugin concept (inversion spec §6, Task 7),
       // an EMPTY `harnesses` array is the in-band spelling of "nothing to

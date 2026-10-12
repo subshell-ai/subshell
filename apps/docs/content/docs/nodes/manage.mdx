@@ -23,6 +23,10 @@ Node owners manage the machine's settings. A share may allow launching there wit
 
 Where you have management access, review the service and log sections. A node may be online from a terminal process even when no service is installed.
 
+The Service card shows **Start** or **Stop**, and **Install service** or **Uninstall service**, based on the node's reported state. **Restart** is available when a service manager runs the node. Only the node's owner can stop or uninstall its service.
+
+Restart, Stop, and Uninstall service ask for confirmation before making changes. The dialog explains whether subshells may close and whether you'll need access to the machine to bring the node back.
+
 On the machine, use:
 
 ```bash

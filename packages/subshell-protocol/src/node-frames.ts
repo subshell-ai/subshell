@@ -1288,7 +1288,7 @@ export type NodeEvent =
       // speaks it, and it retires with that store's per-node mirror.
       ts: string;
     }
-  | { type: "heartbeat"; ts: string }
+  | { type: "heartbeat"; ts: string; runtime?: NodeRuntimeReport }
   | { type: "result"; ref: string; ok: true; data?: JsonValue }
   | { type: "result"; ref: string; ok: false; error: string }
   | { type: "output"; subshellId: string; subId: string; fromByte: number; toByte: number; data_b64: string }
@@ -1675,8 +1675,11 @@ export function parseNodeEvent(raw: string | object): NodeEvent | null {
       const state = parseNodeMaintenance(value);
       return state ? { type: "maintenance", ...state } : null;
     }
-    case "heartbeat":
-      return isStr(value.ts) ? { type: "heartbeat", ts: value.ts } : null;
+    case "heartbeat": {
+      if (!isStr(value.ts)) return null;
+      const runtime = parseNodeRuntimeReport(value.runtime);
+      return { type: "heartbeat", ts: value.ts, ...(runtime ? { runtime } : {}) };
+    }
     case "result":
       if (!isStr(value.ref) || !isBool(value.ok)) return null;
       if (value.ok) {

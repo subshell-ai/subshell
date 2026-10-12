@@ -306,6 +306,8 @@ export interface NodeRuntime {
 
 /** `GET /api/nodes/:id` — the view plus the grant set, ONLY for config-capable viewers (then the key is absent, not null). */
 export interface NodeDetail extends Node {
+  /** Why updates must wait, when the control plane reports a temporary blocker. */
+  updateBlockedReason?: string | null;
   /**
    * The control-plane address this machine dials.
    *

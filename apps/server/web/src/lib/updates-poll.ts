@@ -1,4 +1,9 @@
-import type { UpdatesView, UpdateTrackerState } from "@/types/updates";
+import type { ServerUpdateView, UpdatesView, UpdateTrackerState } from "@/types/updates";
+
+/** Keep update controls blocked across API jobs, external updates, and restart polling. */
+export function isServerUpdating(view: ServerUpdateView | undefined): boolean {
+  return view?.updating === true || (view?.job != null && view.job.phase !== "failed");
+}
 
 /** What {@link useUpdates} polls at while the server says something is moving. */
 const ACTIVE_POLL_MS = 2_000;
@@ -50,8 +55,7 @@ export function updatesPollMs(view: UpdatesView | undefined, explicitMs: number 
   // hand-stubbed views (the header account card's test stubs a `server`
   // half with no `job`, spec 2026-10-07) can lack the field, or the
   // `server` half, entirely.
-  const job = view.server?.job;
-  if (job != null && job.phase !== "failed") return ACTIVE_POLL_MS;
+  if (isServerUpdating(view.server)) return ACTIVE_POLL_MS;
   if (isUpdateLive(view.serverUpdate)) return ACTIVE_POLL_MS;
   return (view.nodes?.rows ?? []).some((row) => isUpdateLive(row.update)) ? ACTIVE_POLL_MS : false;
 }

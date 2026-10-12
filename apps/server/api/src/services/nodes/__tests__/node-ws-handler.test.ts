@@ -1004,6 +1004,40 @@ describe("handleNodeMessage (inbound unsigned events, spec §3.3/§5.3)", () => 
     expect(getHeld("n1")).toBeUndefined();
   });
 
+  it("refreshes runtime on the current connection without repeating ready side effects", async () => {
+    const h = makeHarness();
+    const ws = fakeSocket("n1");
+    handleNodeOpen(OPEN_DEPS, ws);
+    await handleNodeMessage(h.deps, ws, readyFrame());
+    const runtime = {
+      startedAt: "2026-10-12T00:00:00.000Z",
+      supervised: true,
+      service: {
+        manager: "systemd",
+        installed: true,
+        state: "running",
+        pid: 42,
+        enabled: true,
+        linger: true,
+        paneSafety: "keeps",
+        definitionPath: "/service",
+      },
+      configPath: "/config",
+      agentLogPath: "/log",
+      logging: { debug: false, source: "default" },
+      logPath: null,
+      logHint: null,
+      tmuxPath: "/tmux",
+      binaryPath: "/subshell",
+    } as const;
+    await handleNodeMessage(h.deps, ws, JSON.stringify({ type: "heartbeat", ts: "now", runtime }));
+    expect(getLive("n1")?.agent?.runtime).toEqual(runtime);
+    expect(h.ready).toHaveLength(1);
+    expect(h.detects).toHaveLength(1);
+    await handleNodeMessage(h.deps, ws, JSON.stringify({ type: "heartbeat", ts: "later" }));
+    expect(getLive("n1")?.agent?.runtime).toEqual(runtime);
+  });
+
   it("heartbeat → touch only", async () => {
     const h = makeHarness();
     await handleNodeMessage(h.deps, fakeSocket("n1"), JSON.stringify({ type: "heartbeat", ts: "now" }));

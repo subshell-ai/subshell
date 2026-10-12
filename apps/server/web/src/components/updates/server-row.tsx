@@ -7,6 +7,7 @@ import { UpdateDialog } from "@/components/updates/update-dialog";
 import type { StartServerUpdate } from "@/hooks/use-updates";
 import { type DesktopShell, desktopShell } from "@/lib/desktop";
 import { endOnce } from "@/lib/update-copy";
+import { isServerUpdating } from "@/lib/updates-poll";
 import type { ServerUpdateView, UpdateJob, UpdateTrackerState } from "@/types/updates";
 
 /**
@@ -128,7 +129,7 @@ export function ServerRow({
   // reloads mid-update must still see the phase. `update.outcome` is this
   // tab's own story on top of it.
   const job = view.job;
-  const busy = update.outcome === "running" || update.outcome === "waiting" || (job !== null && job.phase !== "failed");
+  const busy = update.outcome === "running" || update.outcome === "waiting" || isServerUpdating(view);
 
   return (
     <div className="contents">
